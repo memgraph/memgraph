@@ -196,7 +196,7 @@ class RuleBasedPlanner {
   TPlanningContext &context_;
 
   struct LabelPropertyIndex {
-    GraphDbTypes::Label label;
+    database::Label label;
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
@@ -240,8 +240,8 @@ class RuleBasedPlanner {
     return found;
   }
 
-  const GraphDbTypes::Label &FindBestLabelIndex(
-      const std::unordered_set<GraphDbTypes::Label> &labels) {
+  const database::Label &FindBestLabelIndex(
+      const std::unordered_set<database::Label> &labels) {
     DCHECK(!labels.empty())
         << "Trying to find the best label without any labels.";
     return *std::min_element(labels.begin(), labels.end(),

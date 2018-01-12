@@ -1,6 +1,6 @@
 #pragma once
 
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
@@ -12,7 +12,7 @@ class Edge : public mvcc::Record<Edge> {
   using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
 
  public:
-  Edge(VertexAddress from, VertexAddress to, GraphDbTypes::EdgeType edge_type)
+  Edge(VertexAddress from, VertexAddress to, database::EdgeType edge_type)
       : from_(from), to_(to), edge_type_(edge_type) {}
 
   // Returns new Edge with copy of data stored in this Edge, but without
@@ -21,7 +21,7 @@ class Edge : public mvcc::Record<Edge> {
 
   VertexAddress from_;
   VertexAddress to_;
-  GraphDbTypes::EdgeType edge_type_;
+  database::EdgeType edge_type_;
   PropertyValueStore properties_;
 
  private:

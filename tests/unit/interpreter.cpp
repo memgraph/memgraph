@@ -15,12 +15,12 @@
 class InterpreterTest : public ::testing::Test {
  protected:
   query::Interpreter interpreter_;
-  GraphDb db_;
+  database::SingleNode db_;
 
   ResultStreamFaker Interpret(
       const std::string &query,
       const std::map<std::string, query::TypedValue> params = {}) {
-    GraphDbAccessor dba(db_);
+    database::GraphDbAccessor dba(db_);
     ResultStreamFaker result;
     interpreter_(query, dba, params, false).PullAll(result);
     return result;
@@ -87,7 +87,7 @@ TEST_F(InterpreterTest, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TEST_F(InterpreterTest, Parameters) {
   query::Interpreter interpreter;
-  GraphDb db;
+  database::SingleNode db;
   {
     auto stream = Interpret("RETURN $2 + $`a b`", {{"2", 10}, {"a b", 15}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
@@ -146,7 +146,7 @@ TEST_F(InterpreterTest, Bfs) {
 
   // Set up.
   {
-    GraphDbAccessor dba(db_);
+    database::GraphDbAccessor dba(db_);
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
       node.PropsSet(dba.Property(kId), id++);
@@ -199,7 +199,7 @@ TEST_F(InterpreterTest, Bfs) {
     dba.Commit();
   }
 
-  GraphDbAccessor dba(db_);
+  database::GraphDbAccessor dba(db_);
   ResultStreamFaker stream;
   interpreter_(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
@@ -245,7 +245,7 @@ TEST_F(InterpreterTest, Bfs) {
 
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
   ResultStreamFaker stream;
-  GraphDbAccessor dba(db_);
+  database::GraphDbAccessor dba(db_);
   ASSERT_THROW(
       interpreter_("CREATE INDEX ON :X(y)", dba, {}, true).PullAll(stream),
       query::IndexInMulticommandTxException);

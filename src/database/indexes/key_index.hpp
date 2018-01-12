@@ -4,13 +4,15 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
-#include "database/graph_db_datatypes.hpp"
 #include "database/indexes/index_common.hpp"
+#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/total_ordering.hpp"
+
+namespace database {
 
 /**
  * @brief Implements index update and acquire.
@@ -60,8 +62,8 @@ class KeyIndex {
   auto GetVlists(const TKey &key, tx::Transaction &t, bool current_state) {
     auto access = GetKeyStorage(key)->access();
     auto begin = access.begin();
-    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
-                                 IndexEntry, TRecord>(
+    return index::GetVlists<typename SkipList<IndexEntry>::Iterator, IndexEntry,
+                            TRecord>(
         std::move(access), begin, [](const IndexEntry &) { return true; }, t,
         [key](const IndexEntry &, const TRecord *record) {
           return KeyIndex::Exists(key, record);
@@ -91,7 +93,7 @@ class KeyIndex {
    * @param engine - transaction engine to see which records are commited
    */
   void Refresh(const tx::Snapshot &snapshot, tx::Engine &engine) {
-    return IndexUtils::Refresh<TKey, IndexEntry, TRecord>(
+    return index::Refresh<TKey, IndexEntry, TRecord>(
         indices_, snapshot, engine,
         [](const TKey &key, const IndexEntry &entry) {
           return KeyIndex::Exists(key, entry.record_);
@@ -172,7 +174,7 @@ class KeyIndex {
    * @param label - label to check for.
    * @return true if it contains, false otherwise.
    */
-  static bool Exists(const GraphDbTypes::Label &label, const Vertex *const v) {
+  static bool Exists(const Label &label, const Vertex *const v) {
     DCHECK(v != nullptr) << "Vertex is nullptr.";
     // We have to check for existance of label because the transaction
     // might not see the label, or the label was deleted and not yet
@@ -186,8 +188,7 @@ class KeyIndex {
    * @param edge_type - edge_type to check for.
    * @return true if it has that edge_type, false otherwise.
    */
-  static bool Exists(const GraphDbTypes::EdgeType &edge_type,
-                     const Edge *const e) {
+  static bool Exists(const EdgeType &edge_type, const Edge *const e) {
     DCHECK(e != nullptr) << "Edge is nullptr.";
     // We have to check for equality of edge types because the transaction
     // might not see the edge type, or the edge type was deleted and not yet
@@ -197,3 +198,4 @@ class KeyIndex {
 
   ConcurrentMap<TKey, SkipList<IndexEntry> *> indices_;
 };
+}  // namespace database

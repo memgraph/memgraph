@@ -5,8 +5,8 @@
 /// example:
 ///
 ///     AstTreeStorage storage;  // Macros rely on storage being in scope.
-///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros also rely on GraphDb
-///     GraphDb db;
+///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros rely on database::SingleNode
+///     database::SingleNode db;
 ///
 ///     QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
 ///           WHERE(LESS(PROPERTY_LOOKUP("e", edge_prop), LITERAL(3))),
@@ -28,7 +28,9 @@
 #include <utility>
 #include <vector>
 
-#include "database/graph_db_datatypes.hpp"
+#include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
+#include "database/types.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "utils/string.hpp"
@@ -107,28 +109,27 @@ auto GetOrderBy(T... exprs) {
 ///
 /// Name is used to create the Identifier which is used for property lookup.
 ///
-auto GetPropertyLookup(AstTreeStorage &storage, GraphDb &db,
-                       const std::string &name,
-                       GraphDbTypes::Property property) {
-  GraphDbAccessor dba(db);
+auto GetPropertyLookup(AstTreeStorage &storage, database::GraphDb &db,
+                       const std::string &name, database::Property property) {
+  database::GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         dba.PropertyName(property), property);
 }
-auto GetPropertyLookup(AstTreeStorage &storage, GraphDb &db, Expression *expr,
-                       GraphDbTypes::Property property) {
-  GraphDbAccessor dba(db);
+auto GetPropertyLookup(AstTreeStorage &storage, database::GraphDb &db,
+                       Expression *expr, database::Property property) {
+  database::GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(expr, dba.PropertyName(property),
                                         property);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, GraphDb &, const std::string &name,
-    const std::pair<std::string, GraphDbTypes::Property> &prop_pair) {
+    AstTreeStorage &storage, database::GraphDb &, const std::string &name,
+    const std::pair<std::string, database::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         prop_pair.first, prop_pair.second);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, GraphDb &, Expression *expr,
-    const std::pair<std::string, GraphDbTypes::Property> &prop_pair) {
+    AstTreeStorage &storage, database::GraphDb &, Expression *expr,
+    const std::pair<std::string, database::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(expr, prop_pair.first,
                                         prop_pair.second);
 }
@@ -140,7 +141,7 @@ auto GetPropertyLookup(
 ///
 auto GetEdge(AstTreeStorage &storage, const std::string &name,
              EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<GraphDbTypes::EdgeType> &edge_types = {}) {
+             const std::vector<database::EdgeType> &edge_types = {}) {
   return storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
                                   EdgeAtom::Type::SINGLE, dir, edge_types);
 }
@@ -153,16 +154,18 @@ auto GetEdge(AstTreeStorage &storage, const std::string &name,
 ///
 auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
                      EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-                     const std::vector<GraphDbTypes::EdgeType> &edge_types = {},
+                     const std::vector<database::EdgeType> &edge_types = {},
                      Identifier *inner_edge = nullptr,
                      Identifier *inner_node = nullptr) {
   auto r_val =
       storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
                                EdgeAtom::Type::DEPTH_FIRST, dir, edge_types);
-  r_val->inner_edge_ = inner_edge ? inner_edge : storage.Create<Identifier>(
-                                                     utils::RandomString(20));
-  r_val->inner_node_ = inner_node ? inner_node : storage.Create<Identifier>(
-                                                     utils::RandomString(20));
+  r_val->inner_edge_ =
+      inner_edge ? inner_edge
+                 : storage.Create<Identifier>(utils::RandomString(20));
+  r_val->inner_node_ =
+      inner_node ? inner_node
+                 : storage.Create<Identifier>(utils::RandomString(20));
   return r_val;
 }
 
@@ -172,7 +175,7 @@ auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
 /// Name is used to create the Identifier which is assigned to the node.
 ///
 auto GetNode(AstTreeStorage &storage, const std::string &name,
-             std::experimental::optional<GraphDbTypes::Label> label =
+             std::experimental::optional<database::Label> label =
                  std::experimental::nullopt) {
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
   if (label) node->labels_.emplace_back(*label);
@@ -430,7 +433,7 @@ auto GetSet(AstTreeStorage &storage, const std::string &name, Expression *expr,
 /// Create a set labels clause for given identifier name and labels.
 ///
 auto GetSet(AstTreeStorage &storage, const std::string &name,
-            std::vector<GraphDbTypes::Label> labels) {
+            std::vector<database::Label> labels) {
   return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
 }
 
@@ -445,7 +448,7 @@ auto GetRemove(AstTreeStorage &storage, PropertyLookup *prop_lookup) {
 /// Create a remove labels clause for given identifier name and labels.
 ///
 auto GetRemove(AstTreeStorage &storage, const std::string &name,
-               std::vector<GraphDbTypes::Label> labels) {
+               std::vector<database::Label> labels) {
   return storage.Create<RemoveLabels>(storage.Create<Identifier>(name), labels);
 }
 
@@ -507,12 +510,13 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define LIST(...)                     \
   storage.Create<query::ListLiteral>( \
       std::vector<query::Expression *>{__VA_ARGS__})
-#define MAP(...)                                                         \
-  storage.Create<query::MapLiteral>(                                     \
-      std::unordered_map<std::pair<std::string, GraphDbTypes::Property>, \
+#define MAP(...)                                                     \
+  storage.Create<query::MapLiteral>(                                 \
+      std::unordered_map<std::pair<std::string, database::Property>, \
                          query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) \
-  std::make_pair(property_name, GraphDbAccessor(db).Property(property_name))
+  std::make_pair(property_name,      \
+                 database::GraphDbAccessor(db).Property(property_name))
 #define PROPERTY_LOOKUP(...) \
   query::test_common::GetPropertyLookup(storage, db, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))

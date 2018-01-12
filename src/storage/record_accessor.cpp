@@ -9,17 +9,17 @@ using database::StateDelta;
 
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(AddressT address,
-                                        GraphDbAccessor &db_accessor)
+                                        database::GraphDbAccessor &db_accessor)
     : db_accessor_(&db_accessor), address_(address) {}
 
 template <typename TRecord>
 const PropertyValue &RecordAccessor<TRecord>::PropsAt(
-    GraphDbTypes::Property key) const {
+    database::Property key) const {
   return current().properties_.at(key);
 }
 
 template <>
-void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
+void RecordAccessor<Vertex>::PropsSet(database::Property key,
                                       PropertyValue value) {
   Vertex &vertex = update();
   vertex.properties_.set(key, value);
@@ -33,7 +33,7 @@ void RecordAccessor<Vertex>::PropsSet(GraphDbTypes::Property key,
 }
 
 template <>
-void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,
+void RecordAccessor<Edge>::PropsSet(database::Property key,
                                     PropertyValue value) {
   update().properties_.set(key, value);
   auto &dba = db_accessor();
@@ -43,7 +43,7 @@ void RecordAccessor<Edge>::PropsSet(GraphDbTypes::Property key,
 }
 
 template <>
-size_t RecordAccessor<Vertex>::PropsErase(GraphDbTypes::Property key) {
+size_t RecordAccessor<Vertex>::PropsErase(database::Property key) {
   auto &dba = db_accessor();
   // TODO use the delta for handling.
   dba.wal().Emplace(StateDelta::PropsSetVertex(
@@ -52,7 +52,7 @@ size_t RecordAccessor<Vertex>::PropsErase(GraphDbTypes::Property key) {
 }
 
 template <>
-size_t RecordAccessor<Edge>::PropsErase(GraphDbTypes::Property key) {
+size_t RecordAccessor<Edge>::PropsErase(database::Property key) {
   auto &dba = db_accessor();
   // TODO use the delta for handling.
   dba.wal().Emplace(StateDelta::PropsSetEdge(
@@ -96,7 +96,7 @@ bool RecordAccessor<TRecord>::operator==(const RecordAccessor &other) const {
 }
 
 template <typename TRecord>
-GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
+database::GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
   return *db_accessor_;
 }
 

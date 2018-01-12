@@ -16,8 +16,9 @@ class Context {
   Context(Context &&) = default;
   Context &operator=(Context &&) = default;
 
-  explicit Context(GraphDbAccessor &db_accessor) : db_accessor_(db_accessor) {}
-  GraphDbAccessor &db_accessor_;
+  explicit Context(database::GraphDbAccessor &db_accessor)
+      : db_accessor_(db_accessor) {}
+  database::GraphDbAccessor &db_accessor_;
   SymbolTable symbol_table_;
   Parameters parameters_;
   bool is_query_cached_ = false;

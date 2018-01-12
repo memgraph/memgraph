@@ -6,9 +6,9 @@ namespace query {
 
 /**
  * Read Evaluate Print Loop, for interacting with a database (the database in
- * the given GraphDb). Immediately starts the user-input loop and interprets the
- * entered queries.
+ * the given database::GraphDb). Immediately starts the user-input loop and
+ * interprets the entered queries.
  */
-void Repl(GraphDb &);
+void Repl(database::GraphDb &);
 
 }  // namespace query

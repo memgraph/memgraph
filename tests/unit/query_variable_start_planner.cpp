@@ -63,7 +63,8 @@ void AssertRows(const std::vector<std::vector<TypedValue>> &datum,
 };
 
 void CheckPlansProduce(
-    size_t expected_plan_count, AstTreeStorage &storage, GraphDbAccessor &dba,
+    size_t expected_plan_count, AstTreeStorage &storage,
+    database::GraphDbAccessor &dba,
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
@@ -82,8 +83,8 @@ void CheckPlansProduce(
 }
 
 TEST(TestVariableStartPlanner, MatchReturn) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -102,8 +103,8 @@ TEST(TestVariableStartPlanner, MatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -138,8 +139,8 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -164,8 +165,8 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -189,8 +190,8 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -212,8 +213,8 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpand) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -235,8 +236,8 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto id = dba.Property("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
@@ -262,8 +263,8 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto id = dba.Property("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
@@ -288,8 +289,8 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
 }
 
 TEST(TestVariableStartPlanner, MatchBfs) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto id = dba.Property("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
@@ -305,7 +306,7 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   AstTreeStorage storage;
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
-      std::vector<GraphDbTypes::EdgeType>{});
+      std::vector<database::EdgeType>{});
   bfs->inner_edge_ = IDENT("r");
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3));

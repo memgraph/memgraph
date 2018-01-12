@@ -4,7 +4,7 @@
 #include <map>
 #include <vector>
 
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "property_value.hpp"
 
 /**
@@ -14,7 +14,7 @@
  * The underlying implementation is not necessarily std::map.
  */
 class PropertyValueStore {
-  using Property = GraphDbTypes::Property;
+  using Property = database::Property;
 
  public:
   /**

@@ -31,8 +31,8 @@ using testing::UnorderedElementsAre;
 class Base {
  public:
   explicit Base(const std::string &query) : query_string_(query) {}
-  GraphDb db_;
-  GraphDbAccessor db_accessor_{db_};
+  database::SingleNode db_;
+  database::GraphDbAccessor db_accessor_{db_};
   Context context_{db_accessor_};
   std::string query_string_;
 
@@ -889,7 +889,7 @@ TYPED_TEST(CypherMainVisitorTest, NodePattern) {
               UnorderedElementsAre(ast_generator.db_accessor_.Label("label1"),
                                    ast_generator.db_accessor_.Label("label2"),
                                    ast_generator.db_accessor_.Label("label3")));
-  std::map<std::pair<std::string, GraphDbTypes::Property>, int64_t> properties;
+  std::map<std::pair<std::string, database::Property>, int64_t> properties;
   for (auto x : node->properties_) {
     TypedValue value = LiteralValue(ast_generator.context_, x.second);
     ASSERT_TRUE(value.type() == TypedValue::Type::Int);
@@ -989,7 +989,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
       edge->edge_types_,
       UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
                            ast_generator.db_accessor_.EdgeType("type2")));
-  std::map<std::pair<std::string, GraphDbTypes::Property>, int64_t> properties;
+  std::map<std::pair<std::string, database::Property>, int64_t> properties;
   for (auto x : edge->properties_) {
     TypedValue value = LiteralValue(ast_generator.context_, x.second);
     ASSERT_TRUE(value.type() == TypedValue::Type::Int);

@@ -3,19 +3,21 @@
 #include <glog/logging.h>
 
 #include "communication/result_stream_faker.hpp"
+#include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
-  // GraphDb shouldn't be global constructed/destructed. See documentation in
-  // database/graph_db.hpp for details.
-  std::experimental::optional<GraphDb> db_;
+  // GraphDb shouldn't be global constructed/destructed. See
+  // documentation in database/graph_db.hpp for details.
+  std::experimental::optional<database::SingleNode> db_;
   query::Interpreter interpeter_;
 
   void SetUp(const benchmark::State &state) override {
     db_.emplace();
-    GraphDbAccessor dba(*db_);
+    database::GraphDbAccessor dba(*db_);
     for (int i = 0; i < state.range(0); i++) dba.InsertVertex();
 
     // the fixed part is one vertex expanding to 1000 others
@@ -30,7 +32,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   }
 
   void TearDown(const benchmark::State &) override {
-    GraphDbAccessor dba(*db_);
+    database::GraphDbAccessor dba(*db_);
     for (auto vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
     dba.Commit();
     db_ = std::experimental::nullopt;
@@ -39,7 +41,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Start) return s";
-  GraphDbAccessor dba(*db_);
+  database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
     interpeter_(query, dba, {}, false).PullAll(results);
@@ -53,7 +55,7 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Start) WITH s MATCH (s)--(d) RETURN count(d)";
-  GraphDbAccessor dba(*db_);
+  database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
     interpeter_(query, dba, {}, false).PullAll(results);

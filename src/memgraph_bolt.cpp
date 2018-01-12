@@ -9,6 +9,7 @@
 #include "communication/messaging/distributed.hpp"
 #include "communication/server.hpp"
 #include "config.hpp"
+#include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "io/network/network_endpoint.hpp"
@@ -23,11 +24,10 @@
 #include "version.hpp"
 
 namespace fs = std::experimental::filesystem;
-using communication::bolt::SessionData;
 using io::network::NetworkEndpoint;
 using io::network::Socket;
+using communication::bolt::SessionData;
 using SessionT = communication::bolt::Session<Socket>;
-using ResultStreamT = SessionT::ResultStreamT;
 using ServerT = communication::Server<SessionT, SessionData>;
 
 // General purpose flags.
@@ -50,32 +50,15 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 DEFINE_HIDDEN_bool(
     master, false,
     "If this Memgraph server is the master in a distributed deployment.");
-DEFINE_HIDDEN_string(master_host, "0.0.0.0",
-                     "For master node indicates the host served on. For worker "
-                     "node indicates the master location.");
-DEFINE_VALIDATED_HIDDEN_int32(
-    master_port, 0,
-    "For master node the port on which to serve. For "
-    "worker node indicates the master's port.",
-    FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 DEFINE_HIDDEN_bool(
     worker, false,
     "If this Memgraph server is a worker in a distributed deployment.");
-DEFINE_HIDDEN_string(worker_host, "0.0.0.0",
-                     "For worker node indicates the host served on. For master "
-                     "node this flag is not used.");
-DEFINE_VALIDATED_HIDDEN_int32(
-    worker_port, 0,
-    "For master node it's unused. For worker node "
-    "indicates the port on which to serve. If zero (default value), a port is "
-    "chosen at random. Sent to the master when registring worker node.",
-    FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
-// when we are exiting main, inside destructors of GraphDb and similar. The
-// signal handler may then initiate another shutdown on memgraph which is in
-// half destructed state, causing invalid memory access and crash.
+// when we are exiting main, inside destructors of database::GraphDb and
+// similar. The signal handler may then initiate another shutdown on memgraph
+// which is in half destructed state, causing invalid memory access and crash.
 volatile sig_atomic_t is_shutting_down = 0;
 
 // Registers the given shutdown function with the appropriate signal handlers.
@@ -117,65 +100,47 @@ void StartMemWarningLogger() {
 
 void MasterMain() {
   google::SetUsageMessage("Memgraph distributed master");
-  // RPC for worker registration, shutdown and endpoint info exchange.
-  communication::messaging::System system(FLAGS_master_host, FLAGS_master_port);
-  distributed::MasterCoordination master(system);
 
-  // Bolt server stuff.
-  SessionData session_data{system, master};
-  NetworkEndpoint endpoint(FLAGS_interface, FLAGS_port);
-  ServerT server(endpoint, session_data, FLAGS_num_workers);
+  database::Master db;
+  SessionData session_data{db};
+  ServerT server({FLAGS_interface, FLAGS_port}, session_data,
+                 FLAGS_num_workers);
 
   // Handler for regular termination signals
-  auto shutdown = [&server, &session_data] {
+  auto shutdown = [&server] {
     if (is_shutting_down) return;
     is_shutting_down = 1;
     // Server needs to be shutdown first and then the database. This prevents a
     // race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
-    session_data.db.Shutdown();
   };
 
   InitSignalHandlers(shutdown);
-
   StartMemWarningLogger();
-
   server.AwaitShutdown();
 }
 
 void WorkerMain() {
   google::SetUsageMessage("Memgraph distributed worker");
-  // RPC for worker registration, shutdown and endpoint info exchange.
-  communication::messaging::System system(FLAGS_worker_host, FLAGS_worker_port);
-  io::network::NetworkEndpoint master_endpoint{
-      FLAGS_master_host, static_cast<uint16_t>(FLAGS_master_port)};
-  distributed::WorkerCoordination worker(system, master_endpoint);
-  auto worker_id = worker.RegisterWorker();
-
-  // The GraphDb destructor shuts some RPC down. Ensure correct ordering.
-  {
-    GraphDb db{system, worker_id, worker, master_endpoint};
-    query::Interpreter interpreter;
-    StartMemWarningLogger();
-    // Wait for the shutdown command from the master.
-    worker.WaitForShutdown();
-  }
+  database::Worker db;
+  StartMemWarningLogger();
+  db.WaitForShutdown();
 }
 
 void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
-  SessionData session_data;
-  NetworkEndpoint endpoint(FLAGS_interface, FLAGS_port);
-  ServerT server(endpoint, session_data, FLAGS_num_workers);
+  database::SingleNode db;
+  SessionData session_data{db};
+  ServerT server({FLAGS_interface, FLAGS_port}, session_data,
+                 FLAGS_num_workers);
 
   // Handler for regular termination signals
-  auto shutdown = [&server, &session_data] {
+  auto shutdown = [&server] {
     if (is_shutting_down) return;
     is_shutting_down = 1;
     // Server needs to be shutdown first and then the database. This prevents a
     // race condition when a transaction is accepted during server shutdown.
     server.Shutdown();
-    session_data.db.Shutdown();
   };
   InitSignalHandlers(shutdown);
 

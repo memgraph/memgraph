@@ -1,8 +1,9 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine_single_node.hpp"
 
@@ -12,10 +13,11 @@ using testing::UnorderedElementsAreArray;
 
 // Test index does it insert everything uniquely
 TEST(LabelsIndex, UniqueInsert) {
-  KeyIndex<GraphDbTypes::Label, Vertex> index;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::KeyIndex<database::Label, Vertex> index;
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   tx::SingleNodeEngine engine;
+
   auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist(*t1, 0);
   engine.Commit(*t1);
@@ -40,9 +42,9 @@ TEST(LabelsIndex, UniqueInsert) {
 
 // Check if index filters duplicates.
 TEST(LabelsIndex, UniqueFilter) {
-  GraphDb db;
-  KeyIndex<GraphDbTypes::Label, Vertex> index;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::KeyIndex<database::Label, Vertex> index;
+  database::GraphDbAccessor dba(db);
   tx::SingleNodeEngine engine;
 
   auto t1 = engine.Begin();
@@ -80,9 +82,9 @@ TEST(LabelsIndex, UniqueFilter) {
 
 // Delete not anymore relevant recods from index.
 TEST(LabelsIndex, Refresh) {
-  KeyIndex<GraphDbTypes::Label, Vertex> index;
-  GraphDb db;
-  GraphDbAccessor access(db);
+  database::KeyIndex<database::Label, Vertex> index;
+  database::SingleNode db;
+  database::GraphDbAccessor access(db);
   tx::SingleNodeEngine engine;
 
   // add two vertices to  database
@@ -120,8 +122,8 @@ TEST(LabelsIndex, Refresh) {
 
 // Transaction hasn't ended and so the vertex is not visible.
 TEST(LabelsIndexDb, AddGetZeroLabels) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto vertex = dba.InsertVertex();
   vertex.add_label(dba.Label("test"));
   auto collection = dba.Vertices(dba.Label("test"), false);
@@ -133,9 +135,9 @@ TEST(LabelsIndexDb, AddGetZeroLabels) {
 // Test label index by adding and removing one vertex, and removing label from
 // another, while the third one with an irrelevant label exists.
 TEST(LabelsIndexDb, AddGetRemoveLabel) {
-  GraphDb db;
+  database::SingleNode db;
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
 
     auto vertex1 = dba.InsertVertex();
     vertex1.add_label(dba.Label("test"));
@@ -149,7 +151,7 @@ TEST(LabelsIndexDb, AddGetRemoveLabel) {
     dba.Commit();
   }  // Finish transaction.
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
 
     auto filtered = dba.Vertices(dba.Label("test"), false);
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());
@@ -178,7 +180,7 @@ TEST(LabelsIndexDb, AddGetRemoveLabel) {
     dba.Commit();
   }
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
 
     auto filtered = dba.Vertices(dba.Label("test"), false);
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());

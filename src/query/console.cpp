@@ -48,7 +48,7 @@ std::string ReadLine(const char *prompt) {
 
 #endif  // HAS_READLINE
 
-void query::Repl(GraphDb &db) {
+void query::Repl(database::GraphDb &db) {
   std::cout
       << "Welcome to *Awesome* Memgraph Read Evaluate Print Loop (AM-REPL)"
       << std::endl;
@@ -63,7 +63,7 @@ void query::Repl(GraphDb &db) {
 
     // regular cypher queries
     try {
-      GraphDbAccessor dba(db);
+      database::GraphDbAccessor dba(db);
       ResultStreamFaker results;
       interpeter(command, dba, {}, false).PullAll(results);
       std::cout << results;

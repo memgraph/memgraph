@@ -43,6 +43,7 @@
 /// of the flag as a string is implicitly bound to the `flagname` variable.
 
 #include <cstdint>
+#include <iostream>
 #include <string>
 
 #include "gflags/gflags.h"

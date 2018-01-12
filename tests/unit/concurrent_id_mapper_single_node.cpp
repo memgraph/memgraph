@@ -5,10 +5,10 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "storage/concurrent_id_mapper_single_node.hpp"
 
-using Id = GraphDbTypes::Label;
+using Id = database::Label;
 using Mapper = storage::SingleNodeConcurrentIdMapper<Id>;
 
 TEST(ConcurrentIdMapper, SameValueGivesSameId) {

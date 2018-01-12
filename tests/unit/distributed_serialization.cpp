@@ -4,6 +4,7 @@
 #include "boost/archive/binary_iarchive.hpp"
 #include "boost/archive/binary_oarchive.hpp"
 
+#include "database/types.hpp"
 #include "distributed/serialization.hpp"
 #include "mvcc/version_list.hpp"
 #include "query/typed_value.hpp"
@@ -12,7 +13,7 @@
 #include "storage/vertex.hpp"
 #include "transactions/engine_single_node.hpp"
 
-using namespace GraphDbTypes;
+using namespace database;
 
 template <typename TAddress>
 TAddress ToGlobal(const TAddress &address, int worker_id) {

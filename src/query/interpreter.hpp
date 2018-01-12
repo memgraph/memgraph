@@ -154,7 +154,8 @@ class Interpreter {
    * Generates an Results object for the parameters. The resulting object
    * can the be Pulled with it's results written to an arbitrary stream.
    */
-  Results operator()(const std::string &query, GraphDbAccessor &db_accessor,
+  Results operator()(const std::string &query,
+                     database::GraphDbAccessor &db_accessor,
                      const std::map<std::string, TypedValue> &params,
                      bool in_explicit_transaction);
 
@@ -165,7 +166,7 @@ class Interpreter {
   // high level tree -> (logical plan, plan cost)
   // AstTreeStorage and SymbolTable may be modified during planning.
   std::pair<std::unique_ptr<plan::LogicalOperator>, double> MakeLogicalPlan(
-      AstTreeStorage &, const GraphDbAccessor &, Context &);
+      AstTreeStorage &, const database::GraphDbAccessor &, Context &);
 
   ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
   ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> plan_cache_;

@@ -27,8 +27,8 @@ using namespace query::plan;
 
 class MatchReturnFixture : public testing::Test {
  protected:
-  GraphDb db_;
-  GraphDbAccessor dba_{db_};
+  database::SingleNode db_;
+  database::GraphDbAccessor dba_{db_};
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
@@ -91,8 +91,8 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
 }
 
 TEST(QueryPlan, MatchReturnCartesian) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   dba.InsertVertex().add_label(dba.Label("l1"));
   dba.InsertVertex().add_label(dba.Label("l2"));
@@ -124,8 +124,8 @@ TEST(QueryPlan, MatchReturnCartesian) {
 }
 
 TEST(QueryPlan, StandaloneReturn) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // add a few nodes to the database
   dba.InsertVertex();
@@ -146,11 +146,11 @@ TEST(QueryPlan, StandaloneReturn) {
 }
 
 TEST(QueryPlan, NodeFilterLabelsAndProperties) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // add a few nodes to the database
-  GraphDbTypes::Label label = dba.Label("Label");
+  database::Label label = dba.Label("Label");
   auto property = PROPERTY_PAIR("Property");
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -202,13 +202,13 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 }
 
 TEST(QueryPlan, NodeFilterMultipleLabels) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // add a few nodes to the database
-  GraphDbTypes::Label label1 = dba.Label("label1");
-  GraphDbTypes::Label label2 = dba.Label("label2");
-  GraphDbTypes::Label label3 = dba.Label("label3");
+  database::Label label1 = dba.Label("label1");
+  database::Label label2 = dba.Label("label2");
+  database::Label label3 = dba.Label("label3");
   // the test will look for nodes that have label1 and label2
   dba.InsertVertex();                    // NOT accepted
   dba.InsertVertex().add_label(label1);  // NOT accepted
@@ -253,8 +253,8 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
 
 class ExpandFixture : public testing::Test {
  protected:
-  GraphDb db_;
-  GraphDbAccessor dba_{db_};
+  database::SingleNode db_;
+  database::GraphDbAccessor dba_{db_};
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
@@ -262,7 +262,7 @@ class ExpandFixture : public testing::Test {
   VertexAccessor v1 = dba_.InsertVertex();
   VertexAccessor v2 = dba_.InsertVertex();
   VertexAccessor v3 = dba_.InsertVertex();
-  GraphDbTypes::EdgeType edge_type = dba_.EdgeType("Edge");
+  database::EdgeType edge_type = dba_.EdgeType("Edge");
   EdgeAccessor r1 = dba_.InsertEdge(v1, v2, edge_type);
   EdgeAccessor r2 = dba_.InsertEdge(v1, v3, edge_type);
 
@@ -353,12 +353,12 @@ class QueryPlanExpandVariable : public testing::Test {
   // a lot below in test declaration
   using map_int = std::unordered_map<int, int>;
 
-  GraphDb db_;
-  GraphDbAccessor dba_{db_};
+  database::SingleNode db_;
+  database::GraphDbAccessor dba_{db_};
   // labels for layers in the double chain
-  std::vector<GraphDbTypes::Label> labels;
+  std::vector<database::Label> labels;
   // for all the edges
-  GraphDbTypes::EdgeType edge_type = dba_.EdgeType("edge_type");
+  database::EdgeType edge_type = dba_.EdgeType("edge_type");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -409,7 +409,7 @@ class QueryPlanExpandVariable : public testing::Test {
   std::shared_ptr<LogicalOperator> AddMatch(
       std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
       int layer, EdgeAtom::Direction direction,
-      const std::vector<GraphDbTypes::EdgeType> &edge_types,
+      const std::vector<database::EdgeType> &edge_types,
       std::experimental::optional<size_t> lower,
       std::experimental::optional<size_t> upper, Symbol edge_sym,
       const std::string &node_to, GraphView graph_view = GraphView::AS_IS,
@@ -418,7 +418,7 @@ class QueryPlanExpandVariable : public testing::Test {
     auto filter_op = std::make_shared<Filter>(
         n_from.op_, storage.Create<query::LabelsTest>(
                         n_from.node_->identifier_,
-                        std::vector<GraphDbTypes::Label>{labels[layer]}));
+                        std::vector<database::Label>{labels[layer]}));
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
@@ -619,15 +619,14 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
 }
 
 TEST_F(QueryPlanExpandVariable, GraphState) {
-  auto test_expand =
-      [&](GraphView graph_view,
-          const std::vector<GraphDbTypes::EdgeType> &edge_types) {
-        auto e = Edge("r", EdgeAtom::Direction::OUT);
-        return GetEdgeListSizes(
-            AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
-                                     edge_types, 2, 2, e, "m", graph_view),
-            e);
-      };
+  auto test_expand = [&](GraphView graph_view,
+                         const std::vector<database::EdgeType> &edge_types) {
+    auto e = Edge("r", EdgeAtom::Direction::OUT);
+    return GetEdgeListSizes(
+        AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
+                                 edge_types, 2, 2, e, "m", graph_view),
+        e);
+  };
 
   auto new_edge_type = dba_.EdgeType("some_type");
   // add two vertices branching out from the second layer
@@ -698,11 +697,10 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
  protected:
   // style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
   // macro requirements
-  GraphDb db;
-  GraphDbAccessor dba{db};
-  std::pair<std::string, GraphDbTypes::Property> prop =
-      PROPERTY_PAIR("property");
-  GraphDbTypes::EdgeType edge_type = dba.EdgeType("edge_type");
+  database::SingleNode db;
+  database::GraphDbAccessor dba{db};
+  std::pair<std::string, database::Property> prop = PROPERTY_PAIR("property");
+  database::EdgeType edge_type = dba.EdgeType("edge_type");
 
   // make 4 vertices because we'll need to compare against them exactly
   // v[0] has `prop` with the value 0
@@ -767,9 +765,9 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
     last_op = std::make_shared<ExpandVariable>(
         node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
-        std::vector<GraphDbTypes::EdgeType>{}, false, nullptr,
-        LITERAL(max_depth), last_op, n.sym_, existing_node_input != nullptr,
-        inner_edge, inner_node, where, graph_view);
+        std::vector<database::EdgeType>{}, false, nullptr, LITERAL(max_depth),
+        last_op, n.sym_, existing_node_input != nullptr, inner_edge, inner_node,
+        where, graph_view);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(dba);
@@ -916,8 +914,8 @@ TEST_F(QueryPlanExpandBreadthFirst, ExistingNode) {
 }
 
 TEST(QueryPlan, ExpandOptional) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -975,8 +973,8 @@ TEST(QueryPlan, ExpandOptional) {
 }
 
 TEST(QueryPlan, OptionalMatchEmptyDB) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -997,8 +995,8 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
 }
 
 TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n)
@@ -1024,8 +1022,8 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
 }
 
 TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Make a graph with 2 connected, unlabeled nodes.
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -1061,8 +1059,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto node = NODE("n");
   symbol_table[*node->identifier_] = with_n_sym;
   auto expand = std::make_shared<plan::Expand>(
-      with_n_sym, edge_sym, edge_direction,
-      std::vector<GraphDbTypes::EdgeType>{}, m.op_, m.sym_, true);
+      with_n_sym, edge_sym, edge_direction, std::vector<database::EdgeType>{},
+      m.op_, m.sym_, true);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = m.sym_;
@@ -1073,8 +1071,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
 }
 
 TEST(QueryPlan, ExpandExistingNode) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // make a graph (v1)->(v2) that
   // has a recursive edge (v1)->(v1)
@@ -1095,7 +1093,7 @@ TEST(QueryPlan, ExpandExistingNode) {
     if (with_existing)
       r_n.op_ = std::make_shared<Expand>(
           n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
-          std::vector<GraphDbTypes::EdgeType>{}, n.op_, n.sym_, with_existing);
+          std::vector<database::EdgeType>{}, n.op_, n.sym_, with_existing);
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));
@@ -1115,8 +1113,8 @@ TEST(QueryPlan, ExpandExistingNode) {
 TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   // we're testing that expanding on BOTH
   // does only one expansion for a cycle
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto v = dba.InsertVertex();
   dba.InsertEdge(v, v, dba.EdgeType("et"));
@@ -1132,14 +1130,14 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
 }
 
 TEST(QueryPlan, EdgeFilter) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // make an N-star expanding from (v1)
   // where only one edge will qualify
   // and there are all combinations of
   // (edge_type yes|no) * (property yes|absent|no)
-  std::vector<GraphDbTypes::EdgeType> edge_types;
+  std::vector<database::EdgeType> edge_types;
   for (int j = 0; j < 2; ++j)
     edge_types.push_back(dba.EdgeType("et" + std::to_string(j)));
   std::vector<VertexAccessor> vertices;
@@ -1200,8 +1198,8 @@ TEST(QueryPlan, EdgeFilter) {
 }
 
 TEST(QueryPlan, EdgeFilterMultipleTypes) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -1234,8 +1232,8 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
 }
 
 TEST(QueryPlan, Filter) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // add a 6 nodes with property 'prop', 2 have true as value
   auto property = PROPERTY_PAIR("property");
@@ -1263,8 +1261,8 @@ TEST(QueryPlan, Filter) {
 }
 
 TEST(QueryPlan, ExpandUniquenessFilter) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
   auto v1 = dba.InsertVertex();
@@ -1309,8 +1307,8 @@ TEST(QueryPlan, Distinct) {
   // test queries like
   // UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x
 
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
@@ -1352,8 +1350,8 @@ TEST(QueryPlan, Distinct) {
 }
 
 TEST(QueryPlan, ScanAllByLabel) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Add a vertex with a label and one without.
   auto label = dba.Label("label");
   auto labeled_vertex = dba.InsertVertex();
@@ -1379,10 +1377,10 @@ TEST(QueryPlan, ScanAllByLabel) {
 }
 
 TEST(QueryPlan, ScanAllByLabelProperty) {
-  GraphDb db;
+  database::SingleNode db;
   // Add 5 vertices with same label, but with different property values.
-  auto label = GraphDbAccessor(db).Label("label");
-  auto prop = GraphDbAccessor(db).Property("prop");
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto prop = database::GraphDbAccessor(db).Property("prop");
   // vertex property values that will be stored into the DB
   // clang-format off
   std::vector<TypedValue> values{
@@ -1391,16 +1389,16 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
       std::vector<TypedValue>{2}};
   // clang-format on
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     for (const auto &value : values) {
       auto vertex = dba.InsertVertex();
       vertex.add_label(label);
       vertex.PropsSet(prop, value);
     }
     dba.Commit();
-    GraphDbAccessor(db).BuildIndex(label, prop);
+    database::GraphDbAccessor(db).BuildIndex(label, prop);
   }
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   ASSERT_EQ(14, CountIterable(dba.Vertices(false)));
 
   auto check = [&dba, label, prop](TypedValue lower, Bound::Type lower_type,
@@ -1449,13 +1447,13 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
-  GraphDb db;
+  database::SingleNode db;
   // Add 2 vertices with same label, but with property values that cannot be
   // compared. On the other hand, equality works fine.
-  auto label = GraphDbAccessor(db).Label("label");
-  auto prop = GraphDbAccessor(db).Property("prop");
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto prop = database::GraphDbAccessor(db).Property("prop");
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto number_vertex = dba.InsertVertex();
     number_vertex.add_label(label);
     number_vertex.PropsSet(prop, 42);
@@ -1463,9 +1461,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     string_vertex.add_label(label);
     string_vertex.PropsSet(prop, "string");
     dba.Commit();
-    GraphDbAccessor(db).BuildIndex(label, prop);
+    database::GraphDbAccessor(db).BuildIndex(label, prop);
   }
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (n :label {prop: 42})
   AstTreeStorage storage;
@@ -1488,24 +1486,24 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
-  GraphDb db;
+  database::SingleNode db;
   // Add 2 vertices with the same label, but one has a property value while
   // the
   // other does not. Checking if the value is equal to null, should yield no
   // results.
-  auto label = GraphDbAccessor(db).Label("label");
-  auto prop = GraphDbAccessor(db).Property("prop");
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto prop = database::GraphDbAccessor(db).Property("prop");
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto vertex = dba.InsertVertex();
     vertex.add_label(label);
     auto vertex_with_prop = dba.InsertVertex();
     vertex_with_prop.add_label(label);
     vertex_with_prop.PropsSet(prop, 42);
     dba.Commit();
-    GraphDbAccessor(db).BuildIndex(label, prop);
+    database::GraphDbAccessor(db).BuildIndex(label, prop);
   }
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (n :label {prop: 42})
   AstTreeStorage storage;

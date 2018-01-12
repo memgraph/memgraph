@@ -21,7 +21,7 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
 namespace query {
 
 Interpreter::Results Interpreter::operator()(
-    const std::string &query, GraphDbAccessor &db_accessor,
+    const std::string &query, database::GraphDbAccessor &db_accessor,
     const std::map<std::string, TypedValue> &params,
     bool in_explicit_transaction) {
   utils::Timer frontend_timer;
@@ -187,7 +187,7 @@ AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
 
 std::pair<std::unique_ptr<plan::LogicalOperator>, double>
 Interpreter::MakeLogicalPlan(AstTreeStorage &ast_storage,
-                             const GraphDbAccessor &db_accessor,
+                             const database::GraphDbAccessor &db_accessor,
                              Context &context) {
   std::unique_ptr<plan::LogicalOperator> logical_plan;
   auto vertex_counts = plan::MakeVertexCountCache(db_accessor);

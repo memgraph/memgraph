@@ -11,8 +11,8 @@
 #include "storage/vertex_accessor.hpp"
 
 TEST(RecordAccessor, Properties) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto vertex = dba.InsertVertex();
   auto &properties = vertex.Properties();
@@ -33,8 +33,8 @@ TEST(RecordAccessor, Properties) {
 }
 
 TEST(RecordAccessor, DbAccessor) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto vertex = dba.InsertVertex();
   const auto &const_vertex_dba = vertex.db_accessor();
@@ -44,8 +44,8 @@ TEST(RecordAccessor, DbAccessor) {
 }
 
 TEST(RecordAccessor, RecordEquality) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -59,11 +59,11 @@ TEST(RecordAccessor, RecordEquality) {
 }
 
 TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
-  GraphDb db;
+  database::SingleNode db;
 
   // test both Switches work on new record
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto v1 = dba.InsertVertex();
     v1.SwitchOld();
     v1.SwitchNew();
@@ -72,7 +72,7 @@ TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
 
   // test both Switches work on existing record
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto v1 = *dba.Vertices(false).begin();
     v1.SwitchOld();
     v1.SwitchNew();
@@ -80,7 +80,7 @@ TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
 
   // ensure switch exposes the right data
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto label = dba.Label("label");
     auto v1 = *dba.Vertices(false).begin();
 
@@ -95,20 +95,20 @@ TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
 }
 
 TEST(RecordAccessor, Reconstruct) {
-  GraphDb db;
-  auto label = GraphDbAccessor(db).Label("label");
+  database::SingleNode db;
+  auto label = database::GraphDbAccessor(db).Label("label");
 
   {
     // we must operate on an old vertex
     // because otherwise we only have new
     // so create a vertex and commit it
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     dba.InsertVertex();
     dba.Commit();
   }
 
   // ensure we don't have label set
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   auto v1 = *dba.Vertices(false).begin();
   v1.SwitchNew();
   EXPECT_FALSE(v1.has_label(label));
@@ -129,15 +129,15 @@ TEST(RecordAccessor, Reconstruct) {
 }
 
 TEST(RecordAccessor, VertexLabels) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto &labels = v1.labels();
 
   EXPECT_EQ(v1.labels().size(), 0);
 
-  GraphDbTypes::Label l1 = dba.Label("label1");
-  GraphDbTypes::Label l2 = dba.Label("label2");
+  database::Label l1 = dba.Label("label1");
+  database::Label l2 = dba.Label("label2");
 
   // adding labels
   EXPECT_FALSE(v1.has_label(l1));
@@ -157,7 +157,7 @@ TEST(RecordAccessor, VertexLabels) {
   EXPECT_EQ(labels.size(), 2);
 
   // removing labels
-  GraphDbTypes::Label l3 = dba.Label("label3");
+  database::Label l3 = dba.Label("label3");
   EXPECT_EQ(v1.remove_label(l3), 0);
   EXPECT_EQ(labels.size(), 2);
 
@@ -170,13 +170,13 @@ TEST(RecordAccessor, VertexLabels) {
 }
 
 TEST(RecordAccessor, EdgeType) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
 
-  GraphDbTypes::EdgeType likes = dba.EdgeType("likes");
-  GraphDbTypes::EdgeType hates = dba.EdgeType("hates");
+  database::EdgeType likes = dba.EdgeType("likes");
+  database::EdgeType hates = dba.EdgeType("hates");
 
   auto edge = dba.InsertEdge(v1, v2, likes);
   EXPECT_EQ(edge.EdgeType(), likes);
@@ -184,8 +184,8 @@ TEST(RecordAccessor, EdgeType) {
 }
 
 TEST(RecordAccessor, EdgeIsCycle) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto likes = dba.EdgeType("edge_type");
@@ -197,8 +197,8 @@ TEST(RecordAccessor, EdgeIsCycle) {
 }
 
 TEST(RecordAccessor, VertexEdgeConnections) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto edge = dba.InsertEdge(v1, v2, dba.EdgeType("likes"));
@@ -229,8 +229,8 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   }
 
 TEST(RecordAccessor, VertexEdgeConnectionsWithExistingVertex) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -264,8 +264,8 @@ TEST(RecordAccessor, VertexEdgeConnectionsWithExistingVertex) {
 }
 
 TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto a = dba.EdgeType("a");
@@ -280,9 +280,9 @@ TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
   TEST_EDGE_ITERABLE(v1.in(), {eb_1, eb_2});
   TEST_EDGE_ITERABLE(v2.in(), {ea, ec});
 
-  std::vector<GraphDbTypes::EdgeType> edges_a{a};
-  std::vector<GraphDbTypes::EdgeType> edges_b{b};
-  std::vector<GraphDbTypes::EdgeType> edges_ac{a, c};
+  std::vector<database::EdgeType> edges_a{a};
+  std::vector<database::EdgeType> edges_b{b};
+  std::vector<database::EdgeType> edges_ac{a, c};
   TEST_EDGE_ITERABLE(v1.in(&edges_a));
   TEST_EDGE_ITERABLE(v1.in(&edges_b), {eb_1, eb_2});
   TEST_EDGE_ITERABLE(v1.out(&edges_a), {ea});

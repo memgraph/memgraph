@@ -243,8 +243,8 @@ class ExpectScanAllByLabelPropertyValue
     : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
   ExpectScanAllByLabelPropertyValue(
-      GraphDbTypes::Label label,
-      const std::pair<std::string, GraphDbTypes::Property> &prop_pair,
+      database::Label label,
+      const std::pair<std::string, database::Property> &prop_pair,
       query::Expression *expression)
       : label_(label), property_(prop_pair.second), expression_(expression) {}
 
@@ -256,8 +256,8 @@ class ExpectScanAllByLabelPropertyValue
   }
 
  private:
-  GraphDbTypes::Label label_;
-  GraphDbTypes::Property property_;
+  database::Label label_;
+  database::Property property_;
   query::Expression *expression_;
 };
 
@@ -265,7 +265,7 @@ class ExpectScanAllByLabelPropertyRange
     : public OpChecker<ScanAllByLabelPropertyRange> {
  public:
   ExpectScanAllByLabelPropertyRange(
-      GraphDbTypes::Label label, GraphDbTypes::Property property,
+      database::Label label, database::Property property,
       std::experimental::optional<Bound> lower_bound,
       std::experimental::optional<Bound> upper_bound)
       : label_(label),
@@ -290,15 +290,15 @@ class ExpectScanAllByLabelPropertyRange
   }
 
  private:
-  GraphDbTypes::Label label_;
-  GraphDbTypes::Property property_;
+  database::Label label_;
+  database::Property property_;
   std::experimental::optional<Bound> lower_bound_;
   std::experimental::optional<Bound> upper_bound_;
 };
 
 class ExpectCreateIndex : public OpChecker<CreateIndex> {
  public:
-  ExpectCreateIndex(GraphDbTypes::Label label, GraphDbTypes::Property property)
+  ExpectCreateIndex(database::Label label, database::Property property)
       : label_(label), property_(property) {}
 
   void ExpectOp(CreateIndex &create_index, const SymbolTable &) override {
@@ -307,8 +307,8 @@ class ExpectCreateIndex : public OpChecker<CreateIndex> {
   }
 
  private:
-  GraphDbTypes::Label label_;
-  GraphDbTypes::Property property_;
+  database::Label label_;
+  database::Property property_;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -330,8 +330,8 @@ auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table,
 template <class... TChecker>
 auto CheckPlan(AstTreeStorage &storage, TChecker... checker) {
   auto symbol_table = MakeSymbolTable(*storage.query());
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage);
   ASSERT_TRUE(query_parts.query_parts.size() > 0);
@@ -356,8 +356,8 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n"))));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage);
   ASSERT_TRUE(query_parts.query_parts.size() > 0);
@@ -370,8 +370,8 @@ TEST(TestLogicalPlanner, CreateNodeReturn) {
 TEST(TestLogicalPlanner, CreateExpand) {
   // Test CREATE (n) -[r :rel1]-> (m)
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
   QUERY(SINGLE_QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
@@ -388,8 +388,8 @@ TEST(TestLogicalPlanner, CreateMultipleNode) {
 TEST(TestLogicalPlanner, CreateNodeExpandNode) {
   // Test CREATE (n) -[r :rel]-> (m), (l)
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("rel");
   QUERY(SINGLE_QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")),
@@ -401,8 +401,8 @@ TEST(TestLogicalPlanner, CreateNodeExpandNode) {
 TEST(TestLogicalPlanner, CreateNamedPattern) {
   // Test CREATE p = (n) -[r :rel]-> (m)
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("rel");
   QUERY(SINGLE_QUERY(CREATE(NAMED_PATTERN(
       "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
@@ -413,8 +413,8 @@ TEST(TestLogicalPlanner, CreateNamedPattern) {
 TEST(TestLogicalPlanner, MatchCreateExpand) {
   // Test MATCH (n) CREATE (n) -[r :rel1]-> (m)
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -426,8 +426,8 @@ TEST(TestLogicalPlanner, MatchCreateExpand) {
 TEST(TestLogicalPlanner, MatchLabeledNodes) {
   // Test MATCH (n :label) RETURN n
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN("n")));
   CheckPlan(storage, ExpectScanAllByLabel(), ExpectProduce());
@@ -436,8 +436,8 @@ TEST(TestLogicalPlanner, MatchLabeledNodes) {
 TEST(TestLogicalPlanner, MatchPathReturn) {
   // Test MATCH (n) -[r :relationship]- (m) RETURN n
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}),
@@ -449,8 +449,8 @@ TEST(TestLogicalPlanner, MatchPathReturn) {
 TEST(TestLogicalPlanner, MatchNamedPatternReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) RETURN p
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
   QUERY(SINGLE_QUERY(
       MATCH(NAMED_PATTERN("p", NODE("n"),
@@ -464,8 +464,8 @@ TEST(TestLogicalPlanner, MatchNamedPatternReturn) {
 TEST(TestLogicalPlanner, MatchNamedPatternWithPredicateReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) RETURN p
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
   QUERY(SINGLE_QUERY(
       MATCH(NAMED_PATTERN("p", NODE("n"),
@@ -478,8 +478,8 @@ TEST(TestLogicalPlanner, MatchNamedPatternWithPredicateReturn) {
 
 TEST(TestLogicalPlanner, OptionalMatchNamedPatternReturn) {
   // Test OPTIONAL MATCH p = (n) -[r]- (m) RETURN p
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   auto node_n = NODE("n");
   auto edge = EDGE("r");
@@ -508,8 +508,8 @@ TEST(TestLogicalPlanner, OptionalMatchNamedPatternReturn) {
 TEST(TestLogicalPlanner, MatchWhereReturn) {
   // Test MATCH (n) WHERE n.property < 42 RETURN n
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto property = dba.Property("property");
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                      WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))),
@@ -527,8 +527,8 @@ TEST(TestLogicalPlanner, MatchDelete) {
 TEST(TestLogicalPlanner, MatchNodeSet) {
   // Test MATCH (n) SET n.prop = 42, n = n, n :label
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   auto label = dba.Label("label");
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -541,8 +541,8 @@ TEST(TestLogicalPlanner, MatchNodeSet) {
 TEST(TestLogicalPlanner, MatchRemove) {
   // Test MATCH (n) REMOVE n.prop REMOVE n :label
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   auto label = dba.Label("label");
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -624,8 +624,8 @@ TEST(TestLogicalPlanner, MatchWithReturn) {
 
 TEST(TestLogicalPlanner, MatchWithWhereReturn) {
   // Test MATCH (old) WITH old AS new WHERE new.prop < 42 RETURN new
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
@@ -638,8 +638,8 @@ TEST(TestLogicalPlanner, MatchWithWhereReturn) {
 
 TEST(TestLogicalPlanner, CreateMultiExpand) {
   // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto r = dba.EdgeType("r");
   auto p = dba.EdgeType("p");
   AstTreeStorage storage;
@@ -653,8 +653,8 @@ TEST(TestLogicalPlanner, CreateMultiExpand) {
 TEST(TestLogicalPlanner, MatchWithSumWhereReturn) {
   // Test MATCH (n) WITH SUM(n.prop) + 42 AS sum WHERE sum < 42
   //      RETURN sum AS result
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
@@ -669,8 +669,8 @@ TEST(TestLogicalPlanner, MatchWithSumWhereReturn) {
 
 TEST(TestLogicalPlanner, MatchReturnSum) {
   // Test MATCH (n) RETURN SUM(n.prop1) AS sum, n.prop2 AS group
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
   AstTreeStorage storage;
@@ -684,8 +684,8 @@ TEST(TestLogicalPlanner, MatchReturnSum) {
 
 TEST(TestLogicalPlanner, CreateWithSum) {
   // Test CREATE (n) WITH SUM(n.prop) AS sum
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
@@ -709,8 +709,8 @@ TEST(TestLogicalPlanner, CreateWithSum) {
 
 TEST(TestLogicalPlanner, MatchWithCreate) {
   // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto r_type = dba.EdgeType("r");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(
@@ -738,8 +738,8 @@ TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
                                   RETURN("m", LIMIT(LITERAL(1)))));
   auto symbol_table = MakeSymbolTable(*query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage);
   ASSERT_TRUE(query_parts.query_parts.size() > 0);
@@ -757,8 +757,8 @@ TEST(TestLogicalPlanner, CreateWithSkipReturnLimit) {
 
 TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
   // Test CREATE (n) RETURN SUM(n.prop) AS s SKIP 2 LIMIT 1
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
@@ -781,8 +781,8 @@ TEST(TestLogicalPlanner, CreateReturnSumSkipLimit) {
 
 TEST(TestLogicalPlanner, MatchReturnOrderBy) {
   // Test MATCH (n) RETURN n ORDER BY n.prop
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto ret = RETURN("n", ORDER_BY(PROPERTY_LOOKUP("n", prop)));
@@ -793,8 +793,8 @@ TEST(TestLogicalPlanner, MatchReturnOrderBy) {
 TEST(TestLogicalPlanner, CreateWithOrderByWhere) {
   // Test CREATE (n) -[r :r]-> (m)
   //      WITH n AS new ORDER BY new.prop, r.prop WHERE m.prop < 42
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   auto r_type = dba.EdgeType("r");
   AstTreeStorage storage;
@@ -839,8 +839,8 @@ TEST(TestLogicalPlanner, MatchMerge) {
   // Test MATCH (n) MERGE (n) -[r :r]- (m)
   //      ON MATCH SET n.prop = 42 ON CREATE SET m = n
   //      RETURN n AS n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto r_type = dba.EdgeType("r");
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
@@ -874,8 +874,8 @@ TEST(TestLogicalPlanner, MatchMerge) {
 
 TEST(TestLogicalPlanner, MatchOptionalMatchWhereReturn) {
   // Test MATCH (n) OPTIONAL MATCH (n) -[r]- (m) WHERE m.prop < 42 RETURN r
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -908,8 +908,8 @@ TEST(TestLogicalPlanner, ReturnDistinctOrderBySkipLimit) {
 
 TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
   // Test CREATE (n) WITH DISTINCT SUM(n.prop) AS s WHERE s < 42 RETURN s
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
@@ -932,8 +932,8 @@ TEST(TestLogicalPlanner, CreateWithDistinctSumWhereReturn) {
 
 TEST(TestLogicalPlanner, MatchCrossReferenceVariable) {
   // Test MATCH (n {prop: m.prop}), (m {prop: n.prop}) RETURN n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   auto node_n = NODE("n");
@@ -951,8 +951,8 @@ TEST(TestLogicalPlanner, MatchCrossReferenceVariable) {
 
 TEST(TestLogicalPlanner, MatchWhereBeforeExpand) {
   // Test MATCH (n) -[r]- (m) WHERE n.prop < 42 RETURN n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
@@ -965,8 +965,8 @@ TEST(TestLogicalPlanner, MatchWhereBeforeExpand) {
 
 TEST(TestLogicalPlanner, MultiMatchWhere) {
   // Test MATCH (n) -[r]- (m) MATCH (l) WHERE n.prop < 42 RETURN n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
@@ -981,8 +981,8 @@ TEST(TestLogicalPlanner, MultiMatchWhere) {
 
 TEST(TestLogicalPlanner, MatchOptionalMatchWhere) {
   // Test MATCH (n) -[r]- (m) OPTIONAL MATCH (l) WHERE n.prop < 42 RETURN n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
@@ -999,8 +999,8 @@ TEST(TestLogicalPlanner, MatchOptionalMatchWhere) {
 
 TEST(TestLogicalPlanner, MatchReturnAsterisk) {
   // Test MATCH (n) -[e]- (m) RETURN *, m.prop
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto ret = RETURN(PROPERTY_LOOKUP("m", prop), AS("m.prop"));
@@ -1026,8 +1026,8 @@ TEST(TestLogicalPlanner, MatchReturnAsterisk) {
 
 TEST(TestLogicalPlanner, MatchReturnAsteriskSum) {
   // Test MATCH (n) RETURN *, SUM(n.prop) AS s
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
@@ -1060,8 +1060,8 @@ TEST(TestLogicalPlanner, MatchReturnAsteriskSum) {
 
 TEST(TestLogicalPlanner, UnwindMergeNodeProperty) {
   // Test UNWIND [1] AS i MERGE (n {prop: i})
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   auto node_n = NODE("n");
   node_n->properties_[PROPERTY_PAIR("prop")] = IDENT("i");
@@ -1116,8 +1116,8 @@ TEST(TestLogicalPlanner, ListLiteralAggregationReturn) {
 TEST(TestLogicalPlanner, MapLiteralAggregationReturn) {
   // Test RETURN {sum: SUM(2)} AS result, 42 AS group_by
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
   QUERY(SINGLE_QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum}), AS("result"),
@@ -1180,7 +1180,7 @@ TEST(TestLogicalPlanner, AggregatonWithListWithAggregationAndGroupBy) {
 
 TEST(TestLogicalPlanner, MapWithAggregationAndGroupBy) {
   // Test RETURN {lit: 42, sum: sum(2)}
-  GraphDb db;
+  database::SingleNode db;
   AstTreeStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
@@ -1193,8 +1193,8 @@ TEST(TestLogicalPlanner, MapWithAggregationAndGroupBy) {
 
 TEST(TestLogicalPlanner, CreateIndex) {
   // Test CREATE INDEX ON :Label(property)
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = dba.Property("property");
   AstTreeStorage storage;
@@ -1205,8 +1205,8 @@ TEST(TestLogicalPlanner, CreateIndex) {
 TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
   // Test MATCH (n :label {property: 42, not_indexed: 0}) RETURN n
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
   auto not_indexed = PROPERTY_PAIR("not_indexed");
@@ -1214,9 +1214,9 @@ TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
   vertex.add_label(label);
   vertex.PropsSet(property.second, 42);
   dba.Commit();
-  GraphDbAccessor(db).BuildIndex(label, property.second);
+  database::GraphDbAccessor(db).BuildIndex(label, property.second);
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto node = NODE("n", label);
     auto lit_42 = LITERAL(42);
     node->properties_[property] = lit_42;
@@ -1239,14 +1239,14 @@ TEST(TestLogicalPlanner, AtomIndexedLabelProperty) {
 TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
   // Test MATCH (n {property: 42}) WHERE n.not_indexed AND n:label RETURN n
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
   auto not_indexed = PROPERTY_PAIR("not_indexed");
   dba.BuildIndex(label, property.second);
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto node = NODE("n");
     auto lit_42 = LITERAL(42);
     node->properties_[property] = lit_42;
@@ -1254,7 +1254,7 @@ TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
         MATCH(PATTERN(node)),
         WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
                   storage.Create<query::LabelsTest>(
-                      IDENT("n"), std::vector<GraphDbTypes::Label>{label}))),
+                      IDENT("n"), std::vector<database::Label>{label}))),
         RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
@@ -1273,13 +1273,13 @@ TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
 TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
   // Test MATCH (n :label) WHERE n.property = 42 RETURN n
   AstTreeStorage storage;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
   dba.BuildIndex(label, property.second);
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     auto lit_42 = LITERAL(42);
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))),
                        WHERE(EQ(PROPERTY_LOOKUP("n", property), lit_42)),
@@ -1300,12 +1300,12 @@ TEST(TestLogicalPlanner, WhereIndexedLabelProperty) {
 TEST(TestLogicalPlanner, BestPropertyIndexed) {
   // Test MATCH (n :label) WHERE n.property = 1 AND n.better = 42 RETURN n
   AstTreeStorage storage;
-  GraphDb db;
-  auto label = GraphDbAccessor(db).Label("label");
-  auto property = GraphDbAccessor(db).Property("property");
+  database::SingleNode db;
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto property = database::GraphDbAccessor(db).Property("property");
   {
-    GraphDbAccessor(db).BuildIndex(label, property);
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor(db).BuildIndex(label, property);
+    database::GraphDbAccessor dba(db);
     // Add a vertex with :label+property combination, so that the best
     // :label+better remains empty and thus better choice.
     auto vertex = dba.InsertVertex();
@@ -1313,11 +1313,11 @@ TEST(TestLogicalPlanner, BestPropertyIndexed) {
     vertex.PropsSet(property, 1);
     dba.Commit();
   }
-  ASSERT_EQ(GraphDbAccessor(db).VerticesCount(label, property), 1);
+  ASSERT_EQ(database::GraphDbAccessor(db).VerticesCount(label, property), 1);
   auto better = PROPERTY_PAIR("better");
-  GraphDbAccessor(db).BuildIndex(label, better.second);
+  database::GraphDbAccessor(db).BuildIndex(label, better.second);
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     ASSERT_EQ(dba.VerticesCount(label, better.second), 0);
     auto lit_42 = LITERAL(42);
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))),
@@ -1340,14 +1340,14 @@ TEST(TestLogicalPlanner, BestPropertyIndexed) {
 TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
   // Test MATCH (n :label1), (m :label2) WHERE n.prop1 = 1 AND m.prop2 = 2
   //      RETURN n, m
-  GraphDb db;
-  auto label1 = GraphDbAccessor(db).Label("label1");
-  auto label2 = GraphDbAccessor(db).Label("label2");
+  database::SingleNode db;
+  auto label1 = database::GraphDbAccessor(db).Label("label1");
+  auto label2 = database::GraphDbAccessor(db).Label("label2");
   auto prop1 = PROPERTY_PAIR("prop1");
   auto prop2 = PROPERTY_PAIR("prop2");
-  GraphDbAccessor(db).BuildIndex(label1, prop1.second);
-  GraphDbAccessor(db).BuildIndex(label2, prop2.second);
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor(db).BuildIndex(label1, prop1.second);
+  database::GraphDbAccessor(db).BuildIndex(label2, prop2.second);
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   auto lit_1 = LITERAL(1);
   auto lit_2 = LITERAL(2);
@@ -1372,11 +1372,11 @@ TEST(TestLogicalPlanner, MultiPropertyIndexScan) {
 TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
   // Test MATCH (n :label) WHERE n.property REL_OP 42 RETURN n
   // REL_OP is one of: `<`, `<=`, `>`, `>=`
-  GraphDb db;
-  auto label = GraphDbAccessor(db).Label("label");
-  auto property = GraphDbAccessor(db).Property("property");
-  GraphDbAccessor(db).BuildIndex(label, property);
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto property = database::GraphDbAccessor(db).Property("property");
+  database::GraphDbAccessor(db).BuildIndex(label, property);
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
@@ -1426,13 +1426,13 @@ TEST(TestLogicalPlanner, WhereIndexedLabelPropertyRange) {
 
 TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
   // Test MATCH (n: label) WHERE n.property = n.property RETURN n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = dba.Property("property");
   dba.BuildIndex(label, property);
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     AstTreeStorage storage;
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))),
                        WHERE(EQ(PROPERTY_LOOKUP("n", property),
@@ -1454,13 +1454,13 @@ TEST(TestLogicalPlanner, UnableToUsePropertyIndex) {
 
 TEST(TestLogicalPlanner, SecondPropertyIndex) {
   // Test MATCH (n :label), (m :label) WHERE m.property = n.property RETURN n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = PROPERTY_PAIR("property");
   dba.BuildIndex(label, dba.Property("property"));
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     AstTreeStorage storage;
     auto n_prop = PROPERTY_LOOKUP("n", property);
     auto m_prop = PROPERTY_LOOKUP("m", property);
@@ -1511,8 +1511,8 @@ TEST(TestLogicalPlanner, MatchExpandVariableNoBounds) {
 
 TEST(TestLogicalPlanner, MatchExpandVariableInlinedFilter) {
   // Test MATCH (n) -[r :type * {prop: 42}]-> (m) RETURN r
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto type = dba.EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
@@ -1526,8 +1526,8 @@ TEST(TestLogicalPlanner, MatchExpandVariableInlinedFilter) {
 
 TEST(TestLogicalPlanner, MatchExpandVariableNotInlinedFilter) {
   // Test MATCH (n) -[r :type * {prop: m.prop}]-> (m) RETURN r
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto type = dba.EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
@@ -1552,13 +1552,13 @@ TEST(TestLogicalPlanner, UnwindMatchVariable) {
 
 TEST(TestLogicalPlanner, MatchBreadthFirst) {
   // Test MATCH (n) -[r:type *..10 (r, n|n)]-> (m) RETURN r
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto edge_type = dba.EdgeType("type");
   AstTreeStorage storage;
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
-      std::vector<GraphDbTypes::EdgeType>{edge_type});
+      std::vector<database::EdgeType>{edge_type});
   bfs->inner_edge_ = IDENT("r");
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = IDENT("n");
@@ -1570,8 +1570,8 @@ TEST(TestLogicalPlanner, MatchBreadthFirst) {
 
 TEST(TestLogicalPlanner, MatchDoubleScanToExpandExisting) {
   // Test MATCH (n) -[r]- (m :label) RETURN r
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))),
@@ -1591,11 +1591,11 @@ TEST(TestLogicalPlanner, MatchDoubleScanToExpandExisting) {
 
 TEST(TestLogicalPlanner, MatchScanToExpand) {
   // Test MATCH (n) -[r]- (m :label {property: 1}) RETURN r
-  GraphDb db;
-  auto label = GraphDbAccessor(db).Label("label");
-  auto property = GraphDbAccessor(db).Property("property");
-  GraphDbAccessor(db).BuildIndex(label, property);
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto property = database::GraphDbAccessor(db).Property("property");
+  database::GraphDbAccessor(db).BuildIndex(label, property);
+  database::GraphDbAccessor dba(db);
   // Fill vertices to the max.
   for (int64_t i = 0; i < FLAGS_query_vertex_count_to_expand_existing; ++i) {
     auto vertex = dba.InsertVertex();
@@ -1608,7 +1608,7 @@ TEST(TestLogicalPlanner, MatchScanToExpand) {
   vertex.PropsSet(property, 1);
   dba.Commit();
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     AstTreeStorage storage;
     auto node_m = NODE("m", label);
     node_m->properties_[std::make_pair("property", property)] = LITERAL(1);
@@ -1630,8 +1630,8 @@ TEST(TestLogicalPlanner, MatchScanToExpand) {
 
 TEST(TestLogicalPlanner, MatchWhereAndSplit) {
   // Test MATCH (n) -[r]- (m) WHERE n.prop AND r.prop RETURN m
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(
@@ -1645,8 +1645,8 @@ TEST(TestLogicalPlanner, MatchWhereAndSplit) {
 
 TEST(TestLogicalPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   // Test MATCH (n) -[r* (ie, in | true)]- (m) RETURN *
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH);
   edge->inner_edge_ = IDENT("ie");

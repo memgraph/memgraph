@@ -213,7 +213,7 @@ antlrcpp::Any CypherMainVisitor::visitCreate(CypherParser::CreateContext *ctx) {
  */
 antlrcpp::Any CypherMainVisitor::visitCreateIndex(
     CypherParser::CreateIndexContext *ctx) {
-  std::pair<std::string, GraphDbTypes::Property> key =
+  std::pair<std::string, database::Property> key =
       ctx->propertyKeyName()->accept(this);
   return storage_.Create<CreateIndex>(
       ctx_.db_accessor_.Label(ctx->labelName()->accept(this)), key.second);
@@ -305,21 +305,21 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(
   }
   if (ctx->nodeLabels()) {
     node->labels_ =
-        ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
+        ctx->nodeLabels()->accept(this).as<std::vector<database::Label>>();
   }
   if (ctx->properties()) {
-    node->properties_ = ctx->properties()
-                            ->accept(this)
-                            .as<std::unordered_map<
-                                std::pair<std::string, GraphDbTypes::Property>,
-                                Expression *>>();
+    node->properties_ =
+        ctx->properties()
+            ->accept(this)
+            .as<std::unordered_map<std::pair<std::string, database::Property>,
+                                   Expression *>>();
   }
   return node;
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(
     CypherParser::NodeLabelsContext *ctx) {
-  std::vector<GraphDbTypes::Label> labels;
+  std::vector<database::Label> labels;
   for (auto *node_label : ctx->nodeLabel()) {
     labels.push_back(ctx_.db_accessor_.Label(node_label->accept(this)));
   }
@@ -341,11 +341,10 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(
     CypherParser::MapLiteralContext *ctx) {
-  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
-                     Expression *>
+  std::unordered_map<std::pair<std::string, database::Property>, Expression *>
       map;
   for (int i = 0; i < static_cast<int>(ctx->propertyKeyName().size()); ++i) {
-    std::pair<std::string, GraphDbTypes::Property> key =
+    std::pair<std::string, database::Property> key =
         ctx->propertyKeyName()[i]->accept(this);
     Expression *value = ctx->expression()[i]->accept(this);
     if (!map.insert({key, value}).second) {
@@ -500,7 +499,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     edge->edge_types_ = ctx->relationshipDetail()
                             ->relationshipTypes()
                             ->accept(this)
-                            .as<std::vector<GraphDbTypes::EdgeType>>();
+                            .as<std::vector<database::EdgeType>>();
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
@@ -540,9 +539,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
       edge->properties_ =
           properties[0]
               ->accept(this)
-              .as<std::unordered_map<
-                  std::pair<std::string, GraphDbTypes::Property>,
-                  Expression *>>();
+              .as<std::unordered_map<std::pair<std::string, database::Property>,
+                                     Expression *>>();
       break;
     }
     default:
@@ -566,7 +564,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
     CypherParser::RelationshipTypesContext *ctx) {
-  std::vector<GraphDbTypes::EdgeType> types;
+  std::vector<database::EdgeType> types;
   for (auto *edge_type : ctx->relTypeName()) {
     types.push_back(ctx_.db_accessor_.EdgeType(edge_type->accept(this)));
   }
@@ -817,7 +815,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(
   Expression *expression = ctx->expression2b()->accept(this);
   if (ctx->nodeLabels()) {
     auto labels =
-        ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
+        ctx->nodeLabels()->accept(this).as<std::vector<database::Label>>();
     expression = storage_.Create<LabelsTest>(expression, labels);
   }
   return expression;
@@ -827,7 +825,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2b(
     CypherParser::Expression2bContext *ctx) {
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
-    std::pair<std::string, GraphDbTypes::Property> key = lookup->accept(this);
+    std::pair<std::string, database::Property> key = lookup->accept(this);
     auto property_lookup =
         storage_.Create<PropertyLookup>(expression, key.first, key.second);
     expression = property_lookup;
@@ -914,9 +912,8 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
     return static_cast<Expression *>(storage_.Create<MapLiteral>(
         ctx->mapLiteral()
             ->accept(this)
-            .as<std::unordered_map<
-                std::pair<std::string, GraphDbTypes::Property>,
-                Expression *>>()));
+            .as<std::unordered_map<std::pair<std::string, database::Property>,
+                                   Expression *>>()));
   }
   return visitChildren(ctx);
 }
@@ -1075,7 +1072,7 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(
   set_labels->identifier_ = storage_.Create<Identifier>(
       ctx->variable()->accept(this).as<std::string>());
   set_labels->labels_ =
-      ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
+      ctx->nodeLabels()->accept(this).as<std::vector<database::Label>>();
   return static_cast<Clause *>(set_labels);
 }
 
@@ -1101,7 +1098,7 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(
   remove_labels->identifier_ = storage_.Create<Identifier>(
       ctx->variable()->accept(this).as<std::string>());
   remove_labels->labels_ =
-      ctx->nodeLabels()->accept(this).as<std::vector<GraphDbTypes::Label>>();
+      ctx->nodeLabels()->accept(this).as<std::vector<database::Label>>();
   return static_cast<Clause *>(remove_labels);
 }
 
@@ -1109,7 +1106,7 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
     CypherParser::PropertyExpressionContext *ctx) {
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
-    std::pair<std::string, GraphDbTypes::Property> key = lookup->accept(this);
+    std::pair<std::string, database::Property> key = lookup->accept(this);
     auto property_lookup =
         storage_.Create<PropertyLookup>(expression, key.first, key.second);
     expression = property_lookup;

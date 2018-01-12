@@ -4,12 +4,14 @@
 #include "bolt_common.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/session.hpp"
+#include "database/graph_db.hpp"
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
 #define INIT_VARS                                    \
   TestSocket socket(10);                             \
-  SessionData session_data;                          \
+  database::SingleNode db;                           \
+  SessionData session_data{db};                      \
   SessionT session(std::move(socket), session_data); \
   std::vector<uint8_t> &output = session.socket_.output;
 

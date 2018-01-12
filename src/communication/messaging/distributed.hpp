@@ -58,7 +58,7 @@ class System {
   friend class Writer;
 
   System(const std::string &address, uint16_t port);
-  System(const Endpoint &endpoint);
+  explicit System(const Endpoint &endpoint);
   System(const System &) = delete;
   System(System &&) = delete;
   System &operator=(const System &) = delete;

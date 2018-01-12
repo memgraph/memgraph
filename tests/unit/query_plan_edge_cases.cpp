@@ -8,14 +8,16 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
+#include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
 
 DECLARE_bool(query_cost_planner);
 
 class QueryExecution : public testing::Test {
  protected:
-  std::experimental::optional<GraphDb> db_;
-  std::experimental::optional<GraphDbAccessor> dba_;
+  std::experimental::optional<database::SingleNode> db_;
+  std::experimental::optional<database::GraphDbAccessor> dba_;
 
   void SetUp() {
     db_.emplace();

@@ -174,7 +174,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
                                const Symbol &symbol,
-                               const GraphDbTypes::Property &property,
+                               const database::Property &property,
                                Expression *value)
     : symbol_(symbol), property_(property), value_(value) {
   UsedSymbolsCollector collector(symbol_table);
@@ -184,7 +184,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
 
 PropertyFilter::PropertyFilter(
     const SymbolTable &symbol_table, const Symbol &symbol,
-    const GraphDbTypes::Property &property,
+    const database::Property &property,
     const std::experimental::optional<PropertyFilter::Bound> &lower_bound,
     const std::experimental::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
@@ -212,7 +212,7 @@ void Filters::EraseFilter(const FilterInfo &filter) {
 }
 
 void Filters::EraseLabelFilter(const Symbol &symbol,
-                               const GraphDbTypes::Label &label) {
+                               const database::Label &label) {
   for (auto filter_it = all_filters_.begin();
        filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {

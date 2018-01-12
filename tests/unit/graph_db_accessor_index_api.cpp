@@ -5,6 +5,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "utils/bound.hpp"
 
@@ -21,11 +22,11 @@ auto Count(TIterable iterable) {
  */
 class GraphDbAccessorIndex : public testing::Test {
  protected:
-  GraphDb db;
-  std::experimental::optional<GraphDbAccessor> dba{db};
-  GraphDbTypes::Property property = dba->Property("property");
-  GraphDbTypes::Label label = dba->Label("label");
-  GraphDbTypes::EdgeType edge_type = dba->EdgeType("edge_type");
+  database::SingleNode db;
+  std::experimental::optional<database::GraphDbAccessor> dba{db};
+  database::Property property = dba->Property("property");
+  database::Label label = dba->Label("label");
+  database::EdgeType edge_type = dba->EdgeType("edge_type");
 
   auto AddVertex() {
     auto vertex = dba->InsertVertex();
@@ -54,8 +55,9 @@ TEST_F(GraphDbAccessorIndex, LabelIndexCount) {
   EXPECT_EQ(dba->VerticesCount(), 0);
   for (int i = 0; i < 11; ++i) dba->InsertVertex().add_label(label);
   for (int i = 0; i < 17; ++i) dba->InsertVertex().add_label(label2);
-  // even though xxx_count functions in GraphDbAccessor can over-estaimate
-  // in this situation they should be exact (nothing was ever deleted)
+  // even though xxx_count functions in database::GraphDbAccessor can
+  // over-estaimate in this situation they should be exact (nothing was ever
+  // deleted)
   EXPECT_EQ(dba->VerticesCount(label), 11);
   EXPECT_EQ(dba->VerticesCount(label2), 17);
   EXPECT_EQ(dba->VerticesCount(), 28);
@@ -91,8 +93,9 @@ TEST_F(GraphDbAccessorIndex, EdgesCount) {
   auto v2 = AddVertex();
   for (int i = 0; i < 11; ++i) dba->InsertEdge(v1, v2, edge_type);
   for (int i = 0; i < 17; ++i) dba->InsertEdge(v1, v2, edge_type2);
-  // even though xxx_count functions in GraphDbAccessor can over-estaimate
-  // in this situation they should be exact (nothing was ever deleted)
+  // even though xxx_count functions in database::GraphDbAccessor can
+  // over-estaimate in this situation they should be exact (nothing was ever
+  // deleted)
   EXPECT_EQ(dba->EdgesCount(), 28);
 }
 
@@ -134,12 +137,12 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
 TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
   const int ITER_COUNT = 10;
   for (int iter = 0; iter < ITER_COUNT; ++iter) {
-    GraphDb db;
+    database::SingleNode db;
     const int THREAD_COUNT = 10;
     std::vector<std::thread> threads;
     for (int index = 0; index < THREAD_COUNT; ++index) {
       threads.emplace_back([&db, index]() {
-        GraphDbAccessor dba(db);
+        database::GraphDbAccessor dba(db);
         dba.BuildIndex(dba.Label("l" + std::to_string(index)),
                        dba.Property("p" + std::to_string(index)));
 
@@ -339,7 +342,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
  * (label, property) index and 100 vertices, 10 for
  * each of [0, 10) property values.
  */
-class GraphDbAccesssorIndexRange : public GraphDbAccessorIndex {
+class GraphDbAccessorIndexRange : public GraphDbAccessorIndex {
  protected:
   void SetUp() override {
     dba->BuildIndex(label, property);
@@ -368,7 +371,7 @@ class GraphDbAccesssorIndexRange : public GraphDbAccessorIndex {
   }
 };
 
-TEST_F(GraphDbAccesssorIndexRange, RangeIteration) {
+TEST_F(GraphDbAccessorIndexRange, RangeIteration) {
   using std::experimental::nullopt;
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(7))), 80);
   EXPECT_EQ(Count(Vertices(nullopt, Exclusive(7))), 70);
@@ -381,7 +384,7 @@ TEST_F(GraphDbAccesssorIndexRange, RangeIteration) {
   EXPECT_DEATH(Vertices(nullopt, nullopt), "bound must be provided");
 }
 
-TEST_F(GraphDbAccesssorIndexRange, RangeIterationCurrentState) {
+TEST_F(GraphDbAccessorIndexRange, RangeIterationCurrentState) {
   using std::experimental::nullopt;
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(7))), 80);
   for (int i = 0; i < 20; i++) AddVertex(2);
@@ -391,7 +394,7 @@ TEST_F(GraphDbAccesssorIndexRange, RangeIterationCurrentState) {
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(7))), 100);
 }
 
-TEST_F(GraphDbAccesssorIndexRange, RangeInterationIncompatibleTypes) {
+TEST_F(GraphDbAccessorIndexRange, RangeInterationIncompatibleTypes) {
   using std::experimental::nullopt;
 
   // using PropertyValue::Null as a bound fails with an assertion

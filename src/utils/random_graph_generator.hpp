@@ -1,8 +1,3 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 23.03.17.
-//
-
 #pragma once
 
 #include <algorithm>
@@ -14,7 +9,7 @@
 
 #include "data_structures/concurrent/skiplist.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
 #include "storage/vertex_accessor.hpp"
@@ -38,7 +33,7 @@ auto RandomIntGenerator(int from, int to) {
  */
 class RandomGraphGenerator {
  public:
-  explicit RandomGraphGenerator(GraphDb &db) : db_(db) {}
+  explicit RandomGraphGenerator(database::GraphDb &db) : db_(db) {}
 
   /**
    * Adds a progress listener that gets notified when
@@ -66,13 +61,13 @@ class RandomGraphGenerator {
    */
   void AddVertices(int count, const std::vector<std::string> &label_names,
                    int thread_count, int batch_size = 2000) {
-    GraphDbAccessor dba(db_);
-    std::vector<GraphDbTypes::Label> labels;
+    database::GraphDbAccessor dba(db_);
+    std::vector<database::Label> labels;
     for (const auto &label_name : label_names)
       labels.push_back(dba.Label(label_name));
 
     Map(
-        [&labels, this](GraphDbAccessor &dba) {
+        [&labels, this](database::GraphDbAccessor &dba) {
           auto vertex = dba.InsertVertex();
           for (auto label : labels) vertex.add_label(label);
           NotifyProgressListeners();
@@ -86,7 +81,7 @@ class RandomGraphGenerator {
    * regardless of their labels.
    */
   int64_t VertexCount() const {
-    GraphDbAccessor accessor(db_);
+    database::GraphDbAccessor accessor(db_);
     return CountIterable(accessor.Vertices(true));
   }
 
@@ -111,7 +106,7 @@ class RandomGraphGenerator {
     auto vertices_from = FilterVertices(from_filter);
     auto vertices_to = FilterVertices(to_filter);
 
-    GraphDbAccessor dba(db_);
+    database::GraphDbAccessor dba(db_);
     auto edge_type = dba.EdgeType(edge_type_name);
 
     // for small vertex counts reduce the batch size
@@ -119,7 +114,8 @@ class RandomGraphGenerator {
         std::min(batch_size, static_cast<int>(dba.VerticesCount() / 1000 + 1));
 
     Map(
-        [&vertices_from, &vertices_to, edge_type, this](GraphDbAccessor &dba) {
+        [&vertices_from, &vertices_to, edge_type,
+         this](database::GraphDbAccessor &dba) {
           auto from =
               dba.Transfer(vertices_from[rand() % vertices_from.size()]);
           auto to = dba.Transfer(vertices_to[rand() % vertices_to.size()]);
@@ -137,7 +133,7 @@ class RandomGraphGenerator {
    * regardless of their types and origin/destination labels.
    */
   int64_t EdgeCount() const {
-    GraphDbAccessor accessor(db_);
+    database::GraphDbAccessor accessor(db_);
     return CountIterable(accessor.Edges(true));
   }
 
@@ -155,7 +151,7 @@ class RandomGraphGenerator {
       const std::string &prop_name, std::function<TValue()> value_generator,
       std::function<bool(VertexAccessor &va)> predicate = {}) {
     if (!predicate) predicate = [](VertexAccessor &) { return true; };
-    GraphDbAccessor dba(db_);
+    database::GraphDbAccessor dba(db_);
     auto property = dba.Property(prop_name);
     for (VertexAccessor va : dba.Vertices(false))
       if (predicate(va)) va.PropsSet(property, value_generator());
@@ -163,7 +159,7 @@ class RandomGraphGenerator {
   }
 
  private:
-  GraphDb &db_;
+  database::GraphDb &db_;
 
   // progress listeners, they get notified about vertices and edges being
   // created
@@ -184,7 +180,7 @@ class RandomGraphGenerator {
       std::function<bool(VertexAccessor &item)> predicate = {}) {
     if (!predicate) predicate = [](VertexAccessor &) { return true; };
     std::vector<VertexAccessor> r_val;
-    GraphDbAccessor dba(db_);
+    database::GraphDbAccessor dba(db_);
     for (VertexAccessor &item : dba.Vertices(false))
       if (predicate(item)) r_val.emplace_back(item);
 
@@ -201,7 +197,7 @@ class RandomGraphGenerator {
    * threads. Returns only once all of the threads have
    * finished.
    */
-  void Map(std::function<void(GraphDbAccessor &)> f, int count,
+  void Map(std::function<void(database::GraphDbAccessor &)> f, int count,
            int thread_count, int elements_per_commit) {
     DCHECK(thread_count > 0) << "Can't work on less then 1 thread";
 
@@ -215,7 +211,7 @@ class RandomGraphGenerator {
       threads.emplace_back([count_per_thread, &f, this, elements_per_commit]() {
         for (int i = 0; i < count_per_thread; i += elements_per_commit) {
           while (true) {
-            GraphDbAccessor dba(db_);
+            database::GraphDbAccessor dba(db_);
             try {
               int apply_count =
                   std::min(elements_per_commit, count_per_thread - i);

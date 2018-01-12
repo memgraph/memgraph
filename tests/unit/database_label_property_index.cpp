@@ -2,11 +2,12 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/graph_db_datatypes.hpp"
 #include "database/indexes/label_property_index.hpp"
-#include "transactions/engine_single_node.hpp"
+#include "database/types.hpp"
 
 #include "mvcc_gc_common.hpp"
+
+using namespace database;
 
 class LabelPropertyIndexComplexTest : public ::testing::Test {
  protected:
@@ -40,7 +41,7 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
   }
 
  public:
-  GraphDb db_;
+  SingleNode db_;
   LabelPropertyIndex index;
   LabelPropertyIndex::Key *key;
 
@@ -50,14 +51,14 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
   mvcc::VersionList<Vertex> *vlist;
   Vertex *vertex;
 
-  GraphDbTypes::Label label;
-  GraphDbTypes::Property property;
-  GraphDbTypes::Label label2;
-  GraphDbTypes::Property property2;
+  Label label;
+  Property property;
+  Label label2;
+  Property property2;
 };
 
 TEST(LabelPropertyIndex, CreateIndex) {
-  GraphDb db;
+  SingleNode db;
   GraphDbAccessor accessor(db);
   LabelPropertyIndex::Key key(accessor.Label("test"),
                               accessor.Property("test2"));
@@ -67,7 +68,7 @@ TEST(LabelPropertyIndex, CreateIndex) {
 }
 
 TEST(LabelPropertyIndex, IndexExistance) {
-  GraphDb db;
+  SingleNode db;
   GraphDbAccessor accessor(db);
   LabelPropertyIndex::Key key(accessor.Label("test"),
                               accessor.Property("test2"));
@@ -80,7 +81,7 @@ TEST(LabelPropertyIndex, IndexExistance) {
 }
 
 TEST(LabelPropertyIndex, Count) {
-  GraphDb db;
+  SingleNode db;
   GraphDbAccessor accessor(db);
   auto label = accessor.Label("label");
   auto property = accessor.Property("property");

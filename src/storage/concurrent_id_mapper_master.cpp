@@ -1,6 +1,6 @@
 #include "glog/logging.h"
 
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 
@@ -22,7 +22,7 @@ void RegisterRpc(MasterConcurrentIdMapper<TId> &mapper,
     });                                                                       \
   }
 
-using namespace GraphDbTypes;
+using namespace database;
 ID_VALUE_RPC_CALLS(Label)
 ID_VALUE_RPC_CALLS(EdgeType)
 ID_VALUE_RPC_CALLS(Property)

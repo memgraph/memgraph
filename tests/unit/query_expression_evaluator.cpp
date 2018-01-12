@@ -8,7 +8,7 @@
 #include "gtest/gtest.h"
 
 #include "database/graph_db_accessor.hpp"
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -30,17 +30,18 @@ struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
   Frame frame{128};
   SymbolTable symbol_table;
-  GraphDb db;
-  GraphDbAccessor dba{db};
+  database::SingleNode db;
+  database::GraphDbAccessor dba{db};
   Parameters parameters;
   ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
 };
 
 TypedValue EvaluateFunction(const std::string &function_name,
-                            const std::vector<TypedValue> &args, GraphDb &db) {
+                            const std::vector<TypedValue> &args,
+                            database::GraphDb &db) {
   AstTreeStorage storage;
   SymbolTable symbol_table;
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   Frame frame{128};
   Parameters parameters;
   ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
@@ -55,7 +56,7 @@ TypedValue EvaluateFunction(const std::string &function_name,
 
 TypedValue EvaluateFunction(const std::string &function_name,
                             const std::vector<TypedValue> &args) {
-  GraphDb db;
+  database::SingleNode db;
   return EvaluateFunction(function_name, args, db);
 }
 
@@ -415,10 +416,10 @@ TEST(ExpressionEvaluator, ListMapIndexingOperator) {
 TEST(ExpressionEvaluator, MapIndexing) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto *map_literal = storage.Create<MapLiteral>(
-      std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+      std::unordered_map<std::pair<std::string, database::Property>,
                          Expression *>{
           {PROPERTY_PAIR("a"), storage.Create<PrimitiveLiteral>(1)},
           {PROPERTY_PAIR("b"), storage.Create<PrimitiveLiteral>(2)},
@@ -622,18 +623,17 @@ class ExpressionEvaluatorPropertyLookup : public testing::Test {
  protected:
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  GraphDb db;
-  GraphDbAccessor dba{db};
-  std::pair<std::string, GraphDbTypes::Property> prop_age =
-      PROPERTY_PAIR("age");
-  std::pair<std::string, GraphDbTypes::Property> prop_height =
+  database::SingleNode db;
+  database::GraphDbAccessor dba{db};
+  std::pair<std::string, database::Property> prop_age = PROPERTY_PAIR("age");
+  std::pair<std::string, database::Property> prop_height =
       PROPERTY_PAIR("height");
   Expression *identifier = storage.Create<Identifier>("element");
   Symbol symbol = eval.symbol_table.CreateSymbol("element", true);
 
   void SetUp() { eval.symbol_table[*identifier] = symbol; }
 
-  auto Value(std::pair<std::string, GraphDbTypes::Property> property) {
+  auto Value(std::pair<std::string, database::Property> property) {
     auto *op = storage.Create<PropertyLookup>(identifier, property);
     return op->Accept(eval.eval);
   }
@@ -671,8 +671,8 @@ TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
 TEST(ExpressionEvaluator, LabelsTest) {
   AstTreeStorage storage;
   NoContextExpressionEvaluator eval;
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("ANIMAL"));
   v1.add_label(dba.Label("DOG"));
@@ -683,16 +683,16 @@ TEST(ExpressionEvaluator, LabelsTest) {
   eval.frame[node_symbol] = v1;
   {
     auto *op = storage.Create<LabelsTest>(
-        identifier, std::vector<GraphDbTypes::Label>{dba.Label("DOG"),
-                                                     dba.Label("ANIMAL")});
+        identifier,
+        std::vector<database::Label>{dba.Label("DOG"), dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), true);
   }
   {
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<GraphDbTypes::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
-                                         dba.Label("ANIMAL")});
+        std::vector<database::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
+                                     dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), false);
   }
@@ -700,8 +700,8 @@ TEST(ExpressionEvaluator, LabelsTest) {
     eval.frame[node_symbol] = TypedValue::Null;
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<GraphDbTypes::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
-                                         dba.Label("ANIMAL")});
+        std::vector<database::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
+                                     dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }
@@ -716,8 +716,8 @@ TEST(ExpressionEvaluator, Aggregation) {
   symbol_table[*aggr] = aggr_sym;
   Frame frame{symbol_table.max_position()};
   frame[aggr_sym] = TypedValue(1);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   Parameters parameters;
   ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
   auto value = aggr->Accept(eval);
@@ -754,8 +754,8 @@ TEST(ExpressionEvaluator, FunctionEndNode) {
   ASSERT_THROW(EvaluateFunction("ENDNODE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("ENDNODE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
@@ -783,8 +783,8 @@ TEST(ExpressionEvaluator, FunctionProperties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("PROPERTIES", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -836,8 +836,8 @@ TEST(ExpressionEvaluator, FunctionSize) {
             3);
   ASSERT_THROW(EvaluateFunction("SIZE", {5}), QueryRuntimeException);
 
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v0 = dba.InsertVertex();
   query::Path path(v0);
   EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 0);
@@ -851,8 +851,8 @@ TEST(ExpressionEvaluator, FunctionStartNode) {
   ASSERT_THROW(EvaluateFunction("STARTNODE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("STARTNODE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
@@ -868,8 +868,8 @@ TEST(ExpressionEvaluator, FunctionDegree) {
   ASSERT_THROW(EvaluateFunction("DEGREE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("DEGREE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
@@ -928,8 +928,8 @@ TEST(ExpressionEvaluator, FunctionType) {
   ASSERT_THROW(EvaluateFunction("TYPE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("TYPE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
@@ -943,8 +943,8 @@ TEST(ExpressionEvaluator, FunctionLabels) {
   ASSERT_THROW(EvaluateFunction("LABELS", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("LABELS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v = dba.InsertVertex();
   v.add_label(dba.Label("label1"));
   v.add_label(dba.Label("label2"));
@@ -965,8 +965,8 @@ TEST(ExpressionEvaluator, FunctionNodesRelationships) {
   EXPECT_TRUE(EvaluateFunction("RELATIONSHIPS", {TypedValue::Null}).IsNull());
 
   {
-    GraphDb db;
-    GraphDbAccessor dba(db);
+    database::SingleNode db;
+    database::GraphDbAccessor dba(db);
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
     auto v3 = dba.InsertVertex();
@@ -1023,8 +1023,8 @@ TEST(ExpressionEvaluator, FunctionKeys) {
   ASSERT_THROW(EvaluateFunction("KEYS", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("KEYS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -1257,7 +1257,7 @@ TEST(ExpressionEvaluator, ParameterLookup) {
 }
 
 TEST(ExpressionEvaluator, FunctionCounter) {
-  GraphDb db;
+  database::SingleNode db;
   EXPECT_THROW(EvaluateFunction("COUNTER", {}, db), QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b"}, db),
                QueryRuntimeException);
@@ -1269,7 +1269,7 @@ TEST(ExpressionEvaluator, FunctionCounter) {
 }
 
 TEST(ExpressionEvaluator, FunctionCounterSet) {
-  GraphDb db;
+  database::SingleNode db;
   EXPECT_THROW(EvaluateFunction("COUNTERSET", {}, db), QueryRuntimeException);
   EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a"}, db),
                QueryRuntimeException);
@@ -1287,10 +1287,10 @@ TEST(ExpressionEvaluator, FunctionCounterSet) {
 }
 
 TEST(ExpressionEvaluator, FunctionIndexInfo) {
-  GraphDb db;
+  database::SingleNode db;
   EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}, db), QueryRuntimeException);
   EXPECT_EQ(EvaluateFunction("INDEXINFO", {}, db).ValueList().size(), 0);
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   dba.InsertVertex().add_label(dba.Label("l1"));
   {
     auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, db));

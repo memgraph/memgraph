@@ -25,7 +25,7 @@ class EdgeAccessor : public RecordAccessor<Edge> {
  public:
   /** Constructor that reads data from the random memory location (lower
    * performance, see class docs). */
-  EdgeAccessor(EdgeAddress address, GraphDbAccessor &db_accessor)
+  EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor)
       : RecordAccessor(address, db_accessor),
         from_(nullptr),
         to_(nullptr),
@@ -40,15 +40,15 @@ class EdgeAccessor : public RecordAccessor<Edge> {
 
   /** Constructor that does NOT data from the random memory location (better
    * performance, see class docs). */
-  EdgeAccessor(EdgeAddress address, GraphDbAccessor &db_accessor,
+  EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor,
                VertexAddress from, VertexAddress to,
-               GraphDbTypes::EdgeType edge_type)
+               database::EdgeType edge_type)
       : RecordAccessor(address, db_accessor),
         from_(from),
         to_(to),
         edge_type_(edge_type) {}
 
-  GraphDbTypes::EdgeType EdgeType() const;
+  database::EdgeType EdgeType() const;
 
   /** Returns an accessor to the originating Vertex of this edge. */
   VertexAccessor from() const;
@@ -71,7 +71,7 @@ class EdgeAccessor : public RecordAccessor<Edge> {
  private:
   VertexAddress from_;
   VertexAddress to_;
-  GraphDbTypes::EdgeType edge_type_;
+  database::EdgeType edge_type_;
 };
 
 std::ostream &operator<<(std::ostream &, const EdgeAccessor &);

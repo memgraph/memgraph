@@ -18,8 +18,8 @@ using query::TypedValueException;
 class AllTypesFixture : public testing::Test {
  protected:
   std::vector<TypedValue> values_;
-  GraphDb db_;
-  GraphDbAccessor dba_{db_};
+  database::SingleNode db_;
+  database::GraphDbAccessor dba_{db_};
 
   void SetUp() override {
     values_.emplace_back(TypedValue::Null);

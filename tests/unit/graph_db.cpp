@@ -4,19 +4,19 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/graph_db_datatypes.hpp"
 #include "database/indexes/label_property_index.hpp"
+#include "database/types.hpp"
 
 TEST(GraphDbTest, GarbageCollectIndices) {
-  GraphDb::Config config;
+  database::Config config;
   config.gc_cycle_sec = -1;
-  GraphDb graph_db{config};
-  std::unique_ptr<GraphDbAccessor> dba =
-      std::make_unique<GraphDbAccessor>(graph_db);
+  database::SingleNode graph_db{config};
+  std::unique_ptr<database::GraphDbAccessor> dba =
+      std::make_unique<database::GraphDbAccessor>(graph_db);
 
   auto commit = [&] {
     dba->Commit();
-    dba = std::make_unique<GraphDbAccessor>(graph_db);
+    dba = std::make_unique<database::GraphDbAccessor>(graph_db);
   };
   auto label = dba->Label("label");
   auto property = dba->Property("property");

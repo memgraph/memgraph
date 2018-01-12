@@ -11,8 +11,8 @@
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/primitive_encoder.hpp"
 #include "data_structures/ring_buffer.hpp"
-#include "database/graph_db_datatypes.hpp"
 #include "database/state_delta.hpp"
+#include "database/types.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
 #include "transactions/type.hpp"
@@ -33,7 +33,8 @@ class WriteAheadLog {
                 bool durability_enabled);
   ~WriteAheadLog();
 
-  /** Enables the WAL. Called at the end of GraphDb construction, after
+  /** Enables the WAL. Called at the end of database::GraphDb construction,
+   * after
    * (optional) recovery. */
   void Enable() { enabled_ = true; }
 
@@ -44,7 +45,7 @@ class WriteAheadLog {
   /** Groups the logic of WAL file handling (flushing, naming, rotating) */
   class WalFile {
    public:
-    WalFile(const std::experimental::filesystem::path &wal__dir);
+    explicit WalFile(const std::experimental::filesystem::path &wal__dir);
     ~WalFile();
 
     /** Initializes the WAL file. Must be called before first flush. Can be

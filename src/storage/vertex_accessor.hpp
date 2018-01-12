@@ -30,9 +30,9 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   // @param db_accessor - database accessor
   // @return - Iterator over EdgeAccessors
   template <typename TIterator>
-  static inline auto MakeAccessorIterator(TIterator &&begin, TIterator &&end,
-                                          bool from, VertexAddress vertex,
-                                          GraphDbAccessor &db_accessor) {
+  static inline auto MakeAccessorIterator(
+      TIterator &&begin, TIterator &&end, bool from, VertexAddress vertex,
+      database::GraphDbAccessor &db_accessor) {
     return iter::imap(
         [from, vertex, &db_accessor](auto &edges_element) {
           if (from) {
@@ -49,7 +49,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   }
 
  public:
-  VertexAccessor(VertexAddress address, GraphDbAccessor &db_accessor)
+  VertexAccessor(VertexAddress address, database::GraphDbAccessor &db_accessor)
       : RecordAccessor(address, db_accessor) {
     RecordAccessor::Reconstruct();
   }
@@ -63,17 +63,17 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   /** Adds a label to the Vertex. If the Vertex already has that label the call
    * has no effect. */
   // TODO revise return value, is it necessary?
-  bool add_label(GraphDbTypes::Label label);
+  bool add_label(database::Label label);
 
   /** Removes a label from the Vertex. Return number of removed (0, 1). */
   // TODO reves return value, is it necessary?
-  size_t remove_label(GraphDbTypes::Label label);
+  size_t remove_label(database::Label label);
 
   /** Indicates if the Vertex has the given label. */
-  bool has_label(GraphDbTypes::Label label) const;
+  bool has_label(database::Label label) const;
 
   /** Returns all the Labels of the Vertex. */
-  const std::vector<GraphDbTypes::Label> &labels() const;
+  const std::vector<database::Label> &labels() const;
 
   /** Returns EdgeAccessors for all incoming edges. */
   auto in() const {
@@ -88,9 +88,8 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto in(
-      const VertexAccessor &dest,
-      const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
+  auto in(const VertexAccessor &dest,
+          const std::vector<database::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator(current().in_.begin(dest.address(), edge_types),
                                 current().in_.end(), false, address(),
                                 db_accessor());
@@ -102,7 +101,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto in(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
+  auto in(const std::vector<database::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().in_.begin(nullptr, edge_types),
                                 current().in_.end(), false, address(),
                                 db_accessor());
@@ -122,9 +121,8 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto out(
-      const VertexAccessor &dest,
-      const std::vector<GraphDbTypes::EdgeType> *edge_types = nullptr) const {
+  auto out(const VertexAccessor &dest,
+           const std::vector<database::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator(
         current().out_.begin(dest.address(), edge_types), current().out_.end(),
         true, address(), db_accessor());
@@ -136,7 +134,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto out(const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
+  auto out(const std::vector<database::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().out_.begin(nullptr, edge_types),
                                 current().out_.end(), true, address(),
                                 db_accessor());

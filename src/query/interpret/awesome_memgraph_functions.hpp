@@ -13,6 +13,7 @@ const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
 }
 
-std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
+std::function<TypedValue(const std::vector<TypedValue> &,
+                         database::GraphDbAccessor &)>
 NameToFunction(const std::string &function_name);
 }

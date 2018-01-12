@@ -3,13 +3,13 @@
 #include "gtest/gtest.h"
 
 #include "communication/messaging/distributed.hpp"
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_worker.hpp"
 
 using namespace communication::messaging;
 using namespace storage;
-using namespace GraphDbTypes;
+using namespace database;
 
 template <typename TId>
 class DistributedConcurrentIdMapperTest : public ::testing::Test {
@@ -31,7 +31,6 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
   }
 };
 
-using namespace GraphDbTypes;
 typedef ::testing::Types<Label, EdgeType, Property> GraphDbTestTypes;
 TYPED_TEST_CASE(DistributedConcurrentIdMapperTest, GraphDbTestTypes);
 

@@ -3,8 +3,9 @@
 #include <utility>
 #include <vector>
 
-#include "database/graph_db_datatypes.hpp"
 #include "glog/logging.h"
+
+#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
 #include "utils/algorithm.hpp"
@@ -27,7 +28,7 @@ class Edges {
   struct Element {
     VertexAddress vertex;
     EdgeAddress edge;
-    GraphDbTypes::EdgeType edge_type;
+    database::EdgeType edge_type;
   };
 
   /** Custom iterator that takes care of skipping edges when the destination
@@ -55,7 +56,7 @@ class Edges {
      */
     Iterator(std::vector<Element>::const_iterator position,
              std::vector<Element>::const_iterator end, VertexAddress vertex,
-             const std::vector<GraphDbTypes::EdgeType> *edge_types)
+             const std::vector<database::EdgeType> *edge_types)
         : position_(position),
           end_(end),
           vertex_(vertex),
@@ -87,7 +88,7 @@ class Edges {
     // iterator. Only one can be not-null in the current implementation.
     VertexAddress vertex_{nullptr};
     // For edge types we use a vector pointer because it's optional.
-    const std::vector<GraphDbTypes::EdgeType> *edge_types_ = nullptr;
+    const std::vector<database::EdgeType> *edge_types_ = nullptr;
 
     /** Helper function that skips edges that don't satisfy the predicate
      * present in this iterator. */
@@ -115,7 +116,7 @@ class Edges {
    * @param edge_type - Type of the edge.
    */
   void emplace(VertexAddress vertex, EdgeAddress edge,
-               GraphDbTypes::EdgeType edge_type) {
+               database::EdgeType edge_type) {
     storage_.emplace_back(Element{vertex, edge, edge_type});
   }
 
@@ -145,7 +146,7 @@ class Edges {
    * If nullptr edges are not filtered on type.
    */
   auto begin(VertexAddress vertex,
-             const std::vector<GraphDbTypes::EdgeType> *edge_types) const {
+             const std::vector<database::EdgeType> *edge_types) const {
     if (edge_types && edge_types->empty()) edge_types = nullptr;
     return Iterator(storage_.begin(), storage_.end(), vertex, edge_types);
   }

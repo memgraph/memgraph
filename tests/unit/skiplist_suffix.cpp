@@ -17,9 +17,9 @@ int Count(TIterable &collection) {
 TEST(SkipListSuffix, EmptyRange) {
   SkipList<int> V;
   auto access = V.access();
-  auto r1 = IndexUtils::SkipListSuffix<typename SkipList<int>::Iterator, int,
-                                       SkipList<int>>(access.begin(),
-                                                      std::move(access));
+  auto r1 = database::index::SkipListSuffix<typename SkipList<int>::Iterator,
+                                            int, SkipList<int>>(
+      access.begin(), std::move(access));
   EXPECT_EQ(Count(r1), 0);
 }
 
@@ -29,9 +29,9 @@ TEST(SkipListSuffix, NonEmptyRange) {
   access.insert(1);
   access.insert(5);
   access.insert(3);
-  auto r1 = IndexUtils::SkipListSuffix<typename SkipList<int>::Iterator, int,
-                                       SkipList<int>>(access.begin(),
-                                                      std::move(access));
+  auto r1 = database::index::SkipListSuffix<typename SkipList<int>::Iterator,
+                                            int, SkipList<int>>(
+      access.begin(), std::move(access));
   EXPECT_EQ(Count(r1), 3);
   auto iter = r1.begin();
   EXPECT_EQ(*iter, 1);

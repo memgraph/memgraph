@@ -164,8 +164,8 @@ TEST(BoltEncoder, VertexAndEdge) {
   output.clear();
 
   // create vertex
-  GraphDb db;
-  GraphDbAccessor db_accessor(db);
+  database::SingleNode db;
+  database::GraphDbAccessor db_accessor(db);
   auto va1 = db_accessor.InsertVertex();
   auto va2 = db_accessor.InsertVertex();
   auto l1 = db_accessor.Label("label1");

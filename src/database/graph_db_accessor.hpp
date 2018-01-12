@@ -7,12 +7,15 @@
 #include "cppitertools/imap.hpp"
 #include "glog/logging.h"
 
-#include "graph_db.hpp"
+#include "database/graph_db.hpp"
+#include "database/types.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/bound.hpp"
+
+namespace database {
 
 /** Thrown when creating an index which already exists. */
 class IndexExistsException : public utils::BasicException {
@@ -29,10 +32,10 @@ class IndexExistsException : public utils::BasicException {
 class GraphDbAccessor {
   // We need to make friends with this guys since they need to access private
   // methods for updating indices.
-  friend class RecordAccessor<Vertex>;
-  friend class RecordAccessor<Edge>;
-  friend class VertexAccessor;
-  friend class EdgeAccessor;
+  friend class ::RecordAccessor<Vertex>;
+  friend class ::RecordAccessor<Edge>;
+  friend class ::VertexAccessor;
+  friend class ::EdgeAccessor;
 
   /**
    * Used for caching Vertices and Edges that are stored on another worker in a
@@ -89,11 +92,6 @@ class GraphDbAccessor {
   };
 
  public:
-  /**
-   * Creates an accessor for the given database.
-   *
-   * @param db The database
-   */
   explicit GraphDbAccessor(GraphDb &db);
   ~GraphDbAccessor();
 
@@ -171,7 +169,7 @@ class GraphDbAccessor {
         [this](auto id_vlist) {
           return VertexAccessor(id_vlist.second, *this);
         },
-        db_.vertices_.access());
+        db_.storage().vertices_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
@@ -191,11 +189,12 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto Vertices(const GraphDbTypes::Label &label, bool current_state) {
+  auto Vertices(const Label &label, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.labels_index_.GetVlists(label, *transaction_, current_state));
+        db_.storage().labels_index_.GetVlists(label, transaction_,
+                                              current_state));
   }
 
   /**
@@ -210,16 +209,16 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto Vertices(const GraphDbTypes::Label &label,
-                const GraphDbTypes::Property &property, bool current_state) {
+  auto Vertices(const Label &label, const Property &property,
+                bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    DCHECK(db_.label_property_index_.IndexExists(
+    DCHECK(db_.storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.label_property_index_.GetVlists(
-            LabelPropertyIndex::Key(label, property), *transaction_,
+        db_.storage().label_property_index_.GetVlists(
+            LabelPropertyIndex::Key(label, property), transaction_,
             current_state));
   }
 
@@ -236,19 +235,18 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto Vertices(const GraphDbTypes::Label &label,
-                const GraphDbTypes::Property &property,
+  auto Vertices(const Label &label, const Property &property,
                 const PropertyValue &value, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    DCHECK(db_.label_property_index_.IndexExists(
+    DCHECK(db_.storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     CHECK(value.type() != PropertyValue::Type::Null)
         << "Can't query index for propery value type null.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.label_property_index_.GetVlists(
-            LabelPropertyIndex::Key(label, property), value, *transaction_,
+        db_.storage().label_property_index_.GetVlists(
+            LabelPropertyIndex::Key(label, property), value, transaction_,
             current_state));
   }
 
@@ -280,19 +278,19 @@ class GraphDbAccessor {
    * satisfy the bounds and are visible to the current transaction.
    */
   auto Vertices(
-      const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
+      const Label &label, const Property &property,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
       bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    DCHECK(db_.label_property_index_.IndexExists(
+    DCHECK(db_.storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
-        db_.label_property_index_.GetVlists(
+        db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), lower, upper,
-            *transaction_, current_state));
+            transaction_, current_state));
   }
 
   /**
@@ -314,7 +312,7 @@ class GraphDbAccessor {
    * @return  An accessor to the edge.
    */
   EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
-                          GraphDbTypes::EdgeType type,
+                          EdgeType type,
                           std::experimental::optional<gid::Gid> requested_gid =
                               std::experimental::nullopt);
 
@@ -361,7 +359,7 @@ class GraphDbAccessor {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
         [this](auto id_vlist) { return EdgeAccessor(id_vlist.second, *this); },
-        db_.edges_.access());
+        db_.storage().edges_.access());
 
     // filter out the accessors not visible to the current transaction
     return iter::filter(
@@ -418,17 +416,16 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  void BuildIndex(const GraphDbTypes::Label &label,
-                  const GraphDbTypes::Property &property);
+  void BuildIndex(const Label &label, const Property &property);
 
   /**
    * @brief - Returns true if the given label+property index already exists and
    * is ready for use.
    */
-  bool LabelPropertyIndexExists(const GraphDbTypes::Label &label,
-                                const GraphDbTypes::Property &property) const {
+  bool LabelPropertyIndexExists(const Label &label,
+                                const Property &property) const {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    return db_.label_property_index_.IndexExists(
+    return db_.storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property));
   }
 
@@ -437,7 +434,7 @@ class GraphDbAccessor {
    */
   std::vector<LabelPropertyIndex::Key> GetIndicesKeys() {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-    return db_.label_property_index_.Keys();
+    return db_.storage().label_property_index_.Keys();
   }
 
   /**
@@ -459,7 +456,7 @@ class GraphDbAccessor {
    * @param label - label to check for
    * @return number of vertices with the given label
    */
-  int64_t VerticesCount(const GraphDbTypes::Label &label) const;
+  int64_t VerticesCount(const Label &label) const;
 
   /**
    * Return approximate number of vertices under indexes with the given label
@@ -471,8 +468,7 @@ class GraphDbAccessor {
    * @return number of vertices with the given label, fails if no such
    * label+property index exists.
    */
-  int64_t VerticesCount(const GraphDbTypes::Label &label,
-                        const GraphDbTypes::Property &property) const;
+  int64_t VerticesCount(const Label &label, const Property &property) const;
 
   /**
    * Returns approximate number of vertices that have the given label
@@ -480,8 +476,7 @@ class GraphDbAccessor {
    *
    * Assumes that an index for that (label, property) exists.
    */
-  int64_t VerticesCount(const GraphDbTypes::Label &label,
-                        const GraphDbTypes::Property &property,
+  int64_t VerticesCount(const Label &label, const Property &property,
                         const PropertyValue &value) const;
 
   /**
@@ -494,7 +489,7 @@ class GraphDbAccessor {
    * Assumes that an index for that (label, property) exists.
    */
   int64_t VerticesCount(
-      const GraphDbTypes::Label &label, const GraphDbTypes::Property &property,
+      const Label &label, const Property &property,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper)
       const;
@@ -503,7 +498,7 @@ class GraphDbAccessor {
    * Obtains the Label for the label's name.
    * @return  See above.
    */
-  GraphDbTypes::Label Label(const std::string &label_name);
+  Label Label(const std::string &label_name);
 
   /**
    * Obtains the label name (a string) for the given label.
@@ -511,13 +506,13 @@ class GraphDbAccessor {
    * @param label a Label.
    * @return  See above.
    */
-  const std::string &LabelName(const GraphDbTypes::Label label) const;
+  const std::string &LabelName(const class Label label) const;
 
   /**
    * Obtains the EdgeType for it's name.
    * @return  See above.
    */
-  GraphDbTypes::EdgeType EdgeType(const std::string &edge_type_name);
+  EdgeType EdgeType(const std::string &edge_type_name);
 
   /**
    * Obtains the edge type name (a string) for the given edge type.
@@ -525,13 +520,13 @@ class GraphDbAccessor {
    * @param edge_type an EdgeType.
    * @return  See above.
    */
-  const std::string &EdgeTypeName(const GraphDbTypes::EdgeType edge_type) const;
+  const std::string &EdgeTypeName(const class EdgeType edge_type) const;
 
   /**
    * Obtains the Property for it's name.
    * @return  See above.
    */
-  GraphDbTypes::Property Property(const std::string &property_name);
+  Property Property(const std::string &property_name);
 
   /**
    * Obtains the property name (a string) for the given property.
@@ -539,7 +534,7 @@ class GraphDbAccessor {
    * @param property a Property.
    * @return  See above.
    */
-  const std::string &PropertyName(const GraphDbTypes::Property property) const;
+  const std::string &PropertyName(const class Property property) const;
 
   /** Returns the id of this accessor's transaction */
   tx::transaction_id_t transaction_id() const;
@@ -556,10 +551,7 @@ class GraphDbAccessor {
   /** Return true if transaction is hinted to abort. */
   bool should_abort() const;
 
-  /** Returns the transaction of this accessor */
-  const tx::Transaction &transaction() const { return *transaction_; }
-
-  /** Return's the database's write-ahead log */
+  const tx::Transaction &transaction() const { return transaction_; }
   durability::WriteAheadLog &wal();
 
   /**
@@ -587,6 +579,26 @@ class GraphDbAccessor {
   RemoteCache<TRecord> &remote_elements();
 
  private:
+  GraphDb &db_;
+  tx::Transaction &transaction_;
+
+  bool commited_{false};
+  bool aborted_{false};
+
+  RemoteCache<Vertex> remote_vertices_;
+  RemoteCache<Edge> remote_edges_;
+
+  /** Casts the transaction engine to SingleNodeEngine and returns it. If the
+   * engine is a WorkerEngine (and not SingleNode nor Master), a call to this
+   * function will crash MG. */
+  tx::SingleNodeEngine &SingleNodeEngine() {
+    auto *single_node_engine =
+        dynamic_cast<tx::SingleNodeEngine *>(&db_.tx_engine());
+    DCHECK(single_node_engine)
+        << "Asked for SingleNodeEngine on distributed worker";
+    return *single_node_engine;
+  }
+
   /**
    * Insert this vertex into corresponding label and label+property (if it
    * exists) index.
@@ -595,7 +607,7 @@ class GraphDbAccessor {
    * @param vertex_accessor - vertex_accessor to insert
    * @param vertex - vertex record to insert
    */
-  void UpdateLabelIndices(const GraphDbTypes::Label &label,
+  void UpdateLabelIndices(const class Label &label,
                           const VertexAccessor &vertex_accessor,
                           const Vertex *const vertex);
 
@@ -606,29 +618,8 @@ class GraphDbAccessor {
    * @param vertex_accessor - vertex accessor to insert
    * @param vertex - vertex to insert
    */
-  void UpdatePropertyIndex(const GraphDbTypes::Property &property,
+  void UpdatePropertyIndex(const class Property &property,
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
-
-  /** Casts the DB's engine to SingleNodeEngine and returns it. If the DB's
-   * engine is RemoteEngine, this function will crash MG. It must be either
-   * SingleNodeEngine, or MasterEngine (which inherits it). */
-  tx::SingleNodeEngine &SingleNodeEngine() {
-    auto *single_node_engine =
-        dynamic_cast<tx::SingleNodeEngine *>(db_.tx_engine_.get());
-    DCHECK(single_node_engine)
-        << "Asked for SingleNodeEngine on distributed worker";
-    return *single_node_engine;
-  }
-
-  GraphDb &db_;
-
-  /** The current transaction */
-  tx::Transaction *const transaction_;
-
-  bool commited_{false};
-  bool aborted_{false};
-
-  RemoteCache<Vertex> remote_vertices_;
-  RemoteCache<Edge> remote_edges_;
 };
+}  // namespace database

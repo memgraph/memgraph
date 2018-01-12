@@ -2,7 +2,7 @@
 
 #include "glog/logging.h"
 
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
 #include "storage/gid.hpp"
@@ -10,7 +10,9 @@
 #include "storage/property_value_store.hpp"
 #include "utils/total_ordering.hpp"
 
+namespace database {
 class GraphDbAccessor;
+};
 
 /// Mock class for a DB delta.
 // TODO replace with the real thing.
@@ -37,16 +39,19 @@ class GraphStateDelta {
  */
 template <typename TRecord>
 class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
+ protected:
   using AddressT = storage::Address<mvcc::VersionList<TRecord>>;
+
   /**
-   * The GraphDbAccessor is friend to this accessor so it can
+   * The database::GraphDbAccessor is friend to this accessor so it can
    * operate on it's data (mvcc version-list and the record itself).
-   * This is legitemate because GraphDbAccessor creates RecordAccessors
+   * This is legitemate because database::GraphDbAccessor creates
+   * RecordAccessors
    * and is semantically their parent/owner. It is necessary because
-   * the GraphDbAccessor handles insertions and deletions, and these
+   * the database::GraphDbAccessor handles insertions and deletions, and these
    * operations modify data intensively.
    */
-  friend GraphDbAccessor;
+  friend database::GraphDbAccessor;
 
  public:
   /**
@@ -54,7 +59,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * accessor.
    * @param db_accessor The DB accessor that "owns" this record accessor.
    */
-  RecordAccessor(AddressT address, GraphDbAccessor &db_accessor);
+  RecordAccessor(AddressT address, database::GraphDbAccessor &db_accessor);
 
   // this class is default copyable, movable and assignable
   RecordAccessor(const RecordAccessor &other) = default;
@@ -63,13 +68,13 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   RecordAccessor &operator=(RecordAccessor &&other) = default;
 
   /** Gets the property for the given key. */
-  const PropertyValue &PropsAt(GraphDbTypes::Property key) const;
+  const PropertyValue &PropsAt(database::Property key) const;
 
   /** Sets a value on the record for the given property. */
-  void PropsSet(GraphDbTypes::Property key, PropertyValue value);
+  void PropsSet(database::Property key, PropertyValue value);
 
   /** Erases the property for the given key. */
-  size_t PropsErase(GraphDbTypes::Property key);
+  size_t PropsErase(database::Property key);
 
   /** Removes all the properties from this record. */
   void PropsClear();
@@ -80,7 +85,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   bool operator==(const RecordAccessor &other) const;
 
   /** Returns a GraphDB accessor of this record accessor. */
-  GraphDbAccessor &db_accessor() const;
+  database::GraphDbAccessor &db_accessor() const;
 
   /**
    * Returns a globally-unique ID of this vertex or edge. Note that vertices
@@ -176,7 +181,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.
-  GraphDbAccessor *db_accessor_;
+  database::GraphDbAccessor *db_accessor_;
 
   AddressT address_;
 

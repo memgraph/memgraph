@@ -10,6 +10,8 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
+#include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -132,13 +134,13 @@ class Timer {
 // Dummy DbAccessor which forwards user input for various vertex counts.
 class InteractiveDbAccessor {
  public:
-  InteractiveDbAccessor(GraphDbAccessor &dba, int64_t vertices_count,
+  InteractiveDbAccessor(database::GraphDbAccessor &dba, int64_t vertices_count,
                         Timer &timer)
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
   int64_t VerticesCount() const { return vertices_count_; }
 
-  int64_t VerticesCount(const GraphDbTypes::Label &label_id) const {
+  int64_t VerticesCount(const database::Label &label_id) const {
     auto label = dba_.LabelName(label_id);
     if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
       label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
@@ -146,8 +148,8 @@ class InteractiveDbAccessor {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(const GraphDbTypes::Label &label_id,
-                        const GraphDbTypes::Property &property_id) const {
+  int64_t VerticesCount(const database::Label &label_id,
+                        const database::Property &property_id) const {
     auto label = dba_.LabelName(label_id);
     auto property = dba_.PropertyName(property_id);
     auto key = std::make_pair(label, property);
@@ -159,8 +161,8 @@ class InteractiveDbAccessor {
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(const GraphDbTypes::Label &label_id,
-                        const GraphDbTypes::Property &property_id,
+  int64_t VerticesCount(const database::Label &label_id,
+                        const database::Property &property_id,
                         const PropertyValue &value) const {
     auto label = dba_.LabelName(label_id);
     auto property = dba_.PropertyName(property_id);
@@ -180,8 +182,7 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(
-      const GraphDbTypes::Label &label_id,
-      const GraphDbTypes::Property &property_id,
+      const database::Label &label_id, const database::Property &property_id,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper)
       const {
@@ -201,9 +202,8 @@ class InteractiveDbAccessor {
                            "' in range " + range_string.str());
   }
 
-  bool LabelPropertyIndexExists(
-      const GraphDbTypes::Label &label_id,
-      const GraphDbTypes::Property &property_id) const {
+  bool LabelPropertyIndexExists(const database::Label &label_id,
+                                const database::Property &property_id) const {
     auto label = dba_.LabelName(label_id);
     auto property = dba_.PropertyName(property_id);
     auto key = std::make_pair(label, property);
@@ -318,7 +318,7 @@ class InteractiveDbAccessor {
  private:
   typedef std::pair<std::string, std::string> LabelPropertyKey;
 
-  GraphDbAccessor &dba_;
+  database::GraphDbAccessor &dba_;
   int64_t vertices_count_;
   Timer &timer_;
   mutable std::map<std::string, int64_t> label_vertex_count_;
@@ -368,7 +368,7 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  explicit PlanPrinter(GraphDbAccessor &dba) : dba_(dba) {}
+  explicit PlanPrinter(database::GraphDbAccessor &dba) : dba_(dba) {}
 
 #define PRE_VISIT(TOp)                                   \
   bool PreVisit(query::plan::TOp &) override {           \
@@ -517,7 +517,7 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   }
 
   int depth_ = 0;
-  GraphDbAccessor &dba_;
+  database::GraphDbAccessor &dba_;
 };
 
 // Shorthand for a vector of pairs (logical_plan, cost).
@@ -529,7 +529,8 @@ typedef std::vector<
 struct Command {
   typedef std::vector<std::string> Args;
   // Function of this command
-  std::function<void(GraphDbAccessor &, PlansWithCost &, const Args &)>
+  std::function<void(database::GraphDbAccessor &, PlansWithCost &,
+                     const Args &)>
       function;
   // Number of arguments the function works with.
   int arg_count;
@@ -537,8 +538,8 @@ struct Command {
   std::string documentation;
 };
 
-#define DEFCOMMAND(Name)                                         \
-  void Name##Command(GraphDbAccessor &dba, PlansWithCost &plans, \
+#define DEFCOMMAND(Name)                                                   \
+  void Name##Command(database::GraphDbAccessor &dba, PlansWithCost &plans, \
                      const Command::Args &args)
 
 DEFCOMMAND(Top) {
@@ -591,7 +592,7 @@ DEFCOMMAND(Help) {
 #undef DEFCOMMAND
 
 void ExaminePlans(
-    GraphDbAccessor &dba,
+    database::GraphDbAccessor &dba,
     std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>,
                           double>> &plans) {
   while (true) {
@@ -617,7 +618,8 @@ void ExaminePlans(
   }
 }
 
-query::AstTreeStorage MakeAst(const std::string &query, GraphDbAccessor &dba) {
+query::AstTreeStorage MakeAst(const std::string &query,
+                              database::GraphDbAccessor &dba) {
   query::Context ctx(dba);
   // query -> AST
   auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);
@@ -672,8 +674,8 @@ int main(int argc, char *argv[]) {
     std::cerr << "File '" << in_db_filename << "' does not exist!" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   Timer planning_timer;
   InteractiveDbAccessor interactive_db(
       dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0,

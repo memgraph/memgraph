@@ -10,9 +10,9 @@
 using namespace query;
 using namespace query::plan;
 
-using CardParam = CostEstimator<GraphDbAccessor>::CardParam;
-using CostParam = CostEstimator<GraphDbAccessor>::CostParam;
-using MiscParam = CostEstimator<GraphDbAccessor>::MiscParam;
+using CardParam = CostEstimator<database::GraphDbAccessor>::CardParam;
+using CostParam = CostEstimator<database::GraphDbAccessor>::CostParam;
+using MiscParam = CostEstimator<database::GraphDbAccessor>::MiscParam;
 
 /** A fixture for cost estimation. Sets up the database
  * and accessor (adds some vertices). Provides convenience
@@ -21,10 +21,10 @@ using MiscParam = CostEstimator<GraphDbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  GraphDb db;
-  std::experimental::optional<GraphDbAccessor> dba{db};
-  GraphDbTypes::Label label = dba->Label("label");
-  GraphDbTypes::Property property = dba->Property("property");
+  database::SingleNode db;
+  std::experimental::optional<database::GraphDbAccessor> dba{db};
+  database::Label label = dba->Label("label");
+  database::Property property = dba->Property("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -60,7 +60,7 @@ class QueryCostEstimator : public ::testing::Test {
   }
 
   auto Cost() {
-    CostEstimator<GraphDbAccessor> cost_estimator(*dba, parameters_);
+    CostEstimator<database::GraphDbAccessor> cost_estimator(*dba, parameters_);
     last_op_->Accept(cost_estimator);
     return cost_estimator.cost();
   }
@@ -162,7 +162,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-                 std::vector<GraphDbTypes::EdgeType>{}, last_op_, NextSymbol(),
+                 std::vector<database::EdgeType>{}, last_op_, NextSymbol(),
                  false);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
@@ -170,7 +170,7 @@ TEST_F(QueryCostEstimator, Expand) {
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(NextSymbol(), NextSymbol(),
                          EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
-                         std::vector<GraphDbTypes::EdgeType>{}, false, nullptr,
+                         std::vector<database::EdgeType>{}, false, nullptr,
                          nullptr, last_op_, NextSymbol(), false, NextSymbol(),
                          NextSymbol(), nullptr);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
@@ -198,12 +198,11 @@ TEST_F(QueryCostEstimator, ExpandUniquenessFilter) {
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {
-  TEST_OP(
-      MakeOp<query::plan::Unwind>(
-          last_op_,
-          storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
-          NextSymbol()),
-      CostParam::kUnwind, 7);
+  TEST_OP(MakeOp<query::plan::Unwind>(
+              last_op_, storage_.Create<ListLiteral>(
+                            std::vector<Expression *>(7, nullptr)),
+              NextSymbol()),
+          CostParam::kUnwind, 7);
 }
 
 TEST_F(QueryCostEstimator, UnwindNoLiteral) {

@@ -52,7 +52,7 @@ struct RecoveryData {
     return false;                \
   }
 
-bool RecoverSnapshot(const fs::path &snapshot_file, GraphDb &db,
+bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
                      RecoveryData &recovery_data) {
   HashedFileReader reader;
   communication::bolt::Decoder<HashedFileReader> decoder(reader);
@@ -79,12 +79,12 @@ bool RecoverSnapshot(const fs::path &snapshot_file, GraphDb &db,
   // Vertex and edge generator ids
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
   uint64_t vertex_generator_cnt = dv.ValueInt();
-  db.VertexGenerator().SetId(
-      std::max(db.VertexGenerator().LocalCount(), vertex_generator_cnt));
+  db.storage().VertexGenerator().SetId(std::max(
+      db.storage().VertexGenerator().LocalCount(), vertex_generator_cnt));
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
   uint64_t edge_generator_cnt = dv.ValueInt();
-  db.EdgeGenerator().SetId(
-      std::max(db.EdgeGenerator().LocalCount(), edge_generator_cnt));
+  db.storage().EdgeGenerator().SetId(
+      std::max(db.storage().EdgeGenerator().LocalCount(), edge_generator_cnt));
 
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
   recovery_data.snapshooter_tx_id = dv.ValueInt();
@@ -107,7 +107,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, GraphDb &db,
                                        property.ValueString());
   }
 
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   for (int64_t i = 0; i < vertex_count; ++i) {
     DecodedValue vertex_dv;
     RETURN_IF_NOT(decoder.ReadValue(&vertex_dv, DecodedValue::Type::Vertex));
@@ -152,7 +152,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, GraphDb &db,
 #undef RETURN_IF_NOT
 
 // TODO - finer-grained recovery feedback could be useful here.
-bool RecoverWal(const fs::path &wal_dir, GraphDb &db,
+bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
                 RecoveryData &recovery_data) {
   // Get paths to all the WAL files and sort them (on date).
   std::vector<fs::path> wal_files;
@@ -173,9 +173,9 @@ bool RecoverWal(const fs::path &wal_dir, GraphDb &db,
             !utils::Contains(tx_sn, tx_id));
   };
 
-  std::unordered_map<tx::transaction_id_t, GraphDbAccessor> accessors;
+  std::unordered_map<tx::transaction_id_t, database::GraphDbAccessor> accessors;
   auto get_accessor =
-      [&accessors](tx::transaction_id_t tx_id) -> GraphDbAccessor & {
+      [&accessors](tx::transaction_id_t tx_id) -> database::GraphDbAccessor & {
     auto found = accessors.find(tx_id);
     CHECK(found != accessors.end())
         << "Accessor does not exist for transaction";
@@ -227,7 +227,7 @@ bool RecoverWal(const fs::path &wal_dir, GraphDb &db,
 }
 }  // anonymous namespace
 
-bool Recover(const fs::path &durability_dir, GraphDb &db) {
+bool Recover(const fs::path &durability_dir, database::GraphDb &db) {
   RecoveryData recovery_data;
 
   // Attempt to recover from snapshot files in reverse order (from newest
@@ -257,7 +257,7 @@ bool Recover(const fs::path &durability_dir, GraphDb &db) {
   RecoverWal(durability_dir / kWalDir, db, recovery_data);
 
   // Index recovery.
-  GraphDbAccessor db_accessor_indices{db};
+  database::GraphDbAccessor db_accessor_indices{db};
   for (const auto &label_prop : recovery_data.indexes)
     db_accessor_indices.BuildIndex(
         db_accessor_indices.Label(label_prop.first),

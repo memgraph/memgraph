@@ -1,6 +1,6 @@
 #pragma once
 
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
@@ -16,7 +16,7 @@ class Vertex : public mvcc::Record<Vertex> {
 
   Edges out_;
   Edges in_;
-  std::vector<GraphDbTypes::Label> labels_;
+  std::vector<database::Label> labels_;
   PropertyValueStore properties_;
 
  private:

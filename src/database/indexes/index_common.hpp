@@ -10,7 +10,7 @@
 #include "mvcc/version_list.hpp"
 #include "transactions/transaction.hpp"
 
-namespace IndexUtils {
+namespace database::index {
 /**
  * @brief - Wrap beginning iterator to iterable object. This provides us with
  * begin and end iterator, and allows us to iterate from the iterator given in
@@ -181,4 +181,4 @@ static void Refresh(
     }
   }
 }
-};  // namespace IndexUtils
+};  // namespace database::index

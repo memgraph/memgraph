@@ -1,12 +1,13 @@
 #pragma once
 
-#include <string>
+#include <cstdint>
+#include <functional>
 
 #include "boost/serialization/base_object.hpp"
 
 #include "utils/total_ordering.hpp"
 
-namespace GraphDbTypes {
+namespace database {
 
 template <typename TSpecificType>
 class Common : public TotalOrdering<TSpecificType> {
@@ -73,19 +74,18 @@ class Property : public Common<Property> {
     ar &boost::serialization::base_object<Common<Property>>(*this);
   }
 };
-
-};  // namespace GraphDbTypes
+};  // namespace database
 
 namespace std {
 
 template <>
-struct hash<GraphDbTypes::Label>
-    : public GraphDbTypes::Common<GraphDbTypes::Label>::Hash {};
+struct hash<database::Label> : public database::Common<database::Label>::Hash {
+};
 template <>
-struct hash<GraphDbTypes::EdgeType>
-    : public GraphDbTypes::Common<GraphDbTypes::EdgeType>::Hash {};
+struct hash<database::EdgeType>
+    : public database::Common<database::EdgeType>::Hash {};
 template <>
-struct hash<GraphDbTypes::Property>
-    : public GraphDbTypes::Common<GraphDbTypes::Property>::Hash {};
+struct hash<database::Property>
+    : public database::Common<database::Property>::Hash {};
 
 }  // namespace std

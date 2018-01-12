@@ -4,14 +4,16 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
-#include "database/graph_db_datatypes.hpp"
 #include "database/indexes/index_common.hpp"
+#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/bound.hpp"
 #include "utils/total_ordering.hpp"
+
+namespace database {
 
 /**
  * @brief Implements LabelPropertyIndex.
@@ -44,11 +46,10 @@ class LabelPropertyIndex {
    */
   class Key : public TotalOrdering<Key> {
    public:
-    const GraphDbTypes::Label label_;
-    const GraphDbTypes::Property property_;
+    const Label label_;
+    const Property property_;
 
-    Key(const GraphDbTypes::Label &label,
-        const GraphDbTypes::Property &property)
+    Key(const Label &label, const Property &property)
         : label_(label), property_(property) {}
 
     // Comparison operators - we need them to keep this sorted inside skiplist.
@@ -120,8 +121,7 @@ class LabelPropertyIndex {
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in vlist)
    */
-  void UpdateOnLabel(const GraphDbTypes::Label &label,
-                     mvcc::VersionList<Vertex> *const vlist,
+  void UpdateOnLabel(const Label &label, mvcc::VersionList<Vertex> *const vlist,
                      const Vertex *const vertex) {
     for (auto index : indices_.access()) {
       if (index.first.label_ != label) continue;
@@ -141,7 +141,7 @@ class LabelPropertyIndex {
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in vlist)
    */
-  void UpdateOnProperty(const GraphDbTypes::Property &property,
+  void UpdateOnProperty(const Property &property,
                         mvcc::VersionList<Vertex> *const vlist,
                         const Vertex *const vertex) {
     const auto &labels = vertex->labels_;
@@ -171,8 +171,8 @@ class LabelPropertyIndex {
     DCHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
     auto access = GetKeyStorage(key)->access();
     auto begin = access.begin();
-    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
-                                 IndexEntry, Vertex, SkipList<IndexEntry>>(
+    return index::GetVlists<typename SkipList<IndexEntry>::Iterator, IndexEntry,
+                            Vertex, SkipList<IndexEntry>>(
         std::move(access), begin, [](const IndexEntry &) { return true; }, t,
         [key](const IndexEntry &entry, const Vertex *const vertex) {
           return LabelPropertyIndex::Exists(key, entry.value_, vertex);
@@ -202,8 +202,8 @@ class LabelPropertyIndex {
     auto start_iter = access.find_or_larger(IndexEntry(
         value, reinterpret_cast<mvcc::VersionList<Vertex> *>(min_ptr),
         reinterpret_cast<const Vertex *>(min_ptr)));
-    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
-                                 IndexEntry, Vertex>(
+    return index::GetVlists<typename SkipList<IndexEntry>::Iterator, IndexEntry,
+                            Vertex>(
         std::move(access), start_iter,
         [value](const IndexEntry &entry) {
           return !IndexEntry::Less(value, entry.value_) &&
@@ -217,18 +217,16 @@ class LabelPropertyIndex {
   }
 
   /**
-   * @brief - Get an iterable over all mvcc::VersionLists that
-   * are contained in this index and satisfy the given bounds.
+   * Get an iterable over all mvcc::VersionLists that are contained in this
+   * index and satisfy the given bounds.
    *
-   * The returned iterator will only contain
-   * vertices/edges whose property value is comparable with the
-   * given bounds (w.r.t. type). This has implications on Cypher
-   * query execuction semantics which have not been resolved yet.
+   * The returned iterator will only contain vertices/edges whose property value
+   * is comparable with the given bounds (w.r.t. type). This has implications on
+   * Cypher query execuction semantics which have not been resolved yet.
    *
-   * At least one of the bounds must be specified. Bounds can't be
-   * @c PropertyValue::Null. If both bounds are
-   * specified, their PropertyValue elments must be of comparable
-   * types.
+   * At least one of the bounds must be specified. Bounds can't be @c
+   * PropertyValue::Null. If both bounds are specified, their PropertyValue
+   * elements must be of comparable types.
    *
    * @param key - Label+Property to query.
    * @param lower - Lower bound of the interval.
@@ -269,9 +267,10 @@ class LabelPropertyIndex {
     auto access = GetKeyStorage(key)->access();
 
     // create the iterator startpoint based on the lower bound
-    auto start_iter = lower ? access.find_or_larger(make_index_bound(
-                                  lower, lower.value().IsInclusive()))
-                            : access.begin();
+    auto start_iter = lower
+                          ? access.find_or_larger(make_index_bound(
+                                lower, lower.value().IsInclusive()))
+                          : access.begin();
 
     // a function that defines if an entry staisfies the filtering predicate.
     // since we already handled the lower bound, we only need to deal with the
@@ -297,8 +296,8 @@ class LabelPropertyIndex {
       };
     }
 
-    return IndexUtils::GetVlists<typename SkipList<IndexEntry>::Iterator,
-                                 IndexEntry, Vertex>(
+    return index::GetVlists<typename SkipList<IndexEntry>::Iterator, IndexEntry,
+                            Vertex>(
         std::move(access), start_iter, predicate, transaction,
         [key](const IndexEntry &entry, const Vertex *const vertex) {
           return LabelPropertyIndex::Exists(key, entry.value_, vertex);
@@ -369,7 +368,7 @@ class LabelPropertyIndex {
    * transaction's snapshot, with that transaction's id appened as last.
    */
   void Refresh(const tx::Snapshot &snapshot, tx::Engine &engine) {
-    return IndexUtils::Refresh<Key, IndexEntry, Vertex>(
+    return index::Refresh<Key, IndexEntry, Vertex>(
         indices_, snapshot, engine,
         [](const Key &key, const IndexEntry &entry) {
           return LabelPropertyIndex::Exists(key, entry.value_, entry.record_);
@@ -542,3 +541,4 @@ class LabelPropertyIndex {
   ConcurrentMap<Key, SkipList<IndexEntry> *> indices_;
   ConcurrentSet<Key> ready_for_use_;
 };
+}  // namespace database

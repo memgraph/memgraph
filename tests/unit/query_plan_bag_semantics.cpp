@@ -22,8 +22,8 @@ using namespace query;
 using namespace query::plan;
 
 TEST(QueryPlan, Skip) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -51,8 +51,8 @@ TEST(QueryPlan, Skip) {
 }
 
 TEST(QueryPlan, Limit) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -83,8 +83,8 @@ TEST(QueryPlan, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   dba.InsertVertex();
   dba.InsertVertex();
   dba.AdvanceCommand();
@@ -104,8 +104,8 @@ TEST(QueryPlan, CreateLimit) {
 }
 
 TEST(QueryPlan, OrderBy) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");
@@ -142,8 +142,7 @@ TEST(QueryPlan, OrderBy) {
     ASSERT_FALSE(order_equal());
 
     // create the vertices
-    for (const auto &value : shuffled)
-      dba.InsertVertex().PropsSet(prop, value);
+    for (const auto &value : shuffled) dba.InsertVertex().PropsSet(prop, value);
     dba.AdvanceCommand();
 
     // order by and collect results
@@ -166,8 +165,8 @@ TEST(QueryPlan, OrderBy) {
 }
 
 TEST(QueryPlan, OrderByMultiple) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
@@ -222,8 +221,8 @@ TEST(QueryPlan, OrderByMultiple) {
 }
 
 TEST(QueryPlan, OrderByExceptions) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");

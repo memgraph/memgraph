@@ -23,11 +23,11 @@ class RecoveryTest : public ::testing::Test {
     durability::Recover(durability_dir, db_);
   }
 
-  GraphDb db_;
+  database::SingleNode db_;
 };
 
 TEST_F(RecoveryTest, TestVerticesRecovered) {
-  GraphDbAccessor dba(db_);
+  database::GraphDbAccessor dba(db_);
   EXPECT_EQ(dba.VerticesCount(), 10);
   EXPECT_EQ(dba.VerticesCount(dba.Label("Comment")), 5);
   for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
@@ -37,7 +37,7 @@ TEST_F(RecoveryTest, TestVerticesRecovered) {
 }
 
 TEST_F(RecoveryTest, TestPropertyNull) {
-  GraphDbAccessor dba(db_);
+  database::GraphDbAccessor dba(db_);
   bool found = false;
   for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
     auto id_prop = query::TypedValue(vertex.PropsAt(dba.Property("id")));
@@ -54,7 +54,7 @@ TEST_F(RecoveryTest, TestPropertyNull) {
 }
 
 TEST_F(RecoveryTest, TestEdgesRecovered) {
-  GraphDbAccessor dba(db_);
+  database::GraphDbAccessor dba(db_);
   EXPECT_EQ(dba.EdgesCount(), 5);
   for (const auto &edge : dba.Edges(false)) {
     EXPECT_TRUE(edge.EdgeType() == dba.EdgeType("POSTED_ON"));

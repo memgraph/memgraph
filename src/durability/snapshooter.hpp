@@ -18,6 +18,6 @@ path MakeSnapshotPath(const path &durability_dir);
  * @param durability_dir - directory where durability data is stored.
  * @param snapshot_max_retained - maximum number of snapshots to retain.
  */
-bool MakeSnapshot(GraphDb &db, const path &durability_dir,
+bool MakeSnapshot(database::GraphDb &db, const path &durability_dir,
                   int snapshot_max_retained);
 }  // namespace durability

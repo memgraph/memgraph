@@ -24,12 +24,12 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   int vertices_num = vertex_labels.size();
   int edges_num = edge_types.size();
 
-  GraphDb db;
+  database::SingleNode db;
   std::vector<VertexAccessor> vertices;
   std::unordered_map<VertexAccessor, std::string> vertex_label_map;
   std::unordered_map<EdgeAccessor, std::string> edge_type_map;
 
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
 
   for (auto label : vertex_labels) {
     auto vertex_accessor = dba.InsertVertex();

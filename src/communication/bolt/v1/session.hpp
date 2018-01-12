@@ -26,12 +26,7 @@ namespace communication::bolt {
 /** Encapsulates Dbms and Interpreter that are passed through the network server
  * and worker to the session. */
 struct SessionData {
-  /** Constructs a SessionData object.
-   * @param args - Arguments forwarded to the GraphDb constructor. */
-  template <typename... TArgs>
-  SessionData(TArgs &&... args) : db(std::forward<TArgs>(args)...) {}
-
-  GraphDb db;
+  database::MasterBase &db;
   query::Interpreter interpreter;
 };
 
@@ -202,7 +197,7 @@ class Session {
   // TODO: Rethink if there is a way to hide some members. At the momement all
   // of them are public.
   TSocket socket_;
-  GraphDb &db_;
+  database::MasterBase &db_;
   query::Interpreter &interpreter_;
 
   TimeoutSocket timeout_socket_{*this};
@@ -218,7 +213,7 @@ class Session {
   State state_{State::Handshake};
   // GraphDbAccessor of active transaction in the session, can be null if
   // there is no associated transaction.
-  std::unique_ptr<GraphDbAccessor> db_accessor_;
+  std::unique_ptr<database::GraphDbAccessor> db_accessor_;
   // Time of the last event.
   std::chrono::time_point<std::chrono::steady_clock> last_event_time_ =
       std::chrono::steady_clock::now();

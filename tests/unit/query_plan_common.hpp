@@ -33,7 +33,8 @@ using Bound = ScanAllByLabelPropertyRange::Bound;
  * @return
  */
 std::vector<std::vector<TypedValue>> CollectProduce(
-    Produce *produce, SymbolTable &symbol_table, GraphDbAccessor &db_accessor) {
+    Produce *produce, SymbolTable &symbol_table,
+    database::GraphDbAccessor &db_accessor) {
   ResultStreamFaker stream;
   Frame frame(symbol_table.max_position());
 
@@ -66,8 +67,8 @@ std::vector<std::vector<TypedValue>> CollectProduce(
   return stream.GetResults();
 }
 
-int PullAll(std::shared_ptr<LogicalOperator> logical_op, GraphDbAccessor &db,
-            SymbolTable &symbol_table) {
+int PullAll(std::shared_ptr<LogicalOperator> logical_op,
+            database::GraphDbAccessor &db, SymbolTable &symbol_table) {
   Frame frame(symbol_table.max_position());
   auto cursor = logical_op->MakeCursor(db);
   int count = 0;
@@ -115,7 +116,7 @@ ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
  */
 ScanAllTuple MakeScanAllByLabel(
     AstTreeStorage &storage, SymbolTable &symbol_table,
-    const std::string &identifier, const GraphDbTypes::Label &label,
+    const std::string &identifier, const database::Label &label,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
@@ -134,7 +135,7 @@ ScanAllTuple MakeScanAllByLabel(
  */
 ScanAllTuple MakeScanAllByLabelPropertyRange(
     AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    GraphDbTypes::Label label, GraphDbTypes::Property property,
+    database::Label label, database::Property property,
     std::experimental::optional<Bound> lower_bound,
     std::experimental::optional<Bound> upper_bound,
     std::shared_ptr<LogicalOperator> input = {nullptr},
@@ -155,8 +156,8 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(
     AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    GraphDbTypes::Label label, GraphDbTypes::Property property,
-    Expression *value, std::shared_ptr<LogicalOperator> input = {nullptr},
+    database::Label label, database::Property property, Expression *value,
+    std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
@@ -178,7 +179,7 @@ ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
                        std::shared_ptr<LogicalOperator> input,
                        Symbol input_symbol, const std::string &edge_identifier,
                        EdgeAtom::Direction direction,
-                       const std::vector<GraphDbTypes::EdgeType> &edge_types,
+                       const std::vector<database::EdgeType> &edge_types,
                        const std::string &node_identifier, bool existing_node,
                        GraphView graph_view = GraphView::AS_IS) {
   auto edge = EDGE(edge_identifier, direction);

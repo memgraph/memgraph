@@ -1,8 +1,3 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 14.03.17.
-//
-
 #include <algorithm>
 #include <iterator>
 #include <memory>
@@ -12,10 +7,10 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
+#include "database/graph_db.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
-
 #include "query_plan_common.hpp"
 
 using namespace query;
@@ -32,8 +27,8 @@ TEST(QueryPlan, Accumulate) {
   // with accumulation we expect them to be [[2, 2], [2, 2]]
 
   auto check = [&](bool accumulate) {
-    GraphDb db;
-    GraphDbAccessor dba(db);
+    database::SingleNode db;
+    database::GraphDbAccessor dba(db);
     auto prop = dba.Property("x");
 
     auto v1 = dba.InsertVertex();
@@ -91,8 +86,8 @@ TEST(QueryPlan, AccumulateAdvance) {
   // to get correct results we need to advance the command
 
   auto check = [&](bool advance) {
-    GraphDb db;
-    GraphDbAccessor dba(db);
+    database::SingleNode db;
+    database::GraphDbAccessor dba(db);
     AstTreeStorage storage;
     SymbolTable symbol_table;
 
@@ -153,9 +148,9 @@ std::shared_ptr<Produce> MakeAggregationProduce(
 /** Test fixture for all the aggregation ops in one return. */
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
-  GraphDb db;
-  GraphDbAccessor dba{db};
-  GraphDbTypes::Property prop = dba.Property("prop");
+  database::SingleNode db;
+  database::GraphDbAccessor dba{db};
+  database::Property prop = dba.Property("prop");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -292,8 +287,8 @@ TEST(QueryPlan, AggregateGroupByValues) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // a vector of TypedValue to be set as property values on vertices
   // most of them should result in a distinct group (commented where not)
@@ -351,8 +346,8 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
@@ -386,8 +381,8 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
 }
 
 TEST(QueryPlan, AggregateNoInput) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
@@ -413,8 +408,8 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
 
   AstTreeStorage storage;
@@ -465,8 +460,8 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.Property("string");
@@ -522,8 +517,8 @@ TEST(QueryPlan, AggregateTypes) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto p1 = dba.Property("p1");  // has only string props
   dba.InsertVertex().PropsSet(p1, "string");
@@ -578,8 +573,8 @@ TEST(QueryPlan, AggregateTypes) {
 }
 
 TEST(QueryPlan, Unwind) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
 

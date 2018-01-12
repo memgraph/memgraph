@@ -12,12 +12,12 @@ class PropertyValueStoreTest : public ::testing::Test {
   PropertyValueStore props_;
 
   void Set(int key, PropertyValue value) {
-    props_.set(GraphDbTypes::Property(key), value);
+    props_.set(database::Property(key), value);
   }
 
-  PropertyValue At(int key) { return props_.at(GraphDbTypes::Property(key)); }
+  PropertyValue At(int key) { return props_.at(database::Property(key)); }
 
-  auto Erase(int key) { return props_.erase(GraphDbTypes::Property(key)); }
+  auto Erase(int key) { return props_.erase(database::Property(key)); }
 };
 
 TEST_F(PropertyValueStoreTest, At) {

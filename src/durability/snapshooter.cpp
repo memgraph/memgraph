@@ -16,7 +16,8 @@ namespace fs = std::experimental::filesystem;
 namespace durability {
 
 namespace {
-bool Encode(const fs::path &snapshot_file, GraphDb &db, GraphDbAccessor &dba) {
+bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
+            database::GraphDbAccessor &dba) {
   try {
     HashedFileWriter buffer(snapshot_file);
     communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
@@ -28,8 +29,8 @@ bool Encode(const fs::path &snapshot_file, GraphDb &db, GraphDbAccessor &dba) {
 
     // Write the number of generated vertex and edges, used to recover
     // generators internal states
-    encoder.WriteInt(db.VertexGenerator().LocalCount());
-    encoder.WriteInt(db.EdgeGenerator().LocalCount());
+    encoder.WriteInt(db.storage().VertexGenerator().LocalCount());
+    encoder.WriteInt(db.storage().EdgeGenerator().LocalCount());
 
     // Write the ID of the transaction doing the snapshot.
     encoder.WriteInt(dba.transaction_id());
@@ -115,12 +116,12 @@ fs::path MakeSnapshotPath(const fs::path &durability_dir) {
   return durability_dir / kSnapshotDir / date_str;
 }
 
-bool MakeSnapshot(GraphDb &db, const fs::path &durability_dir,
+bool MakeSnapshot(database::GraphDb &db, const fs::path &durability_dir,
                   const int snapshot_max_retained) {
   if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
   const auto snapshot_file = MakeSnapshotPath(durability_dir);
   if (fs::exists(snapshot_file)) return false;
-  GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(db);
   if (Encode(snapshot_file, db, dba)) {
     RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);
     RemoveOldWals(durability_dir / kWalDir, dba.transaction());

@@ -22,10 +22,10 @@ using namespace query;
 using namespace query::plan;
 
 TEST(QueryPlan, CreateNodeWithAttributes) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
-  GraphDbTypes::Label label = dba.Label("Person");
+  database::Label label = dba.Label("Person");
   auto property = PROPERTY_PAIR("prop");
 
   AstTreeStorage storage;
@@ -56,10 +56,10 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
 
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
-  GraphDbTypes::Label label = dba.Label("Person");
+  database::Label label = dba.Label("Person");
   auto property = PROPERTY_PAIR("property");
 
   AstTreeStorage storage;
@@ -97,13 +97,13 @@ TEST(QueryPlan, CreateReturn) {
 }
 
 TEST(QueryPlan, CreateExpand) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
-  GraphDbTypes::Label label_node_1 = dba.Label("Node1");
-  GraphDbTypes::Label label_node_2 = dba.Label("Node2");
+  database::Label label_node_1 = dba.Label("Node1");
+  database::Label label_node_2 = dba.Label("Node2");
   auto property = PROPERTY_PAIR("property");
-  GraphDbTypes::EdgeType edge_type = dba.EdgeType("edge_type");
+  database::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -151,7 +151,7 @@ TEST(QueryPlan, CreateExpand) {
 
   for (VertexAccessor vertex : dba.Vertices(false)) {
     EXPECT_EQ(vertex.labels().size(), 1);
-    GraphDbTypes::Label label = vertex.labels()[0];
+    database::Label label = vertex.labels()[0];
     if (label == label_node_1) {
       // node created by first op
       EXPECT_EQ(vertex.PropsAt(property.second).Value<int64_t>(), 1);
@@ -171,8 +171,8 @@ TEST(QueryPlan, CreateExpand) {
 }
 
 TEST(QueryPlan, MatchCreateNode) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // add three nodes we'll match and expand-create from
   dba.InsertVertex();
@@ -198,8 +198,8 @@ TEST(QueryPlan, MatchCreateNode) {
 }
 
 TEST(QueryPlan, MatchCreateExpand) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // add three nodes we'll match and expand-create from
   dba.InsertVertex();
@@ -207,10 +207,10 @@ TEST(QueryPlan, MatchCreateExpand) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  //  GraphDbTypes::Label label_node_1 = dba.Label("Node1");
-  //  GraphDbTypes::Label label_node_2 = dba.Label("Node2");
-  //  GraphDbTypes::Property property = dba.Label("prop");
-  GraphDbTypes::EdgeType edge_type = dba.EdgeType("edge_type");
+  //  database::Label label_node_1 = dba.Label("Node1");
+  //  database::Label label_node_2 = dba.Label("Node2");
+  //  database::Property property = dba.Label("prop");
+  database::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -250,8 +250,8 @@ TEST(QueryPlan, MatchCreateExpand) {
 }
 
 TEST(QueryPlan, Delete) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
   std::vector<VertexAccessor> vertices;
@@ -339,8 +339,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
   auto test_delete = [](bool detach) {
-    GraphDb db;
-    GraphDbAccessor dba(db);
+    database::SingleNode db;
+    database::GraphDbAccessor dba(db);
 
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
@@ -377,8 +377,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
 }
 
 TEST(QueryPlan, DeleteReturn) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
   auto prop = PROPERTY_PAIR("property");
@@ -416,8 +416,8 @@ TEST(QueryPlan, DeleteReturn) {
 
 TEST(QueryPlan, DeleteNull) {
   // test (simplified) WITH Null as x delete x
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
@@ -437,8 +437,8 @@ TEST(QueryPlan, DeleteAdvance) {
   // note that Neo does not fail when the deleted
   // record is not used in subsequent clauses, but
   // we are not yet compatible with that
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   dba.InsertVertex();
   dba.AdvanceCommand();
 
@@ -456,8 +456,8 @@ TEST(QueryPlan, DeleteAdvance) {
 }
 
 TEST(QueryPlan, SetProperty) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
@@ -507,8 +507,8 @@ TEST(QueryPlan, SetProperty) {
 
 TEST(QueryPlan, SetProperties) {
   auto test_set_properties = [](bool update) {
-    GraphDb db;
-    GraphDbAccessor dba(db);
+    database::SingleNode db;
+    database::GraphDbAccessor dba(db);
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
     auto prop_a = dba.Property("a");
@@ -576,8 +576,8 @@ TEST(QueryPlan, SetProperties) {
 }
 
 TEST(QueryPlan, SetLabels) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto label1 = dba.Label("label1");
   auto label2 = dba.Label("label2");
@@ -591,7 +591,7 @@ TEST(QueryPlan, SetLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_set = std::make_shared<plan::SetLabels>(
-      n.op_, n.sym_, std::vector<GraphDbTypes::Label>{label2, label3});
+      n.op_, n.sym_, std::vector<database::Label>{label2, label3});
   EXPECT_EQ(2, PullAll(label_set, dba, symbol_table));
 
   for (VertexAccessor vertex : dba.Vertices(false)) {
@@ -603,8 +603,8 @@ TEST(QueryPlan, SetLabels) {
 }
 
 TEST(QueryPlan, RemoveProperty) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   // graph with 4 vertices in connected pairs
   // the origin vertex in each par and both edges
@@ -655,8 +655,8 @@ TEST(QueryPlan, RemoveProperty) {
 }
 
 TEST(QueryPlan, RemoveLabels) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
 
   auto label1 = dba.Label("label1");
   auto label2 = dba.Label("label2");
@@ -675,7 +675,7 @@ TEST(QueryPlan, RemoveLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_remove = std::make_shared<plan::RemoveLabels>(
-      n.op_, n.sym_, std::vector<GraphDbTypes::Label>{label1, label2});
+      n.op_, n.sym_, std::vector<database::Label>{label1, label2});
   EXPECT_EQ(2, PullAll(label_remove, dba, symbol_table));
 
   for (VertexAccessor vertex : dba.Vertices(false)) {
@@ -687,8 +687,8 @@ TEST(QueryPlan, RemoveLabels) {
 }
 
 TEST(QueryPlan, NodeFilterSet) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
@@ -727,8 +727,8 @@ TEST(QueryPlan, NodeFilterSet) {
 }
 
 TEST(QueryPlan, FilterRemove) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
   auto v1 = dba.InsertVertex();
   auto prop = PROPERTY_PAIR("property");
@@ -763,8 +763,8 @@ TEST(QueryPlan, FilterRemove) {
 }
 
 TEST(QueryPlan, SetRemove) {
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v = dba.InsertVertex();
   auto label1 = dba.Label("label1");
   auto label2 = dba.Label("label2");
@@ -777,9 +777,9 @@ TEST(QueryPlan, SetRemove) {
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
   auto set = std::make_shared<plan::SetLabels>(
       scan_all.op_, scan_all.sym_,
-      std::vector<GraphDbTypes::Label>{label1, label2});
+      std::vector<database::Label>{label1, label2});
   auto rem = std::make_shared<plan::RemoveLabels>(
-      set, scan_all.sym_, std::vector<GraphDbTypes::Label>{label1, label2});
+      set, scan_all.sym_, std::vector<database::Label>{label1, label2});
   EXPECT_EQ(1, PullAll(rem, dba, symbol_table));
   dba.AdvanceCommand();
   v.Reconstruct();
@@ -794,8 +794,8 @@ TEST(QueryPlan, Merge) {
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   dba.InsertEdge(v1, v2, dba.EdgeType("Type"));
@@ -839,8 +839,8 @@ TEST(QueryPlan, Merge) {
 TEST(QueryPlan, MergeNoInput) {
   // merge with no input, creates a single node
 
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
@@ -858,8 +858,8 @@ TEST(QueryPlan, MergeNoInput) {
 
 TEST(QueryPlan, SetPropertyOnNull) {
   // SET (Null).prop = 42
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
@@ -873,8 +873,8 @@ TEST(QueryPlan, SetPropertyOnNull) {
 
 TEST(QueryPlan, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -890,8 +890,8 @@ TEST(QueryPlan, SetPropertiesOnNull) {
 
 TEST(QueryPlan, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -901,15 +901,15 @@ TEST(QueryPlan, SetLabelsOnNull) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetLabels>(
-      optional, n.sym_, std::vector<GraphDbTypes::Label>{label});
+      optional, n.sym_, std::vector<database::Label>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
   EXPECT_EQ(1, PullAll(set_op, dba, symbol_table));
 }
 
 TEST(QueryPlan, RemovePropertyOnNull) {
   // REMOVE (Null).prop
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   AstTreeStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
@@ -922,8 +922,8 @@ TEST(QueryPlan, RemovePropertyOnNull) {
 
 TEST(QueryPlan, RemoveLabelsOnNull) {
   // OPTIONAL MATCH (n) REMOVE n :label
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -933,15 +933,15 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto remove_op = std::make_shared<plan::RemoveLabels>(
-      optional, n.sym_, std::vector<GraphDbTypes::Label>{label});
+      optional, n.sym_, std::vector<database::Label>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
   EXPECT_EQ(1, PullAll(remove_op, dba, symbol_table));
 }
 
 TEST(QueryPlan, CreateIndex) {
   // CREATE INDEX ON :Label(property)
-  GraphDb db;
-  GraphDbAccessor dba(db);
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = dba.Property("property");
   EXPECT_FALSE(dba.LabelPropertyIndexExists(label, property));

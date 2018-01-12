@@ -20,7 +20,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame &frame, const Parameters &parameters,
                       const SymbolTable &symbol_table,
-                      GraphDbAccessor &db_accessor,
+                      database::GraphDbAccessor &db_accessor,
                       GraphView graph_view = GraphView::AS_IS)
       : frame_(frame),
         parameters_(parameters),
@@ -436,7 +436,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   Frame &frame_;
   const Parameters &parameters_;
   const SymbolTable &symbol_table_;
-  GraphDbAccessor &db_accessor_;
+  database::GraphDbAccessor &db_accessor_;
   // which switching approach should be used when evaluating
   const GraphView graph_view_;
 };

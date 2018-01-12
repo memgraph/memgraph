@@ -26,7 +26,7 @@ class MasterCoordination {
   int RegisterWorker(int desired_worker_id, Endpoint endpoint);
 
  public:
-  MasterCoordination(communication::messaging::System &system);
+  explicit MasterCoordination(communication::messaging::System &system);
 
   /** Shuts down all the workers and this master server. */
   ~MasterCoordination();

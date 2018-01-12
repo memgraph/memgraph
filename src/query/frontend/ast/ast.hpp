@@ -12,7 +12,7 @@
 #include "glog/logging.h"
 
 #include "database/graph_db.hpp"
-#include "database/graph_db_datatypes.hpp"
+#include "database/types.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -23,15 +23,15 @@
 // Hash function for the key in pattern atom property maps.
 namespace std {
 template <>
-struct hash<std::pair<std::string, GraphDbTypes::Property>> {
+struct hash<std::pair<std::string, database::Property>> {
   size_t operator()(
-      const std::pair<std::string, GraphDbTypes::Property> &pair) const {
+      const std::pair<std::string, database::Property> &pair) const {
     return string_hash(pair.first) ^ property_hash(pair.second);
   };
 
  private:
   std::hash<std::string> string_hash{};
-  std::hash<GraphDbTypes::Property> property_hash{};
+  std::hash<database::Property> property_hash{};
 };
 }  // namespace std
 
@@ -1060,15 +1060,14 @@ class MapLiteral : public BaseLiteral {
   }
 
   // maps (property_name, property) to expressions
-  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
-                     Expression *>
+  std::unordered_map<std::pair<std::string, database::Property>, Expression *>
       elements_;
 
  protected:
   explicit MapLiteral(int uid) : BaseLiteral(uid) {}
   MapLiteral(
       int uid,
-      const std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
+      const std::unordered_map<std::pair<std::string, database::Property>,
                                Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
 
@@ -1095,7 +1094,7 @@ class MapLiteral : public BaseLiteral {
     size_t size = 0;
     ar >> size;
     for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, GraphDbTypes::Property> property;
+      std::pair<std::string, database::Property> property;
       ar >> property.first;
       ar >> property.second;
       Expression *expression = nullptr;
@@ -1165,18 +1164,17 @@ class PropertyLookup : public Expression {
 
   Expression *expression_ = nullptr;
   std::string property_name_;
-  GraphDbTypes::Property property_;
+  database::Property property_;
 
  protected:
   PropertyLookup(int uid, Expression *expression,
-                 const std::string &property_name,
-                 GraphDbTypes::Property property)
+                 const std::string &property_name, database::Property property)
       : Expression(uid),
         expression_(expression),
         property_name_(property_name),
         property_(property) {}
   PropertyLookup(int uid, Expression *expression,
-                 const std::pair<std::string, GraphDbTypes::Property> &property)
+                 const std::pair<std::string, database::Property> &property)
       : Expression(uid),
         expression_(expression),
         property_name_(property.first),
@@ -1226,11 +1224,11 @@ class LabelsTest : public Expression {
   }
 
   Expression *expression_ = nullptr;
-  std::vector<GraphDbTypes::Label> labels_;
+  std::vector<database::Label> labels_;
 
  protected:
   LabelsTest(int uid, Expression *expression,
-             const std::vector<GraphDbTypes::Label> &labels)
+             const std::vector<database::Label> &labels)
       : Expression(uid), expression_(expression), labels_(labels) {}
 
  private:
@@ -1298,7 +1296,8 @@ class Function : public Expression {
 
  private:
   std::string function_name_;
-  std::function<TypedValue(const std::vector<TypedValue> &, GraphDbAccessor &)>
+  std::function<TypedValue(const std::vector<TypedValue> &,
+                           database::GraphDbAccessor &)>
       function_;
 
   friend class boost::serialization::access;
@@ -1598,10 +1597,9 @@ class NodeAtom : public PatternAtom {
     return node_atom;
   }
 
-  std::vector<GraphDbTypes::Label> labels_;
+  std::vector<database::Label> labels_;
   // maps (property_name, property) to an expression
-  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
-                     Expression *>
+  std::unordered_map<std::pair<std::string, database::Property>, Expression *>
       properties_;
 
  protected:
@@ -1632,7 +1630,7 @@ class NodeAtom : public PatternAtom {
     size_t size = 0;
     ar >> size;
     for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, GraphDbTypes::Property> property;
+      std::pair<std::string, database::Property> property;
       ar >> property.first;
       ar >> property.second;
       Expression *expression = nullptr;
@@ -1706,9 +1704,8 @@ class EdgeAtom : public PatternAtom {
 
   Type type_ = Type::SINGLE;
   Direction direction_ = Direction::BOTH;
-  std::vector<GraphDbTypes::EdgeType> edge_types_;
-  std::unordered_map<std::pair<std::string, GraphDbTypes::Property>,
-                     Expression *>
+  std::vector<database::EdgeType> edge_types_;
+  std::unordered_map<std::pair<std::string, database::Property>, Expression *>
       properties_;
 
   // Used in variable length and BFS expansions. Bounds can be nullptr. Inner
@@ -1725,9 +1722,9 @@ class EdgeAtom : public PatternAtom {
   EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction)
       : PatternAtom(uid, identifier), type_(type), direction_(direction) {}
 
-  // Creates an edge atom for a SINGLE expansion with the given types.
+  // Creates an edge atom for a SINGLE expansion with the given .
   EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction,
-           const std::vector<GraphDbTypes::EdgeType> &edge_types)
+           const std::vector<database::EdgeType> &edge_types)
       : PatternAtom(uid, identifier),
         type_(type),
         direction_(direction),
@@ -1767,7 +1764,7 @@ class EdgeAtom : public PatternAtom {
     size_t size = 0;
     ar >> size;
     for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, GraphDbTypes::Property> property;
+      std::pair<std::string, database::Property> property;
       ar >> property.first;
       ar >> property.second;
       Expression *expression = nullptr;
@@ -2506,12 +2503,12 @@ class SetLabels : public Clause {
   }
 
   Identifier *identifier_ = nullptr;
-  std::vector<GraphDbTypes::Label> labels_;
+  std::vector<database::Label> labels_;
 
  protected:
   explicit SetLabels(int uid) : Clause(uid) {}
   SetLabels(int uid, Identifier *identifier,
-            const std::vector<GraphDbTypes::Label> &labels)
+            const std::vector<database::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
 
  private:
@@ -2601,12 +2598,12 @@ class RemoveLabels : public Clause {
   }
 
   Identifier *identifier_ = nullptr;
-  std::vector<GraphDbTypes::Label> labels_;
+  std::vector<database::Label> labels_;
 
  protected:
   explicit RemoveLabels(int uid) : Clause(uid) {}
   RemoveLabels(int uid, Identifier *identifier,
-               const std::vector<GraphDbTypes::Label> &labels)
+               const std::vector<database::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
 
  private:
@@ -2767,13 +2764,12 @@ class CreateIndex : public Clause {
     return storage.Create<CreateIndex>(label_, property_);
   }
 
-  GraphDbTypes::Label label_;
-  GraphDbTypes::Property property_;
+  database::Label label_;
+  database::Property property_;
 
  protected:
   explicit CreateIndex(int uid) : Clause(uid) {}
-  CreateIndex(int uid, GraphDbTypes::Label label,
-              GraphDbTypes::Property property)
+  CreateIndex(int uid, database::Label label, database::Property property)
       : Clause(uid), label_(label), property_(property) {}
 
  private:
@@ -2836,10 +2832,9 @@ LOAD_AND_CONSTRUCT(query::PrimitiveLiteral, 0);
 LOAD_AND_CONSTRUCT(query::ListLiteral, 0);
 LOAD_AND_CONSTRUCT(query::MapLiteral, 0);
 LOAD_AND_CONSTRUCT(query::Identifier, 0, "");
-LOAD_AND_CONSTRUCT(query::PropertyLookup, 0, nullptr, "",
-                   GraphDbTypes::Property());
+LOAD_AND_CONSTRUCT(query::PropertyLookup, 0, nullptr, "", database::Property());
 LOAD_AND_CONSTRUCT(query::LabelsTest, 0, nullptr,
-                   std::vector<GraphDbTypes::Label>());
+                   std::vector<database::Label>());
 LOAD_AND_CONSTRUCT(query::Function, 0);
 LOAD_AND_CONSTRUCT(query::Aggregation, 0, nullptr, nullptr,
                    query::Aggregation::Op::COUNT);

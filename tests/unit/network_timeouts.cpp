@@ -9,6 +9,7 @@
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/server.hpp"
+#include "database/graph_db.hpp"
 #include "io/network/network_endpoint.hpp"
 #include "io/network/socket.hpp"
 
@@ -28,7 +29,8 @@ using ClientT = communication::bolt::Client<Socket>;
 
 class RunningServer {
  public:
-  SessionData session_data_;
+  database::SingleNode db_;
+  SessionData session_data_{db_};
   NetworkEndpoint endpoint_{"127.0.0.1", "0"};
   ServerT server_{endpoint_, session_data_, 1};
 };

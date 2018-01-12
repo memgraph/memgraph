@@ -9,7 +9,7 @@ DECLARE_int32(query_execution_time_sec);
 
 TEST(TransactionTimeout, TransactionTimeout) {
   FLAGS_query_execution_time_sec = 3;
-  GraphDb db;
+  database::SingleNode db;
   query::Interpreter interpreter;
   auto interpret = [&](auto &dba, const std::string &query) {
     ResultStreamFaker stream;
@@ -17,16 +17,16 @@ TEST(TransactionTimeout, TransactionTimeout) {
 
   };
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     interpret(dba, "MATCH (n) RETURN n");
   }
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     std::this_thread::sleep_for(std::chrono::seconds(5));
     ASSERT_THROW(interpret(dba, "MATCH (n) RETURN n"), query::HintedAbortError);
   }
   {
-    GraphDbAccessor dba(db);
+    database::GraphDbAccessor dba(db);
     interpret(dba, "MATCH (n) RETURN n");
   }
 }

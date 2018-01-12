@@ -25,9 +25,9 @@ DECLARE_int32(gc_cycle_sec);
 static const std::string kLabel{"kLabel"};
 static const std::string kProperty{"kProperty"};
 
-void GenerateGraph(GraphDb &db) {
+void GenerateGraph(database::GraphDb &db) {
   {
-    GraphDbAccessor dba{db};
+    database::GraphDbAccessor dba{db};
     dba.BuildIndex(dba.Label(kLabel), dba.Property(kProperty));
     dba.Commit();
   }
@@ -56,7 +56,7 @@ void GenerateGraph(GraphDb &db) {
     SpinLock vertices_lock;
     for (int i = 0; i < FLAGS_thread_count; ++i) {
       threads.emplace_back([&db, &vertex_ids, &vertices, &vertices_lock, i]() {
-        GraphDbAccessor dba{db};
+        database::GraphDbAccessor dba{db};
         auto label = dba.Label(kLabel);
         auto property = dba.Property(kProperty);
         auto batch_size = FLAGS_vertex_count / FLAGS_thread_count;
@@ -76,7 +76,7 @@ void GenerateGraph(GraphDb &db) {
               << timer.Elapsed().count() << " seconds.";
   }
   {
-    GraphDbAccessor dba{db};
+    database::GraphDbAccessor dba{db};
     for (int i = 0; i < FLAGS_vertex_count; ++i)
       vertices[i] = *dba.Transfer(vertices[i]);
 
@@ -96,32 +96,32 @@ void GenerateGraph(GraphDb &db) {
   }
 }
 
-auto EdgeIteration(GraphDb &db) {
-  GraphDbAccessor dba{db};
+auto EdgeIteration(database::GraphDb &db) {
+  database::GraphDbAccessor dba{db};
   int64_t sum{0};
   for (auto edge : dba.Edges(false)) sum += edge.from().gid() + edge.to().gid();
   return sum;
 }
 
-auto VertexIteration(GraphDb &db) {
-  GraphDbAccessor dba{db};
+auto VertexIteration(database::GraphDb &db) {
+  database::GraphDbAccessor dba{db};
   int64_t sum{0};
   for (auto v : dba.Vertices(false))
     for (auto e : v.out()) sum += e.gid() + e.to().gid();
   return sum;
 }
 
-auto ConnectedComponentsEdges(GraphDb &db) {
+auto ConnectedComponentsEdges(database::GraphDb &db) {
   UnionFind<int64_t> connectivity{FLAGS_vertex_count};
-  GraphDbAccessor dba{db};
+  database::GraphDbAccessor dba{db};
   for (auto edge : dba.Edges(false))
     connectivity.Connect(edge.from().gid(), edge.to().gid());
   return connectivity.Size();
 }
 
-auto ConnectedComponentsVertices(GraphDb &db) {
+auto ConnectedComponentsVertices(database::GraphDb &db) {
   UnionFind<int64_t> connectivity{FLAGS_vertex_count};
-  GraphDbAccessor dba{db};
+  database::GraphDbAccessor dba{db};
   for (auto from : dba.Vertices(false)) {
     for (auto out_edge : from.out())
       connectivity.Connect(from.gid(), out_edge.to().gid());
@@ -129,7 +129,7 @@ auto ConnectedComponentsVertices(GraphDb &db) {
   return connectivity.Size();
 }
 
-auto ConnectedComponentsVerticesParallel(GraphDb &db) {
+auto ConnectedComponentsVerticesParallel(database::GraphDb &db) {
   UnionFind<int64_t> connectivity{FLAGS_vertex_count};
   SpinLock connectivity_lock;
 
@@ -143,7 +143,7 @@ auto ConnectedComponentsVerticesParallel(GraphDb &db) {
   for (int i = 0; i < FLAGS_thread_count; ++i) {
     threads.emplace_back(
         [&connectivity, &connectivity_lock, &bounds, &db, i]() {
-          GraphDbAccessor dba{db};
+          database::GraphDbAccessor dba{db};
           for (auto from :
                dba.Vertices(dba.Label(kLabel), dba.Property(kProperty),
                             utils::MakeBoundInclusive(bounds[i]),
@@ -159,11 +159,11 @@ auto ConnectedComponentsVerticesParallel(GraphDb &db) {
   return connectivity.Size();
 }
 
-auto Expansion(GraphDb &db) {
+auto Expansion(database::GraphDb &db) {
   std::vector<int> component_ids(FLAGS_vertex_count, -1);
   int next_component_id{0};
   std::stack<VertexAccessor> expansion_stack;
-  GraphDbAccessor dba{db};
+  database::GraphDbAccessor dba{db};
   for (auto v : dba.Vertices(false)) {
     if (component_ids[v.gid()] != -1) continue;
     auto component_id = next_component_id++;
@@ -186,7 +186,7 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
   FLAGS_gc_cycle_sec = -1;
 
-  GraphDb db;
+  database::SingleNode db;
   GenerateGraph(db);
   auto timed_call = [&db](auto callable, const std::string &descr) {
     LOG(INFO) << "Running " << descr << "...";
