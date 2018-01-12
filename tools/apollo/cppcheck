@@ -55,17 +55,19 @@ fi
 format_list=""
 format_tmp="$DIR/.clang_format"
 
+if [ -f "$format_tmp" ]; then
+    rm "$format_tmp"
+fi
+
 for fname in $files; do
     if [ ! -f "$fname" ]; then continue; fi
+    echo "Checking formatting errors for: $fname"
     clang-format "$fname" > "$format_tmp"
     if ! diff "$fname" "$format_tmp" >/dev/null; then
         format_list+="\n$fname"
     fi
-done
-
-if [ -f "$format_tmp" ]; then
     rm "$format_tmp"
-fi
+done
 
 if [ "$format_list" != "" ]; then
     if [ "$( cat "$errfile" | wc -l )" -gt 0 ]; then
