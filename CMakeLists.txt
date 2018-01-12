@@ -221,11 +221,11 @@ set(CPACK_DEBIAN_PACKAGE_MAINTAINER "tech@memgraph.com (Memgraph Ltd.)")
 set(CPACK_DEBIAN_PACKAGE_SECTION non-free/database)
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE https://memgraph.com)
 set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/conffiles;"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/copyright;"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/prerm;"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/postrm;"
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/debian/postinst;")
+    "${CMAKE_SOURCE_DIR}/release/debian/conffiles;"
+    "${CMAKE_SOURCE_DIR}/release/debian/copyright;"
+    "${CMAKE_SOURCE_DIR}/release/debian/prerm;"
+    "${CMAKE_SOURCE_DIR}/release/debian/postrm;"
+    "${CMAKE_SOURCE_DIR}/release/debian/postinst;")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 # Description formatting is important, summary must be followed with a newline and 1 space.
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}

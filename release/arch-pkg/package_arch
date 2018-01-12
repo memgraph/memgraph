@@ -38,7 +38,8 @@ cp ../memgraph.install ./
 updpkgsums PKGBUILD
 namcap PKGBUILD
 
-makepkg
+# TODO: Maybe add a custom makepkg.conf and use that
+makepkg PACKAGER="tech@memgraph.com (Memgraph Ltd.)"
 # Check the final package archive validity and move it in parent directory.
 pkg_name=memgraph-${version}-1-x86_64.pkg.tar.xz
 namcap --exclude=emptydir $pkg_name

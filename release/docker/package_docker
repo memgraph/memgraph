@@ -10,7 +10,6 @@ function print_help () {
 }
 
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-project_dir="${working_dir}/.."
 
 latest_image=""
 tag_latest=""
@@ -38,7 +37,7 @@ version=`echo ${deb_name} | sed 's/.*[-_]\(.*\)-.*/\1/'`
 image_name="memgraph:${version}"
 package_name="memgraph-${version}-docker.tar.gz"
 # Build docker image.
-docker build -t ${image_name} ${tag_latest} -f ${working_dir}/community.dockerfile --build-arg deb_release=${deb_name}.deb .
+docker build -t ${image_name} ${tag_latest} -f ${working_dir}/memgraph.dockerfile --build-arg deb_release=${deb_name}.deb .
 docker save ${image_name} ${latest_image} > ${package_name}
 rm -rf "${deb_name}.deb"
 echo "Built Docker image at '${working_dir}/${package_name}"
