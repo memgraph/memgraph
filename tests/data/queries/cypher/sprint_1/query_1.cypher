@@ -1,1 +1,0 @@
-MATCH (n:Data) WHERE n.queryID = "KMeasyKMID" OR n.queryID = "easyQueryID" WITH n MATCH (n)-[r:Fact]->(m) WHERE r.relationshipType = 'recommended exercise' WITH n,r,m WHERE n.value = 'G' AND m.value = 'HK.03 - Aqua Walking' return n, r, m

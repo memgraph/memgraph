@@ -1,4 +1,0 @@
-CREATE (g:garment {garment_id: 1234, garment_category_id: 1}) RETURN g
-CREATE (g:garment {garment_id: 1235, garment_category_id: 1}) RETURN g
-CREATE (p:profile {profile_id: 111, partner_id: 55}) RETURN p
-CREATE (p:profile {profile_id: 112, partner_id: 55}) RETURN p

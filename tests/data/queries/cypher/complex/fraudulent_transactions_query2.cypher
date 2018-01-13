@@ -1,1 +1,0 @@
-# MATCH (victim:Person)-[r:HAS_BOUGHT_AT]->(merchant) WHERE r.status = "Disputed" RETURN victim.name AS `Customer Name`, merchant.name AS `Store Name`, r.amount AS Amount, r.time AS `Transaction Time`
