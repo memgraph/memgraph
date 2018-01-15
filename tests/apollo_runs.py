@@ -38,9 +38,7 @@ runs = []
 for test in tests:
     order, name, path = test
     dirname, basename = os.path.split(path)
-    cmakedir = os.path.join("CMakeFiles",
-            "memgraph" + CTEST_DELIMITER + name + ".dir")
-    files = [basename, cmakedir]
+    files = [basename]
 
     # extra files for specific tests
     if name == "unit__fswatcher":
@@ -56,10 +54,11 @@ for test in tests:
         prefix = "TIMEOUT=600 "
 
     outfile_paths = []
-    if name.startswith("unit"):
-        cmakedir_abs = os.path.join(TESTS_DIR, "unit", cmakedir)
-        cmakedir_rel = os.path.relpath(cmakedir_abs, WORKSPACE_DIR)
-        outfile_paths.append("\./" + cmakedir_rel.replace(".", "\\.") + ".+")
+    if name.startswith("unit") and mode == "diff":
+        dirname = dirname.replace("/build/", "/build_coverage/")
+        curdir_abs = os.path.normpath(os.path.join(SCRIPT_DIR, dirname))
+        curdir_rel = os.path.relpath(curdir_abs, WORKSPACE_DIR)
+        outfile_paths.append("\./" + curdir_rel.replace(".", "\\.") + "/.+")
 
     runs.append({
         "name": name,

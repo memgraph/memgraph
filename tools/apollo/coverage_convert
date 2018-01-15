@@ -1,0 +1,61 @@
+#!/bin/bash -e
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+project_dir="$( dirname "$( dirname "$script_dir" )" )"
+
+generated_dir="$script_dir/generated"
+html_dir="$generated_dir/html"
+data_file="$generated_dir/default.profdata"
+json_file="$generated_dir/report.json"
+coverage_file="$generated_dir/coverage.json"
+summary_file="$generated_dir/.coverage_summary"
+
+# cleanup output directory
+if [ -d "$generated_dir" ]; then
+    rm -rf "$generated_dir"
+fi
+mkdir "$generated_dir"
+
+# merge raw coverage info
+raw_files="$( find "$HOME" -name "*.profraw" | tr '\n' ' ' )"
+llvm-profdata-5.0 merge -sparse $raw_files -o "$data_file"
+
+# create list of binaries
+cnt=0
+obj_files=""
+for prof_file in $raw_files; do
+    if [ $cnt -gt 0 ]; then
+        obj_files+=" -object "
+    fi
+    obj_files+="$( find "$( dirname "$prof_file" )" -executable -type f | head -n 1 )"
+    cnt=$((cnt + 1))
+done
+
+# create list of source files
+src_files=$( find "$HOME" \( -name '*.cpp' -o -name '*.hpp' \) -print | sort | tr '\n' ' ' )
+
+# generate html output
+llvm-cov-5.0 show $obj_files \
+    -format html \
+    -instr-profile "$data_file" \
+    -o "$html_dir" \
+    -show-line-counts-or-regions \
+    -Xdemangler c++filt -Xdemangler -n \
+    $src_files
+
+# fix names in html output
+coverage_dir="$html_dir/coverage"
+mv $coverage_dir/workspace/memgraph/* $html_dir/coverage/
+rm -r $coverage_dir/workspace
+find $coverage_dir -name "*.html" -exec sed -i 's@/workspace/memgraph/@@g' {} \;
+find $coverage_dir -name "*.html" -exec sed -i 's@../../style.css@style.css@g' {} \;
+sed -i 's@/workspace/memgraph@@g' $html_dir/index.html
+
+# generate json output
+llvm-cov-5.0 export $obj_files \
+    -instr-profile "$data_file" \
+    -Xdemangler c++filt -Xdemangler -n \
+    $src_files > "$json_file"
+
+# process json output
+$script_dir/coverage_parse_export "$json_file" "$coverage_file" "$summary_file" $src_files

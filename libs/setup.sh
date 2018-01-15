@@ -86,11 +86,6 @@ clone git://deps.memgraph.io/googletest.git googletest $googletest_tag
 glog_tag="042a21657e79784226babab8b942f7bd0949635f" # custom version (v0.3.5+)
 clone git://deps.memgraph.io/glog.git glog $glog_tag
 
-# lcov-to-coberatura-xml
-# git clone https://github.com/eriwen/lcov-to-cobertura-xml.git
-lcov_to_xml_tag="59584761cb5da4687693faec05bf3e2b74e9dde9" # Dec 6, 2016
-clone git://deps.memgraph.io/lcov-to-cobertura-xml.git lcov-to-cobertura-xml $lcov_to_xml_tag
-
 # google flags
 # git clone https://github.com/memgraph/gflags.git
 gflags_tag="b37ceb03a0e56c9f15ce80409438a555f8a67b7c" # custom version (May 6, 2017)

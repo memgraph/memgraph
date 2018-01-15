@@ -15,10 +15,6 @@ foreach(test_cpp ${test_type_cpps})
 
     # build exec file
     add_executable(${target_name} ${test_cpp})
-    if(TEST_COVERAGE)
-        set_target_properties(${target_name} PROPERTIES COMPILE_FLAGS "-g -O0 -Wall -fprofile-arcs -ftest-coverage")
-        set_target_properties(${target_name} PROPERTIES LINK_FLAGS "--coverage -fprofile-arcs -ftest-coverage")
-    endif()
 
     # OUTPUT_NAME sets the real name of a target when it is built and can be
     # used to help create two targets of the same name even though CMake
@@ -27,10 +23,6 @@ foreach(test_cpp ${test_type_cpps})
 
     # link libraries
     target_link_libraries(${target_name} memgraph_lib)
-    if(TEST_COVERAGE)
-        # for code coverage
-        target_link_libraries(${target_name} gcov)
-    endif()
 
     set(output_path ${CMAKE_BINARY_DIR}/test_results/unit/${target_name}.xml)
 

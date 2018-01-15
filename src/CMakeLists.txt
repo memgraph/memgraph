@@ -51,6 +51,8 @@ set(memgraph_src_files
 )
 # -----------------------------------------------------------------------------
 
+string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags ${Boost_SERIALIZATION_LIBRARY_RELEASE})
@@ -90,8 +92,6 @@ add_custom_command(TARGET memgraph POST_BUILD
                    COMMENT Creating symlink to memgraph executable)
 
 # Strip the executable in release build.
-string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
-
 if (lower_build_type STREQUAL "release")
   add_custom_command(TARGET memgraph POST_BUILD
                      COMMAND strip -s $<TARGET_FILE:memgraph>

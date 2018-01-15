@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.1)
 # to download dependencies
 
 if(NOT UNIX)
-    message(FATAL "Unsupported operating system.")
+  message(FATAL_ERROR "Unsupported operating system.")
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
@@ -171,16 +171,25 @@ add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src}
 target_link_libraries(antlr_opencypher_parser_lib antlr4)
 # -----------------------------------------------------------------------------
 
-include_directories(src)
-add_subdirectory(src)
-# -----------------------------------------------------------------------------
-
 # Optional subproject configuration -------------------------------------------
 option(POC "Build proof of concept binaries" ON)
 option(EXPERIMENTAL "Build experimental binaries" OFF)
 option(CUSTOMERS "Build customer binaries" ON)
-option(TEST_COVERAGE "Generate coverage reports from unit tests" OFF)
+option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" OFF)
+
+if (TEST_COVERAGE)
+  string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
+  if (NOT lower_build_type STREQUAL "debug")
+    message(FATAL_ERROR "Generating test coverage unsupported in non Debug builds. Current build type is '${CMAKE_BUILD_TYPE}'")
+  endif()
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+endif()
+
+# Add subprojects
+include_directories(src)
+add_subdirectory(src)
 
 if(POC)
   add_subdirectory(poc)

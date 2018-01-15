@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+import argparse
+import json
+import os
+import sys
+from collections import defaultdict
+
+def lines2phabricator(filename, lines):
+    ret = ""
+    numlines = 0
+    with open(filename) as f:
+        for row in f:
+            numlines += 1
+    for i in range(1, numlines + 1):
+        val = lines[i]
+        if val is None: ret += "N"
+        elif val == 0: ret += "U"
+        else: ret += "C"
+    return ret
+
+parser = argparse.ArgumentParser(description='Parse llvm-cov export data.')
+parser.add_argument('input', help='input file')
+parser.add_argument('coverage', help='coverage output file')
+parser.add_argument('summary', help='summary output file')
+parser.add_argument('files', nargs='+', help='files to process')
+args = parser.parse_args()
+
+# for specification of the format see:
+# https://github.com/llvm-mirror/llvm/blob/master/tools/llvm-cov/CoverageExporterJson.cpp
+
+data = json.load(open(args.input, "r"))
+
+totals = defaultdict(lambda: defaultdict(int))
+sources = defaultdict(lambda: defaultdict(lambda: None))
+for export in data["data"]:
+    for cfile in export["files"]:
+        for segment in cfile["segments"]:
+            filename = cfile["filename"]
+            if not filename in args.files: continue
+            line, col, count, has_count, is_region_entry = segment
+            sources[filename][line] = count
+    for function in export["functions"]:
+        for region in function["regions"]:
+            line_start, column_start, line_end, column_end, execution_count, \
+                    file_id, expanded_file_id, kind = region
+            filename = function["filenames"][file_id]
+            if filename not in args.files: continue
+            for i in range(line_start, line_end + 1):
+                sources[filename][i] = execution_count
+    for total, values in export["totals"].items():
+        for key, value in values.items():
+            totals[total][key] += value
+
+coverage = {}
+for filename, lines in sources.items():
+    path = "/".join(filename.split("/")[3:])
+    coverage[path] = lines2phabricator(filename, lines)
+
+with open(args.coverage, "w") as f:
+    json.dump(coverage, f)
+
+summary = """==== Code coverage: ====
+
+<table>
+<tr><th>Coverage</th><th>Total</th></tr>
+"""
+ROW = "<tr><td>{name}</td><td>{covered} / {count} ({percent:.2%})</td></tr>\n"
+for what in ["functions", "instantiations", "lines", "regions"]:
+    now = totals[what]
+    now["percent"] = now["covered"] / now["count"]
+    summary += ROW.format(**dict(totals[what], name=what.capitalize()))
+summary += "</table>\n"
+
+with open(args.summary, "w") as f:
+    f.write(summary)

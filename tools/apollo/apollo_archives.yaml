@@ -1,0 +1,7 @@
+- name: Code coverage
+  cd: generated/html
+  run_type: data process
+  archive:
+    - .
+  filename: code_coverage.tar.gz
+  host: true

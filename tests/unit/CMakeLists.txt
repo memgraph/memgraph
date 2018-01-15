@@ -5,6 +5,8 @@ get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 file(GLOB_RECURSE test_type_cpps *.cpp)
 message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 
+add_custom_target(memgraph__unit)
+
 # for each cpp file build binary and register test
 foreach(test_cpp ${test_type_cpps})
 
@@ -15,10 +17,6 @@ foreach(test_cpp ${test_type_cpps})
 
     # build exec file
     add_executable(${target_name} ${test_cpp})
-    if(TEST_COVERAGE)
-        set_target_properties(${target_name} PROPERTIES COMPILE_FLAGS "-g -O0 -Wall -fprofile-arcs -ftest-coverage")
-        set_target_properties(${target_name} PROPERTIES LINK_FLAGS "--coverage -fprofile-arcs -ftest-coverage")
-    endif()
 
     # OUTPUT_NAME sets the real name of a target when it is built and can be
     # used to help create two targets of the same name even though CMake
@@ -29,13 +27,12 @@ foreach(test_cpp ${test_type_cpps})
     target_link_libraries(${target_name} memgraph_lib)
     # gtest
     target_link_libraries(${target_name} gtest gmock gtest_main)
-    if(TEST_COVERAGE)
-        # for code coverage
-        target_link_libraries(${target_name} gcov)
-    endif()
 
     # register test
     set(output_path ${CMAKE_BINARY_DIR}/test_results/unit/${target_name}.xml)
     add_test(${target_name} ${exec_name} --gtest_output=xml:${output_path})
+
+    # add to memgraph__unit target
+    add_dependencies(memgraph__unit ${target_name})
 
 endforeach()

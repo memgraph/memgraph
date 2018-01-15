@@ -9,8 +9,15 @@
     doxygen Doxyfile
 
     cd build
-    cmake -DTOOLS=ON -DTEST_COVERAGE=ON ..
+    cmake -DTOOLS=ON ..
     TIMEOUT=1000 make -j$THREADS
+
+    cd ..
+    mkdir build_coverage
+
+    cd build_coverage
+    cmake -DTEST_COVERAGE=ON ..
+    TIMEOUT=1000 make -j$THREADS memgraph__unit
 
     cd ..
     mkdir build_release

@@ -9,3 +9,16 @@
     - ../../.clang-format # clang-format config file
   outfile_paths:
     - \./memgraph/tools/apollo/\.cppcheck_errors
+
+- name: code_coverage
+  project: ^mg-master-diff$ # regex to match only 'mg-master-diff'
+  type: data process
+  commands: ./coverage_convert
+  infiles:
+    - coverage_convert # coverage_convert script
+    - coverage_parse_export # coverage_parse_export script
+    - apollo_archives.yaml # coverage archive export config
+    - ../../src # src source dir
+  outfile_paths:
+    - \./memgraph/tools/apollo/generated/\.coverage_summary
+    - \./memgraph/tools/apollo/generated/\coverage.json
