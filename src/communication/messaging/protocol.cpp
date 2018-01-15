@@ -75,30 +75,27 @@ struct PairHash {
   }
 };
 
-void SendMessage(const std::string &address, uint16_t port,
-                 const std::string &channel, std::unique_ptr<Message> message) {
+void SendMessage(const Endpoint &endpoint, const std::string &channel,
+                 std::unique_ptr<Message> message) {
   static thread_local std::unordered_map<std::pair<std::string, uint16_t>,
                                          Socket, PairHash>
       cache;
   CHECK(message) << "Trying to send nullptr instead of message";
 
-  auto it = cache.find({address, port});
+  auto it = cache.find({endpoint.address(), endpoint.port()});
   if (it == cache.end()) {
-    // Initialize endpoint.
-    Endpoint endpoint(address.c_str(), port);
-
     Socket socket;
     if (!socket.Connect(endpoint)) {
-      LOG(INFO) << "Couldn't connect to remote address: " << address << ":"
-                << port;
+      LOG(INFO) << "Couldn't connect to endpoint: " << endpoint;
       return;
     }
 
-    it = cache
-             .emplace(std::piecewise_construct,
-                      std::forward_as_tuple(address, port),
-                      std::forward_as_tuple(std::move(socket)))
-             .first;
+    it =
+        cache
+            .emplace(std::piecewise_construct,
+                     std::forward_as_tuple(endpoint.address(), endpoint.port()),
+                     std::forward_as_tuple(std::move(socket)))
+            .first;
   }
 
   auto &socket = it->second;
@@ -131,4 +128,4 @@ void SendMessage(const std::string &address, uint16_t port,
     return;
   }
 }
-}
+}  // namespace communication::messaging

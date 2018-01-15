@@ -55,7 +55,7 @@ class MasterCounters : public SingleNodeCounters {
 class WorkerCounters : public Counters {
  public:
   WorkerCounters(communication::messaging::System &system,
-                 const io::network::NetworkEndpoint &master_endpoint);
+                 const io::network::Endpoint &master_endpoint);
 
   int64_t Get(const std::string &name) override;
   void Set(const std::string &name, int64_t value) override;

@@ -9,7 +9,7 @@
 #include "communication/messaging/distributed.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 
 using communication::messaging::System;
 using namespace distributed;
@@ -19,10 +19,9 @@ const std::string kLocal = "127.0.0.1";
 
 class WorkerInThread {
  public:
-  WorkerInThread(io::network::NetworkEndpoint master_endpoint,
-                 int desired_id = -1) {
+  WorkerInThread(io::network::Endpoint master_endpoint, int desired_id = -1) {
     worker_thread_ = std::thread([this, master_endpoint, desired_id] {
-      system_.emplace(kLocal, 0);
+      system_.emplace(Endpoint(kLocal, 0));
       coord_.emplace(*system_, master_endpoint);
       worker_id_ = coord_->RegisterWorker(desired_id);
       coord_->WaitForShutdown();
@@ -42,7 +41,7 @@ class WorkerInThread {
 };
 
 TEST(Distributed, Coordination) {
-  System master_system(kLocal, 0);
+  System master_system({kLocal, 0});
   std::vector<std::unique_ptr<WorkerInThread>> workers;
   {
     MasterCoordination master_coord(master_system);
@@ -71,7 +70,7 @@ TEST(Distributed, Coordination) {
 }
 
 TEST(Distributed, DesiredAndUniqueId) {
-  System master_system(kLocal, 0);
+  System master_system({kLocal, 0});
   std::vector<std::unique_ptr<WorkerInThread>> workers;
   {
     MasterCoordination master_coord(master_system);

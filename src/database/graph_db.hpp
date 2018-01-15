@@ -11,7 +11,7 @@
 #include "database/storage_gc.hpp"
 #include "database/types.hpp"
 #include "durability/wal.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
@@ -35,8 +35,8 @@ struct Config {
 
   // Distributed master/worker flags.
   int worker_id;
-  io::network::NetworkEndpoint master_endpoint;
-  io::network::NetworkEndpoint worker_endpoint;
+  io::network::Endpoint master_endpoint;
+  io::network::Endpoint worker_endpoint;
 };
 
 namespace impl {

@@ -2,15 +2,11 @@
 
 namespace communication::messaging {
 
-System::System(const std::string &address, uint16_t port)
-    : endpoint_(address, port) {
+System::System(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {
   // Numbers of workers is quite arbitrary at this point.
   StartClient(4);
   StartServer(4);
 }
-
-System::System(const io::network::NetworkEndpoint &endpoint)
-    : System(endpoint.address(), endpoint.port()) {}
 
 System::~System() {
   queue_.Shutdown();
@@ -26,7 +22,7 @@ void System::StartClient(int worker_count) {
       while (true) {
         auto message = queue_.AwaitPop();
         if (message == std::experimental::nullopt) break;
-        SendMessage(message->address, message->port, message->channel,
+        SendMessage(message->endpoint, message->channel,
                     std::move(message->message));
       }
     }));
@@ -47,11 +43,11 @@ std::shared_ptr<EventStream> System::Open(const std::string &name) {
   return system_.Open(name);
 }
 
-Writer::Writer(System &system, const std::string &address, uint16_t port,
+Writer::Writer(System &system, const Endpoint &endpoint,
                const std::string &name)
-    : system_(system), address_(address), port_(port), name_(name) {}
+    : system_(system), endpoint_(endpoint), name_(name) {}
 
 void Writer::Send(std::unique_ptr<Message> message) {
-  system_.queue_.Emplace(address_, port_, name_, std::move(message));
+  system_.queue_.Emplace(endpoint_, name_, std::move(message));
 }
 }  // namespace communication::messaging

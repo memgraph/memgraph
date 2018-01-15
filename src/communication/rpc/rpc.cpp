@@ -9,24 +9,25 @@
 #include "boost/serialization/unique_ptr.hpp"
 
 #include "communication/rpc/rpc.hpp"
+#include "io/network/endpoint.hpp"
 #include "utils/string.hpp"
 
 namespace communication::rpc {
 
 const char kProtocolStreamPrefix[] = "rpc-";
 
+using Endpoint = io::network::Endpoint;
+
 class Request : public messaging::Message {
  public:
-  Request(const std::string &address, uint16_t port, const std::string &stream,
+  Request(const Endpoint &endpoint, const std::string &stream,
           std::unique_ptr<Message> message)
-      : address_(address),
-        port_(port),
+      : endpoint_(endpoint),
         stream_(stream),
         message_id_(utils::RandomString(20)),
         message_(std::move(message)) {}
 
-  const std::string &address() const { return address_; }
-  uint16_t port() const { return port_; }
+  const Endpoint &endpoint() const { return endpoint_; }
   const std::string &stream() const { return stream_; }
   const std::string &message_id() const { return message_id_; }
   const messaging::Message &message() const { return *message_; }
@@ -38,15 +39,13 @@ class Request : public messaging::Message {
   template <class TArchive>
   void serialize(TArchive &ar, unsigned int) {
     ar &boost::serialization::base_object<messaging::Message>(*this);
-    ar &address_;
-    ar &port_;
+    ar &endpoint_;
     ar &stream_;
     ar &message_id_;
     ar &message_;
   }
 
-  std::string address_;
-  uint16_t port_;
+  io::network::Endpoint endpoint_;
   std::string stream_;
   std::string message_id_;
   std::unique_ptr<messaging::Message> message_;
@@ -76,16 +75,11 @@ class Response : public messaging::Message {
   std::unique_ptr<messaging::Message> message_;
 };
 
-Client::Client(messaging::System &system, const std::string &address,
-               uint16_t port, const std::string &name)
-    : system_(system),
-      writer_(system, address, port, kProtocolStreamPrefix + name),
-      stream_(system.Open(utils::RandomString(20))) {}
-
-Client::Client(messaging::System &system,
-               const io::network::NetworkEndpoint &endpoint,
+Client::Client(messaging::System &system, const io::network::Endpoint &endpoint,
                const std::string &name)
-    : Client(system, endpoint.address(), endpoint.port(), name) {}
+    : system_(system),
+      writer_(system, endpoint, kProtocolStreamPrefix + name),
+      stream_(system.Open(utils::RandomString(20))) {}
 
 // Because of the way Call is implemented it can fail without reporting (it will
 // just block indefinately). This is why you always need to provide reasonable
@@ -95,9 +89,8 @@ Client::Client(messaging::System &system,
 std::unique_ptr<messaging::Message> Client::Call(
     std::chrono::system_clock::duration timeout,
     std::unique_ptr<messaging::Message> message) {
-  auto request = std::make_unique<Request>(system_.endpoint().address(),
-                                           system_.endpoint().port(),
-                                           stream_->name(), std::move(message));
+  auto request = std::make_unique<Request>(system_.endpoint(), stream_->name(),
+                                           std::move(message));
   auto message_id = request->message_id();
   writer_.Send(std::move(request));
 
@@ -136,8 +129,7 @@ Server::Server(messaging::System &system, const std::string &name)
       auto it = callbacks_accessor.find(real_request.type_index());
       if (it == callbacks_accessor.end()) continue;
       auto response = it->second(real_request);
-      messaging::Writer writer(system_, request->address(), request->port(),
-                               request->stream());
+      messaging::Writer writer(system_, request->endpoint(), request->stream());
       writer.Send<Response>(request->message_id(), std::move(response));
     }
   });

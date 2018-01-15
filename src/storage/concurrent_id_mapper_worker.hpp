@@ -3,7 +3,7 @@
 #include "communication/messaging/distributed.hpp"
 #include "communication/rpc/rpc.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
 
 namespace storage {
@@ -19,7 +19,7 @@ class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId> {
 
  public:
   WorkerConcurrentIdMapper(communication::messaging::System &system,
-                           const io::network::NetworkEndpoint &master_endpoint);
+                           const io::network::Endpoint &master_endpoint);
 
   TId value_to_id(const std::string &value) override;
   const std::string &id_to_value(const TId &id) override;

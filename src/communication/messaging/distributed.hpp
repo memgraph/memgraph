@@ -19,7 +19,7 @@
 #include "protocol.hpp"
 
 #include "communication/server.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "threading/sync/spinlock.hpp"
 
 namespace communication::messaging {
@@ -29,8 +29,7 @@ class System;
 // Writes message to remote event stream.
 class Writer {
  public:
-  Writer(System &system, const std::string &address, uint16_t port,
-         const std::string &name);
+  Writer(System &system, const Endpoint &endpoint, const std::string &name);
   Writer(const Writer &) = delete;
   void operator=(const Writer &) = delete;
   Writer(Writer &&) = delete;
@@ -46,19 +45,15 @@ class Writer {
 
  private:
   System &system_;
-  std::string address_;
-  uint16_t port_;
+  Endpoint endpoint_;
   std::string name_;
 };
 
 class System {
-  using Endpoint = io::network::NetworkEndpoint;
-
  public:
   friend class Writer;
 
-  System(const std::string &address, uint16_t port);
-  explicit System(const Endpoint &endpoint);
+  System(const Endpoint &endpoint);
   System(const System &) = delete;
   System(System &&) = delete;
   System &operator=(const System &) = delete;
@@ -67,7 +62,7 @@ class System {
 
   std::shared_ptr<EventStream> Open(const std::string &name);
 
-  const io::network::NetworkEndpoint &endpoint() const { return endpoint_; }
+  const Endpoint &endpoint() const { return endpoint_; }
 
  private:
   using Socket = Socket;
@@ -76,19 +71,14 @@ class System {
   struct NetworkMessage {
     NetworkMessage() {}
 
-    NetworkMessage(const std::string &address, uint16_t port,
-                   const std::string &channel,
+    NetworkMessage(const Endpoint &endpoint, const std::string &channel,
                    std::unique_ptr<Message> &&message)
-        : address(address),
-          port(port),
-          channel(channel),
-          message(std::move(message)) {}
+        : endpoint(endpoint), channel(channel), message(std::move(message)) {}
 
     NetworkMessage(NetworkMessage &&nm) = default;
     NetworkMessage &operator=(NetworkMessage &&nm) = default;
 
-    std::string address;
-    uint16_t port = 0;
+    Endpoint endpoint;
     std::string channel;
     std::unique_ptr<Message> message;
   };
@@ -108,7 +98,7 @@ class System {
   // Server variables.
   SessionData protocol_data_;
   std::unique_ptr<ServerT> server_{nullptr};
-  io::network::NetworkEndpoint endpoint_;
+  Endpoint endpoint_;
 
   LocalSystem &system_ = protocol_data_.system;
 };

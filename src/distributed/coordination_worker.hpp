@@ -2,10 +2,10 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 
 namespace distributed {
-using Endpoint = io::network::NetworkEndpoint;
+using Endpoint = io::network::Endpoint;
 
 /** Handles worker registration, getting of other workers' endpoints and
  * coordinated shutdown in a distributed memgraph. Worker side. */

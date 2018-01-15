@@ -12,7 +12,7 @@
 #include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
 #include "utils/flag_validation.hpp"
@@ -24,16 +24,17 @@
 #include "version.hpp"
 
 namespace fs = std::experimental::filesystem;
-using io::network::NetworkEndpoint;
-using io::network::Socket;
 using communication::bolt::SessionData;
+using io::network::Endpoint;
+using io::network::Socket;
 using SessionT = communication::bolt::Session<Socket>;
 using ServerT = communication::Server<SessionT, SessionData>;
 
 // General purpose flags.
 DEFINE_string(interface, "0.0.0.0",
               "Communication interface on which to listen.");
-DEFINE_string(port, "7687", "Communication port on which to listen.");
+DEFINE_VALIDATED_int32(port, 7687, "Communication port on which to listen.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
@@ -103,8 +104,8 @@ void MasterMain() {
 
   database::Master db;
   SessionData session_data{db};
-  ServerT server({FLAGS_interface, FLAGS_port}, session_data,
-                 FLAGS_num_workers);
+  ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
+                 session_data, FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {
@@ -131,8 +132,8 @@ void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
   database::SingleNode db;
   SessionData session_data{db};
-  ServerT server({FLAGS_interface, FLAGS_port}, session_data,
-                 FLAGS_num_workers);
+  ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
+                 session_data, FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {

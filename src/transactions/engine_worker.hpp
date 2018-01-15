@@ -6,7 +6,7 @@
 #include "communication/messaging/distributed.hpp"
 #include "communication/rpc/rpc.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
@@ -18,7 +18,7 @@ namespace tx {
 class WorkerEngine : public Engine {
  public:
   WorkerEngine(communication::messaging::System &system,
-               const io::network::NetworkEndpoint &endpoint);
+               const io::network::Endpoint &endpoint);
 
   Transaction *LocalBegin(transaction_id_t tx_id);
 

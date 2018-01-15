@@ -21,7 +21,7 @@ set(memgraph_src_files
     durability/snapshooter.cpp
     durability/wal.cpp
     io/network/addrinfo.cpp
-    io/network/network_endpoint.cpp
+    io/network/endpoint.cpp
     io/network/socket.cpp
     query/common.cpp
     query/console.cpp
@@ -47,6 +47,7 @@ set(memgraph_src_files
     transactions/engine_master.cpp
     transactions/engine_single_node.cpp
     transactions/engine_worker.cpp
+    utils/network.cpp
     utils/watchdog.cpp
 )
 # -----------------------------------------------------------------------------

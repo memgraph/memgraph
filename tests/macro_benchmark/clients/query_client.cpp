@@ -21,7 +21,7 @@ DEFINE_string(input, "", "Input file");
 DEFINE_string(output, "", "Output file");
 
 DEFINE_string(address, "127.0.0.1", "Server address");
-DEFINE_string(port, "", "Server port");
+DEFINE_int32(port, 0, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_string(database, "", "Database for the database");
@@ -51,9 +51,9 @@ void PrintSummary(
 
 template <typename ClientT>
 void ExecuteQueries(const std::vector<std::string> &queries, int num_workers,
-                    std::ostream &ostream, std::string &address,
-                    std::string &port, std::string &username,
-                    std::string &password, std::string &database) {
+                    std::ostream &ostream, std::string &address, uint16_t port,
+                    std::string &username, std::string &password,
+                    std::string &database) {
   std::vector<std::thread> threads;
 
   SpinLock spinlock;
@@ -121,11 +121,11 @@ int main(int argc, char **argv) {
     ostream = &ofile;
   }
 
-  std::string port = FLAGS_port;
+  uint16_t port = FLAGS_port;
   if (FLAGS_protocol == "bolt") {
-    if (port == "") port = "7687";
+    if (port == 0) port = 7687;
   } else if (FLAGS_protocol == "postgres") {
-    if (port == "") port = "5432";
+    if (port == 0) port = 5432;
   }
 
   while (!istream->eof()) {

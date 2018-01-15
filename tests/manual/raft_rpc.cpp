@@ -12,7 +12,7 @@
 
 namespace raft = communication::raft;
 
-using io::network::NetworkEndpoint;
+using io::network::Endpoint;
 using raft::RaftConfig;
 using raft::RpcNetwork;
 using raft::test_utils::DummyState;
@@ -35,13 +35,12 @@ int main(int argc, char *argv[]) {
   google::InitGoogleLogging(argv[0]);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  std::unordered_map<std::string, NetworkEndpoint> directory = {
-      {"a", NetworkEndpoint("127.0.0.1", 12345)},
-      {"b", NetworkEndpoint("127.0.0.1", 12346)},
-      {"c", NetworkEndpoint("127.0.0.1", 12347)}};
+  std::unordered_map<std::string, Endpoint> directory = {
+      {"a", Endpoint("127.0.0.1", 12345)},
+      {"b", Endpoint("127.0.0.1", 12346)},
+      {"c", Endpoint("127.0.0.1", 12347)}};
 
-  communication::messaging::System my_system("127.0.0.1",
-                                             directory[FLAGS_member_id].port());
+  communication::messaging::System my_system(directory[FLAGS_member_id]);
   RpcNetwork<DummyState> network(my_system, directory);
   raft::test_utils::InMemoryStorageInterface<DummyState> storage(0, {}, {});
 

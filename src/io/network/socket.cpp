@@ -52,10 +52,11 @@ void Socket::Close() {
 
 bool Socket::IsOpen() const { return socket_ != -1; }
 
-bool Socket::Connect(const NetworkEndpoint &endpoint) {
+bool Socket::Connect(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address(), endpoint.port_str());
+  auto info = AddrInfo::Get(endpoint.address().c_str(),
+                            std::to_string(endpoint.port()).c_str());
 
   for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
@@ -71,10 +72,11 @@ bool Socket::Connect(const NetworkEndpoint &endpoint) {
   return true;
 }
 
-bool Socket::Bind(const NetworkEndpoint &endpoint) {
+bool Socket::Bind(const Endpoint &endpoint) {
   if (socket_ != -1) return false;
 
-  auto info = AddrInfo::Get(endpoint.address(), endpoint.port_str());
+  auto info = AddrInfo::Get(endpoint.address().c_str(),
+                            std::to_string(endpoint.port()).c_str());
 
   for (struct addrinfo *it = info; it != nullptr; it = it->ai_next) {
     int sfd = socket(it->ai_family, it->ai_socktype, it->ai_protocol);
@@ -99,7 +101,7 @@ bool Socket::Bind(const NetworkEndpoint &endpoint) {
     return false;
   }
 
-  endpoint_ = NetworkEndpoint(endpoint.address(), ntohs(portdata.sin6_port));
+  endpoint_ = Endpoint(endpoint.address(), ntohs(portdata.sin6_port));
 
   return true;
 }
@@ -173,7 +175,7 @@ std::experimental::optional<Socket> Socket::Accept() {
 
   inet_ntop(addr.ss_family, addr_src, addr_decoded, INET6_ADDRSTRLEN);
 
-  NetworkEndpoint endpoint(addr_decoded, port);
+  Endpoint endpoint(addr_decoded, port);
 
   return Socket(sfd, endpoint);
 }

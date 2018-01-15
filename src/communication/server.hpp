@@ -45,7 +45,7 @@ class Server {
    * Constructs and binds server to endpoint, operates on session data and
    * invokes n workers
    */
-  Server(const io::network::NetworkEndpoint &endpoint,
+  Server(const io::network::Endpoint &endpoint,
          TSessionData &session_data, size_t n)
       : session_data_(session_data) {
     // Without server we can't continue with application so we can just

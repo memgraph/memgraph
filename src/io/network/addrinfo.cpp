@@ -28,4 +28,4 @@ AddrInfo AddrInfo::Get(const char *addr, const char *port) {
 }
 
 AddrInfo::operator struct addrinfo *() { return info; }
-}
+}  // namespace io::network

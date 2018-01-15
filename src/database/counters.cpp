@@ -46,7 +46,7 @@ MasterCounters::MasterCounters(communication::messaging::System &system)
 
 WorkerCounters::WorkerCounters(
     communication::messaging::System &system,
-    const io::network::NetworkEndpoint &master_endpoint)
+    const io::network::Endpoint &master_endpoint)
     : rpc_client_(system, master_endpoint, kCountersRpc) {}
 
 int64_t WorkerCounters::Get(const std::string &name) {

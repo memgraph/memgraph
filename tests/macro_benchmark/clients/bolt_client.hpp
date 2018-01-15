@@ -5,18 +5,18 @@
 
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 
 using SocketT = io::network::Socket;
-using EndpointT = io::network::NetworkEndpoint;
+using EndpointT = io::network::Endpoint;
 using ClientT = communication::bolt::Client<SocketT>;
 using QueryDataT = communication::bolt::QueryData;
 using communication::bolt::DecodedValue;
 
 class BoltClient {
  public:
-  BoltClient(const std::string &address, const std::string &port,
+  BoltClient(const std::string &address, uint16_t port,
              const std::string &username, const std::string &password,
              const std::string & = "") {
     SocketT socket;

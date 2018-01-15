@@ -16,9 +16,9 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
   const std::string kLocal{"127.0.0.1"};
 
  protected:
-  System master_system_{kLocal, 0};
+  System master_system_{{kLocal, 0}};
   std::experimental::optional<MasterConcurrentIdMapper<TId>> master_mapper_;
-  System worker_system_{kLocal, 0};
+  System worker_system_{{kLocal, 0}};
   std::experimental::optional<WorkerConcurrentIdMapper<TId>> worker_mapper_;
 
   void SetUp() override {

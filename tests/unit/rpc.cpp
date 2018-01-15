@@ -55,22 +55,21 @@ BOOST_CLASS_EXPORT(SumRes);
 using Sum = RequestResponse<SumReq, SumRes>;
 
 TEST(Rpc, Call) {
-  System server_system("127.0.0.1", 0);
+  System server_system({"127.0.0.1", 0});
   Server server(server_system, "main");
   server.Register<Sum>([](const SumReq &request) {
     return std::make_unique<SumRes>(request.x + request.y);
   });
   std::this_thread::sleep_for(100ms);
 
-  System client_system("127.0.0.1", 0);
-  Client client(client_system, "127.0.0.1", server_system.endpoint().port(),
-                "main");
+  System client_system({"127.0.0.1", 0});
+  Client client(client_system, server_system.endpoint(), "main");
   auto sum = client.Call<Sum>(300ms, 10, 20);
   EXPECT_EQ(sum->sum, 30);
 }
 
 TEST(Rpc, Timeout) {
-  System server_system("127.0.0.1", 0);
+  System server_system({"127.0.0.1", 0});
   Server server(server_system, "main");
   server.Register<Sum>([](const SumReq &request) {
     std::this_thread::sleep_for(300ms);
@@ -78,9 +77,8 @@ TEST(Rpc, Timeout) {
   });
   std::this_thread::sleep_for(100ms);
 
-  System client_system("127.0.0.1", 0);
-  Client client(client_system, "127.0.0.1", server_system.endpoint().port(),
-                "main");
+  System client_system({"127.0.0.1", 0});
+  Client client(client_system, server_system.endpoint(), "main");
   auto sum = client.Call<Sum>(100ms, 10, 20);
   EXPECT_FALSE(sum);
 }

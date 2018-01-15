@@ -2,6 +2,7 @@
 
 #include <netinet/in.h>
 #include <cstdint>
+#include <iostream>
 #include <string>
 
 #include "boost/serialization/access.hpp"
@@ -15,19 +16,17 @@ namespace io::network {
  * It is used when connecting to an address and to get the current
  * connection address.
  */
-class NetworkEndpoint {
+class Endpoint {
  public:
-  NetworkEndpoint();
-  NetworkEndpoint(const std::string &addr, const std::string &port);
-  NetworkEndpoint(const char *addr, const char *port);
-  NetworkEndpoint(const std::string &addr, uint16_t port);
+  Endpoint();
+  Endpoint(const std::string &address, uint16_t port);
 
-  const char *address() const { return address_; }
-  const char *port_str() const { return port_str_; }
+  std::string address() const { return address_; }
   uint16_t port() const { return port_; }
   unsigned char family() const { return family_; }
 
-  bool operator==(const NetworkEndpoint &other) const;
+  bool operator==(const Endpoint &other) const;
+  friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
  private:
   friend class boost::serialization::access;
@@ -35,15 +34,13 @@ class NetworkEndpoint {
   template <class TArchive>
   void serialize(TArchive &ar, unsigned int) {
     ar &address_;
-    ar &port_str_;
     ar &port_;
     ar &family_;
   }
 
-  char address_[INET6_ADDRSTRLEN];
-  char port_str_[6];
-  uint16_t port_;
-  unsigned char family_;
+  std::string address_;
+  uint16_t port_{0};
+  unsigned char family_{0};
 };
 
 }  // namespace io::network

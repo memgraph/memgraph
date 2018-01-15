@@ -3,6 +3,7 @@
 #endif
 
 #include <chrono>
+#include <iostream>
 
 #include "network_common.hpp"
 
@@ -17,8 +18,8 @@ TEST(Network, SessionLeak) {
   initialize_data(data, SIZE);
 
   // initialize listen socket
-  NetworkEndpoint endpoint(interface, "0");
-  printf("ADDRESS: %s, PORT: %d\n", endpoint.address(), endpoint.port());
+  Endpoint endpoint(interface, 0);
+  std::cout << endpoint << std::endl;
 
   // initialize server
   TestData session_data;
@@ -31,7 +32,7 @@ TEST(Network, SessionLeak) {
   const auto &ep = server.endpoint();
   int testlen = 3000;
   for (int i = 0; i < N; ++i) {
-    clients.push_back(std::thread(client_run, i, interface, ep.port_str(), data,
+    clients.push_back(std::thread(client_run, i, interface, ep.port(), data,
                                   testlen, testlen));
     std::this_thread::sleep_for(10ms);
   }

@@ -3,20 +3,20 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/timer.hpp"
 
 using SocketT = io::network::Socket;
-using EndpointT = io::network::NetworkEndpoint;
+using EndpointT = io::network::Endpoint;
 using ClientT = communication::bolt::Client<SocketT>;
 using DecodedValueT = communication::bolt::DecodedValue;
 using QueryDataT = communication::bolt::QueryData;
 using ExceptionT = communication::bolt::ClientQueryException;
 
 DEFINE_string(address, "127.0.0.1", "Server address");
-DEFINE_string(port, "7687", "Server port");
+DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 

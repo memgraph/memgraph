@@ -2,16 +2,17 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
+#include "utils/network.hpp"
 #include "utils/timer.hpp"
 
 using SocketT = io::network::Socket;
-using EndpointT = io::network::NetworkEndpoint;
+using EndpointT = io::network::Endpoint;
 using ClientT = communication::bolt::Client<SocketT>;
 
 DEFINE_string(address, "127.0.0.1", "Server address");
-DEFINE_string(port, "7687", "Server port");
+DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 
@@ -20,7 +21,7 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   // TODO: handle endpoint exception
-  EndpointT endpoint(FLAGS_address, FLAGS_port);
+  EndpointT endpoint(utils::ResolveHostname(FLAGS_address), FLAGS_port);
   SocketT socket;
 
   if (!socket.Connect(endpoint)) return 1;

@@ -19,7 +19,7 @@
 static constexpr const int SIZE = 60000;
 static constexpr const int REPLY = 10;
 
-using io::network::NetworkEndpoint;
+using io::network::Endpoint;
 using io::network::Socket;
 
 class TestData {};
@@ -66,13 +66,13 @@ class TestSession {
 
 using ServerT = communication::Server<TestSession, TestData>;
 
-void client_run(int num, const char *interface, const char *port,
+void client_run(int num, const char *interface, uint16_t port,
                 const unsigned char *data, int lo, int hi) {
   std::stringstream name;
   name << "Client " << num;
   unsigned char buffer[SIZE * REPLY], head[2];
   int have, read;
-  NetworkEndpoint endpoint(interface, port);
+  Endpoint endpoint(interface, port);
   Socket socket;
   ASSERT_TRUE(socket.Connect(endpoint));
   socket.SetTimeout(2, 0);

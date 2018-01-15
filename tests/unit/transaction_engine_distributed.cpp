@@ -3,7 +3,7 @@
 #include "gtest/gtest.h"
 
 #include "communication/messaging/distributed.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "transactions/engine_master.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 #include "transactions/engine_worker.hpp"
@@ -15,10 +15,10 @@ class WorkerEngineTest : public testing::Test {
  protected:
   const std::string local{"127.0.0.1"};
 
-  System master_system_{local, 0};
+  System master_system_{{local, 0}};
   MasterEngine master_{master_system_};
 
-  System worker_system_{local, 0};
+  System worker_system_{{local, 0}};
   WorkerEngine worker_{worker_system_, master_system_.endpoint()};
 };
 

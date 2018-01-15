@@ -17,19 +17,19 @@
 #include "common.hpp"
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/algorithm.hpp"
+#include "utils/network.hpp"
 #include "utils/timer.hpp"
 
+using communication::bolt::DecodedEdge;
 using communication::bolt::DecodedValue;
 using communication::bolt::DecodedVertex;
-using communication::bolt::DecodedEdge;
 
 DEFINE_string(address, "127.0.0.1", "Server address");
-DEFINE_string(port, "7687", "Server port");
+DEFINE_int32(port, 7687, "Server port");
 DEFINE_int32(num_workers, 1, "Number of workers");
 DEFINE_string(output, "", "Output file");
 DEFINE_string(username, "", "Username for the database");
@@ -49,7 +49,7 @@ std::atomic<int64_t> executed_queries;
 class Session {
  public:
   Session(const nlohmann::json &config, const std::string &address,
-          const std::string &port, const std::string &username,
+          uint16_t port, const std::string &username,
           const std::string &password)
       : config_(config), client_(address, port, username, password) {}
 
@@ -269,10 +269,11 @@ int64_t NumNodes(BoltClient &client, const std::string &label) {
 
 std::vector<int64_t> Neighbours(BoltClient &client, const std::string &label,
                                 int64_t id) {
-  auto result = ExecuteNTimesTillSuccess(
-      client, "MATCH (n :" + label + " {id: " + std::to_string(id) +
-                  "})-[e]-(m) RETURN m.id",
-      {}, MAX_RETRIES);
+  auto result = ExecuteNTimesTillSuccess(client,
+                                         "MATCH (n :" + label +
+                                             " {id: " + std::to_string(id) +
+                                             "})-[e]-(m) RETURN m.id",
+                                         {}, MAX_RETRIES);
   std::vector<int64_t> ret;
   for (const auto &record : result.records) {
     ret.push_back(record[0].ValueInt());
@@ -319,8 +320,8 @@ int main(int argc, char **argv) {
   const std::string independent_label = config["independent_label"];
 
   auto independent_nodes_ids = [&] {
-    BoltClient client(FLAGS_address, FLAGS_port, FLAGS_username,
-                      FLAGS_password);
+    BoltClient client(utils::ResolveHostname(FLAGS_address), FLAGS_port,
+                      FLAGS_username, FLAGS_password);
     return IndependentSet(client, independent_label);
   }();
 
@@ -387,7 +388,10 @@ int main(int argc, char **argv) {
     // little bit chaotic. Think about refactoring this part to only use json
     // and write DecodedValue to json converter.
     const std::vector<std::string> fields = {
-        "wall_time", "parsing_time", "planning_time", "plan_execution_time",
+        "wall_time",
+        "parsing_time",
+        "planning_time",
+        "plan_execution_time",
     };
     for (const auto &query_stats : stats) {
       std::map<std::string, double> new_aggregated_query_stats;
@@ -417,12 +421,13 @@ int main(int argc, char **argv) {
     out << "{\"num_executed_queries\": " << executed_queries << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
-    utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream,
-                                                         const auto &x) {
-      stream << "{\"query\": " << nlohmann::json(x.first) << ", \"stats\": ";
-      PrintJsonDecodedValue(stream, DecodedValue(x.second));
-      stream << "}";
-    });
+    utils::PrintIterable(
+        out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
+          stream << "{\"query\": " << nlohmann::json(x.first)
+                 << ", \"stats\": ";
+          PrintJsonDecodedValue(stream, DecodedValue(x.second));
+          stream << "}";
+        });
     out << "]}" << std::endl;
     out.flush();
     std::this_thread::sleep_for(1s);

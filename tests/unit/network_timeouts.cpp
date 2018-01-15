@@ -9,8 +9,7 @@
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/server.hpp"
-#include "database/graph_db.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 
 DECLARE_int32(query_execution_time_sec);
@@ -20,7 +19,7 @@ using namespace std::chrono_literals;
 class TestClientSocket;
 using communication::bolt::ClientException;
 using communication::bolt::SessionData;
-using io::network::NetworkEndpoint;
+using io::network::Endpoint;
 using io::network::Socket;
 using SessionT = communication::bolt::Session<Socket>;
 using ResultStreamT = SessionT::ResultStreamT;
@@ -31,13 +30,13 @@ class RunningServer {
  public:
   database::SingleNode db_;
   SessionData session_data_{db_};
-  NetworkEndpoint endpoint_{"127.0.0.1", "0"};
+  Endpoint endpoint_{"127.0.0.1", 0};
   ServerT server_{endpoint_, session_data_, 1};
 };
 
 class TestClient : public ClientT {
  public:
-  TestClient(NetworkEndpoint endpoint)
+  TestClient(Endpoint endpoint)
       : ClientT(
             [&] {
               Socket socket;

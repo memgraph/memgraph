@@ -8,7 +8,7 @@
 #include "communication/raft/network_common.hpp"
 #include "communication/raft/raft.hpp"
 #include "communication/rpc/rpc.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 
 /* Implementation of `RaftNetworkInterface` using RPC. Raft RPC requests and
  * responses are wrapped in `PeerRpcRequest` and `PeerRpcReply`. */
@@ -28,9 +28,8 @@ using PeerProtocol =
 template <class State>
 class RpcNetwork : public RaftNetworkInterface<State> {
  public:
-  RpcNetwork(
-      communication::messaging::System &system,
-      std::unordered_map<std::string, io::network::NetworkEndpoint> directory)
+  RpcNetwork(communication::messaging::System &system,
+             std::unordered_map<std::string, io::network::Endpoint> directory)
       : system_(system),
         directory_(std::move(directory)),
         server_(system, kRaftChannelName) {}
@@ -110,17 +109,14 @@ class RpcNetwork : public RaftNetworkInterface<State> {
     auto it = clients_.find(id);
     if (it == clients_.end()) {
       auto ne = directory_[id];
-      it = clients_
-               .try_emplace(id, system_, ne.address(), ne.port(),
-                            kRaftChannelName)
-               .first;
+      it = clients_.try_emplace(id, system_, ne, kRaftChannelName).first;
     }
     return it->second;
   }
 
   communication::messaging::System &system_;
   // TODO(mtomic): how to update and distribute this?
-  std::unordered_map<MemberId, io::network::NetworkEndpoint> directory_;
+  std::unordered_map<MemberId, io::network::Endpoint> directory_;
   rpc::Server server_;
 
   std::unordered_map<MemberId, communication::rpc::Client> clients_;

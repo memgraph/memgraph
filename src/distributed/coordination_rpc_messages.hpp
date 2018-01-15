@@ -5,7 +5,7 @@
 
 #include "communication/messaging/local.hpp"
 #include "communication/rpc/rpc.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 #include "utils/rpc_pimp.hpp"
 
 namespace distributed {
@@ -13,7 +13,7 @@ namespace distributed {
 const std::string kCoordinationServerName = "CoordinationRpc";
 
 using communication::messaging::Message;
-using Endpoint = io::network::NetworkEndpoint;
+using Endpoint = io::network::Endpoint;
 
 struct RegisterWorkerReq : public Message {
   RegisterWorkerReq() {}

@@ -5,8 +5,8 @@
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/messaging/local.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/epoll.hpp"
-#include "io/network/network_endpoint.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
 
@@ -23,7 +23,7 @@ namespace communication::messaging {
 
 class Message;
 
-using Endpoint = io::network::NetworkEndpoint;
+using Endpoint = io::network::Endpoint;
 using Socket = io::network::Socket;
 using StreamBuffer = io::network::StreamBuffer;
 
@@ -101,6 +101,6 @@ class Session {
 /**
  * Distributed Protocol Send Message
  */
-void SendMessage(const std::string &address, uint16_t port,
-                 const std::string &channel, std::unique_ptr<Message> message);
-}
+void SendMessage(const Endpoint &endpoint, const std::string &channel,
+                 std::unique_ptr<Message> message);
+}  // namespace communication::messaging

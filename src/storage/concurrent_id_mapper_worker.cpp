@@ -34,7 +34,7 @@ ID_VALUE_RPC_CALLS(Property)
 template <typename TId>
 WorkerConcurrentIdMapper<TId>::WorkerConcurrentIdMapper(
     communication::messaging::System &system,
-    const io::network::NetworkEndpoint &master_endpoint)
+    const io::network::Endpoint &master_endpoint)
     : rpc_client_(system, master_endpoint, kConcurrentIdMapperRpc) {}
 
 template <typename TId>

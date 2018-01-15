@@ -2,6 +2,8 @@
 #define NDEBUG
 #endif
 
+#include <iostream>
+
 #include "network_common.hpp"
 
 static constexpr const char interface[] = "127.0.0.1";
@@ -13,8 +15,8 @@ TEST(Network, Server) {
   initialize_data(data, SIZE);
 
   // initialize listen socket
-  NetworkEndpoint endpoint(interface, "0");
-  printf("ADDRESS: %s, PORT: %d\n", endpoint.address(), endpoint.port());
+  Endpoint endpoint(interface, 0);
+  std::cout << endpoint << std::endl;
 
   // initialize server
   TestData session_data;
@@ -25,8 +27,8 @@ TEST(Network, Server) {
   // start clients
   std::vector<std::thread> clients;
   for (int i = 0; i < N; ++i)
-    clients.push_back(std::thread(client_run, i, interface, ep.port_str(), data,
-                                  30000, SIZE));
+    clients.push_back(
+        std::thread(client_run, i, interface, ep.port(), data, 30000, SIZE));
 
   // cleanup clients
   for (int i = 0; i < N; ++i) clients[i].join();

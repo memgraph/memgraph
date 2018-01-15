@@ -4,13 +4,13 @@
 #include <functional>
 #include <iostream>
 
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 
 namespace io::network {
 
 /**
  * This class creates a network socket.
- * It is used to connect/bind/listen on a NetworkEndpoint (address + port).
+ * It is used to connect/bind/listen on a Endpoint (address + port).
  * It has wrappers for setting network socket flags and wrappers for
  * reading/writing data from/to the socket.
  */
@@ -40,24 +40,24 @@ class Socket {
   /**
    * Connects the socket to the specified endpoint.
    *
-   * @param endpoint NetworkEndpoint to which to connect to
+   * @param endpoint Endpoint to which to connect to
    *
    * @return connection success status:
    *             true if the connect succeeded
    *             false if the connect failed
    */
-  bool Connect(const NetworkEndpoint &endpoint);
+  bool Connect(const Endpoint &endpoint);
 
   /**
    * Binds the socket to the specified endpoint.
    *
-   * @param endpoint NetworkEndpoint to which to bind to
+   * @param endpoint Endpoint to which to bind to
    *
    * @return bind success status:
    *             true if the bind succeeded
    *             false if the bind failed
    */
-  bool Bind(const NetworkEndpoint &endpoint);
+  bool Bind(const Endpoint &endpoint);
 
   /**
    * Start listening on the bound socket.
@@ -112,7 +112,7 @@ class Socket {
   /**
    * Returns the currently active endpoint of the socket.
    */
-  const NetworkEndpoint &endpoint() const { return endpoint_; }
+  const Endpoint &endpoint() const { return endpoint_; }
 
   /**
    * Write data to the socket.
@@ -157,10 +157,10 @@ class Socket {
   int Read(void *buffer, size_t len);
 
  private:
-  Socket(int fd, const NetworkEndpoint &endpoint)
+  Socket(int fd, const Endpoint &endpoint)
       : socket_(fd), endpoint_(endpoint) {}
 
   int socket_ = -1;
-  NetworkEndpoint endpoint_;
+  Endpoint endpoint_;
 };
-}
+}  // namespace io::network

@@ -20,7 +20,7 @@
 
 static constexpr const char interface[] = "127.0.0.1";
 
-using io::network::NetworkEndpoint;
+using io::network::Endpoint;
 using io::network::Socket;
 
 class TestData {};
@@ -53,8 +53,8 @@ class TestSession {
 
 std::atomic<bool> run{true};
 
-void client_run(int num, const char *interface, const char *port) {
-  NetworkEndpoint endpoint(interface, port);
+void client_run(int num, const char *interface, uint16_t port) {
+  Endpoint endpoint(interface, port);
   Socket socket;
   uint8_t data = 0x00;
   ASSERT_TRUE(socket.Connect(endpoint));
@@ -70,9 +70,9 @@ void client_run(int num, const char *interface, const char *port) {
 
 TEST(Network, SocketReadHangOnConcurrentConnections) {
   // initialize listen socket
-  NetworkEndpoint endpoint(interface, "0");
+  Endpoint endpoint(interface, 0);
 
-  printf("ADDRESS: %s, PORT: %d\n", endpoint.address(), endpoint.port());
+  std::cout << endpoint << std::endl;
 
   // initialize server
   TestData data;
@@ -84,7 +84,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   // start clients
   std::vector<std::thread> clients;
   for (int i = 0; i < Nc; ++i)
-    clients.push_back(std::thread(client_run, i, interface, ep.port_str()));
+    clients.push_back(std::thread(client_run, i, interface, ep.port()));
 
   // wait for 2s and stop clients
   std::this_thread::sleep_for(std::chrono::seconds(2));

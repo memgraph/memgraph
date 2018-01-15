@@ -10,7 +10,7 @@ static const auto kRpcTimeout = 100ms;
 }  // namespace
 
 WorkerEngine::WorkerEngine(communication::messaging::System &system,
-                           const io::network::NetworkEndpoint &endpoint)
+                           const io::network::Endpoint &endpoint)
     : rpc_client_(system, endpoint, kTransactionEngineRpc) {}
 
 Transaction *WorkerEngine::LocalBegin(transaction_id_t tx_id) {

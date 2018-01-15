@@ -5,10 +5,10 @@
 
 #include "communication/messaging/distributed.hpp"
 #include "communication/rpc/rpc.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 
 namespace distributed {
-using Endpoint = io::network::NetworkEndpoint;
+using Endpoint = io::network::Endpoint;
 
 /** Handles worker registration, getting of other workers' endpoints and
  * coordinated shutdown in a distributed memgraph. Master side. */

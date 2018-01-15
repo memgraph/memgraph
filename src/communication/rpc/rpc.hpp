@@ -4,7 +4,7 @@
 
 #include "communication/messaging/distributed.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "io/network/network_endpoint.hpp"
+#include "io/network/endpoint.hpp"
 
 namespace communication::rpc {
 
@@ -17,10 +17,8 @@ struct RequestResponse {
 // Client is thread safe.
 class Client {
  public:
-  Client(messaging::System &system, const std::string &address, uint16_t port,
+  Client(messaging::System &system, const io::network::Endpoint &endpoint,
          const std::string &name);
-  Client(messaging::System &system,
-         const io::network::NetworkEndpoint &endpoint, const std::string &name);
 
   // Call function can initiate only one request at the time. Function blocks
   // until there is a response or timeout was reached. If timeout was reached
