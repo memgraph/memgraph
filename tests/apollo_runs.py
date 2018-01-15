@@ -40,10 +40,6 @@ for test in tests:
     dirname, basename = os.path.split(path)
     files = [basename]
 
-    # extra files for specific tests
-    if name == "unit__fswatcher":
-        files.append(os.path.join("..", "data"))
-
     # skip benchmark tests on diffs
     if name.startswith("benchmark") and mode == "diff":
         continue

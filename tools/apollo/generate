@@ -151,10 +151,6 @@ for test in tests:
             BASE_DIR_NAME + CTEST_DELIMITER + name + ".dir")
     files = [path, cmakedir]
 
-    # extra files for specific tests
-    if name == "unit__fswatcher":
-        files.append(os.path.normpath(os.path.join(dirname, "..", "data")))
-
     # skip benchmark tests on diffs
     if name.startswith("benchmark") and mode == "diff":
         continue
