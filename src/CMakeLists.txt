@@ -47,6 +47,7 @@ set(memgraph_src_files
     transactions/engine_master.cpp
     transactions/engine_single_node.cpp
     transactions/engine_worker.cpp
+    utils/filesystem.cpp
     utils/network.cpp
     utils/watchdog.cpp
 )
@@ -56,7 +57,9 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags ${Boost_SERIALIZATION_LIBRARY_RELEASE})
+    antlr_opencypher_parser_lib dl glog gflags
+    ${Boost_IOSTREAMS_LIBRARY_RELEASE}
+    ${Boost_SERIALIZATION_LIBRARY_RELEASE})
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)

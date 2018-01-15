@@ -8,6 +8,7 @@ required_pkgs=(git arcanist # source code control
                curl wget # for downloading libs
                uuid-dev default-jre-headless # required by antlr
                libreadline-dev # for memgraph console
+               libboost-iostreams-dev
                libboost-serialization-dev
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
               )

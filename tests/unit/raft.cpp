@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "communication/raft/raft.hpp"
+#include "communication/raft/storage/memory.hpp"
 #include "communication/raft/test_utils.hpp"
 
 using namespace std::chrono_literals;
@@ -33,7 +34,7 @@ class RaftMemberImplTest : public ::testing::Test {
   }
 
   NoOpNetworkInterface<DummyState> network_;
-  InMemoryStorageInterface<DummyState> storage_;
+  InMemoryStorage<DummyState> storage_;
   RaftMemberImpl<DummyState> member;
 };
 
@@ -137,7 +138,7 @@ TEST_F(RaftMemberImplTest, AdvanceCommitIndex) {
 
 TEST(RequestVote, SimpleElection) {
   NextReplyNetworkInterface<DummyState> network;
-  InMemoryStorageInterface<DummyState> storage(1, {}, {{1}, {1}});
+  InMemoryStorage<DummyState> storage(1, {}, {{1}, {1}});
   RaftMemberImpl<DummyState> member(network, storage, "a", test_config5);
 
   member.StartNewElection();
@@ -187,7 +188,7 @@ TEST(RequestVote, SimpleElection) {
 
 TEST(AppendEntries, SimpleLogSync) {
   NextReplyNetworkInterface<DummyState> network;
-  InMemoryStorageInterface<DummyState> storage(3, {}, {{1}, {1}, {2}, {3}});
+  InMemoryStorage<DummyState> storage(3, {}, {{1}, {1}, {2}, {3}});
   RaftMemberImpl<DummyState> member(network, storage, "a", test_config2);
 
   member.mode_ = RaftMode::LEADER;
@@ -319,18 +320,18 @@ class RaftMemberParamTest : public ::testing::TestWithParam<TestParam> {
     }
   }
 
-  RaftMemberParamTest(InMemoryStorageInterface<DummyState> storage,
-                      InMemoryStorageInterface<DummyState> peer_storage)
+  RaftMemberParamTest(InMemoryStorage<DummyState> storage,
+                      InMemoryStorage<DummyState> peer_storage)
       : network_(NoOpNetworkInterface<DummyState>()),
         storage_(storage),
         member_(network_, storage_, "a", test_config3),
         peer_storage_(peer_storage) {}
 
   NoOpNetworkInterface<DummyState> network_;
-  InMemoryStorageInterface<DummyState> storage_;
+  InMemoryStorage<DummyState> storage_;
   RaftMemberImpl<DummyState> member_;
 
-  InMemoryStorageInterface<DummyState> peer_storage_;
+  InMemoryStorage<DummyState> peer_storage_;
 };
 
 struct OnRequestVoteTestParam {
@@ -348,10 +349,10 @@ class OnRequestVoteTest : public RaftMemberParamTest<OnRequestVoteTestParam> {
  public:
   OnRequestVoteTest()
       : RaftMemberParamTest(
-            InMemoryStorageInterface<DummyState>(
-                GetParam().term, GetParam().voted_for, GetParam().log),
-            InMemoryStorageInterface<DummyState>(GetParam().peer_term, {},
-                                                 GetParam().peer_log)) {}
+            InMemoryStorage<DummyState>(GetParam().term, GetParam().voted_for,
+                                        GetParam().log),
+            InMemoryStorage<DummyState>(GetParam().peer_term, {},
+                                        GetParam().peer_log)) {}
   virtual ~OnRequestVoteTest() {}
 };
 
@@ -469,10 +470,9 @@ class OnAppendEntriesTest
  public:
   OnAppendEntriesTest()
       : RaftMemberParamTest(
-            InMemoryStorageInterface<DummyState>(GetParam().term, {},
-                                                 GetParam().log),
-            InMemoryStorageInterface<DummyState>(GetParam().peer_term, {},
-                                                 GetParam().peer_log)) {}
+            InMemoryStorage<DummyState>(GetParam().term, {}, GetParam().log),
+            InMemoryStorage<DummyState>(GetParam().peer_term, {},
+                                        GetParam().peer_log)) {}
   virtual ~OnAppendEntriesTest() {}
 };
 
@@ -643,7 +643,7 @@ TEST(RaftMemberTest, AddCommand) {
     network.next_reply_ = reply;
   };
 
-  InMemoryStorageInterface<IntState> storage(0, {}, {});
+  InMemoryStorage<IntState> storage(0, {}, {});
   RaftMember<IntState> member(network, storage, "a", test_config2);
 
   std::this_thread::sleep_for(500ms);

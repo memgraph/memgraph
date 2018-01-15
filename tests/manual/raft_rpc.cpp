@@ -8,15 +8,16 @@
 
 #include "communication/messaging/distributed.hpp"
 #include "communication/raft/rpc.hpp"
+#include "communication/raft/storage/memory.hpp"
 #include "communication/raft/test_utils.hpp"
 
 namespace raft = communication::raft;
 
 using io::network::Endpoint;
+using raft::InMemoryStorage;
 using raft::RaftConfig;
 using raft::RpcNetwork;
 using raft::test_utils::DummyState;
-using raft::test_utils::InMemoryStorageInterface;
 
 DEFINE_string(member_id, "", "id of RaftMember");
 
@@ -42,7 +43,7 @@ int main(int argc, char *argv[]) {
 
   communication::messaging::System my_system(directory[FLAGS_member_id]);
   RpcNetwork<DummyState> network(my_system, directory);
-  raft::test_utils::InMemoryStorageInterface<DummyState> storage(0, {}, {});
+  raft::InMemoryStorage<DummyState> storage(0, {}, {});
 
   raft::RaftConfig config{{"a", "b", "c"}, 150ms, 300ms, 70ms, 60ms, 30ms};
 
