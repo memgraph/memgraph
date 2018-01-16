@@ -8,26 +8,26 @@
 
 #include "communication/messaging/distributed.hpp"
 #include "communication/raft/rpc.hpp"
-#include "communication/raft/storage/memory.hpp"
+#include "communication/raft/storage/file.hpp"
 #include "communication/raft/test_utils.hpp"
 
 namespace raft = communication::raft;
 
 using io::network::Endpoint;
-using raft::InMemoryStorage;
 using raft::RaftConfig;
 using raft::RpcNetwork;
 using raft::test_utils::DummyState;
 
-DEFINE_string(member_id, "", "id of RaftMember");
+DEFINE_string(member_id, "", "id of Raft member");
+DEFINE_string(log_dir, "", "Raft log directory");
 
 BOOST_CLASS_EXPORT(raft::PeerRpcReply);
 BOOST_CLASS_EXPORT(raft::PeerRpcRequest<DummyState>);
 
 /* Start cluster members with:
- * ./raft_rpc --member-id a
- * ./raft_rpc --member-id b
- * ./raft_rpc --member-id c
+ * ./raft_rpc --member-id a --log-dir a_log
+ * ./raft_rpc --member-id b --log-dir b_log
+ * ./raft_rpc --member-id c --log-dir c_log
  *
  * Enjoy democracy!
  */
@@ -43,7 +43,7 @@ int main(int argc, char *argv[]) {
 
   communication::messaging::System my_system(directory[FLAGS_member_id]);
   RpcNetwork<DummyState> network(my_system, directory);
-  raft::InMemoryStorage<DummyState> storage(0, {}, {});
+  raft::SimpleFileStorage<DummyState> storage(FLAGS_log_dir);
 
   raft::RaftConfig config{{"a", "b", "c"}, 150ms, 300ms, 70ms, 60ms, 30ms};
 
