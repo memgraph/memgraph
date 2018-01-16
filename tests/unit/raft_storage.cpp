@@ -4,7 +4,6 @@
 
 #include "communication/raft/storage/file.hpp"
 #include "communication/raft/test_utils.hpp"
-#include "utils/filesystem.hpp"
 
 using communication::raft::LogEntry;
 using communication::raft::SimpleFileStorage;

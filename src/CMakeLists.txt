@@ -47,7 +47,7 @@ set(memgraph_src_files
     transactions/engine_master.cpp
     transactions/engine_single_node.cpp
     transactions/engine_worker.cpp
-    utils/filesystem.cpp
+    utils/file.cpp
     utils/network.cpp
     utils/watchdog.cpp
 )

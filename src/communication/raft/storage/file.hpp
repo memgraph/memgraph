@@ -4,7 +4,7 @@
  * Raft log is stored inside a folder. Each log entry is stored in a file named
  * by its index. There is a special file named "metadata" which stores Raft
  * metadata and also the last log index, which is used on startup to identify
- * which log entry files are valid. 
+ * which log entry files are valid.
  */
 #pragma once
 
@@ -17,7 +17,7 @@
 
 #include "communication/raft/raft.hpp"
 #include "communication/raft/storage/memory.hpp"
-#include "utils/filesystem.hpp"
+#include "utils/file.hpp"
 
 namespace communication::raft {
 
@@ -43,14 +43,14 @@ class SimpleFileStorage : public RaftStorageInterface<State> {
     }
 
     auto md = utils::TryOpenFile(dir_, "metadata", O_RDONLY);
-    if (md.Empty()) {
+    if (!md) {
       LOG(WARNING) << fmt::format("No metadata file found in directory '{}'",
                                   parent_dir);
       return;
     }
 
     boost::iostreams::file_descriptor_source src(
-        md.Handle(),
+        md->Handle(),
         boost::iostreams::file_descriptor_flags::never_close_handle);
     boost::iostreams::stream<boost::iostreams::file_descriptor_source> is(src);
     boost::archive::binary_iarchive iar(is);
@@ -96,21 +96,10 @@ class SimpleFileStorage : public RaftStorageInterface<State> {
         LOG(FATAL) << fmt::format("Failed to deserialize log entry {}: {}", idx,
                                   e.what());
       }
-
-      try {
-        utils::Close(entry_file);
-      } catch (std::system_error &e) {
-        LOG(FATAL) << fmt::format("Failed to close entry file {}: {}", idx,
-                                  e.what());
-      }
     }
 
     LOG(INFO) << fmt::format("Read {} log entries", metadata.last_log_index);
-
-    utils::Close(md);
   }
-
-  ~SimpleFileStorage() { utils::Close(dir_); }
 
   void WriteTermAndVotedFor(
       TermId term,
@@ -160,7 +149,6 @@ class SimpleFileStorage : public RaftStorageInterface<State> {
 
     try {
       utils::Fsync(entry_file);
-      utils::Close(entry_file);
     } catch (std::system_error &e) {
       LOG(FATAL) << fmt::format("Failed to write log entry file to disk: {}",
                                 e.what());
@@ -234,7 +222,6 @@ class SimpleFileStorage : public RaftStorageInterface<State> {
 
     try {
       utils::Fsync(md_tmp);
-      utils::Close(md_tmp);
     } catch (std::system_error &e) {
       LOG(FATAL) << fmt::format(
           "Failed to write temporary metadata file to disk: {}", e.what());
