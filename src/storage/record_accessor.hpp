@@ -2,12 +2,12 @@
 
 #include "glog/logging.h"
 
-#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
 #include "storage/property_value_store.hpp"
+#include "storage/types.hpp"
 #include "utils/total_ordering.hpp"
 
 namespace database {
@@ -68,13 +68,13 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   RecordAccessor &operator=(RecordAccessor &&other) = default;
 
   /** Gets the property for the given key. */
-  const PropertyValue &PropsAt(database::Property key) const;
+  const PropertyValue &PropsAt(storage::Property key) const;
 
   /** Sets a value on the record for the given property. */
-  void PropsSet(database::Property key, PropertyValue value);
+  void PropsSet(storage::Property key, PropertyValue value);
 
   /** Erases the property for the given key. */
-  size_t PropsErase(database::Property key);
+  size_t PropsErase(storage::Property key);
 
   /** Removes all the properties from this record. */
   void PropsClear();

@@ -9,10 +9,10 @@
 #include "database/counters.hpp"
 #include "database/storage.hpp"
 #include "database/storage_gc.hpp"
-#include "database/types.hpp"
 #include "durability/wal.hpp"
 #include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
+#include "storage/types.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
 
@@ -71,9 +71,9 @@ class GraphDb {
   Storage &storage();
   durability::WriteAheadLog &wal();
   tx::Engine &tx_engine();
-  storage::ConcurrentIdMapper<Label> &label_mapper();
-  storage::ConcurrentIdMapper<EdgeType> &edge_type_mapper();
-  storage::ConcurrentIdMapper<Property> &property_mapper();
+  storage::ConcurrentIdMapper<storage::Label> &label_mapper();
+  storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
+  storage::ConcurrentIdMapper<storage::Property> &property_mapper();
   database::Counters &counters();
   void CollectGarbage();
 

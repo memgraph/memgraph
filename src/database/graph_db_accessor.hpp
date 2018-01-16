@@ -8,8 +8,8 @@
 #include "glog/logging.h"
 
 #include "database/graph_db.hpp"
-#include "database/types.hpp"
 #include "storage/edge_accessor.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
@@ -189,7 +189,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto Vertices(const Label &label, bool current_state) {
+  auto Vertices(storage::Label label, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
         [this](auto vlist) { return VertexAccessor(vlist, *this); },
@@ -209,7 +209,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto Vertices(const Label &label, const Property &property,
+  auto Vertices(storage::Label label, storage::Property property,
                 bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     DCHECK(db_.storage().label_property_index_.IndexExists(
@@ -235,7 +235,7 @@ class GraphDbAccessor {
    *    ignored).
    * @return iterable collection
    */
-  auto Vertices(const Label &label, const Property &property,
+  auto Vertices(storage::Label label, storage::Property property,
                 const PropertyValue &value, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     DCHECK(db_.storage().label_property_index_.IndexExists(
@@ -278,7 +278,7 @@ class GraphDbAccessor {
    * satisfy the bounds and are visible to the current transaction.
    */
   auto Vertices(
-      const Label &label, const Property &property,
+      storage::Label label, storage::Property property,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
       bool current_state) {
@@ -312,7 +312,7 @@ class GraphDbAccessor {
    * @return  An accessor to the edge.
    */
   EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
-                          EdgeType type,
+                          storage::EdgeType type,
                           std::experimental::optional<gid::Gid> requested_gid =
                               std::experimental::nullopt);
 
@@ -416,14 +416,14 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  void BuildIndex(const Label &label, const Property &property);
+  void BuildIndex(storage::Label label, storage::Property property);
 
   /**
    * @brief - Returns true if the given label+property index already exists and
    * is ready for use.
    */
-  bool LabelPropertyIndexExists(const Label &label,
-                                const Property &property) const {
+  bool LabelPropertyIndexExists(storage::Label label,
+                                storage::Property property) const {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return db_.storage().label_property_index_.IndexExists(
         LabelPropertyIndex::Key(label, property));
@@ -456,7 +456,7 @@ class GraphDbAccessor {
    * @param label - label to check for
    * @return number of vertices with the given label
    */
-  int64_t VerticesCount(const Label &label) const;
+  int64_t VerticesCount(storage::Label label) const;
 
   /**
    * Return approximate number of vertices under indexes with the given label
@@ -468,7 +468,7 @@ class GraphDbAccessor {
    * @return number of vertices with the given label, fails if no such
    * label+property index exists.
    */
-  int64_t VerticesCount(const Label &label, const Property &property) const;
+  int64_t VerticesCount(storage::Label label, storage::Property property) const;
 
   /**
    * Returns approximate number of vertices that have the given label
@@ -476,7 +476,7 @@ class GraphDbAccessor {
    *
    * Assumes that an index for that (label, property) exists.
    */
-  int64_t VerticesCount(const Label &label, const Property &property,
+  int64_t VerticesCount(storage::Label label, storage::Property property,
                         const PropertyValue &value) const;
 
   /**
@@ -489,7 +489,7 @@ class GraphDbAccessor {
    * Assumes that an index for that (label, property) exists.
    */
   int64_t VerticesCount(
-      const Label &label, const Property &property,
+      storage::Label label, storage::Property property,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper)
       const;
@@ -498,7 +498,7 @@ class GraphDbAccessor {
    * Obtains the Label for the label's name.
    * @return  See above.
    */
-  Label Label(const std::string &label_name);
+  storage::Label Label(const std::string &label_name);
 
   /**
    * Obtains the label name (a string) for the given label.
@@ -506,13 +506,13 @@ class GraphDbAccessor {
    * @param label a Label.
    * @return  See above.
    */
-  const std::string &LabelName(const class Label label) const;
+  const std::string &LabelName(storage::Label label) const;
 
   /**
    * Obtains the EdgeType for it's name.
    * @return  See above.
    */
-  EdgeType EdgeType(const std::string &edge_type_name);
+  storage::EdgeType EdgeType(const std::string &edge_type_name);
 
   /**
    * Obtains the edge type name (a string) for the given edge type.
@@ -520,13 +520,13 @@ class GraphDbAccessor {
    * @param edge_type an EdgeType.
    * @return  See above.
    */
-  const std::string &EdgeTypeName(const class EdgeType edge_type) const;
+  const std::string &EdgeTypeName(storage::EdgeType edge_type) const;
 
   /**
    * Obtains the Property for it's name.
    * @return  See above.
    */
-  Property Property(const std::string &property_name);
+  storage::Property Property(const std::string &property_name);
 
   /**
    * Obtains the property name (a string) for the given property.
@@ -534,7 +534,7 @@ class GraphDbAccessor {
    * @param property a Property.
    * @return  See above.
    */
-  const std::string &PropertyName(const class Property property) const;
+  const std::string &PropertyName(storage::Property property) const;
 
   /** Returns the id of this accessor's transaction */
   tx::transaction_id_t transaction_id() const;
@@ -607,7 +607,7 @@ class GraphDbAccessor {
    * @param vertex_accessor - vertex_accessor to insert
    * @param vertex - vertex record to insert
    */
-  void UpdateLabelIndices(const class Label &label,
+  void UpdateLabelIndices(storage::Label label,
                           const VertexAccessor &vertex_accessor,
                           const Vertex *const vertex);
 
@@ -618,7 +618,7 @@ class GraphDbAccessor {
    * @param vertex_accessor - vertex accessor to insert
    * @param vertex - vertex to insert
    */
-  void UpdatePropertyIndex(const class Property &property,
+  void UpdatePropertyIndex(storage::Property property,
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
 };

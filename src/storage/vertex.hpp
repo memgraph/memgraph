@@ -1,11 +1,11 @@
 #pragma once
 
-#include "database/types.hpp"
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
 #include "storage/edges.hpp"
 #include "storage/property_value_store.hpp"
+#include "storage/types.hpp"
 
 class Vertex : public mvcc::Record<Vertex> {
  public:
@@ -16,7 +16,7 @@ class Vertex : public mvcc::Record<Vertex> {
 
   Edges out_;
   Edges in_;
-  std::vector<database::Label> labels_;
+  std::vector<storage::Label> labels_;
   PropertyValueStore properties_;
 
  private:

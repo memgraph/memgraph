@@ -243,8 +243,8 @@ class ExpectScanAllByLabelPropertyValue
     : public OpChecker<ScanAllByLabelPropertyValue> {
  public:
   ExpectScanAllByLabelPropertyValue(
-      database::Label label,
-      const std::pair<std::string, database::Property> &prop_pair,
+      storage::Label label,
+      const std::pair<std::string, storage::Property> &prop_pair,
       query::Expression *expression)
       : label_(label), property_(prop_pair.second), expression_(expression) {}
 
@@ -256,8 +256,8 @@ class ExpectScanAllByLabelPropertyValue
   }
 
  private:
-  database::Label label_;
-  database::Property property_;
+  storage::Label label_;
+  storage::Property property_;
   query::Expression *expression_;
 };
 
@@ -265,7 +265,7 @@ class ExpectScanAllByLabelPropertyRange
     : public OpChecker<ScanAllByLabelPropertyRange> {
  public:
   ExpectScanAllByLabelPropertyRange(
-      database::Label label, database::Property property,
+      storage::Label label, storage::Property property,
       std::experimental::optional<Bound> lower_bound,
       std::experimental::optional<Bound> upper_bound)
       : label_(label),
@@ -290,15 +290,15 @@ class ExpectScanAllByLabelPropertyRange
   }
 
  private:
-  database::Label label_;
-  database::Property property_;
+  storage::Label label_;
+  storage::Property property_;
   std::experimental::optional<Bound> lower_bound_;
   std::experimental::optional<Bound> upper_bound_;
 };
 
 class ExpectCreateIndex : public OpChecker<CreateIndex> {
  public:
-  ExpectCreateIndex(database::Label label, database::Property property)
+  ExpectCreateIndex(storage::Label label, storage::Property property)
       : label_(label), property_(property) {}
 
   void ExpectOp(CreateIndex &create_index, const SymbolTable &) override {
@@ -307,8 +307,8 @@ class ExpectCreateIndex : public OpChecker<CreateIndex> {
   }
 
  private:
-  database::Label label_;
-  database::Property property_;
+  storage::Label label_;
+  storage::Property property_;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -1254,7 +1254,7 @@ TEST(TestLogicalPlanner, AtomPropertyWhereLabelIndexing) {
         MATCH(PATTERN(node)),
         WHERE(AND(PROPERTY_LOOKUP("n", not_indexed),
                   storage.Create<query::LabelsTest>(
-                      IDENT("n"), std::vector<database::Label>{label}))),
+                      IDENT("n"), std::vector<storage::Label>{label}))),
         RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
     auto planning_context = MakePlanningContext(storage, symbol_table, dba);
@@ -1558,7 +1558,7 @@ TEST(TestLogicalPlanner, MatchBreadthFirst) {
   AstTreeStorage storage;
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
-      std::vector<database::EdgeType>{edge_type});
+      std::vector<storage::EdgeType>{edge_type});
   bfs->inner_edge_ = IDENT("r");
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = IDENT("n");

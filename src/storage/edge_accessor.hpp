@@ -42,13 +42,13 @@ class EdgeAccessor : public RecordAccessor<Edge> {
    * performance, see class docs). */
   EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor,
                VertexAddress from, VertexAddress to,
-               database::EdgeType edge_type)
+               storage::EdgeType edge_type)
       : RecordAccessor(address, db_accessor),
         from_(from),
         to_(to),
         edge_type_(edge_type) {}
 
-  database::EdgeType EdgeType() const;
+  storage::EdgeType EdgeType() const;
 
   /** Returns an accessor to the originating Vertex of this edge. */
   VertexAccessor from() const;
@@ -71,7 +71,7 @@ class EdgeAccessor : public RecordAccessor<Edge> {
  private:
   VertexAddress from_;
   VertexAddress to_;
-  database::EdgeType edge_type_;
+  storage::EdgeType edge_type_;
 };
 
 std::ostream &operator<<(std::ostream &, const EdgeAccessor &);

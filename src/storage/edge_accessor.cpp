@@ -4,7 +4,7 @@
 #include "storage/vertex_accessor.hpp"
 #include "utils/algorithm.hpp"
 
-database::EdgeType EdgeAccessor::EdgeType() const { return edge_type_; }
+storage::EdgeType EdgeAccessor::EdgeType() const { return edge_type_; }
 
 VertexAccessor EdgeAccessor::from() const {
   return VertexAccessor(from_, db_accessor());

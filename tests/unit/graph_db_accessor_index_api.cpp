@@ -24,9 +24,9 @@ class GraphDbAccessorIndex : public testing::Test {
  protected:
   database::SingleNode db;
   std::experimental::optional<database::GraphDbAccessor> dba{db};
-  database::Property property = dba->Property("property");
-  database::Label label = dba->Label("label");
-  database::EdgeType edge_type = dba->EdgeType("edge_type");
+  storage::Property property = dba->Property("property");
+  storage::Label label = dba->Label("label");
+  storage::EdgeType edge_type = dba->EdgeType("edge_type");
 
   auto AddVertex() {
     auto vertex = dba->InsertVertex();

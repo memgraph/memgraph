@@ -3,23 +3,21 @@
 #include "gtest/gtest.h"
 
 #include "communication/messaging/distributed.hpp"
-#include "database/types.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_worker.hpp"
-
-using namespace communication::messaging;
-using namespace storage;
-using namespace database;
+#include "storage/types.hpp"
 
 template <typename TId>
 class DistributedConcurrentIdMapperTest : public ::testing::Test {
   const std::string kLocal{"127.0.0.1"};
 
  protected:
-  System master_system_{{kLocal, 0}};
-  std::experimental::optional<MasterConcurrentIdMapper<TId>> master_mapper_;
-  System worker_system_{{kLocal, 0}};
-  std::experimental::optional<WorkerConcurrentIdMapper<TId>> worker_mapper_;
+  communication::messaging::System master_system_{{kLocal, 0}};
+  std::experimental::optional<storage::MasterConcurrentIdMapper<TId>>
+      master_mapper_;
+  communication::messaging::System worker_system_{{kLocal, 0}};
+  std::experimental::optional<storage::WorkerConcurrentIdMapper<TId>>
+      worker_mapper_;
 
   void SetUp() override {
     master_mapper_.emplace(master_system_);
@@ -31,7 +29,8 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
   }
 };
 
-typedef ::testing::Types<Label, EdgeType, Property> GraphDbTestTypes;
+typedef ::testing::Types<storage::Label, storage::EdgeType, storage::Property>
+    GraphDbTestTypes;
 TYPED_TEST_CASE(DistributedConcurrentIdMapperTest, GraphDbTestTypes);
 
 TYPED_TEST(DistributedConcurrentIdMapperTest, Basic) {

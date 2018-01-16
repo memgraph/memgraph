@@ -25,7 +25,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  database::Label label = dba.Label("Person");
+  storage::Label label = dba.Label("Person");
   auto property = PROPERTY_PAIR("prop");
 
   AstTreeStorage storage;
@@ -59,7 +59,7 @@ TEST(QueryPlan, CreateReturn) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  database::Label label = dba.Label("Person");
+  storage::Label label = dba.Label("Person");
   auto property = PROPERTY_PAIR("property");
 
   AstTreeStorage storage;
@@ -100,10 +100,10 @@ TEST(QueryPlan, CreateExpand) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  database::Label label_node_1 = dba.Label("Node1");
-  database::Label label_node_2 = dba.Label("Node2");
+  storage::Label label_node_1 = dba.Label("Node1");
+  storage::Label label_node_2 = dba.Label("Node2");
   auto property = PROPERTY_PAIR("property");
-  database::EdgeType edge_type = dba.EdgeType("edge_type");
+  storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -151,7 +151,7 @@ TEST(QueryPlan, CreateExpand) {
 
   for (VertexAccessor vertex : dba.Vertices(false)) {
     EXPECT_EQ(vertex.labels().size(), 1);
-    database::Label label = vertex.labels()[0];
+    storage::Label label = vertex.labels()[0];
     if (label == label_node_1) {
       // node created by first op
       EXPECT_EQ(vertex.PropsAt(property.second).Value<int64_t>(), 1);
@@ -207,10 +207,10 @@ TEST(QueryPlan, MatchCreateExpand) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  //  database::Label label_node_1 = dba.Label("Node1");
-  //  database::Label label_node_2 = dba.Label("Node2");
-  //  database::Property property = dba.Label("prop");
-  database::EdgeType edge_type = dba.EdgeType("edge_type");
+  //  storage::Label label_node_1 = dba.Label("Node1");
+  //  storage::Label label_node_2 = dba.Label("Node2");
+  //  storage::Property property = dba.Label("prop");
+  storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
   AstTreeStorage storage;
@@ -591,7 +591,7 @@ TEST(QueryPlan, SetLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_set = std::make_shared<plan::SetLabels>(
-      n.op_, n.sym_, std::vector<database::Label>{label2, label3});
+      n.op_, n.sym_, std::vector<storage::Label>{label2, label3});
   EXPECT_EQ(2, PullAll(label_set, dba, symbol_table));
 
   for (VertexAccessor vertex : dba.Vertices(false)) {
@@ -675,7 +675,7 @@ TEST(QueryPlan, RemoveLabels) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_remove = std::make_shared<plan::RemoveLabels>(
-      n.op_, n.sym_, std::vector<database::Label>{label1, label2});
+      n.op_, n.sym_, std::vector<storage::Label>{label1, label2});
   EXPECT_EQ(2, PullAll(label_remove, dba, symbol_table));
 
   for (VertexAccessor vertex : dba.Vertices(false)) {
@@ -776,10 +776,9 @@ TEST(QueryPlan, SetRemove) {
   // MATCH (n) SET n :label1 :label2 REMOVE n :label1 :label2
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
   auto set = std::make_shared<plan::SetLabels>(
-      scan_all.op_, scan_all.sym_,
-      std::vector<database::Label>{label1, label2});
+      scan_all.op_, scan_all.sym_, std::vector<storage::Label>{label1, label2});
   auto rem = std::make_shared<plan::RemoveLabels>(
-      set, scan_all.sym_, std::vector<database::Label>{label1, label2});
+      set, scan_all.sym_, std::vector<storage::Label>{label1, label2});
   EXPECT_EQ(1, PullAll(rem, dba, symbol_table));
   dba.AdvanceCommand();
   v.Reconstruct();
@@ -901,7 +900,7 @@ TEST(QueryPlan, SetLabelsOnNull) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetLabels>(
-      optional, n.sym_, std::vector<database::Label>{label});
+      optional, n.sym_, std::vector<storage::Label>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
   EXPECT_EQ(1, PullAll(set_op, dba, symbol_table));
 }
@@ -933,7 +932,7 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto remove_op = std::make_shared<plan::RemoveLabels>(
-      optional, n.sym_, std::vector<database::Label>{label});
+      optional, n.sym_, std::vector<storage::Label>{label});
   EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
   EXPECT_EQ(1, PullAll(remove_op, dba, symbol_table));
 }

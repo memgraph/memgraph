@@ -62,8 +62,8 @@ BENCHMARK(BM_PlanChainedMatches)
     ->Unit(benchmark::kMillisecond);
 
 static void AddIndexedMatches(
-    int num_matches, const database::Label &label,
-    const std::pair<std::string, database::Property> &property,
+    int num_matches, storage::Label label,
+    const std::pair<std::string, storage::Property> &property,
     query::AstTreeStorage &storage) {
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
@@ -101,8 +101,8 @@ static auto CreateIndexedVertices(int index_count, int vertex_count,
 
 static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
   database::SingleNode db;
-  database::Label label;
-  database::Property prop;
+  storage::Label label;
+  storage::Property prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);
@@ -134,8 +134,8 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
 static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
     benchmark::State &state) {
   database::SingleNode db;
-  database::Label label;
-  database::Property prop;
+  storage::Label label;
+  storage::Property prop;
   int index_count = state.range(0);
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);

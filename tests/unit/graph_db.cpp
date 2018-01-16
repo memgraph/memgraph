@@ -5,7 +5,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/indexes/label_property_index.hpp"
-#include "database/types.hpp"
+#include "storage/types.hpp"
 
 TEST(GraphDbTest, GarbageCollectIndices) {
   database::Config config;

@@ -173,8 +173,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 }  // namespace
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
-                               const Symbol &symbol,
-                               const database::Property &property,
+                               const Symbol &symbol, storage::Property property,
                                Expression *value)
     : symbol_(symbol), property_(property), value_(value) {
   UsedSymbolsCollector collector(symbol_table);
@@ -184,7 +183,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
 
 PropertyFilter::PropertyFilter(
     const SymbolTable &symbol_table, const Symbol &symbol,
-    const database::Property &property,
+    storage::Property property,
     const std::experimental::optional<PropertyFilter::Bound> &lower_bound,
     const std::experimental::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
@@ -211,8 +210,7 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
-void Filters::EraseLabelFilter(const Symbol &symbol,
-                               const database::Label &label) {
+void Filters::EraseLabelFilter(const Symbol &symbol, storage::Label label) {
   for (auto filter_it = all_filters_.begin();
        filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {

@@ -136,8 +136,8 @@ TEST(RecordAccessor, VertexLabels) {
 
   EXPECT_EQ(v1.labels().size(), 0);
 
-  database::Label l1 = dba.Label("label1");
-  database::Label l2 = dba.Label("label2");
+  storage::Label l1 = dba.Label("label1");
+  storage::Label l2 = dba.Label("label2");
 
   // adding labels
   EXPECT_FALSE(v1.has_label(l1));
@@ -157,7 +157,7 @@ TEST(RecordAccessor, VertexLabels) {
   EXPECT_EQ(labels.size(), 2);
 
   // removing labels
-  database::Label l3 = dba.Label("label3");
+  storage::Label l3 = dba.Label("label3");
   EXPECT_EQ(v1.remove_label(l3), 0);
   EXPECT_EQ(labels.size(), 2);
 
@@ -175,8 +175,8 @@ TEST(RecordAccessor, EdgeType) {
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
 
-  database::EdgeType likes = dba.EdgeType("likes");
-  database::EdgeType hates = dba.EdgeType("hates");
+  storage::EdgeType likes = dba.EdgeType("likes");
+  storage::EdgeType hates = dba.EdgeType("hates");
 
   auto edge = dba.InsertEdge(v1, v2, likes);
   EXPECT_EQ(edge.EdgeType(), likes);
@@ -280,9 +280,9 @@ TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
   TEST_EDGE_ITERABLE(v1.in(), {eb_1, eb_2});
   TEST_EDGE_ITERABLE(v2.in(), {ea, ec});
 
-  std::vector<database::EdgeType> edges_a{a};
-  std::vector<database::EdgeType> edges_b{b};
-  std::vector<database::EdgeType> edges_ac{a, c};
+  std::vector<storage::EdgeType> edges_a{a};
+  std::vector<storage::EdgeType> edges_b{b};
+  std::vector<storage::EdgeType> edges_ac{a, c};
   TEST_EDGE_ITERABLE(v1.in(&edges_a));
   TEST_EDGE_ITERABLE(v1.in(&edges_b), {eb_1, eb_2});
   TEST_EDGE_ITERABLE(v1.out(&edges_a), {ea});

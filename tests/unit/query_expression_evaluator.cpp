@@ -8,13 +8,13 @@
 #include "gtest/gtest.h"
 
 #include "database/graph_db_accessor.hpp"
-#include "database/types.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
+#include "storage/types.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"
@@ -419,7 +419,7 @@ TEST(ExpressionEvaluator, MapIndexing) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto *map_literal = storage.Create<MapLiteral>(
-      std::unordered_map<std::pair<std::string, database::Property>,
+      std::unordered_map<std::pair<std::string, storage::Property>,
                          Expression *>{
           {PROPERTY_PAIR("a"), storage.Create<PrimitiveLiteral>(1)},
           {PROPERTY_PAIR("b"), storage.Create<PrimitiveLiteral>(2)},
@@ -625,15 +625,15 @@ class ExpressionEvaluatorPropertyLookup : public testing::Test {
   NoContextExpressionEvaluator eval;
   database::SingleNode db;
   database::GraphDbAccessor dba{db};
-  std::pair<std::string, database::Property> prop_age = PROPERTY_PAIR("age");
-  std::pair<std::string, database::Property> prop_height =
+  std::pair<std::string, storage::Property> prop_age = PROPERTY_PAIR("age");
+  std::pair<std::string, storage::Property> prop_height =
       PROPERTY_PAIR("height");
   Expression *identifier = storage.Create<Identifier>("element");
   Symbol symbol = eval.symbol_table.CreateSymbol("element", true);
 
   void SetUp() { eval.symbol_table[*identifier] = symbol; }
 
-  auto Value(std::pair<std::string, database::Property> property) {
+  auto Value(std::pair<std::string, storage::Property> property) {
     auto *op = storage.Create<PropertyLookup>(identifier, property);
     return op->Accept(eval.eval);
   }
@@ -684,15 +684,15 @@ TEST(ExpressionEvaluator, LabelsTest) {
   {
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<database::Label>{dba.Label("DOG"), dba.Label("ANIMAL")});
+        std::vector<storage::Label>{dba.Label("DOG"), dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), true);
   }
   {
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<database::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
-                                     dba.Label("ANIMAL")});
+        std::vector<storage::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
+                                    dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), false);
   }
@@ -700,8 +700,8 @@ TEST(ExpressionEvaluator, LabelsTest) {
     eval.frame[node_symbol] = TypedValue::Null;
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<database::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
-                                     dba.Label("ANIMAL")});
+        std::vector<storage::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
+                                    dba.Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }

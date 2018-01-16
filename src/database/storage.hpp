@@ -4,9 +4,9 @@
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "database/indexes/key_index.hpp"
 #include "database/indexes/label_property_index.hpp"
-#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex.hpp"
 
 namespace database {
@@ -45,7 +45,7 @@ class Storage {
   ConcurrentMap<gid::Gid, mvcc::VersionList<Edge> *> edges_;
 
   // indexes
-  KeyIndex<Label, Vertex> labels_index_;
+  KeyIndex<storage::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
 
   // Set of transactions ids which are building indexes currently

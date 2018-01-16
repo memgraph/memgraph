@@ -150,7 +150,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   database::GraphDbAccessor dba(db);
 
   // add a few nodes to the database
-  database::Label label = dba.Label("Label");
+  storage::Label label = dba.Label("Label");
   auto property = PROPERTY_PAIR("Property");
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
@@ -206,9 +206,9 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   database::GraphDbAccessor dba(db);
 
   // add a few nodes to the database
-  database::Label label1 = dba.Label("label1");
-  database::Label label2 = dba.Label("label2");
-  database::Label label3 = dba.Label("label3");
+  storage::Label label1 = dba.Label("label1");
+  storage::Label label2 = dba.Label("label2");
+  storage::Label label3 = dba.Label("label3");
   // the test will look for nodes that have label1 and label2
   dba.InsertVertex();                    // NOT accepted
   dba.InsertVertex().add_label(label1);  // NOT accepted
@@ -262,7 +262,7 @@ class ExpandFixture : public testing::Test {
   VertexAccessor v1 = dba_.InsertVertex();
   VertexAccessor v2 = dba_.InsertVertex();
   VertexAccessor v3 = dba_.InsertVertex();
-  database::EdgeType edge_type = dba_.EdgeType("Edge");
+  storage::EdgeType edge_type = dba_.EdgeType("Edge");
   EdgeAccessor r1 = dba_.InsertEdge(v1, v2, edge_type);
   EdgeAccessor r2 = dba_.InsertEdge(v1, v3, edge_type);
 
@@ -356,9 +356,9 @@ class QueryPlanExpandVariable : public testing::Test {
   database::SingleNode db_;
   database::GraphDbAccessor dba_{db_};
   // labels for layers in the double chain
-  std::vector<database::Label> labels;
+  std::vector<storage::Label> labels;
   // for all the edges
-  database::EdgeType edge_type = dba_.EdgeType("edge_type");
+  storage::EdgeType edge_type = dba_.EdgeType("edge_type");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
@@ -409,7 +409,7 @@ class QueryPlanExpandVariable : public testing::Test {
   std::shared_ptr<LogicalOperator> AddMatch(
       std::shared_ptr<LogicalOperator> input_op, const std::string &node_from,
       int layer, EdgeAtom::Direction direction,
-      const std::vector<database::EdgeType> &edge_types,
+      const std::vector<storage::EdgeType> &edge_types,
       std::experimental::optional<size_t> lower,
       std::experimental::optional<size_t> upper, Symbol edge_sym,
       const std::string &node_to, GraphView graph_view = GraphView::AS_IS,
@@ -418,7 +418,7 @@ class QueryPlanExpandVariable : public testing::Test {
     auto filter_op = std::make_shared<Filter>(
         n_from.op_, storage.Create<query::LabelsTest>(
                         n_from.node_->identifier_,
-                        std::vector<database::Label>{labels[layer]}));
+                        std::vector<storage::Label>{labels[layer]}));
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
@@ -620,7 +620,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
 
 TEST_F(QueryPlanExpandVariable, GraphState) {
   auto test_expand = [&](GraphView graph_view,
-                         const std::vector<database::EdgeType> &edge_types) {
+                         const std::vector<storage::EdgeType> &edge_types) {
     auto e = Edge("r", EdgeAtom::Direction::OUT);
     return GetEdgeListSizes(
         AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
@@ -699,8 +699,8 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
   // macro requirements
   database::SingleNode db;
   database::GraphDbAccessor dba{db};
-  std::pair<std::string, database::Property> prop = PROPERTY_PAIR("property");
-  database::EdgeType edge_type = dba.EdgeType("edge_type");
+  std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
+  storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
   // make 4 vertices because we'll need to compare against them exactly
   // v[0] has `prop` with the value 0
@@ -765,7 +765,7 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
     last_op = std::make_shared<ExpandVariable>(
         node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
-        std::vector<database::EdgeType>{}, false, nullptr, LITERAL(max_depth),
+        std::vector<storage::EdgeType>{}, false, nullptr, LITERAL(max_depth),
         last_op, n.sym_, existing_node_input != nullptr, inner_edge, inner_node,
         where, graph_view);
 
@@ -1059,7 +1059,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto node = NODE("n");
   symbol_table[*node->identifier_] = with_n_sym;
   auto expand = std::make_shared<plan::Expand>(
-      with_n_sym, edge_sym, edge_direction, std::vector<database::EdgeType>{},
+      with_n_sym, edge_sym, edge_direction, std::vector<storage::EdgeType>{},
       m.op_, m.sym_, true);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
@@ -1093,7 +1093,7 @@ TEST(QueryPlan, ExpandExistingNode) {
     if (with_existing)
       r_n.op_ = std::make_shared<Expand>(
           n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
-          std::vector<database::EdgeType>{}, n.op_, n.sym_, with_existing);
+          std::vector<storage::EdgeType>{}, n.op_, n.sym_, with_existing);
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));
@@ -1137,7 +1137,7 @@ TEST(QueryPlan, EdgeFilter) {
   // where only one edge will qualify
   // and there are all combinations of
   // (edge_type yes|no) * (property yes|absent|no)
-  std::vector<database::EdgeType> edge_types;
+  std::vector<storage::EdgeType> edge_types;
   for (int j = 0; j < 2; ++j)
     edge_types.push_back(dba.EdgeType("et" + std::to_string(j)));
   std::vector<VertexAccessor> vertices;

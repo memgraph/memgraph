@@ -9,7 +9,7 @@ size_t VertexAccessor::out_degree() const { return current().out_.size(); }
 
 size_t VertexAccessor::in_degree() const { return current().in_.size(); }
 
-bool VertexAccessor::add_label(database::Label label) {
+bool VertexAccessor::add_label(storage::Label label) {
   auto &labels_view = current().labels_;
   auto found = std::find(labels_view.begin(), labels_view.end(), label);
   if (found != labels_view.end()) return false;
@@ -25,7 +25,7 @@ bool VertexAccessor::add_label(database::Label label) {
   return true;
 }
 
-size_t VertexAccessor::remove_label(database::Label label) {
+size_t VertexAccessor::remove_label(storage::Label label) {
   auto &labels = update().labels_;
   auto found = std::find(labels.begin(), labels.end(), label);
   if (found == labels.end()) return 0;
@@ -39,12 +39,12 @@ size_t VertexAccessor::remove_label(database::Label label) {
   return 1;
 }
 
-bool VertexAccessor::has_label(database::Label label) const {
+bool VertexAccessor::has_label(storage::Label label) const {
   auto &labels = this->current().labels_;
   return std::find(labels.begin(), labels.end(), label) != labels.end();
 }
 
-const std::vector<database::Label> &VertexAccessor::labels() const {
+const std::vector<storage::Label> &VertexAccessor::labels() const {
   return this->current().labels_;
 }
 

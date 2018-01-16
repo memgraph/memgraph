@@ -14,6 +14,8 @@
 #include "transactions/engine_worker.hpp"
 #include "utils/flag_validation.hpp"
 
+using namespace storage;
+
 namespace database {
 namespace impl {
 
@@ -28,9 +30,9 @@ class Base {
   virtual StorageGc &storage_gc() = 0;
   virtual durability::WriteAheadLog &wal() = 0;
   virtual tx::Engine &tx_engine() = 0;
-  virtual storage::ConcurrentIdMapper<Label> &label_mapper() = 0;
-  virtual storage::ConcurrentIdMapper<EdgeType> &edge_type_mapper() = 0;
-  virtual storage::ConcurrentIdMapper<Property> &property_mapper() = 0;
+  virtual ConcurrentIdMapper<Label> &label_mapper() = 0;
+  virtual ConcurrentIdMapper<EdgeType> &edge_type_mapper() = 0;
+  virtual ConcurrentIdMapper<Property> &property_mapper() = 0;
   virtual database::Counters &counters() = 0;
 
   Base(const Base &) = delete;
@@ -50,20 +52,20 @@ struct TypemapPack {
   TMapper<Property> property;
 };
 
-#define IMPL_GETTERS                                                   \
-  Storage &storage() override { return storage_; }                     \
-  StorageGc &storage_gc() override { return storage_gc_; }             \
-  durability::WriteAheadLog &wal() override { return wal_; }           \
-  tx::Engine &tx_engine() override { return tx_engine_; }              \
-  storage::ConcurrentIdMapper<Label> &label_mapper() override {        \
-    return typemap_pack_.label;                                        \
-  }                                                                    \
-  storage::ConcurrentIdMapper<EdgeType> &edge_type_mapper() override { \
-    return typemap_pack_.edge_type;                                    \
-  }                                                                    \
-  storage::ConcurrentIdMapper<Property> &property_mapper() override {  \
-    return typemap_pack_.property;                                     \
-  }                                                                    \
+#define IMPL_GETTERS                                          \
+  Storage &storage() override { return storage_; }            \
+  StorageGc &storage_gc() override { return storage_gc_; }    \
+  durability::WriteAheadLog &wal() override { return wal_; }  \
+  tx::Engine &tx_engine() override { return tx_engine_; }     \
+  ConcurrentIdMapper<Label> &label_mapper() override {        \
+    return typemap_pack_.label;                               \
+  }                                                           \
+  ConcurrentIdMapper<EdgeType> &edge_type_mapper() override { \
+    return typemap_pack_.edge_type;                           \
+  }                                                           \
+  ConcurrentIdMapper<Property> &property_mapper() override {  \
+    return typemap_pack_.property;                            \
+  }                                                           \
   database::Counters &counters() override { return counters_; }
 
 class SingleNode : public Base {
@@ -77,7 +79,7 @@ class SingleNode : public Base {
                                  config_.durability_enabled};
   tx::SingleNodeEngine tx_engine_{&wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
-  TypemapPack<storage::SingleNodeConcurrentIdMapper> typemap_pack_;
+  TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_;
   database::SingleNodeCounters counters_;
 };
 
@@ -94,7 +96,7 @@ class Master : public Base {
   tx::MasterEngine tx_engine_{system_, &wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   distributed::MasterCoordination coordination{system_};
-  TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{system_};
+  TypemapPack<MasterConcurrentIdMapper> typemap_pack_{system_};
   database::MasterCounters counters_{system_};
 };
 
@@ -113,8 +115,8 @@ class Worker : public Base {
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   durability::WriteAheadLog wal_{config_.durability_directory,
                                  config_.durability_enabled};
-  TypemapPack<storage::WorkerConcurrentIdMapper> typemap_pack_{
-      system_, config_.master_endpoint};
+  TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{system_,
+                                                      config_.master_endpoint};
   database::WorkerCounters counters_{system_, config_.master_endpoint};
 };
 
@@ -148,15 +150,15 @@ durability::WriteAheadLog &GraphDb::wal() { return impl_->wal(); }
 
 tx::Engine &GraphDb::tx_engine() { return impl_->tx_engine(); }
 
-storage::ConcurrentIdMapper<Label> &GraphDb::label_mapper() {
+ConcurrentIdMapper<Label> &GraphDb::label_mapper() {
   return impl_->label_mapper();
 }
 
-storage::ConcurrentIdMapper<EdgeType> &GraphDb::edge_type_mapper() {
+ConcurrentIdMapper<EdgeType> &GraphDb::edge_type_mapper() {
   return impl_->edge_type_mapper();
 }
 
-storage::ConcurrentIdMapper<Property> &GraphDb::property_mapper() {
+ConcurrentIdMapper<Property> &GraphDb::property_mapper() {
   return impl_->property_mapper();
 }
 

@@ -5,9 +5,9 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/indexes/index_common.hpp"
-#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/total_ordering.hpp"
@@ -174,7 +174,7 @@ class KeyIndex {
    * @param label - label to check for.
    * @return true if it contains, false otherwise.
    */
-  static bool Exists(const Label &label, const Vertex *const v) {
+  static bool Exists(storage::Label label, const Vertex *const v) {
     DCHECK(v != nullptr) << "Vertex is nullptr.";
     // We have to check for existance of label because the transaction
     // might not see the label, or the label was deleted and not yet
@@ -188,7 +188,7 @@ class KeyIndex {
    * @param edge_type - edge_type to check for.
    * @return true if it has that edge_type, false otherwise.
    */
-  static bool Exists(const EdgeType &edge_type, const Edge *const e) {
+  static bool Exists(storage::EdgeType edge_type, const Edge *const e) {
     DCHECK(e != nullptr) << "Edge is nullptr.";
     // We have to check for equality of edge types because the transaction
     // might not see the edge type, or the edge type was deleted and not yet

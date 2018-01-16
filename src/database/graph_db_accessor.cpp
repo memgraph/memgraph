@@ -86,8 +86,8 @@ std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
   return record_accessor;
 }
 
-void GraphDbAccessor::BuildIndex(const class Label &label,
-                                 const class Property &property) {
+void GraphDbAccessor::BuildIndex(storage::Label label,
+                                 storage::Property property) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   db_.storage().index_build_tx_in_progress_.access().insert(transaction_.id_);
@@ -163,7 +163,7 @@ void GraphDbAccessor::BuildIndex(const class Label &label,
   db_.storage().label_property_index_.IndexFinishedBuilding(key);
 }
 
-void GraphDbAccessor::UpdateLabelIndices(const class Label &label,
+void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
                                          const VertexAccessor &vertex_accessor,
                                          const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
@@ -174,8 +174,8 @@ void GraphDbAccessor::UpdateLabelIndices(const class Label &label,
 }
 
 void GraphDbAccessor::UpdatePropertyIndex(
-    const class Property &property,
-    const RecordAccessor<Vertex> &vertex_accessor, const Vertex *const vertex) {
+    storage::Property property, const RecordAccessor<Vertex> &vertex_accessor,
+    const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   DCHECK(vertex_accessor.is_local()) << "Only local vertices belong in indexes";
   db_.storage().label_property_index_.UpdateOnProperty(
@@ -187,13 +187,13 @@ int64_t GraphDbAccessor::VerticesCount() const {
   return db_.storage().vertices_.access().size();
 }
 
-int64_t GraphDbAccessor::VerticesCount(const class Label &label) const {
+int64_t GraphDbAccessor::VerticesCount(storage::Label label) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.storage().labels_index_.Count(label);
 }
 
-int64_t GraphDbAccessor::VerticesCount(const class Label &label,
-                                       const class Property &property) const {
+int64_t GraphDbAccessor::VerticesCount(storage::Label label,
+                                       storage::Property property) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   const LabelPropertyIndex::Key key(label, property);
   DCHECK(db_.storage().label_property_index_.IndexExists(key))
@@ -201,8 +201,8 @@ int64_t GraphDbAccessor::VerticesCount(const class Label &label,
   return db_.storage().label_property_index_.Count(key);
 }
 
-int64_t GraphDbAccessor::VerticesCount(const class Label &label,
-                                       const class Property &property,
+int64_t GraphDbAccessor::VerticesCount(storage::Label label,
+                                       storage::Property property,
                                        const PropertyValue &value) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   const LabelPropertyIndex::Key key(label, property);
@@ -214,7 +214,7 @@ int64_t GraphDbAccessor::VerticesCount(const class Label &label,
 }
 
 int64_t GraphDbAccessor::VerticesCount(
-    const class Label &label, const class Property &property,
+    storage::Label label, storage::Property property,
     const std::experimental::optional<utils::Bound<PropertyValue>> lower,
     const std::experimental::optional<utils::Bound<PropertyValue>> upper)
     const {
@@ -306,7 +306,7 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
 }
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
-    VertexAccessor &from, VertexAccessor &to, class EdgeType edge_type,
+    VertexAccessor &from, VertexAccessor &to, storage::EdgeType edge_type,
     std::experimental::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   // An edge is created on the worker of it's "from" vertex.
@@ -378,34 +378,34 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
       database::StateDelta::RemoveEdge(transaction_.id_, edge_accessor.gid()));
 }
 
-Label GraphDbAccessor::Label(const std::string &label_name) {
+storage::Label GraphDbAccessor::Label(const std::string &label_name) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.label_mapper().value_to_id(label_name);
 }
 
-const std::string &GraphDbAccessor::LabelName(const class Label label) const {
+const std::string &GraphDbAccessor::LabelName(storage::Label label) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.label_mapper().id_to_value(label);
 }
 
-EdgeType GraphDbAccessor::EdgeType(const std::string &edge_type_name) {
+storage::EdgeType GraphDbAccessor::EdgeType(const std::string &edge_type_name) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.edge_type_mapper().value_to_id(edge_type_name);
 }
 
 const std::string &GraphDbAccessor::EdgeTypeName(
-    const class EdgeType edge_type) const {
+    storage::EdgeType edge_type) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.edge_type_mapper().id_to_value(edge_type);
 }
 
-Property GraphDbAccessor::Property(const std::string &property_name) {
+storage::Property GraphDbAccessor::Property(const std::string &property_name) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.property_mapper().value_to_id(property_name);
 }
 
 const std::string &GraphDbAccessor::PropertyName(
-    const class Property property) const {
+    storage::Property property) const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.property_mapper().id_to_value(property);
 }
@@ -420,7 +420,7 @@ void GraphDbAccessor::CounterSet(const std::string &name, int64_t value) {
 
 std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   std::vector<std::string> info;
-  for (class Label label : db_.storage().labels_index_.Keys()) {
+  for (storage::Label label : db_.storage().labels_index_.Keys()) {
     info.emplace_back(":" + LabelName(label));
   }
   for (LabelPropertyIndex::Key key :

@@ -7,7 +7,7 @@
 
 #include "utils/total_ordering.hpp"
 
-namespace database {
+namespace storage {
 
 template <typename TSpecificType>
 class Common : public TotalOrdering<TSpecificType> {
@@ -74,18 +74,17 @@ class Property : public Common<Property> {
     ar &boost::serialization::base_object<Common<Property>>(*this);
   }
 };
-};  // namespace database
+};  // namespace storage
 
 namespace std {
 
 template <>
-struct hash<database::Label> : public database::Common<database::Label>::Hash {
-};
+struct hash<storage::Label> : public storage::Common<storage::Label>::Hash {};
 template <>
-struct hash<database::EdgeType>
-    : public database::Common<database::EdgeType>::Hash {};
+struct hash<storage::EdgeType>
+    : public storage::Common<storage::EdgeType>::Hash {};
 template <>
-struct hash<database::Property>
-    : public database::Common<database::Property>::Hash {};
+struct hash<storage::Property>
+    : public storage::Common<storage::Property>::Hash {};
 
 }  // namespace std

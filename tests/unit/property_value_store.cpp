@@ -12,12 +12,12 @@ class PropertyValueStoreTest : public ::testing::Test {
   PropertyValueStore props_;
 
   void Set(int key, PropertyValue value) {
-    props_.set(database::Property(key), value);
+    props_.set(storage::Property(key), value);
   }
 
-  PropertyValue At(int key) { return props_.at(database::Property(key)); }
+  PropertyValue At(int key) { return props_.at(storage::Property(key)); }
 
-  auto Erase(int key) { return props_.erase(database::Property(key)); }
+  auto Erase(int key) { return props_.erase(storage::Property(key)); }
 };
 
 TEST_F(PropertyValueStoreTest, At) {

@@ -30,7 +30,7 @@ namespace {
 // TypedValue cannot be converted to PropertyValue,
 // QueryRuntimeException is raised.
 template <class TRecordAccessor>
-void PropsSetChecked(TRecordAccessor &record, database::Property key,
+void PropsSetChecked(TRecordAccessor &record, storage::Property key,
                      TypedValue value) {
   try {
     record.PropsSet(key, value);
@@ -273,7 +273,7 @@ std::unique_ptr<Cursor> ScanAll::MakeCursor(
 }
 
 ScanAllByLabel::ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
-                               Symbol output_symbol, database::Label label,
+                               Symbol output_symbol, storage::Label label,
                                GraphView graph_view)
     : ScanAll(input, output_symbol, graph_view), label_(label) {}
 
@@ -290,7 +290,7 @@ std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(
 
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-    database::Label label, database::Property property,
+    storage::Label label, storage::Property property,
     std::experimental::optional<Bound> lower_bound,
     std::experimental::optional<Bound> upper_bound, GraphView graph_view)
     : ScanAll(input, output_symbol, graph_view),
@@ -323,7 +323,7 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-    database::Label label, database::Property property, Expression *expression,
+    storage::Label label, storage::Property property, Expression *expression,
     GraphView graph_view)
     : ScanAll(input, output_symbol, graph_view),
       label_(label),
@@ -390,7 +390,7 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
 
 ExpandCommon::ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
                            EdgeAtom::Direction direction,
-                           const std::vector<database::EdgeType> &edge_types,
+                           const std::vector<storage::EdgeType> &edge_types,
                            const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol, bool existing_node,
                            GraphView graph_view)
@@ -558,7 +558,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
 ExpandVariable::ExpandVariable(
     Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
     EdgeAtom::Direction direction,
-    const std::vector<database::EdgeType> &edge_types, bool is_reverse,
+    const std::vector<storage::EdgeType> &edge_types, bool is_reverse,
     Expression *lower_bound, Expression *upper_bound,
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
     bool existing_node, Symbol inner_edge_symbol, Symbol inner_node_symbol,
@@ -594,7 +594,7 @@ namespace {
  */
 auto ExpandFromVertex(const VertexAccessor &vertex,
                       EdgeAtom::Direction direction,
-                      const std::vector<database::EdgeType> &edge_types) {
+                      const std::vector<storage::EdgeType> &edge_types) {
   // wraps an EdgeAccessor into a pair <accessor, direction>
   auto wrapper = [](EdgeAtom::Direction direction, auto &&vertices) {
     return iter::imap(
@@ -1388,7 +1388,7 @@ template void SetProperties::SetPropertiesCursor::Set(
 
 SetLabels::SetLabels(const std::shared_ptr<LogicalOperator> &input,
                      Symbol input_symbol,
-                     const std::vector<database::Label> &labels)
+                     const std::vector<storage::Label> &labels)
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
 ACCEPT_WITH_INPUT(SetLabels)
@@ -1463,7 +1463,7 @@ void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol,
-                           const std::vector<database::Label> &labels)
+                           const std::vector<storage::Label> &labels)
     : input_(input), input_symbol_(input_symbol), labels_(labels) {}
 
 ACCEPT_WITH_INPUT(RemoveLabels)
@@ -2410,7 +2410,7 @@ void Distinct::DistinctCursor::Reset() {
   seen_rows_.clear();
 }
 
-CreateIndex::CreateIndex(database::Label label, database::Property property)
+CreateIndex::CreateIndex(storage::Label label, storage::Property property)
     : label_(label), property_(property) {}
 
 bool CreateIndex::Accept(HierarchicalLogicalOperatorVisitor &visitor) {

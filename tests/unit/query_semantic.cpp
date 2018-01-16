@@ -800,7 +800,7 @@ TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   auto *n_prop = PROPERTY_LOOKUP("n", prop);
   auto *bfs = storage.Create<EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT,
-      std::vector<database::EdgeType>{});
+      std::vector<storage::EdgeType>{});
   bfs->inner_edge_ = IDENT("r");
   bfs->inner_node_ = IDENT("n");
   bfs->filter_expression_ = r_prop;

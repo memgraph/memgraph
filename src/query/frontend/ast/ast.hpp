@@ -12,26 +12,26 @@
 #include "glog/logging.h"
 
 #include "database/graph_db.hpp"
-#include "database/types.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/parameters.hpp"
 #include "query/typed_value.hpp"
+#include "storage/types.hpp"
 #include "utils/serialization.hpp"
 
 // Hash function for the key in pattern atom property maps.
 namespace std {
 template <>
-struct hash<std::pair<std::string, database::Property>> {
+struct hash<std::pair<std::string, storage::Property>> {
   size_t operator()(
-      const std::pair<std::string, database::Property> &pair) const {
+      const std::pair<std::string, storage::Property> &pair) const {
     return string_hash(pair.first) ^ property_hash(pair.second);
   };
 
  private:
   std::hash<std::string> string_hash{};
-  std::hash<database::Property> property_hash{};
+  std::hash<storage::Property> property_hash{};
 };
 }  // namespace std
 
@@ -1060,15 +1060,14 @@ class MapLiteral : public BaseLiteral {
   }
 
   // maps (property_name, property) to expressions
-  std::unordered_map<std::pair<std::string, database::Property>, Expression *>
+  std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
       elements_;
 
  protected:
   explicit MapLiteral(int uid) : BaseLiteral(uid) {}
-  MapLiteral(
-      int uid,
-      const std::unordered_map<std::pair<std::string, database::Property>,
-                               Expression *> &elements)
+  MapLiteral(int uid,
+             const std::unordered_map<std::pair<std::string, storage::Property>,
+                                      Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
 
  private:
@@ -1094,7 +1093,7 @@ class MapLiteral : public BaseLiteral {
     size_t size = 0;
     ar >> size;
     for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, database::Property> property;
+      std::pair<std::string, storage::Property> property;
       ar >> property.first;
       ar >> property.second;
       Expression *expression = nullptr;
@@ -1164,17 +1163,17 @@ class PropertyLookup : public Expression {
 
   Expression *expression_ = nullptr;
   std::string property_name_;
-  database::Property property_;
+  storage::Property property_;
 
  protected:
   PropertyLookup(int uid, Expression *expression,
-                 const std::string &property_name, database::Property property)
+                 const std::string &property_name, storage::Property property)
       : Expression(uid),
         expression_(expression),
         property_name_(property_name),
         property_(property) {}
   PropertyLookup(int uid, Expression *expression,
-                 const std::pair<std::string, database::Property> &property)
+                 const std::pair<std::string, storage::Property> &property)
       : Expression(uid),
         expression_(expression),
         property_name_(property.first),
@@ -1224,11 +1223,11 @@ class LabelsTest : public Expression {
   }
 
   Expression *expression_ = nullptr;
-  std::vector<database::Label> labels_;
+  std::vector<storage::Label> labels_;
 
  protected:
   LabelsTest(int uid, Expression *expression,
-             const std::vector<database::Label> &labels)
+             const std::vector<storage::Label> &labels)
       : Expression(uid), expression_(expression), labels_(labels) {}
 
  private:
@@ -1597,9 +1596,9 @@ class NodeAtom : public PatternAtom {
     return node_atom;
   }
 
-  std::vector<database::Label> labels_;
+  std::vector<storage::Label> labels_;
   // maps (property_name, property) to an expression
-  std::unordered_map<std::pair<std::string, database::Property>, Expression *>
+  std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
       properties_;
 
  protected:
@@ -1630,7 +1629,7 @@ class NodeAtom : public PatternAtom {
     size_t size = 0;
     ar >> size;
     for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, database::Property> property;
+      std::pair<std::string, storage::Property> property;
       ar >> property.first;
       ar >> property.second;
       Expression *expression = nullptr;
@@ -1704,8 +1703,8 @@ class EdgeAtom : public PatternAtom {
 
   Type type_ = Type::SINGLE;
   Direction direction_ = Direction::BOTH;
-  std::vector<database::EdgeType> edge_types_;
-  std::unordered_map<std::pair<std::string, database::Property>, Expression *>
+  std::vector<storage::EdgeType> edge_types_;
+  std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
       properties_;
 
   // Used in variable length and BFS expansions. Bounds can be nullptr. Inner
@@ -1724,7 +1723,7 @@ class EdgeAtom : public PatternAtom {
 
   // Creates an edge atom for a SINGLE expansion with the given .
   EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction,
-           const std::vector<database::EdgeType> &edge_types)
+           const std::vector<storage::EdgeType> &edge_types)
       : PatternAtom(uid, identifier),
         type_(type),
         direction_(direction),
@@ -1764,7 +1763,7 @@ class EdgeAtom : public PatternAtom {
     size_t size = 0;
     ar >> size;
     for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, database::Property> property;
+      std::pair<std::string, storage::Property> property;
       ar >> property.first;
       ar >> property.second;
       Expression *expression = nullptr;
@@ -2503,12 +2502,12 @@ class SetLabels : public Clause {
   }
 
   Identifier *identifier_ = nullptr;
-  std::vector<database::Label> labels_;
+  std::vector<storage::Label> labels_;
 
  protected:
   explicit SetLabels(int uid) : Clause(uid) {}
   SetLabels(int uid, Identifier *identifier,
-            const std::vector<database::Label> &labels)
+            const std::vector<storage::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
 
  private:
@@ -2598,12 +2597,12 @@ class RemoveLabels : public Clause {
   }
 
   Identifier *identifier_ = nullptr;
-  std::vector<database::Label> labels_;
+  std::vector<storage::Label> labels_;
 
  protected:
   explicit RemoveLabels(int uid) : Clause(uid) {}
   RemoveLabels(int uid, Identifier *identifier,
-               const std::vector<database::Label> &labels)
+               const std::vector<storage::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
 
  private:
@@ -2764,12 +2763,12 @@ class CreateIndex : public Clause {
     return storage.Create<CreateIndex>(label_, property_);
   }
 
-  database::Label label_;
-  database::Property property_;
+  storage::Label label_;
+  storage::Property property_;
 
  protected:
   explicit CreateIndex(int uid) : Clause(uid) {}
-  CreateIndex(int uid, database::Label label, database::Property property)
+  CreateIndex(int uid, storage::Label label, storage::Property property)
       : Clause(uid), label_(label), property_(property) {}
 
  private:
@@ -2832,9 +2831,9 @@ LOAD_AND_CONSTRUCT(query::PrimitiveLiteral, 0);
 LOAD_AND_CONSTRUCT(query::ListLiteral, 0);
 LOAD_AND_CONSTRUCT(query::MapLiteral, 0);
 LOAD_AND_CONSTRUCT(query::Identifier, 0, "");
-LOAD_AND_CONSTRUCT(query::PropertyLookup, 0, nullptr, "", database::Property());
+LOAD_AND_CONSTRUCT(query::PropertyLookup, 0, nullptr, "", storage::Property());
 LOAD_AND_CONSTRUCT(query::LabelsTest, 0, nullptr,
-                   std::vector<database::Label>());
+                   std::vector<storage::Label>());
 LOAD_AND_CONSTRUCT(query::Function, 0);
 LOAD_AND_CONSTRUCT(query::Aggregation, 0, nullptr, nullptr,
                    query::Aggregation::Op::COUNT);

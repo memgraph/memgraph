@@ -5,10 +5,10 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "database/types.hpp"
 #include "storage/concurrent_id_mapper_single_node.hpp"
+#include "storage/types.hpp"
 
-using Id = database::Label;
+using Id = storage::Label;
 using Mapper = storage::SingleNodeConcurrentIdMapper<Id>;
 
 TEST(ConcurrentIdMapper, SameValueGivesSameId) {

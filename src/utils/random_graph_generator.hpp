@@ -9,9 +9,9 @@
 
 #include "data_structures/concurrent/skiplist.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/property_value.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
 
@@ -62,7 +62,7 @@ class RandomGraphGenerator {
   void AddVertices(int count, const std::vector<std::string> &label_names,
                    int thread_count, int batch_size = 2000) {
     database::GraphDbAccessor dba(db_);
-    std::vector<database::Label> labels;
+    std::vector<storage::Label> labels;
     for (const auto &label_name : label_names)
       labels.push_back(dba.Label(label_name));
 

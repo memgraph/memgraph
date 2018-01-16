@@ -140,7 +140,7 @@ class InteractiveDbAccessor {
 
   int64_t VerticesCount() const { return vertices_count_; }
 
-  int64_t VerticesCount(const database::Label &label_id) const {
+  int64_t VerticesCount(storage::Label label_id) const {
     auto label = dba_.LabelName(label_id);
     if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
       label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
@@ -148,8 +148,8 @@ class InteractiveDbAccessor {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(const database::Label &label_id,
-                        const database::Property &property_id) const {
+  int64_t VerticesCount(storage::Label label_id,
+                        storage::Property property_id) const {
     auto label = dba_.LabelName(label_id);
     auto property = dba_.PropertyName(property_id);
     auto key = std::make_pair(label, property);
@@ -161,8 +161,7 @@ class InteractiveDbAccessor {
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(const database::Label &label_id,
-                        const database::Property &property_id,
+  int64_t VerticesCount(storage::Label label_id, storage::Property property_id,
                         const PropertyValue &value) const {
     auto label = dba_.LabelName(label_id);
     auto property = dba_.PropertyName(property_id);
@@ -182,7 +181,7 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(
-      const database::Label &label_id, const database::Property &property_id,
+      storage::Label label_id, storage::Property property_id,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper)
       const {
@@ -202,8 +201,8 @@ class InteractiveDbAccessor {
                            "' in range " + range_string.str());
   }
 
-  bool LabelPropertyIndexExists(const database::Label &label_id,
-                                const database::Property &property_id) const {
+  bool LabelPropertyIndexExists(storage::Label label_id,
+                                storage::Property property_id) const {
     auto label = dba_.LabelName(label_id);
     auto property = dba_.PropertyName(property_id);
     auto key = std::make_pair(label, property);

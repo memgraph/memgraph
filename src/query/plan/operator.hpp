@@ -14,12 +14,12 @@
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
-#include "database/types.hpp"
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/path.hpp"
 #include "query/typed_value.hpp"
+#include "storage/types.hpp"
 #include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
@@ -353,16 +353,16 @@ class ScanAll : public LogicalOperator {
 class ScanAllByLabel : public ScanAll {
  public:
   ScanAllByLabel(const std::shared_ptr<LogicalOperator> &input,
-                 Symbol output_symbol, database::Label label,
+                 Symbol output_symbol, storage::Label label,
                  GraphView graph_view = GraphView::OLD);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
 
-  database::Label label() const { return label_; }
+  storage::Label label() const { return label_; }
 
  private:
-  const database::Label label_;
+  const storage::Label label_;
 };
 
 /**
@@ -392,8 +392,8 @@ class ScanAllByLabelPropertyRange : public ScanAll {
    * @param graph_view GraphView used when obtaining vertices.
    */
   ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input,
-                              Symbol output_symbol, database::Label label,
-                              database::Property property,
+                              Symbol output_symbol, storage::Label label,
+                              storage::Property property,
                               std::experimental::optional<Bound> lower_bound,
                               std::experimental::optional<Bound> upper_bound,
                               GraphView graph_view = GraphView::OLD);
@@ -408,8 +408,8 @@ class ScanAllByLabelPropertyRange : public ScanAll {
   auto upper_bound() const { return upper_bound_; }
 
  private:
-  const database::Label label_;
-  const database::Property property_;
+  const storage::Label label_;
+  const storage::Property property_;
   std::experimental::optional<Bound> lower_bound_;
   std::experimental::optional<Bound> upper_bound_;
 };
@@ -435,8 +435,8 @@ class ScanAllByLabelPropertyValue : public ScanAll {
    * @param graph_view GraphView used when obtaining vertices.
    */
   ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
-                              Symbol output_symbol, database::Label label,
-                              database::Property property,
+                              Symbol output_symbol, storage::Label label,
+                              storage::Property property,
                               Expression *expression,
                               GraphView graph_view = GraphView::OLD);
 
@@ -449,8 +449,8 @@ class ScanAllByLabelPropertyValue : public ScanAll {
   auto expression() const { return expression_; }
 
  private:
-  const database::Label label_;
-  const database::Property property_;
+  const storage::Label label_;
+  const storage::Property property_;
   Expression *expression_;
 };
 
@@ -487,7 +487,7 @@ class ExpandCommon {
    * @param direction EdgeAtom::Direction determining the direction of edge
    *    expansion. The direction is relative to the starting vertex for each
    *    expansion.
-   * @param edge_types database::EdgeType specifying which edges we
+   * @param edge_types storage::EdgeType specifying which edges we
    *    want to expand. If empty, all edges are valid. If not empty, only edges
    * with one of the given types are valid.
    * @param input Optional LogicalOperator that preceeds this one.
@@ -498,7 +498,7 @@ class ExpandCommon {
    */
   ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
                EdgeAtom::Direction direction,
-               const std::vector<database::EdgeType> &edge_types,
+               const std::vector<storage::EdgeType> &edge_types,
                const std::shared_ptr<LogicalOperator> &input,
                Symbol input_symbol, bool existing_node,
                GraphView graph_view = GraphView::AS_IS);
@@ -514,7 +514,7 @@ class ExpandCommon {
   const Symbol node_symbol_;
   const Symbol edge_symbol_;
   const EdgeAtom::Direction direction_;
-  const std::vector<database::EdgeType> edge_types_;
+  const std::vector<storage::EdgeType> edge_types_;
 
   // the input op and the symbol under which the op's result
   // can be found in the frame
@@ -639,7 +639,7 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
    */
   ExpandVariable(Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
                  EdgeAtom::Direction direction,
-                 const std::vector<database::EdgeType> &edge_types,
+                 const std::vector<storage::EdgeType> &edge_types,
                  bool is_reverse, Expression *lower_bound,
                  Expression *upper_bound,
                  const std::shared_ptr<LogicalOperator> &input,
@@ -901,7 +901,7 @@ class SetProperties : public LogicalOperator {
 class SetLabels : public LogicalOperator {
  public:
   SetLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-            const std::vector<database::Label> &labels);
+            const std::vector<storage::Label> &labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
@@ -909,7 +909,7 @@ class SetLabels : public LogicalOperator {
  private:
   const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
-  const std::vector<database::Label> labels_;
+  const std::vector<storage::Label> labels_;
 
   class SetLabelsCursor : public Cursor {
    public:
@@ -962,7 +962,7 @@ class RemoveProperty : public LogicalOperator {
 class RemoveLabels : public LogicalOperator {
  public:
   RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
-               Symbol input_symbol, const std::vector<database::Label> &labels);
+               Symbol input_symbol, const std::vector<storage::Label> &labels);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
@@ -970,7 +970,7 @@ class RemoveLabels : public LogicalOperator {
  private:
   const std::shared_ptr<LogicalOperator> input_;
   const Symbol input_symbol_;
-  const std::vector<database::Label> labels_;
+  const std::vector<storage::Label> labels_;
 
   class RemoveLabelsCursor : public Cursor {
    public:
@@ -1570,7 +1570,7 @@ class Distinct : public LogicalOperator {
  */
 class CreateIndex : public LogicalOperator {
  public:
-  CreateIndex(database::Label label, database::Property property);
+  CreateIndex(storage::Label label, storage::Property property);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
@@ -1579,8 +1579,8 @@ class CreateIndex : public LogicalOperator {
   auto property() const { return property_; }
 
  private:
-  database::Label label_;
-  database::Property property_;
+  storage::Label label_;
+  storage::Property property_;
 };
 
 /**

@@ -30,9 +30,9 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/types.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
+#include "storage/types.hpp"
 #include "utils/string.hpp"
 
 namespace query {
@@ -110,26 +110,26 @@ auto GetOrderBy(T... exprs) {
 /// Name is used to create the Identifier which is used for property lookup.
 ///
 auto GetPropertyLookup(AstTreeStorage &storage, database::GraphDb &db,
-                       const std::string &name, database::Property property) {
+                       const std::string &name, storage::Property property) {
   database::GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         dba.PropertyName(property), property);
 }
 auto GetPropertyLookup(AstTreeStorage &storage, database::GraphDb &db,
-                       Expression *expr, database::Property property) {
+                       Expression *expr, storage::Property property) {
   database::GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(expr, dba.PropertyName(property),
                                         property);
 }
 auto GetPropertyLookup(
     AstTreeStorage &storage, database::GraphDb &, const std::string &name,
-    const std::pair<std::string, database::Property> &prop_pair) {
+    const std::pair<std::string, storage::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         prop_pair.first, prop_pair.second);
 }
 auto GetPropertyLookup(
     AstTreeStorage &storage, database::GraphDb &, Expression *expr,
-    const std::pair<std::string, database::Property> &prop_pair) {
+    const std::pair<std::string, storage::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(expr, prop_pair.first,
                                         prop_pair.second);
 }
@@ -141,7 +141,7 @@ auto GetPropertyLookup(
 ///
 auto GetEdge(AstTreeStorage &storage, const std::string &name,
              EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<database::EdgeType> &edge_types = {}) {
+             const std::vector<storage::EdgeType> &edge_types = {}) {
   return storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
                                   EdgeAtom::Type::SINGLE, dir, edge_types);
 }
@@ -154,7 +154,7 @@ auto GetEdge(AstTreeStorage &storage, const std::string &name,
 ///
 auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
                      EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-                     const std::vector<database::EdgeType> &edge_types = {},
+                     const std::vector<storage::EdgeType> &edge_types = {},
                      Identifier *inner_edge = nullptr,
                      Identifier *inner_node = nullptr) {
   auto r_val =
@@ -175,7 +175,7 @@ auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
 /// Name is used to create the Identifier which is assigned to the node.
 ///
 auto GetNode(AstTreeStorage &storage, const std::string &name,
-             std::experimental::optional<database::Label> label =
+             std::experimental::optional<storage::Label> label =
                  std::experimental::nullopt) {
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
   if (label) node->labels_.emplace_back(*label);
@@ -433,7 +433,7 @@ auto GetSet(AstTreeStorage &storage, const std::string &name, Expression *expr,
 /// Create a set labels clause for given identifier name and labels.
 ///
 auto GetSet(AstTreeStorage &storage, const std::string &name,
-            std::vector<database::Label> labels) {
+            std::vector<storage::Label> labels) {
   return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
 }
 
@@ -448,7 +448,7 @@ auto GetRemove(AstTreeStorage &storage, PropertyLookup *prop_lookup) {
 /// Create a remove labels clause for given identifier name and labels.
 ///
 auto GetRemove(AstTreeStorage &storage, const std::string &name,
-               std::vector<database::Label> labels) {
+               std::vector<storage::Label> labels) {
   return storage.Create<RemoveLabels>(storage.Create<Identifier>(name), labels);
 }
 
@@ -510,9 +510,9 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define LIST(...)                     \
   storage.Create<query::ListLiteral>( \
       std::vector<query::Expression *>{__VA_ARGS__})
-#define MAP(...)                                                     \
-  storage.Create<query::MapLiteral>(                                 \
-      std::unordered_map<std::pair<std::string, database::Property>, \
+#define MAP(...)                                                    \
+  storage.Create<query::MapLiteral>(                                \
+      std::unordered_map<std::pair<std::string, storage::Property>, \
                          query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) \
   std::make_pair(property_name,      \

@@ -36,16 +36,15 @@ class PropertyFilter {
  public:
   using Bound = ScanAllByLabelPropertyRange::Bound;
 
-  PropertyFilter(const SymbolTable &, const Symbol &,
-                 const database::Property &, Expression *);
-  PropertyFilter(const SymbolTable &, const Symbol &,
-                 const database::Property &,
+  PropertyFilter(const SymbolTable &, const Symbol &, storage::Property,
+                 Expression *);
+  PropertyFilter(const SymbolTable &, const Symbol &, storage::Property,
                  const std::experimental::optional<Bound> &,
                  const std::experimental::optional<Bound> &);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
-  database::Property property_;
+  storage::Property property_;
   /// True if the same symbol is used in expressions for value or bounds.
   bool is_symbol_in_value_ = false;
   /// Expression which when evaluated produces the value a property must
@@ -70,7 +69,7 @@ struct FilterInfo {
   /// Set of used symbols by the filter @c expression.
   std::unordered_set<Symbol> used_symbols;
   /// Labels for Type::Label filtering.
-  std::vector<database::Label> labels;
+  std::vector<storage::Label> labels;
   /// Property information for Type::Property filtering.
   std::experimental::optional<PropertyFilter> property_filter;
 };
@@ -101,7 +100,7 @@ class Filters {
   }
 
   auto FilteredLabels(const Symbol &symbol) const {
-    std::unordered_set<database::Label> labels;
+    std::unordered_set<storage::Label> labels;
     for (const auto &filter : all_filters_) {
       if (filter.type == FilterInfo::Type::Label &&
           utils::Contains(filter.used_symbols, symbol)) {
@@ -119,7 +118,7 @@ class Filters {
   void EraseFilter(const FilterInfo &);
 
   // Remove a label filter for symbol; may invalidate iterators.
-  void EraseLabelFilter(const Symbol &, const database::Label &);
+  void EraseLabelFilter(const Symbol &, storage::Label);
 
   // Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const {

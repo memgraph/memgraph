@@ -23,8 +23,8 @@ class QueryCostEstimator : public ::testing::Test {
  protected:
   database::SingleNode db;
   std::experimental::optional<database::GraphDbAccessor> dba{db};
-  database::Label label = dba->Label("label");
-  database::Property property = dba->Property("property");
+  storage::Label label = dba->Label("label");
+  storage::Property property = dba->Property("property");
 
   // we incrementally build the logical operator plan
   // start it off with Once
@@ -162,7 +162,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-                 std::vector<database::EdgeType>{}, last_op_, NextSymbol(),
+                 std::vector<storage::EdgeType>{}, last_op_, NextSymbol(),
                  false);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
@@ -170,7 +170,7 @@ TEST_F(QueryCostEstimator, Expand) {
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(NextSymbol(), NextSymbol(),
                          EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
-                         std::vector<database::EdgeType>{}, false, nullptr,
+                         std::vector<storage::EdgeType>{}, false, nullptr,
                          nullptr, last_op_, NextSymbol(), false, NextSymbol(),
                          NextSymbol(), nullptr);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);

@@ -116,7 +116,7 @@ ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
  */
 ScanAllTuple MakeScanAllByLabel(
     AstTreeStorage &storage, SymbolTable &symbol_table,
-    const std::string &identifier, const database::Label &label,
+    const std::string &identifier, storage::Label label,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
@@ -135,7 +135,7 @@ ScanAllTuple MakeScanAllByLabel(
  */
 ScanAllTuple MakeScanAllByLabelPropertyRange(
     AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    database::Label label, database::Property property,
+    storage::Label label, storage::Property property,
     std::experimental::optional<Bound> lower_bound,
     std::experimental::optional<Bound> upper_bound,
     std::shared_ptr<LogicalOperator> input = {nullptr},
@@ -156,7 +156,7 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(
     AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    database::Label label, database::Property property, Expression *value,
+    storage::Label label, storage::Property property, Expression *value,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
@@ -179,7 +179,7 @@ ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
                        std::shared_ptr<LogicalOperator> input,
                        Symbol input_symbol, const std::string &edge_identifier,
                        EdgeAtom::Direction direction,
-                       const std::vector<database::EdgeType> &edge_types,
+                       const std::vector<storage::EdgeType> &edge_types,
                        const std::string &node_identifier, bool existing_node,
                        GraphView graph_view = GraphView::AS_IS) {
   auto edge = EDGE(edge_identifier, direction);

@@ -63,17 +63,17 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   /** Adds a label to the Vertex. If the Vertex already has that label the call
    * has no effect. */
   // TODO revise return value, is it necessary?
-  bool add_label(database::Label label);
+  bool add_label(storage::Label label);
 
   /** Removes a label from the Vertex. Return number of removed (0, 1). */
   // TODO reves return value, is it necessary?
-  size_t remove_label(database::Label label);
+  size_t remove_label(storage::Label label);
 
   /** Indicates if the Vertex has the given label. */
-  bool has_label(database::Label label) const;
+  bool has_label(storage::Label label) const;
 
   /** Returns all the Labels of the Vertex. */
-  const std::vector<database::Label> &labels() const;
+  const std::vector<storage::Label> &labels() const;
 
   /** Returns EdgeAccessors for all incoming edges. */
   auto in() const {
@@ -89,7 +89,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto in(const VertexAccessor &dest,
-          const std::vector<database::EdgeType> *edge_types = nullptr) const {
+          const std::vector<storage::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator(current().in_.begin(dest.address(), edge_types),
                                 current().in_.end(), false, address(),
                                 db_accessor());
@@ -101,7 +101,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto in(const std::vector<database::EdgeType> *edge_types) const {
+  auto in(const std::vector<storage::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().in_.begin(nullptr, edge_types),
                                 current().in_.end(), false, address(),
                                 db_accessor());
@@ -122,7 +122,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto out(const VertexAccessor &dest,
-           const std::vector<database::EdgeType> *edge_types = nullptr) const {
+           const std::vector<storage::EdgeType> *edge_types = nullptr) const {
     return MakeAccessorIterator(
         current().out_.begin(dest.address(), edge_types), current().out_.end(),
         true, address(), db_accessor());
@@ -134,7 +134,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto out(const std::vector<database::EdgeType> *edge_types) const {
+  auto out(const std::vector<storage::EdgeType> *edge_types) const {
     return MakeAccessorIterator(current().out_.begin(nullptr, edge_types),
                                 current().out_.end(), true, address(),
                                 db_accessor());

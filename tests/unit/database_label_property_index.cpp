@@ -3,7 +3,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/indexes/label_property_index.hpp"
-#include "database/types.hpp"
+#include "storage/types.hpp"
 
 #include "mvcc_gc_common.hpp"
 
@@ -51,10 +51,10 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
   mvcc::VersionList<Vertex> *vlist;
   Vertex *vertex;
 
-  Label label;
-  Property property;
-  Label label2;
-  Property property2;
+  storage::Label label;
+  storage::Property property;
+  storage::Label label2;
+  storage::Property property2;
 };
 
 TEST(LabelPropertyIndex, CreateIndex) {

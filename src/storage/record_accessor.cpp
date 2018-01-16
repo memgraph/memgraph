@@ -14,12 +14,12 @@ RecordAccessor<TRecord>::RecordAccessor(AddressT address,
 
 template <typename TRecord>
 const PropertyValue &RecordAccessor<TRecord>::PropsAt(
-    database::Property key) const {
+    storage::Property key) const {
   return current().properties_.at(key);
 }
 
 template <>
-void RecordAccessor<Vertex>::PropsSet(database::Property key,
+void RecordAccessor<Vertex>::PropsSet(storage::Property key,
                                       PropertyValue value) {
   Vertex &vertex = update();
   vertex.properties_.set(key, value);
@@ -33,7 +33,7 @@ void RecordAccessor<Vertex>::PropsSet(database::Property key,
 }
 
 template <>
-void RecordAccessor<Edge>::PropsSet(database::Property key,
+void RecordAccessor<Edge>::PropsSet(storage::Property key,
                                     PropertyValue value) {
   update().properties_.set(key, value);
   auto &dba = db_accessor();
@@ -43,7 +43,7 @@ void RecordAccessor<Edge>::PropsSet(database::Property key,
 }
 
 template <>
-size_t RecordAccessor<Vertex>::PropsErase(database::Property key) {
+size_t RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
   // TODO use the delta for handling.
   dba.wal().Emplace(StateDelta::PropsSetVertex(
@@ -52,7 +52,7 @@ size_t RecordAccessor<Vertex>::PropsErase(database::Property key) {
 }
 
 template <>
-size_t RecordAccessor<Edge>::PropsErase(database::Property key) {
+size_t RecordAccessor<Edge>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
   // TODO use the delta for handling.
   dba.wal().Emplace(StateDelta::PropsSetEdge(

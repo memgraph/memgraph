@@ -3,11 +3,12 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-
 #include "storage/edge_accessor.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
 
 using namespace database;
+using namespace storage;
 
 template <typename TIterable>
 auto Count(TIterable iterable) {

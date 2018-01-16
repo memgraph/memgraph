@@ -10,7 +10,7 @@ namespace storage {
  * for the master (single source of truth) and worker (must query master).
  * Both implementations must be concurrent.
  *
- * @TParam TId - One of database::GraphDb types (Label, EdgeType, Property).
+ * @TParam TId - One of storage types (Label, EdgeType, Property).
  */
 template <typename TId>
 class ConcurrentIdMapper {

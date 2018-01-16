@@ -214,12 +214,12 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::NodePatternContext *ctx) override;
 
   /**
-   * @return vector<database::Label>
+   * @return vector<storage::Label>
    */
   antlrcpp::Any visitNodeLabels(CypherParser::NodeLabelsContext *ctx) override;
 
   /**
-   * @return unordered_map<database::Property, Expression*>
+   * @return unordered_map<storage::Property, Expression*>
    */
   antlrcpp::Any visitProperties(CypherParser::PropertiesContext *ctx) override;
 
@@ -235,7 +235,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::ListLiteralContext *ctx) override;
 
   /**
-   * @return database::Property
+   * @return storage::Property
    */
   antlrcpp::Any visitPropertyKeyName(
       CypherParser::PropertyKeyNameContext *ctx) override;
@@ -290,7 +290,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::RelationshipLambdaContext *ctx) override;
 
   /**
-   * @return vector<database::EdgeType>
+   * @return vector<storage::EdgeType>
    */
   antlrcpp::Any visitRelationshipTypes(
       CypherParser::RelationshipTypesContext *ctx) override;

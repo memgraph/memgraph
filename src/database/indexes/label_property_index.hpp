@@ -5,9 +5,9 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/indexes/index_common.hpp"
-#include "database/types.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/bound.hpp"
@@ -46,10 +46,10 @@ class LabelPropertyIndex {
    */
   class Key : public TotalOrdering<Key> {
    public:
-    const Label label_;
-    const Property property_;
+    const storage::Label label_;
+    const storage::Property property_;
 
-    Key(const Label &label, const Property &property)
+    Key(storage::Label label, storage::Property property)
         : label_(label), property_(property) {}
 
     // Comparison operators - we need them to keep this sorted inside skiplist.
@@ -121,7 +121,8 @@ class LabelPropertyIndex {
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in vlist)
    */
-  void UpdateOnLabel(const Label &label, mvcc::VersionList<Vertex> *const vlist,
+  void UpdateOnLabel(storage::Label label,
+                     mvcc::VersionList<Vertex> *const vlist,
                      const Vertex *const vertex) {
     for (auto index : indices_.access()) {
       if (index.first.label_ != label) continue;
@@ -141,7 +142,7 @@ class LabelPropertyIndex {
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in vlist)
    */
-  void UpdateOnProperty(const Property &property,
+  void UpdateOnProperty(storage::Property property,
                         mvcc::VersionList<Vertex> *const vlist,
                         const Vertex *const vertex) {
     const auto &labels = vertex->labels_;

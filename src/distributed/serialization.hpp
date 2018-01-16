@@ -4,8 +4,8 @@
 #include <memory>
 #include <vector>
 
-#include "database/types.hpp"
 #include "storage/edge.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex.hpp"
 #include "utils/serialization.hpp"
 
@@ -96,11 +96,11 @@ void LoadProperties(TArchive &ar, PropertyValueStore &store) {
   size_t count;
   ar >> count;
   for (size_t i = 0; i < count; ++i) {
-    database::Property::StorageT prop;
+    storage::Property::StorageT prop;
     ar >> prop;
     query::TypedValue value;
     utils::LoadTypedValue(ar, value);
-    store.set(database::Property(prop), static_cast<PropertyValue>(value));
+    store.set(storage::Property(prop), static_cast<PropertyValue>(value));
   }
 }
 
@@ -121,14 +121,14 @@ std::unique_ptr<Vertex> LoadVertex(TArchive &ar) {
     ar >> count;
     for (size_t i = 0; i < count; ++i) {
       auto vertex_address = impl::LoadVertexAddress(ar);
-      database::EdgeType::StorageT edge_type;
+      storage::EdgeType::StorageT edge_type;
       gid::Gid edge_id;
       ar >> edge_id;
       int edge_worker_id;
       ar >> edge_worker_id;
       ar >> edge_type;
       edges.emplace(vertex_address, {edge_id, edge_worker_id},
-                    database::EdgeType(edge_type));
+                    storage::EdgeType(edge_type));
     }
   };
   decode_edges(vertex->out_);
@@ -137,7 +137,7 @@ std::unique_ptr<Vertex> LoadVertex(TArchive &ar) {
   size_t count;
   ar >> count;
   for (size_t i = 0; i < count; ++i) {
-    database::Label::StorageT label;
+    storage::Label::StorageT label;
     ar >> label;
     vertex->labels_.emplace_back(label);
   }
@@ -156,9 +156,9 @@ template <typename TArchive>
 std::unique_ptr<Edge> LoadEdge(TArchive &ar) {
   auto from = impl::LoadVertexAddress(ar);
   auto to = impl::LoadVertexAddress(ar);
-  database::EdgeType::StorageT edge_type;
+  storage::EdgeType::StorageT edge_type;
   ar >> edge_type;
-  auto edge = std::make_unique<Edge>(from, to, database::EdgeType{edge_type});
+  auto edge = std::make_unique<Edge>(from, to, storage::EdgeType{edge_type});
   impl::LoadProperties(ar, edge->properties_);
 
   return edge;

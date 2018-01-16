@@ -150,7 +150,7 @@ class QueryPlanAggregateOps : public ::testing::Test {
  protected:
   database::SingleNode db;
   database::GraphDbAccessor dba{db};
-  database::Property prop = dba.Property("prop");
+  storage::Property prop = dba.Property("prop");
 
   AstTreeStorage storage;
   SymbolTable symbol_table;

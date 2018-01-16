@@ -4,8 +4,8 @@
 #include <map>
 #include <vector>
 
-#include "database/types.hpp"
 #include "property_value.hpp"
+#include "storage/types.hpp"
 
 /**
  * A collection of properties accessed in a map-like way
@@ -14,7 +14,7 @@
  * The underlying implementation is not necessarily std::map.
  */
 class PropertyValueStore {
-  using Property = database::Property;
+  using Property = storage::Property;
 
  public:
   /**

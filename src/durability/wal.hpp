@@ -12,9 +12,9 @@
 #include "communication/bolt/v1/encoder/primitive_encoder.hpp"
 #include "data_structures/ring_buffer.hpp"
 #include "database/state_delta.hpp"
-#include "database/types.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
+#include "storage/types.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
 

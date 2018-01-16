@@ -1,8 +1,8 @@
 #include "glog/logging.h"
 
-#include "database/types.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
+#include "storage/types.hpp"
 
 namespace storage {
 
@@ -22,7 +22,7 @@ void RegisterRpc(MasterConcurrentIdMapper<TId> &mapper,
     });                                                                       \
   }
 
-using namespace database;
+using namespace storage;
 ID_VALUE_RPC_CALLS(Label)
 ID_VALUE_RPC_CALLS(EdgeType)
 ID_VALUE_RPC_CALLS(Property)

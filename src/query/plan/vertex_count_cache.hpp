@@ -3,8 +3,8 @@
 
 #include <experimental/optional>
 
-#include "database/types.hpp"
 #include "storage/property_value.hpp"
+#include "storage/types.hpp"
 #include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 
@@ -22,14 +22,14 @@ class VertexCountCache {
     return *vertices_count_;
   }
 
-  int64_t VerticesCount(const database::Label &label) const {
+  int64_t VerticesCount(storage::Label label) const {
     if (label_vertex_count_.find(label) == label_vertex_count_.end())
       label_vertex_count_[label] = db_.VerticesCount(label);
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(const database::Label &label,
-                        const database::Property &property) const {
+  int64_t VerticesCount(storage::Label label,
+                        storage::Property property) const {
     auto key = std::make_pair(label, property);
     if (label_property_vertex_count_.find(key) ==
         label_property_vertex_count_.end())
@@ -37,8 +37,7 @@ class VertexCountCache {
     return label_property_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(const database::Label &label,
-                        const database::Property &property,
+  int64_t VerticesCount(storage::Label label, storage::Property property,
                         const PropertyValue &value) const {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
@@ -48,7 +47,7 @@ class VertexCountCache {
   }
 
   int64_t VerticesCount(
-      const database::Label &label, const database::Property &property,
+      storage::Label label, storage::Property property,
       const std::experimental::optional<utils::Bound<PropertyValue>> &lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> &upper)
       const {
@@ -61,18 +60,18 @@ class VertexCountCache {
     return bounds_vertex_count.at(bounds);
   }
 
-  bool LabelPropertyIndexExists(const database::Label &label,
-                                const database::Property &property) const {
+  bool LabelPropertyIndexExists(storage::Label label,
+                                storage::Property property) const {
     return db_.LabelPropertyIndexExists(label, property);
   }
 
  private:
-  typedef std::pair<database::Label, database::Property> LabelPropertyKey;
+  typedef std::pair<storage::Label, storage::Property> LabelPropertyKey;
 
   struct LabelPropertyHash {
     size_t operator()(const LabelPropertyKey &key) const {
-      return HashCombine<database::Label, database::Property>{}(key.first,
-                                                                key.second);
+      return HashCombine<storage::Label, storage::Property>{}(key.first,
+                                                              key.second);
     }
   };
 
@@ -112,7 +111,7 @@ class VertexCountCache {
 
   const TDbAccessor &db_;
   mutable std::experimental::optional<int64_t> vertices_count_;
-  mutable std::unordered_map<database::Label, int64_t> label_vertex_count_;
+  mutable std::unordered_map<storage::Label, int64_t> label_vertex_count_;
   mutable std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash>
       label_property_vertex_count_;
   mutable std::unordered_map<

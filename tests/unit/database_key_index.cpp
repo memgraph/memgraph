@@ -3,7 +3,7 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/types.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine_single_node.hpp"
 
@@ -13,7 +13,7 @@ using testing::UnorderedElementsAreArray;
 
 // Test index does it insert everything uniquely
 TEST(LabelsIndex, UniqueInsert) {
-  database::KeyIndex<database::Label, Vertex> index;
+  database::KeyIndex<storage::Label, Vertex> index;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   tx::SingleNodeEngine engine;
@@ -43,7 +43,7 @@ TEST(LabelsIndex, UniqueInsert) {
 // Check if index filters duplicates.
 TEST(LabelsIndex, UniqueFilter) {
   database::SingleNode db;
-  database::KeyIndex<database::Label, Vertex> index;
+  database::KeyIndex<storage::Label, Vertex> index;
   database::GraphDbAccessor dba(db);
   tx::SingleNodeEngine engine;
 
@@ -82,7 +82,7 @@ TEST(LabelsIndex, UniqueFilter) {
 
 // Delete not anymore relevant recods from index.
 TEST(LabelsIndex, Refresh) {
-  database::KeyIndex<database::Label, Vertex> index;
+  database::KeyIndex<storage::Label, Vertex> index;
   database::SingleNode db;
   database::GraphDbAccessor access(db);
   tx::SingleNodeEngine engine;
