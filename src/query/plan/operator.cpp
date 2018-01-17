@@ -37,6 +37,9 @@ void PropsSetChecked(TRecordAccessor &record, storage::Property key,
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                 value.type());
+  } catch (const RecordDeletedError &) {
+    throw QueryRuntimeException(
+        "Trying to set properties on a deleted graph element.");
   }
 }
 
@@ -1355,10 +1358,22 @@ template <typename TRecordAccessor>
 void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
                                              const TypedValue &rhs) const {
   record.SwitchNew();
-  if (self_.op_ == Op::REPLACE) record.PropsClear();
+  if (self_.op_ == Op::REPLACE) {
+    try {
+      record.PropsClear();
+    } catch (const RecordDeletedError &) {
+      throw QueryRuntimeException(
+          "Trying to set properties on a deleted graph element.");
+    }
+  }
 
   auto set_props = [&record](const auto &properties) {
-    for (const auto &kv : properties) record.PropsSet(kv.first, kv.second);
+    try {
+      for (const auto &kv : properties) record.PropsSet(kv.first, kv.second);
+    } catch (const RecordDeletedError &) {
+      throw QueryRuntimeException(
+          "Trying to set properties on a deleted graph element.");
+    }
   };
 
   switch (rhs.type()) {
@@ -1411,7 +1426,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, Context &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.Value<VertexAccessor>();
   vertex.SwitchNew();
-  for (auto label : self_.labels_) vertex.add_label(label);
+  try {
+    for (auto label : self_.labels_) vertex.add_label(label);
+  } catch (const RecordDeletedError &) {
+    throw QueryRuntimeException("Trying to set labels on a deleted Vertex");
+  }
 
   return true;
 }
@@ -1444,10 +1463,20 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      lhs.Value<VertexAccessor>().PropsErase(self_.lhs_->property_);
+      try {
+        lhs.Value<VertexAccessor>().PropsErase(self_.lhs_->property_);
+      } catch (const RecordDeletedError &) {
+        throw QueryRuntimeException(
+            "Trying to remove properties from a deleted Vertex");
+      }
       break;
     case TypedValue::Type::Edge:
-      lhs.Value<EdgeAccessor>().PropsErase(self_.lhs_->property_);
+      try {
+        lhs.Value<EdgeAccessor>().PropsErase(self_.lhs_->property_);
+      } catch (const RecordDeletedError &) {
+        throw QueryRuntimeException(
+            "Trying to remove properties from a deleted Edge");
+      }
       break;
     case TypedValue::Type::Null:
       // Skip removing properties on Null (can occur in optional match).
@@ -1486,7 +1515,12 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, Context &context) {
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &vertex = vertex_value.Value<VertexAccessor>();
   vertex.SwitchNew();
-  for (auto label : self_.labels_) vertex.remove_label(label);
+  try {
+    for (auto label : self_.labels_) vertex.remove_label(label);
+  } catch (const RecordDeletedError &) {
+    throw QueryRuntimeException(
+        "Trying to remove labels from a deleted Vertex");
+  }
 
   return true;
 }

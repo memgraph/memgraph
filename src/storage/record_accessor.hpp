@@ -156,6 +156,8 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    *
    * It is not legal to call this function on a Vertex/Edge that has been
    * deleted in the current transaction+command.
+   *
+   * @throws RecordDeletedError
    */
   TRecord &update() const;
 
@@ -206,4 +208,9 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * an update.
    */
   mutable TRecord *new_{nullptr};
+};
+
+/** Error when trying to update a deleted record */
+class RecordDeletedError : public utils::BasicException {
+  using utils::BasicException::BasicException;
 };

@@ -162,13 +162,14 @@ TRecord &RecordAccessor<TRecord>::update() const {
     DCHECK(reconstructed) << "Unable to initialize record";
   }
 
-  auto &t = db_accessor_->transaction();
-  if (!new_) {
-    DCHECK(!old_->is_expired_by(t))
-        << "Can't update a record deleted in the current transaction+commad";
-  } else {
-    DCHECK(!new_->is_expired_by(t))
-        << "Can't update a record deleted in the current transaction+command";
+  const auto &t = db_accessor_->transaction();
+  {
+    const std::string err =
+        "Can't update a record deleted in the current transaction+commad";
+    if (!new_ && old_->is_expired_by(t))
+      throw RecordDeletedError(err);
+    else if (new_ && new_->is_expired_by(t))
+      throw RecordDeletedError(err);
   }
 
   if (new_) return *new_;

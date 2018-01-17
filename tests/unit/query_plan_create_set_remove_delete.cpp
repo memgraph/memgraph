@@ -949,3 +949,130 @@ TEST(QueryPlan, CreateIndex) {
   EXPECT_EQ(PullAll(create_index, dba, symbol_table), 1);
   EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
 }
+
+TEST(QueryPlan, DeleteSetProperty) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  // Add a single vertex.
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n) DELETE n SET n.property = 42
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_get = storage.Create<Identifier>("n");
+  symbol_table[*n_get] = n.sym_;
+  auto delete_op = std::make_shared<plan::Delete>(
+      n.op_, std::vector<Expression *>{n_get}, false);
+  auto prop = PROPERTY_PAIR("property");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*n_prop->expression_] = n.sym_;
+  auto set_op =
+      std::make_shared<plan::SetProperty>(delete_op, n_prop, LITERAL(42));
+  EXPECT_THROW(PullAll(set_op, dba, symbol_table), QueryRuntimeException);
+}
+
+TEST(QueryPlan, DeleteSetPropertiesFromMap) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  // Add a single vertex.
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n) DELETE n SET n = {property: 42}
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_get = storage.Create<Identifier>("n");
+  symbol_table[*n_get] = n.sym_;
+  auto delete_op = std::make_shared<plan::Delete>(
+      n.op_, std::vector<Expression *>{n_get}, false);
+  auto prop = PROPERTY_PAIR("property");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*n_prop->expression_] = n.sym_;
+  std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
+      prop_map;
+  prop_map.emplace(prop, LITERAL(42));
+  auto *rhs = storage.Create<MapLiteral>(prop_map);
+  symbol_table[*rhs] = n.sym_;
+  for (auto op_type :
+       {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
+    auto set_op =
+        std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
+    EXPECT_THROW(PullAll(set_op, dba, symbol_table), QueryRuntimeException);
+  }
+}
+
+TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  // Add a single vertex.
+  {
+    auto v = dba.InsertVertex();
+    v.PropsSet(dba.Property("property"), 1);
+  }
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n) DELETE n SET n = n
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_get = storage.Create<Identifier>("n");
+  symbol_table[*n_get] = n.sym_;
+  auto delete_op = std::make_shared<plan::Delete>(
+      n.op_, std::vector<Expression *>{n_get}, false);
+  auto prop = PROPERTY_PAIR("property");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*n_prop->expression_] = n.sym_;
+  auto *rhs = IDENT("n");
+  symbol_table[*rhs] = n.sym_;
+  for (auto op_type :
+       {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
+    auto set_op =
+        std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
+    EXPECT_THROW(PullAll(set_op, dba, symbol_table), QueryRuntimeException);
+  }
+}
+
+TEST(QueryPlan, DeleteRemoveLabels) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  // Add a single vertex.
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n) DELETE n REMOVE n :label
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_get = storage.Create<Identifier>("n");
+  symbol_table[*n_get] = n.sym_;
+  auto delete_op = std::make_shared<plan::Delete>(
+      n.op_, std::vector<Expression *>{n_get}, false);
+  std::vector<storage::Label> labels{dba.Label("label")};
+  auto rem_op = std::make_shared<plan::RemoveLabels>(delete_op, n.sym_, labels);
+  EXPECT_THROW(PullAll(rem_op, dba, symbol_table), QueryRuntimeException);
+}
+
+TEST(QueryPlan, DeleteRemoveProperty) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  // Add a single vertex.
+  dba.InsertVertex();
+  dba.AdvanceCommand();
+  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  // MATCH (n) DELETE n REMOVE n.property
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto n_get = storage.Create<Identifier>("n");
+  symbol_table[*n_get] = n.sym_;
+  auto delete_op = std::make_shared<plan::Delete>(
+      n.op_, std::vector<Expression *>{n_get}, false);
+  auto prop = PROPERTY_PAIR("property");
+  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*n_prop->expression_] = n.sym_;
+  auto rem_op = std::make_shared<plan::RemoveProperty>(delete_op, n_prop);
+  EXPECT_THROW(PullAll(rem_op, dba, symbol_table), QueryRuntimeException);
+}
