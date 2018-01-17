@@ -120,7 +120,7 @@ void Socket::SetKeepAlive() {
   CHECK(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, optlen))
       << "Can't set socket keep alive";
 
-  optval = 20;  // wait 120s before seding keep-alive packets
+  optval = 20;  // wait 20s before sending keep-alive packets
   CHECK(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, optlen))
       << "Can't set socket keep alive";
 

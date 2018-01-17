@@ -90,6 +90,8 @@ void SendMessage(const Endpoint &endpoint, const std::string &channel,
       return;
     }
 
+    socket.SetKeepAlive();
+
     it =
         cache
             .emplace(std::piecewise_construct,
@@ -101,10 +103,12 @@ void SendMessage(const Endpoint &endpoint, const std::string &channel,
   auto &socket = it->second;
   if (!SendLength(socket, channel.size())) {
     LOG(INFO) << "Couldn't send channel size!";
+    cache.erase(it);
     return;
   }
   if (!socket.Write(channel)) {
     LOG(INFO) << "Couldn't send channel data!";
+    cache.erase(it);
     return;
   }
 
@@ -121,10 +125,12 @@ void SendMessage(const Endpoint &endpoint, const std::string &channel,
 
   if (!SendLength(socket, buffer.size())) {
     LOG(INFO) << "Couldn't send message size!";
+    cache.erase(it);
     return;
   }
   if (!socket.Write(buffer)) {
     LOG(INFO) << "Couldn't send message data!";
+    cache.erase(it);
     return;
   }
 }
