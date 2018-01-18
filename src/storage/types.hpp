@@ -16,6 +16,7 @@ class Common : public TotalOrdering<TSpecificType> {
 
   Common() {}
   explicit Common(const StorageT storage) : storage_(storage) {}
+  virtual ~Common() {}
 
   friend bool operator==(const TSpecificType &a, const TSpecificType &b) {
     return a.storage_ == b.storage_;
