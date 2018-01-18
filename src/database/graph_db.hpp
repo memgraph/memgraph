@@ -76,6 +76,7 @@ class GraphDb {
   storage::ConcurrentIdMapper<storage::Property> &property_mapper();
   database::Counters &counters();
   void CollectGarbage();
+  int WorkerId() const;
 
  protected:
   explicit GraphDb(std::unique_ptr<impl::Base> impl);

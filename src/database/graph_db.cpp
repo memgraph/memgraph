@@ -1,6 +1,5 @@
-#include "database/graph_db.hpp"
-
 #include "communication/messaging/distributed.hpp"
+#include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "durability/paths.hpp"
@@ -75,7 +74,8 @@ class SingleNode : public Base {
 
  private:
   Storage storage_{0};
-  durability::WriteAheadLog wal_{config_.durability_directory,
+  durability::WriteAheadLog wal_{config_.worker_id,
+                                 config_.durability_directory,
                                  config_.durability_enabled};
   tx::SingleNodeEngine tx_engine_{&wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
@@ -91,7 +91,8 @@ class Master : public Base {
  private:
   communication::messaging::System system_{config_.master_endpoint};
   Storage storage_{0};
-  durability::WriteAheadLog wal_{config_.durability_directory,
+  durability::WriteAheadLog wal_{config_.worker_id,
+                                 config_.durability_directory,
                                  config_.durability_enabled};
   tx::MasterEngine tx_engine_{system_, &wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
@@ -113,7 +114,8 @@ class Worker : public Base {
   tx::WorkerEngine tx_engine_{system_, config_.master_endpoint};
   Storage storage_{config_.worker_id};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
-  durability::WriteAheadLog wal_{config_.durability_directory,
+  durability::WriteAheadLog wal_{config_.worker_id,
+                                 config_.durability_directory,
                                  config_.durability_enabled};
   TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{system_,
                                                       config_.master_endpoint};
@@ -143,6 +145,8 @@ GraphDb::~GraphDb() {
   snapshot_creator_.release();
   if (impl_->config_.snapshot_on_exit) MakeSnapshot();
 }
+
+int GraphDb::WorkerId() const { return impl_->config_.worker_id; }
 
 Storage &GraphDb::storage() { return impl_->storage(); }
 

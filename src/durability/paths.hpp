@@ -25,11 +25,16 @@ void CheckDurabilityDir(const std::string &durability_dir);
 std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
     const std::string &name);
 
-/// Generates a file path for a write-ahead log file. If given a transaction ID
-/// the file name will contain it. Otherwise the file path is for the "current"
-/// WAL file for which the max tx id is still unknown.
+/** Generates a path for a DB snapshot in the given folder in a well-defined
+ * sortable format with worker id appended to the file name. */
+std::experimental::filesystem::path MakeSnapshotPath(
+    const std::experimental::filesystem::path &durability_dir, int worker_id);
+
+/// Generates a file path for a write-ahead log file of a specified worker. If
+/// given a transaction ID the file name will contain it. Otherwise the file
+/// path is for the "current" WAL file for which the max tx id is still unknown.
 std::experimental::filesystem::path WalFilenameForTransactionId(
-    const std::experimental::filesystem::path &wal_dir,
+    const std::experimental::filesystem::path &wal_dir, int worker_id,
     std::experimental::optional<tx::transaction_id_t> tx_id =
         std::experimental::nullopt);
 }  // namespace durability

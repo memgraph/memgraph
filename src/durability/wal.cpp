@@ -20,9 +20,9 @@ DEFINE_VALIDATED_HIDDEN_int32(wal_buffer_size, 4096,
 namespace durability {
 
 WriteAheadLog::WriteAheadLog(
-    const std::experimental::filesystem::path &durability_dir,
+    int worker_id, const std::experimental::filesystem::path &durability_dir,
     bool durability_enabled)
-    : deltas_{FLAGS_wal_buffer_size}, wal_file_{durability_dir} {
+    : deltas_{FLAGS_wal_buffer_size}, wal_file_{worker_id, durability_dir} {
   if (durability_enabled) {
     CheckDurabilityDir(durability_dir);
     wal_file_.Init();
@@ -38,8 +38,8 @@ WriteAheadLog::~WriteAheadLog() {
 }
 
 WriteAheadLog::WalFile::WalFile(
-    const std::experimental::filesystem::path &durability_dir)
-    : wal_dir_{durability_dir / kWalDir} {}
+    int worker_id, const std::experimental::filesystem::path &durability_dir)
+    : worker_id_(worker_id), wal_dir_{durability_dir / kWalDir} {}
 
 WriteAheadLog::WalFile::~WalFile() {
   if (!current_wal_file_.empty()) writer_.Close();
@@ -50,7 +50,7 @@ void WriteAheadLog::WalFile::Init() {
     LOG(ERROR) << "Can't write to WAL directory: " << wal_dir_;
     current_wal_file_ = std::experimental::filesystem::path();
   } else {
-    current_wal_file_ = WalFilenameForTransactionId(wal_dir_);
+    current_wal_file_ = WalFilenameForTransactionId(wal_dir_, worker_id_);
     try {
       writer_.Open(current_wal_file_);
     } catch (std::ios_base::failure &) {
@@ -93,7 +93,8 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
 void WriteAheadLog::WalFile::RotateFile() {
   writer_.Close();
   std::experimental::filesystem::rename(
-      current_wal_file_, WalFilenameForTransactionId(wal_dir_, latest_tx_));
+      current_wal_file_,
+      WalFilenameForTransactionId(wal_dir_, worker_id_, latest_tx_));
   Init();
 }
 

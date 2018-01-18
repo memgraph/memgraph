@@ -11,6 +11,7 @@
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "config.hpp"
 #include "durability/hashed_file_writer.hpp"
+#include "durability/paths.hpp"
 #include "durability/snapshooter.hpp"
 #include "durability/version.hpp"
 #include "utils/string.hpp"
@@ -361,6 +362,9 @@ void Convert(const std::vector<std::string> &nodes,
                      durability::kMagicNumber.size());
     encoder.WriteTypedValue(durability::kVersion);
 
+    encoder.WriteInt(0);  // Worker Id - for this use case it's okay to set to 0
+                          // since we are using a single-node version of
+                          // memgraph here
     // The following two entries indicate the starting points for generating new
     // Vertex/Edge IDs in the DB. They are only important when there are
     // vertices/edges that were moved to another worker (in distributed
@@ -417,7 +421,8 @@ std::string GetOutputPath() {
   } catch (const std::experimental::filesystem::filesystem_error &error) {
     LOG(FATAL) << error.what();
   }
-  return std::string(durability::MakeSnapshotPath(durability_dir));
+  int worker_id = 0;
+  return std::string(durability::MakeSnapshotPath(durability_dir, worker_id));
 }
 
 int main(int argc, char *argv[]) {

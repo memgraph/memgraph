@@ -2,6 +2,7 @@
 
 ## Next Release
 
+* Snapshot format changed (not backward compatible).
 
 ## v0.9.0
 

@@ -29,12 +29,12 @@ namespace durability {
  */
 class WriteAheadLog {
  public:
-  WriteAheadLog(const std::experimental::filesystem::path &durability_dir,
+  WriteAheadLog(int worker_id,
+                const std::experimental::filesystem::path &durability_dir,
                 bool durability_enabled);
   ~WriteAheadLog();
 
-  /** Enables the WAL. Called at the end of database::GraphDb construction,
-   * after
+  /** Enables the WAL. Called at the end of GraphDb construction, after
    * (optional) recovery. */
   void Enable() { enabled_ = true; }
 
@@ -45,7 +45,7 @@ class WriteAheadLog {
   /** Groups the logic of WAL file handling (flushing, naming, rotating) */
   class WalFile {
    public:
-    explicit WalFile(const std::experimental::filesystem::path &wal__dir);
+    WalFile(int worker_id, const std::experimental::filesystem::path &wal__dir);
     ~WalFile();
 
     /** Initializes the WAL file. Must be called before first flush. Can be
@@ -57,6 +57,7 @@ class WriteAheadLog {
     void Flush(RingBuffer<database::StateDelta> &buffer);
 
    private:
+    int worker_id_;
     const std::experimental::filesystem::path wal_dir_;
     HashedFileWriter writer_;
     communication::bolt::PrimitiveEncoder<HashedFileWriter> encoder_{writer_};

@@ -422,6 +422,9 @@ TEST_F(Durability, SnapshotEncoding) {
   communication::bolt::DecodedValue dv;
   decoder.ReadValue(&dv);
   ASSERT_EQ(dv.ValueInt(), durability::kVersion);
+  // Worker id
+  decoder.ReadValue(&dv);
+  ASSERT_EQ(dv.ValueInt(), 0);
   // Number of generated vertex ids.
   decoder.ReadValue(&dv);
   ASSERT_TRUE(dv.IsInt());
@@ -478,8 +481,8 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(decoded_edges[gid1].type, "et1");
   EXPECT_EQ(decoded_edges[gid1].properties.size(), 0);
 
-  // Vertex and edge counts are included in the hash. Re-read them to update the
-  // hash.
+  // Vertex and edge counts are included in the hash. Re-read them to update
+  // the hash.
   buffer.ReadType(vertex_count);
   buffer.ReadType(edge_count);
   buffer.Close();
@@ -735,4 +738,38 @@ TEST_F(Durability, SnapshotOnExit) {
     database::SingleNode graph_db{config};
   }
   EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
+}
+
+TEST_F(Durability, WorkerIdRecovery) {
+  auto config = DbConfig();
+  config.worker_id = 5;
+  database::SingleNode db{config};
+  MakeDb(db, 100);
+  MakeSnapshot(db);
+  EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
+
+  // WorkerIds are equal and recovery should be sucessful
+  {
+    auto config = DbConfig();
+    config.worker_id = 5;
+    config.db_recover_on_startup = true;
+    database::SingleNode recovered{config};
+    EXPECT_EQ(recovered.WorkerId(), config.worker_id);
+    CompareDbs(db, recovered);
+    database::GraphDbAccessor dba(recovered);
+    EXPECT_NE(dba.VerticesCount(), 0);
+    EXPECT_NE(dba.EdgesCount(), 0);
+  }
+
+  // WorkerIds are not equal and recovery should fail
+  {
+    auto config = DbConfig();
+    config.worker_id = 10;
+    config.db_recover_on_startup = true;
+    database::SingleNode recovered{config};
+    EXPECT_NE(recovered.WorkerId(), db.WorkerId());
+    database::GraphDbAccessor dba(recovered);
+    EXPECT_EQ(dba.VerticesCount(), 0);
+    EXPECT_EQ(dba.EdgesCount(), 0);
+  }
 }

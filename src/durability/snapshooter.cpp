@@ -27,6 +27,10 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
                      durability::kMagicNumber.size());
     encoder.WriteInt(durability::kVersion);
 
+    // Writes the worker id to snapshot, used to guarantee consistent cluster
+    // state after recovery
+    encoder.WriteInt(db.WorkerId());
+
     // Write the number of generated vertex and edges, used to recover
     // generators internal states
     encoder.WriteInt(db.storage().VertexGenerator().LocalCount());
@@ -109,17 +113,10 @@ void RemoveOldWals(const fs::path &wal_dir,
 }
 }  // namespace
 
-fs::path MakeSnapshotPath(const fs::path &durability_dir) {
-  std::string date_str =
-      Timestamp(Timestamp::now())
-          .to_string("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
-  return durability_dir / kSnapshotDir / date_str;
-}
-
 bool MakeSnapshot(database::GraphDb &db, const fs::path &durability_dir,
                   const int snapshot_max_retained) {
   if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
-  const auto snapshot_file = MakeSnapshotPath(durability_dir);
+  const auto snapshot_file = MakeSnapshotPath(durability_dir, db.WorkerId());
   if (fs::exists(snapshot_file)) return false;
   database::GraphDbAccessor dba(db);
   if (Encode(snapshot_file, db, dba)) {

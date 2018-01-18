@@ -76,6 +76,10 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
 
+  // Checks worker id was set correctly
+  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int) &&
+                dv.ValueInt() == db.WorkerId());
+
   // Vertex and edge generator ids
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
   uint64_t vertex_generator_cnt = dv.ValueInt();
