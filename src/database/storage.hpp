@@ -50,8 +50,5 @@ class Storage {
 
   // Set of transactions ids which are building indexes currently
   ConcurrentSet<tx::transaction_id_t> index_build_tx_in_progress_;
-
-  // DB level global counters, used in the "counter" function.
-  ConcurrentMap<std::string, std::atomic<int64_t>> counters_;
 };
 }  // namespace database
