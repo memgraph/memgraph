@@ -39,10 +39,6 @@ struct Config {
   io::network::Endpoint worker_endpoint;
 };
 
-namespace impl {
-class Base;
-}
-
 /**
  * An abstract base class for a SingleNode/Master/Worker graph db.
  *
@@ -68,38 +64,65 @@ class Base;
  */
 class GraphDb {
  public:
-  Storage &storage();
-  durability::WriteAheadLog &wal();
-  tx::Engine &tx_engine();
-  storage::ConcurrentIdMapper<storage::Label> &label_mapper();
-  storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
-  storage::ConcurrentIdMapper<storage::Property> &property_mapper();
-  database::Counters &counters();
-  void CollectGarbage();
-  int WorkerId() const;
+  GraphDb() {}
+  virtual ~GraphDb() {}
+
+  virtual Storage &storage() = 0;
+  virtual durability::WriteAheadLog &wal() = 0;
+  virtual tx::Engine &tx_engine() = 0;
+  virtual storage::ConcurrentIdMapper<storage::Label> &label_mapper() = 0;
+  virtual storage::ConcurrentIdMapper<storage::EdgeType>
+      &edge_type_mapper() = 0;
+  virtual storage::ConcurrentIdMapper<storage::Property> &property_mapper() = 0;
+  virtual database::Counters &counters() = 0;
+  virtual void CollectGarbage() = 0;
+  virtual int WorkerId() const = 0;
+
+  GraphDb(const GraphDb &) = delete;
+  GraphDb(GraphDb &&) = delete;
+  GraphDb &operator=(const GraphDb &) = delete;
+  GraphDb &operator=(GraphDb &&) = delete;
+};
+
+namespace impl {
+// Private GraphDb implementations all inherit `PrivateBase`.
+// Public GraphDb implementations  all inherit `PublicBase`.
+class PrivateBase;
+
+// Base class for all GraphDb implementations exposes to the client programmer.
+// Encapsulates an instance of a private implementation of GraphDb and performs
+// initialization and cleanup.
+class PublicBase : public GraphDb {
+ public:
+  Storage &storage() override;
+  durability::WriteAheadLog &wal() override;
+  tx::Engine &tx_engine() override;
+  storage::ConcurrentIdMapper<storage::Label> &label_mapper() override;
+  storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper() override;
+  storage::ConcurrentIdMapper<storage::Property> &property_mapper() override;
+  database::Counters &counters() override;
+  void CollectGarbage() override;
+  int WorkerId() const override;
 
  protected:
-  explicit GraphDb(std::unique_ptr<impl::Base> impl);
-  virtual ~GraphDb();
+  explicit PublicBase(std::unique_ptr<PrivateBase> impl);
+  ~PublicBase();
 
-  std::unique_ptr<impl::Base> impl_;
+  std::unique_ptr<PrivateBase> impl_;
 
  private:
   std::unique_ptr<Scheduler> snapshot_creator_;
 
   void MakeSnapshot();
 };
+}  // namespace impl
 
-class MasterBase : public GraphDb {
+class MasterBase : public impl::PublicBase {
  public:
-  explicit MasterBase(std::unique_ptr<impl::Base> impl);
+  explicit MasterBase(std::unique_ptr<impl::PrivateBase> impl);
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
 
-  ~MasterBase() {
-    is_accepting_transactions_ = false;
-    tx_engine().LocalForEachActiveTransaction(
-        [](auto &t) { t.set_should_abort(); });
-  }
+  ~MasterBase();
 
  private:
   /** When this is false, no new transactions should be created. */
@@ -117,7 +140,7 @@ class Master : public MasterBase {
   explicit Master(Config config = Config());
 };
 
-class Worker : public GraphDb {
+class Worker : public impl::PublicBase {
  public:
   explicit Worker(Config config = Config());
   void WaitForShutdown();
