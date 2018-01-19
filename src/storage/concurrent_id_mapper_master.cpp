@@ -32,7 +32,10 @@ ID_VALUE_RPC_CALLS(Property)
 template <typename TId>
 MasterConcurrentIdMapper<TId>::MasterConcurrentIdMapper(
     communication::messaging::System &system)
-    : rpc_server_(system, kConcurrentIdMapperRpc) {
+    // We have to make sure our rpc server name is unique with regards to type.
+    // Otherwise we will try to reuse the same rpc server name for different
+    // types (Label/EdgeType/Property)
+    : rpc_server_(system, impl::RpcServerNameFromType<TId>()) {
   RegisterRpc(*this, rpc_server_);
 }
 

@@ -35,7 +35,8 @@ template <typename TId>
 WorkerConcurrentIdMapper<TId>::WorkerConcurrentIdMapper(
     communication::messaging::System &system,
     const io::network::Endpoint &master_endpoint)
-    : rpc_client_(system, master_endpoint, kConcurrentIdMapperRpc) {}
+    : rpc_client_(system, master_endpoint, impl::RpcServerNameFromType<TId>()) {
+}
 
 template <typename TId>
 TId WorkerConcurrentIdMapper<TId>::value_to_id(const std::string &value) {

@@ -14,6 +14,16 @@ namespace storage {
 const std::string kConcurrentIdMapperRpc = "ConcurrentIdMapper";
 const auto kConcurrentIdMapperRpcTimeout = 300ms;
 
+namespace impl {
+
+/// Returns rpc server name by template type
+template <typename TType>
+std::string RpcServerNameFromType() {
+  return kConcurrentIdMapperRpc + "_" + typeid(TType).name();
+}
+
+};  // namespace impl
+
 #define ID_VALUE_RPC(type)                                           \
   RPC_SINGLE_MEMBER_MESSAGE(type##IdReq, std::string);               \
   RPC_SINGLE_MEMBER_MESSAGE(type##IdRes, storage::type);             \
