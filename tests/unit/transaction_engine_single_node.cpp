@@ -63,3 +63,12 @@ TEST(Engine, ConcurrentBegin) {
   for (auto &t : threads) t.join();
   EXPECT_EQ(tx_ids.access().size(), 1000);
 }
+
+TEST(Engine, RunningTransaction) {
+  tx::SingleNodeEngine engine;
+  auto t0 = engine.Begin();
+  auto t1 = engine.Begin();
+  EXPECT_EQ(t0, engine.RunningTransaction(t0->id_));
+  EXPECT_NE(t1, engine.RunningTransaction(t0->id_));
+  EXPECT_EQ(t1, engine.RunningTransaction(t1->id_));
+}

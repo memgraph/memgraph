@@ -13,20 +13,6 @@ WorkerEngine::WorkerEngine(communication::messaging::System &system,
                            const io::network::Endpoint &endpoint)
     : rpc_client_(system, endpoint, kTransactionEngineRpc) {}
 
-Transaction *WorkerEngine::LocalBegin(transaction_id_t tx_id) {
-  auto accessor = active_.access();
-  auto found = accessor.find(tx_id);
-  if (found != accessor.end()) return found->second;
-
-  Snapshot snapshot(
-      std::move(rpc_client_.Call<SnapshotRpc>(kRpcTimeout, tx_id)->member));
-  auto insertion =
-      accessor.insert(tx_id, new Transaction(tx_id, snapshot, *this));
-  CHECK(insertion.second) << "Transaction already inserted";
-  utils::EnsureAtomicGe(local_last_, tx_id);
-  return insertion.first->second;
-}
-
 CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
   auto info = clog_.fetch_info(tid);
   // If we don't know the transaction to be commited nor aborted, ask the
@@ -64,6 +50,20 @@ tx::transaction_id_t WorkerEngine::LocalLast() const { return local_last_; }
 void WorkerEngine::LocalForEachActiveTransaction(
     std::function<void(Transaction &)> f) {
   for (auto pair : active_.access()) f(*pair.second);
+}
+
+tx::Transaction *WorkerEngine::RunningTransaction(tx::transaction_id_t tx_id) {
+  auto accessor = active_.access();
+  auto found = accessor.find(tx_id);
+  if (found != accessor.end()) return found->second;
+
+  Snapshot snapshot(
+      std::move(rpc_client_.Call<SnapshotRpc>(kRpcTimeout, tx_id)->member));
+  auto insertion =
+      accessor.insert(tx_id, new Transaction(tx_id, snapshot, *this));
+  CHECK(insertion.second) << "Transaction already inserted";
+  utils::EnsureAtomicGe(local_last_, tx_id);
+  return insertion.first->second;
 }
 
 }  // namespace tx

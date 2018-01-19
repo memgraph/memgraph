@@ -14,6 +14,9 @@ namespace database {
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
     : db_(db), transaction_(*SingleNodeEngine().Begin()) {}
 
+GraphDbAccessor::GraphDbAccessor(GraphDb &db, tx::transaction_id_t tx_id)
+    : db_(db), transaction_(*db.tx_engine().RunningTransaction(tx_id)) {}
+
 GraphDbAccessor::~GraphDbAccessor() {
   if (!commited_ && !aborted_) {
     this->Abort();

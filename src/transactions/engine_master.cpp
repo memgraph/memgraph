@@ -15,7 +15,8 @@ MasterEngine::MasterEngine(communication::messaging::System &system,
   rpc_server_.Register<SnapshotRpc>([this](const SnapshotReq &req) {
     // It is guaranteed that the Worker will not be requesting this for a
     // transaction that's done, and that there are no race conditions here.
-    return std::make_unique<SnapshotRes>(GetSnapshot(req.member));
+    return std::make_unique<SnapshotRes>(
+        RunningTransaction(req.member)->snapshot());
   });
 
   rpc_server_.Register<GcSnapshotRpc>(

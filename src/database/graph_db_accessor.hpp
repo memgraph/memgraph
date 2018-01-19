@@ -13,6 +13,7 @@
 #include "storage/vertex_accessor.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
+#include "transactions/type.hpp"
 #include "utils/bound.hpp"
 
 namespace database {
@@ -92,7 +93,13 @@ class GraphDbAccessor {
   };
 
  public:
+  /** Creates a new accessor by starting a new transaction. Only applicable to
+   * the single-node or distributed master. */
   explicit GraphDbAccessor(GraphDb &db);
+
+  /** Creates an accessor for a running transaction. Applicable to all types of
+   * memgraph. */
+  GraphDbAccessor(GraphDb &db, tx::transaction_id_t tx_id);
   ~GraphDbAccessor();
 
   GraphDbAccessor(const GraphDbAccessor &other) = delete;

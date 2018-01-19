@@ -65,10 +65,7 @@ class SingleNodeEngine : public Engine {
   tx::transaction_id_t LocalLast() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
-
- protected:
-  // Exposed for MasterEngine. Transaction for tx_id must be alive.
-  Snapshot GetSnapshot(tx::transaction_id_t tx_id);
+  tx::Transaction *RunningTransaction(tx::transaction_id_t tx_id) override;
 
  private:
   std::atomic<transaction_id_t> counter_{0};

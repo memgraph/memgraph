@@ -56,6 +56,9 @@ class Engine {
   virtual void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) = 0;
 
+  /** Gets a transaction object for a running transaction. */
+  virtual tx::Transaction *RunningTransaction(tx::transaction_id_t tx_id) = 0;
+
   auto &local_lock_graph() { return local_lock_graph_; }
   const auto &local_lock_graph() const { return local_lock_graph_; }
 

@@ -20,8 +20,6 @@ class WorkerEngine : public Engine {
   WorkerEngine(communication::messaging::System &system,
                const io::network::Endpoint &endpoint);
 
-  Transaction *LocalBegin(transaction_id_t tx_id);
-
   CommitLog::Info Info(transaction_id_t tid) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
@@ -29,6 +27,7 @@ class WorkerEngine : public Engine {
   tx::transaction_id_t LocalLast() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
+  tx::Transaction *RunningTransaction(tx::transaction_id_t tx_id) override;
 
  private:
   // Local caches.

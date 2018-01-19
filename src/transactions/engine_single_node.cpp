@@ -103,11 +103,12 @@ void SingleNodeEngine::LocalForEachActiveTransaction(
   }
 }
 
-Snapshot SingleNodeEngine::GetSnapshot(tx::transaction_id_t tx_id) {
+tx::Transaction *SingleNodeEngine::RunningTransaction(
+    tx::transaction_id_t tx_id) {
   std::lock_guard<SpinLock> guard(lock_);
   auto found = store_.find(tx_id);
-  DCHECK(found != store_.end())
+  CHECK(found != store_.end())
       << "Can't return snapshot for an inactive transaction";
-  return found->second->snapshot();
+  return found->second.get();
 }
 }  // namespace tx

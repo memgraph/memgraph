@@ -22,11 +22,11 @@ class WorkerEngineTest : public testing::Test {
   WorkerEngine worker_{worker_system_, master_system_.endpoint()};
 };
 
-TEST_F(WorkerEngineTest, LocalBegin) {
+TEST_F(WorkerEngineTest, RunningTransaction) {
   master_.Begin();
   master_.Begin();
-  worker_.LocalBegin(1);
-  worker_.LocalBegin(2);
+  worker_.RunningTransaction(1);
+  worker_.RunningTransaction(2);
   int count = 0;
   worker_.LocalForEachActiveTransaction([&count](Transaction &t) {
     ++count;
@@ -87,24 +87,24 @@ TEST_F(WorkerEngineTest, GlobalIsActive) {
 TEST_F(WorkerEngineTest, LocalLast) {
   master_.Begin();
   EXPECT_EQ(worker_.LocalLast(), 0);
-  worker_.LocalBegin(1);
+  worker_.RunningTransaction(1);
   EXPECT_EQ(worker_.LocalLast(), 1);
   master_.Begin();
   EXPECT_EQ(worker_.LocalLast(), 1);
   master_.Begin();
   EXPECT_EQ(worker_.LocalLast(), 1);
   master_.Begin();
-  worker_.LocalBegin(4);
+  worker_.RunningTransaction(4);
   EXPECT_EQ(worker_.LocalLast(), 4);
 }
 
 TEST_F(WorkerEngineTest, LocalForEachActiveTransaction) {
   master_.Begin();
-  worker_.LocalBegin(1);
+  worker_.RunningTransaction(1);
   master_.Begin();
   master_.Begin();
   master_.Begin();
-  worker_.LocalBegin(4);
+  worker_.RunningTransaction(4);
   std::unordered_set<tx::transaction_id_t> local;
   worker_.LocalForEachActiveTransaction(
       [&local](Transaction &t) { local.insert(t.id_); });
