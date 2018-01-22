@@ -4,6 +4,8 @@
 #include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
+#include "distributed/plan_consumer.hpp"
+#include "distributed/plan_dispatcher.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "distributed/remote_data_rpc_server.hpp"
 #include "durability/paths.hpp"
@@ -109,6 +111,7 @@ class Master : public PrivateBase {
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
   distributed::RemoteDataRpcClients remote_data_clients_{system_,
                                                          coordination_};
+  distributed::PlanDispatcher plan_dispatcher{system_, coordination_};
 };
 
 class Worker : public PrivateBase {
@@ -134,6 +137,7 @@ class Worker : public PrivateBase {
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
   distributed::RemoteDataRpcClients remote_data_clients_{system_,
                                                          coordination_};
+  distributed::PlanConsumer plan_consumer{system_};
 };
 
 #undef IMPL_GETTERS

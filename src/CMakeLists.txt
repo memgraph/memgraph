@@ -16,6 +16,8 @@ set(memgraph_src_files
     database/state_delta.cpp
     distributed/coordination_master.cpp
     distributed/coordination_worker.cpp
+    distributed/plan_consumer.cpp
+    distributed/plan_dispatcher.cpp
     durability/paths.cpp
     durability/recovery.cpp
     durability/snapshooter.cpp
