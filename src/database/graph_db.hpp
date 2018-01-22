@@ -3,9 +3,6 @@
 #include <atomic>
 #include <memory>
 
-#include "gflags/gflags.h"
-#include "glog/logging.h"
-
 #include "database/counters.hpp"
 #include "database/storage.hpp"
 #include "database/storage_gc.hpp"
@@ -15,6 +12,11 @@
 #include "storage/types.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
+
+namespace distributed {
+  class RemoteDataRpcServer;
+  class RemoteDataRpcClients;
+}
 
 namespace database {
 
@@ -64,9 +66,16 @@ struct Config {
  */
 class GraphDb {
  public:
+   enum class Type {
+     SINGLE_NODE,
+     DISTRIBUTED_MASTER,
+     DISTRIBUTED_WORKER
+   };
+
   GraphDb() {}
   virtual ~GraphDb() {}
 
+  virtual Type type() const = 0;
   virtual Storage &storage() = 0;
   virtual durability::WriteAheadLog &wal() = 0;
   virtual tx::Engine &tx_engine() = 0;
@@ -77,6 +86,10 @@ class GraphDb {
   virtual database::Counters &counters() = 0;
   virtual void CollectGarbage() = 0;
   virtual int WorkerId() const = 0;
+
+  // Supported only in distributed master and worker, not in single-node.
+  virtual distributed::RemoteDataRpcServer &remote_data_server() = 0;
+  virtual distributed::RemoteDataRpcClients &remote_data_clients() = 0;
 
   GraphDb(const GraphDb &) = delete;
   GraphDb(GraphDb &&) = delete;
@@ -94,6 +107,7 @@ class PrivateBase;
 // initialization and cleanup.
 class PublicBase : public GraphDb {
  public:
+  Type type() const override;
   Storage &storage() override;
   durability::WriteAheadLog &wal() override;
   tx::Engine &tx_engine() override;
@@ -103,6 +117,8 @@ class PublicBase : public GraphDb {
   database::Counters &counters() override;
   void CollectGarbage() override;
   int WorkerId() const override;
+  distributed::RemoteDataRpcServer &remote_data_server() override;
+  distributed::RemoteDataRpcClients &remote_data_clients() override;
 
  protected:
   explicit PublicBase(std::unique_ptr<PrivateBase> impl);
@@ -138,11 +154,21 @@ class SingleNode : public MasterBase {
 class Master : public MasterBase {
  public:
   explicit Master(Config config = Config());
+  /** Gets this master's endpoint. */
+  io::network::Endpoint endpoint() const;
+  /** Gets the endpoint of the worker with the given id. */
+  // TODO make const once Coordination::GetEndpoint is const.
+  io::network::Endpoint GetEndpoint(int worker_id);
 };
 
 class Worker : public impl::PublicBase {
  public:
   explicit Worker(Config config = Config());
+  /** Gets this worker's endpoint. */
+  io::network::Endpoint endpoint() const;
+  /** Gets the endpoint of the worker with the given id. */
+  // TODO make const once Coordination::GetEndpoint is const.
+  io::network::Endpoint GetEndpoint(int worker_id);
   void WaitForShutdown();
 };
 }  // namespace database

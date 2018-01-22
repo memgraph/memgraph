@@ -105,6 +105,9 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    */
   RecordAccessor<TRecord> &SwitchNew();
 
+  /** Returns the new record pointer. */
+  TRecord *GetNew() const { return new_; }
+
   /**
    * Attempts to switch this accessor to use the latest version not updated by
    * the current transaction+command.  If that is not possible (vertex/edge was
@@ -114,6 +117,9 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * @return A reference to this.
    */
   RecordAccessor<TRecord> &SwitchOld();
+
+  /** Returns the old record pointer. */
+  TRecord *GetOld() const { return old_; }
 
   /**
    * Reconstructs the internal state of the record accessor so it uses the

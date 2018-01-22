@@ -61,7 +61,6 @@ tx::Transaction *WorkerEngine::RunningTransaction(tx::transaction_id_t tx_id) {
       std::move(rpc_client_.Call<SnapshotRpc>(kRpcTimeout, tx_id)->member));
   auto insertion =
       accessor.insert(tx_id, new Transaction(tx_id, snapshot, *this));
-  CHECK(insertion.second) << "Transaction already inserted";
   utils::EnsureAtomicGe(local_last_, tx_id);
   return insertion.first->second;
 }

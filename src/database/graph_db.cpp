@@ -1,7 +1,11 @@
-#include "database/graph_db.hpp"
+#include "glog/logging.h"
+
 #include "communication/messaging/distributed.hpp"
+#include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
+#include "distributed/remote_data_rpc_clients.hpp"
+#include "distributed/remote_data_rpc_server.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
@@ -64,36 +68,61 @@ struct TypemapPack {
 class SingleNode : public PrivateBase {
  public:
   explicit SingleNode(const Config &config) : PrivateBase(config) {}
+  GraphDb::Type type() const override { return GraphDb::Type::SINGLE_NODE; }
   IMPL_GETTERS
 
- private:
   tx::SingleNodeEngine tx_engine_{&wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_;
   database::SingleNodeCounters counters_;
+  distributed::RemoteDataRpcServer &remote_data_server() override {
+    LOG(FATAL) << "Remote data server not available in single-node.";
+  }
+  distributed::RemoteDataRpcClients &remote_data_clients() override {
+    LOG(FATAL) << "Remote data clients not available in single-node.";
+  }
 };
+
+#define IMPL_DISTRIBUTED_GETTERS                                      \
+  distributed::RemoteDataRpcServer &remote_data_server() override {   \
+    return remote_data_server_;                                       \
+  }                                                                   \
+  distributed::RemoteDataRpcClients &remote_data_clients() override { \
+    return remote_data_clients_;                                      \
+  }
 
 class Master : public PrivateBase {
  public:
   explicit Master(const Config &config) : PrivateBase(config) {}
+  GraphDb::Type type() const override {
+    return GraphDb::Type::DISTRIBUTED_MASTER;
+  }
   IMPL_GETTERS
+  IMPL_DISTRIBUTED_GETTERS
 
- private:
   communication::messaging::System system_{config_.master_endpoint};
   tx::MasterEngine tx_engine_{system_, &wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
-  distributed::MasterCoordination coordination{system_};
+  distributed::MasterCoordination coordination_{system_};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{system_};
   database::MasterCounters counters_{system_};
+  distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
+  distributed::RemoteDataRpcClients remote_data_clients_{system_,
+                                                         coordination_};
 };
 
 class Worker : public PrivateBase {
  public:
-  explicit Worker(const Config &config) : PrivateBase(config) {}
-  IMPL_GETTERS
-  void WaitForShutdown() { coordination_.WaitForShutdown(); }
+  explicit Worker(const Config &config) : PrivateBase(config) {
+    coordination_.RegisterWorker(config.worker_id);
+  }
 
- private:
+  GraphDb::Type type() const override {
+    return GraphDb::Type::DISTRIBUTED_WORKER;
+  }
+  IMPL_GETTERS
+  IMPL_DISTRIBUTED_GETTERS
+
   communication::messaging::System system_{config_.worker_endpoint};
   distributed::WorkerCoordination coordination_{system_,
                                                 config_.master_endpoint};
@@ -102,6 +131,9 @@ class Worker : public PrivateBase {
   TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{system_,
                                                       config_.master_endpoint};
   database::WorkerCounters counters_{system_, config_.master_endpoint};
+  distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
+  distributed::RemoteDataRpcClients remote_data_clients_{system_,
+                                                         coordination_};
 };
 
 #undef IMPL_GETTERS
@@ -127,6 +159,7 @@ PublicBase::~PublicBase() {
   if (impl_->config_.snapshot_on_exit) MakeSnapshot();
 }
 
+GraphDb::Type PublicBase::type() const { return impl_->type(); }
 Storage &PublicBase::storage() { return impl_->storage(); }
 durability::WriteAheadLog &PublicBase::wal() { return impl_->wal(); }
 tx::Engine &PublicBase::tx_engine() { return impl_->tx_engine(); }
@@ -142,6 +175,12 @@ ConcurrentIdMapper<Property> &PublicBase::property_mapper() {
 database::Counters &PublicBase::counters() { return impl_->counters(); }
 void PublicBase::CollectGarbage() { impl_->CollectGarbage(); }
 int PublicBase::WorkerId() const { return impl_->WorkerId(); }
+distributed::RemoteDataRpcServer &PublicBase::remote_data_server() {
+  return impl_->remote_data_server();
+}
+distributed::RemoteDataRpcClients &PublicBase::remote_data_clients() {
+  return impl_->remote_data_clients();
+}
 
 void PublicBase::MakeSnapshot() {
   const bool status = durability::MakeSnapshot(
@@ -187,10 +226,28 @@ SingleNode::SingleNode(Config config)
 Master::Master(Config config)
     : MasterBase(std::make_unique<impl::Master>(config)) {}
 
+io::network::Endpoint Master::endpoint() const {
+  return dynamic_cast<impl::Master *>(impl_.get())->system_.endpoint();
+}
+
+io::network::Endpoint Master::GetEndpoint(int worker_id) {
+  return dynamic_cast<impl::Master *>(impl_.get())
+      ->coordination_.GetEndpoint(worker_id);
+}
+
 Worker::Worker(Config config)
     : PublicBase(std::make_unique<impl::Worker>(config)) {}
 
+io::network::Endpoint Worker::endpoint() const {
+  return dynamic_cast<impl::Worker *>(impl_.get())->system_.endpoint();
+}
+
+io::network::Endpoint Worker::GetEndpoint(int worker_id) {
+  return dynamic_cast<impl::Worker *>(impl_.get())
+      ->coordination_.GetEndpoint(worker_id);
+}
+
 void Worker::WaitForShutdown() {
-  dynamic_cast<impl::Worker *>(impl_.get())->WaitForShutdown();
+  dynamic_cast<impl::Worker *>(impl_.get())->coordination_.WaitForShutdown();
 }
 }  // namespace database

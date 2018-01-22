@@ -8,6 +8,7 @@
 #include "glog/logging.h"
 
 #include "database/graph_db.hpp"
+#include "distributed/remote_cache.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
@@ -37,60 +38,6 @@ class GraphDbAccessor {
   friend class ::RecordAccessor<Edge>;
   friend class ::VertexAccessor;
   friend class ::EdgeAccessor;
-
-  /**
-   * Used for caching Vertices and Edges that are stored on another worker in a
-   * distributed system. Maps global IDs to (old, new) Vertex/Edge pointer
-   * pairs.  It is possible that either "old" or "new" are nullptrs, but at
-   * least one must be not-null. The RemoteCache is the owner of TRecord
-   * objects it points to.
-   *
-   * @tparam TRecord - Edge or Vertex
-   */
-  template <typename TRecord>
-  class RemoteCache {
-   public:
-    ~RemoteCache() {
-      for (const auto &pair : cache_) {
-        delete pair.second.first;
-        delete pair.second.second;
-      }
-    }
-
-    /**
-     * Returns the "new" Vertex/Edge for the given gid.
-     *
-     * @param gid - global ID.
-     * @param init_if_necessary - If "new" is not initialized and this flag is
-     * set, then "new" is initialized with a copy of "old" before returning.
-     */
-    TRecord *FindNew(gid::Gid gid, bool init_if_necessary) {
-      auto found = cache_.find(gid);
-      DCHECK(found != cache_.end()) << "Uninitialized remote Vertex/Edge";
-      auto &pair = found->second;
-      if (!pair.second && init_if_necessary) {
-        pair.second = pair.first->CloneData();
-      }
-      return pair.second;
-    }
-
-    /**
-     * For the Vertex/Edge with the given global ID, looks for the data visible
-     * from the given transaction's ID and command ID, and caches it. Sets the
-     * given pointers to point to the fetched data. Analogue to
-     * mvcc::VersionList::find_set_old_new.
-     */
-    void FindSetOldNew(const tx::Transaction &, gid::Gid, TRecord *&,
-                       TRecord *&) {
-      LOG(ERROR) << "Remote data storage not yet implemented";
-      // TODO fetch data for (gid, t.id_, t.cmd_id()) from remote worker.
-      // Set that data in the cache.
-      // Set the pointers to the new data.
-    }
-
-   private:
-    std::unordered_map<gid::Gid, std::pair<TRecord *, TRecord *>> cache_;
-  };
 
  public:
   /** Creates a new accessor by starting a new transaction. Only applicable to
@@ -159,6 +106,9 @@ class GraphDbAccessor {
    */
   std::experimental::optional<VertexAccessor> FindVertex(gid::Gid gid,
                                                          bool current_state);
+
+  /** Like `FindVertex`, but performs a CHECK that the result is found. */
+  VertexAccessor FindVertexChecked(gid::Gid gid, bool current_state);
 
   /**
    * Returns iterable over accessors to all the vertices in the graph
@@ -351,6 +301,10 @@ class GraphDbAccessor {
    */
   std::experimental::optional<EdgeAccessor> FindEdge(gid::Gid gid,
                                                      bool current_state);
+
+  /** Like `FindEdge`, but performs a CHECK that the result is found. */
+  EdgeAccessor FindEdgeChecked(gid::Gid gid, bool current_state);
+
   /**
    * Returns iterable over accessors to all the edges in the graph
    * visible to the current transaction.
@@ -583,17 +537,20 @@ class GraphDbAccessor {
 
   /** Gets remote_vertices or remote_edges, depending on type param. */
   template <typename TRecord>
-  RemoteCache<TRecord> &remote_elements();
+  distributed::RemoteCache<TRecord> &remote_elements();
 
  private:
   GraphDb &db_;
   tx::Transaction &transaction_;
+  // Indicates if this db-accessor started the transaction and should Abort it
+  // upon destruction.
+  bool transaction_starter_;
 
   bool commited_{false};
   bool aborted_{false};
 
-  RemoteCache<Vertex> remote_vertices_;
-  RemoteCache<Edge> remote_edges_;
+  std::experimental::optional<distributed::RemoteCache<Vertex>> remote_vertices_;
+  std::experimental::optional<distributed::RemoteCache<Edge>> remote_edges_;
 
   /** Casts the transaction engine to SingleNodeEngine and returns it. If the
    * engine is a WorkerEngine (and not SingleNode nor Master), a call to this

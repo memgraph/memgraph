@@ -3,6 +3,7 @@
 #include "boost/serialization/export.hpp"
 
 #include "distributed/coordination_rpc_messages.hpp"
+#include "distributed/remote_data_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 
@@ -27,9 +28,17 @@ ID_VALUE_EXPORT_BOOST_TYPE(Property)
 
 #undef ID_VALUE_EXPORT_BOOST_TYPE
 
+// Distributed coordination.
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerReq);
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerRes);
 BOOST_CLASS_EXPORT(distributed::GetEndpointReq);
 BOOST_CLASS_EXPORT(distributed::GetEndpointRes);
 BOOST_CLASS_EXPORT(distributed::StopWorkerReq);
 BOOST_CLASS_EXPORT(distributed::StopWorkerRes);
+
+// Distributed data exchange.
+BOOST_CLASS_EXPORT(distributed::RemoteEdgeReq);
+BOOST_CLASS_EXPORT(distributed::RemoteEdgeRes);
+BOOST_CLASS_EXPORT(distributed::RemoteVertexReq);
+BOOST_CLASS_EXPORT(distributed::RemoteVertexRes);
+BOOST_CLASS_EXPORT(distributed::TxGidPair);

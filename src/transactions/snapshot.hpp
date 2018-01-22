@@ -51,8 +51,7 @@ class Snapshot {
 
   /** Removes the given transaction id from this Snapshot.
    *
-   * @param id - the transaction id to remove
-   */
+   * @param id - the transaction id to remove */
   void remove(transaction_id_t id) {
     auto last =
         std::remove(transaction_ids_.begin(), transaction_ids_.end(), id);

@@ -12,13 +12,27 @@
 namespace database {
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
-    : db_(db), transaction_(*SingleNodeEngine().Begin()) {}
+    : db_(db),
+      transaction_(*SingleNodeEngine().Begin()),
+      transaction_starter_{true} {
+  if (db_.type() != GraphDb::Type::SINGLE_NODE) {
+    remote_vertices_.emplace(db_.remote_data_clients());
+    remote_edges_.emplace(db_.remote_data_clients());
+  }
+}
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db, tx::transaction_id_t tx_id)
-    : db_(db), transaction_(*db.tx_engine().RunningTransaction(tx_id)) {}
+    : db_(db),
+      transaction_(*db.tx_engine().RunningTransaction(tx_id)),
+      transaction_starter_{false} {
+  if (db_.type() != GraphDb::Type::SINGLE_NODE) {
+    remote_vertices_.emplace(db_.remote_data_clients());
+    remote_edges_.emplace(db_.remote_data_clients());
+  }
+}
 
 GraphDbAccessor::~GraphDbAccessor() {
-  if (!commited_ && !aborted_) {
+  if (transaction_starter_ && !commited_ && !aborted_) {
     this->Abort();
   }
 }
@@ -78,6 +92,13 @@ std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
   return record_accessor;
 }
 
+VertexAccessor GraphDbAccessor::FindVertexChecked(gid::Gid gid,
+                                                  bool current_state) {
+  auto found = FindVertex(gid, current_state);
+  CHECK(found) << "Unable to find vertex for id: " << gid;
+  return *found;
+}
+
 std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
     gid::Gid gid, bool current_state) {
   auto collection_accessor = db_.storage().edges_.access();
@@ -87,6 +108,13 @@ std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
+}
+
+EdgeAccessor GraphDbAccessor::FindEdgeChecked(gid::Gid gid,
+                                              bool current_state) {
+  auto found = FindEdge(gid, current_state);
+  CHECK(found) << "Unable to find edge for id: " << gid;
+  return *found;
 }
 
 void GraphDbAccessor::BuildIndex(storage::Label label,
@@ -433,16 +461,16 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   }
   return info;
 }
-auto &GraphDbAccessor::remote_vertices() { return remote_vertices_; }
-auto &GraphDbAccessor::remote_edges() { return remote_edges_; }
+auto &GraphDbAccessor::remote_vertices() { return *remote_vertices_; }
+auto &GraphDbAccessor::remote_edges() { return *remote_edges_; }
 
 template <>
-GraphDbAccessor::RemoteCache<Vertex> &GraphDbAccessor::remote_elements() {
+distributed::RemoteCache<Vertex> &GraphDbAccessor::remote_elements() {
   return remote_vertices();
 }
 
 template <>
-GraphDbAccessor::RemoteCache<Edge> &GraphDbAccessor::remote_elements() {
+distributed::RemoteCache<Edge> &GraphDbAccessor::remote_elements() {
   return remote_edges();
 }
 }  // namespace database

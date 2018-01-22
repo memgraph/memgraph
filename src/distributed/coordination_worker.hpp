@@ -1,15 +1,16 @@
 #pragma once
 
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "distributed/coordination.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
-#include "io/network/endpoint.hpp"
 
 namespace distributed {
-using Endpoint = io::network::Endpoint;
 
 /** Handles worker registration, getting of other workers' endpoints and
  * coordinated shutdown in a distributed memgraph. Worker side. */
-class WorkerCoordination {
+class WorkerCoordination : public Coordination {
+  using Endpoint = io::network::Endpoint;
+
  public:
   WorkerCoordination(communication::messaging::System &system,
                      const Endpoint &master_endpoint);
@@ -23,7 +24,7 @@ class WorkerCoordination {
   int RegisterWorker(int desired_worker_id = -1);
 
   /** Gets the endpoint for the given worker ID from the master. */
-  Endpoint GetEndpoint(int worker_id);
+  Endpoint GetEndpoint(int worker_id) override;
 
   /** Starts listening for a remote shutdown command (issued by the master).
    * Blocks the calling thread until that has finished. */
@@ -33,6 +34,6 @@ class WorkerCoordination {
   communication::messaging::System &system_;
   communication::rpc::Client client_;
   communication::rpc::Server server_;
-  ConcurrentMap<int, Endpoint> endpoint_cache_;
+  mutable ConcurrentMap<int, Endpoint> endpoint_cache_;
 };
 }  // namespace distributed

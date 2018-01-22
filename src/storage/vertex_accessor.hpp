@@ -51,7 +51,7 @@ class VertexAccessor : public RecordAccessor<Vertex> {
  public:
   VertexAccessor(VertexAddress address, database::GraphDbAccessor &db_accessor)
       : RecordAccessor(address, db_accessor) {
-    RecordAccessor::Reconstruct();
+    Reconstruct();
   }
 
   /** Returns the number of outgoing edges. */

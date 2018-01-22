@@ -5,6 +5,7 @@
 
 #include "communication/messaging/distributed.hpp"
 #include "communication/rpc/rpc.hpp"
+#include "distributed/coordination.hpp"
 #include "io/network/endpoint.hpp"
 
 namespace distributed {
@@ -12,7 +13,7 @@ using Endpoint = io::network::Endpoint;
 
 /** Handles worker registration, getting of other workers' endpoints and
  * coordinated shutdown in a distributed memgraph. Master side. */
-class MasterCoordination {
+class MasterCoordination : public Coordination {
   /**
    * Registers a new worker with this master server. Notifies all the known
    * workers of the new worker.
@@ -32,7 +33,7 @@ class MasterCoordination {
   ~MasterCoordination();
 
   /** Returns the Endpoint for the given worker_id. */
-  Endpoint GetEndpoint(int worker_id) const;
+  Endpoint GetEndpoint(int worker_id) override;
 
  private:
   communication::messaging::System &system_;

@@ -148,7 +148,8 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
     address_.local()->find_set_old_new(db_accessor_->transaction(), old_, new_);
   } else {
     db_accessor().template remote_elements<TRecord>().FindSetOldNew(
-        db_accessor().transaction(), address_.global_id(), old_, new_);
+        db_accessor().transaction().id_, address_.worker_id(),
+        address_.global_id(), old_, new_);
   }
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
@@ -178,8 +179,8 @@ TRecord &RecordAccessor<TRecord>::update() const {
     new_ = address_.local()->update(t);
     DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   } else {
-    new_ = db_accessor().template remote_elements<TRecord>().FindNew(
-        address_.global_id(), true);
+    // TODO implement
+    throw std::runtime_error("Not yet implemented");
   }
   return *new_;
 }
