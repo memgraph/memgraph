@@ -2,33 +2,38 @@
 
 #pragma once
 
-#include <glog/logging.h>
-#include <algorithm>
-#include <deque>
 #include <experimental/optional>
 #include <memory>
-#include <tuple>
-#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
-#include "database/graph_db_accessor.hpp"
+#include <boost/serialization/shared_ptr_helper.hpp>
+#include "boost/serialization/base_object.hpp"
+#include "boost/serialization/serialization.hpp"
+#include "boost/serialization/shared_ptr.hpp"
+#include "boost/serialization/unique_ptr.hpp"
+
 #include "query/common.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/semantic/symbol_table.hpp"
-#include "query/path.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
 #include "storage/types.hpp"
 #include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
 
+namespace database {
+class GraphDbAccessor;
+}
+
 namespace query {
 
 class Context;
 class ExpressionEvaluator;
 class Frame;
+class SymbolTable;
 
 namespace plan {
 
@@ -150,7 +155,22 @@ class LogicalOperator
   }
 
   virtual ~LogicalOperator() {}
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {}
 };
+
+template <class TArchive>
+std::pair<std::unique_ptr<LogicalOperator>, AstTreeStorage> LoadPlan(
+    TArchive &ar) {
+  std::unique_ptr<LogicalOperator> root;
+  ar >> root;
+  return {std::move(root), std::move(ar.template get_helper<AstTreeStorage>(
+                               AstTreeStorage::kHelperId))};
+}
 
 /**
  * A logical operator whose Cursor returns true on the first Pull
@@ -172,6 +192,12 @@ class Once : public LogicalOperator {
    private:
     bool did_pull_{false};
   };
+
+  friend class boost::serialization::access;
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+  }
 };
 
 /** @brief Operator for creating a node.
@@ -192,15 +218,17 @@ class CreateNode : public LogicalOperator {
    *    If a valid input, then a node will be created for each
    *    successful pull from the given input.
    */
-  CreateNode(const NodeAtom *node_atom,
+  CreateNode(NodeAtom *node_atom,
              const std::shared_ptr<LogicalOperator> &input);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
 
  private:
-  const NodeAtom *node_atom_ = nullptr;
-  const std::shared_ptr<LogicalOperator> input_;
+  CreateNode() {}
+
+  NodeAtom *node_atom_ = nullptr;
+  std::shared_ptr<LogicalOperator> input_;
 
   class CreateNodeCursor : public Cursor {
    public:
@@ -218,6 +246,24 @@ class CreateNode : public LogicalOperator {
      */
     void Create(Frame &, Context &);
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointer(ar, node_atom_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointer(ar, node_atom_);
+  }
 };
 
 /** @brief Operator for creating edges and destination nodes.
@@ -247,7 +293,7 @@ class CreateExpand : public LogicalOperator {
    * @param existing_node @c bool indicating whether the @c node_atom refers to
    *     an existing node. If @c false, the operator will also create the node.
    */
-  CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
+  CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
                const std::shared_ptr<LogicalOperator> &input,
                Symbol input_symbol, bool existing_node);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -256,17 +302,19 @@ class CreateExpand : public LogicalOperator {
 
  private:
   // info on what's getting expanded
-  const NodeAtom *node_atom_;
-  const EdgeAtom *edge_atom_;
+  NodeAtom *node_atom_;
+  EdgeAtom *edge_atom_;
 
   // the input op and the symbol under which the op's result
   // can be found in the frame
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol input_symbol_;
 
   // if the given node atom refers to an existing node
   // (either matched or created)
-  const bool existing_node_;
+  bool existing_node_;
+
+  CreateExpand() {}
 
   class CreateExpandCursor : public Cursor {
    public:
@@ -298,6 +346,30 @@ class CreateExpand : public LogicalOperator {
                     const SymbolTable &symbol_table,
                     ExpressionEvaluator &evaluator);
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    SavePointer(ar, node_atom_);
+    SavePointer(ar, edge_atom_);
+    ar &input_;
+    ar &input_symbol_;
+    ar &existing_node_;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    LoadPointer(ar, node_atom_);
+    LoadPointer(ar, edge_atom_);
+    ar &input_;
+    ar &input_symbol_;
+    ar &existing_node_;
+  }
 };
 
 /**
@@ -329,8 +401,8 @@ class ScanAll : public LogicalOperator {
   auto graph_view() const { return graph_view_; }
 
  protected:
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol output_symbol_;
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol output_symbol_;
   /**
    * @brief Controls which graph state is used to produce vertices.
    *
@@ -339,7 +411,20 @@ class ScanAll : public LogicalOperator {
    * command. With @c GraphView::NEW, all vertices will be produced the current
    * transaction sees along with their modifications.
    */
-  const GraphView graph_view_;
+  GraphView graph_view_;
+
+  ScanAll() {}
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &output_symbol_;
+    ar &graph_view_;
+  }
 };
 
 /**
@@ -362,7 +447,17 @@ class ScanAllByLabel : public ScanAll {
   storage::Label label() const { return label_; }
 
  private:
-  const storage::Label label_;
+  storage::Label label_;
+
+  ScanAllByLabel() {}
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<ScanAll>(*this);
+    ar &label_;
+  }
 };
 
 /**
@@ -408,10 +503,57 @@ class ScanAllByLabelPropertyRange : public ScanAll {
   auto upper_bound() const { return upper_bound_; }
 
  private:
-  const storage::Label label_;
-  const storage::Property property_;
+  storage::Label label_;
+  storage::Property property_;
   std::experimental::optional<Bound> lower_bound_;
   std::experimental::optional<Bound> upper_bound_;
+
+  ScanAllByLabelPropertyRange() {}
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<ScanAll>(*this);
+    ar &label_;
+    ar &property_;
+    auto save_bound = [&ar](auto &maybe_bound) {
+      if (!maybe_bound) {
+        ar & false;
+        return;
+      }
+      ar & true;
+      auto &bound = *maybe_bound;
+      ar &bound.type();
+      SavePointer(ar, bound.value());
+    };
+    save_bound(lower_bound_);
+    save_bound(upper_bound_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<ScanAll>(*this);
+    ar &label_;
+    ar &property_;
+    auto load_bound = [&ar](auto &maybe_bound) {
+      bool has_bound = false;
+      ar &has_bound;
+      if (!has_bound) {
+        maybe_bound = std::experimental::nullopt;
+        return;
+      }
+      utils::BoundType type;
+      ar &type;
+      Expression *value;
+      LoadPointer(ar, value);
+      maybe_bound = std::experimental::make_optional(Bound(value, type));
+    };
+    load_bound(lower_bound_);
+    load_bound(upper_bound_);
+  }
 };
 
 /**
@@ -449,9 +591,31 @@ class ScanAllByLabelPropertyValue : public ScanAll {
   auto expression() const { return expression_; }
 
  private:
-  const storage::Label label_;
-  const storage::Property property_;
+  storage::Label label_;
+  storage::Property property_;
   Expression *expression_;
+
+  ScanAllByLabelPropertyValue() {}
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<ScanAll>(*this);
+    ar &label_;
+    ar &property_;
+    SavePointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<ScanAll>(*this);
+    ar &label_;
+    ar &property_;
+    LoadPointer(ar, expression_);
+  }
 };
 
 /**
@@ -511,22 +675,22 @@ class ExpandCommon {
 
  protected:
   // info on what's getting expanded
-  const Symbol node_symbol_;
-  const Symbol edge_symbol_;
-  const EdgeAtom::Direction direction_;
-  const std::vector<storage::EdgeType> edge_types_;
+  Symbol node_symbol_;
+  Symbol edge_symbol_;
+  EdgeAtom::Direction direction_;
+  std::vector<storage::EdgeType> edge_types_;
 
   // the input op and the symbol under which the op's result
   // can be found in the frame
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol input_symbol_;
 
   // If the given node atom refer to a symbol that has already been expanded and
   // should be just validated in the frame.
-  const bool existing_node_;
+  bool existing_node_;
 
   // from which state the input node should get expanded
-  const GraphView graph_view_;
+  GraphView graph_view_;
 
   /**
    * For a newly expanded node handles existence checking and
@@ -537,6 +701,23 @@ class ExpandCommon {
    * the old.
    */
   bool HandleExistingNode(const VertexAccessor &new_node, Frame &frame) const;
+
+  ExpandCommon() {}
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &node_symbol_;
+    ar &edge_symbol_;
+    ar &direction_;
+    ar &edge_types_;
+    ar &input_;
+    ar &input_symbol_;
+    ar &existing_node_;
+    ar &graph_view_;
+  }
 };
 
 /**
@@ -586,6 +767,15 @@ class Expand : public LogicalOperator, public ExpandCommon {
 
     bool InitEdges(Frame &, Context &);
   };
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &boost::serialization::base_object<ExpandCommon>(*this);
+  }
 };
 
 /**
@@ -655,20 +845,52 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
   auto type() const { return type_; }
 
  private:
-  const EdgeAtom::Type type_;
+  EdgeAtom::Type type_;
   // True if the path should be written as expanding from node_symbol to
   // input_symbol.
-  const bool is_reverse_;
+  bool is_reverse_;
   // lower and upper bounds of the variable length expansion
   // both are optional, defaults are (1, inf)
   Expression *lower_bound_;
   Expression *upper_bound_;
   // symbols for a single node and edge that are currently getting expanded
-  const Symbol inner_edge_symbol_;
-  const Symbol inner_node_symbol_;
+  Symbol inner_edge_symbol_;
+  Symbol inner_node_symbol_;
   // a filtering expression for skipping expansions during expansion
   // can refer to inner node and edges
   Expression *filter_;
+
+  ExpandVariable() {}
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &boost::serialization::base_object<ExpandCommon>(*this);
+    ar &type_;
+    ar &is_reverse_;
+    SavePointer(ar, lower_bound_);
+    SavePointer(ar, upper_bound_);
+    ar &inner_edge_symbol_;
+    ar &inner_node_symbol_;
+    SavePointer(ar, filter_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &boost::serialization::base_object<ExpandCommon>(*this);
+    ar &type_;
+    ar &is_reverse_;
+    LoadPointer(ar, lower_bound_);
+    LoadPointer(ar, upper_bound_);
+    ar &inner_edge_symbol_;
+    ar &inner_node_symbol_;
+    LoadPointer(ar, filter_);
+  }
 };
 
 /**
@@ -691,9 +913,21 @@ class ConstructNamedPath : public LogicalOperator {
   const auto &path_elements() const { return path_elements_; }
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol path_symbol_;
-  const std::vector<Symbol> path_elements_;
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol path_symbol_;
+  std::vector<Symbol> path_elements_;
+
+  ConstructNamedPath() {}
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &path_symbol_;
+    ar &path_elements_;
+  }
 };
 
 /**
@@ -713,8 +947,10 @@ class Filter : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   Expression *expression_;
+
+  Filter() {}
 
   class FilterCursor : public Cursor {
    public:
@@ -727,6 +963,24 @@ class Filter : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointer(ar, expression_);
+  }
 };
 
 /**
@@ -751,8 +1005,8 @@ class Produce : public LogicalOperator {
   const std::vector<NamedExpression *> &named_expressions();
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const std::vector<NamedExpression *> named_expressions_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<NamedExpression *> named_expressions_;
 
   class ProduceCursor : public Cursor {
    public:
@@ -765,6 +1019,16 @@ class Produce : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  Produce() {}
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &named_expressions_;
+  }
 };
 
 /**
@@ -782,12 +1046,14 @@ class Delete : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const std::vector<Expression *> expressions_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<Expression *> expressions_;
   // if the vertex should be detached before deletion
   // if not detached, and has connections, an error is raised
   // ignored when deleting edges
-  const bool detach_;
+  bool detach_;
+
+  Delete() {}
 
   class DeleteCursor : public Cursor {
    public:
@@ -800,6 +1066,26 @@ class Delete : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointers(ar, expressions_);
+    ar &detach_;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointers(ar, expressions_);
+    ar &detach_;
+  }
 };
 
 /**
@@ -817,9 +1103,11 @@ class SetProperty : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   PropertyLookup *lhs_;
   Expression *rhs_;
+
+  SetProperty() {}
 
   class SetPropertyCursor : public Cursor {
    public:
@@ -832,6 +1120,26 @@ class SetProperty : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointer(ar, lhs_);
+    SavePointer(ar, rhs_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointer(ar, lhs_);
+    LoadPointer(ar, rhs_);
+  }
 };
 
 /**
@@ -865,10 +1173,12 @@ class SetProperties : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol input_symbol_;
   Expression *rhs_;
   Op op_;
+
+  SetProperties() {}
 
   class SetPropertiesCursor : public Cursor {
    public:
@@ -890,6 +1200,28 @@ class SetProperties : public LogicalOperator {
     template <typename TRecordAccessor>
     void Set(TRecordAccessor &record, const TypedValue &rhs) const;
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &input_symbol_;
+    SavePointer(ar, rhs_);
+    ar &op_;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &input_symbol_;
+    LoadPointer(ar, rhs_);
+    ar &op_;
+  }
 };
 
 /**
@@ -907,9 +1239,11 @@ class SetLabels : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
-  const std::vector<storage::Label> labels_;
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol input_symbol_;
+  std::vector<storage::Label> labels_;
+
+  SetLabels() {}
 
   class SetLabelsCursor : public Cursor {
    public:
@@ -921,6 +1255,16 @@ class SetLabels : public LogicalOperator {
     const SetLabels &self_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &input_symbol_;
+    ar &labels_;
+  }
 };
 
 /**
@@ -936,8 +1280,10 @@ class RemoveProperty : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   PropertyLookup *lhs_;
+
+  RemoveProperty() {}
 
   class RemovePropertyCursor : public Cursor {
    public:
@@ -951,6 +1297,24 @@ class RemoveProperty : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointer(ar, lhs_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointer(ar, lhs_);
+  }
 };
 
 /**
@@ -968,9 +1332,11 @@ class RemoveLabels : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const Symbol input_symbol_;
-  const std::vector<storage::Label> labels_;
+  std::shared_ptr<LogicalOperator> input_;
+  Symbol input_symbol_;
+  std::vector<storage::Label> labels_;
+
+  RemoveLabels() {}
 
   class RemoveLabelsCursor : public Cursor {
    public:
@@ -982,6 +1348,16 @@ class RemoveLabels : public LogicalOperator {
     const RemoveLabels &self_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &input_symbol_;
+    ar &labels_;
+  }
 };
 
 /**
@@ -1018,9 +1394,11 @@ class ExpandUniquenessFilter : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   Symbol expand_symbol_;
-  const std::vector<Symbol> previous_symbols_;
+  std::vector<Symbol> previous_symbols_;
+
+  ExpandUniquenessFilter() {}
 
   class ExpandUniquenessFilterCursor : public Cursor {
    public:
@@ -1033,6 +1411,16 @@ class ExpandUniquenessFilter : public LogicalOperator {
     const ExpandUniquenessFilter &self_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &expand_symbol_;
+    ar &previous_symbols_;
+  }
 };
 
 /** @brief Pulls everything from the input before passing it through.
@@ -1073,9 +1461,11 @@ class Accumulate : public LogicalOperator {
   const auto &symbols() const { return symbols_; };
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const std::vector<Symbol> symbols_;
-  const bool advance_command_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<Symbol> symbols_;
+  bool advance_command_;
+
+  Accumulate() {}
 
   class AccumulateCursor : public Cursor {
    public:
@@ -1091,6 +1481,16 @@ class Accumulate : public LogicalOperator {
     decltype(cache_.begin()) cache_it_ = cache_.begin();
     bool pulled_all_input_{false};
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &symbols_;
+    ar &advance_command_;
+  }
 };
 
 /**
@@ -1127,6 +1527,27 @@ class Aggregate : public LogicalOperator {
     Expression *key;
     Aggregation::Op op;
     Symbol output_sym;
+
+   private:
+    friend class boost::serialization::access;
+
+    BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+    template <class TArchive>
+    void save(TArchive &ar, const unsigned int) const {
+      SavePointer(ar, value);
+      SavePointer(ar, key);
+      ar &op;
+      ar &output_sym;
+    }
+
+    template <class TArchive>
+    void load(TArchive &ar, const unsigned int) {
+      LoadPointer(ar, value);
+      LoadPointer(ar, key);
+      ar &op;
+      ar &output_sym;
+    }
   };
 
   Aggregate(const std::shared_ptr<LogicalOperator> &input,
@@ -1141,10 +1562,12 @@ class Aggregate : public LogicalOperator {
   const auto &group_by() const { return group_by_; }
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const std::vector<Element> aggregations_;
-  const std::vector<Expression *> group_by_;
-  const std::vector<Symbol> remember_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<Element> aggregations_;
+  std::vector<Expression *> group_by_;
+  std::vector<Symbol> remember_;
+
+  Aggregate() {}
 
   class AggregateCursor : public Cursor {
    public:
@@ -1224,6 +1647,28 @@ class Aggregate : public LogicalOperator {
      * an appropriate exception is thrown. */
     void EnsureOkForAvgSum(const TypedValue &value) const;
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &aggregations_;
+    SavePointers(ar, group_by_);
+    ar &remember_;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &aggregations_;
+    LoadPointers(ar, group_by_);
+    ar &remember_;
+  }
 };
 
 /** @brief Skips a number of Pulls from the input op.
@@ -1247,8 +1692,10 @@ class Skip : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   Expression *expression_;
+
+  Skip() {}
 
   class SkipCursor : public Cursor {
    public:
@@ -1265,6 +1712,24 @@ class Skip : public LogicalOperator {
     int to_skip_{-1};
     int skipped_{0};
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointer(ar, expression_);
+  }
 };
 
 /** @brief Limits the number of Pulls from the input op.
@@ -1291,8 +1756,10 @@ class Limit : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   Expression *expression_;
+
+  Limit() {}
 
   class LimitCursor : public Cursor {
    public:
@@ -1309,6 +1776,24 @@ class Limit : public LogicalOperator {
     int limit_{-1};
     int pulled_{0};
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointer(ar, expression_);
+  }
 };
 
 /** @brief Logical operator for ordering (sorting) results.
@@ -1349,12 +1834,21 @@ class OrderBy : public LogicalOperator {
 
    private:
     std::vector<Ordering> ordering_;
+
+    friend class boost::serialization::access;
+
+    template <class TArchive>
+    void serialize(TArchive &ar, const unsigned int) {
+      ar &ordering_;
+    }
   };
 
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   TypedValueVectorCompare compare_;
   std::vector<Expression *> order_by_;
-  const std::vector<Symbol> output_symbols_;
+  std::vector<Symbol> output_symbols_;
+
+  OrderBy() {}
 
   // custom comparison for TypedValue objects
   // behaves generally like Neo's ORDER BY comparison operator:
@@ -1383,6 +1877,28 @@ class OrderBy : public LogicalOperator {
     // iterator over the cache_, maintains state between Pulls
     decltype(cache_.begin()) cache_it_ = cache_.begin();
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &compare_;
+    SavePointers(ar, order_by_);
+    ar &output_symbols_;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &compare_;
+    LoadPointers(ar, order_by_);
+    ar &output_symbols_;
+  }
 };
 
 /**
@@ -1412,9 +1928,11 @@ class Merge : public LogicalOperator {
   auto merge_create() const { return merge_create_; }
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const std::shared_ptr<LogicalOperator> merge_match_;
-  const std::shared_ptr<LogicalOperator> merge_create_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> merge_match_;
+  std::shared_ptr<LogicalOperator> merge_create_;
+
+  Merge() {}
 
   class MergeCursor : public Cursor {
    public:
@@ -1434,6 +1952,16 @@ class Merge : public LogicalOperator {
     //  - previous Pull from this cursor exhausted the merge_match_cursor
     bool pull_input_{true};
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &merge_match_;
+    ar &merge_create_;
+  }
 };
 
 /**
@@ -1458,9 +1986,11 @@ class Optional : public LogicalOperator {
   const auto &optional_symbols() const { return optional_symbols_; }
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const std::shared_ptr<LogicalOperator> optional_;
-  const std::vector<Symbol> optional_symbols_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> optional_;
+  std::vector<Symbol> optional_symbols_;
+
+  Optional() {}
 
   class OptionalCursor : public Cursor {
    public:
@@ -1479,6 +2009,16 @@ class Optional : public LogicalOperator {
     //  - previous Pull from this cursor exhausted the optional_cursor_
     bool pull_input_{true};
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &optional_;
+    ar &optional_symbols_;
+  }
 };
 
 /**
@@ -1498,9 +2038,11 @@ class Unwind : public LogicalOperator {
   Expression *input_expression() const { return input_expression_; }
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<LogicalOperator> input_;
   Expression *input_expression_;
-  const Symbol output_symbol_;
+  Symbol output_symbol_;
+
+  Unwind() {}
 
   class UnwindCursor : public Cursor {
    public:
@@ -1517,6 +2059,26 @@ class Unwind : public LogicalOperator {
     // current position in input_value_
     std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
   };
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    SavePointer(ar, input_expression_);
+    ar &output_symbol_;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointer(ar, input_expression_);
+    ar &output_symbol_;
+  }
 };
 
 /**
@@ -1537,8 +2099,10 @@ class Distinct : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> input_;
-  const std::vector<Symbol> value_symbols_;
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<Symbol> value_symbols_;
+
+  Distinct() {}
 
   class DistinctCursor : public Cursor {
    public:
@@ -1558,6 +2122,15 @@ class Distinct : public LogicalOperator {
         TypedValueVectorEqual>
         seen_rows_;
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &value_symbols_;
+  }
 };
 
 /**
@@ -1581,6 +2154,17 @@ class CreateIndex : public LogicalOperator {
  private:
   storage::Label label_;
   storage::Property property_;
+
+  CreateIndex() {}
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &label_;
+    ar &property_;
+  }
 };
 
 /**
@@ -1603,8 +2187,10 @@ class Union : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
  private:
-  const std::shared_ptr<LogicalOperator> left_op_, right_op_;
-  const std::vector<Symbol> union_symbols_, left_symbols_, right_symbols_;
+  std::shared_ptr<LogicalOperator> left_op_, right_op_;
+  std::vector<Symbol> union_symbols_, left_symbols_, right_symbols_;
+
+  Union() {}
 
   class UnionCursor : public Cursor {
    public:
@@ -1616,6 +2202,18 @@ class Union : public LogicalOperator {
     const Union &self_;
     const std::unique_ptr<Cursor> left_cursor_, right_cursor_;
   };
+
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &left_op_;
+    ar &right_op_;
+    ar &union_symbols_;
+    ar &left_symbols_;
+    ar &right_symbols_;
+  }
 };
 
 }  // namespace plan

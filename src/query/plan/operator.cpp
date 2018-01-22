@@ -1,16 +1,23 @@
+#include "query/plan/operator.hpp"
+
 #include <algorithm>
 #include <limits>
+#include <string>
 #include <type_traits>
 #include <utility>
 
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/serialization/export.hpp"
 #include "glog/logging.h"
 
+#include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
-
-#include "query/plan/operator.hpp"
+#include "query/path.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -79,7 +86,7 @@ std::unique_ptr<Cursor> Once::MakeCursor(database::GraphDbAccessor &) const {
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
-CreateNode::CreateNode(const NodeAtom *node_atom,
+CreateNode::CreateNode(NodeAtom *node_atom,
                        const std::shared_ptr<LogicalOperator> &input)
     : node_atom_(node_atom), input_(input ? input : std::make_shared<Once>()) {}
 
@@ -117,7 +124,7 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame, Context &context) {
   frame[context.symbol_table_.at(*self_.node_atom_->identifier_)] = new_node;
 }
 
-CreateExpand::CreateExpand(const NodeAtom *node_atom, const EdgeAtom *edge_atom,
+CreateExpand::CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
                            const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol, bool existing_node)
     : node_atom_(node_atom),
@@ -2546,3 +2553,35 @@ void Union::UnionCursor::Reset() {
 }
 
 }  // namespace query::plan
+
+BOOST_CLASS_EXPORT(query::plan::Once);
+BOOST_CLASS_EXPORT(query::plan::CreateNode);
+BOOST_CLASS_EXPORT(query::plan::CreateExpand);
+BOOST_CLASS_EXPORT(query::plan::ScanAll);
+BOOST_CLASS_EXPORT(query::plan::ScanAllByLabel);
+BOOST_CLASS_EXPORT(query::plan::ScanAllByLabelPropertyRange);
+BOOST_CLASS_EXPORT(query::plan::ScanAllByLabelPropertyValue);
+BOOST_CLASS_EXPORT(query::plan::Expand);
+BOOST_CLASS_EXPORT(query::plan::ExpandVariable);
+BOOST_CLASS_EXPORT(query::plan::Filter);
+BOOST_CLASS_EXPORT(query::plan::Produce);
+BOOST_CLASS_EXPORT(query::plan::ConstructNamedPath);
+BOOST_CLASS_EXPORT(query::plan::Delete);
+BOOST_CLASS_EXPORT(query::plan::SetProperty);
+BOOST_CLASS_EXPORT(query::plan::SetProperties);
+BOOST_CLASS_EXPORT(query::plan::SetLabels);
+BOOST_CLASS_EXPORT(query::plan::RemoveProperty);
+BOOST_CLASS_EXPORT(query::plan::RemoveLabels);
+BOOST_CLASS_EXPORT(query::plan::ExpandUniquenessFilter<EdgeAccessor>);
+BOOST_CLASS_EXPORT(query::plan::ExpandUniquenessFilter<VertexAccessor>);
+BOOST_CLASS_EXPORT(query::plan::Accumulate);
+BOOST_CLASS_EXPORT(query::plan::Aggregate);
+BOOST_CLASS_EXPORT(query::plan::Skip);
+BOOST_CLASS_EXPORT(query::plan::Limit);
+BOOST_CLASS_EXPORT(query::plan::OrderBy);
+BOOST_CLASS_EXPORT(query::plan::Merge);
+BOOST_CLASS_EXPORT(query::plan::Optional);
+BOOST_CLASS_EXPORT(query::plan::Unwind);
+BOOST_CLASS_EXPORT(query::plan::Distinct);
+BOOST_CLASS_EXPORT(query::plan::CreateIndex);
+BOOST_CLASS_EXPORT(query::plan::Union);

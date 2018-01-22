@@ -7,20 +7,24 @@
 
 namespace query {
 
+// Id for boost's archive get_helper needs to be unique among all ids. If it
+// isn't unique, then different instances (even across different types!) will
+// replace the previous helper. The documentation recommends to take an address
+// of a function, which should be unique in the produced binary.
+// It might seem logical to take an address of a AstTreeStorage constructor, but
+// according to c++ standard, the constructor function need not have an address.
+// Additionally, pointers to member functions are not required to contain the
+// address of the function
+// (https://isocpp.org/wiki/faq/pointers-to-members#addr-of-memfn). So, to be
+// safe, use a regular top-level function.
+void *const AstTreeStorage::kHelperId = (void *)CloneReturnBody;
+
 AstTreeStorage::AstTreeStorage() {
   storage_.emplace_back(new Query(next_uid_++));
 }
 
 Query *AstTreeStorage::query() const {
   return dynamic_cast<Query *>(storage_[0].get());
-}
-
-int AstTreeStorage::MaximumStorageUid() const {
-  int max_uid = -1;
-  for (const auto &tree : storage_) {
-    max_uid = std::max(max_uid, tree->uid());
-  }
-  return max_uid;
 }
 
 ReturnBody CloneReturnBody(AstTreeStorage &storage, const ReturnBody &body) {

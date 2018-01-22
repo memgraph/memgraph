@@ -1,6 +1,5 @@
 #pragma once
 
-#include <map>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -9,13 +8,10 @@
 #include "boost/serialization/split_member.hpp"
 #include "boost/serialization/string.hpp"
 #include "boost/serialization/vector.hpp"
-#include "glog/logging.h"
 
-#include "database/graph_db.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
-#include "query/parameters.hpp"
 #include "query/typed_value.hpp"
 #include "storage/types.hpp"
 #include "utils/serialization.hpp"
@@ -34,6 +30,10 @@ struct hash<std::pair<std::string, storage::Property>> {
   std::hash<storage::Property> property_hash{};
 };
 }  // namespace std
+
+namespace database {
+class GraphDbAccessor;
+}
 
 namespace query {
 
@@ -60,6 +60,7 @@ namespace query {
 
 class Tree;
 
+
 // It would be better to call this AstTree, but we already have a class Tree,
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...
@@ -82,14 +83,16 @@ class AstTreeStorage {
 
   Query *query() const;
 
+  /// Id for using get_helper<AstTreeStorage> in boost archives.
+  static void * const kHelperId;
+
   /// Load an Ast Node into this storage.
   template <class TArchive, class TNode>
   void Load(TArchive &ar, TNode &node) {
-    auto &tmp_ast = ar.template get_helper<AstTreeStorage>();
-    tmp_ast.storage_ = std::move(storage_);
+    auto &tmp_ast = ar.template get_helper<AstTreeStorage>(kHelperId);
+    std::swap(*this, tmp_ast);
     ar >> node;
-    storage_ = std::move(tmp_ast.storage_);
-    next_uid_ = MaximumStorageUid() + 1;
+    std::swap(*this, tmp_ast);
   }
 
   /// Load a Query into this storage.
@@ -101,8 +104,6 @@ class AstTreeStorage {
  private:
   int next_uid_ = 0;
   std::vector<std::unique_ptr<Tree>> storage_;
-
-  int MaximumStorageUid() const;
 
   template <class TArchive, class TNode>
   friend void LoadPointer(TArchive &ar, TNode *&node);
@@ -117,7 +118,8 @@ template <class TArchive, class TNode>
 void LoadPointer(TArchive &ar, TNode *&node) {
   ar >> node;
   if (node) {
-    auto &ast_storage = ar.template get_helper<AstTreeStorage>();
+    auto &ast_storage =
+        ar.template get_helper<AstTreeStorage>(AstTreeStorage::kHelperId);
     auto found =
         std::find_if(ast_storage.storage_.begin(), ast_storage.storage_.end(),
                      [&](const auto &n) { return n->uid() == node->uid(); });
@@ -127,6 +129,7 @@ void LoadPointer(TArchive &ar, TNode *&node) {
            dynamic_cast<TNode *>(found->get()) == node);
     if (ast_storage.storage_.end() == found) {
       ast_storage.storage_.emplace_back(node);
+      ast_storage.next_uid_ = std::max(ast_storage.next_uid_, node->uid() + 1);
     }
   }
 }

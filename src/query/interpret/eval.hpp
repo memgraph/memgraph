@@ -11,6 +11,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/parameters.hpp"
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
 
