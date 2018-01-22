@@ -96,6 +96,8 @@ class Unwind;
 class Distinct;
 class CreateIndex;
 class Union;
+class ProduceRemote;
+class PullRemote;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -104,7 +106,8 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
-    Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union>;
+    Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union,
+    ProduceRemote, PullRemote>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -2213,6 +2216,54 @@ class Union : public LogicalOperator {
     ar &union_symbols_;
     ar &left_symbols_;
     ar &right_symbols_;
+  }
+};
+
+class ProduceRemote : public LogicalOperator {
+ public:
+  ProduceRemote(const std::shared_ptr<LogicalOperator> &input,
+                const std::vector<Symbol> &symbols);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(
+      database::GraphDbAccessor &db) const override;
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<Symbol> symbols_;
+
+  ProduceRemote() {}
+
+  friend class boost::serialization::access;
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &symbols_;
+  }
+};
+
+class PullRemote : public LogicalOperator {
+ public:
+  PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
+             const std::vector<Symbol> &symbols);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(
+      database::GraphDbAccessor &db) const override;
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  int64_t plan_id_ = 0;
+  std::vector<Symbol> symbols_;
+
+  PullRemote() {}
+
+  friend class boost::serialization::access;
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &plan_id_;
+    ar &symbols_;
   }
 };
 

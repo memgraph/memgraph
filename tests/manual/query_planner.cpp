@@ -485,6 +485,9 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     WithPrintLn([](auto &out) { out << "* CreateIndex"; });
     return true;
   }
+
+  PRE_VISIT(ProduceRemote);
+  PRE_VISIT(PullRemote);
 #undef PRE_VISIT
 
  private:

@@ -97,6 +97,9 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
     CheckOp(op);
     return true;
   }
+
+  PRE_VISIT(ProduceRemote);
+  PRE_VISIT(PullRemote);
 #undef PRE_VISIT
 
   std::list<BaseOpChecker *> checkers_;

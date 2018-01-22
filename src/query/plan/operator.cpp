@@ -2552,6 +2552,32 @@ void Union::UnionCursor::Reset() {
   right_cursor_->Reset();
 }
 
+ProduceRemote::ProduceRemote(const std::shared_ptr<LogicalOperator> &input,
+                             const std::vector<Symbol> &symbols)
+    : input_(input ? input : std::make_shared<Once>()), symbols_(symbols) {}
+
+ACCEPT_WITH_INPUT(ProduceRemote)
+
+std::unique_ptr<Cursor> ProduceRemote::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  // TODO: Implement a concrete cursor.
+  return nullptr;
+}
+
+PullRemote::PullRemote(const std::shared_ptr<LogicalOperator> &input,
+                       int64_t plan_id, const std::vector<Symbol> &symbols)
+    : input_(input ? input : std::make_shared<Once>()),
+      plan_id_(plan_id),
+      symbols_(symbols) {}
+
+ACCEPT_WITH_INPUT(PullRemote);
+
+std::unique_ptr<Cursor> PullRemote::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  // TODO: Implement a concrete cursor.
+  return nullptr;
+}
+
 }  // namespace query::plan
 
 BOOST_CLASS_EXPORT(query::plan::Once);
@@ -2585,3 +2611,5 @@ BOOST_CLASS_EXPORT(query::plan::Unwind);
 BOOST_CLASS_EXPORT(query::plan::Distinct);
 BOOST_CLASS_EXPORT(query::plan::CreateIndex);
 BOOST_CLASS_EXPORT(query::plan::Union);
+BOOST_CLASS_EXPORT(query::plan::ProduceRemote);
+BOOST_CLASS_EXPORT(query::plan::PullRemote);
