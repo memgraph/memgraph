@@ -60,13 +60,26 @@ class RemoteCache {
     if (found == cache_.end()) {
       rec_uptr old_record =
           remote_data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
-      found = cache_.emplace(
-          gid, std::make_pair<rec_uptr, rec_uptr>(nullptr, nullptr)).first;
+      found = cache_
+                  .emplace(gid,
+                           std::make_pair<rec_uptr, rec_uptr>(nullptr, nullptr))
+                  .first;
       found->second.first.swap(old_record);
     }
 
     old_record = found->second.first.get();
     new_record = found->second.second.get();
+  }
+
+  void AdvanceCommand() {
+    // TODO implement.
+    // The effect of this should be that the next call to FindSetOldNew will do
+    // an RPC and not use the cached stuff.
+    //
+    // Not sure if it's OK to just flush the cache? I *think* that after a
+    // global advance-command, all the existing RecordAccessors will be calling
+    // Reconstruct, so perhaps just flushing is the correct sollution, even
+    // though we'll have pointers to nothing.
   }
 
  private:

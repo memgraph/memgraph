@@ -124,13 +124,8 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
             << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
     }
   } else {
-    // TODO If we have distributed execution, here it's necessary to load the
-    // data from the it's home worker. When only storage is distributed, it's
-    // enough just to switch to the new record if we have it.
-    if (!new_) {
-      new_ = db_accessor().template remote_elements<TRecord>().FindNew(
-          address_.global_id(), false);
-    }
+    // A remote record only sees local updates, until the command is advanced.
+    // So this does nothing, as the old/new switch happens below.
   }
   current_ = new_ ? new_ : old_;
   return *this;
@@ -147,6 +142,9 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
   if (is_local()) {
     address_.local()->find_set_old_new(db_accessor_->transaction(), old_, new_);
   } else {
+    // TODO in write queries it's possible the command has been advanced and we
+    // need to invalidate the RemoteCache and really get the latest stuff. But
+    // only do that after the command has been advanced.
     db_accessor().template remote_elements<TRecord>().FindSetOldNew(
         db_accessor().transaction().id_, address_.worker_id(),
         address_.global_id(), old_, new_);
