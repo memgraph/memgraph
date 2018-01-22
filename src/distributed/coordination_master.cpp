@@ -53,8 +53,15 @@ MasterCoordination::~MasterCoordination() {
 Endpoint MasterCoordination::GetEndpoint(int worker_id) {
   std::lock_guard<std::mutex> guard(lock_);
   auto found = workers_.find(worker_id);
-  CHECK(found != workers_.end()) << "No endpoint registered for worker id: "
-                                 << worker_id;
+  CHECK(found != workers_.end())
+      << "No endpoint registered for worker id: " << worker_id;
   return found->second;
 }
+
+std::vector<int> MasterCoordination::GetWorkerIds() {
+  std::vector<int> worker_ids;
+  for (auto worker : workers_) worker_ids.push_back(worker.first);
+  return worker_ids;
+}
+
 }  // namespace distributed

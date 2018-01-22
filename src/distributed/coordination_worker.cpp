@@ -1,7 +1,9 @@
+#include "distributed/coordination_worker.hpp"
+
 #include <condition_variable>
 #include <mutex>
 
-#include "distributed/coordination_worker.hpp"
+#include "glog/logging.h"
 
 namespace distributed {
 
@@ -48,5 +50,9 @@ void WorkerCoordination::WaitForShutdown() {
   // TODO (review): Should we call server_.Shutdown() here? Not the usual
   // convention, but maybe better...
   std::this_thread::sleep_for(100ms);
+};
+
+std::vector<int> WorkerCoordination::GetWorkerIds() {
+  LOG(FATAL) << "Unimplemented worker ids discovery on worker";
 };
 }  // namespace distributed

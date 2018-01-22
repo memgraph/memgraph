@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "communication/messaging/distributed.hpp"
@@ -84,6 +85,30 @@ TEST(Distributed, DesiredAndUniqueId) {
 
     EXPECT_EQ(workers[0]->worker_id(), 42);
     EXPECT_NE(workers[1]->worker_id(), 42);
+  }
+
+  for (auto &worker : workers) worker->join();
+}
+
+TEST(Distributed, CoordinationWorkersId) {
+  System master_system({kLocal, 0});
+  std::vector<std::unique_ptr<WorkerInThread>> workers;
+  {
+    MasterCoordination master_coord(master_system);
+
+    workers.emplace_back(
+        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+    std::this_thread::sleep_for(200ms);
+    workers.emplace_back(
+        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+    std::this_thread::sleep_for(200ms);
+
+    std::vector<int> ids;
+    ids.push_back(0);
+
+    for (auto &worker : workers) ids.push_back(worker->worker_id());
+    EXPECT_THAT(master_coord.GetWorkerIds(),
+                testing::UnorderedElementsAreArray(ids));
   }
 
   for (auto &worker : workers) worker->join();

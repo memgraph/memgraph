@@ -35,6 +35,9 @@ class MasterCoordination : public Coordination {
   /** Returns the Endpoint for the given worker_id. */
   Endpoint GetEndpoint(int worker_id) override;
 
+  /** Returns all workers id, this includes master id(0) */
+  std::vector<int> GetWorkerIds() override;
+
  private:
   communication::messaging::System &system_;
   communication::rpc::Server server_;

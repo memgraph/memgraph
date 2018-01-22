@@ -26,6 +26,10 @@ class WorkerCoordination : public Coordination {
   /** Gets the endpoint for the given worker ID from the master. */
   Endpoint GetEndpoint(int worker_id) override;
 
+  /** Shouldn't be called on worker for now!
+   * TODO fix this */
+  std::vector<int> GetWorkerIds() override;
+
   /** Starts listening for a remote shutdown command (issued by the master).
    * Blocks the calling thread until that has finished. */
   void WaitForShutdown();

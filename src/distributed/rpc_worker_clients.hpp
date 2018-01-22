@@ -34,6 +34,8 @@ class RpcWorkerClients {
         .first->second;
   }
 
+  auto GetWorkerIds() { return coordination_.GetWorkerIds(); }
+
  private:
   communication::messaging::System &system_;
   // TODO make Coordination const, it's member GetEndpoint must be const too.
