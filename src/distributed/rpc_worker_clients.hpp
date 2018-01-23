@@ -56,8 +56,10 @@ class RpcWorkerClients {
     std::vector<std::future<TResult>> futures;
     for (auto &client : clients_) {
       if (client.first == skip_worker_id) continue;
+
       futures.emplace_back(
-          std::async(std::launch::async, execute(client.second)));
+          std::async(std::launch::async,
+                     [&execute, &client]() { return execute(client.second); }));
     }
     return futures;
   }
