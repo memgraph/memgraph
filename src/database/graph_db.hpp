@@ -14,8 +14,10 @@
 #include "utils/scheduler.hpp"
 
 namespace distributed {
-  class RemoteDataRpcServer;
-  class RemoteDataRpcClients;
+class RemoteDataRpcServer;
+class RemoteDataRpcClients;
+class PlanDispatcher;
+class PlanConsumer;
 }
 
 namespace database {
@@ -66,11 +68,7 @@ struct Config {
  */
 class GraphDb {
  public:
-   enum class Type {
-     SINGLE_NODE,
-     DISTRIBUTED_MASTER,
-     DISTRIBUTED_WORKER
-   };
+  enum class Type { SINGLE_NODE, DISTRIBUTED_MASTER, DISTRIBUTED_WORKER };
 
   GraphDb() {}
   virtual ~GraphDb() {}
@@ -90,6 +88,8 @@ class GraphDb {
   // Supported only in distributed master and worker, not in single-node.
   virtual distributed::RemoteDataRpcServer &remote_data_server() = 0;
   virtual distributed::RemoteDataRpcClients &remote_data_clients() = 0;
+  virtual distributed::PlanDispatcher &plan_dispatcher() = 0;
+  virtual distributed::PlanConsumer &plan_consumer() = 0;
 
   GraphDb(const GraphDb &) = delete;
   GraphDb(GraphDb &&) = delete;
@@ -119,6 +119,8 @@ class PublicBase : public GraphDb {
   int WorkerId() const override;
   distributed::RemoteDataRpcServer &remote_data_server() override;
   distributed::RemoteDataRpcClients &remote_data_clients() override;
+  distributed::PlanDispatcher &plan_dispatcher() override;
+  distributed::PlanConsumer &plan_consumer() override;
 
  protected:
   explicit PublicBase(std::unique_ptr<PrivateBase> impl);

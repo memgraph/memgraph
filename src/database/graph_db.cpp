@@ -83,6 +83,12 @@ class SingleNode : public PrivateBase {
   distributed::RemoteDataRpcClients &remote_data_clients() override {
     LOG(FATAL) << "Remote data clients not available in single-node.";
   }
+  distributed::PlanDispatcher &plan_dispatcher() override {
+    LOG(FATAL) << "Plan Dispatcher not available in single-node.";
+  }
+  distributed::PlanConsumer &plan_consumer() override {
+    LOG(FATAL) << "Plan Consumer not available in single-node.";
+  }
 };
 
 #define IMPL_DISTRIBUTED_GETTERS                                      \
@@ -101,6 +107,12 @@ class Master : public PrivateBase {
   }
   IMPL_GETTERS
   IMPL_DISTRIBUTED_GETTERS
+  distributed::PlanDispatcher &plan_dispatcher() override {
+    return plan_dispatcher_;
+  }
+  distributed::PlanConsumer &plan_consumer() override {
+    LOG(FATAL) << "Plan Consumer not available in single-node.";
+  }
 
   communication::messaging::System system_{config_.master_endpoint};
   tx::MasterEngine tx_engine_{system_, &wal_};
@@ -111,7 +123,7 @@ class Master : public PrivateBase {
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
   distributed::RemoteDataRpcClients remote_data_clients_{system_,
                                                          coordination_};
-  distributed::PlanDispatcher plan_dispatcher{system_, coordination_};
+  distributed::PlanDispatcher plan_dispatcher_{system_, coordination_};
 };
 
 class Worker : public PrivateBase {
@@ -125,6 +137,10 @@ class Worker : public PrivateBase {
   }
   IMPL_GETTERS
   IMPL_DISTRIBUTED_GETTERS
+  distributed::PlanConsumer &plan_consumer() override { return plan_consumer_; }
+  distributed::PlanDispatcher &plan_dispatcher() override {
+    LOG(FATAL) << "Plan Dispatcher not available in single-node.";
+  }
 
   communication::messaging::System system_{config_.worker_endpoint};
   distributed::WorkerCoordination coordination_{system_,
@@ -137,7 +153,7 @@ class Worker : public PrivateBase {
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
   distributed::RemoteDataRpcClients remote_data_clients_{system_,
                                                          coordination_};
-  distributed::PlanConsumer plan_consumer{system_};
+  distributed::PlanConsumer plan_consumer_{system_};
 };
 
 #undef IMPL_GETTERS
@@ -184,6 +200,12 @@ distributed::RemoteDataRpcServer &PublicBase::remote_data_server() {
 }
 distributed::RemoteDataRpcClients &PublicBase::remote_data_clients() {
   return impl_->remote_data_clients();
+}
+distributed::PlanDispatcher &PublicBase::plan_dispatcher() {
+  return impl_->plan_dispatcher();
+}
+distributed::PlanConsumer &PublicBase::plan_consumer() {
+  return impl_->plan_consumer();
 }
 
 void PublicBase::MakeSnapshot() {

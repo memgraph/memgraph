@@ -21,14 +21,6 @@ class PlanConsumer {
   PlanForId(int64_t plan_id);
 
  private:
-  /**
-   * Receives a plan and stores the given parameters in local cache. Returns
-   * true upon successful execution.
-   */
-  bool ConsumePlan(int64_t plan_id,
-                   std::shared_ptr<query::plan::LogicalOperator> plan,
-                   SymbolTable symbol_table);
-
   communication::rpc::Server server_;
   mutable ConcurrentMap<
       int64_t,

@@ -3,6 +3,7 @@
 #include "boost/serialization/export.hpp"
 
 #include "distributed/coordination_rpc_messages.hpp"
+#include "distributed/plan_rpc_messages.hpp"
 #include "distributed/remote_data_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
@@ -42,3 +43,7 @@ BOOST_CLASS_EXPORT(distributed::RemoteEdgeRes);
 BOOST_CLASS_EXPORT(distributed::RemoteVertexReq);
 BOOST_CLASS_EXPORT(distributed::RemoteVertexRes);
 BOOST_CLASS_EXPORT(distributed::TxGidPair);
+
+// Distributed plan exchange.
+BOOST_CLASS_EXPORT(distributed::DispatchPlanReq);
+BOOST_CLASS_EXPORT(distributed::ConsumePlanRes);
