@@ -54,12 +54,13 @@ class RpcWorkerClients {
       int skip_worker_id,
       std::function<TResult(communication::rpc::Client &)> execute) {
     std::vector<std::future<TResult>> futures;
-    for (auto &client : clients_) {
-      if (client.first == skip_worker_id) continue;
+    for (auto &worker_id : coordination_.GetWorkerIds()) {
+      if (worker_id == skip_worker_id) continue;
+      auto &client = GetClient(worker_id);
 
       futures.emplace_back(
           std::async(std::launch::async,
-                     [&execute, &client]() { return execute(client.second); }));
+                     [&execute, &client]() { return execute(client); }));
     }
     return futures;
   }
