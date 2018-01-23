@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#
-# Example usage:
-# ./plot_througput --vendor-references neo4j memgraph           \
-#                  --vendor-titles neo4j memgraph               \
-#                  --results neo_to_plot memgraph_to_plot       \
-#                  --plot-title "Pokec small" --window-size 10
+
+'''
+Example usage:
+./pokec_throughput --vendor-references neo4j memgraph           \
+                   --vendor-titles Neo4j Memgraph               \
+                   --results neo_to_plot memgraph_to_plot       \
+                   --plot-title "Pokec small" --window-size 10
+'''
 
 
 import json
-import os
 import matplotlib.pyplot as plt
-from matplotlib.cbook import get_sample_data
 from argparse import ArgumentParser
 
 COLORS = {
@@ -57,29 +57,25 @@ def main():
     ax.set_ylabel('Throughput (queries per second)')
     ax.set_xlabel('Time (seconds)')
     ax.set_title(args.plot_title)
-    ax.set_aspect(0.01)
 
     # Collect the benchmark data and plot lines.
     print("Pokec throughput")
     for vendor_reference, vendor_data in vendors.items():
         print("Vendor: %s" % vendor_reference)
         with open(vendor_data['results_path']) as results_file:
+            results = json.load(results_file)['results'][0]
             # Skip first line which contains titles.
-            prev_time, prev_num_queries  = 0.0, 0
-            for line in results_file.readlines()[1:]:
-                data = line.split()
-                if data == []: break
-                assert len(data) == 2, "Invalid data"
-                vendor_data['t'].append(float(data[0]))
-                vendor_data['q'].append(int(data[1]))
+            for measurement in results:
+                vendor_data['t'].append(float(measurement['time']))
+                vendor_data['q'].append(int(measurement['value']))
             for i in range(1, len(vendor_data['t'])):
                 j = max(0, i - args.window_size)
                 vendor_data['dq/dt'].append(
                         (vendor_data['q'][i] - vendor_data['q'][j]) /
                         (vendor_data['t'][i] - vendor_data['t'][j]))
-
-        line1, = ax.plot(vendor_data['t'], vendor_data['dq/dt'], '-', linewidth=2,
-                         label=vendor_data['title'], color=vendor_data['color'])
+        line1, = ax.plot(vendor_data['t'], vendor_data['dq/dt'], '-',
+                         linewidth=2, label=vendor_data['title'],
+                         color=vendor_data['color'])
 
     ax.legend(loc='lower right')
     plt.grid()

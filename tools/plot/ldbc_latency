@@ -20,7 +20,7 @@ from matplotlib.cbook import get_sample_data
 
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-COLORS = ['#ff7300', '#008cc2']  # TODO: add more colors!
+COLORS = ['#ff7300', '#008cc2']
 LDBC_TIME_FACTORS = {
     "SECONDS": 1.0,
     "MILLISECONDS": 1000.0,

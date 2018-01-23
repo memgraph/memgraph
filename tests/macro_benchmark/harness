@@ -259,6 +259,13 @@ def main():
     with open(get_absolute_path(".harness_summary"), "w") as f:
         json.dump({"results": results, "headers": suite.headers}, f)
 
+    # The if block is here because the results from all suites
+    # aren't compatible with the export below.
+    if type(suite) not in [QuerySuite, QueryParallelSuite]:
+        log.warning("The results from the suite "
+                    "aren't compatible with the apollo measurements export.")
+        return
+
     # Export data points.
     with open(get_absolute_path(".apollo_measurements"), "w") as f:
         headers = list(suite.headers)

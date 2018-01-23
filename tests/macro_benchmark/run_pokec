@@ -1,0 +1,22 @@
+#!/bin/bash -e
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Run pokec bench (download dataset, run neo and memgraph, plot the results).
+
+cd ${script_dir}
+mkdir -p .results/pokec/
+
+${script_dir}/groups/pokec/download_dataset
+
+./harness LongRunningSuite MemgraphRunner --groups pokec
+mv .harness_summary ${script_dir}/.results/pokec/memgraph.summary
+
+./harness LongRunningSuite NeoRunner --groups pokec
+mv .harness_summary ${script_dir}/.results/pokec/neo4j.summary
+
+../../tools/plot/pokec_throughput \
+    --vendor-references neo4j memgraph \
+    --vendor-titles Neo4j Memgraph \
+    --results ${script_dir}/.results/pokec/neo4j.summary ${script_dir}/.results/pokec/memgraph.summary \
+    --plot-title "Pokec Small" --window-size 1

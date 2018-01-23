@@ -1,11 +1,5 @@
 import logging
-import os
-import time
-import itertools
-import json
 from argparse import ArgumentParser
-from collections import defaultdict
-from statistics import median
 from common import get_absolute_path, APOLLO
 from databases import Memgraph, Neo
 from clients import QueryClient, LongRunningClient
@@ -15,6 +9,7 @@ log = logging.getLogger(__name__)
 
 class LongRunningSuite:
     KNOWN_KEYS = {"config", "setup", "run"}
+    headers = ["elapsed_time", "num_executed_queries"]
 
     def __init__(self, args):
         argp = ArgumentParser("LongRunningSuiteArgumentParser")
@@ -45,17 +40,17 @@ class LongRunningSuite:
         for result in results:
             self.summary += summary_format.format(
                     result["elapsed_time"], result["num_executed_queries"])
-            # TODO: Revise this.
             measurements.append({
                 "target": "throughput",
-                "value": result["num_executed_queries"] / result["elapsed_time"],
-                "unit": "queries per second",
+                "time": result["elapsed_time"],
+                "value": result["num_executed_queries"],
+                "unit": "number of executed queries",
                 "type": "throughput"})
         self.summary += "\n\nThroughtput: " + str(measurements[-1]["value"])
         return measurements
 
     def runners(self):
-        return { "MemgraphRunner" : MemgraphRunner, "NeoRunner" : NeoRunner }
+        return {"MemgraphRunner": MemgraphRunner, "NeoRunner": NeoRunner}
 
     def groups(self):
         return ["pokec"]
@@ -100,9 +95,9 @@ class MemgraphRunner(_LongRunningRunner):
                           help="Number of clients")
         self.args, remaining_args = argp.parse_known_args(args)
         assert not APOLLO or self.args.num_database_workers, \
-                "--num-database-workers is obligatory flag on apollo"
+            "--num-database-workers is obligatory flag on apollo"
         assert not APOLLO or self.args.num_client_workers, \
-                "--num-client-workers is obligatory flag on apollo"
+            "--num-client-workers is obligatory flag on apollo"
         database = Memgraph(remaining_args, self.args.runner_config,
                             self.args.num_database_workers)
         super(MemgraphRunner, self).__init__(
@@ -122,7 +117,7 @@ class NeoRunner(_LongRunningRunner):
                           help="Number of clients")
         self.args, remaining_args = argp.parse_known_args(args)
         assert not APOLLO or self.args.num_client_workers, \
-                "--client-num-clients is obligatory flag on apollo"
+            "--client-num-clients is obligatory flag on apollo"
         database = Neo(remaining_args, self.args.runner_config)
         super(NeoRunner, self).__init__(
                 remaining_args, database, self.args.num_client_workers)

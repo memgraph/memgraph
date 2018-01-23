@@ -3,7 +3,4 @@
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd ${working_dir}
 
-cd pokec
 wget -nv -O pokec_small.setup.cypher http://deps.memgraph.io/pokec_small.setup.cypher
-wget -nv -O pokec_medium.setup.cypher http://deps.memgraph.io/pokec_medium.setup.cypher
-cd ..
