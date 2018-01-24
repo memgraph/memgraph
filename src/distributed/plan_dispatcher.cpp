@@ -15,6 +15,10 @@ void PlanDispatcher::DispatchPlan(
             client.Call<DistributedPlanRpc>(300ms, plan_id, plan, symbol_table);
         CHECK(result) << "Failed to dispatch plan to worker";
       });
+
+  for (auto &future : futures) {
+    future.wait();
+  }
 }
 
 }  // namespace distributed

@@ -58,9 +58,9 @@ class RpcWorkerClients {
       if (worker_id == skip_worker_id) continue;
       auto &client = GetClient(worker_id);
 
-      futures.emplace_back(
-          std::async(std::launch::async,
-                     [&execute, &client]() { return execute(client); }));
+      futures.emplace_back(std::async(std::launch::async, [execute, &client]() {
+        return execute(client);
+      }));
     }
     return futures;
   }

@@ -8,9 +8,12 @@
 #include "distributed/coordination.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
+#include "distributed/plan_consumer.hpp"
+#include "distributed/plan_dispatcher.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "distributed/remote_data_rpc_server.hpp"
 #include "io/network/endpoint.hpp"
+#include "query_plan_common.hpp"
 #include "transactions/engine_master.hpp"
 
 template <typename T>
@@ -199,5 +202,32 @@ TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
     EXPECT_EQ(e1_in_w2.to(), v2_in_w2);
     EXPECT_EQ(e1_in_w2.EdgeType(), w2_dba.EdgeType("et"));
     EXPECT_EQ(e1_in_w2.PropsAt(w2_dba.Property("p3")).Value<bool>(), true);
+  }
+}
+
+TEST_F(DistributedGraphDbTest, DispatchPlan) {
+  auto kRPCWaitTime = 600ms;
+  int64_t plan_id = 5;
+  SymbolTable symbol_table;
+  AstTreeStorage storage;
+
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
+
+  master().plan_dispatcher().DispatchPlan(plan_id, scan_all.op_, symbol_table);
+  std::this_thread::sleep_for(kRPCWaitTime);
+
+  {
+    auto cached = worker1().plan_consumer().PlanForId(plan_id);
+    EXPECT_NE(dynamic_cast<query::plan::ScanAll *>(cached.first.get()),
+              nullptr);
+    EXPECT_EQ(cached.second.max_position(), symbol_table.max_position());
+    EXPECT_EQ(cached.second.table(), symbol_table.table());
+  }
+  {
+    auto cached = worker2().plan_consumer().PlanForId(plan_id);
+    EXPECT_NE(dynamic_cast<query::plan::ScanAll *>(cached.first.get()),
+              nullptr);
+    EXPECT_EQ(cached.second.max_position(), symbol_table.max_position());
+    EXPECT_EQ(cached.second.table(), symbol_table.table());
   }
 }
