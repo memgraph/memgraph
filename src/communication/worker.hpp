@@ -188,7 +188,7 @@ class Worker {
 
   SpinLock lock_;
   TSessionData &session_data_;
-  io::network::SocketEventDispatcher<SessionSocketListener> dispatcher_;
   std::vector<std::unique_ptr<SessionSocketListener>> session_listeners_;
+  io::network::SocketEventDispatcher<SessionSocketListener> dispatcher_{session_listeners_};
 };
 }  // namespace communication

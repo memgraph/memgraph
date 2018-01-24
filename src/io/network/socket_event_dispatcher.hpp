@@ -15,7 +15,9 @@ namespace io::network {
 template <class Listener>
 class SocketEventDispatcher {
  public:
-  explicit SocketEventDispatcher(uint32_t flags = 0) : epoll_(flags) {}
+  explicit SocketEventDispatcher(
+      std::vector<std::unique_ptr<Listener>> &listeners, uint32_t flags = 0)
+      : epoll_(flags), listeners_(listeners) {}
 
   void AddListener(int fd, Listener &listener, uint32_t events) {
     // Add the listener associated to fd file descriptor to epoll.
@@ -36,7 +38,15 @@ class SocketEventDispatcher {
     // Go through all events and process them in order.
     for (int i = 0; i < n; ++i) {
       auto &event = events_[i];
-      Listener &listener = *reinterpret_cast<Listener *>(event.data.ptr);
+      Listener *listener = reinterpret_cast<Listener *>(event.data.ptr);
+
+      // Check if the listener that we got in the epoll event still exists
+      // because it might have been deleted in a previous call.
+      auto it =
+          std::find_if(listeners_.begin(), listeners_.end(),
+                       [&](const auto &l) { return l.get() == listener; });
+      // If the listener doesn't exist anymore just ignore the event.
+      if (it == listeners_.end()) continue;
 
       // Even though it is possible for multiple events to be reported we handle
       // only one of them. Since we use epoll in level triggered mode
@@ -49,23 +59,23 @@ class SocketEventDispatcher {
       try {
         if (event.events & EPOLLIN) {
           // We have some data waiting to be read.
-          listener.OnData();
+          listener->OnData();
           continue;
         }
 
         if (event.events & EPOLLRDHUP) {
-          listener.OnClose();
+          listener->OnClose();
           continue;
         }
 
         // There was an error on the server side.
         if (!(event.events & EPOLLIN) || event.events & (EPOLLHUP | EPOLLERR)) {
-          listener.OnError();
+          listener->OnError();
           continue;
         }
 
       } catch (const std::exception &e) {
-        listener.OnException(e);
+        listener->OnException(e);
       }
     }
 
@@ -79,6 +89,7 @@ class SocketEventDispatcher {
   // socket).
   Epoll epoll_;
   Epoll::Event events_[kMaxEvents];
+  std::vector<std::unique_ptr<Listener>> &listeners_;
 };
 
 }  // namespace io::network

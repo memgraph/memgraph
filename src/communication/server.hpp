@@ -73,8 +73,10 @@ class Server {
                                socket_.endpoint().port())
                 << std::endl;
 
-      io::network::SocketEventDispatcher<ConnectionAcceptor> dispatcher;
-      ConnectionAcceptor acceptor(socket_, *this);
+      std::vector<std::unique_ptr<ConnectionAcceptor>> acceptors;
+      acceptors.emplace_back(std::make_unique<ConnectionAcceptor>(socket_, *this));
+      auto &acceptor = *acceptors.back().get();
+      io::network::SocketEventDispatcher<ConnectionAcceptor> dispatcher{acceptors};
       dispatcher.AddListener(socket_.fd(), acceptor, EPOLLIN);
       while (alive_) {
         dispatcher.WaitAndProcessEvents();

@@ -55,7 +55,13 @@ StreamBuffer Session::Allocate() { return buffer_.Allocate(); }
 
 void Session::Written(size_t len) { buffer_.Written(len); }
 
-void Session::Close() { DLOG(INFO) << "Closing session"; }
+void Session::Close() {
+  DLOG(INFO) << "Closing session";
+  // We explicitly close the socket here to remove the socket from the epoll
+  // event loop. The response message send will fail but that is OK and
+  // intended because the remote side closed the connection.
+  socket_.get()->Close();
+}
 
 bool SendLength(Socket &socket, MessageSize length) {
   return socket.Write(reinterpret_cast<uint8_t *>(&length),
