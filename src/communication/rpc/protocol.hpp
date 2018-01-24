@@ -2,42 +2,34 @@
 
 #include <chrono>
 #include <cstdint>
+#include <memory>
 
 #include "communication/bolt/v1/decoder/buffer.hpp"
-#include "communication/messaging/local.hpp"
+#include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
-#include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
 
 /**
  * @brief Protocol
  *
- * Has classes and functions that implement server and client sides of our
- * messaging protocol.
+ * Has classes and functions that implement the server side of our
+ * RPC protocol.
  *
- * Message layout: SizeT channel_size, channel_size characters channel,
- *                 SizeT message_size, message_size bytes serialized_message
+ * Handshake layout: MessageSize service_size, service_size characters service
+ *
+ * Message layout: uint32_t message_id, MessageSize message_size,
+ *                 message_size bytes serialized_message
  */
-namespace communication::messaging {
-
-class Message;
+namespace communication::rpc {
 
 using Endpoint = io::network::Endpoint;
 using Socket = io::network::Socket;
 using StreamBuffer = io::network::StreamBuffer;
-
-// This buffer should be larger than the largest serialized message.
-const int64_t kMaxMessageSize = 262144;
 using Buffer = bolt::Buffer<kMaxMessageSize>;
-using SizeT = uint16_t;
 
-/**
- * Distributed Protocol Data
- */
-struct SessionData {
-  LocalSystem system;
-};
+// Forward declaration of class System
+class System;
 
 /**
  * Distributed Protocol Session
@@ -46,9 +38,9 @@ struct SessionData {
  */
 class Session {
  public:
-  Session(Socket &&socket, SessionData &data);
+  Session(Socket &&socket, System &system);
 
-  int Id() const { return socket_.fd(); }
+  int Id() const { return socket_->fd(); }
 
   /**
    * Returns the protocol alive state
@@ -85,22 +77,31 @@ class Session {
    */
   void Close();
 
-  Socket socket_;
-  LocalSystem &system_;
+  Socket &socket() { return *socket_; }
 
-  std::chrono::time_point<std::chrono::steady_clock> last_event_time_;
+  void RefreshLastEventTime(
+      const std::chrono::time_point<std::chrono::steady_clock>
+          &last_event_time) {
+    last_event_time_ = last_event_time;
+  }
 
  private:
-  SizeT GetLength(int offset = 0);
-  std::string GetStringAndShift(SizeT len);
+  std::shared_ptr<Socket> socket_;
+  std::chrono::time_point<std::chrono::steady_clock> last_event_time_ =
+      std::chrono::steady_clock::now();
+  System &system_;
+
+  std::string service_name_;
+  bool handshake_done_{false};
 
   bool alive_{true};
   Buffer buffer_;
 };
 
 /**
- * Distributed Protocol Send Message
+ * Distributed Protocol Server Send Message
  */
-void SendMessage(const Endpoint &endpoint, const std::string &channel,
-                 std::unique_ptr<Message> message);
-}  // namespace communication::messaging
+void SendMessage(Socket &socket, uint32_t message_id,
+                 std::unique_ptr<Message> &message);
+
+}  // namespace communication::rpc

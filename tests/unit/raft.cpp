@@ -18,11 +18,11 @@ using namespace communication::raft::test_utils;
 using communication::raft::impl::RaftMemberImpl;
 using communication::raft::impl::RaftMode;
 
-const RaftConfig test_config1{{"a"}, 150ms, 300ms, 70ms, 60ms, 30ms};
-const RaftConfig test_config2{{"a", "b"}, 150ms, 300ms, 70ms, 60ms, 30ms};
-const RaftConfig test_config3{{"a", "b", "c"}, 150ms, 300ms, 70ms, 60ms, 30ms};
+const RaftConfig test_config1{{"a"}, 150ms, 300ms, 70ms, 30ms};
+const RaftConfig test_config2{{"a", "b"}, 150ms, 300ms, 70ms, 30ms};
+const RaftConfig test_config3{{"a", "b", "c"}, 150ms, 300ms, 70ms, 30ms};
 const RaftConfig test_config5{
-    {"a", "b", "c", "d", "e"}, 150ms, 300ms, 70ms, 30ms, 30ms};
+    {"a", "b", "c", "d", "e"}, 150ms, 300ms, 70ms, 30ms};
 
 class RaftMemberImplTest : public ::testing::Test {
  public:

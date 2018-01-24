@@ -6,7 +6,6 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/session.hpp"
-#include "communication/messaging/distributed.hpp"
 #include "communication/server.hpp"
 #include "config.hpp"
 #include "database/graph_db.hpp"

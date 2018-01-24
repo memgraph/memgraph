@@ -1,7 +1,6 @@
 #pragma once
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/client.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
@@ -18,8 +17,7 @@ class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId> {
   std::string RpcIdToValue(TId id);
 
  public:
-  WorkerConcurrentIdMapper(communication::messaging::System &system,
-                           const io::network::Endpoint &master_endpoint);
+  WorkerConcurrentIdMapper(const io::network::Endpoint &master_endpoint);
 
   TId value_to_id(const std::string &value) override;
   const std::string &id_to_value(const TId &id) override;

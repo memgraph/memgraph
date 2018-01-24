@@ -81,28 +81,4 @@ class SocketEventDispatcher {
   Epoll::Event events_[kMaxEvents];
 };
 
-/**
- * Implements Listener concept, suitable for inheritance.
- */
-class BaseListener {
- public:
-  explicit BaseListener(Socket &socket) : socket_(socket) {}
-
-  void OnClose() { socket_.Close(); }
-
-  // If server is listening on socket and there is incoming connection OnData
-  // event will be triggered.
-  void OnData() {}
-
-  void OnException(const std::exception &e) {
-    LOG(FATAL) << "Exception was thrown while processing event on socket "
-               << socket_.fd() << " with message: " << e.what();
-  }
-
-  void OnError() { LOG(FATAL) << "Error on server side occured in epoll"; }
-
- protected:
-  Socket &socket_;
-};
-
 }  // namespace io::network

@@ -84,25 +84,23 @@ class Worker {
  private:
   // TODO: Think about ownership. Who should own socket session,
   // SessionSocketListener or Worker?
-  class SessionSocketListener : public io::network::BaseListener {
+  class SessionSocketListener {
    public:
     SessionSocketListener(Socket &&socket,
                           Worker<TSession, TSessionData> &worker)
-        : BaseListener(session_.socket_),
-          session_(std::move(socket), worker.session_data_),
-          worker_(worker) {}
+        : session_(std::move(socket), worker.session_data_), worker_(worker) {}
 
     auto &session() { return session_; }
     const auto &session() const { return session_; }
     const auto &TimedOut() const { return session_.TimedOut(); }
 
     void OnData() {
-      session_.last_event_time_ = std::chrono::steady_clock::now();
+      session_.RefreshLastEventTime(std::chrono::steady_clock::now());
       DLOG(INFO) << "On data";
       // allocate the buffer to fill the data
       auto buf = session_.Allocate();
       // read from the buffer at most buf.len bytes
-      int len = session_.socket_.Read(buf.data, buf.len);
+      int len = session_.socket().Read(buf.data, buf.len);
 
       // check for read errors
       if (len == -1) {
@@ -131,15 +129,15 @@ class Worker {
                    << e.what();
         OnError();
       }
-      session_.last_event_time_ = std::chrono::steady_clock::now();
+      session_.RefreshLastEventTime(std::chrono::steady_clock::now());
     }
 
     // TODO: Remove duplication in next three functions.
     void OnError() {
       LOG(ERROR) << fmt::format(
           "Error occured in session associated with {}:{}",
-          session_.socket_.endpoint().address(),
-          session_.socket_.endpoint().port());
+          session_.socket().endpoint().address(),
+          session_.socket().endpoint().port());
       CloseSession();
     }
 
@@ -147,24 +145,24 @@ class Worker {
       LOG(ERROR) << fmt::format(
           "Exception was thrown while processing event in session associated "
           "with {}:{} with message: {}",
-          session_.socket_.endpoint().address(),
-          session_.socket_.endpoint().port(), e.what());
+          session_.socket().endpoint().address(),
+          session_.socket().endpoint().port(), e.what());
       CloseSession();
     }
 
     void OnSessionAndTxTimeout() {
       LOG(WARNING) << fmt::format(
           "Session or transaction associated with {}:{} timed out.",
-          session_.socket_.endpoint().address(),
-          session_.socket_.endpoint().port());
+          session_.socket().endpoint().address(),
+          session_.socket().endpoint().port());
       // TODO: report to client what happend.
       CloseSession();
     }
 
     void OnClose() {
       LOG(INFO) << fmt::format("Client {}:{} closed the connection.",
-                               session_.socket_.endpoint().address(),
-                               session_.socket_.endpoint().port());
+                               session_.socket().endpoint().address(),
+                               session_.socket().endpoint().port());
       CloseSession();
     }
 

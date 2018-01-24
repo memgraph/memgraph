@@ -8,7 +8,6 @@
 namespace database {
 
 const std::string kCountersRpc = "CountersRpc";
-const auto kCountersRpcTimeout = 300ms;
 
 RPC_SINGLE_MEMBER_MESSAGE(CountersGetReq, std::string);
 RPC_SINGLE_MEMBER_MESSAGE(CountersGetRes, int64_t);
@@ -33,7 +32,7 @@ void SingleNodeCounters::Set(const std::string &name, int64_t value) {
   if (!name_counter_pair.second) name_counter_pair.first->second.store(value);
 }
 
-MasterCounters::MasterCounters(communication::messaging::System &system)
+MasterCounters::MasterCounters(communication::rpc::System &system)
     : rpc_server_(system, kCountersRpc) {
   rpc_server_.Register<CountersGetRpc>([this](const CountersGetReq &req) {
     return std::make_unique<CountersGetRes>(Get(req.member));
@@ -44,20 +43,18 @@ MasterCounters::MasterCounters(communication::messaging::System &system)
   });
 }
 
-WorkerCounters::WorkerCounters(
-    communication::messaging::System &system,
-    const io::network::Endpoint &master_endpoint)
-    : rpc_client_(system, master_endpoint, kCountersRpc) {}
+WorkerCounters::WorkerCounters(const io::network::Endpoint &master_endpoint)
+    : rpc_client_(master_endpoint, kCountersRpc) {}
 
 int64_t WorkerCounters::Get(const std::string &name) {
-  auto response = rpc_client_.Call<CountersGetRpc>(kCountersRpcTimeout, name);
+  auto response = rpc_client_.Call<CountersGetRpc>(name);
   CHECK(response) << "CountersGetRpc - failed to get response from master";
   return response->member;
 }
 
 void WorkerCounters::Set(const std::string &name, int64_t value) {
-  auto response = rpc_client_.Call<CountersSetRpc>(
-      kCountersRpcTimeout, CountersSetReqData{name, value});
+  auto response =
+      rpc_client_.Call<CountersSetRpc>(CountersSetReqData{name, value});
   CHECK(response) << "CountersSetRpc - failed to get response from master";
 }
 

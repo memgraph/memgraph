@@ -5,14 +5,11 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/server.hpp"
 #include "messages.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/terminate_handler.hpp"
 
-using communication::messaging::Message;
-using communication::messaging::System;
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 

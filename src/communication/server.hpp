@@ -45,8 +45,8 @@ class Server {
    * Constructs and binds server to endpoint, operates on session data and
    * invokes n workers
    */
-  Server(const io::network::Endpoint &endpoint,
-         TSessionData &session_data, size_t n)
+  Server(const io::network::Endpoint &endpoint, TSessionData &session_data,
+         size_t n)
       : session_data_(session_data) {
     // Without server we can't continue with application so we can just
     // terminate here.
@@ -107,10 +107,10 @@ class Server {
   }
 
  private:
-  class ConnectionAcceptor : public io::network::BaseListener {
+  class ConnectionAcceptor {
    public:
     ConnectionAcceptor(Socket &socket, Server<TSession, TSessionData> &server)
-        : io::network::BaseListener(socket), server_(server) {}
+        : socket_(socket), server_(server) {}
 
     void OnData() {
       DCHECK(server_.idx_ < server_.workers_.size()) << "Invalid worker id.";
@@ -123,6 +123,15 @@ class Server {
       server_.workers_[server_.idx_]->AddConnection(std::move(*connection));
       server_.idx_ = (server_.idx_ + 1) % server_.workers_.size();
     }
+
+    void OnClose() { socket_.Close(); }
+
+    void OnException(const std::exception &e) {
+      LOG(FATAL) << "Exception was thrown while processing event on socket "
+                 << socket_.fd() << " with message: " << e.what();
+    }
+
+    void OnError() { LOG(FATAL) << "Error on server side occured in epoll"; }
 
    private:
     // Accepts connection on socket_ and configures new connections. If done
@@ -145,6 +154,7 @@ class Server {
       return s;
     }
 
+    Socket &socket_;
     Server<TSession, TSessionData> &server_;
   };
 

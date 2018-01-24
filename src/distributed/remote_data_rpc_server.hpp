@@ -2,8 +2,7 @@
 
 #include <memory>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/server.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/remote_data_rpc_messages.hpp"
@@ -18,7 +17,7 @@ class RemoteDataRpcServer {
   // invalidation.
  public:
   RemoteDataRpcServer(database::GraphDb &db,
-                      communication::messaging::System &system)
+                      communication::rpc::System &system)
       : db_(db), system_(system) {
     rpc_server_.Register<RemoteVertexRpc>([this](const RemoteVertexReq &req) {
       database::GraphDbAccessor dba(db_, req.member.tx_id);
@@ -38,7 +37,7 @@ class RemoteDataRpcServer {
 
  private:
   database::GraphDb &db_;
-  communication::messaging::System &system_;
+  communication::rpc::System &system_;
   communication::rpc::Server rpc_server_{system_, kRemoteDataRpcName};
 };
 }  // namespace distributed

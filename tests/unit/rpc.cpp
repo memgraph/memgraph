@@ -10,12 +10,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/client.hpp"
+#include "communication/rpc/messages.hpp"
+#include "communication/rpc/server.hpp"
 #include "gtest/gtest.h"
 
-using communication::messaging::Message;
-using communication::messaging::System;
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 
@@ -62,12 +61,12 @@ TEST(Rpc, Call) {
   });
   std::this_thread::sleep_for(100ms);
 
-  System client_system({"127.0.0.1", 0});
-  Client client(client_system, server_system.endpoint(), "main");
-  auto sum = client.Call<Sum>(300ms, 10, 20);
+  Client client(server_system.endpoint(), "main");
+  auto sum = client.Call<Sum>(10, 20);
   EXPECT_EQ(sum->sum, 30);
 }
 
+/* TODO (mferencevic): enable when async calls are implemented!
 TEST(Rpc, Timeout) {
   System server_system({"127.0.0.1", 0});
   Server server(server_system, "main");
@@ -77,8 +76,8 @@ TEST(Rpc, Timeout) {
   });
   std::this_thread::sleep_for(100ms);
 
-  System client_system({"127.0.0.1", 0});
-  Client client(client_system, server_system.endpoint(), "main");
+  Client client(server_system.endpoint(), "main");
   auto sum = client.Call<Sum>(100ms, 10, 20);
   EXPECT_FALSE(sum);
 }
+*/

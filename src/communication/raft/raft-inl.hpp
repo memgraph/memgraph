@@ -273,8 +273,7 @@ void RaftMemberImpl<State>::RequestVote(const std::string &peer_id,
   /* Release lock before issuing RPC and waiting for response. */
   /* TODO(mtomic): Revise how this will work with RPC cancellation. */
   lock.unlock();
-  bool ok =
-      network_.SendRequestVote(peer_id, request, reply, config_.rpc_timeout);
+  bool ok = network_.SendRequestVote(peer_id, request, reply);
   lock.lock();
 
   /* TODO(mtomic): Maybe implement exponential backoff. */
@@ -377,8 +376,7 @@ void RaftMemberImpl<State>::AppendEntries(const std::string &peer_id,
   /* Release lock before issuing RPC and waiting for response. */
   /* TODO(mtomic): Revise how this will work with RPC cancellation. */
   lock.unlock();
-  bool ok =
-      network_.SendAppendEntries(peer_id, request, reply, config_.rpc_timeout);
+  bool ok = network_.SendAppendEntries(peer_id, request, reply);
   lock.lock();
 
   /* TODO(mtomic): Maybe implement exponential backoff. */

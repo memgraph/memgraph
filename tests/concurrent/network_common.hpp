@@ -58,6 +58,14 @@ class TestSession {
     this->socket_.Close();
   }
 
+  Socket &socket() { return socket_; }
+
+  void RefreshLastEventTime(
+      const std::chrono::time_point<std::chrono::steady_clock>
+          &last_event_time) {
+    last_event_time_ = last_event_time;
+  }
+
   communication::bolt::Buffer<SIZE * 2> buffer_;
   Socket socket_;
   io::network::Epoll::Event event_;

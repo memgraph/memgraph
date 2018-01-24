@@ -3,7 +3,6 @@
 
 #include "gtest/gtest.h"
 
-#include "communication/messaging/distributed.hpp"
 #include "database/graph_db.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/coordination_master.hpp"
@@ -104,7 +103,7 @@ TEST_F(DistributedGraphDbTest, TxEngine) {
   EXPECT_EQ(worker2().tx_engine().RunningTransaction(tx2->id_)->snapshot(),
             tx2->snapshot());
 
-  ::testing::FLAGS_gtest_death_test_style = "fast";
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
   EXPECT_DEATH(worker2().tx_engine().RunningTransaction(123), "");
 }
 

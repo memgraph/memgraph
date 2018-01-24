@@ -6,21 +6,16 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "messages.hpp"
 #include "utils/network.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/terminate_handler.hpp"
 
-using communication::messaging::Message;
-using communication::messaging::System;
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 
-DEFINE_string(interface, "127.0.0.1", "Client system interface.");
-DEFINE_int32(port, 8020, "Client system port.");
 DEFINE_string(server_interface, "127.0.0.1",
               "Server interface on which to communicate.");
 DEFINE_int32(server_port, 8010, "Server port on which to communicate.");
@@ -34,9 +29,7 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   // Initialize client.
-  System client_system(io::network::Endpoint(FLAGS_interface, FLAGS_port));
   Client client(
-      client_system,
       io::network::Endpoint(utils::ResolveHostname(FLAGS_server_interface),
                             FLAGS_server_port),
       "main");
@@ -47,7 +40,7 @@ int main(int argc, char **argv) {
   // in correct order.
   for (int i = 1; i <= 100; ++i) {
     LOG(INFO) << fmt::format("Apennding value: {}", i);
-    auto result_tuple = client.Call<AppendEntry>(300ms, i);
+    auto result_tuple = client.Call<AppendEntry>(i);
     if (!result_tuple) {
       LOG(INFO) << "Request unsuccessful";
       // Try to resend value

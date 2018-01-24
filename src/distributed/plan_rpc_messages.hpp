@@ -3,18 +3,16 @@
 #include "boost/serialization/access.hpp"
 #include "boost/serialization/base_object.hpp"
 
-#include "communication/messaging/local.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/messages.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
-#include "utils/rpc_pimp.hpp"
 
 namespace distributed {
 
 const std::string kDistributedPlanServerName = "DistributedPlanRpc";
 
-using communication::messaging::Message;
+using communication::rpc::Message;
 using SymbolTable = query::SymbolTable;
 using AstTreeStorage = query::AstTreeStorage;
 

@@ -2,7 +2,7 @@
 
 #include "gtest/gtest.h"
 
-#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/server.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_worker.hpp"
 #include "storage/types.hpp"
@@ -12,16 +12,15 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
   const std::string kLocal{"127.0.0.1"};
 
  protected:
-  communication::messaging::System master_system_{{kLocal, 0}};
+  communication::rpc::System master_system_{{kLocal, 0}};
   std::experimental::optional<storage::MasterConcurrentIdMapper<TId>>
       master_mapper_;
-  communication::messaging::System worker_system_{{kLocal, 0}};
   std::experimental::optional<storage::WorkerConcurrentIdMapper<TId>>
       worker_mapper_;
 
   void SetUp() override {
     master_mapper_.emplace(master_system_);
-    worker_mapper_.emplace(worker_system_, master_system_.endpoint());
+    worker_mapper_.emplace(master_system_.endpoint());
   }
   void TearDown() override {
     worker_mapper_ = std::experimental::nullopt;

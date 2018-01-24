@@ -1,6 +1,6 @@
 #include "glog/logging.h"
 
-#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/server.hpp"
 #include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
@@ -114,16 +114,15 @@ class Master : public PrivateBase {
     LOG(FATAL) << "Plan Consumer not available in single-node.";
   }
 
-  communication::messaging::System system_{config_.master_endpoint};
+  communication::rpc::System system_{config_.master_endpoint};
   tx::MasterEngine tx_engine_{system_, &wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   distributed::MasterCoordination coordination_{system_};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{system_};
   database::MasterCounters counters_{system_};
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
-  distributed::RemoteDataRpcClients remote_data_clients_{system_,
-                                                         coordination_};
-  distributed::PlanDispatcher plan_dispatcher_{system_, coordination_};
+  distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
+  distributed::PlanDispatcher plan_dispatcher_{coordination_};
 };
 
 class Worker : public PrivateBase {
@@ -142,17 +141,15 @@ class Worker : public PrivateBase {
     LOG(FATAL) << "Plan Dispatcher not available in single-node.";
   }
 
-  communication::messaging::System system_{config_.worker_endpoint};
+  communication::rpc::System system_{config_.worker_endpoint};
   distributed::WorkerCoordination coordination_{system_,
                                                 config_.master_endpoint};
-  tx::WorkerEngine tx_engine_{system_, config_.master_endpoint};
+  tx::WorkerEngine tx_engine_{config_.master_endpoint};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
-  TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{system_,
-                                                      config_.master_endpoint};
-  database::WorkerCounters counters_{system_, config_.master_endpoint};
+  TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{config_.master_endpoint};
+  database::WorkerCounters counters_{config_.master_endpoint};
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
-  distributed::RemoteDataRpcClients remote_data_clients_{system_,
-                                                         coordination_};
+  distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
   distributed::PlanConsumer plan_consumer_{system_};
 };
 

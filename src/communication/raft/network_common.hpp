@@ -3,7 +3,7 @@
 #include "boost/serialization/access.hpp"
 #include "boost/serialization/base_object.hpp"
 
-#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/messages.hpp"
 #include "communication/raft/raft.hpp"
 
 namespace communication::raft {
@@ -11,7 +11,7 @@ namespace communication::raft {
 enum class RpcType { REQUEST_VOTE, APPEND_ENTRIES };
 
 template <class State>
-struct PeerRpcRequest : public messaging::Message {
+struct PeerRpcRequest : public rpc::Message {
   RpcType type;
   RequestVoteRequest request_vote;
   AppendEntriesRequest<State> append_entries;
@@ -21,14 +21,14 @@ struct PeerRpcRequest : public messaging::Message {
 
   template <class TArchive>
   void serialize(TArchive &ar, unsigned int) {
-    ar &boost::serialization::base_object<messaging::Message>(*this);
+    ar &boost::serialization::base_object<rpc::Message>(*this);
     ar &type;
     ar &request_vote;
     ar &append_entries;
   }
 };
 
-struct PeerRpcReply : public messaging::Message {
+struct PeerRpcReply : public rpc::Message {
   RpcType type;
   RequestVoteReply request_vote;
   AppendEntriesReply append_entries;
@@ -38,7 +38,7 @@ struct PeerRpcReply : public messaging::Message {
 
   template <class TArchive>
   void serialize(TArchive &ar, unsigned int) {
-    ar &boost::serialization::base_object<messaging::Message>(*this);
+    ar &boost::serialization::base_object<rpc::Message>(*this);
     ar &type;
     ar &request_vote;
     ar &append_entries;

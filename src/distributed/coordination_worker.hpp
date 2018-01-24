@@ -1,5 +1,7 @@
 #pragma once
 
+#include "communication/rpc/client.hpp"
+#include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
@@ -12,7 +14,7 @@ class WorkerCoordination : public Coordination {
   using Endpoint = io::network::Endpoint;
 
  public:
-  WorkerCoordination(communication::messaging::System &system,
+  WorkerCoordination(communication::rpc::System &system,
                      const Endpoint &master_endpoint);
 
   /**
@@ -35,7 +37,7 @@ class WorkerCoordination : public Coordination {
   void WaitForShutdown();
 
  private:
-  communication::messaging::System &system_;
+  communication::rpc::System &system_;
   communication::rpc::Client client_;
   communication::rpc::Server server_;
   mutable ConcurrentMap<int, Endpoint> endpoint_cache_;

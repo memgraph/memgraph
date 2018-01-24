@@ -4,8 +4,6 @@
 #include <experimental/optional>
 #include <unordered_map>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
 #include "durability/wal.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"

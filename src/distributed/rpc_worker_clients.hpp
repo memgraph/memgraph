@@ -4,8 +4,7 @@
 #include <future>
 #include <type_traits>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/client.hpp"
 #include "distributed/coordination.hpp"
 
 namespace distributed {
@@ -14,12 +13,9 @@ namespace distributed {
  * Thread safe. */
 class RpcWorkerClients {
  public:
-  RpcWorkerClients(communication::messaging::System &system,
-                   Coordination &coordination,
+  RpcWorkerClients(Coordination &coordination,
                    const std::string &rpc_client_name)
-      : system_(system),
-        coordination_(coordination),
-        rpc_client_name_(rpc_client_name) {}
+      : coordination_(coordination), rpc_client_name_(rpc_client_name) {}
 
   RpcWorkerClients(const RpcWorkerClients &) = delete;
   RpcWorkerClients(RpcWorkerClients &&) = delete;
@@ -31,10 +27,9 @@ class RpcWorkerClients {
     auto found = clients_.find(worker_id);
     if (found != clients_.end()) return found->second;
     return clients_
-        .emplace(
-            std::piecewise_construct, std::forward_as_tuple(worker_id),
-            std::forward_as_tuple(system_, coordination_.GetEndpoint(worker_id),
-                                  rpc_client_name_))
+        .emplace(std::piecewise_construct, std::forward_as_tuple(worker_id),
+                 std::forward_as_tuple(coordination_.GetEndpoint(worker_id),
+                                       rpc_client_name_))
         .first->second;
   }
 
@@ -66,7 +61,6 @@ class RpcWorkerClients {
   }
 
  private:
-  communication::messaging::System &system_;
   // TODO make Coordination const, it's member GetEndpoint must be const too.
   Coordination &coordination_;
   const std::string rpc_client_name_;

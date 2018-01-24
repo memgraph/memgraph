@@ -1,6 +1,5 @@
 #pragma once
 
-#include "communication/rpc/rpc.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "distributed/rpc_worker_clients.hpp"
@@ -14,8 +13,7 @@ namespace distributed {
  */
 class PlanDispatcher {
  public:
-  explicit PlanDispatcher(communication::messaging::System &system,
-                          Coordination &coordination);
+  explicit PlanDispatcher(Coordination &coordination);
 
   /**
    * Synchronously dispatch a plan to all workers and wait for their

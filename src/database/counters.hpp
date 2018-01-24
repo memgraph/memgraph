@@ -4,10 +4,10 @@
 #include <cstdint>
 #include <string>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/messages.hpp"
+#include "communication/rpc/client.hpp"
+#include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "utils/rpc_pimp.hpp"
 
 namespace database {
 
@@ -45,7 +45,7 @@ class SingleNodeCounters : public Counters {
 /** Implementation for distributed master. */
 class MasterCounters : public SingleNodeCounters {
  public:
-  MasterCounters(communication::messaging::System &system);
+  MasterCounters(communication::rpc::System &system);
 
  private:
   communication::rpc::Server rpc_server_;
@@ -54,8 +54,7 @@ class MasterCounters : public SingleNodeCounters {
 /** Implementation for distributed worker. */
 class WorkerCounters : public Counters {
  public:
-  WorkerCounters(communication::messaging::System &system,
-                 const io::network::Endpoint &master_endpoint);
+  WorkerCounters(const io::network::Endpoint &master_endpoint);
 
   int64_t Get(const std::string &name) override;
   void Set(const std::string &name, int64_t value) override;

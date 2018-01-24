@@ -194,6 +194,14 @@ class Session {
     db_accessor_ = nullptr;
   }
 
+  TSocket &socket() { return socket_; }
+
+  void RefreshLastEventTime(
+      const std::chrono::time_point<std::chrono::steady_clock>
+          &last_event_time) {
+    last_event_time_ = last_event_time;
+  }
+
   // TODO: Rethink if there is a way to hide some members. At the momement all
   // of them are public.
   TSocket socket_;

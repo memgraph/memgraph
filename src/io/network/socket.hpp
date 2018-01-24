@@ -105,6 +105,11 @@ class Socket {
   void SetTimeout(long sec, long usec);
 
   /**
+   * Checks if there are any errors on a socket. Returns 0 if there are none.
+   */
+  int ErrorStatus() const;
+
+  /**
    * Returns the socket file descriptor.
    */
   int fd() const { return socket_; }
@@ -157,8 +162,7 @@ class Socket {
   int Read(void *buffer, size_t len);
 
  private:
-  Socket(int fd, const Endpoint &endpoint)
-      : socket_(fd), endpoint_(endpoint) {}
+  Socket(int fd, const Endpoint &endpoint) : socket_(fd), endpoint_(endpoint) {}
 
   int socket_ = -1;
   Endpoint endpoint_;

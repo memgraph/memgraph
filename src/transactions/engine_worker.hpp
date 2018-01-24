@@ -3,8 +3,7 @@
 #include <atomic>
 #include <mutex>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/client.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "io/network/endpoint.hpp"
 #include "transactions/commit_log.hpp"
@@ -17,8 +16,7 @@ namespace tx {
  * source of truth) to obtain transactional info. Caches most info locally. */
 class WorkerEngine : public Engine {
  public:
-  WorkerEngine(communication::messaging::System &system,
-               const io::network::Endpoint &endpoint);
+  WorkerEngine(const io::network::Endpoint &endpoint);
 
   CommitLog::Info Info(transaction_id_t tid) const override;
   Snapshot GlobalGcSnapshot() override;

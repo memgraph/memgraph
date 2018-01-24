@@ -2,17 +2,15 @@
 
 #include <chrono>
 
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/messages.hpp"
 #include "storage/types.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"
-#include "utils/rpc_pimp.hpp"
 
 namespace storage {
 
 const std::string kConcurrentIdMapperRpc = "ConcurrentIdMapper";
-const auto kConcurrentIdMapperRpcTimeout = 300ms;
 
 namespace impl {
 

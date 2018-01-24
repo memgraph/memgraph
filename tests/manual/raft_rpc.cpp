@@ -6,10 +6,11 @@
 #include "boost/archive/text_oarchive.hpp"
 #include "boost/serialization/export.hpp"
 
-#include "communication/messaging/distributed.hpp"
 #include "communication/raft/rpc.hpp"
 #include "communication/raft/storage/file.hpp"
 #include "communication/raft/test_utils.hpp"
+
+using namespace std::literals::chrono_literals;
 
 namespace raft = communication::raft;
 
@@ -41,11 +42,11 @@ int main(int argc, char *argv[]) {
       {"b", Endpoint("127.0.0.1", 12346)},
       {"c", Endpoint("127.0.0.1", 12347)}};
 
-  communication::messaging::System my_system(directory[FLAGS_member_id]);
+  communication::rpc::System my_system(directory[FLAGS_member_id]);
   RpcNetwork<DummyState> network(my_system, directory);
   raft::SimpleFileStorage<DummyState> storage(FLAGS_log_dir);
 
-  raft::RaftConfig config{{"a", "b", "c"}, 150ms, 300ms, 70ms, 60ms, 30ms};
+  raft::RaftConfig config{{"a", "b", "c"}, 150ms, 300ms, 70ms, 30ms};
 
   {
     raft::RaftMember<DummyState> raft_member(network, storage, FLAGS_member_id,

@@ -4,10 +4,10 @@
 
 #include "glog/logging.h"
 
-#include "communication/messaging/distributed.hpp"
 #include "communication/raft/network_common.hpp"
 #include "communication/raft/raft.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/client.hpp"
+#include "communication/rpc/server.hpp"
 #include "io/network/endpoint.hpp"
 
 /* Implementation of `RaftNetworkInterface` using RPC. Raft RPC requests and
@@ -22,13 +22,12 @@ namespace communication::raft {
 const char *kRaftChannelName = "raft-peer-rpc-channel";
 
 template <class State>
-using PeerProtocol =
-    communication::rpc::RequestResponse<PeerRpcRequest<State>, PeerRpcReply>;
+using PeerProtocol = rpc::RequestResponse<PeerRpcRequest<State>, PeerRpcReply>;
 
 template <class State>
 class RpcNetwork : public RaftNetworkInterface<State> {
  public:
-  RpcNetwork(communication::messaging::System &system,
+  RpcNetwork(rpc::System &system,
              std::unordered_map<std::string, io::network::Endpoint> directory)
       : system_(system),
         directory_(std::move(directory)),
@@ -57,15 +56,14 @@ class RpcNetwork : public RaftNetworkInterface<State> {
 
   virtual bool SendRequestVote(const MemberId &recipient,
                                const RequestVoteRequest &request,
-                               RequestVoteReply &reply,
-                               std::chrono::milliseconds timeout) override {
+                               RequestVoteReply &reply) override {
     PeerRpcRequest<State> req;
     PeerRpcReply rep;
 
     req.type = RpcType::REQUEST_VOTE;
     req.request_vote = request;
 
-    if (!SendRpc(recipient, req, rep, timeout)) {
+    if (!SendRpc(recipient, req, rep)) {
       return false;
     }
 
@@ -75,15 +73,14 @@ class RpcNetwork : public RaftNetworkInterface<State> {
 
   virtual bool SendAppendEntries(const MemberId &recipient,
                                  const AppendEntriesRequest<State> &request,
-                                 AppendEntriesReply &reply,
-                                 std::chrono::milliseconds timeout) override {
+                                 AppendEntriesReply &reply) override {
     PeerRpcRequest<State> req;
     PeerRpcReply rep;
 
     req.type = RpcType::APPEND_ENTRIES;
     req.append_entries = request;
 
-    if (!SendRpc(recipient, req, rep, timeout)) {
+    if (!SendRpc(recipient, req, rep)) {
       return false;
     }
 
@@ -93,9 +90,9 @@ class RpcNetwork : public RaftNetworkInterface<State> {
 
  private:
   bool SendRpc(const MemberId &recipient, const PeerRpcRequest<State> &request,
-               PeerRpcReply &reply, std::chrono::milliseconds timeout) {
+               PeerRpcReply &reply) {
     auto &client = GetClient(recipient);
-    auto response = client.template Call<PeerProtocol<State>>(timeout, request);
+    auto response = client.template Call<PeerProtocol<State>>(request);
 
     if (!response) {
       return false;
@@ -109,17 +106,17 @@ class RpcNetwork : public RaftNetworkInterface<State> {
     auto it = clients_.find(id);
     if (it == clients_.end()) {
       auto ne = directory_[id];
-      it = clients_.try_emplace(id, system_, ne, kRaftChannelName).first;
+      it = clients_.try_emplace(id, ne, kRaftChannelName).first;
     }
     return it->second;
   }
 
-  communication::messaging::System &system_;
+  rpc::System &system_;
   // TODO(mtomic): how to update and distribute this?
   std::unordered_map<MemberId, io::network::Endpoint> directory_;
   rpc::Server server_;
 
-  std::unordered_map<MemberId, communication::rpc::Client> clients_;
+  std::unordered_map<MemberId, rpc::Client> clients_;
 };
 
 }  // namespace communication::raft

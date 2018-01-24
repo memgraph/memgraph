@@ -7,15 +7,17 @@
 
 namespace distributed {
 
-WorkerCoordination::WorkerCoordination(communication::messaging::System &system,
+using namespace std::literals::chrono_literals;
+
+WorkerCoordination::WorkerCoordination(communication::rpc::System &system,
                                        const Endpoint &master_endpoint)
     : system_(system),
-      client_(system_, master_endpoint, kCoordinationServerName),
+      client_(master_endpoint, kCoordinationServerName),
       server_(system_, kCoordinationServerName) {}
 
 int WorkerCoordination::RegisterWorker(int desired_worker_id) {
-  auto result = client_.Call<RegisterWorkerRpc>(300ms, desired_worker_id,
-                                                system_.endpoint());
+  auto result =
+      client_.Call<RegisterWorkerRpc>(desired_worker_id, system_.endpoint());
   CHECK(result) << "Failed to RegisterWorker with the master";
   return result->member;
 }
@@ -24,7 +26,7 @@ Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
   auto accessor = endpoint_cache_.access();
   auto found = accessor.find(worker_id);
   if (found != accessor.end()) return found->second;
-  auto result = client_.Call<GetEndpointRpc>(300ms, worker_id);
+  auto result = client_.Call<GetEndpointRpc>(worker_id);
   CHECK(result) << "Failed to GetEndpoint from the master";
   accessor.insert(worker_id, result->member);
   return result->member;

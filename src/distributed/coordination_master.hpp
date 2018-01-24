@@ -3,8 +3,8 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/client.hpp"
+#include "communication/rpc/server.hpp"
 #include "distributed/coordination.hpp"
 #include "io/network/endpoint.hpp"
 
@@ -27,7 +27,7 @@ class MasterCoordination : public Coordination {
   int RegisterWorker(int desired_worker_id, Endpoint endpoint);
 
  public:
-  explicit MasterCoordination(communication::messaging::System &system);
+  explicit MasterCoordination(communication::rpc::System &system);
 
   /** Shuts down all the workers and this master server. */
   ~MasterCoordination();
@@ -39,7 +39,6 @@ class MasterCoordination : public Coordination {
   std::vector<int> GetWorkerIds() override;
 
  private:
-  communication::messaging::System &system_;
   communication::rpc::Server server_;
   // Most master functions aren't thread-safe.
   mutable std::mutex lock_;

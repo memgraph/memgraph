@@ -153,6 +153,14 @@ void Socket::SetTimeout(long sec, long usec) {
       << "Can't set socket timeout";
 }
 
+int Socket::ErrorStatus() const {
+  int optval;
+  socklen_t optlen = sizeof(optval);
+  auto status = getsockopt(socket_, SOL_SOCKET, SO_ERROR, &optval, &optlen);
+  CHECK(!status) << "getsockopt failed";
+  return optval;
+}
+
 bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
 std::experimental::optional<Socket> Socket::Accept() {

@@ -7,13 +7,14 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/server.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "io/network/endpoint.hpp"
 
-using communication::messaging::System;
+using communication::rpc::System;
 using namespace distributed;
+using namespace std::literals::chrono_literals;
 
 const int kWorkerCount = 5;
 const std::string kLocal = "127.0.0.1";

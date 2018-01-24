@@ -115,17 +115,15 @@ class RaftNetworkInterface {
   virtual ~RaftNetworkInterface() = default;
 
   /* These function return false if RPC failed for some reason (e.g. cannot
-   * establish connection, request timeout or request cancelled). Otherwise
+   * establish connection or request cancelled). Otherwise
    * `reply` contains response from peer. */
   virtual bool SendRequestVote(const MemberId &recipient,
                                const RequestVoteRequest &request,
-                               RequestVoteReply &reply,
-                               std::chrono::milliseconds timeout) = 0;
+                               RequestVoteReply &reply) = 0;
 
   virtual bool SendAppendEntries(const MemberId &recipient,
                                  const AppendEntriesRequest<State> &request,
-                                 AppendEntriesReply &reply,
-                                 std::chrono::milliseconds timeout) = 0;
+                                 AppendEntriesReply &reply) = 0;
 
   /* This will be called once the RaftMember is ready to start receiving RPCs.
    */
@@ -155,7 +153,6 @@ struct RaftConfig {
   std::chrono::milliseconds leader_timeout_min;
   std::chrono::milliseconds leader_timeout_max;
   std::chrono::milliseconds heartbeat_interval;
-  std::chrono::milliseconds rpc_timeout;
   std::chrono::milliseconds rpc_backoff;
 };
 

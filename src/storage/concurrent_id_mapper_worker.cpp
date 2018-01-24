@@ -6,22 +6,20 @@
 
 namespace storage {
 
-#define ID_VALUE_RPC_CALLS(type)                                             \
-  template <>                                                                \
-  type WorkerConcurrentIdMapper<type>::RpcValueToId(                         \
-      const std::string &value) {                                            \
-    auto response =                                                          \
-        rpc_client_.Call<type##IdRpc>(kConcurrentIdMapperRpcTimeout, value); \
-    CHECK(response) << ("Failed to obtain " #type " from master");           \
-    return response->member;                                                 \
-  }                                                                          \
-                                                                             \
-  template <>                                                                \
-  std::string WorkerConcurrentIdMapper<type>::RpcIdToValue(type id) {        \
-    auto response =                                                          \
-        rpc_client_.Call<Id##type##Rpc>(kConcurrentIdMapperRpcTimeout, id);  \
-    CHECK(response) << ("Failed to obtain " #type " value from master");     \
-    return response->member;                                                 \
+#define ID_VALUE_RPC_CALLS(type)                                         \
+  template <>                                                            \
+  type WorkerConcurrentIdMapper<type>::RpcValueToId(                     \
+      const std::string &value) {                                        \
+    auto response = rpc_client_.Call<type##IdRpc>(value);                \
+    CHECK(response) << ("Failed to obtain " #type " from master");       \
+    return response->member;                                             \
+  }                                                                      \
+                                                                         \
+  template <>                                                            \
+  std::string WorkerConcurrentIdMapper<type>::RpcIdToValue(type id) {    \
+    auto response = rpc_client_.Call<Id##type##Rpc>(id);                 \
+    CHECK(response) << ("Failed to obtain " #type " value from master"); \
+    return response->member;                                             \
   }
 
 using namespace storage;
@@ -33,10 +31,8 @@ ID_VALUE_RPC_CALLS(Property)
 
 template <typename TId>
 WorkerConcurrentIdMapper<TId>::WorkerConcurrentIdMapper(
-    communication::messaging::System &system,
     const io::network::Endpoint &master_endpoint)
-    : rpc_client_(system, master_endpoint, impl::RpcServerNameFromType<TId>()) {
-}
+    : rpc_client_(master_endpoint, impl::RpcServerNameFromType<TId>()) {}
 
 template <typename TId>
 TId WorkerConcurrentIdMapper<TId>::value_to_id(const std::string &value) {

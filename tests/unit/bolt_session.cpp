@@ -13,10 +13,10 @@
   database::SingleNode db;                           \
   SessionData session_data{db};                      \
   SessionT session(std::move(socket), session_data); \
-  std::vector<uint8_t> &output = session.socket_.output;
+  std::vector<uint8_t> &output = session.socket().output;
 
-using communication::bolt::State;
 using communication::bolt::SessionData;
+using communication::bolt::State;
 using SessionT = communication::bolt::Session<TestSocket>;
 using ResultStreamT = SessionT::ResultStreamT;
 
@@ -89,7 +89,7 @@ void ExecuteHandshake(SessionT &session, std::vector<uint8_t> &output) {
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Init);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_TRUE(session.socket().IsOpen());
   PrintOutput(output);
   CheckOutput(output, handshake_resp, 4);
 }
@@ -109,7 +109,7 @@ void ExecuteCommand(SessionT &session, const uint8_t *data, size_t len,
 void ExecuteInit(SessionT &session, std::vector<uint8_t> &output) {
   ExecuteCommand(session, init_req, sizeof(init_req));
   ASSERT_EQ(session.state_, State::Idle);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_TRUE(session.socket().IsOpen());
   PrintOutput(output);
   CheckOutput(output, init_resp, 7);
 }
@@ -152,7 +152,7 @@ TEST(BoltSession, HandshakeWrongPreamble) {
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   PrintOutput(output);
   CheckFailureMessage(output);
 }
@@ -166,25 +166,25 @@ TEST(BoltSession, HandshakeInTwoPackets) {
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Handshake);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_TRUE(session.socket().IsOpen());
 
   memcpy(buff.data + 10, handshake_req + 10, 10);
   session.Written(10);
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Init);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_TRUE(session.socket().IsOpen());
   PrintOutput(output);
   CheckOutput(output, handshake_resp, 4);
 }
 
 TEST(BoltSession, HandshakeWriteFail) {
   INIT_VARS;
-  session.socket_.SetWriteSuccess(false);
+  session.socket().SetWriteSuccess(false);
   ExecuteCommand(session, handshake_req, sizeof(handshake_req), false);
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   ASSERT_EQ(output.size(), 0);
 }
 
@@ -199,7 +199,7 @@ TEST(BoltSession, InitWrongSignature) {
   ExecuteCommand(session, run_req_header, sizeof(run_req_header));
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   CheckFailureMessage(output);
 }
 
@@ -212,7 +212,7 @@ TEST(BoltSession, InitWrongMarker) {
   ExecuteCommand(session, data, 2);
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   CheckFailureMessage(output);
 }
 
@@ -227,7 +227,7 @@ TEST(BoltSession, InitMissingData) {
     ExecuteCommand(session, init_req, len[i]);
 
     ASSERT_EQ(session.state_, State::Close);
-    ASSERT_FALSE(session.socket_.IsOpen());
+    ASSERT_FALSE(session.socket().IsOpen());
     CheckFailureMessage(output);
   }
 }
@@ -235,11 +235,11 @@ TEST(BoltSession, InitMissingData) {
 TEST(BoltSession, InitWriteFail) {
   INIT_VARS;
   ExecuteHandshake(session, output);
-  session.socket_.SetWriteSuccess(false);
+  session.socket().SetWriteSuccess(false);
   ExecuteCommand(session, init_req, sizeof(init_req));
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   ASSERT_EQ(output.size(), 0);
 }
 
@@ -260,7 +260,7 @@ TEST(BoltSession, ExecuteRunWrongMarker) {
   ExecuteCommand(session, data, sizeof(data));
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   CheckFailureMessage(output);
 }
 
@@ -276,7 +276,7 @@ TEST(BoltSession, ExecuteRunMissingData) {
     ExecuteCommand(session, run_req_header, len[i]);
 
     ASSERT_EQ(session.state_, State::Close);
-    ASSERT_FALSE(session.socket_.IsOpen());
+    ASSERT_FALSE(session.socket().IsOpen());
     CheckFailureMessage(output);
   }
 }
@@ -289,17 +289,17 @@ TEST(BoltSession, ExecuteRunBasicException) {
     ExecuteHandshake(session, output);
     ExecuteInit(session, output);
 
-    session.socket_.SetWriteSuccess(i == 0);
+    session.socket().SetWriteSuccess(i == 0);
     WriteRunRequest(session, "MATCH (omnom");
     session.Execute();
 
     if (i == 0) {
       ASSERT_EQ(session.state_, State::ErrorIdle);
-      ASSERT_TRUE(session.socket_.IsOpen());
+      ASSERT_TRUE(session.socket().IsOpen());
       CheckFailureMessage(output);
     } else {
       ASSERT_EQ(session.state_, State::Close);
-      ASSERT_FALSE(session.socket_.IsOpen());
+      ASSERT_FALSE(session.socket().IsOpen());
       ASSERT_EQ(output.size(), 0);
     }
   }
@@ -333,7 +333,7 @@ TEST(BoltSession, ExecutePullAllDiscardAllResetWrongMarker) {
     ExecuteCommand(session, data, sizeof(data));
 
     ASSERT_EQ(session.state_, State::Close);
-    ASSERT_FALSE(session.socket_.IsOpen());
+    ASSERT_FALSE(session.socket().IsOpen());
     CheckFailureMessage(output);
   }
 }
@@ -346,11 +346,11 @@ TEST(BoltSession, ExecutePullAllBufferEmpty) {
     ExecuteHandshake(session, output);
     ExecuteInit(session, output);
 
-    session.socket_.SetWriteSuccess(i == 0);
+    session.socket().SetWriteSuccess(i == 0);
     ExecuteCommand(session, pullall_req, sizeof(pullall_req));
 
     ASSERT_EQ(session.state_, State::Close);
-    ASSERT_FALSE(session.socket_.IsOpen());
+    ASSERT_FALSE(session.socket().IsOpen());
     if (i == 0) {
       CheckFailureMessage(output);
     } else {
@@ -376,17 +376,17 @@ TEST(BoltSession, ExecutePullAllDiscardAllReset) {
 
       if (j == 1) output.clear();
 
-      session.socket_.SetWriteSuccess(j == 0);
+      session.socket().SetWriteSuccess(j == 0);
       ExecuteCommand(session, dataset[i], 2);
 
       if (j == 0) {
         ASSERT_EQ(session.state_, State::Idle);
-        ASSERT_TRUE(session.socket_.IsOpen());
+        ASSERT_TRUE(session.socket().IsOpen());
         ASSERT_FALSE(session.encoder_buffer_.HasData());
         PrintOutput(output);
       } else {
         ASSERT_EQ(session.state_, State::Close);
-        ASSERT_FALSE(session.socket_.IsOpen());
+        ASSERT_FALSE(session.socket().IsOpen());
         ASSERT_EQ(output.size(), 0);
       }
     }
@@ -401,7 +401,7 @@ TEST(BoltSession, ExecuteInvalidMessage) {
   ExecuteCommand(session, init_req, sizeof(init_req));
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   CheckFailureMessage(output);
 }
 
@@ -418,7 +418,7 @@ TEST(BoltSession, ErrorIgnoreMessage) {
 
     output.clear();
 
-    session.socket_.SetWriteSuccess(i == 0);
+    session.socket().SetWriteSuccess(i == 0);
     ExecuteCommand(session, init_req, sizeof(init_req));
 
     // assert that all data from the init message was cleaned up
@@ -426,11 +426,11 @@ TEST(BoltSession, ErrorIgnoreMessage) {
 
     if (i == 0) {
       ASSERT_EQ(session.state_, State::ErrorIdle);
-      ASSERT_TRUE(session.socket_.IsOpen());
+      ASSERT_TRUE(session.socket().IsOpen());
       CheckOutput(output, ignored_resp, sizeof(ignored_resp));
     } else {
       ASSERT_EQ(session.state_, State::Close);
-      ASSERT_FALSE(session.socket_.IsOpen());
+      ASSERT_FALSE(session.socket().IsOpen());
       ASSERT_EQ(output.size(), 0);
     }
   }
@@ -448,7 +448,7 @@ TEST(BoltSession, ErrorRunAfterRun) {
 
   output.clear();
 
-  session.socket_.SetWriteSuccess(true);
+  session.socket().SetWriteSuccess(true);
 
   // Session holds results of last run.
   ASSERT_EQ(session.state_, State::Result);
@@ -458,7 +458,7 @@ TEST(BoltSession, ErrorRunAfterRun) {
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
 }
 
 TEST(BoltSession, ErrorCantCleanup) {
@@ -476,7 +476,7 @@ TEST(BoltSession, ErrorCantCleanup) {
   ExecuteCommand(session, init_req, sizeof(init_req) - 10);
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   CheckFailureMessage(output);
 }
 
@@ -496,7 +496,7 @@ TEST(BoltSession, ErrorWrongMarker) {
   ExecuteCommand(session, data, sizeof(data));
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   CheckFailureMessage(output);
 }
 
@@ -517,7 +517,7 @@ TEST(BoltSession, ErrorOK) {
 
       output.clear();
 
-      session.socket_.SetWriteSuccess(j == 0);
+      session.socket().SetWriteSuccess(j == 0);
       ExecuteCommand(session, dataset[i], 2);
 
       // assert that all data from the init message was cleaned up
@@ -525,11 +525,11 @@ TEST(BoltSession, ErrorOK) {
 
       if (j == 0) {
         ASSERT_EQ(session.state_, State::Idle);
-        ASSERT_TRUE(session.socket_.IsOpen());
+        ASSERT_TRUE(session.socket().IsOpen());
         CheckOutput(output, success_resp, sizeof(success_resp));
       } else {
         ASSERT_EQ(session.state_, State::Close);
-        ASSERT_FALSE(session.socket_.IsOpen());
+        ASSERT_FALSE(session.socket().IsOpen());
         ASSERT_EQ(output.size(), 0);
       }
     }
@@ -552,7 +552,7 @@ TEST(BoltSession, ErrorMissingData) {
   ExecuteCommand(session, data, sizeof(data));
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   CheckFailureMessage(output);
 }
 
@@ -566,7 +566,7 @@ TEST(BoltSession, MultipleChunksInOneExecute) {
   ExecuteCommand(session, pullall_req, sizeof(pullall_req));
 
   ASSERT_EQ(session.state_, State::Idle);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_TRUE(session.socket().IsOpen());
   PrintOutput(output);
 
   // Count chunks in output
@@ -598,7 +598,7 @@ TEST(BoltSession, PartialChunk) {
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Idle);
-  ASSERT_TRUE(session.socket_.IsOpen());
+  ASSERT_TRUE(session.socket().IsOpen());
   ASSERT_EQ(output.size(), 0);
 
   WriteChunkTail(session);
@@ -606,7 +606,7 @@ TEST(BoltSession, PartialChunk) {
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Close);
-  ASSERT_FALSE(session.socket_.IsOpen());
+  ASSERT_FALSE(session.socket().IsOpen());
   ASSERT_GT(output.size(), 0);
   PrintOutput(output);
 }
@@ -658,7 +658,7 @@ TEST(BoltSession, ExplicitTransactionValidQueries) {
     ASSERT_FALSE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    ASSERT_TRUE(session.socket_.IsOpen());
+    ASSERT_TRUE(session.socket().IsOpen());
   }
 }
 
@@ -707,20 +707,20 @@ TEST(BoltSession, ExplicitTransactionInvalidQuery) {
     if (transaction_end == "ROLLBACK") {
       ASSERT_EQ(session.state_, State::Result);
       ASSERT_FALSE(session.db_accessor_);
-      ASSERT_TRUE(session.socket_.IsOpen());
+      ASSERT_TRUE(session.socket().IsOpen());
       CheckSuccessMessage(output);
 
       ExecuteCommand(session, pullall_req, sizeof(pullall_req));
       session.Execute();
       ASSERT_EQ(session.state_, State::Idle);
       ASSERT_FALSE(session.db_accessor_);
-      ASSERT_TRUE(session.socket_.IsOpen());
+      ASSERT_TRUE(session.socket().IsOpen());
       CheckSuccessMessage(output);
 
     } else {
       ASSERT_EQ(session.state_, State::Close);
       ASSERT_FALSE(session.db_accessor_);
-      ASSERT_FALSE(session.socket_.IsOpen());
+      ASSERT_FALSE(session.socket().IsOpen());
       CheckFailureMessage(output);
     }
   }

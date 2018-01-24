@@ -54,15 +54,13 @@ class NoOpNetworkInterface : public RaftNetworkInterface<State> {
   ~NoOpNetworkInterface() {}
 
   virtual bool SendRequestVote(const MemberId &, const RequestVoteRequest &,
-                               RequestVoteReply &,
-                               std::chrono::milliseconds) override {
+                               RequestVoteReply &) override {
     return false;
   }
 
   virtual bool SendAppendEntries(const MemberId &,
                                  const AppendEntriesRequest<State> &,
-                                 AppendEntriesReply &,
-                                 std::chrono::milliseconds) override {
+                                 AppendEntriesReply &) override {
     return false;
   }
 
@@ -80,8 +78,7 @@ class NextReplyNetworkInterface : public RaftNetworkInterface<State> {
 
   virtual bool SendRequestVote(const MemberId &,
                                const RequestVoteRequest &request,
-                               RequestVoteReply &reply,
-                               std::chrono::milliseconds) override {
+                               RequestVoteReply &reply) override {
     PeerRpcRequest<State> req;
     req.type = RpcType::REQUEST_VOTE;
     req.request_vote = request;
@@ -97,8 +94,7 @@ class NextReplyNetworkInterface : public RaftNetworkInterface<State> {
 
   virtual bool SendAppendEntries(const MemberId &,
                                  const AppendEntriesRequest<State> &request,
-                                 AppendEntriesReply &reply,
-                                 std::chrono::milliseconds) override {
+                                 AppendEntriesReply &reply) override {
     PeerRpcRequest<State> req;
     req.type = RpcType::APPEND_ENTRIES;
     req.append_entries = request;

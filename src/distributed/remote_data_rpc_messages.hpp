@@ -3,18 +3,15 @@
 #include <memory>
 #include <string>
 
-#include "communication/messaging/local.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/messages.hpp"
 #include "distributed/serialization.hpp"
 #include "storage/edge.hpp"
 #include "storage/gid.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/type.hpp"
-#include "utils/rpc_pimp.hpp"
 
 namespace distributed {
 const std::string kRemoteDataRpcName = "RemoteDataRpc";
-const auto kRemoteDataRpcTimeout = 100ms;
 
 struct TxGidPair {
   tx::transaction_id_t tx_id;
@@ -30,32 +27,32 @@ struct TxGidPair {
   }
 };
 
-#define MAKE_RESPONSE(type, name)                                      \
-  class Remote##type##Res : public communication::messaging::Message { \
-   public:                                                             \
-    Remote##type##Res() {}                                             \
-    Remote##type##Res(const type *name, int worker_id)                 \
-        : name_input_(name), worker_id_(worker_id) {}                  \
-                                                                       \
-    template <class TArchive>                                          \
-    void save(TArchive &ar, unsigned int) const {                      \
-      ar << boost::serialization::base_object<                         \
-          const communication::messaging::Message>(*this);             \
-      Save##type(ar, *name_input_, worker_id_);                        \
-    }                                                                  \
-                                                                       \
-    template <class TArchive>                                          \
-    void load(TArchive &ar, unsigned int) {                            \
-      ar >> boost::serialization::base_object<                         \
-                communication::messaging::Message>(*this);             \
-      auto v = Load##type(ar);                                         \
-      v.swap(name_output_);                                            \
-    }                                                                  \
-    BOOST_SERIALIZATION_SPLIT_MEMBER()                                 \
-                                                                       \
-    const type *name_input_;                                           \
-    int worker_id_;                                                    \
-    std::unique_ptr<type> name_output_;                                \
+#define MAKE_RESPONSE(type, name)                                           \
+  class Remote##type##Res : public communication::rpc::Message {            \
+   public:                                                                  \
+    Remote##type##Res() {}                                                  \
+    Remote##type##Res(const type *name, int worker_id)                      \
+        : name_input_(name), worker_id_(worker_id) {}                       \
+                                                                            \
+    template <class TArchive>                                               \
+    void save(TArchive &ar, unsigned int) const {                           \
+      ar << boost::serialization::base_object<                              \
+          const communication::rpc::Message>(*this);                        \
+      Save##type(ar, *name_input_, worker_id_);                             \
+    }                                                                       \
+                                                                            \
+    template <class TArchive>                                               \
+    void load(TArchive &ar, unsigned int) {                                 \
+      ar >> boost::serialization::base_object<communication::rpc::Message>( \
+                *this);                                                     \
+      auto v = Load##type(ar);                                              \
+      v.swap(name_output_);                                                 \
+    }                                                                       \
+    BOOST_SERIALIZATION_SPLIT_MEMBER()                                      \
+                                                                            \
+    const type *name_input_;                                                \
+    int worker_id_;                                                         \
+    std::unique_ptr<type> name_output_;                                     \
   };
 
 MAKE_RESPONSE(Vertex, vertex)

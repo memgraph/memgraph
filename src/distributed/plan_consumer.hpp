@@ -1,5 +1,6 @@
 #pragma once
 
+#include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -12,7 +13,7 @@ namespace distributed {
  */
 class PlanConsumer {
  public:
-  explicit PlanConsumer(communication::messaging::System &system);
+  explicit PlanConsumer(communication::rpc::System &system);
 
   /**
    * Return cached plan and symbol table for a given plan id.

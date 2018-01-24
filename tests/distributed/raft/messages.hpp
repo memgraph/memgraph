@@ -3,11 +3,10 @@
 #include "boost/serialization/base_object.hpp"
 
 #include "boost/serialization/export.hpp"
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/messages.hpp"
 
 using boost::serialization::base_object;
-using communication::messaging::Message;
+using communication::rpc::Message;
 using namespace communication::rpc;
 
 struct AppendEntryReq : public Message {

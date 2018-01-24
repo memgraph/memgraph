@@ -1,7 +1,6 @@
 #pragma once
 
-#include "communication/messaging/distributed.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/server.hpp"
 #include "transactions/engine_single_node.hpp"
 
 namespace tx {
@@ -14,7 +13,7 @@ class MasterEngine : public SingleNodeEngine {
    * @param wal - Optional. If present, the Engine will write tx
    * Begin/Commit/Abort atomically (while under lock).
    */
-  MasterEngine(communication::messaging::System &system,
+  MasterEngine(communication::rpc::System &system,
                durability::WriteAheadLog *wal = nullptr);
 
  private:

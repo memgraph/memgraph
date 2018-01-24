@@ -3,16 +3,14 @@
 #include "boost/serialization/access.hpp"
 #include "boost/serialization/base_object.hpp"
 
-#include "communication/messaging/local.hpp"
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
-#include "utils/rpc_pimp.hpp"
 
 namespace distributed {
 
 const std::string kCoordinationServerName = "CoordinationRpc";
 
-using communication::messaging::Message;
+using communication::rpc::Message;
 using Endpoint = io::network::Endpoint;
 
 struct RegisterWorkerReq : public Message {

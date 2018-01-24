@@ -2,14 +2,14 @@
 
 #include "gtest/gtest.h"
 
-#include "communication/messaging/distributed.hpp"
+#include "communication/rpc/server.hpp"
 #include "io/network/endpoint.hpp"
 #include "transactions/engine_master.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 #include "transactions/engine_worker.hpp"
 
 using namespace tx;
-using namespace communication::messaging;
+using namespace communication::rpc;
 
 class WorkerEngineTest : public testing::Test {
  protected:
@@ -18,8 +18,7 @@ class WorkerEngineTest : public testing::Test {
   System master_system_{{local, 0}};
   MasterEngine master_{master_system_};
 
-  System worker_system_{{local, 0}};
-  WorkerEngine worker_{worker_system_, master_system_.endpoint()};
+  WorkerEngine worker_{master_system_.endpoint()};
 };
 
 TEST_F(WorkerEngineTest, RunningTransaction) {

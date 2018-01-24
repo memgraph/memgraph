@@ -1,10 +1,9 @@
 #pragma once
 
-#include "communication/rpc/rpc.hpp"
+#include "communication/rpc/messages.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"
-#include "utils/rpc_pimp.hpp"
 
 namespace tx {
 

@@ -9,7 +9,7 @@
 
 namespace tx {
 
-MasterEngine::MasterEngine(communication::messaging::System &system,
+MasterEngine::MasterEngine(communication::rpc::System &system,
                            durability::WriteAheadLog *wal)
     : SingleNodeEngine(wal), rpc_server_(system, kTransactionEngineRpc) {
   rpc_server_.Register<SnapshotRpc>([this](const SnapshotReq &req) {
@@ -20,7 +20,7 @@ MasterEngine::MasterEngine(communication::messaging::System &system,
   });
 
   rpc_server_.Register<GcSnapshotRpc>(
-      [this](const communication::messaging::Message &) {
+      [this](const communication::rpc::Message &) {
         return std::make_unique<SnapshotRes>(GlobalGcSnapshot());
       });
 
@@ -29,7 +29,7 @@ MasterEngine::MasterEngine(communication::messaging::System &system,
   });
 
   rpc_server_.Register<ActiveTransactionsRpc>(
-      [this](const communication::messaging::Message &) {
+      [this](const communication::rpc::Message &) {
         return std::make_unique<SnapshotRes>(GlobalActiveTransactions());
       });
 
