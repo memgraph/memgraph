@@ -50,6 +50,11 @@ void Socket::Close() {
   socket_ = -1;
 }
 
+void Socket::Shutdown() {
+  if (socket_ == -1) return;
+  shutdown(socket_, SHUT_RDWR);
+}
+
 bool Socket::IsOpen() const { return socket_ != -1; }
 
 bool Socket::Connect(const Endpoint &endpoint) {

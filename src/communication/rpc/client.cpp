@@ -127,4 +127,12 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
   }
 }
 
+void Client::Abort() {
+  if (!socket_) return;
+  // We need to call Shutdown on the socket to abort any pending read or
+  // write operations.
+  socket_->Shutdown();
+  socket_ = std::experimental::nullopt;
+}
+
 }  // namespace communication::rpc

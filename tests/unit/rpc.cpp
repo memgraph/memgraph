@@ -14,6 +14,7 @@
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/server.hpp"
 #include "gtest/gtest.h"
+#include "utils/timer.hpp"
 
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
@@ -66,18 +67,27 @@ TEST(Rpc, Call) {
   EXPECT_EQ(sum->sum, 30);
 }
 
-/* TODO (mferencevic): enable when async calls are implemented!
-TEST(Rpc, Timeout) {
+TEST(Rpc, Abort) {
   System server_system({"127.0.0.1", 0});
   Server server(server_system, "main");
   server.Register<Sum>([](const SumReq &request) {
-    std::this_thread::sleep_for(300ms);
+    std::this_thread::sleep_for(500ms);
     return std::make_unique<SumRes>(request.x + request.y);
   });
   std::this_thread::sleep_for(100ms);
 
   Client client(server_system.endpoint(), "main");
-  auto sum = client.Call<Sum>(100ms, 10, 20);
-  EXPECT_FALSE(sum);
+
+  std::thread thread([&client]() {
+    std::this_thread::sleep_for(100ms);
+    LOG(INFO) << "Shutting down the connection!";
+    client.Abort();
+  });
+
+  utils::Timer timer;
+  auto sum = client.Call<Sum>(10, 20);
+  EXPECT_EQ(sum, nullptr);
+  EXPECT_LT(timer.Elapsed(), 200ms);
+
+  thread.join();
 }
-*/

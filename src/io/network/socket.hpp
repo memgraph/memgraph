@@ -29,6 +29,11 @@ class Socket {
   void Close();
 
   /**
+   * Shutdown the socket if it is open.
+   */
+  void Shutdown();
+
+  /**
    * Checks whether the socket is open.
    *
    * @return socket open status:

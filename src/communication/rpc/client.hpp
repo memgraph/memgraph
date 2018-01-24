@@ -41,6 +41,9 @@ class Client {
     return std::unique_ptr<Res>(real_response);
   }
 
+  // Call this function from another thread to abort a pending RPC call.
+  void Abort();
+
  private:
   std::unique_ptr<Message> Call(std::unique_ptr<Message> request);
 
