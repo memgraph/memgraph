@@ -76,11 +76,15 @@ template <class Head, class... Tail>
 class CompositeVisitorBase<Head, Tail...>
     : public CompositeVisitorBase<Tail...> {
  public:
-  virtual bool PreVisit(Head &) { return true; }
-  virtual bool PostVisit(Head &) { return true; }
+  virtual bool PreVisit(Head &) { return DefaultPreVisit(); }
+  virtual bool PostVisit(Head &) { return DefaultPostVisit(); }
 
   using CompositeVisitorBase<Tail...>::PreVisit;
   using CompositeVisitorBase<Tail...>::PostVisit;
+
+ protected:
+  using CompositeVisitorBase<Tail...>::DefaultPreVisit;
+  using CompositeVisitorBase<Tail...>::DefaultPostVisit;
 };
 
 template <class T>
@@ -94,7 +98,7 @@ class CompositeVisitorBase<T> {
   /// true, which means that the visiting should continue.
   ///
   /// @return bool indicating whether to continue visiting.
-  virtual bool PreVisit(T &) { return true; }
+  virtual bool PreVisit(T &) { return DefaultPreVisit(); }
   /// @brief Finish visiting an instance of *composite* type @c TVisitable.
   ///
   /// This function should be used to control whether the visitor should be sent
@@ -103,7 +107,11 @@ class CompositeVisitorBase<T> {
   /// true, which means that visiting should continue.
   ///
   /// @return bool indicating whether to continue visiting.
-  virtual bool PostVisit(T &) { return true; }
+  virtual bool PostVisit(T &) { return DefaultPostVisit(); }
+
+ protected:
+  virtual bool DefaultPreVisit() { return true; }
+  virtual bool DefaultPostVisit() { return true; }
 };
 
 }  // namespace detail
@@ -200,6 +208,10 @@ class CompositeVisitor : public detail::CompositeVisitorBase<TVisitable...> {
  public:
   using detail::CompositeVisitorBase<TVisitable...>::PreVisit;
   using detail::CompositeVisitorBase<TVisitable...>::PostVisit;
+
+ protected:
+  using detail::CompositeVisitorBase<TVisitable...>::DefaultPreVisit;
+  using detail::CompositeVisitorBase<TVisitable...>::DefaultPostVisit;
 };
 
 /// @brief Inherit from this class to allow visiting from TVisitor class.

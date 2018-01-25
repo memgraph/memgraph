@@ -1,10 +1,12 @@
 /// @file
-/// This file is an entry point for invoking various planners via
-/// `MakeLogicalPlan` API.
+/// This file is an entry point for invoking various planners via the following API:
+///   * `MakeLogicalPlanForSingleQuery`
+///   * `MakeLogicalPlan`
 
 #pragma once
 
 #include "query/plan/cost_estimator.hpp"
+#include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"

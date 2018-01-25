@@ -32,6 +32,7 @@ set(memgraph_src_files
     query/frontend/stripped.cpp
     query/interpret/awesome_memgraph_functions.cpp
     query/interpreter.cpp
+    query/plan/distributed.cpp
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/rule_based_planner.cpp

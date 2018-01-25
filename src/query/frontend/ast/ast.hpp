@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "boost/serialization/base_object.hpp"
+#include "boost/serialization/export.hpp"
 #include "boost/serialization/split_member.hpp"
 #include "boost/serialization/string.hpp"
 #include "boost/serialization/vector.hpp"
@@ -1338,6 +1339,12 @@ class Aggregation : public BinaryOperator {
   static const constexpr char *const kSum = "SUM";
   static const constexpr char *const kAvg = "AVG";
   static const constexpr char *const kCollect = "COLLECT";
+
+  static std::string OpToString(Op op) {
+    const char *op_strings[] = {kCount, kMin,     kMax,    kSum,
+                                kAvg,   kCollect, kCollect};
+    return op_strings[static_cast<int>(op)];
+  }
 
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -2866,3 +2873,57 @@ LOAD_AND_CONSTRUCT(query::CreateIndex, 0);
 }  // namespace boost::serialization
 
 #undef LOAD_AND_CONSTRUCT
+
+BOOST_CLASS_EXPORT_KEY(query::Query);
+BOOST_CLASS_EXPORT_KEY(query::SingleQuery);
+BOOST_CLASS_EXPORT_KEY(query::CypherUnion);
+BOOST_CLASS_EXPORT_KEY(query::NamedExpression);
+BOOST_CLASS_EXPORT_KEY(query::OrOperator);
+BOOST_CLASS_EXPORT_KEY(query::XorOperator);
+BOOST_CLASS_EXPORT_KEY(query::AndOperator);
+BOOST_CLASS_EXPORT_KEY(query::NotOperator);
+BOOST_CLASS_EXPORT_KEY(query::AdditionOperator);
+BOOST_CLASS_EXPORT_KEY(query::SubtractionOperator);
+BOOST_CLASS_EXPORT_KEY(query::MultiplicationOperator);
+BOOST_CLASS_EXPORT_KEY(query::DivisionOperator);
+BOOST_CLASS_EXPORT_KEY(query::ModOperator);
+BOOST_CLASS_EXPORT_KEY(query::NotEqualOperator);
+BOOST_CLASS_EXPORT_KEY(query::EqualOperator);
+BOOST_CLASS_EXPORT_KEY(query::LessOperator);
+BOOST_CLASS_EXPORT_KEY(query::GreaterOperator);
+BOOST_CLASS_EXPORT_KEY(query::LessEqualOperator);
+BOOST_CLASS_EXPORT_KEY(query::GreaterEqualOperator);
+BOOST_CLASS_EXPORT_KEY(query::InListOperator);
+BOOST_CLASS_EXPORT_KEY(query::ListMapIndexingOperator);
+BOOST_CLASS_EXPORT_KEY(query::ListSlicingOperator);
+BOOST_CLASS_EXPORT_KEY(query::IfOperator);
+BOOST_CLASS_EXPORT_KEY(query::UnaryPlusOperator);
+BOOST_CLASS_EXPORT_KEY(query::UnaryMinusOperator);
+BOOST_CLASS_EXPORT_KEY(query::IsNullOperator);
+BOOST_CLASS_EXPORT_KEY(query::ListLiteral);
+BOOST_CLASS_EXPORT_KEY(query::MapLiteral);
+BOOST_CLASS_EXPORT_KEY(query::PropertyLookup);
+BOOST_CLASS_EXPORT_KEY(query::LabelsTest);
+BOOST_CLASS_EXPORT_KEY(query::Aggregation);
+BOOST_CLASS_EXPORT_KEY(query::Function);
+BOOST_CLASS_EXPORT_KEY(query::All);
+BOOST_CLASS_EXPORT_KEY(query::ParameterLookup);
+BOOST_CLASS_EXPORT_KEY(query::Create);
+BOOST_CLASS_EXPORT_KEY(query::Match);
+BOOST_CLASS_EXPORT_KEY(query::Return);
+BOOST_CLASS_EXPORT_KEY(query::With);
+BOOST_CLASS_EXPORT_KEY(query::Pattern);
+BOOST_CLASS_EXPORT_KEY(query::NodeAtom);
+BOOST_CLASS_EXPORT_KEY(query::EdgeAtom);
+BOOST_CLASS_EXPORT_KEY(query::Delete);
+BOOST_CLASS_EXPORT_KEY(query::Where);
+BOOST_CLASS_EXPORT_KEY(query::SetProperty);
+BOOST_CLASS_EXPORT_KEY(query::SetProperties);
+BOOST_CLASS_EXPORT_KEY(query::SetLabels);
+BOOST_CLASS_EXPORT_KEY(query::RemoveProperty);
+BOOST_CLASS_EXPORT_KEY(query::RemoveLabels);
+BOOST_CLASS_EXPORT_KEY(query::Merge);
+BOOST_CLASS_EXPORT_KEY(query::Unwind);
+BOOST_CLASS_EXPORT_KEY(query::Identifier);
+BOOST_CLASS_EXPORT_KEY(query::PrimitiveLiteral);
+BOOST_CLASS_EXPORT_KEY(query::CreateIndex);

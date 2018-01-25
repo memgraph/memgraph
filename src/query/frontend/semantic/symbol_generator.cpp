@@ -303,8 +303,10 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   }
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
+  auto aggr_name =
+      Aggregation::OpToString(aggr.op_) + std::to_string(aggr.uid());
   symbol_table_[aggr] =
-      symbol_table_.CreateSymbol("", false, Symbol::Type::Number);
+      symbol_table_.CreateSymbol(aggr_name, false, Symbol::Type::Number);
   scope_.in_aggregation = true;
   scope_.has_aggregation = true;
   return true;

@@ -11,6 +11,7 @@
 
 #include <boost/serialization/shared_ptr_helper.hpp>
 #include "boost/serialization/base_object.hpp"
+#include "boost/serialization/export.hpp"
 #include "boost/serialization/serialization.hpp"
 #include "boost/serialization/shared_ptr.hpp"
 #include "boost/serialization/unique_ptr.hpp"
@@ -85,7 +86,6 @@ class RemoveLabels;
 template <typename TAccessor>
 class ExpandUniquenessFilter;
 class Accumulate;
-class AdvanceCommand;
 class Aggregate;
 class Skip;
 class Limit;
@@ -105,9 +105,9 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     ExpandVariable, ConstructNamedPath, Filter, Produce, Delete, SetProperty,
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
-    ExpandUniquenessFilter<EdgeAccessor>, Accumulate, AdvanceCommand, Aggregate,
-    Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union,
-    ProduceRemote, PullRemote>;
+    ExpandUniquenessFilter<EdgeAccessor>, Accumulate, Aggregate, Skip, Limit,
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, ProduceRemote,
+    PullRemote>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -1006,6 +1006,8 @@ class Produce : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   const std::vector<NamedExpression *> &named_expressions();
+  auto input() const { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1563,6 +1565,9 @@ class Aggregate : public LogicalOperator {
 
   const auto &aggregations() const { return aggregations_; }
   const auto &group_by() const { return group_by_; }
+  const auto &remember() const { return remember_; }
+  auto input() const { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1694,6 +1699,9 @@ class Skip : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
+  auto input() const { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+
  private:
   std::shared_ptr<LogicalOperator> input_;
   Expression *expression_;
@@ -1758,6 +1766,9 @@ class Limit : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
+  auto input() const { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+
  private:
   std::shared_ptr<LogicalOperator> input_;
   Expression *expression_;
@@ -1821,6 +1832,8 @@ class OrderBy : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
   const auto &output_symbols() const { return output_symbols_; }
+  auto input() const { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
 
  private:
   // custom Comparator type for comparing vectors of TypedValues
@@ -2101,6 +2114,9 @@ class Distinct : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
+  auto input() const { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+
  private:
   std::shared_ptr<LogicalOperator> input_;
   std::vector<Symbol> value_symbols_;
@@ -2250,6 +2266,8 @@ class PullRemote : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
 
+  const auto &symbols() const { return symbols_; }
+
  private:
   std::shared_ptr<LogicalOperator> input_;
   int64_t plan_id_ = 0;
@@ -2269,3 +2287,37 @@ class PullRemote : public LogicalOperator {
 
 }  // namespace plan
 }  // namespace query
+
+BOOST_CLASS_EXPORT_KEY(query::plan::Once);
+BOOST_CLASS_EXPORT_KEY(query::plan::CreateNode);
+BOOST_CLASS_EXPORT_KEY(query::plan::CreateExpand);
+BOOST_CLASS_EXPORT_KEY(query::plan::ScanAll);
+BOOST_CLASS_EXPORT_KEY(query::plan::ScanAllByLabel);
+BOOST_CLASS_EXPORT_KEY(query::plan::ScanAllByLabelPropertyRange);
+BOOST_CLASS_EXPORT_KEY(query::plan::ScanAllByLabelPropertyValue);
+BOOST_CLASS_EXPORT_KEY(query::plan::Expand);
+BOOST_CLASS_EXPORT_KEY(query::plan::ExpandVariable);
+BOOST_CLASS_EXPORT_KEY(query::plan::Filter);
+BOOST_CLASS_EXPORT_KEY(query::plan::Produce);
+BOOST_CLASS_EXPORT_KEY(query::plan::ConstructNamedPath);
+BOOST_CLASS_EXPORT_KEY(query::plan::Delete);
+BOOST_CLASS_EXPORT_KEY(query::plan::SetProperty);
+BOOST_CLASS_EXPORT_KEY(query::plan::SetProperties);
+BOOST_CLASS_EXPORT_KEY(query::plan::SetLabels);
+BOOST_CLASS_EXPORT_KEY(query::plan::RemoveProperty);
+BOOST_CLASS_EXPORT_KEY(query::plan::RemoveLabels);
+BOOST_CLASS_EXPORT_KEY(query::plan::ExpandUniquenessFilter<EdgeAccessor>);
+BOOST_CLASS_EXPORT_KEY(query::plan::ExpandUniquenessFilter<VertexAccessor>);
+BOOST_CLASS_EXPORT_KEY(query::plan::Accumulate);
+BOOST_CLASS_EXPORT_KEY(query::plan::Aggregate);
+BOOST_CLASS_EXPORT_KEY(query::plan::Skip);
+BOOST_CLASS_EXPORT_KEY(query::plan::Limit);
+BOOST_CLASS_EXPORT_KEY(query::plan::OrderBy);
+BOOST_CLASS_EXPORT_KEY(query::plan::Merge);
+BOOST_CLASS_EXPORT_KEY(query::plan::Optional);
+BOOST_CLASS_EXPORT_KEY(query::plan::Unwind);
+BOOST_CLASS_EXPORT_KEY(query::plan::Distinct);
+BOOST_CLASS_EXPORT_KEY(query::plan::CreateIndex);
+BOOST_CLASS_EXPORT_KEY(query::plan::Union);
+BOOST_CLASS_EXPORT_KEY(query::plan::ProduceRemote);
+BOOST_CLASS_EXPORT_KEY(query::plan::PullRemote);

@@ -19,6 +19,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/plan/cost_estimator.hpp"
+#include "query/plan/distributed.hpp"
 #include "query/plan/planner.hpp"
 #include "query/typed_value.hpp"
 #include "utils/hashing/fnv.hpp"
@@ -453,7 +454,22 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ExpandUniquenessFilter<VertexAccessor>);
   PRE_VISIT(ExpandUniquenessFilter<EdgeAccessor>);
   PRE_VISIT(Accumulate);
-  PRE_VISIT(Aggregate);
+
+  bool PreVisit(query::plan::Aggregate &op) override {
+    WithPrintLn([&](auto &out) {
+      out << "* Aggregate {";
+      utils::PrintIterable(
+          out, op.aggregations(), ", ",
+          [](auto &out, const auto &aggr) { out << aggr.output_sym.name(); });
+      out << "} {";
+      utils::PrintIterable(
+          out, op.remember(), ", ",
+          [](auto &out, const auto &sym) { out << sym.name(); });
+      out << "}";
+    });
+    return true;
+  }
+
   PRE_VISIT(Skip);
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
@@ -487,7 +503,21 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   }
 
   PRE_VISIT(ProduceRemote);
-  PRE_VISIT(PullRemote);
+
+  bool PreVisit(query::plan::PullRemote &op) override {
+    WithPrintLn([&op](auto &out) {
+      out << "* PullRemote {";
+      utils::PrintIterable(
+          out, op.symbols(), ", ",
+          [](auto &out, const auto &sym) { out << sym.name(); });
+      out << "}";
+    });
+    WithPrintLn([](auto &out) { out << " \\"; });
+    ++depth_;
+    WithPrintLn([](auto &out) { out << "* workers"; });
+    --depth_;
+    return true;
+  }
 #undef PRE_VISIT
 
  private:
@@ -531,8 +561,8 @@ typedef std::vector<
 struct Command {
   typedef std::vector<std::string> Args;
   // Function of this command
-  std::function<void(database::GraphDbAccessor &, PlansWithCost &,
-                     const Args &)>
+  std::function<void(database::GraphDbAccessor &, const query::SymbolTable &,
+                     PlansWithCost &, const Args &)>
       function;
   // Number of arguments the function works with.
   int arg_count;
@@ -540,9 +570,10 @@ struct Command {
   std::string documentation;
 };
 
-#define DEFCOMMAND(Name)                                                   \
-  void Name##Command(database::GraphDbAccessor &dba, PlansWithCost &plans, \
-                     const Command::Args &args)
+#define DEFCOMMAND(Name)                                     \
+  void Name##Command(database::GraphDbAccessor &dba,         \
+                     const query::SymbolTable &symbol_table, \
+                     PlansWithCost &plans, const Command::Args &args)
 
 DEFCOMMAND(Top) {
   int64_t n_plans = 0;
@@ -572,11 +603,36 @@ DEFCOMMAND(Show) {
   plan->Accept(printer);
 }
 
+DEFCOMMAND(ShowDistributed) {
+  int64_t plan_ix = 0;
+  std::stringstream ss(args[0]);
+  ss >> plan_ix;
+  if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
+  const auto &plan = plans[plan_ix].first;
+  std::atomic<int64_t> plan_id{0};
+  auto distributed_plan = MakeDistributedPlan(*plan, symbol_table, plan_id);
+  {
+    std::cout << "---- Master Plan ---- " << std::endl;
+    PlanPrinter printer(dba);
+    distributed_plan.master_plan->Accept(printer);
+    std::cout << std::endl;
+  }
+  {
+    std::cout << "---- Worker Plan ---- " << std::endl;
+    PlanPrinter printer(dba);
+    distributed_plan.worker_plan->Accept(printer);
+    std::cout << std::endl;
+  }
+}
+
 DEFCOMMAND(Help);
 
 std::map<std::string, Command> commands = {
     {"top", {TopCommand, 1, "Show top N plans"}},
     {"show", {ShowCommand, 1, "Show the Nth plan"}},
+    {"show-distributed",
+     {ShowDistributedCommand, 1,
+      "Show the Nth plan as for distributed execution"}},
     {"help", {HelpCommand, 0, "Show available commands"}},
 };
 
@@ -594,7 +650,7 @@ DEFCOMMAND(Help) {
 #undef DEFCOMMAND
 
 void ExaminePlans(
-    database::GraphDbAccessor &dba,
+    database::GraphDbAccessor &dba, const query::SymbolTable &symbol_table,
     std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>,
                           double>> &plans) {
   while (true) {
@@ -616,7 +672,7 @@ void ExaminePlans(
                 << " arguments" << std::endl;
       continue;
     }
-    command.function(dba, plans, args);
+    command.function(dba, symbol_table, plans, args);
   }
 }
 
@@ -701,7 +757,7 @@ int main(int argc, char *argv[]) {
           << std::chrono::duration<double, std::milli>(planning_time).count()
           << "ms" << std::endl;
       std::cout << "Generated " << plans.size() << " plans" << std::endl;
-      ExaminePlans(dba, plans);
+      ExaminePlans(dba, symbol_table, plans);
     } catch (const utils::BasicException &e) {
       std::cout << "Error: " << e.what() << std::endl;
     }
