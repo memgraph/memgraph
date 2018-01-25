@@ -9,6 +9,10 @@
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
 
+namespace distributed {
+class IndexRpcServer;
+};
+
 namespace database {
 
 /** A data structure containing the main data members of a graph database. */
@@ -36,6 +40,7 @@ class Storage {
  private:
   friend class GraphDbAccessor;
   friend class StorageGc;
+  friend class distributed::IndexRpcServer;
 
   gid::Generator vertex_generator_;
   gid::Generator edge_generator_;

@@ -67,6 +67,18 @@ TEST(LabelPropertyIndex, CreateIndex) {
   EXPECT_EQ(index.CreateIndex(key), false);
 }
 
+TEST(LabelPropertyIndex, DeleteIndex) {
+  SingleNode db;
+  GraphDbAccessor accessor(db);
+  LabelPropertyIndex::Key key(accessor.Label("test"),
+                              accessor.Property("test2"));
+  LabelPropertyIndex index;
+  EXPECT_EQ(index.CreateIndex(key), true);
+  EXPECT_EQ(index.CreateIndex(key), false);
+  index.DeleteIndex(key);
+  EXPECT_EQ(index.CreateIndex(key), true);
+}
+
 TEST(LabelPropertyIndex, IndexExistance) {
   SingleNode db;
   GraphDbAccessor accessor(db);

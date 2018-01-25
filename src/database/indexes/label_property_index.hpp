@@ -32,16 +32,6 @@ class LabelPropertyIndex {
   LabelPropertyIndex &operator=(LabelPropertyIndex &&other) = delete;
 
   /**
-   * @brief - Clear all indices so that we don't leak memory.
-   */
-  ~LabelPropertyIndex() {
-    for (auto key_indices_pair : indices_.access()) {
-      // Delete skiplist because we created it with a new operator.
-      delete key_indices_pair.second;
-    }
-  }
-
-  /**
    * @brief - Contain Label + property, to be used as an index key.
    */
   class Key : public TotalOrdering<Key> {
@@ -74,13 +64,14 @@ class LabelPropertyIndex {
     auto iter = access.find(key);
     if (iter != access.end()) return false;
 
-    auto skiplist = new SkipList<IndexEntry>;
-    auto ret = access.insert(key, skiplist);
-    // Avoid multithreaded memory leak if we don't delete skiplist and fail the
-    // insert (some other thread already inserted)
-    if (ret.second == false) delete skiplist;
+    auto ret = access.insert(key, std::make_unique<SkipList<IndexEntry>>());
     return ret.second;
   }
+
+  /**
+   * Returns if it succeded in deleting the index and freeing the index memory
+   */
+  void DeleteIndex(const Key &key) { indices_.access().remove(key); }
 
   /**
    * @brief - Notify that the index has been populated with everything it should
@@ -100,7 +91,7 @@ class LabelPropertyIndex {
   void UpdateOnLabelProperty(mvcc::VersionList<Vertex> *const vlist,
                              const Vertex *const vertex) {
     const auto &labels = vertex->labels_;
-    for (auto index : indices_.access()) {
+    for (auto &index : indices_.access()) {
       // Vertex has the given label
       if (std::find(labels.begin(), labels.end(), index.first.label_) ==
           labels.end())
@@ -124,7 +115,7 @@ class LabelPropertyIndex {
   void UpdateOnLabel(storage::Label label,
                      mvcc::VersionList<Vertex> *const vlist,
                      const Vertex *const vertex) {
-    for (auto index : indices_.access()) {
+    for (auto &index : indices_.access()) {
       if (index.first.label_ != label) continue;
       auto prop = vertex->properties_.at(index.first.property_);
       if (prop.type() != PropertyValue::Type::Null) {
@@ -146,7 +137,7 @@ class LabelPropertyIndex {
                         mvcc::VersionList<Vertex> *const vlist,
                         const Vertex *const vertex) {
     const auto &labels = vertex->labels_;
-    for (auto index : indices_.access()) {
+    for (auto &index : indices_.access()) {
       if (index.first.property_ != property) continue;
       if (std::find(labels.begin(), labels.end(), index.first.label_) !=
           labels.end()) {
@@ -268,10 +259,9 @@ class LabelPropertyIndex {
     auto access = GetKeyStorage(key)->access();
 
     // create the iterator startpoint based on the lower bound
-    auto start_iter = lower
-                          ? access.find_or_larger(make_index_bound(
-                                lower, lower.value().IsInclusive()))
-                          : access.begin();
+    auto start_iter = lower ? access.find_or_larger(make_index_bound(
+                                  lower, lower.value().IsInclusive()))
+                            : access.begin();
 
     // a function that defines if an entry staisfies the filtering predicate.
     // since we already handled the lower bound, we only need to deal with the
@@ -513,7 +503,7 @@ class LabelPropertyIndex {
     auto access = indices_.access();
     auto iter = access.find(key);
     if (iter == access.end()) return nullptr;
-    return iter->second;
+    return iter->second.get();
   }
 
   /**
@@ -539,7 +529,7 @@ class LabelPropertyIndex {
     return !IndexEntry::Less(prop, value) && !IndexEntry::Less(value, prop);
   }
 
-  ConcurrentMap<Key, SkipList<IndexEntry> *> indices_;
+  ConcurrentMap<Key, std::unique_ptr<SkipList<IndexEntry>>> indices_;
   ConcurrentSet<Key> ready_for_use_;
 };
 }  // namespace database

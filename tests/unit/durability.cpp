@@ -364,11 +364,11 @@ TEST_F(Durability, WalEncoding) {
   EXPECT_EQ(deltas[6].transaction_id(), 1);
   // The next two deltas are the BuildIndex internal transactions.
   EXPECT_EQ(deltas[7].type(), Type::TRANSACTION_BEGIN);
-  EXPECT_EQ(deltas[8].type(), Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(deltas[9].type(), Type::BUILD_INDEX);
-  auto index_name = deltas[9].IndexName();
+  EXPECT_EQ(deltas[8].type(), Type::BUILD_INDEX);
+  auto index_name = deltas[8].IndexName();
   EXPECT_EQ(index_name.first, "l1");
   EXPECT_EQ(index_name.second, "p1");
+  EXPECT_EQ(deltas[9].type(), Type::TRANSACTION_COMMIT);
   EXPECT_EQ(deltas[10].type(), Type::TRANSACTION_COMMIT);
   EXPECT_EQ(deltas[10].transaction_id(), 1);
 }

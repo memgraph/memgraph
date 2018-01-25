@@ -16,8 +16,7 @@ class RemoteDataRpcServer {
   // locks (not sure what the gain would be). But have some way of cache
   // invalidation.
  public:
-  RemoteDataRpcServer(database::GraphDb &db,
-                      communication::rpc::System &system)
+  RemoteDataRpcServer(database::GraphDb &db, communication::rpc::System &system)
       : db_(db), system_(system) {
     rpc_server_.Register<RemoteVertexRpc>([this](const RemoteVertexReq &req) {
       database::GraphDbAccessor dba(db_, req.member.tx_id);

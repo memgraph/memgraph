@@ -3,6 +3,7 @@
 #include "boost/serialization/export.hpp"
 
 #include "distributed/coordination_rpc_messages.hpp"
+#include "distributed/index_rpc_messages.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "distributed/remote_data_rpc_messages.hpp"
 #include "distributed/remote_pull_produce_rpc_messages.hpp"
@@ -56,3 +57,8 @@ BOOST_CLASS_EXPORT(distributed::RemotePullResData);
 BOOST_CLASS_EXPORT(distributed::RemotePullRes);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullReq);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullRes);
+
+// Distributed indexes
+BOOST_CLASS_EXPORT(distributed::BuildIndexReq);
+BOOST_CLASS_EXPORT(distributed::BuildIndexRes);
+BOOST_CLASS_EXPORT(distributed::IndexLabelPropertyTx);

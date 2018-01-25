@@ -24,6 +24,11 @@ class IndexExistsException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+/** Thrown when creating an index which already exists. */
+class IndexCreationOnWorkerException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 /**
  * An accessor for the database object: exposes functions for operating on the
  * database. All the functions in this class should be self-sufficient: for
@@ -379,6 +384,12 @@ class GraphDbAccessor {
    */
   void BuildIndex(storage::Label label, storage::Property property);
 
+  /// Populates index with vertices containing the key
+  void PopulateIndex(const LabelPropertyIndex::Key &key);
+
+  /// Writes Index (key) creation to wal, marks it as ready for usage
+  void EnableIndex(const LabelPropertyIndex::Key &key);
+
   /**
    * @brief - Returns true if the given label+property index already exists and
    * is ready for use.
@@ -549,18 +560,28 @@ class GraphDbAccessor {
   bool commited_{false};
   bool aborted_{false};
 
-  std::experimental::optional<distributed::RemoteCache<Vertex>> remote_vertices_;
+  std::experimental::optional<distributed::RemoteCache<Vertex>>
+      remote_vertices_;
   std::experimental::optional<distributed::RemoteCache<Edge>> remote_edges_;
 
   /** Casts the transaction engine to SingleNodeEngine and returns it. If the
    * engine is a WorkerEngine (and not SingleNode nor Master), a call to this
-   * function will crash MG. */
+   * method will crash MG. */
   tx::SingleNodeEngine &SingleNodeEngine() {
     auto *single_node_engine =
         dynamic_cast<tx::SingleNodeEngine *>(&db_.tx_engine());
     DCHECK(single_node_engine)
         << "Asked for SingleNodeEngine on distributed worker";
     return *single_node_engine;
+  }
+
+  /** Casts the GraphDb to MasterGraphDb and returns it. If the
+   * GraphDb is not a MasterGraphDb, a call to this method will crash MG. */
+  Master &MasterGraphDb() {
+    auto *master_graph_db = dynamic_cast<Master *>(&db_);
+    DCHECK(master_graph_db)
+        << "Asked for Master Graph db on a distributed worker or single node";
+    return *master_graph_db;
   }
 
   /**

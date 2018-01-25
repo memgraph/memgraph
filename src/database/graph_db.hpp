@@ -6,6 +6,7 @@
 #include "database/counters.hpp"
 #include "database/storage.hpp"
 #include "database/storage_gc.hpp"
+#include "distributed/rpc_worker_clients.hpp"
 #include "durability/wal.hpp"
 #include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
@@ -172,6 +173,9 @@ class Master : public MasterBase {
   /** Gets the endpoint of the worker with the given id. */
   // TODO make const once Coordination::GetEndpoint is const.
   io::network::Endpoint GetEndpoint(int worker_id);
+
+  /** Gets the index rpc workers*/
+  distributed::RpcWorkerClients &GetIndexRpcClients();
 };
 
 class Worker : public impl::PublicBase {

@@ -4,6 +4,7 @@
 #include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
+#include "distributed/index_rpc_server.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
@@ -98,6 +99,12 @@ class SingleNode : public PrivateBase {
   distributed::RemoteDataRpcClients &remote_data_clients() override {
     LOG(FATAL) << "Remote data clients not available in single-node.";
   }
+  distributed::PlanDispatcher &plan_dispatcher() override {
+    LOG(FATAL) << "Plan Dispatcher not available in single-node.";
+  }
+  distributed::PlanConsumer &plan_consumer() override {
+    LOG(FATAL) << "Plan Consumer not available in single-node.";
+  }
 };
 
 #define IMPL_DISTRIBUTED_GETTERS                                      \
@@ -133,6 +140,8 @@ class Master : public PrivateBase {
   distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
   distributed::PlanDispatcher plan_dispatcher_{coordination_};
   distributed::RemotePullRpcClients remote_pull_clients_{coordination_};
+  distributed::RpcWorkerClients index_rpc_clients_{coordination_,
+                                                   distributed::kIndexRpcName};
 };
 
 class Worker : public PrivateBase {
@@ -148,7 +157,7 @@ class Worker : public PrivateBase {
   IMPL_DISTRIBUTED_GETTERS
   distributed::PlanConsumer &plan_consumer() override { return plan_consumer_; }
   distributed::RemoteProduceRpcServer &remote_produce_server() override {
-    return remote_produce_server_;
+    return remote_produce_server();
   }
 
   communication::rpc::System system_{config_.worker_endpoint};
@@ -163,6 +172,7 @@ class Worker : public PrivateBase {
   distributed::PlanConsumer plan_consumer_{system_};
   distributed::RemoteProduceRpcServer remote_produce_server_{*this, system_,
                                                              plan_consumer_};
+  distributed::IndexRpcServer index_rpc_server_{*this, system_};
 };
 
 #undef IMPL_GETTERS
@@ -274,6 +284,10 @@ io::network::Endpoint Master::endpoint() const {
 io::network::Endpoint Master::GetEndpoint(int worker_id) {
   return dynamic_cast<impl::Master *>(impl_.get())
       ->coordination_.GetEndpoint(worker_id);
+}
+
+distributed::RpcWorkerClients &Master::GetIndexRpcClients() {
+  return dynamic_cast<impl::Master *>(impl_.get())->index_rpc_clients_;
 }
 
 Worker::Worker(Config config)

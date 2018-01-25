@@ -300,3 +300,49 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
 }
 
 // TODO EndRemotePull test
+
+TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
+  using GraphDbAccessor = database::GraphDbAccessor;
+  storage::Label label;
+  storage::Property property;
+
+  {
+    GraphDbAccessor dba0{master()};
+    label = dba0.Label("label");
+    property = dba0.Property("property");
+    auto tx_id = dba0.transaction_id();
+
+    GraphDbAccessor dba1{worker1(), tx_id};
+    GraphDbAccessor dba2{worker2(), tx_id};
+    auto add_vertex = [label, property](GraphDbAccessor &dba) {
+      auto vertex = dba.InsertVertex();
+      vertex.add_label(label);
+      vertex.PropsSet(property, 1);
+    };
+    for (int i = 0; i < 100; ++i) add_vertex(dba0);
+    for (int i = 0; i < 50; ++i) add_vertex(dba1);
+    for (int i = 0; i < 300; ++i) add_vertex(dba2);
+    dba0.Commit();
+  }
+
+  {
+    GraphDbAccessor dba{master()};
+    dba.BuildIndex(label, property);
+    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 100);
+  }
+
+  GraphDbAccessor dba_master{master()};
+
+  {
+    GraphDbAccessor dba{worker1(), dba_master.transaction_id()};
+    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 50);
+  }
+
+  {
+    GraphDbAccessor dba{worker2(), dba_master.transaction_id()};
+    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 300);
+  }
+}

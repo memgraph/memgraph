@@ -139,7 +139,7 @@ static auto GetVlists(
  */
 template <class TKey, class TIndexEntry, class TRecord>
 static void Refresh(
-    ConcurrentMap<TKey, SkipList<TIndexEntry> *> &indices,
+    ConcurrentMap<TKey, std::unique_ptr<SkipList<TIndexEntry>>> &indices,
     const tx::Snapshot &snapshot, tx::Engine &engine,
     const std::function<bool(const TKey &, const TIndexEntry &)> &exists) {
   // iterate over all the indices

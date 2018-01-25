@@ -1,7 +1,11 @@
+#include <functional>
+#include <future>
+
 #include "glog/logging.h"
 
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
+#include "distributed/index_rpc_messages.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex.hpp"
@@ -120,6 +124,8 @@ EdgeAccessor GraphDbAccessor::FindEdgeChecked(gid::Gid gid,
 void GraphDbAccessor::BuildIndex(storage::Label label,
                                  storage::Property property) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+  DCHECK(db_.type() != GraphDb::Type::DISTRIBUTED_WORKER)
+      << "BuildIndex invoked on worker";
 
   db_.storage().index_build_tx_in_progress_.access().insert(transaction_.id_);
 
@@ -163,6 +169,23 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   // CreateIndex.
   GraphDbAccessor dba(db_);
 
+  std::experimental::optional<std::vector<std::future<bool>>>
+      index_rpc_completions;
+
+  // Notify all workers to start building an index if we are the master since
+  // they don't have to wait anymore
+  if (db_.type() == GraphDb::Type::DISTRIBUTED_MASTER) {
+    auto &rpc_clients = MasterGraphDb().GetIndexRpcClients();
+
+    index_rpc_completions.emplace(rpc_clients.ExecuteOnWorkers<bool>(
+        this->db_.WorkerId(),
+        [label, property, this](communication::rpc::Client &client) {
+          return client.Call<distributed::BuildIndexRpc>(
+                     distributed::IndexLabelPropertyTx{
+                         label, property, transaction_id()}) != nullptr;
+        }));
+  }
+
   // Add transaction to the build_tx_in_progress as this transaction doesn't
   // change data and shouldn't block other parallel index creations
   auto read_transaction_id = dba.transaction().id_;
@@ -175,23 +198,50 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
     DCHECK(removed) << "Index building (read) transaction should be inside set";
   });
 
-  for (auto vertex : dba.Vertices(label, false)) {
-    db_.storage().label_property_index_.UpdateOnLabelProperty(
-        vertex.address().local(), vertex.current_);
+  dba.PopulateIndex(key);
+
+  // Check if all workers sucesfully built their indexes and after this we can
+  // set the index as built
+  if (index_rpc_completions) {
+    // Wait first, check later - so that every thread finishes and none
+    // terminates - this can probably be optimized in case we fail early so that
+    // we notify other workers to stop building indexes
+    for (auto &index_built : *index_rpc_completions) index_built.wait();
+    for (auto &index_built : *index_rpc_completions) {
+      if (!index_built.get()) {
+        db_.storage().label_property_index_.DeleteIndex(key);
+        throw IndexCreationOnWorkerException("Index exists on a worker");
+      }
+    }
   }
+
+  dba.EnableIndex(key);
+  dba.Commit();
+}
+
+void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   // Commit transaction as we finished applying method on newest visible
   // records. Write that transaction's ID to the WAL as the index has been
   // built at this point even if this DBA's transaction aborts for some
   // reason.
-  auto wal_build_index_tx_id = dba.transaction_id();
-  dba.Commit();
-  wal().Emplace(database::StateDelta::BuildIndex(
-      wal_build_index_tx_id, LabelName(label), PropertyName(property)));
+  auto wal_build_index_tx_id = transaction_id();
+  wal().Emplace(database::StateDelta::BuildIndex(wal_build_index_tx_id,
+                                                 LabelName(key.label_),
+                                                 PropertyName(key.property_)));
 
   // After these two operations we are certain that everything is contained in
-  // the index under the assumption that this transaction contained no
-  // vertex/edge insert/update before this method was invoked.
+  // the index under the assumption that the original index creation transaction
+  // contained no vertex/edge insert/update before this method was invoked.
   db_.storage().label_property_index_.IndexFinishedBuilding(key);
+}
+
+void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
+  for (auto vertex : Vertices(key.label_, false)) {
+    if (vertex.PropsAt(key.property_).type() == PropertyValue::Type::Null)
+      continue;
+    db_.storage().label_property_index_.UpdateOnLabelProperty(
+        vertex.address().local(), vertex.current_);
+  }
 }
 
 void GraphDbAccessor::UpdateLabelIndices(storage::Label label,

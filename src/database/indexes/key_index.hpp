@@ -27,15 +27,7 @@ class KeyIndex {
   KeyIndex(KeyIndex &&other) = delete;
   KeyIndex &operator=(const KeyIndex &other) = delete;
   KeyIndex &operator=(KeyIndex &&other) = delete;
-  /**
-   * @brief - Clear all indexes so that we don't leak memory.
-   */
-  ~KeyIndex() {
-    for (auto key_indices_pair : indices_.access()) {
-      // Delete skiplist because we created it with a new operator.
-      delete key_indices_pair.second;
-    }
-  }
+
   /**
    * @brief - Add record, vlist, if new, to TKey specific storage.
    * @param key - TKey index to update.
@@ -159,14 +151,10 @@ class KeyIndex {
     // Avoid excessive new/delete by first checking if it exists.
     auto iter = access.find(key);
     if (iter == access.end()) {
-      auto skiplist = new SkipList<IndexEntry>;
-      auto ret = access.insert(key, skiplist);
-      // In case some other insert managed to create new skiplist we shouldn't
-      // leak memory and should delete this one accordingly.
-      if (ret.second == false) delete skiplist;
-      return ret.first->second;
+      auto ret = access.insert(key, std::make_unique<SkipList<IndexEntry>>());
+      return ret.first->second.get();
     }
-    return iter->second;
+    return iter->second.get();
   }
 
   /**
@@ -196,6 +184,6 @@ class KeyIndex {
     return e->edge_type_ == edge_type;
   }
 
-  ConcurrentMap<TKey, SkipList<IndexEntry> *> indices_;
+  ConcurrentMap<TKey, std::unique_ptr<SkipList<IndexEntry>>> indices_;
 };
 }  // namespace database
