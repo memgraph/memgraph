@@ -11,9 +11,9 @@
 #include "gtest/gtest.h"
 
 #include "communication/rpc/client.hpp"
+#include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/server.hpp"
-#include "gtest/gtest.h"
 #include "utils/timer.hpp"
 
 using namespace communication::rpc;
@@ -90,4 +90,56 @@ TEST(Rpc, Abort) {
   EXPECT_LT(timer.Elapsed(), 200ms);
 
   thread.join();
+}
+
+TEST(Rpc, ClientPool) {
+  System server_system({"127.0.0.1", 0});
+  Server server(server_system, "main", 4);
+  server.Register<Sum>([](const SumReq &request) {
+    std::this_thread::sleep_for(100ms);
+    return std::make_unique<SumRes>(request.x + request.y);
+  });
+  std::this_thread::sleep_for(100ms);
+
+
+  Client client(server_system.endpoint(), "main");
+
+  /* these calls should take more than 400ms because we're using a regular
+   * client */
+  auto get_sum_client = [&client](int x, int y) {
+    auto sum = client.Call<Sum>(x, y);
+    ASSERT_TRUE(sum != nullptr);
+    EXPECT_EQ(sum->sum, x + y);
+  };
+
+  utils::Timer t1;
+  std::vector<std::thread> threads;
+  for (int i = 0; i < 4; ++i) {
+    threads.emplace_back(get_sum_client, 2 * i, 2 * i + 1);
+  }
+  for (int i = 0; i < 4; ++i) {
+    threads[i].join();
+  }
+  threads.clear();
+
+  EXPECT_GE(t1.Elapsed(), 400ms);
+
+  ClientPool pool(server_system.endpoint(), "main");
+
+  /* these calls shouldn't take much more that 100ms because they execute in
+   * parallel */
+  auto get_sum = [&pool](int x, int y) {
+    auto sum = pool.Call<Sum>(x, y);
+    ASSERT_TRUE(sum != nullptr);
+    EXPECT_EQ(sum->sum, x + y);
+  };
+
+  utils::Timer t2;
+  for (int i = 0; i < 4; ++i) {
+    threads.emplace_back(get_sum, 2 * i, 2 * i + 1);
+  }
+  for (int i = 0; i < 4; ++i) {
+    threads[i].join();
+  }
+  EXPECT_LE(t2.Elapsed(), 200ms);
 }
