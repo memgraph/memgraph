@@ -214,6 +214,12 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * an update.
    */
   mutable TRecord *new_{nullptr};
+
+  /** Returns an address that is local, if the given address is local, or if it
+   * is remote, but points to this worker. This method is used in the
+   * constructor, but the graph_db_accessor field must be initizalized when it's
+   * called. */
+  AddressT NormalizedAddress(AddressT address) const;
 };
 
 /** Error when trying to update a deleted record */

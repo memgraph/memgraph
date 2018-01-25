@@ -606,5 +606,11 @@ class GraphDbAccessor {
   void UpdatePropertyIndex(storage::Property property,
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
+
+  /// Gets the local address for the given gid. Fails if not present.
+  mvcc::VersionList<Vertex> *LocalVertexAddress(gid::Gid gid) const;
+
+  /// Gets the local edge address for the given gid. Fails if not present.
+  mvcc::VersionList<Edge> *LocalEdgeAddress(gid::Gid gid) const;
 };
 }  // namespace database

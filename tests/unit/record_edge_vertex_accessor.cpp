@@ -5,9 +5,11 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-
+#include "mvcc/version_list.hpp"
+#include "storage/address.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/property_value.hpp"
+#include "storage/vertex.hpp"
 #include "storage/vertex_accessor.hpp"
 
 TEST(RecordAccessor, Properties) {
@@ -56,6 +58,19 @@ TEST(RecordAccessor, RecordEquality) {
   auto e2 = dba.InsertEdge(v1, v2, dba.EdgeType("type"));
   EXPECT_EQ(e1, e1);
   EXPECT_NE(e1, e2);
+}
+
+TEST(RecordAccessor, GlobalToLocalAddressConversion) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+
+  auto v1 = dba.InsertVertex();
+  storage::Address<mvcc::VersionList<Vertex>> global_address{v1.gid(),
+                                                             db.WorkerId()};
+  EXPECT_FALSE(global_address.is_local());
+  auto v1_from_global = VertexAccessor(global_address, dba);
+  EXPECT_TRUE(v1_from_global.address().is_local());
+  EXPECT_EQ(v1_from_global.address(), v1.address());
 }
 
 TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {

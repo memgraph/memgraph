@@ -87,10 +87,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
     gid::Gid gid, bool current_state) {
-  auto collection_accessor = db_.storage().vertices_.access();
-  auto found = collection_accessor.find(gid);
-  if (found == collection_accessor.end()) return std::experimental::nullopt;
-  VertexAccessor record_accessor(found->second, *this);
+  VertexAccessor record_accessor(LocalVertexAddress(gid), *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -105,10 +102,7 @@ VertexAccessor GraphDbAccessor::FindVertexChecked(gid::Gid gid,
 
 std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
     gid::Gid gid, bool current_state) {
-  auto collection_accessor = db_.storage().edges_.access();
-  auto found = collection_accessor.find(gid);
-  if (found == collection_accessor.end()) return std::experimental::nullopt;
-  EdgeAccessor record_accessor(found->second, *this);
+  EdgeAccessor record_accessor(LocalEdgeAddress(gid), *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -522,5 +516,20 @@ distributed::RemoteCache<Vertex> &GraphDbAccessor::remote_elements() {
 template <>
 distributed::RemoteCache<Edge> &GraphDbAccessor::remote_elements() {
   return remote_edges();
+}
+
+mvcc::VersionList<Vertex> *GraphDbAccessor::LocalVertexAddress(
+    gid::Gid gid) const {
+  auto access = db_.storage().vertices_.access();
+  auto found = access.find(gid);
+  CHECK(found != access.end()) << "Failed to find vertex for gid: " << gid;
+  return found->second;
+}
+
+mvcc::VersionList<Edge> *GraphDbAccessor::LocalEdgeAddress(gid::Gid gid) const {
+  auto access = db_.storage().edges_.access();
+  auto found = access.find(gid);
+  CHECK(found != access.end()) << "Failed to find edge for gid: " << gid;
+  return found->second;
 }
 }  // namespace database

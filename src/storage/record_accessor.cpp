@@ -10,7 +10,7 @@ using database::StateDelta;
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(AddressT address,
                                         database::GraphDbAccessor &db_accessor)
-    : db_accessor_(&db_accessor), address_(address) {}
+    : db_accessor_(&db_accessor), address_(NormalizedAddress(address)) {}
 
 template <typename TRecord>
 const PropertyValue &RecordAccessor<TRecord>::PropsAt(
@@ -142,9 +142,11 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
   if (is_local()) {
     address_.local()->find_set_old_new(db_accessor_->transaction(), old_, new_);
   } else {
-    // TODO in write queries it's possible the command has been advanced and we
-    // need to invalidate the RemoteCache and really get the latest stuff. But
-    // only do that after the command has been advanced.
+    // It's not possible that we have a global address for a graph element
+    // that's local, because that is resolved in the constructor.
+    // TODO in write queries it's possible the command has been advanced and
+    // we need to invalidate the RemoteCache and really get the latest stuff.
+    // But only do that after the command has been advanced.
     db_accessor().template remote_elements<TRecord>().FindSetOldNew(
         db_accessor().transaction().id_, address_.worker_id(),
         address_.global_id(), old_, new_);
@@ -201,6 +203,28 @@ void RecordAccessor<TRecord>::ProcessDelta(const GraphStateDelta &) const {
     // TODO use the delta to perform a remote update.
     // TODO check for results (success, serialization_error, ...)
   }
+}
+
+template <>
+RecordAccessor<Vertex>::AddressT RecordAccessor<Vertex>::NormalizedAddress(
+    AddressT address) const {
+  if (address.is_local()) return address;
+  if (address.worker_id() == db_accessor().db_.WorkerId()) {
+    return AddressT(db_accessor().LocalVertexAddress(address.global_id()));
+  }
+
+  return address;
+}
+
+template <>
+RecordAccessor<Edge>::AddressT RecordAccessor<Edge>::NormalizedAddress(
+    AddressT address) const {
+  if (address.is_local()) return address;
+  if (address.worker_id() == db_accessor().db_.WorkerId()) {
+    return AddressT(db_accessor().LocalEdgeAddress(address.global_id()));
+  }
+
+  return address;
 }
 
 template class RecordAccessor<Vertex>;
