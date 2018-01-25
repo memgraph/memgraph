@@ -18,6 +18,8 @@ class RemoteDataRpcServer;
 class RemoteDataRpcClients;
 class PlanDispatcher;
 class PlanConsumer;
+class RemotePullRpcClients;
+class RemoteProduceRpcServer;
 }
 
 namespace database {
@@ -88,7 +90,14 @@ class GraphDb {
   // Supported only in distributed master and worker, not in single-node.
   virtual distributed::RemoteDataRpcServer &remote_data_server() = 0;
   virtual distributed::RemoteDataRpcClients &remote_data_clients() = 0;
+
+  // Supported only in distributed master.
+  virtual distributed::RemotePullRpcClients &remote_pull_clients() = 0;
   virtual distributed::PlanDispatcher &plan_dispatcher() = 0;
+
+  // Supported only in distributed worker.
+  // TODO remove once end2end testing is possible.
+  virtual distributed::RemoteProduceRpcServer &remote_produce_server() = 0;
   virtual distributed::PlanConsumer &plan_consumer() = 0;
 
   GraphDb(const GraphDb &) = delete;
@@ -121,6 +130,8 @@ class PublicBase : public GraphDb {
   distributed::RemoteDataRpcClients &remote_data_clients() override;
   distributed::PlanDispatcher &plan_dispatcher() override;
   distributed::PlanConsumer &plan_consumer() override;
+  distributed::RemotePullRpcClients &remote_pull_clients() override;
+  distributed::RemoteProduceRpcServer &remote_produce_server() override;
 
  protected:
   explicit PublicBase(std::unique_ptr<PrivateBase> impl);

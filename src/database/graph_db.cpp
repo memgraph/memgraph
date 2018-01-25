@@ -8,6 +8,8 @@
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "distributed/remote_data_rpc_server.hpp"
+#include "distributed/remote_produce_rpc_server.hpp"
+#include "distributed/remote_pull_rpc_clients.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
@@ -34,6 +36,19 @@ class PrivateBase : public GraphDb {
   Storage &storage() override { return storage_; }
   durability::WriteAheadLog &wal() override { return wal_; }
   int WorkerId() const override { return config_.worker_id; }
+
+  distributed::RemotePullRpcClients &remote_pull_clients() override {
+    LOG(FATAL) << "Remote pull clients only available in master.";
+  }
+  distributed::RemoteProduceRpcServer &remote_produce_server() override {
+    LOG(FATAL) << "Remote produce server only available in worker.";
+  }
+  distributed::PlanConsumer &plan_consumer() override {
+    LOG(FATAL) << "Plan consumer only available in distributed worker.";
+  }
+  distributed::PlanDispatcher &plan_dispatcher() override {
+    LOG(FATAL) << "Plan dispatcher only available in distributed master.";
+  }
 
  protected:
   Storage storage_{config_.worker_id};
@@ -83,12 +98,6 @@ class SingleNode : public PrivateBase {
   distributed::RemoteDataRpcClients &remote_data_clients() override {
     LOG(FATAL) << "Remote data clients not available in single-node.";
   }
-  distributed::PlanDispatcher &plan_dispatcher() override {
-    LOG(FATAL) << "Plan Dispatcher not available in single-node.";
-  }
-  distributed::PlanConsumer &plan_consumer() override {
-    LOG(FATAL) << "Plan Consumer not available in single-node.";
-  }
 };
 
 #define IMPL_DISTRIBUTED_GETTERS                                      \
@@ -110,8 +119,8 @@ class Master : public PrivateBase {
   distributed::PlanDispatcher &plan_dispatcher() override {
     return plan_dispatcher_;
   }
-  distributed::PlanConsumer &plan_consumer() override {
-    LOG(FATAL) << "Plan Consumer not available in single-node.";
+  distributed::RemotePullRpcClients &remote_pull_clients() override {
+    return remote_pull_clients_;
   }
 
   communication::rpc::System system_{config_.master_endpoint};
@@ -123,6 +132,7 @@ class Master : public PrivateBase {
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
   distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
   distributed::PlanDispatcher plan_dispatcher_{coordination_};
+  distributed::RemotePullRpcClients remote_pull_clients_{coordination_};
 };
 
 class Worker : public PrivateBase {
@@ -137,8 +147,8 @@ class Worker : public PrivateBase {
   IMPL_GETTERS
   IMPL_DISTRIBUTED_GETTERS
   distributed::PlanConsumer &plan_consumer() override { return plan_consumer_; }
-  distributed::PlanDispatcher &plan_dispatcher() override {
-    LOG(FATAL) << "Plan Dispatcher not available in single-node.";
+  distributed::RemoteProduceRpcServer &remote_produce_server() override {
+    return remote_produce_server_;
   }
 
   communication::rpc::System system_{config_.worker_endpoint};
@@ -151,6 +161,8 @@ class Worker : public PrivateBase {
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
   distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
   distributed::PlanConsumer plan_consumer_{system_};
+  distributed::RemoteProduceRpcServer remote_produce_server_{*this, system_,
+                                                             plan_consumer_};
 };
 
 #undef IMPL_GETTERS
@@ -203,6 +215,12 @@ distributed::PlanDispatcher &PublicBase::plan_dispatcher() {
 }
 distributed::PlanConsumer &PublicBase::plan_consumer() {
   return impl_->plan_consumer();
+}
+distributed::RemotePullRpcClients &PublicBase::remote_pull_clients() {
+  return impl_->remote_pull_clients();
+}
+distributed::RemoteProduceRpcServer &PublicBase::remote_produce_server() {
+  return impl_->remote_produce_server();
 }
 
 void PublicBase::MakeSnapshot() {

@@ -3,6 +3,7 @@
 #include <functional>
 #include <future>
 #include <type_traits>
+#include <unordered_map>
 
 #include "communication/rpc/client.hpp"
 #include "distributed/coordination.hpp"

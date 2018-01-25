@@ -1,10 +1,4 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 08.03.17.
-//
-
-#ifndef MEMGRAPH_PARAMETERS_HPP
-#define MEMGRAPH_PARAMETERS_HPP
+#pragma once
 
 #include <algorithm>
 #include <utility>
@@ -16,6 +10,7 @@
  * Encapsulates user provided parameters (and stripped literals)
  * and provides ways of obtaining them by position.
  */
+// TODO move to namespace query::
 struct Parameters {
  public:
   /**
@@ -57,10 +52,11 @@ struct Parameters {
   }
 
   /** Returns the number of arguments in this container */
-  int size() const { return storage_.size(); }
+  auto size() const { return storage_.size(); }
+
+  auto begin() const { return storage_.begin(); }
+  auto end() const { return storage_.end(); }
 
  private:
   std::vector<std::pair<int, query::TypedValue>> storage_;
 };
-
-#endif  // MEMGRAPH_PARAMETERS_HPP

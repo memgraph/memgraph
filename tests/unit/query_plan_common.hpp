@@ -1,8 +1,3 @@
-//
-// Copyright 2017 Memgraph
-// Created by Florijan Stamenkovic on 14.03.17.
-//
-
 #pragma once
 
 #include <iterator>

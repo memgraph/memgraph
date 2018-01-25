@@ -5,6 +5,7 @@
 #include "distributed/coordination_rpc_messages.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "distributed/remote_data_rpc_messages.hpp"
+#include "distributed/remote_pull_produce_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 
@@ -47,3 +48,11 @@ BOOST_CLASS_EXPORT(distributed::TxGidPair);
 // Distributed plan exchange.
 BOOST_CLASS_EXPORT(distributed::DispatchPlanReq);
 BOOST_CLASS_EXPORT(distributed::ConsumePlanRes);
+
+// Remote pull.
+BOOST_CLASS_EXPORT(distributed::RemotePullReqData);
+BOOST_CLASS_EXPORT(distributed::RemotePullReq);
+BOOST_CLASS_EXPORT(distributed::RemotePullResData);
+BOOST_CLASS_EXPORT(distributed::RemotePullRes);
+BOOST_CLASS_EXPORT(distributed::EndRemotePullReq);
+BOOST_CLASS_EXPORT(distributed::EndRemotePullRes);

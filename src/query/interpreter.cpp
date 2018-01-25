@@ -196,5 +196,4 @@ Interpreter::MakeLogicalPlan(AstTreeStorage &ast_storage,
   return plan::MakeLogicalPlan(planning_context, context.parameters_,
                                FLAGS_query_cost_planner);
 };
-
 }  // namespace query

@@ -9,24 +9,31 @@
 namespace distributed {
 
 /** Handles plan consumption from master. Creates and holds a local cache of
- * plans. Worker side.
- */
+ * plans. Worker side. */
 class PlanConsumer {
  public:
+  struct PlanPack {
+    PlanPack(std::shared_ptr<query::plan::LogicalOperator> plan,
+             SymbolTable symbol_table, AstTreeStorage storage)
+        : plan(plan),
+          symbol_table(std::move(symbol_table)),
+          storage(std::move(storage)) {}
+
+    std::shared_ptr<query::plan::LogicalOperator> plan;
+    SymbolTable symbol_table;
+    const AstTreeStorage storage;
+  };
+
   explicit PlanConsumer(communication::rpc::System &system);
 
-  /**
-   * Return cached plan and symbol table for a given plan id.
-   */
-  std::pair<std::shared_ptr<query::plan::LogicalOperator>, SymbolTable>
-  PlanForId(int64_t plan_id);
+  /** Return cached plan and symbol table for a given plan id. */
+  PlanPack &PlanForId(int64_t plan_id) const;
 
  private:
   communication::rpc::Server server_;
-  mutable ConcurrentMap<
-      int64_t,
-      std::pair<std::shared_ptr<query::plan::LogicalOperator>, SymbolTable>>
-      plan_cache_;
+  // TODO remove unique_ptr. This is to get it to work, emplacing into a
+  // ConcurrentMap is tricky.
+  mutable ConcurrentMap<int64_t, std::unique_ptr<PlanPack>> plan_cache_;
 };
 
 }  // namespace distributed

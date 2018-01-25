@@ -11,9 +11,18 @@
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "distributed/remote_data_rpc_server.hpp"
+#include "distributed/remote_pull_rpc_clients.hpp"
 #include "io/network/endpoint.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/planner.hpp"
 #include "query_plan_common.hpp"
 #include "transactions/engine_master.hpp"
+
+#include "query_common.hpp"
+#include "query_plan_common.hpp"
 
 template <typename T>
 using optional = std::experimental::optional<T>;
@@ -215,18 +224,79 @@ TEST_F(DistributedGraphDbTest, DispatchPlan) {
   master().plan_dispatcher().DispatchPlan(plan_id, scan_all.op_, symbol_table);
   std::this_thread::sleep_for(kRPCWaitTime);
 
-  {
-    auto cached = worker1().plan_consumer().PlanForId(plan_id);
-    EXPECT_NE(dynamic_cast<query::plan::ScanAll *>(cached.first.get()),
-              nullptr);
-    EXPECT_EQ(cached.second.max_position(), symbol_table.max_position());
-    EXPECT_EQ(cached.second.table(), symbol_table.table());
-  }
-  {
-    auto cached = worker2().plan_consumer().PlanForId(plan_id);
-    EXPECT_NE(dynamic_cast<query::plan::ScanAll *>(cached.first.get()),
-              nullptr);
-    EXPECT_EQ(cached.second.max_position(), symbol_table.max_position());
-    EXPECT_EQ(cached.second.table(), symbol_table.table());
-  }
+  auto check_for_worker = [plan_id, &symbol_table](auto &worker) {
+    auto &cached = worker.plan_consumer().PlanForId(plan_id);
+    EXPECT_NE(dynamic_cast<query::plan::ScanAll *>(cached.plan.get()), nullptr);
+    EXPECT_EQ(cached.symbol_table.max_position(), symbol_table.max_position());
+    EXPECT_EQ(cached.symbol_table.table(), symbol_table.table());
+  };
+  check_for_worker(worker1());
+  check_for_worker(worker2());
 }
+
+TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
+  database::GraphDb &db = master();
+  database::GraphDbAccessor dba{db};
+  Context ctx{dba};
+  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  AstTreeStorage storage;
+
+  // Query plan for: UNWIND [42, true, "bla", 1, 2] as x RETURN x
+  using namespace query;
+  auto list =
+      LIST(LITERAL(42), LITERAL(true), LITERAL("bla"), LITERAL(1), LITERAL(2));
+  auto x = ctx.symbol_table_.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, list, x);
+  auto x_expr = IDENT("x");
+  ctx.symbol_table_[*x_expr] = x;
+  auto x_ne = NEXPR("x", x_expr);
+  ctx.symbol_table_[*x_ne] = ctx.symbol_table_.CreateSymbol("x_ne", true);
+  auto produce = MakeProduce(unwind, x_ne);
+
+  // Test that the plan works locally.
+  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+  ASSERT_EQ(results.size(), 5);
+
+  const int plan_id = 42;
+  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
+
+  auto remote_pull = [this, plan_id, &ctx, &x_ne](tx::transaction_id_t tx_id,
+                                                  int worker_id) {
+    return master().remote_pull_clients().RemotePull(
+        tx_id, worker_id, plan_id, Parameters(), {ctx.symbol_table_[*x_ne]}, 3);
+  };
+  auto expect_first_batch = [](auto &batch) {
+    EXPECT_EQ(batch.pull_state,
+              distributed::RemotePullState::CURSOR_IN_PROGRESS);
+    ASSERT_EQ(batch.frames.size(), 3);
+    ASSERT_EQ(batch.frames[0].size(), 1);
+    EXPECT_EQ(batch.frames[0][0].ValueInt(), 42);
+    EXPECT_EQ(batch.frames[1][0].ValueBool(), true);
+    EXPECT_EQ(batch.frames[2][0].ValueString(), "bla");
+  };
+  auto expect_second_batch = [](auto &batch) {
+    EXPECT_EQ(batch.pull_state,
+              distributed::RemotePullState::CURSOR_EXHAUSTED);
+    ASSERT_EQ(batch.frames.size(), 2);
+    ASSERT_EQ(batch.frames[0].size(), 1);
+    EXPECT_EQ(batch.frames[0][0].ValueInt(), 1);
+    EXPECT_EQ(batch.frames[1][0].ValueInt(), 2);
+  };
+
+  database::GraphDbAccessor dba_1{master()};
+  database::GraphDbAccessor dba_2{master()};
+  for (int worker_id : {1, 2}) {
+    auto tx1_batch1 = remote_pull(dba_1.transaction_id(), worker_id);
+    expect_first_batch(tx1_batch1);
+    auto tx2_batch1 = remote_pull(dba_2.transaction_id(), worker_id);
+    expect_first_batch(tx2_batch1);
+    auto tx2_batch2 = remote_pull(dba_2.transaction_id(), worker_id);
+    expect_second_batch(tx2_batch2);
+    auto tx1_batch2 = remote_pull(dba_1.transaction_id(), worker_id);
+    expect_second_batch(tx1_batch2);
+  }
+  master().remote_pull_clients().EndRemotePull(dba_1.transaction_id(), plan_id);
+  master().remote_pull_clients().EndRemotePull(dba_2.transaction_id(), plan_id);
+}
+
+// TODO EndRemotePull test
