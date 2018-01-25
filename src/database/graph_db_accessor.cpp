@@ -172,8 +172,9 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
     index_rpc_completions.emplace(
         db_.index_rpc_clients().ExecuteOnWorkers<bool>(
             this->db_.WorkerId(),
-            [label, property, this](communication::rpc::Client &client) {
-              return client.Call<distributed::BuildIndexRpc>(
+            [label, property,
+             this](communication::rpc::ClientPool &client_pool) {
+              return client_pool.Call<distributed::BuildIndexRpc>(
                          distributed::IndexLabelPropertyTx{
                              label, property, transaction_id()}) != nullptr;
             }));

@@ -3,7 +3,7 @@
 #include <atomic>
 #include <mutex>
 
-#include "communication/rpc/client.hpp"
+#include "communication/rpc/client_pool.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "io/network/endpoint.hpp"
 #include "transactions/commit_log.hpp"
@@ -35,7 +35,7 @@ class WorkerEngine : public Engine {
   mutable CommitLog clog_;
 
   // Communication to the transactional master.
-  mutable communication::rpc::Client rpc_client_;
+  mutable communication::rpc::ClientPool rpc_client_pool_;
 };
 
 }  // namespace tx

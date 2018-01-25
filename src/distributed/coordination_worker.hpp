@@ -1,6 +1,6 @@
 #pragma once
 
-#include "communication/rpc/client.hpp"
+#include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/coordination.hpp"
@@ -38,7 +38,7 @@ class WorkerCoordination : public Coordination {
 
  private:
   communication::rpc::System &system_;
-  communication::rpc::Client client_;
+  communication::rpc::ClientPool client_pool_;
   communication::rpc::Server server_;
   mutable ConcurrentMap<int, Endpoint> endpoint_cache_;
 };

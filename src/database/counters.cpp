@@ -44,17 +44,17 @@ MasterCounters::MasterCounters(communication::rpc::System &system)
 }
 
 WorkerCounters::WorkerCounters(const io::network::Endpoint &master_endpoint)
-    : rpc_client_(master_endpoint, kCountersRpc) {}
+    : rpc_client_pool_(master_endpoint, kCountersRpc) {}
 
 int64_t WorkerCounters::Get(const std::string &name) {
-  auto response = rpc_client_.Call<CountersGetRpc>(name);
+  auto response = rpc_client_pool_.Call<CountersGetRpc>(name);
   CHECK(response) << "CountersGetRpc - failed to get response from master";
   return response->member;
 }
 
 void WorkerCounters::Set(const std::string &name, int64_t value) {
   auto response =
-      rpc_client_.Call<CountersSetRpc>(CountersSetReqData{name, value});
+      rpc_client_pool_.Call<CountersSetRpc>(CountersSetReqData{name, value});
   CHECK(response) << "CountersSetRpc - failed to get response from master";
 }
 

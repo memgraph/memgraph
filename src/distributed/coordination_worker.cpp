@@ -12,12 +12,12 @@ using namespace std::literals::chrono_literals;
 WorkerCoordination::WorkerCoordination(communication::rpc::System &system,
                                        const Endpoint &master_endpoint)
     : system_(system),
-      client_(master_endpoint, kCoordinationServerName),
+      client_pool_(master_endpoint, kCoordinationServerName),
       server_(system_, kCoordinationServerName) {}
 
 int WorkerCoordination::RegisterWorker(int desired_worker_id) {
-  auto result =
-      client_.Call<RegisterWorkerRpc>(desired_worker_id, system_.endpoint());
+  auto result = client_pool_.Call<RegisterWorkerRpc>(desired_worker_id,
+                                                     system_.endpoint());
   CHECK(result) << "Failed to RegisterWorker with the master";
   return result->member;
 }
@@ -26,7 +26,7 @@ Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
   auto accessor = endpoint_cache_.access();
   auto found = accessor.find(worker_id);
   if (found != accessor.end()) return found->second;
-  auto result = client_.Call<GetEndpointRpc>(worker_id);
+  auto result = client_pool_.Call<GetEndpointRpc>(worker_id);
   CHECK(result) << "Failed to GetEndpoint from the master";
   accessor.insert(worker_id, result->member);
   return result->member;

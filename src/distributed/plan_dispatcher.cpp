@@ -9,9 +9,10 @@ void PlanDispatcher::DispatchPlan(
     int64_t plan_id, std::shared_ptr<query::plan::LogicalOperator> plan,
     const SymbolTable &symbol_table) {
   auto futures = clients_.ExecuteOnWorkers<void>(
-      0, [plan_id, plan, symbol_table](communication::rpc::Client &client) {
+      0, [plan_id, plan,
+          symbol_table](communication::rpc::ClientPool &client_pool) {
         auto result =
-            client.Call<DistributedPlanRpc>(plan_id, plan, symbol_table);
+            client_pool.Call<DistributedPlanRpc>(plan_id, plan, symbol_table);
         CHECK(result) << "Failed to dispatch plan to worker";
       });
 

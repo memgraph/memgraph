@@ -1,6 +1,6 @@
 #pragma once
 
-#include "communication/rpc/client.hpp"
+#include "communication/rpc/client_pool.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
@@ -29,6 +29,6 @@ class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId> {
   ConcurrentMap<TId, std::string> id_to_value_cache_;
 
   // Communication to the concurrent ID master.
-  mutable communication::rpc::Client rpc_client_;
+  mutable communication::rpc::ClientPool rpc_client_pool_;
 };
 }  // namespace storage

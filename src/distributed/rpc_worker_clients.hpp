@@ -5,7 +5,7 @@
 #include <type_traits>
 #include <unordered_map>
 
-#include "communication/rpc/client.hpp"
+#include "communication/rpc/client_pool.hpp"
 #include "distributed/coordination.hpp"
 
 namespace distributed {
@@ -23,11 +23,11 @@ class RpcWorkerClients {
   RpcWorkerClients &operator=(const RpcWorkerClients &) = delete;
   RpcWorkerClients &operator=(RpcWorkerClients &&) = delete;
 
-  auto &GetClient(int worker_id) {
+  auto &GetClientPool(int worker_id) {
     std::lock_guard<std::mutex> guard{lock_};
-    auto found = clients_.find(worker_id);
-    if (found != clients_.end()) return found->second;
-    return clients_
+    auto found = client_pools_.find(worker_id);
+    if (found != client_pools_.end()) return found->second;
+    return client_pools_
         .emplace(std::piecewise_construct, std::forward_as_tuple(worker_id),
                  std::forward_as_tuple(coordination_.GetEndpoint(worker_id),
                                        rpc_client_name_))
@@ -42,8 +42,8 @@ class RpcWorkerClients {
   template <typename TResult>
   auto ExecuteOnWorker(
       int worker_id,
-      std::function<TResult(communication::rpc::Client &)> execute) {
-    auto &client = GetClient(worker_id);
+      std::function<TResult(communication::rpc::ClientPool &)> execute) {
+    auto &client = GetClientPool(worker_id);
     return std::async(std::launch::async,
                       [execute, &client]() { return execute(client); });
   }
@@ -54,7 +54,7 @@ class RpcWorkerClients {
   template <typename TResult>
   auto ExecuteOnWorkers(
       int skip_worker_id,
-      std::function<TResult(communication::rpc::Client &)> execute) {
+      std::function<TResult(communication::rpc::ClientPool &)> execute) {
     std::vector<std::future<TResult>> futures;
     for (auto &worker_id : coordination_.GetWorkerIds()) {
       if (worker_id == skip_worker_id) continue;
@@ -67,7 +67,7 @@ class RpcWorkerClients {
   // TODO make Coordination const, it's member GetEndpoint must be const too.
   Coordination &coordination_;
   const std::string rpc_client_name_;
-  std::unordered_map<int, communication::rpc::Client> clients_;
+  std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   std::mutex lock_;
 };
 

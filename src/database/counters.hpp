@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <string>
 
+#include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/messages.hpp"
-#include "communication/rpc/client.hpp"
 #include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 
@@ -60,7 +60,7 @@ class WorkerCounters : public Counters {
   void Set(const std::string &name, int64_t value) override;
 
  private:
-  communication::rpc::Client rpc_client_;
+  communication::rpc::ClientPool rpc_client_pool_;
 };
 
 }  // namespace database

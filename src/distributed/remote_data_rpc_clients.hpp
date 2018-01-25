@@ -3,7 +3,6 @@
 #include <mutex>
 #include <utility>
 
-#include "communication/rpc/client.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/remote_data_rpc_messages.hpp"
 #include "distributed/rpc_worker_clients.hpp"
@@ -14,8 +13,6 @@ namespace distributed {
 
 /** Provides access to other worker's data. */
 class RemoteDataRpcClients {
-  using Client = communication::rpc::Client;
-
  public:
   RemoteDataRpcClients(Coordination &coordination)
       : clients_(coordination, kRemoteDataRpcName) {}
@@ -26,7 +23,7 @@ class RemoteDataRpcClients {
   std::unique_ptr<Vertex> RemoteVertex(int worker_id,
                                        tx::transaction_id_t tx_id,
                                        gid::Gid gid) {
-    auto response = clients_.GetClient(worker_id).Call<RemoteVertexRpc>(
+    auto response = clients_.GetClientPool(worker_id).Call<RemoteVertexRpc>(
         TxGidPair{tx_id, gid});
     return std::move(response->name_output_);
   }
@@ -36,7 +33,7 @@ class RemoteDataRpcClients {
   /// transaction.
   std::unique_ptr<Edge> RemoteEdge(int worker_id, tx::transaction_id_t tx_id,
                                    gid::Gid gid) {
-    auto response = clients_.GetClient(worker_id).Call<RemoteEdgeRpc>(
+    auto response = clients_.GetClientPool(worker_id).Call<RemoteEdgeRpc>(
         TxGidPair{tx_id, gid});
     return std::move(response->name_output_);
   }

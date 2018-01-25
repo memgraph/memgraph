@@ -16,7 +16,7 @@ namespace distributed {
  * batches and are therefore accompanied with an enum indicator of the state of
  * remote execution. */
 class RemotePullRpcClients {
-  using Client = communication::rpc::Client;
+  using ClientPool = communication::rpc::ClientPool;
 
  public:
   RemotePullRpcClients(Coordination &coordination)
@@ -30,9 +30,9 @@ class RemotePullRpcClients {
       const Parameters &params, const std::vector<query::Symbol> &symbols,
       int batch_size = kDefaultBatchSize) {
     return clients_.ExecuteOnWorker<RemotePullResData>(
-        worker_id,
-        [tx_id, plan_id, &params, &symbols, batch_size](Client &client) {
-          return client
+        worker_id, [tx_id, plan_id, &params, &symbols,
+                    batch_size](ClientPool &client_pool) {
+          return client_pool
               .Call<RemotePullRpc>(RemotePullReqData{tx_id, plan_id, params,
                                                      symbols, batch_size})
               ->member;
@@ -50,8 +50,8 @@ class RemotePullRpcClients {
   std::future<void> EndRemotePull(int worker_id, tx::transaction_id_t tx_id,
                                   int64_t plan_id) {
     return clients_.ExecuteOnWorker<void>(
-        worker_id, [tx_id, plan_id](Client &client) {
-          return client.Call<EndRemotePullRpc>(
+        worker_id, [tx_id, plan_id](ClientPool &client_pool) {
+          return client_pool.Call<EndRemotePullRpc>(
               EndRemotePullReqData{tx_id, plan_id});
         });
   }
