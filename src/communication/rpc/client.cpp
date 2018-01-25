@@ -39,7 +39,7 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
     // Send service name size.
     MessageSize service_len = service_name_.size();
     if (!socket_->Write(reinterpret_cast<uint8_t *>(&service_len),
-                        sizeof(MessageSize))) {
+                        sizeof(MessageSize), true)) {
       LOG(ERROR) << "Couldn't send service name size!";
       socket_ = std::experimental::nullopt;
       return nullptr;
@@ -55,7 +55,7 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
 
   // Send current request ID.
   if (!socket_->Write(reinterpret_cast<uint8_t *>(&request_id),
-                      sizeof(uint32_t))) {
+                      sizeof(uint32_t), true)) {
     LOG(ERROR) << "Couldn't send request ID!";
     socket_ = std::experimental::nullopt;
     return nullptr;
@@ -74,7 +74,7 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
       kMaxMessageSize);
 
   if (!socket_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
-                      sizeof(MessageSize))) {
+                      sizeof(MessageSize), true)) {
     LOG(ERROR) << "Couldn't send request size!";
     socket_ = std::experimental::nullopt;
     return nullptr;

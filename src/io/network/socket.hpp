@@ -130,6 +130,8 @@ class Socket {
    *
    * @param data uint8_t* to data that should be written
    * @param len length of char* or uint8_t* data
+   * @param have_more set to true if you plan to send more data to allow the
+   * kernel to buffer the data instead of immediately sending it out
    * @param keep_retrying while function executes to true socket will retry to
    * write data if nonterminal error occurred on socket (EAGAIN, EWOULDBLOCK,
    * EINTR)... useful if socket is in nonblocking mode or timeout is set on a
@@ -143,9 +145,9 @@ class Socket {
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len,
+  bool Write(const uint8_t *data, size_t len, bool have_more = false,
              const std::function<bool()> &keep_retrying = [] { return false; });
-  bool Write(const std::string &s,
+  bool Write(const std::string &s, bool have_more = false,
              const std::function<bool()> &keep_retrying = [] { return false; });
 
   /**

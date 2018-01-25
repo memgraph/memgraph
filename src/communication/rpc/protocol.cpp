@@ -63,11 +63,6 @@ void Session::Close() {
   socket_.get()->Close();
 }
 
-bool SendLength(Socket &socket, MessageSize length) {
-  return socket.Write(reinterpret_cast<uint8_t *>(&length),
-                      sizeof(MessageSize));
-}
-
 void SendMessage(Socket &socket, uint32_t message_id,
                  std::unique_ptr<Message> &message) {
   CHECK(message) << "Trying to send nullptr instead of message";
@@ -78,18 +73,20 @@ void SendMessage(Socket &socket, uint32_t message_id,
   archive << message;
 
   const std::string &buffer = stream.str();
-  int64_t message_size = sizeof(MessageSize) + buffer.size();
+  uint64_t message_size = sizeof(MessageSize) + buffer.size();
   CHECK(message_size <= kMaxMessageSize) << fmt::format(
       "Trying to send message of size {}, max message size is {}", message_size,
       kMaxMessageSize);
 
-  if (!socket.Write(reinterpret_cast<uint8_t *>(&message_id),
-                    sizeof(uint32_t))) {
+  if (!socket.Write(reinterpret_cast<uint8_t *>(&message_id), sizeof(uint32_t),
+                    true)) {
     LOG(WARNING) << "Couldn't send message id!";
     return;
   }
 
-  if (!SendLength(socket, buffer.size())) {
+  MessageSize buffer_size = buffer.size();
+  if (!socket.Write(reinterpret_cast<uint8_t *>(&buffer_size),
+                    sizeof(MessageSize), true)) {
     LOG(WARNING) << "Couldn't send message size!";
     return;
   }

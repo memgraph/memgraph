@@ -47,7 +47,9 @@ class Session {
     explicit TimeoutSocket(Session &session) : session_(session) {}
 
     bool Write(const uint8_t *data, size_t len) {
-      return session_.socket_.Write(data, len,
+      // The have_more flag is hardcoded to false here because the bolt data
+      // is internally buffered and doesn't need to be buffered by the kernel.
+      return session_.socket_.Write(data, len, false,
                                     [this] { return !session_.TimedOut(); });
     }
 

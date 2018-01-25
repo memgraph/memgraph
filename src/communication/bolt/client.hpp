@@ -51,11 +51,11 @@ class Client {
          const std::string &client_name = "memgraph-bolt/0.0.1")
       : socket_(std::move(socket)) {
     DLOG(INFO) << "Sending handshake";
-    if (!socket_.Write(kPreamble, sizeof(kPreamble))) {
+    if (!socket_.Write(kPreamble, sizeof(kPreamble), true)) {
       throw ClientSocketException();
     }
     for (int i = 0; i < 4; ++i) {
-      if (!socket_.Write(kProtocol, sizeof(kProtocol))) {
+      if (!socket_.Write(kProtocol, sizeof(kProtocol), i != 3)) {
         throw ClientSocketException();
       }
     }

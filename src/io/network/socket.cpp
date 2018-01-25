@@ -193,12 +193,13 @@ std::experimental::optional<Socket> Socket::Accept() {
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len,
+bool Socket::Write(const uint8_t *data, size_t len, bool have_more,
                    const std::function<bool()> &keep_retrying) {
+  // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
+  // connection dies mid-write, the socket will only return an EPIPE error.
+  int flags = MSG_NOSIGNAL | (have_more ? MSG_MORE : 0);
   while (len > 0) {
-    // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
-    // connection dies mid-write, the socket will only return an EPIPE error.
-    auto written = send(socket_, data, len, MSG_NOSIGNAL);
+    auto written = send(socket_, data, len, flags);
     if (written == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
         // Terminal error, return failure.
@@ -218,9 +219,9 @@ bool Socket::Write(const uint8_t *data, size_t len,
   return true;
 }
 
-bool Socket::Write(const std::string &s,
+bool Socket::Write(const std::string &s, bool have_more,
                    const std::function<bool()> &keep_retrying) {
-  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(),
+  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more,
                keep_retrying);
 }
 

@@ -25,7 +25,7 @@ class TestSocket {
 
   int id() const { return socket_; }
 
-  bool Write(const uint8_t *data, size_t len,
+  bool Write(const uint8_t *data, size_t len, bool have_more = false,
              const std::function<bool()> & = [] { return false; }) {
     if (!write_success_) return false;
     for (size_t i = 0; i < len; ++i) output.push_back(data[i]);
