@@ -2,11 +2,12 @@
 
 #include <glog/logging.h>
 
-#include "query/exceptions.hpp"
+#include "distributed/plan_dispatcher.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/plan/distributed.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
@@ -74,12 +75,30 @@ Interpreter::Results Interpreter::operator()(
     std::tie(tmp_logical_plan, query_plan_cost_estimation) =
         MakeLogicalPlan(ast_storage, db_accessor, ctx);
 
-    plan = std::make_shared<CachedPlan>(
-        std::move(tmp_logical_plan), query_plan_cost_estimation,
-        ctx.symbol_table_, std::move(ast_storage));
+    DCHECK(db_accessor.db().type() !=
+           database::GraphDb::Type::DISTRIBUTED_WORKER);
+    if (db_accessor.db().type() ==
+        database::GraphDb::Type::DISTRIBUTED_MASTER) {
+      auto distributed_plan = MakeDistributedPlan(
+          *tmp_logical_plan, ctx.symbol_table_, next_plan_id_);
+      plan = std::make_shared<CachedPlan>(std::move(distributed_plan),
+                                          query_plan_cost_estimation);
+    } else {
+      plan = std::make_shared<CachedPlan>(
+          std::move(tmp_logical_plan), query_plan_cost_estimation,
+          ctx.symbol_table_, std::move(ast_storage));
+    }
 
     if (FLAGS_query_plan_cache) {
-      plan_cache_.access().insert(stripped.hash(), plan);
+      plan = plan_cache_.access().insert(stripped.hash(), plan).first->second;
+    }
+
+    // Dispatch plans to workers (if we have any for them).
+    if (plan->distributed_plan().worker_plan) {
+      auto &dispatcher = db_accessor.db().plan_dispatcher();
+      dispatcher.DispatchPlan(plan->distributed_plan().plan_id,
+                              plan->distributed_plan().worker_plan,
+                              plan->symbol_table());
     }
   }
 
@@ -100,7 +119,8 @@ Interpreter::Results Interpreter::operator()(
          dynamic_cast<const plan::RemoveLabels *>(logical_plan) ||
          dynamic_cast<const plan::Delete *>(logical_plan) ||
          dynamic_cast<const plan::Merge *>(logical_plan) ||
-         dynamic_cast<const plan::CreateIndex *>(logical_plan))
+         dynamic_cast<const plan::CreateIndex *>(logical_plan) ||
+         dynamic_cast<const plan::PullRemote *>(logical_plan))
       << "Unknown top level LogicalOperator";
 
   ctx.symbol_table_ = plan->symbol_table();

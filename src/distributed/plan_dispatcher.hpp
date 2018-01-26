@@ -21,7 +21,7 @@ class PlanDispatcher {
    */
   void DispatchPlan(int64_t plan_id,
                     std::shared_ptr<query::plan::LogicalOperator> plan,
-                    SymbolTable &symbol_table);
+                    const SymbolTable &symbol_table);
 
  private:
   RpcWorkerClients clients_;

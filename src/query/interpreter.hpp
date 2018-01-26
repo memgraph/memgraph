@@ -12,6 +12,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/plan/distributed.hpp"
 #include "query/plan/operator.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/timer.hpp"
@@ -24,16 +25,19 @@ class Interpreter {
  private:
   class CachedPlan {
    public:
+    explicit CachedPlan(plan::DistributedPlan distributed_plan, double cost)
+        : distributed_plan_(std::move(distributed_plan)), cost_(cost) {}
+
     CachedPlan(std::unique_ptr<plan::LogicalOperator> plan, double cost,
                SymbolTable symbol_table, AstTreeStorage storage)
-        : plan_(std::move(plan)),
-          cost_(cost),
-          symbol_table_(symbol_table),
-          ast_storage_(std::move(storage)) {}
+        : distributed_plan_{0, std::move(plan), nullptr, std::move(storage),
+                            symbol_table},
+          cost_(cost) {}
 
-    const auto &plan() const { return *plan_; }
+    const auto &plan() const { return *distributed_plan_.master_plan; }
+    const auto &distributed_plan() const { return distributed_plan_; }
     double cost() const { return cost_; }
-    const auto &symbol_table() const { return symbol_table_; }
+    const auto &symbol_table() const { return distributed_plan_.symbol_table; }
 
     bool IsExpired() const {
       auto elapsed = cache_timer_.Elapsed();
@@ -42,10 +46,8 @@ class Interpreter {
     };
 
    private:
-    std::unique_ptr<plan::LogicalOperator> plan_;
+    plan::DistributedPlan distributed_plan_;
     double cost_;
-    SymbolTable symbol_table_;
-    AstTreeStorage ast_storage_;
     utils::Timer cache_timer_;
   };
 
@@ -170,6 +172,7 @@ class Interpreter {
 
   ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
   ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> plan_cache_;
+  std::atomic<int64_t> next_plan_id_{0};
   // Antlr has singleton instance that is shared between threads. It is
   // protected by locks inside of antlr. Unfortunately, they are not protected
   // in a very good way. Once we have antlr version without race conditions we

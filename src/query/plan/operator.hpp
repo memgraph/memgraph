@@ -1029,11 +1029,20 @@ class Produce : public LogicalOperator {
   Produce() {}
   friend class boost::serialization::access;
 
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
   template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
+  void save(TArchive &ar, const unsigned int) const {
     ar &boost::serialization::base_object<LogicalOperator>(*this);
     ar &input_;
-    ar &named_expressions_;
+    SavePointers(ar, named_expressions_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    LoadPointers(ar, named_expressions_);
   }
 };
 
@@ -2267,6 +2276,9 @@ class PullRemote : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
 
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override {
+    return symbols_;
+  }
   const auto &symbols() const { return symbols_; }
   auto plan_id() const { return plan_id_; }
 

@@ -196,14 +196,15 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     }
     // Aggregate uses associative operation(s), so split the work across master
     // and workers.
-    auto make_merge_aggregation = [this](auto op, const auto &name) {
-      auto *worker_count_ident =
-          distributed_plan_.ast_storage.Create<Identifier>(name);
-      auto sum_name = Aggregation::OpToString(op) +
-                      std::to_string(worker_count_ident->uid());
-      auto sum_sym = distributed_plan_.symbol_table.CreateSymbol(
-          sum_name, false, Symbol::Type::Number);
-      return Aggregate::Element{worker_count_ident, nullptr, op, sum_sym};
+    auto make_merge_aggregation = [this](auto op, const auto &worker_sym) {
+      auto *worker_ident =
+          distributed_plan_.ast_storage.Create<Identifier>(worker_sym.name());
+      distributed_plan_.symbol_table[*worker_ident] = worker_sym;
+      auto merge_name =
+          Aggregation::OpToString(op) + std::to_string(worker_ident->uid());
+      auto merge_sym = distributed_plan_.symbol_table.CreateSymbol(
+          merge_name, false, Symbol::Type::Number);
+      return Aggregate::Element{worker_ident, nullptr, op, merge_sym};
     };
     std::vector<Aggregate::Element> master_aggrs;
     master_aggrs.reserve(aggr_op.aggregations().size());
@@ -212,13 +213,13 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
         // Count, like sum, only needs to sum all of the results on master.
         case Aggregation::Op::COUNT:
         case Aggregation::Op::SUM:
-          master_aggrs.emplace_back(make_merge_aggregation(
-              Aggregation::Op::SUM, aggr.output_sym.name()));
+          master_aggrs.emplace_back(
+              make_merge_aggregation(Aggregation::Op::SUM, aggr.output_sym));
           break;
         case Aggregation::Op::MIN:
         case Aggregation::Op::MAX:
           master_aggrs.emplace_back(
-              make_merge_aggregation(aggr.op, aggr.output_sym.name()));
+              make_merge_aggregation(aggr.op, aggr.output_sym));
           break;
         default:
           throw utils::NotYetImplemented("distributed planning");
@@ -253,11 +254,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     std::vector<NamedExpression *> produce_exprs;
     produce_exprs.reserve(aggr_op->aggregations().size());
     for (int i = 0; i < aggr_op->aggregations().size(); ++i) {
-      const auto &final_result_sym = master_aggrs_[i].output_sym;
+      const auto &merge_result_sym = master_aggrs_[i].output_sym;
       const auto &original_result_sym = aggr_op->aggregations()[i].output_sym;
       auto *ident = distributed_plan_.ast_storage.Create<Identifier>(
-          final_result_sym.name());
-      distributed_plan_.symbol_table[*ident] = final_result_sym;
+          merge_result_sym.name());
+      distributed_plan_.symbol_table[*ident] = merge_result_sym;
       auto *nexpr = distributed_plan_.ast_storage.Create<NamedExpression>(
           original_result_sym.name(), ident);
       distributed_plan_.symbol_table[*nexpr] = original_result_sym;
