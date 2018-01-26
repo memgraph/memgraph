@@ -19,6 +19,7 @@
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
+#include "long_running_common.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/network.hpp"
@@ -28,58 +29,24 @@ using communication::bolt::DecodedEdge;
 using communication::bolt::DecodedValue;
 using communication::bolt::DecodedVertex;
 
-DEFINE_string(address, "127.0.0.1", "Server address");
-DEFINE_int32(port, 7687, "Server port");
-DEFINE_int32(num_workers, 1, "Number of workers");
-DEFINE_string(output, "", "Output file");
-DEFINE_string(username, "", "Username for the database");
-DEFINE_string(password, "", "Password for the database");
-DEFINE_int32(duration, 30, "Number of seconds to execute benchmark");
-
-const int MAX_RETRIES = 30;
-
 struct VertexAndEdges {
   DecodedVertex vertex;
   std::vector<DecodedEdge> edges;
   std::vector<DecodedVertex> vertices;
 };
 
-std::atomic<int64_t> executed_queries;
+const std::string INDEPENDENT_LABEL = "User";
 
-class Session {
+class PokecClient : public TestClient {
  public:
-  Session(const nlohmann::json &config, const std::string &address,
-          uint16_t port, const std::string &username,
-          const std::string &password)
-      : config_(config), client_(address, port, username, password) {}
+  PokecClient(int id, std::vector<int64_t> to_remove, nlohmann::json config)
+      : TestClient(), rg_(id), config_(config), to_remove_(to_remove) {}
 
  private:
-  const nlohmann::json &config_;
-  BoltClient client_;
-  std::unordered_map<std::string,
-                     std::vector<std::map<std::string, DecodedValue>>>
-      stats_;
-  SpinLock lock_;
-
-  auto Execute(const std::string &query,
-               const std::map<std::string, DecodedValue> &params,
-               const std::string &query_name = "") {
-    utils::Timer timer;
-    auto result = ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
-    ++executed_queries;
-    auto wall_time = timer.Elapsed();
-    auto metadata = result.metadata;
-    metadata["wall_time"] = wall_time.count();
-    {
-      std::unique_lock<SpinLock> guard(lock_);
-      if (query_name != "") {
-        stats_[query_name].push_back(std::move(metadata));
-      } else {
-        stats_[query].push_back(std::move(metadata));
-      }
-    }
-    return result;
-  }
+  std::mt19937 rg_;
+  nlohmann::json config_;
+  std::vector<int64_t> to_remove_;
+  std::vector<VertexAndEdges> removed_;
 
   auto MatchVertex(const std::string &label, int64_t id) {
     return Execute(fmt::format("MATCH (n :{} {{id : $id}}) RETURN n", label),
@@ -113,6 +80,20 @@ class Session {
         });
     os << "})";
     return Execute(os.str(), {}, "CREATE (n :labels... {...})");
+  }
+
+  auto GetAverageAge2(int64_t id) {
+    return Execute(
+        "MATCH (n :User {id: $id})-[]-(m) "
+        "RETURN AVG(n.age + m.age)",
+        {{"id", id}});
+  }
+
+  auto GetAverageAge3(int64_t id) {
+    return Execute(
+        "MATCH (n :User {id: $id})-[]-(m)-[]-(k) "
+        "RETURN AVG(n.age + m.age + k.age)",
+        {{"id", id}});
   }
 
   auto CreateEdge(const DecodedVertex &from, const std::string &from_label,
@@ -203,60 +184,42 @@ class Session {
   }
 
  public:
-  void Run(int id, std::vector<int64_t> to_remove,
-           std::atomic<bool> &keep_running) {
-    std::mt19937 rg(id);
-    std::vector<VertexAndEdges> removed;
-
-    const auto &queries = config_["queries"];
-    const double read_probability = config_["read_probability"];
-    const std::string independent_label = config_["independent_label"];
-
-    while (keep_running) {
-      std::uniform_real_distribution<> real_dist(0.0, 1.0);
-
-      // Read query.
-      if (real_dist(rg) < read_probability) {
-        CHECK(queries.size())
-            << "Specify at least one read query or set read_probability to 0";
-        std::uniform_int_distribution<> read_query_dist(0, queries.size() - 1);
-        const auto &query = queries[read_query_dist(rg)];
-        std::map<std::string, DecodedValue> params;
-        for (const auto &param : query["params"]) {
-          std::uniform_int_distribution<int64_t> param_value_dist(
-              param["low"], param["high"]);
-          params[param["name"]] = param_value_dist(rg);
-        }
-        Execute(query["query"], params);
+  virtual void Step() override {
+    std::uniform_real_distribution<> real_dist(0.0, 1.0);
+    if (real_dist(rg_) < config_["read_probability"]) {
+      std::uniform_int_distribution<> read_query_dist(0, 1);
+      int id = real_dist(rg_) * to_remove_.size();
+      switch (read_query_dist(rg_)) {
+        case 0:
+          GetAverageAge2(id);
+          break;
+        case 1:
+          GetAverageAge3(id);
+          break;
+        default:
+          LOG(FATAL) << "Should not get here";
+      }
+    } else {
+      auto remove_random = [&](auto &v) {
+        CHECK(v.size());
+        std::uniform_int_distribution<> int_dist(0, v.size() - 1);
+        std::swap(v.back(), v[int_dist(rg_)]);
+        auto ret = v.back();
+        v.pop_back();
+        return ret;
+      };
+      if (real_dist(rg_) < static_cast<double>(removed_.size()) /
+                               (removed_.size() + to_remove_.size())) {
+        auto vertices_and_edges = remove_random(removed_);
+        ReturnVertexAndEdges(vertices_and_edges, INDEPENDENT_LABEL);
+        to_remove_.push_back(
+            vertices_and_edges.vertex.properties["id"].ValueInt());
       } else {
-        auto remove_random = [&](auto &v) {
-          CHECK(v.size());
-          std::uniform_int_distribution<> int_dist(0, v.size() - 1);
-          std::swap(v.back(), v[int_dist(rg)]);
-          auto ret = v.back();
-          v.pop_back();
-          return ret;
-        };
-        if (real_dist(rg) < static_cast<double>(removed.size()) /
-                                (removed.size() + to_remove.size())) {
-          auto vertices_and_edges = remove_random(removed);
-          ReturnVertexAndEdges(vertices_and_edges, independent_label);
-          to_remove.push_back(
-              vertices_and_edges.vertex.properties["id"].ValueInt());
-        } else {
-          auto node_id = remove_random(to_remove);
-          auto ret = RetrieveAndDeleteVertex(independent_label, node_id);
-          removed.push_back(ret);
-        }
+        auto node_id = remove_random(to_remove_);
+        auto ret = RetrieveAndDeleteVertex(INDEPENDENT_LABEL, node_id);
+        removed_.push_back(ret);
       }
     }
-  }
-
-  auto ConsumeStats() {
-    std::unique_lock<SpinLock> guard(lock_);
-    auto stats = stats_;
-    stats_.clear();
-    return stats;
   }
 };
 
@@ -305,7 +268,7 @@ std::vector<int64_t> IndependentSet(BoltClient &client,
       independent.erase(j);
     }
   }
-  LOG(INFO) << "Number of nodes nodes: " << num_nodes << "\n"
+  LOG(INFO) << "Number of nodes: " << num_nodes << "\n"
             << "Number of independent nodes: " << independent_nodes_ids.size();
 
   return independent_nodes_ids;
@@ -317,29 +280,21 @@ int main(int argc, char **argv) {
 
   nlohmann::json config;
   std::cin >> config;
-  const std::string independent_label = config["independent_label"];
 
   auto independent_nodes_ids = [&] {
     BoltClient client(utils::ResolveHostname(FLAGS_address), FLAGS_port,
                       FLAGS_username, FLAGS_password);
-    return IndependentSet(client, independent_label);
+    return IndependentSet(client, INDEPENDENT_LABEL);
   }();
 
-  utils::Timer timer;
-  std::vector<std::thread> threads;
-  std::atomic<bool> keep_running{true};
-
   int64_t next_to_assign = 0;
-  std::vector<std::unique_ptr<Session>> sessions;
-  sessions.reserve(FLAGS_num_workers);
+  std::vector<std::unique_ptr<TestClient>> clients;
+  clients.reserve(FLAGS_num_workers);
 
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     int64_t size = independent_nodes_ids.size();
     int64_t next_next_to_assign = next_to_assign + size / FLAGS_num_workers +
                                   (i < size % FLAGS_num_workers);
-
-    sessions.push_back(std::make_unique<Session>(
-        config, FLAGS_address, FLAGS_port, FLAGS_username, FLAGS_password));
 
     std::vector<int64_t> to_remove(
         independent_nodes_ids.begin() + next_to_assign,
@@ -347,96 +302,10 @@ int main(int argc, char **argv) {
     LOG(INFO) << next_to_assign << " " << next_next_to_assign;
     next_to_assign = next_next_to_assign;
 
-    threads.emplace_back(
-        [&](int thread_id, const std::vector<int64_t> to_remove) {
-          sessions[thread_id]->Run(thread_id, std::move(to_remove),
-                                   keep_running);
-        },
-        i, std::move(to_remove));
+    clients.emplace_back(std::make_unique<PokecClient>(i, to_remove, config));
   }
 
-  // Open stream for writing stats.
-  std::streambuf *buf;
-  std::ofstream f;
-  if (FLAGS_output != "") {
-    f.open(FLAGS_output);
-    buf = f.rdbuf();
-  } else {
-    buf = std::cout.rdbuf();
-  }
-  std::ostream out(buf);
-
-  while (timer.Elapsed().count() < FLAGS_duration) {
-    std::unordered_map<std::string, std::map<std::string, DecodedValue>>
-        aggregated_stats;
-
-    using namespace std::chrono_literals;
-    std::unordered_map<std::string,
-                       std::vector<std::map<std::string, DecodedValue>>>
-        stats;
-    for (const auto &session : sessions) {
-      auto session_stats = session->ConsumeStats();
-      for (const auto &session_query_stats : session_stats) {
-        auto &query_stats = stats[session_query_stats.first];
-        query_stats.insert(query_stats.end(),
-                           session_query_stats.second.begin(),
-                           session_query_stats.second.end());
-      }
-    }
-
-    // TODO: Here we combine pure values, json and DecodedValue which is a
-    // little bit chaotic. Think about refactoring this part to only use json
-    // and write DecodedValue to json converter.
-    const std::vector<std::string> fields = {
-        "wall_time",
-        "parsing_time",
-        "planning_time",
-        "plan_execution_time",
-    };
-    for (const auto &query_stats : stats) {
-      std::map<std::string, double> new_aggregated_query_stats;
-      for (const auto &stats : query_stats.second) {
-        for (const auto &field : fields) {
-          auto it = stats.find(field);
-          if (it != stats.end()) {
-            new_aggregated_query_stats[field] += it->second.ValueDouble();
-          }
-        }
-      }
-      int64_t new_count = query_stats.second.size();
-
-      auto &aggregated_query_stats = aggregated_stats[query_stats.first];
-      aggregated_query_stats.insert({"count", DecodedValue(0)});
-      auto old_count = aggregated_query_stats["count"].ValueInt();
-      aggregated_query_stats["count"].ValueInt() += new_count;
-      for (const auto &stat : new_aggregated_query_stats) {
-        auto it = aggregated_query_stats.insert({stat.first, DecodedValue(0.0)})
-                      .first;
-        it->second =
-            (it->second.ValueDouble() * old_count + stat.second * new_count) /
-            (old_count + new_count);
-      }
-    }
-
-    out << "{\"num_executed_queries\": " << executed_queries << ", "
-        << "\"elapsed_time\": " << timer.Elapsed().count()
-        << ", \"queries\": [";
-    utils::PrintIterable(
-        out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
-          stream << "{\"query\": " << nlohmann::json(x.first)
-                 << ", \"stats\": ";
-          PrintJsonDecodedValue(stream, DecodedValue(x.second));
-          stream << "}";
-        });
-    out << "]}" << std::endl;
-    out.flush();
-    std::this_thread::sleep_for(1s);
-  }
-  keep_running = false;
-
-  for (int i = 0; i < FLAGS_num_workers; ++i) {
-    threads[i].join();
-  }
-
+  RunMultithreadedTest(clients);
+ 
   return 0;
 }

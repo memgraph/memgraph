@@ -1,0 +1,18 @@
+#!/bin/bash -e
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+cd ${script_dir}
+mkdir -p .results/card_fraud
+
+./harness LongRunningSuite MemgraphRunner --groups card_fraud
+mv .harness_summary ${script_dir}/.results/card_fraud/memgraph.summary
+
+./harness LongRunningSuite NeoRunner --groups card_fraud
+mv .harness_summary ${script_dir}/.results/card_fraud/neo4j.summary
+
+../../tools/plot/pokec_throughput \
+    --vendor-references neo4j memgraph \
+    --vendor-titles Neo4j Memgraph \
+    --results ${script_dir}/.results/card_fraud/neo4j.summary ${script_dir}/.results/card_fraud/memgraph.summary \
+    --plot-title "Card Fraud Small" --window-size 1

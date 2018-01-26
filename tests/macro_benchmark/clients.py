@@ -86,11 +86,11 @@ class LongRunningClient:
 
     # TODO: This is quite similar to __call__ method of QueryClient. Remove
     # duplication.
-    def __call__(self, config, database, duration, num_workers=None):
+    def __call__(self, config, database, duration, client, num_workers=None):
         if num_workers is None: num_workers = self.default_num_workers
         self.log.debug("execute('%s')", config)
 
-        client_path = "tests/macro_benchmark/long_running_client"
+        client_path = "tests/macro_benchmark/{}".format(client)
         client = get_absolute_path(client_path, "build")
         if not os.path.exists(client):
             # Apollo builds both debug and release binaries on diff

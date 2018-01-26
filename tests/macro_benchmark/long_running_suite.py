@@ -29,7 +29,7 @@ class LongRunningSuite:
             duration = self.args.duration
         log.info("Executing run for {} seconds".format(
                 duration))
-        results = runner.run(next(scenario.get("run")()), duration)
+        results = runner.run(next(scenario.get("run")()), duration, config["client"])
 
         runner.stop()
 
@@ -53,7 +53,7 @@ class LongRunningSuite:
         return {"MemgraphRunner": MemgraphRunner, "NeoRunner": NeoRunner}
 
     def groups(self):
-        return ["pokec"]
+        return ["pokec", "card_fraud"]
 
 
 class _LongRunningRunner:
@@ -69,9 +69,9 @@ class _LongRunningRunner:
     def setup(self, queries, num_client_workers=None):
         return self.query_client(queries, self.database, num_client_workers)
 
-    def run(self, config, duration, num_client_workers=None):
+    def run(self, config, duration, client, num_client_workers=None):
         return self.long_running_client(
-            config, self.database, duration, num_client_workers)
+            config, self.database, duration, client, num_client_workers)
 
     def stop(self):
         self.log.info("stop")
