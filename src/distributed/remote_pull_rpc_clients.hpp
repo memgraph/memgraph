@@ -30,6 +30,8 @@ class RemotePullRpcClients {
                          ->member);
   }
 
+  auto GetWorkerIds() { return clients_.GetWorkerIds(); }
+
   // Notifies all workers that the given transaction/plan is done. Otherwise the
   // server is left with potentially unconsumed Cursors that never get deleted.
   //

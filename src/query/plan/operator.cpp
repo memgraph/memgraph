@@ -12,6 +12,7 @@
 #include "glog/logging.h"
 
 #include "database/graph_db_accessor.hpp"
+#include "distributed/remote_pull_rpc_clients.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -320,10 +321,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -2559,7 +2560,7 @@ ProduceRemote::ProduceRemote(const std::shared_ptr<LogicalOperator> &input,
 ACCEPT_WITH_INPUT(ProduceRemote)
 
 std::unique_ptr<Cursor> ProduceRemote::MakeCursor(
-    database::GraphDbAccessor &db) const {
+    database::GraphDbAccessor &) const {
   // TODO: Implement a concrete cursor.
   return nullptr;
 }
@@ -2572,10 +2573,77 @@ PullRemote::PullRemote(const std::shared_ptr<LogicalOperator> &input,
 
 ACCEPT_WITH_INPUT(PullRemote);
 
+PullRemote::PullRemoteCursor::PullRemoteCursor(const PullRemote &self,
+                                               database::GraphDbAccessor &db)
+    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {
+  worker_ids_ = db_.db().remote_pull_clients().GetWorkerIds();
+  // remove master from the worker_ids list
+  worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
+}
+
+void PullRemote::PullRemoteCursor::EndRemotePull() {
+  if (remote_pull_ended_) return;
+  db_.db().remote_pull_clients().EndRemotePull(db_.transaction().id_,
+                                               self_.plan_id());
+  remote_pull_ended_ = true;
+}
+
+bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
+  if (input_cursor_->Pull(frame, context)) {
+    return true;
+  }
+
+  while (worker_ids_.size() > 0 && results_.empty()) {
+    last_pulled_worker_ = (last_pulled_worker_ + 1) % worker_ids_.size();
+    auto remote_results = db_.db().remote_pull_clients().RemotePull(
+        db_.transaction().id_, worker_ids_[last_pulled_worker_],
+        self_.plan_id(), context.parameters_, self_.symbols());
+
+    auto get_results = [&]() {
+      for (auto &result : remote_results.frames) {
+        results_.emplace(std::move(result));
+      }
+    };
+
+    switch (remote_results.pull_state) {
+      case distributed::RemotePullState::CURSOR_EXHAUSTED:
+        get_results();
+        worker_ids_.erase(worker_ids_.begin() + last_pulled_worker_);
+        break;
+      case distributed::RemotePullState::CURSOR_IN_PROGRESS:
+        get_results();
+        break;
+      case distributed::RemotePullState::SERIALIZATION_ERROR:
+        EndRemotePull();
+        throw mvcc::SerializationError(
+            "Serialization error occured during PullRemote!");
+        break;
+    }
+  }
+
+  // if the results_ are still empty, we've exhausted all worker results
+  if (results_.empty()) {
+    EndRemotePull();
+    return false;
+  }
+
+  auto &result = results_.front();
+  for (size_t i = 0; i < self_.symbols().size(); ++i) {
+    frame[self_.symbols()[i]] = std::move(result[i]);
+  }
+  results_.pop();
+
+  return true;
+}
+
+void PullRemote::PullRemoteCursor::Reset() {
+  EndRemotePull();
+  throw QueryRuntimeException("Unsupported: Reset during PullRemote!");
+}
+
 std::unique_ptr<Cursor> PullRemote::MakeCursor(
     database::GraphDbAccessor &db) const {
-  // TODO: Implement a concrete cursor.
-  return nullptr;
+  return std::make_unique<PullRemote::PullRemoteCursor>(*this, db);
 }
 
 }  // namespace query::plan

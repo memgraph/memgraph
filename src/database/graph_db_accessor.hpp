@@ -525,6 +525,7 @@ class GraphDbAccessor {
 
   const tx::Transaction &transaction() const { return transaction_; }
   durability::WriteAheadLog &wal();
+  auto &db() { return db_; }
 
   /**
    * Returns the current value of the counter with the given name, and

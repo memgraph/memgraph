@@ -4,6 +4,7 @@
 
 #include <experimental/optional>
 #include <memory>
+#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -163,7 +164,7 @@ class LogicalOperator
   friend class boost::serialization::access;
 
   template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {}
+  void serialize(TArchive &, const unsigned int) {}
 };
 
 template <class TArchive>
@@ -2267,6 +2268,7 @@ class PullRemote : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
   const auto &symbols() const { return symbols_; }
+  auto plan_id() const { return plan_id_; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -2274,6 +2276,24 @@ class PullRemote : public LogicalOperator {
   std::vector<Symbol> symbols_;
 
   PullRemote() {}
+
+  class PullRemoteCursor : public Cursor {
+   public:
+    PullRemoteCursor(const PullRemote &self, database::GraphDbAccessor &db);
+    bool Pull(Frame &, Context &) override;
+    void Reset() override;
+
+   private:
+    void EndRemotePull();
+
+    const PullRemote &self_;
+    database::GraphDbAccessor &db_;
+    const std::unique_ptr<Cursor> input_cursor_;
+    std::queue<std::vector<query::TypedValue>> results_;
+    std::vector<int> worker_ids_;
+    int last_pulled_worker_ = -1;
+    bool remote_pull_ended_ = false;
+  };
 
   friend class boost::serialization::access;
   template <class TArchive>
