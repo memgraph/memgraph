@@ -157,7 +157,7 @@ class Worker : public PrivateBase {
   IMPL_DISTRIBUTED_GETTERS
   distributed::PlanConsumer &plan_consumer() override { return plan_consumer_; }
   distributed::RemoteProduceRpcServer &remote_produce_server() override {
-    return remote_produce_server();
+    return remote_produce_server_;
   }
 
   communication::rpc::System system_{config_.worker_endpoint};
