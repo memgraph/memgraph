@@ -617,7 +617,7 @@ DEFCOMMAND(ShowDistributed) {
     distributed_plan.master_plan->Accept(printer);
     std::cout << std::endl;
   }
-  {
+  if (distributed_plan.worker_plan) {
     std::cout << "---- Worker Plan ---- " << std::endl;
     PlanPrinter printer(dba);
     distributed_plan.worker_plan->Accept(printer);
