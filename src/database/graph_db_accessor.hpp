@@ -279,6 +279,14 @@ class GraphDbAccessor {
                               std::experimental::nullopt);
 
   /**
+   * Insert edge into main storage, but don't insert it into from and to
+   * vertices edge lists.
+   */
+  EdgeAccessor InsertOnlyEdge(Edges::VertexAddress &from,
+                              Edges::VertexAddress &to,
+                              storage::EdgeType edge_type, gid::Gid edge_gid);
+
+  /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
    * be removed from data structures in vertices it connects. When removing an
    * edge both arguments should be `true`. `false` is only used when
@@ -551,6 +559,12 @@ class GraphDbAccessor {
   template <typename TRecord>
   distributed::RemoteCache<TRecord> &remote_elements();
 
+  /// Gets the local address for the given gid. Fails if not present.
+  mvcc::VersionList<Vertex> *LocalVertexAddress(gid::Gid gid) const;
+
+  /// Gets the local edge address for the given gid. Fails if not present.
+  mvcc::VersionList<Edge> *LocalEdgeAddress(gid::Gid gid) const;
+
  private:
   GraphDb &db_;
   tx::Transaction &transaction_;
@@ -607,11 +621,5 @@ class GraphDbAccessor {
   void UpdatePropertyIndex(storage::Property property,
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
-
-  /// Gets the local address for the given gid. Fails if not present.
-  mvcc::VersionList<Vertex> *LocalVertexAddress(gid::Gid gid) const;
-
-  /// Gets the local edge address for the given gid. Fails if not present.
-  mvcc::VersionList<Edge> *LocalEdgeAddress(gid::Gid gid) const;
 };
 }  // namespace database

@@ -19,7 +19,7 @@ class DecodedValue;
  * The decoder writes data into this structure.
  */
 struct DecodedVertex {
-  gid::Gid id;
+  int64_t id;
   std::vector<std::string> labels;
   std::map<std::string, DecodedValue> properties;
 };
@@ -29,7 +29,7 @@ struct DecodedVertex {
  * The decoder writes data into this structure.
  */
 struct DecodedEdge {
-  gid::Gid id;
+  int64_t id;
   int64_t from;
   int64_t to;
   std::string type;
@@ -41,7 +41,7 @@ struct DecodedEdge {
  * The decoder writes data into this structure.
  */
 struct DecodedUnboundedEdge {
-  gid::Gid id;
+  int64_t id;
   std::string type;
   std::map<std::string, DecodedValue> properties;
 };

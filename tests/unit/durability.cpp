@@ -9,7 +9,6 @@
 #include "glog/logging.h"
 #include "gtest/gtest.h"
 
-#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
@@ -17,6 +16,7 @@
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
+#include "durability/snapshot_decoder.hpp"
 #include "durability/version.hpp"
 #include "utils/string.hpp"
 
@@ -68,6 +68,14 @@ class DbGenerator {
     auto from = RandomVertex();
     auto to = RandomVertex();
     auto edge = dba_.InsertEdge(from, to, EdgeType(RandomInt(kEdgeTypeCount)));
+    edge_ids_.emplace_back(edge.gid());
+    return edge;
+  }
+
+  EdgeAccessor InsertCycleEdge() {
+    auto vertex = RandomVertex();
+    auto edge =
+        dba_.InsertEdge(vertex, vertex, EdgeType(RandomInt(kEdgeTypeCount)));
     edge_ids_.emplace_back(edge.gid());
     return edge;
   }
@@ -240,6 +248,7 @@ void MakeDb(database::GraphDbAccessor &dba, int scale,
   DbGenerator generator{dba};
   for (int i = 0; i < scale; i++) generator.InsertVertex();
   for (int i = 0; i < scale * 2; i++) generator.InsertEdge();
+  for (int i = 0; i < scale / 2; i++) generator.InsertCycleEdge();
   // Give the WAL some time to flush, we're pumping ops fast here.
   std::this_thread::sleep_for(std::chrono::milliseconds(30));
   for (int i = 0; i < scale * 3; i++) {
@@ -405,7 +414,7 @@ TEST_F(Durability, SnapshotEncoding) {
 
   auto snapshot = GetLastFile(snapshot_dir_);
   HashedFileReader buffer;
-  communication::bolt::Decoder<HashedFileReader> decoder(buffer);
+  durability::SnapshotDecoder<HashedFileReader> decoder(buffer);
 
   int64_t vertex_count, edge_count;
   uint64_t hash;
@@ -443,14 +452,13 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(dv.ValueList()[0].ValueString(), "l1");
   EXPECT_EQ(dv.ValueList()[1].ValueString(), "p1");
 
-  std::map<gid::Gid, communication::bolt::DecodedVertex> decoded_vertices;
+  std::map<gid::Gid, durability::DecodedSnapshotVertex> decoded_vertices;
 
   // Decode vertices.
   for (int i = 0; i < vertex_count; ++i) {
-    decoder.ReadValue(&dv);
-    ASSERT_EQ(dv.type(), communication::bolt::DecodedValue::Type::Vertex);
-    auto &vertex = dv.ValueVertex();
-    decoded_vertices.emplace(vertex.id, vertex);
+    auto vertex = decoder.ReadSnapshotVertex();
+    ASSERT_NE(vertex, std::experimental::nullopt);
+    decoded_vertices.emplace(vertex->gid, *vertex);
   }
   ASSERT_EQ(decoded_vertices.size(), 3);
   ASSERT_EQ(decoded_vertices[gid0].labels.size(), 1);

@@ -425,6 +425,25 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
                       edge_type);
 }
 
+EdgeAccessor GraphDbAccessor::InsertOnlyEdge(Edges::VertexAddress &from,
+                                             Edges::VertexAddress &to,
+                                             storage::EdgeType edge_type,
+                                             gid::Gid edge_gid) {
+  auto gid = db_.storage().edge_generator_.Next(edge_gid);
+  DCHECK(gid == edge_gid) << "Gid should be equal as edge gid since "
+                             "this edges are only added after vertices "
+                             "reference them by their gid";
+  auto edge_vlist =
+      new mvcc::VersionList<Edge>(transaction_, gid, from, to, edge_type);
+  // We need to insert edge_vlist to edges_ before calling update since update
+  // can throw and edge_vlist will not be garbage collected if it is not in
+  // edges_ skiplist.
+  bool success = db_.storage().edges_.access().insert(gid, edge_vlist).second;
+  CHECK(success) << "Attempting to insert an edge with an existing GID: "
+                 << gid;
+  return EdgeAccessor(edge_vlist, *this, from, to, edge_type);
+}
+
 int64_t GraphDbAccessor::EdgesCount() const {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   return db_.storage().edges_.access().size();

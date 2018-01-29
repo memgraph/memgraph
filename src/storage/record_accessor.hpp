@@ -96,6 +96,9 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
 
   AddressT address() const;
 
+  // Returns an address which is global - composed of gid and worker_id
+  AddressT GlobalAddress() const;
+
   /*
    * Switches this record accessor to use the latest version visible to the
    * current transaction+command.  Possibly the one that was created by this

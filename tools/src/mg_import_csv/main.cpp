@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <experimental/filesystem>
 #include <experimental/optional>
@@ -8,11 +9,12 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
-#include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "config.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
 #include "durability/snapshooter.hpp"
+#include "durability/snapshot_decoded_value.hpp"
+#include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
@@ -172,11 +174,12 @@ std::vector<Field> ReadHeader(std::istream &stream) {
   return fields;
 }
 
-query::TypedValue StringToTypedValue(const std::string &str,
-                                     const std::string &type) {
+communication::bolt::DecodedValue StringToDecodedValue(
+    const std::string &str, const std::string &type) {
   // Empty string signifies Null.
-  if (str.empty()) return query::TypedValue::Null;
-  auto convert = [](const auto &str, const auto &type) -> query::TypedValue {
+  if (str.empty()) return communication::bolt::DecodedValue();
+  auto convert = [](const auto &str,
+                    const auto &type) -> communication::bolt::DecodedValue {
     if (type == "int" || type == "long" || type == "byte" || type == "short") {
       std::istringstream ss(str);
       int64_t val;
@@ -190,14 +193,14 @@ query::TypedValue StringToTypedValue(const std::string &str,
       return str;
     }
     LOG(FATAL) << "Unexpected type: " << type;
-    return query::TypedValue::Null;
+    return communication::bolt::DecodedValue();
   };
   // Type *not* ending with '[]', signifies regular value.
   if (!utils::EndsWith(type, "[]")) return convert(str, type);
   // Otherwise, we have an array type.
   auto elem_type = type.substr(0, type.size() - 2);
   auto elems = utils::Split(str, FLAGS_array_delimiter);
-  std::vector<query::TypedValue> array;
+  std::vector<communication::bolt::DecodedValue> array;
   array.reserve(elems.size());
   for (const auto &elem : elems) {
     array.push_back(convert(utils::Trim(elem), elem_type));
@@ -211,13 +214,14 @@ std::string GetIdSpace(const std::string &type) {
   return type.substr(start + 1, type.size() - 1);
 }
 
-void WriteNodeRow(const std::vector<Field> &fields,
-                  const std::vector<std::string> &row,
-                  MemgraphNodeIdMap &node_id_map,
-                  communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
+void WriteNodeRow(
+    std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex>
+        &partial_vertices,
+    const std::vector<Field> &fields, const std::vector<std::string> &row,
+    MemgraphNodeIdMap &node_id_map) {
   std::experimental::optional<gid::Gid> id;
-  std::vector<query::TypedValue> labels;
-  std::map<std::string, query::TypedValue> properties;
+  std::vector<std::string> labels;
+  std::map<std::string, communication::bolt::DecodedValue> properties;
   for (int i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     auto value = utils::Trim(row[i]);
@@ -241,21 +245,16 @@ void WriteNodeRow(const std::vector<Field> &fields,
         labels.emplace_back(utils::Trim(label));
       }
     } else if (field.type != "ignore") {
-      properties[field.name] = StringToTypedValue(value, field.type);
+      properties[field.name] = StringToDecodedValue(value, field.type);
     }
   }
   CHECK(id) << "Node ID must be specified";
-  // write node
-  encoder.WriteRAW(underlying_cast(communication::bolt::Marker::TinyStruct) +
-                   3);
-  encoder.WriteRAW(underlying_cast(communication::bolt::Signature::Node));
-  encoder.WriteInt(*id);
-  encoder.WriteList(labels);
-  encoder.WriteMap(properties);
+  partial_vertices[*id] = {*id, labels, properties, {}};
 }
 
-auto ConvertNodes(const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
-                  communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
+auto PassNodes(std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex>
+                   &partial_vertices,
+               const std::string &nodes_path, MemgraphNodeIdMap &node_id_map) {
   int64_t node_count = 0;
   std::ifstream nodes_file(nodes_path);
   CHECK(nodes_file) << fmt::format("Unable to open '{}'", nodes_path);
@@ -264,7 +263,7 @@ auto ConvertNodes(const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
   while (!row.empty()) {
     CHECK_EQ(row.size(), fields.size())
         << "Expected as many values as there are header fields";
-    WriteNodeRow(fields, row, node_id_map, encoder);
+    WriteNodeRow(partial_vertices, fields, row, node_id_map);
     // Increase count and move to next row.
     node_count += 1;
     row = ReadRow(nodes_file);
@@ -273,13 +272,13 @@ auto ConvertNodes(const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
 }
 
 void WriteRelationshipsRow(
+    std::unordered_map<gid::Gid, communication::bolt::DecodedEdge> &edges,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
-    const MemgraphNodeIdMap &node_id_map, gid::Gid relationship_id,
-    communication::bolt::BaseEncoder<HashedFileWriter> &encoder) {
+    const MemgraphNodeIdMap &node_id_map, gid::Gid relationship_id) {
   std::experimental::optional<int64_t> start_id;
   std::experimental::optional<int64_t> end_id;
   std::experimental::optional<std::string> relationship_type;
-  std::map<std::string, query::TypedValue> properties;
+  std::map<std::string, communication::bolt::DecodedValue> properties;
   for (int i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     auto value = utils::Trim(row[i]);
@@ -300,27 +299,20 @@ void WriteRelationshipsRow(
           << "Only one relationship TYPE must be specified";
       relationship_type = value;
     } else if (field.type != "ignore") {
-      properties[field.name] = StringToTypedValue(value, field.type);
+      properties[field.name] = StringToDecodedValue(value, field.type);
     }
   }
   CHECK(start_id) << "START_ID must be set";
   CHECK(end_id) << "END_ID must be set";
   CHECK(relationship_type) << "Relationship TYPE must be set";
-  // write relationship
-  encoder.WriteRAW(underlying_cast(communication::bolt::Marker::TinyStruct) +
-                   5);
-  encoder.WriteRAW(
-      underlying_cast(communication::bolt::Signature::Relationship));
-  encoder.WriteInt(relationship_id);
-  encoder.WriteInt(*start_id);
-  encoder.WriteInt(*end_id);
-  encoder.WriteString(*relationship_type);
-  encoder.WriteMap(properties);
+
+  edges[relationship_id] = {(int64_t)relationship_id, *start_id, *end_id,
+                            *relationship_type, properties};
 }
 
-int ConvertRelationships(
+int PassRelationships(
+    std::unordered_map<gid::Gid, communication::bolt::DecodedEdge> &edges,
     const std::string &relationships_path, const MemgraphNodeIdMap &node_id_map,
-    communication::bolt::BaseEncoder<HashedFileWriter> &encoder,
     gid::Generator &relationship_id_generator) {
   std::ifstream relationships_file(relationships_path);
   CHECK(relationships_file)
@@ -331,8 +323,8 @@ int ConvertRelationships(
   while (!row.empty()) {
     CHECK_EQ(row.size(), fields.size())
         << "Expected as many values as there are header fields";
-    WriteRelationshipsRow(fields, row, node_id_map,
-                          relationship_id_generator.Next(), encoder);
+    WriteRelationshipsRow(edges, fields, row, node_id_map,
+                          relationship_id_generator.Next());
     ++relationships;
     row = ReadRow(relationships_file);
   }
@@ -344,7 +336,7 @@ void Convert(const std::vector<std::string> &nodes,
              const std::string &output_path) {
   try {
     HashedFileWriter buffer(output_path);
-    communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
+    durability::SnapshotEncoder<HashedFileWriter> encoder(buffer);
     int64_t node_count = 0;
     int64_t edge_count = 0;
     gid::Generator relationship_id_generator(0);
@@ -375,13 +367,68 @@ void Convert(const std::vector<std::string> &nodes,
     encoder.WriteInt(0);    // Id of transaction that is snapshooting.
     encoder.WriteList({});  // Transactional snapshot.
     encoder.WriteList({});  // Label + property indexes.
+    std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex> vertices;
+    std::unordered_map<gid::Gid, communication::bolt::DecodedEdge> edges;
     for (const auto &nodes_file : nodes) {
-      node_count += ConvertNodes(nodes_file, node_id_map, encoder);
+      node_count += PassNodes(vertices, nodes_file, node_id_map);
     }
     for (const auto &relationships_file : relationships) {
-      edge_count += ConvertRelationships(relationships_file, node_id_map,
-                                         encoder, relationship_id_generator);
+      edge_count += PassRelationships(edges, relationships_file, node_id_map,
+                                      relationship_id_generator);
     }
+    for (auto edge : edges) {
+      auto encoded = edge.second;
+      vertices[encoded.from].out.push_back({Edges::EdgeAddress(encoded.id, 0),
+                                            Edges::VertexAddress(encoded.to, 0),
+                                            encoded.type});
+      vertices[encoded.to].in.push_back({Edges::EdgeAddress(encoded.id, 0),
+                                         Edges::VertexAddress(encoded.from, 0),
+                                         encoded.type});
+    }
+    for (auto vertex_pair : vertices) {
+      auto &vertex = vertex_pair.second;
+      // write node
+      encoder.WriteRAW(
+          underlying_cast(communication::bolt::Marker::TinyStruct) + 3);
+      encoder.WriteRAW(underlying_cast(communication::bolt::Signature::Node));
+
+      encoder.WriteInt(vertex.gid);
+      auto &labels = vertex.labels;
+      std::vector<query::TypedValue> transformed;
+      std::transform(
+          labels.begin(), labels.end(), std::back_inserter(transformed),
+          [](const std::string &str) -> query::TypedValue { return str; });
+      encoder.WriteList(transformed);
+      encoder.WriteMap(vertex.properties);
+
+      encoder.WriteInt(vertex.in.size());
+      for (auto edge : vertex.in) {
+        encoder.WriteInt(edge.address.raw());
+        encoder.WriteInt(edge.vertex.raw());
+        encoder.WriteString(edge.type);
+      }
+      encoder.WriteInt(vertex.out.size());
+      for (auto edge : vertex.out) {
+        encoder.WriteInt(edge.address.raw());
+        encoder.WriteInt(edge.vertex.raw());
+        encoder.WriteString(edge.type);
+      }
+    }
+
+    for (auto edge_pair : edges) {
+      auto &edge = edge_pair.second;
+      // write relationship
+      encoder.WriteRAW(
+          underlying_cast(communication::bolt::Marker::TinyStruct) + 5);
+      encoder.WriteRAW(
+          underlying_cast(communication::bolt::Signature::Relationship));
+      encoder.WriteInt(edge.id);
+      encoder.WriteInt(edge.from);
+      encoder.WriteInt(edge.to);
+      encoder.WriteString(edge.type);
+      encoder.WriteMap(edge.properties);
+    }
+
     buffer.WriteValue(node_count);
     buffer.WriteValue(edge_count);
     buffer.WriteValue(buffer.hash());

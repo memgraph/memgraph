@@ -4,10 +4,10 @@
 
 #include "durability/snapshooter.hpp"
 
-#include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
+#include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
 #include "utils/datetime/timestamp.hpp"
 
@@ -20,7 +20,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
             database::GraphDbAccessor &dba) {
   try {
     HashedFileWriter buffer(snapshot_file);
-    communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
+    SnapshotEncoder<HashedFileWriter> encoder(buffer);
     int64_t vertex_num = 0, edge_num = 0;
 
     encoder.WriteRAW(durability::kMagicNumber.data(),
@@ -59,7 +59,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     }
 
     for (const auto &vertex : dba.Vertices(false)) {
-      encoder.WriteVertex(vertex);
+      encoder.WriteSnapshotVertex(vertex);
       vertex_num++;
     }
     for (const auto &edge : dba.Edges(false)) {

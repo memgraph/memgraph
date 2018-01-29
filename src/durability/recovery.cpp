@@ -3,10 +3,11 @@
 #include <limits>
 #include <unordered_map>
 
-#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/paths.hpp"
+#include "durability/snapshot_decoded_value.hpp"
+#include "durability/snapshot_decoder.hpp"
 #include "durability/version.hpp"
 #include "durability/wal.hpp"
 #include "query/typed_value.hpp"
@@ -55,10 +56,9 @@ struct RecoveryData {
 bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
                      RecoveryData &recovery_data) {
   HashedFileReader reader;
-  communication::bolt::Decoder<HashedFileReader> decoder(reader);
+  SnapshotDecoder<HashedFileReader> decoder(reader);
 
   RETURN_IF_NOT(reader.Open(snapshot_file));
-  std::unordered_map<uint64_t, VertexAccessor> vertices;
 
   auto magic_number = durability::kMagicNumber;
   reader.Read(magic_number.data(), magic_number.size());
@@ -112,29 +112,75 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
   }
 
   database::GraphDbAccessor dba(db);
+  std::unordered_map<gid::Gid,
+                     std::pair<Edges::VertexAddress, Edges::VertexAddress>>
+      edge_gid_endpoints_mapping;
   for (int64_t i = 0; i < vertex_count; ++i) {
-    DecodedValue vertex_dv;
-    RETURN_IF_NOT(decoder.ReadValue(&vertex_dv, DecodedValue::Type::Vertex));
-    auto &vertex = vertex_dv.ValueVertex();
-    auto vertex_accessor = dba.InsertVertex(vertex.id);
-    for (const auto &label : vertex.labels) {
+    auto vertex = decoder.ReadSnapshotVertex();
+    RETURN_IF_NOT(vertex);
+    auto vertex_accessor = dba.InsertVertex(vertex->gid);
+    for (const auto &label : vertex->labels) {
       vertex_accessor.add_label(dba.Label(label));
     }
-    for (const auto &property_pair : vertex.properties) {
+    for (const auto &property_pair : vertex->properties) {
       vertex_accessor.PropsSet(dba.Property(property_pair.first),
                                query::TypedValue(property_pair.second));
     }
-    vertices.insert({vertex.id, vertex_accessor});
+    auto vertex_record = vertex_accessor.GetNew();
+    for (const auto &edge : vertex->in) {
+      vertex_record->in_.emplace(edge.vertex, edge.address,
+                                 dba.EdgeType(edge.type));
+      edge_gid_endpoints_mapping[edge.address.gid()] = {
+          edge.vertex, vertex_accessor.GlobalAddress()};
+    }
+    for (const auto &edge : vertex->out) {
+      vertex_record->out_.emplace(edge.vertex, edge.address,
+                                  dba.EdgeType(edge.type));
+      edge_gid_endpoints_mapping[edge.address.gid()] = {
+          vertex_accessor.GlobalAddress(), edge.vertex};
+    }
   }
+
+  auto vertex_transform_to_local_if_possible =
+      [&db, &dba](Edges::VertexAddress &address) {
+        if (address.is_local()) return;
+        // If the worker id matches it should be a local apperance
+        if (address.worker_id() == db.WorkerId()) {
+          address = Edges::VertexAddress(dba.LocalVertexAddress(address.gid()));
+          CHECK(address.is_local()) << "Address should be local but isn't";
+        }
+      };
+
+  auto edge_transform_to_local_if_possible =
+      [&db, &dba](Edges::EdgeAddress &address) {
+        if (address.is_local()) return;
+        // If the worker id matches it should be a local apperance
+        if (address.worker_id() == db.WorkerId()) {
+          address = Edges::EdgeAddress(dba.LocalEdgeAddress(address.gid()));
+          CHECK(address.is_local()) << "Address should be local but isn't";
+        }
+      };
+
   for (int64_t i = 0; i < edge_count; ++i) {
-    DecodedValue edge_dv;
-    RETURN_IF_NOT(decoder.ReadValue(&edge_dv, DecodedValue::Type::Edge));
-    auto &edge = edge_dv.ValueEdge();
-    auto it_from = vertices.find(edge.from);
-    auto it_to = vertices.find(edge.to);
-    RETURN_IF_NOT(it_from != vertices.end() && it_to != vertices.end());
-    auto edge_accessor = dba.InsertEdge(it_from->second, it_to->second,
-                                        dba.EdgeType(edge.type), edge.id);
+    RETURN_IF_NOT(
+        decoder.ReadValue(&dv, communication::bolt::DecodedValue::Type::Edge));
+    auto &edge = dv.ValueEdge();
+    // We have to take full edge endpoints from vertices since the endpoints
+    // found here don't containt worker_id, and this can't be changed since this
+    // edges must be bolt-compliant
+    auto &edge_endpoints = edge_gid_endpoints_mapping[edge.id];
+
+    Edges::VertexAddress from;
+    Edges::VertexAddress to;
+    std::tie(from, to) = edge_endpoints;
+
+    // From and to are written in the global_address format and we should
+    // convert them back to local format for speedup - if possible
+    vertex_transform_to_local_if_possible(from);
+    vertex_transform_to_local_if_possible(to);
+
+    auto edge_accessor =
+        dba.InsertOnlyEdge(from, to, dba.EdgeType(edge.type), edge.id);
 
     for (const auto &property_pair : edge.properties)
       edge_accessor.PropsSet(dba.Property(property_pair.first),
@@ -149,6 +195,33 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     dba.Abort();
     return false;
   }
+
+  // We have to replace global_ids with local ids where possible for all edges
+  // in every vertex and this can only be done after we inserted the edges; this
+  // is to speedup execution
+  for (auto &vertex_accessor : dba.Vertices(true)) {
+    auto vertex = vertex_accessor.GetNew();
+    auto iterate_and_transform =
+        [vertex_transform_to_local_if_possible,
+         edge_transform_to_local_if_possible](Edges &edges) {
+          Edges transformed;
+          for (auto &element : edges) {
+            auto vertex = element.vertex;
+            vertex_transform_to_local_if_possible(vertex);
+
+            auto edge = element.edge;
+            edge_transform_to_local_if_possible(edge);
+
+            transformed.emplace(vertex, edge, element.edge_type);
+          }
+
+          return transformed;
+        };
+
+    vertex->in_ = iterate_and_transform(vertex->in_);
+    vertex->out_ = iterate_and_transform(vertex->out_);
+  }
+
   dba.Commit();
   return true;
 }

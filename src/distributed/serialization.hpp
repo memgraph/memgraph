@@ -17,7 +17,7 @@ namespace impl {
 // global one, using the given worker_id.
 template <typename TArchive, typename TAddress>
 void SaveAddress(TArchive &ar, TAddress address, int worker_id) {
-  auto gid = address.is_remote() ? address.global_id() : address.local()->gid_;
+  auto gid = address.is_remote() ? address.gid() : address.local()->gid_;
   ar << gid;
   ar << worker_id;
 };

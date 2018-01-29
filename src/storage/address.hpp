@@ -35,6 +35,11 @@ class Address {
   static constexpr uint64_t kRemote{1};
 
  public:
+  Address() {}
+
+  // Constructor for raw address value
+  Address(Storage storage) : storage_(storage) {}
+
   // Constructor for local Address.
   Address(TLocalObj *ptr) {
     uintptr_t ptr_no_type = reinterpret_cast<uintptr_t>(ptr);
@@ -63,7 +68,7 @@ class Address {
     return reinterpret_cast<TLocalObj *>(storage_);
   }
 
-  gid::Gid global_id() const {
+  gid::Gid gid() const {
     DCHECK(is_remote()) << "Attempting to get global ID from local address";
     return storage_ >> (kTypeMaskSize + kWorkerIdSize);
   }
@@ -73,6 +78,9 @@ class Address {
     DCHECK(is_remote()) << "Attempting to get worker ID from local address";
     return (storage_ >> 1) & ((1ULL << kWorkerIdSize) - 1);
   }
+
+  /// Returns raw address value
+  Storage raw() const { return storage_; }
 
   bool operator==(const Address<TLocalObj> &other) const {
     return storage_ == other.storage_;

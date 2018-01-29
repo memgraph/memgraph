@@ -273,6 +273,7 @@ nlohmann::json GetWithDefault(const nlohmann::json &object,
 }
 
 int main(int argc, char **argv) {
+  LOG(FATAL) << "Doesn't work with the newest format - waiting for refactor";
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 

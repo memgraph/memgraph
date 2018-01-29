@@ -102,13 +102,21 @@ database::GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
 
 template <typename TRecord>
 gid::Gid RecordAccessor<TRecord>::gid() const {
-  return is_local() ? address_.local()->gid_ : address_.global_id();
+  return is_local() ? address_.local()->gid_ : address_.gid();
 }
 
 template <typename TRecord>
 storage::Address<mvcc::VersionList<TRecord>> RecordAccessor<TRecord>::address()
     const {
   return address_;
+}
+
+template <typename TRecord>
+storage::Address<mvcc::VersionList<TRecord>>
+RecordAccessor<TRecord>::GlobalAddress() const {
+  return is_local() ? storage::Address<mvcc::VersionList<TRecord>>(
+                          gid(), db_accessor_->db_.WorkerId())
+                    : address_;
 }
 
 template <typename TRecord>
@@ -148,8 +156,8 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
     // we need to invalidate the RemoteCache and really get the latest stuff.
     // But only do that after the command has been advanced.
     db_accessor().template remote_elements<TRecord>().FindSetOldNew(
-        db_accessor().transaction().id_, address_.worker_id(),
-        address_.global_id(), old_, new_);
+        db_accessor().transaction().id_, address_.worker_id(), address_.gid(),
+        old_, new_);
   }
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
@@ -210,7 +218,7 @@ RecordAccessor<Vertex>::AddressT RecordAccessor<Vertex>::NormalizedAddress(
     AddressT address) const {
   if (address.is_local()) return address;
   if (address.worker_id() == db_accessor().db_.WorkerId()) {
-    return AddressT(db_accessor().LocalVertexAddress(address.global_id()));
+    return AddressT(db_accessor().LocalVertexAddress(address.gid()));
   }
 
   return address;
@@ -221,7 +229,7 @@ RecordAccessor<Edge>::AddressT RecordAccessor<Edge>::NormalizedAddress(
     AddressT address) const {
   if (address.is_local()) return address;
   if (address.worker_id() == db_accessor().db_.WorkerId()) {
-    return AddressT(db_accessor().LocalEdgeAddress(address.global_id()));
+    return AddressT(db_accessor().LocalEdgeAddress(address.gid()));
   }
 
   return address;
