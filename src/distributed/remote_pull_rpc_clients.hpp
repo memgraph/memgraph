@@ -16,35 +16,52 @@ namespace distributed {
  * batches and are therefore accompanied with an enum indicator of the state of
  * remote execution. */
 class RemotePullRpcClients {
+  using Client = communication::rpc::Client;
+
  public:
   RemotePullRpcClients(Coordination &coordination)
       : clients_(coordination, kRemotePullProduceRpcName) {}
 
-  RemotePullResData RemotePull(tx::transaction_id_t tx_id, int worker_id,
-                               int64_t plan_id, const Parameters &params,
-                               const std::vector<query::Symbol> &symbols,
-                               int batch_size = kDefaultBatchSize) {
-    return std::move(clients_.GetClient(worker_id)
-                         .Call<RemotePullRpc>(RemotePullReqData{
-                             tx_id, plan_id, params, symbols, batch_size})
-                         ->member);
+  /// Calls a remote pull asynchroniously. IMPORTANT: take care not to call this
+  /// function for the same (tx_id, worker_id, plan_id) before the previous call
+  /// has ended.
+  std::future<RemotePullResData> RemotePull(
+      tx::transaction_id_t tx_id, int worker_id, int64_t plan_id,
+      const Parameters &params, const std::vector<query::Symbol> &symbols,
+      int batch_size = kDefaultBatchSize) {
+    return clients_.ExecuteOnWorker<RemotePullResData>(
+        worker_id,
+        [tx_id, plan_id, &params, &symbols, batch_size](Client &client) {
+          return client
+              .Call<RemotePullRpc>(RemotePullReqData{tx_id, plan_id, params,
+                                                     symbols, batch_size})
+              ->member;
+        });
   }
 
   auto GetWorkerIds() { return clients_.GetWorkerIds(); }
 
-  // Notifies all workers that the given transaction/plan is done. Otherwise the
+  // Notifies a worker that the given transaction/plan is done. Otherwise the
   // server is left with potentially unconsumed Cursors that never get deleted.
   //
   // TODO - maybe this needs to be done with hooks into the transactional
   // engine, so that the Worker discards it's stuff when the relevant
   // transaction are done.
-  //
-  // TODO - this will maybe need a per-worker granularity.
-  void EndRemotePull(tx::transaction_id_t tx_id, int64_t plan_id) {
-    auto futures = clients_.ExecuteOnWorkers<void>(
-        0, [tx_id, plan_id](communication::rpc::Client &client) {
-          client.Call<EndRemotePullRpc>(EndRemotePullReqData{tx_id, plan_id});
+  std::future<void> EndRemotePull(int worker_id, tx::transaction_id_t tx_id,
+                                  int64_t plan_id) {
+    return clients_.ExecuteOnWorker<void>(
+        worker_id, [tx_id, plan_id](Client &client) {
+          return client.Call<EndRemotePullRpc>(
+              EndRemotePullReqData{tx_id, plan_id});
         });
+  }
+
+  void EndAllRemotePulls(tx::transaction_id_t tx_id, int64_t plan_id) {
+    std::vector<std::future<void>> futures;
+    for (auto worker_id : clients_.GetWorkerIds()) {
+      if (worker_id == 0) continue;
+      futures.emplace_back(EndRemotePull(worker_id, tx_id, plan_id));
+    }
     for (auto &future : futures) future.wait();
   }
 

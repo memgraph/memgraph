@@ -321,10 +321,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -2583,8 +2583,8 @@ PullRemote::PullRemoteCursor::PullRemoteCursor(const PullRemote &self,
 
 void PullRemote::PullRemoteCursor::EndRemotePull() {
   if (remote_pull_ended_) return;
-  db_.db().remote_pull_clients().EndRemotePull(db_.transaction().id_,
-                                               self_.plan_id());
+  db_.db().remote_pull_clients().EndAllRemotePulls(db_.transaction().id_,
+                                                self_.plan_id());
   remote_pull_ended_ = true;
 }
 
@@ -2597,7 +2597,7 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
     last_pulled_worker_ = (last_pulled_worker_ + 1) % worker_ids_.size();
     auto remote_results = db_.db().remote_pull_clients().RemotePull(
         db_.transaction().id_, worker_ids_[last_pulled_worker_],
-        self_.plan_id(), context.parameters_, self_.symbols());
+        self_.plan_id(), context.parameters_, self_.symbols()).get();
 
     auto get_results = [&]() {
       for (auto &result : remote_results.frames) {

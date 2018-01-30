@@ -36,15 +36,21 @@ class RpcWorkerClients {
 
   auto GetWorkerIds() { return coordination_.GetWorkerIds(); }
 
-  /**
-   * Promises to execute function on workers rpc clients.
-   * @Tparam TResult - deduced automatically from method
-   * @param skip_worker_id - worker which to skip (set to -1 to avoid skipping)
-   * @param execute - Method which takes an rpc client and returns a result for
-   * it
-   * @return list of futures filled with function 'execute' results when applied
-   * to rpc clients
-   */
+  /** Asynchroniously executes the given function on the rpc client for the
+   * given worker id. Returns an `std::future` of the given `execute` function's
+   * return type. */
+  template <typename TResult>
+  auto ExecuteOnWorker(
+      int worker_id,
+      std::function<TResult(communication::rpc::Client &)> execute) {
+    auto &client = GetClient(worker_id);
+    return std::async(std::launch::async,
+                      [execute, &client]() { return execute(client); });
+  }
+
+  /** Asynchroniously executes the `execute` function on all worker rpc clients
+   * except the one whose id is `skip_worker_id`. Returns a vectore of futures
+   * contaning the results of the `execute` function. */
   template <typename TResult>
   auto ExecuteOnWorkers(
       int skip_worker_id,
@@ -52,11 +58,7 @@ class RpcWorkerClients {
     std::vector<std::future<TResult>> futures;
     for (auto &worker_id : coordination_.GetWorkerIds()) {
       if (worker_id == skip_worker_id) continue;
-      auto &client = GetClient(worker_id);
-
-      futures.emplace_back(std::async(std::launch::async, [execute, &client]() {
-        return execute(client);
-      }));
+      futures.emplace_back(std::move(ExecuteOnWorker(worker_id, execute)));
     }
     return futures;
   }

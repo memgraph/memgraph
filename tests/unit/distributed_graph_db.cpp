@@ -260,10 +260,12 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
 
-  auto remote_pull = [this, plan_id, &ctx, &x_ne](tx::transaction_id_t tx_id,
-                                                  int worker_id) {
-    return master().remote_pull_clients().RemotePull(
-        tx_id, worker_id, plan_id, Parameters(), {ctx.symbol_table_[*x_ne]}, 3);
+  Parameters params;
+  std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
+  auto remote_pull = [this, plan_id, &params, &symbols](
+      tx::transaction_id_t tx_id, int worker_id) {
+    return master().remote_pull_clients().RemotePull(tx_id, worker_id, plan_id,
+                                                     params, symbols, 3);
   };
   auto expect_first_batch = [](auto &batch) {
     EXPECT_EQ(batch.pull_state,
@@ -275,8 +277,7 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
     EXPECT_EQ(batch.frames[2][0].ValueString(), "bla");
   };
   auto expect_second_batch = [](auto &batch) {
-    EXPECT_EQ(batch.pull_state,
-              distributed::RemotePullState::CURSOR_EXHAUSTED);
+    EXPECT_EQ(batch.pull_state, distributed::RemotePullState::CURSOR_EXHAUSTED);
     ASSERT_EQ(batch.frames.size(), 2);
     ASSERT_EQ(batch.frames[0].size(), 1);
     EXPECT_EQ(batch.frames[0][0].ValueInt(), 1);
@@ -286,20 +287,20 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
   database::GraphDbAccessor dba_1{master()};
   database::GraphDbAccessor dba_2{master()};
   for (int worker_id : {1, 2}) {
-    auto tx1_batch1 = remote_pull(dba_1.transaction_id(), worker_id);
+    auto tx1_batch1 = remote_pull(dba_1.transaction_id(), worker_id).get();
     expect_first_batch(tx1_batch1);
-    auto tx2_batch1 = remote_pull(dba_2.transaction_id(), worker_id);
+    auto tx2_batch1 = remote_pull(dba_2.transaction_id(), worker_id).get();
     expect_first_batch(tx2_batch1);
-    auto tx2_batch2 = remote_pull(dba_2.transaction_id(), worker_id);
+    auto tx2_batch2 = remote_pull(dba_2.transaction_id(), worker_id).get();
     expect_second_batch(tx2_batch2);
-    auto tx1_batch2 = remote_pull(dba_1.transaction_id(), worker_id);
+    auto tx1_batch2 = remote_pull(dba_1.transaction_id(), worker_id).get();
     expect_second_batch(tx1_batch2);
   }
-  master().remote_pull_clients().EndRemotePull(dba_1.transaction_id(), plan_id);
-  master().remote_pull_clients().EndRemotePull(dba_2.transaction_id(), plan_id);
+  master().remote_pull_clients().EndAllRemotePulls(dba_1.transaction_id(),
+                                                   plan_id);
+  master().remote_pull_clients().EndAllRemotePulls(dba_2.transaction_id(),
+                                                   plan_id);
 }
-
-// TODO EndRemotePull test
 
 TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
   using GraphDbAccessor = database::GraphDbAccessor;
