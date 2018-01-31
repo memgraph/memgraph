@@ -13,6 +13,36 @@
 
 namespace query::plan {
 
+/// Collects symbols from identifiers found in visited AST nodes.
+class UsedSymbolsCollector : public HierarchicalTreeVisitor {
+ public:
+  explicit UsedSymbolsCollector(const SymbolTable &symbol_table)
+      : symbol_table_(symbol_table) {}
+
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+
+  bool PostVisit(All &all) override {
+    // Remove the symbol which is bound by all, because we are only interested
+    // in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*all.identifier_));
+    return true;
+  }
+
+  bool Visit(Identifier &ident) override {
+    symbols_.insert(symbol_table_.at(ident));
+    return true;
+  }
+
+  bool Visit(PrimitiveLiteral &) override { return true; }
+  bool Visit(ParameterLookup &) override { return true; }
+  bool Visit(query::CreateIndex &) override { return true; }
+
+  std::unordered_set<Symbol> symbols_;
+  const SymbolTable &symbol_table_;
+};
+
 /// Normalized representation of a pattern that needs to be matched.
 struct Expansion {
   /// The first node in the expansion, it can be a single node.
