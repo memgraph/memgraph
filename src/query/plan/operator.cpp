@@ -2584,7 +2584,7 @@ PullRemote::PullRemoteCursor::PullRemoteCursor(const PullRemote &self,
 void PullRemote::PullRemoteCursor::EndRemotePull() {
   if (remote_pull_ended_) return;
   db_.db().remote_pull_clients().EndAllRemotePulls(db_.transaction().id_,
-                                                self_.plan_id());
+                                                   self_.plan_id());
   remote_pull_ended_ = true;
 }
 
@@ -2595,13 +2595,16 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
 
   while (worker_ids_.size() > 0 && results_.empty()) {
     last_pulled_worker_ = (last_pulled_worker_ + 1) % worker_ids_.size();
-    auto remote_results = db_.db().remote_pull_clients().RemotePull(
-        db_.transaction().id_, worker_ids_[last_pulled_worker_],
-        self_.plan_id(), context.parameters_, self_.symbols()).get();
+    auto remote_results =
+        db_.db()
+            .remote_pull_clients()
+            .RemotePull(db_, worker_ids_[last_pulled_worker_], self_.plan_id(),
+                        context.parameters_, self_.symbols())
+            .get();
 
     auto get_results = [&]() {
-      for (auto &result : remote_results.frames) {
-        results_.emplace(std::move(result));
+      for (auto &frame : remote_results.frames) {
+        results_.emplace(std::move(frame));
       }
     };
 

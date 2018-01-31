@@ -42,9 +42,17 @@ void load(TArchive &ar, std::experimental::optional<T> &opt, unsigned int) {
 
 namespace utils {
 
-/** Saves the given value into the given Boost archive. */
+/**
+ * Saves the given value into the given Boost archive. The optional
+ * `save_graph_element` function is called if the given `value` is a
+ * [Vertex|Edge|Path]. If that function is not provided, and `value` is one of
+ * those, an exception is thrown.
+ */
 template <class TArchive>
-void SaveTypedValue(TArchive &ar, const query::TypedValue &value) {
+void SaveTypedValue(
+    TArchive &ar, const query::TypedValue &value,
+    std::function<void(TArchive &ar, const query::TypedValue &value)>
+        save_graph_element = nullptr) {
   ar << value.type();
   switch (value.type()) {
     case query::TypedValue::Type::Null:
@@ -65,7 +73,7 @@ void SaveTypedValue(TArchive &ar, const query::TypedValue &value) {
       const auto &values = value.Value<std::vector<query::TypedValue>>();
       ar << values.size();
       for (const auto &v : values) {
-        SaveTypedValue(ar, v);
+        SaveTypedValue(ar, v, save_graph_element);
       }
       return;
     }
@@ -74,21 +82,32 @@ void SaveTypedValue(TArchive &ar, const query::TypedValue &value) {
       ar << map.size();
       for (const auto &key_value : map) {
         ar << key_value.first;
-        SaveTypedValue(ar, key_value.second);
+        SaveTypedValue(ar, key_value.second, save_graph_element);
       }
       return;
     }
     case query::TypedValue::Type::Vertex:
     case query::TypedValue::Type::Edge:
     case query::TypedValue::Type::Path:
-      throw utils::BasicException("Unable to archive TypedValue of type: {}",
-                                  value.type());
+      if (save_graph_element) {
+        save_graph_element(ar, value);
+      } else {
+        throw utils::BasicException("Unable to archive TypedValue of type: {}",
+                                    value.type());
+      }
   }
 }
 
-/** Loads a typed value into the given reference from the given archive. */
+/** Loads a typed value into the given reference from the given archive. The
+ * optional `load_graph_element` function is called if a [Vertex|Edge|Path]
+ * TypedValue should be unarchived. If that function is not provided, and
+ * `value` is one of those, an exception is thrown.
+ */
 template <class TArchive>
-void LoadTypedValue(TArchive &ar, query::TypedValue &value) {
+void LoadTypedValue(TArchive &ar, query::TypedValue &value,
+                    std::function<void(TArchive &ar, query::TypedValue::Type,
+                                       query::TypedValue &)>
+                        load_graph_element = nullptr) {
   query::TypedValue::Type type = query::TypedValue::Type::Null;
   ar >> type;
   switch (type) {
@@ -119,37 +138,38 @@ void LoadTypedValue(TArchive &ar, query::TypedValue &value) {
       return;
     }
     case query::TypedValue::Type::List: {
-      std::vector<query::TypedValue> values;
+      value = std::vector<query::TypedValue>{};
+      auto &list = value.ValueList();
       size_t size;
       ar >> size;
-      values.reserve(size);
+      list.reserve(size);
       for (size_t i = 0; i < size; ++i) {
-        query::TypedValue tv;
-        LoadTypedValue(ar, tv);
-        values.emplace_back(tv);
+        list.emplace_back();
+        LoadTypedValue(ar, list.back(), load_graph_element);
       }
-      value = values;
       return;
     }
     case query::TypedValue::Type::Map: {
-      std::map<std::string, query::TypedValue> map;
+      value = std::map<std::string, query::TypedValue>{};
+      auto &map = value.ValueMap();
       size_t size;
       ar >> size;
       for (size_t i = 0; i < size; ++i) {
         std::string key;
         ar >> key;
-        query::TypedValue v;
-        LoadTypedValue(ar, v);
-        map.emplace(key, v);
+        LoadTypedValue(ar, map[key], load_graph_element);
       }
-      value = map;
       return;
     }
     case query::TypedValue::Type::Vertex:
     case query::TypedValue::Type::Edge:
     case query::TypedValue::Type::Path:
-      throw utils::BasicException(
-          "Unexpected TypedValue type '{}' when loading from archive", type);
+      if (load_graph_element) {
+        load_graph_element(ar, type, value);
+      } else {
+        throw utils::BasicException(
+            "Unexpected TypedValue type '{}' when loading from archive", type);
+      }
   }
 }
 }  // namespace utils

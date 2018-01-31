@@ -1,5 +1,7 @@
 #include <experimental/optional>
+#include <memory>
 #include <thread>
+#include <unordered_set>
 
 #include "gtest/gtest.h"
 
@@ -235,8 +237,7 @@ TEST_F(DistributedGraphDbTest, DispatchPlan) {
 }
 
 TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
-  database::GraphDb &db = master();
-  database::GraphDbAccessor dba{db};
+  database::GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstTreeStorage storage;
@@ -263,8 +264,8 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
   auto remote_pull = [this, plan_id, &params, &symbols](
-      tx::transaction_id_t tx_id, int worker_id) {
-    return master().remote_pull_clients().RemotePull(tx_id, worker_id, plan_id,
+      database::GraphDbAccessor &dba, int worker_id) {
+    return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
                                                      params, symbols, 3);
   };
   auto expect_first_batch = [](auto &batch) {
@@ -287,18 +288,116 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
   database::GraphDbAccessor dba_1{master()};
   database::GraphDbAccessor dba_2{master()};
   for (int worker_id : {1, 2}) {
-    auto tx1_batch1 = remote_pull(dba_1.transaction_id(), worker_id).get();
+    // TODO flor, proper test async here.
+    auto tx1_batch1 = remote_pull(dba_1, worker_id).get();
     expect_first_batch(tx1_batch1);
-    auto tx2_batch1 = remote_pull(dba_2.transaction_id(), worker_id).get();
+    auto tx2_batch1 = remote_pull(dba_2, worker_id).get();
     expect_first_batch(tx2_batch1);
-    auto tx2_batch2 = remote_pull(dba_2.transaction_id(), worker_id).get();
+    auto tx2_batch2 = remote_pull(dba_2, worker_id).get();
     expect_second_batch(tx2_batch2);
-    auto tx1_batch2 = remote_pull(dba_1.transaction_id(), worker_id).get();
+    auto tx1_batch2 = remote_pull(dba_1, worker_id).get();
     expect_second_batch(tx1_batch2);
   }
   master().remote_pull_clients().EndAllRemotePulls(dba_1.transaction_id(),
                                                    plan_id);
   master().remote_pull_clients().EndAllRemotePulls(dba_2.transaction_id(),
+                                                   plan_id);
+}
+
+TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
+  // Create some data on the master and both workers. Eeach edge (3 of them) and
+  // vertex (6 of them) will be uniquely identified with their worker id and
+  // sequence ID, so we can check we retrieved all.
+  storage::Property prop;
+  {
+    database::GraphDbAccessor dba{master()};
+    prop = dba.Property("prop");
+    auto create_data = [prop](database::GraphDbAccessor &dba, int worker_id) {
+      auto v1 = dba.InsertVertex();
+      v1.PropsSet(prop, worker_id * 10);
+      auto v2 = dba.InsertVertex();
+      v2.PropsSet(prop, worker_id * 10 + 1);
+      auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("et"));
+      e12.PropsSet(prop, worker_id * 10 + 2);
+    };
+    create_data(dba, 0);
+    database::GraphDbAccessor dba_w1{worker1(), dba.transaction_id()};
+    create_data(dba_w1, 1);
+    database::GraphDbAccessor dba_w2{worker2(), dba.transaction_id()};
+    create_data(dba_w2, 2);
+    dba.Commit();
+  }
+
+  database::GraphDbAccessor dba{master()};
+  Context ctx{dba};
+  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  AstTreeStorage storage;
+
+  // Query plan for: MATCH p = (n)-[r]->(m) return [n, r], m, p
+  // Use this query to test graph elements are transferred correctly in
+  // collections too.
+  auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
+  auto r_m =
+      MakeExpand(storage, ctx.symbol_table_, n.op_, n.sym_, "r",
+                 EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
+  auto p_sym = ctx.symbol_table_.CreateSymbol("p", true);
+  auto p = std::make_shared<query::plan::ConstructNamedPath>(
+      r_m.op_, p_sym,
+      std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
+  auto return_n = IDENT("n");
+  ctx.symbol_table_[*return_n] = n.sym_;
+  auto return_r = IDENT("r");
+  ctx.symbol_table_[*return_r] = r_m.edge_sym_;
+  auto return_n_r = NEXPR("[n, r]", LIST(return_n, return_r));
+  ctx.symbol_table_[*return_n_r] = ctx.symbol_table_.CreateSymbol("", true);
+  auto return_m = NEXPR("m", IDENT("m"));
+  ctx.symbol_table_[*return_m->expression_] = r_m.node_sym_;
+  ctx.symbol_table_[*return_m] = ctx.symbol_table_.CreateSymbol("", true);
+  auto return_p = NEXPR("p", IDENT("p"));
+  ctx.symbol_table_[*return_p->expression_] = p_sym;
+  ctx.symbol_table_[*return_p] = ctx.symbol_table_.CreateSymbol("", true);
+  auto produce = MakeProduce(p, return_n_r, return_m, return_p);
+
+  auto check_result = [prop](
+      int worker_id,
+      const std::vector<std::vector<query::TypedValue>> &frames) {
+    int offset = worker_id * 10;
+    ASSERT_EQ(frames.size(), 1);
+    auto &row = frames[0];
+    ASSERT_EQ(row.size(), 3);
+    auto &list = row[0].ValueList();
+    ASSERT_EQ(list.size(), 2);
+    ASSERT_EQ(list[0].ValueVertex().PropsAt(prop).Value<int64_t>(), offset);
+    ASSERT_EQ(list[1].ValueEdge().PropsAt(prop).Value<int64_t>(), offset + 2);
+    ASSERT_EQ(row[1].ValueVertex().PropsAt(prop).Value<int64_t>(), offset + 1);
+    auto &path = row[2].ValuePath();
+    ASSERT_EQ(path.size(), 1);
+    ASSERT_EQ(path.vertices()[0].PropsAt(prop).Value<int64_t>(), offset);
+    ASSERT_EQ(path.edges()[0].PropsAt(prop).Value<int64_t>(), offset + 2);
+    ASSERT_EQ(path.vertices()[1].PropsAt(prop).Value<int64_t>(), offset + 1);
+  };
+
+  // Test that the plan works locally.
+  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+  check_result(0, results);
+
+  const int plan_id = 42;
+  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
+
+  Parameters params;
+  std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
+                                     ctx.symbol_table_[*return_m], p_sym};
+  auto remote_pull = [this, plan_id, &params, &symbols](
+      database::GraphDbAccessor &dba, int worker_id) {
+    return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
+                                                     params, symbols, 3);
+  };
+  auto future_w1_results = remote_pull(dba, 1);
+  auto future_w2_results = remote_pull(dba, 2);
+  check_result(1, future_w1_results.get().frames);
+  check_result(2, future_w2_results.get().frames);
+
+  master().remote_pull_clients().EndAllRemotePulls(dba.transaction_id(),
                                                    plan_id);
 }
 

@@ -57,18 +57,17 @@ class RemoteCache {
                      TRecord *&old_record, TRecord *&new_record) {
     std::lock_guard<std::mutex> guard{lock_};
     auto found = cache_.find(gid);
-    if (found == cache_.end()) {
-      rec_uptr old_record =
+    if (found != cache_.end()) {
+      old_record = found->second.first.get();
+      new_record = found->second.second.get();
+    } else {
+      auto remote =
           remote_data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
-      found = cache_
-                  .emplace(gid,
-                           std::make_pair<rec_uptr, rec_uptr>(nullptr, nullptr))
-                  .first;
-      found->second.first.swap(old_record);
+      old_record = remote.get();
+      new_record = nullptr;
+      cache_[gid] =
+          std::make_pair<rec_uptr, rec_uptr>(std::move(remote), nullptr);
     }
-
-    old_record = found->second.first.get();
-    new_record = found->second.second.get();
   }
 
   void AdvanceCommand() {
@@ -80,6 +79,19 @@ class RemoteCache {
     // global advance-command, all the existing RecordAccessors will be calling
     // Reconstruct, so perhaps just flushing is the correct sollution, even
     // though we'll have pointers to nothing.
+  }
+
+  /** Sets the given records as (new, old) data for the given gid. */
+  void emplace(gid::Gid gid, rec_uptr old_record, rec_uptr new_record) {
+    std::lock_guard<std::mutex> guard{lock_};
+    // We can't replace existing data because some accessors might be using it.
+    // TODO - consider if it's necessary and OK to copy just the data content.
+    auto found = cache_.find(gid);
+    if (found != cache_.end())
+      return;
+    else
+      cache_[gid] =
+          std::make_pair(std::move(old_record), std::move(new_record));
   }
 
  private:

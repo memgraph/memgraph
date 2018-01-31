@@ -27,7 +27,6 @@ namespace storage {
  */
 template <typename TLocalObj>
 class Address {
-  using Storage = uint64_t;
   static constexpr uint64_t kTypeMaskSize{1};
   static constexpr uint64_t kTypeMask{(1ULL << kTypeMaskSize) - 1};
   static constexpr uint64_t kWorkerIdSize{gid::kWorkerIdSize};
@@ -35,10 +34,12 @@ class Address {
   static constexpr uint64_t kRemote{1};
 
  public:
+  using StorageT = uint64_t;
+
   Address() {}
 
   // Constructor for raw address value
-  Address(Storage storage) : storage_(storage) {}
+  Address(StorageT storage) : storage_(storage) {}
 
   // Constructor for local Address.
   Address(TLocalObj *ptr) {
@@ -51,7 +52,7 @@ class Address {
   // that is storing that vertex/edge
   Address(gid::Gid global_id, int worker_id) {
     CHECK(global_id <
-          (1ULL << (sizeof(Storage) * 8 - kWorkerIdSize - kTypeMaskSize)))
+          (1ULL << (sizeof(StorageT) * 8 - kWorkerIdSize - kTypeMaskSize)))
         << "Too large global id";
     CHECK(worker_id < (1ULL << kWorkerIdSize)) << "Too larger worker id";
 
@@ -80,13 +81,13 @@ class Address {
   }
 
   /// Returns raw address value
-  Storage raw() const { return storage_; }
+  StorageT raw() const { return storage_; }
 
   bool operator==(const Address<TLocalObj> &other) const {
     return storage_ == other.storage_;
   }
 
  private:
-  Storage storage_{0};
+  StorageT storage_{0};
 };
 }  // namespace storage

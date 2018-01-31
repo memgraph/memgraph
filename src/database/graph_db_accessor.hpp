@@ -552,8 +552,16 @@ class GraphDbAccessor {
   /* Returns a list of index names present in the database. */
   std::vector<std::string> IndexInfo() const;
 
-  auto &remote_vertices();
-  auto &remote_edges();
+  distributed::RemoteCache<Vertex> &remote_vertices() {
+    CHECK(remote_vertices_)
+        << "Attempting to get a remote cache in single-node Memgraph";
+    return remote_vertices_.value();
+  }
+  distributed::RemoteCache<Edge> &remote_edges() {
+    CHECK(remote_edges_)
+        << "Attempting to get a remote cache in single-node Memgraph";
+    return remote_edges_.value();
+  }
 
   /** Gets remote_vertices or remote_edges, depending on type param. */
   template <typename TRecord>

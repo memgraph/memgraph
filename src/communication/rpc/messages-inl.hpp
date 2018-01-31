@@ -51,9 +51,7 @@ BOOST_CLASS_EXPORT(distributed::DispatchPlanReq);
 BOOST_CLASS_EXPORT(distributed::ConsumePlanRes);
 
 // Remote pull.
-BOOST_CLASS_EXPORT(distributed::RemotePullReqData);
 BOOST_CLASS_EXPORT(distributed::RemotePullReq);
-BOOST_CLASS_EXPORT(distributed::RemotePullResData);
 BOOST_CLASS_EXPORT(distributed::RemotePullRes);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullReq);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullRes);

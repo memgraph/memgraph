@@ -76,6 +76,18 @@ class Path {
     return os;
   }
 
+  /// Calls SwitchNew on all the elements of the path.
+  void SwitchNew() {
+    for (auto &v : vertices_) v.SwitchNew();
+    for (auto &e : edges_) e.SwitchNew();
+  }
+
+  /// Calls SwitchNew on all the elements of the path.
+  void SwitchOld() {
+    for (auto &v : vertices_) v.SwitchOld();
+    for (auto &e : edges_) e.SwitchOld();
+  }
+
  private:
   // Contains all the vertices in the path.
   std::vector<VertexAccessor> vertices_;

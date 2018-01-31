@@ -524,8 +524,6 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   }
   return info;
 }
-auto &GraphDbAccessor::remote_vertices() { return *remote_vertices_; }
-auto &GraphDbAccessor::remote_edges() { return *remote_edges_; }
 
 template <>
 distributed::RemoteCache<Vertex> &GraphDbAccessor::remote_elements() {

@@ -114,14 +114,18 @@ TypedValue::operator PropertyValue() const {
   template <>                                                                \
   type_param &TypedValue::Value<type_param>() {                              \
     if (type_ != Type::type_enum)                                            \
-      throw TypedValueException("Incompatible template param and type");     \
+      throw TypedValueException(                                             \
+          "Incompatible template param '{}' and type '{}'", Type::type_enum, \
+          type_);                                                            \
     return field;                                                            \
   }                                                                          \
                                                                              \
   template <>                                                                \
   const type_param &TypedValue::Value<type_param>() const {                  \
     if (type_ != Type::type_enum)                                            \
-      throw TypedValueException("Incompatible template param and type");     \
+      throw TypedValueException(                                             \
+          "Incompatible template param '{}' and type '{}'", Type::type_enum, \
+          type_);                                                            \
     return field;                                                            \
   }                                                                          \
                                                                              \

@@ -52,8 +52,9 @@ class RemoteProduceRpcServer {
       auto success = cursor_->Pull(frame_, context_);
       if (success) {
         results.reserve(pull_symbols_.size());
-        for (const auto &symbol : pull_symbols_)
+        for (const auto &symbol : pull_symbols_) {
           results.emplace_back(std::move(frame_[symbol]));
+        }
       }
       return std::make_pair(std::move(results), success);
     }
@@ -79,7 +80,7 @@ class RemoteProduceRpcServer {
         plan_consumer_(plan_consumer) {
     remote_produce_rpc_server_.Register<RemotePullRpc>(
         [this](const RemotePullReq &req) {
-          return std::make_unique<RemotePullRes>(RemotePull(req.member));
+          return std::make_unique<RemotePullRes>(RemotePull(req));
         });
 
     remote_produce_rpc_server_.Register<EndRemotePullRpc>([this](
@@ -101,7 +102,7 @@ class RemoteProduceRpcServer {
       ongoing_produces_;
   std::mutex ongoing_produces_lock_;
 
-  auto &GetOngoingProduce(const RemotePullReqData &req) {
+  auto &GetOngoingProduce(const RemotePullReq &req) {
     std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
     auto found = ongoing_produces_.find({req.tx_id, req.plan_id});
     if (found != ongoing_produces_.end()) {
@@ -118,21 +119,22 @@ class RemoteProduceRpcServer {
         .first->second;
   }
 
-  RemotePullResData RemotePull(const RemotePullReqData &req) {
+  RemotePullResData RemotePull(const RemotePullReq &req) {
     auto &ongoing_produce = GetOngoingProduce(req);
 
-    RemotePullResData result;
-    result.pull_state = RemotePullState::CURSOR_IN_PROGRESS;
+    RemotePullResData result{db_.WorkerId(), req.send_old, req.send_new};
+
+    result.state_and_frames.pull_state = RemotePullState::CURSOR_IN_PROGRESS;
 
     for (int i = 0; i < req.batch_size; ++i) {
       // TODO exception handling (Serialization errors)
       // when full CRUD. Maybe put it in OngoingProduce::Pull
       auto pull_result = ongoing_produce.Pull();
       if (!pull_result.second) {
-        result.pull_state = RemotePullState::CURSOR_EXHAUSTED;
+        result.state_and_frames.pull_state = RemotePullState::CURSOR_EXHAUSTED;
         break;
       }
-      result.frames.emplace_back(std::move(pull_result.first));
+      result.state_and_frames.frames.emplace_back(std::move(pull_result.first));
     }
 
     return result;

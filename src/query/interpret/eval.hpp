@@ -429,7 +429,22 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         for (auto &kv : map) SwitchAccessors(kv.second);
         break;
       }
-      default:
+      case TypedValue::Type::Path:
+        switch (graph_view_) {
+          case GraphView::NEW:
+            value.ValuePath().SwitchNew();
+            break;
+          case GraphView::OLD:
+            value.ValuePath().SwitchOld();
+            break;
+          default:
+            LOG(FATAL) << "Unhandled GraphView enum";
+        }
+      case TypedValue::Type::Null:
+      case TypedValue::Type::Bool:
+      case TypedValue::Type::String:
+      case TypedValue::Type::Int:
+      case TypedValue::Type::Double:
         break;
     }
   }

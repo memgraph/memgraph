@@ -80,6 +80,18 @@ void SaveEdge(TArchive &ar, const Edge &edge, int worker_id) {
   impl::SaveProperties(ar, edge.properties_);
 }
 
+/// Alias for `SaveEdge` allowing for param type resolution.
+template <typename TArchive>
+void SaveElement(TArchive &ar, const Edge &record, int worker_id) {
+  return SaveEdge(ar, record, worker_id);
+}
+
+/// Alias for `SaveVertex` allowing for param type resolution.
+template <typename TArchive>
+void SaveElement(TArchive &ar, const Vertex &record, int worker_id) {
+  return SaveVertex(ar, record, worker_id);
+}
+
 namespace impl {
 
 template <typename TArchive>
