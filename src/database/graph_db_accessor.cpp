@@ -169,15 +169,14 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   // Notify all workers to start building an index if we are the master since
   // they don't have to wait anymore
   if (db_.type() == GraphDb::Type::DISTRIBUTED_MASTER) {
-    auto &rpc_clients = MasterGraphDb().GetIndexRpcClients();
-
-    index_rpc_completions.emplace(rpc_clients.ExecuteOnWorkers<bool>(
-        this->db_.WorkerId(),
-        [label, property, this](communication::rpc::Client &client) {
-          return client.Call<distributed::BuildIndexRpc>(
-                     distributed::IndexLabelPropertyTx{
-                         label, property, transaction_id()}) != nullptr;
-        }));
+    index_rpc_completions.emplace(
+        db_.index_rpc_clients().ExecuteOnWorkers<bool>(
+            this->db_.WorkerId(),
+            [label, property, this](communication::rpc::Client &client) {
+              return client.Call<distributed::BuildIndexRpc>(
+                         distributed::IndexLabelPropertyTx{
+                             label, property, transaction_id()}) != nullptr;
+            }));
   }
 
   // Add transaction to the build_tx_in_progress as this transaction doesn't

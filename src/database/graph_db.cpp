@@ -50,6 +50,9 @@ class PrivateBase : public GraphDb {
   distributed::PlanDispatcher &plan_dispatcher() override {
     LOG(FATAL) << "Plan dispatcher only available in distributed master.";
   }
+  distributed::RpcWorkerClients &index_rpc_clients() override {
+    LOG(FATAL) << "Index RPC clients only available in distributed master.";
+  }
 
  protected:
   Storage storage_{config_.worker_id};
@@ -128,6 +131,9 @@ class Master : public PrivateBase {
   }
   distributed::RemotePullRpcClients &remote_pull_clients() override {
     return remote_pull_clients_;
+  }
+  distributed::RpcWorkerClients &index_rpc_clients() override {
+    return index_rpc_clients_;
   }
 
   communication::rpc::System system_{config_.master_endpoint};
@@ -223,6 +229,9 @@ distributed::RemoteDataRpcClients &PublicBase::remote_data_clients() {
 distributed::PlanDispatcher &PublicBase::plan_dispatcher() {
   return impl_->plan_dispatcher();
 }
+distributed::RpcWorkerClients &PublicBase::index_rpc_clients() {
+  return impl_->index_rpc_clients();
+}
 distributed::PlanConsumer &PublicBase::plan_consumer() {
   return impl_->plan_consumer();
 }
@@ -284,10 +293,6 @@ io::network::Endpoint Master::endpoint() const {
 io::network::Endpoint Master::GetEndpoint(int worker_id) {
   return dynamic_cast<impl::Master *>(impl_.get())
       ->coordination_.GetEndpoint(worker_id);
-}
-
-distributed::RpcWorkerClients &Master::GetIndexRpcClients() {
-  return dynamic_cast<impl::Master *>(impl_.get())->index_rpc_clients_;
 }
 
 Worker::Worker(Config config)

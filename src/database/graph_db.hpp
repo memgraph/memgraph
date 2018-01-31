@@ -95,6 +95,7 @@ class GraphDb {
   // Supported only in distributed master.
   virtual distributed::RemotePullRpcClients &remote_pull_clients() = 0;
   virtual distributed::PlanDispatcher &plan_dispatcher() = 0;
+  virtual distributed::RpcWorkerClients &index_rpc_clients() = 0;
 
   // Supported only in distributed worker.
   // TODO remove once end2end testing is possible.
@@ -130,6 +131,7 @@ class PublicBase : public GraphDb {
   distributed::RemoteDataRpcServer &remote_data_server() override;
   distributed::RemoteDataRpcClients &remote_data_clients() override;
   distributed::PlanDispatcher &plan_dispatcher() override;
+  distributed::RpcWorkerClients &index_rpc_clients() override;
   distributed::PlanConsumer &plan_consumer() override;
   distributed::RemotePullRpcClients &remote_pull_clients() override;
   distributed::RemoteProduceRpcServer &remote_produce_server() override;
@@ -173,9 +175,6 @@ class Master : public MasterBase {
   /** Gets the endpoint of the worker with the given id. */
   // TODO make const once Coordination::GetEndpoint is const.
   io::network::Endpoint GetEndpoint(int worker_id);
-
-  /** Gets the index rpc workers*/
-  distributed::RpcWorkerClients &GetIndexRpcClients();
 };
 
 class Worker : public impl::PublicBase {

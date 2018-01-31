@@ -590,15 +590,6 @@ class GraphDbAccessor {
     return *single_node_engine;
   }
 
-  /** Casts the GraphDb to MasterGraphDb and returns it. If the
-   * GraphDb is not a MasterGraphDb, a call to this method will crash MG. */
-  Master &MasterGraphDb() {
-    auto *master_graph_db = dynamic_cast<Master *>(&db_);
-    DCHECK(master_graph_db)
-        << "Asked for Master Graph db on a distributed worker or single node";
-    return *master_graph_db;
-  }
-
   /**
    * Insert this vertex into corresponding label and label+property (if it
    * exists) index.
