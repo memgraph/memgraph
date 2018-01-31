@@ -577,6 +577,9 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define COUNT(expr)                                   \
   storage.Create<query::Aggregation>((expr), nullptr, \
                                      query::Aggregation::Op::COUNT)
+#define AVG(expr)                                     \
+  storage.Create<query::Aggregation>((expr), nullptr, \
+                                     query::Aggregation::Op::AVG)
 #define EQ(expr1, expr2) storage.Create<query::EqualOperator>((expr1), (expr2))
 #define NEQ(expr1, expr2) \
   storage.Create<query::NotEqualOperator>((expr1), (expr2))
