@@ -446,3 +446,16 @@ TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
     EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 300);
   }
 }
+
+TEST_F(DistributedGraphDbTest, WorkerOwnedDbAccessors) {
+  database::GraphDbAccessor dba_w1(worker1());
+  auto v = dba_w1.InsertVertex();
+  auto prop = dba_w1.Property("p");
+  v.PropsSet(prop, 42);
+  auto v_ga = v.GlobalAddress();
+  dba_w1.Commit();
+
+  database::GraphDbAccessor dba_w2(worker2());
+  VertexAccessor v_in_w2{v_ga, dba_w2};
+  EXPECT_EQ(v_in_w2.PropsAt(prop).Value<int64_t>(), 42);
+}

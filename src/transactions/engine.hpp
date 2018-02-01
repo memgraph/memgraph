@@ -22,6 +22,20 @@ class Engine {
  public:
   virtual ~Engine() = default;
 
+  /// Begins a transaction and returns a pointer to it's object.
+  virtual Transaction *Begin() = 0;
+
+  /// Advances the command on the transaction with the given id.
+  virtual command_id_t Advance(transaction_id_t id) = 0;
+
+  /// Comits the given transaction. Deletes the transaction object, it's not
+  /// valid after this function executes.
+  virtual void Commit(const Transaction &t) = 0;
+
+  /// Aborts the given transaction. Deletes the transaction object, it's not
+  /// valid after this function executes.
+  virtual void Abort(const Transaction &t) = 0;
+
   /** Returns the commit log Info about the given transaction. */
   virtual CommitLog::Info Info(transaction_id_t tx) const = 0;
 

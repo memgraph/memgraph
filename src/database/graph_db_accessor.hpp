@@ -45,12 +45,10 @@ class GraphDbAccessor {
   friend class ::EdgeAccessor;
 
  public:
-  /** Creates a new accessor by starting a new transaction. Only applicable to
-   * the single-node or distributed master. */
+  /// Creates a new accessor by starting a new transaction.
   explicit GraphDbAccessor(GraphDb &db);
 
-  /** Creates an accessor for a running transaction. Applicable to all types of
-   * memgraph. */
+  /// Creates an accessor for a running transaction.
   GraphDbAccessor(GraphDb &db, tx::transaction_id_t tx_id);
   ~GraphDbAccessor();
 
@@ -586,17 +584,6 @@ class GraphDbAccessor {
   std::experimental::optional<distributed::RemoteCache<Vertex>>
       remote_vertices_;
   std::experimental::optional<distributed::RemoteCache<Edge>> remote_edges_;
-
-  /** Casts the transaction engine to SingleNodeEngine and returns it. If the
-   * engine is a WorkerEngine (and not SingleNode nor Master), a call to this
-   * method will crash MG. */
-  tx::SingleNodeEngine &SingleNodeEngine() {
-    auto *single_node_engine =
-        dynamic_cast<tx::SingleNodeEngine *>(&db_.tx_engine());
-    DCHECK(single_node_engine)
-        << "Asked for SingleNodeEngine on distributed worker";
-    return *single_node_engine;
-  }
 
   /**
    * Insert this vertex into corresponding label and label+property (if it

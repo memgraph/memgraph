@@ -12,6 +12,25 @@ namespace tx {
 MasterEngine::MasterEngine(communication::rpc::System &system,
                            durability::WriteAheadLog *wal)
     : SingleNodeEngine(wal), rpc_server_(system, kTransactionEngineRpc) {
+  rpc_server_.Register<BeginRpc>([this](const BeginReq &) {
+      auto tx = Begin();
+    return std::make_unique<BeginRes>(TxAndSnapshot{tx->id_, tx->snapshot()});
+  });
+
+  rpc_server_.Register<AdvanceRpc>([this](const AdvanceReq &req) {
+    return std::make_unique<AdvanceRes>(Advance(req.member));
+  });
+
+  rpc_server_.Register<CommitRpc>([this](const CommitReq &req) {
+      Commit(*RunningTransaction(req.member));
+    return std::make_unique<CommitRes>();
+  });
+
+  rpc_server_.Register<AbortRpc>([this](const AbortReq &req) {
+      Abort(*RunningTransaction(req.member));
+    return std::make_unique<AbortRes>();
+  });
+
   rpc_server_.Register<SnapshotRpc>([this](const SnapshotReq &req) {
     // It is guaranteed that the Worker will not be requesting this for a
     // transaction that's done, and that there are no race conditions here.

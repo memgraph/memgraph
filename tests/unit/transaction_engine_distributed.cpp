@@ -21,6 +21,32 @@ class WorkerEngineTest : public testing::Test {
   WorkerEngine worker_{master_system_.endpoint()};
 };
 
+TEST_F(WorkerEngineTest, BeginOnWorker) {
+  worker_.Begin();
+  auto second = worker_.Begin();
+  EXPECT_EQ(master_.RunningTransaction(second->id_)->snapshot().size(), 1);
+}
+
+TEST_F(WorkerEngineTest, AdvanceOnWorker) {
+  auto tx = worker_.Begin();
+  auto cid = tx->cid();
+  EXPECT_EQ(worker_.Advance(tx->id_), cid + 1);
+}
+
+TEST_F(WorkerEngineTest, CommitOnWorker) {
+  auto tx = worker_.Begin();
+  auto tx_id = tx->id_;
+  worker_.Commit(*tx);
+  EXPECT_TRUE(master_.Info(tx_id).is_committed());
+}
+
+TEST_F(WorkerEngineTest, AbortOnWorker) {
+  auto tx = worker_.Begin();
+  auto tx_id = tx->id_;
+  worker_.Abort(*tx);
+  EXPECT_TRUE(master_.Info(tx_id).is_aborted());
+}
+
 TEST_F(WorkerEngineTest, RunningTransaction) {
   master_.Begin();
   master_.Begin();

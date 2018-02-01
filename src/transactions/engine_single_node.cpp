@@ -25,7 +25,7 @@ Transaction *SingleNodeEngine::Begin() {
   return t;
 }
 
-void SingleNodeEngine::Advance(transaction_id_t id) {
+command_id_t SingleNodeEngine::Advance(transaction_id_t id) {
   std::lock_guard<SpinLock> guard(lock_);
 
   auto it = store_.find(id);
@@ -38,7 +38,7 @@ void SingleNodeEngine::Advance(transaction_id_t id) {
         "Reached maximum number of commands in this "
         "transaction.");
 
-  t->cid_++;
+  return ++(t->cid_);
 }
 
 void SingleNodeEngine::Commit(const Transaction &t) {

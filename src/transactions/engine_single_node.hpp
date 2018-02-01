@@ -29,33 +29,10 @@ class SingleNodeEngine : public Engine {
    */
   explicit SingleNodeEngine(durability::WriteAheadLog *wal = nullptr);
 
-  /**
-   * Begins a transaction and returns a pointer to
-   * it's object.
-   *
-   * The transaction object is owned by this engine.
-   * It will be released when the transaction gets
-   * committted or aborted.
-   */
-  Transaction *Begin();
-
-  /**
-   * Advances the command on the transaction with the
-   * given id.
-   *
-   * @param id - Transation id. That transaction must
-   * be currently active.
-   */
-  void Advance(transaction_id_t id);
-
-  /** Comits the given transaction. Deletes the transaction object, it's not
-   * valid after this function executes. */
-  void Commit(const Transaction &t);
-
-  /** Aborts the given transaction. Deletes the transaction object, it's not
-   * valid after this function executes. */
-  void Abort(const Transaction &t);
-
+  Transaction *Begin() override;
+  command_id_t Advance(transaction_id_t id) override;
+  void Commit(const Transaction &t) override;
+  void Abort(const Transaction &t) override;
   CommitLog::Info Info(transaction_id_t tx) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;

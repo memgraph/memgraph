@@ -13,11 +13,17 @@
 namespace tx {
 
 /** Distributed worker transaction engine. Connects to a MasterEngine (single
- * source of truth) to obtain transactional info. Caches most info locally. */
+ * source of truth) to obtain transactional info. Caches most info locally. Can
+ * begin/advance/end transactions on the master. */
 class WorkerEngine : public Engine {
  public:
   WorkerEngine(const io::network::Endpoint &endpoint);
+  ~WorkerEngine();
 
+  Transaction *Begin() override;
+  command_id_t Advance(transaction_id_t id) override;
+  void Commit(const Transaction &t) override;
+  void Abort(const Transaction &t) override;
   CommitLog::Info Info(transaction_id_t tid) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;

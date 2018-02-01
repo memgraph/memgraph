@@ -17,7 +17,7 @@ namespace database {
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
     : db_(db),
-      transaction_(*SingleNodeEngine().Begin()),
+      transaction_(*db.tx_engine().Begin()),
       transaction_starter_{true} {
   if (db_.type() != GraphDb::Type::SINGLE_NODE) {
     remote_vertices_.emplace(db_.remote_data_clients());
@@ -47,18 +47,18 @@ tx::transaction_id_t GraphDbAccessor::transaction_id() const {
 
 void GraphDbAccessor::AdvanceCommand() {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  SingleNodeEngine().Advance(transaction_.id_);
+  db_.tx_engine().Advance(transaction_.id_);
 }
 
 void GraphDbAccessor::Commit() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
-  SingleNodeEngine().Commit(transaction_);
+  db_.tx_engine().Commit(transaction_);
   commited_ = true;
 }
 
 void GraphDbAccessor::Abort() {
   DCHECK(!commited_ && !aborted_) << "Already aborted or commited transaction.";
-  SingleNodeEngine().Abort(transaction_);
+  db_.tx_engine().Abort(transaction_);
   aborted_ = true;
 }
 

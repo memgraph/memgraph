@@ -10,15 +10,6 @@
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 
-BOOST_CLASS_EXPORT(tx::SnapshotReq);
-BOOST_CLASS_EXPORT(tx::SnapshotRes);
-BOOST_CLASS_EXPORT(tx::GcSnapshotReq);
-BOOST_CLASS_EXPORT(tx::ClogInfoReq);
-BOOST_CLASS_EXPORT(tx::ClogInfoRes);
-BOOST_CLASS_EXPORT(tx::ActiveTransactionsReq);
-BOOST_CLASS_EXPORT(tx::IsActiveReq);
-BOOST_CLASS_EXPORT(tx::IsActiveRes);
-
 #define ID_VALUE_EXPORT_BOOST_TYPE(type)      \
   BOOST_CLASS_EXPORT(storage::type##IdReq);   \
   BOOST_CLASS_EXPORT(storage::type##IdRes);   \
@@ -30,6 +21,26 @@ ID_VALUE_EXPORT_BOOST_TYPE(EdgeType)
 ID_VALUE_EXPORT_BOOST_TYPE(Property)
 
 #undef ID_VALUE_EXPORT_BOOST_TYPE
+
+
+// Distributed transaction engine.
+BOOST_CLASS_EXPORT(tx::TxAndSnapshot);
+BOOST_CLASS_EXPORT(tx::BeginReq);
+BOOST_CLASS_EXPORT(tx::BeginRes);
+BOOST_CLASS_EXPORT(tx::AdvanceReq);
+BOOST_CLASS_EXPORT(tx::AdvanceRes);
+BOOST_CLASS_EXPORT(tx::CommitReq);
+BOOST_CLASS_EXPORT(tx::CommitRes);
+BOOST_CLASS_EXPORT(tx::AbortReq);
+BOOST_CLASS_EXPORT(tx::AbortRes);
+BOOST_CLASS_EXPORT(tx::SnapshotReq);
+BOOST_CLASS_EXPORT(tx::SnapshotRes);
+BOOST_CLASS_EXPORT(tx::GcSnapshotReq);
+BOOST_CLASS_EXPORT(tx::ClogInfoReq);
+BOOST_CLASS_EXPORT(tx::ClogInfoRes);
+BOOST_CLASS_EXPORT(tx::ActiveTransactionsReq);
+BOOST_CLASS_EXPORT(tx::IsActiveReq);
+BOOST_CLASS_EXPORT(tx::IsActiveRes);
 
 // Distributed coordination.
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerReq);

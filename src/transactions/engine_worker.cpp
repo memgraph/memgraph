@@ -9,6 +9,43 @@ namespace tx {
 WorkerEngine::WorkerEngine(const io::network::Endpoint &endpoint)
     : rpc_client_pool_(endpoint, kTransactionEngineRpc) {}
 
+WorkerEngine::~WorkerEngine() {
+  for (auto &kv : active_.access()) {
+    delete kv.second;
+  }
+}
+
+Transaction *WorkerEngine::Begin() {
+  auto res = rpc_client_pool_.Call<BeginRpc>();
+  Transaction *tx =
+      new Transaction(res->member.tx_id, res->member.snapshot, *this);
+  auto insertion = active_.access().insert(res->member.tx_id, tx);
+  CHECK(insertion.second) << "Failed to start creation from worker";
+  return tx;
+}
+
+command_id_t WorkerEngine::Advance(transaction_id_t tx_id) {
+  auto res = rpc_client_pool_.Call<AdvanceRpc>(tx_id);
+  auto access = active_.access();
+  auto found = access.find(tx_id);
+  CHECK(found != access.end())
+      << "Can't advance a transaction not in local cache";
+  found->second->cid_ = res->member;
+  return res->member;
+}
+
+void WorkerEngine::Commit(const Transaction &t) {
+  auto res = rpc_client_pool_.Call<CommitRpc>(t.id_);
+  auto removal = active_.access().remove(t.id_);
+  CHECK(removal) << "Can't commit a transaction not in local cache";
+}
+
+void WorkerEngine::Abort(const Transaction &t) {
+  auto res = rpc_client_pool_.Call<AbortRpc>(t.id_);
+  auto removal = active_.access().remove(t.id_);
+  CHECK(removal) << "Can't abort a transaction not in local cache";
+}
+
 CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
   auto info = clog_.fetch_info(tid);
   // If we don't know the transaction to be commited nor aborted, ask the
