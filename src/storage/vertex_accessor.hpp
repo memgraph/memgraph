@@ -36,10 +36,10 @@ class VertexAccessor : public RecordAccessor<Vertex> {
     return iter::imap(
         [from, vertex, &db_accessor](auto &edges_element) {
           if (from) {
-            return EdgeAccessor(edges_element.edge.local(), db_accessor, vertex,
+            return EdgeAccessor(edges_element.edge, db_accessor, vertex,
                                 edges_element.vertex, edges_element.edge_type);
           } else {
-            return EdgeAccessor(edges_element.edge.local(), db_accessor,
+            return EdgeAccessor(edges_element.edge, db_accessor,
                                 edges_element.vertex, vertex,
                                 edges_element.edge_type);
           }
