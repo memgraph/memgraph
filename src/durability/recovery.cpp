@@ -4,6 +4,7 @@
 #include <unordered_map>
 
 #include "database/graph_db_accessor.hpp"
+#include "database/indexes/label_property_index.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/paths.hpp"
 #include "durability/snapshot_decoded_value.hpp"
@@ -335,10 +336,14 @@ bool Recover(const fs::path &durability_dir, database::GraphDb &db) {
 
   // Index recovery.
   database::GraphDbAccessor db_accessor_indices{db};
-  for (const auto &label_prop : recovery_data.indexes)
-    db_accessor_indices.BuildIndex(
+  for (const auto &label_prop : recovery_data.indexes) {
+    const database::LabelPropertyIndex::Key key{
         db_accessor_indices.Label(label_prop.first),
-        db_accessor_indices.Property(label_prop.second));
+        db_accessor_indices.Property(label_prop.second)};
+    db_accessor_indices.db().storage().label_property_index_.CreateIndex(key);
+    db_accessor_indices.PopulateIndex(key);
+    db_accessor_indices.EnableIndex(key);
+  }
   db_accessor_indices.Commit();
   return true;
 }

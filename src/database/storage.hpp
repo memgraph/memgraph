@@ -1,5 +1,7 @@
 #pragma once
 
+#include <experimental/filesystem>
+
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "database/indexes/key_index.hpp"
@@ -11,6 +13,14 @@
 
 namespace distributed {
 class IndexRpcServer;
+};
+
+namespace database {
+class GraphDb;
+};
+
+namespace durability {
+bool Recover(const std::experimental::filesystem::path &, database::GraphDb &);
 };
 
 namespace database {
@@ -41,6 +51,8 @@ class Storage {
   friend class GraphDbAccessor;
   friend class StorageGc;
   friend class distributed::IndexRpcServer;
+  friend bool durability::Recover(const std::experimental::filesystem::path &,
+                                  database::GraphDb &);
 
   gid::Generator vertex_generator_;
   gid::Generator edge_generator_;
