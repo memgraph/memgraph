@@ -255,7 +255,7 @@ class Writer {
     encoder_.WriteMap(properties);
   }
 
-  void Close(uint64_t node_count, uint64_t edge_count) {
+  void Close(uint64_t node_count, uint64_t edge_count, uint64_t hops_count) {
     // 10) Summary with node count, relationship count and hash digest.
     buffer_.WriteValue(node_count);
     buffer_.WriteValue(edge_count);
@@ -265,6 +265,7 @@ class Writer {
     LOG(INFO) << fmt::format("-- Summary for worker: {}", worker_id_);
     LOG(INFO) << fmt::format("---- Total nodes: {}", node_count);
     LOG(INFO) << fmt::format("---- Total edges: {}", edge_count);
+    LOG(INFO) << fmt::format("---- Hop edges: {}", hops_count);
   }
 
  private:
@@ -339,6 +340,7 @@ int main(int argc, char **argv) {
   // Generated node and edge counters.
   std::vector<uint64_t> nodes_count(num_workers, 0);
   std::vector<uint64_t> edges_count(num_workers, 0);
+  std::vector<uint64_t> hops_count(num_workers, 0);
 
   GraphState state(num_workers);
   ValueGenerator value_generator;
@@ -408,12 +410,14 @@ int main(int argc, char **argv) {
       int card_worker_id = worker_id;
       if (value_generator.Bernoulli(hop_probability)) {
         card_worker_id = hop_workers[dist(engine)];
+        ++hops_count[worker_id];
       }
       auto card_id = state.RandomNode(card_worker_id, kLabelCard);
 
       int pos_worker_id = worker_id;
       if (value_generator.Bernoulli(hop_probability)) {
         pos_worker_id = hop_workers[dist(engine)];
+        ++hops_count[worker_id];
       }
       auto pos_id = state.RandomNode(pos_worker_id, kLabelPos);
 
@@ -498,7 +502,8 @@ int main(int argc, char **argv) {
       writer.WriteEdge(edge.gid, edge.type, empty_props, edge.from.second,
                        edge.to.second);
     }
-    writer.Close(nodes_count[worker_id], edges_count[worker_id]);
+    writer.Close(nodes_count[worker_id], edges_count[worker_id],
+                 hops_count[worker_id]);
   }
   LOG(INFO) << "Writing snapshots...DONE";
   return 0;
