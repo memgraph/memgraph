@@ -1446,6 +1446,9 @@ TYPED_TEST(TestPlanner, CreateIndex) {
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(CREATE_INDEX_ON(label, property)));
   CheckPlan<TypeParam>(storage, ExpectCreateIndex(label, property));
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectCreateIndex(label, property)), {}};
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {

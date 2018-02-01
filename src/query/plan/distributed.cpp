@@ -325,9 +325,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
   bool Visit(Once &) override { return true; }
 
-  bool Visit(CreateIndex &) override {
-    throw utils::NotYetImplemented("distributed planning");
-  }
+  bool Visit(CreateIndex &) override { return true; }
 
   // TODO: Write operators, accumulate and unwind
 
