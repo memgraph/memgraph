@@ -57,18 +57,18 @@ auto ReducePattern(
     auto prev_node = current_node;
     current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
     DCHECK(current_node) << "Expected a node atom in pattern.";
-    last_res = collect(last_res, prev_node, edge, current_node);
+    last_res = collect(std::move(last_res), prev_node, edge, current_node);
   }
   return last_res;
 }
 
-auto GenCreate(Create &create, LogicalOperator *input_op,
+auto GenCreate(Create &create, std::unique_ptr<LogicalOperator> input_op,
                const SymbolTable &symbol_table,
                std::unordered_set<Symbol> &bound_symbols) {
-  auto last_op = input_op;
+  auto last_op = std::move(input_op);
   for (auto pattern : create.patterns_) {
-    last_op = impl::GenCreateForPattern(*pattern, last_op, symbol_table,
-                                        bound_symbols);
+    last_op = impl::GenCreateForPattern(*pattern, std::move(last_op),
+                                        symbol_table, bound_symbols);
   }
   return last_op;
 }
@@ -437,52 +437,52 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   std::vector<NamedExpression *> named_expressions_;
 };
 
-auto GenReturnBody(LogicalOperator *input_op, bool advance_command,
-                   const ReturnBodyContext &body, bool accumulate = false) {
+std::unique_ptr<LogicalOperator> GenReturnBody(
+    std::unique_ptr<LogicalOperator> input_op, bool advance_command,
+    const ReturnBodyContext &body, bool accumulate = false) {
   std::vector<Symbol> used_symbols(body.used_symbols().begin(),
                                    body.used_symbols().end());
-  auto last_op = input_op;
+  auto last_op = std::move(input_op);
   if (accumulate) {
     // We only advance the command in Accumulate. This is done for WITH clause,
     // when the first part updated the database. RETURN clause may only need an
     // accumulation after updates, without advancing the command.
-    last_op = new Accumulate(std::shared_ptr<LogicalOperator>(last_op),
-                             used_symbols, advance_command);
+    last_op = std::make_unique<Accumulate>(std::move(last_op), used_symbols,
+                                           advance_command);
   }
   if (!body.aggregations().empty()) {
     // When we have aggregation, SKIP/LIMIT should always come after it.
     std::vector<Symbol> remember(body.group_by_used_symbols().begin(),
                                  body.group_by_used_symbols().end());
-    last_op = new Aggregate(std::shared_ptr<LogicalOperator>(last_op),
-                            body.aggregations(), body.group_by(), remember);
+    last_op = std::make_unique<Aggregate>(
+        std::move(last_op), body.aggregations(), body.group_by(), remember);
   }
-  last_op = new Produce(std::shared_ptr<LogicalOperator>(last_op),
-                        body.named_expressions());
+  last_op =
+      std::make_unique<Produce>(std::move(last_op), body.named_expressions());
   // Distinct in ReturnBody only makes Produce values unique, so plan after it.
   if (body.distinct()) {
-    last_op = new Distinct(std::shared_ptr<LogicalOperator>(last_op),
-                           body.output_symbols());
+    last_op =
+        std::make_unique<Distinct>(std::move(last_op), body.output_symbols());
   }
   // Like Where, OrderBy can read from symbols established by named expressions
   // in Produce, so it must come after it.
   if (!body.order_by().empty()) {
-    last_op = new OrderBy(std::shared_ptr<LogicalOperator>(last_op),
-                          body.order_by(), body.output_symbols());
+    last_op = std::make_unique<OrderBy>(std::move(last_op), body.order_by(),
+                                        body.output_symbols());
   }
   // Finally, Skip and Limit must come after OrderBy.
   if (body.skip()) {
-    last_op = new Skip(std::shared_ptr<LogicalOperator>(last_op), body.skip());
+    last_op = std::make_unique<Skip>(std::move(last_op), body.skip());
   }
   // Limit is always after Skip.
   if (body.limit()) {
-    last_op =
-        new Limit(std::shared_ptr<LogicalOperator>(last_op), body.limit());
+    last_op = std::make_unique<Limit>(std::move(last_op), body.limit());
   }
   // Where may see new symbols so it comes after we generate Produce and in
   // general, comes after any OrderBy, Skip or Limit.
   if (body.where()) {
-    last_op = new Filter(std::shared_ptr<LogicalOperator>(last_op),
-                         body.where()->expression_);
+    last_op =
+        std::make_unique<Filter>(std::move(last_op), body.where()->expression_);
   }
   return last_op;
 }
@@ -506,19 +506,20 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
   return filter_expr;
 }
 
-LogicalOperator *GenFilters(LogicalOperator *last_op,
-                            const std::unordered_set<Symbol> &bound_symbols,
-                            Filters &filters, AstTreeStorage &storage) {
+std::unique_ptr<LogicalOperator> GenFilters(
+    std::unique_ptr<LogicalOperator> last_op,
+    const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
+    AstTreeStorage &storage) {
   auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
   if (filter_expr) {
-    last_op =
-        new Filter(std::shared_ptr<LogicalOperator>(last_op), filter_expr);
+    last_op = std::make_unique<Filter>(std::move(last_op), filter_expr);
   }
   return last_op;
 }
 
-LogicalOperator *GenNamedPaths(
-    LogicalOperator *last_op, std::unordered_set<Symbol> &bound_symbols,
+std::unique_ptr<LogicalOperator> GenNamedPaths(
+    std::unique_ptr<LogicalOperator> last_op,
+    std::unordered_set<Symbol> &bound_symbols,
     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths) {
   auto all_are_bound = [&bound_symbols](const std::vector<Symbol> &syms) {
     for (const auto &sym : syms)
@@ -528,8 +529,8 @@ LogicalOperator *GenNamedPaths(
   for (auto named_path_it = named_paths.begin();
        named_path_it != named_paths.end();) {
     if (all_are_bound(named_path_it->second)) {
-      last_op = new ConstructNamedPath(
-          std::shared_ptr<LogicalOperator>(last_op), named_path_it->first,
+      last_op = std::make_unique<ConstructNamedPath>(
+          std::move(last_op), named_path_it->first,
           std::move(named_path_it->second));
       bound_symbols.insert(named_path_it->first);
       named_path_it = named_paths.erase(named_path_it);
@@ -541,10 +542,10 @@ LogicalOperator *GenNamedPaths(
   return last_op;
 }
 
-LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,
-                           SymbolTable &symbol_table, bool is_write,
-                           const std::unordered_set<Symbol> &bound_symbols,
-                           AstTreeStorage &storage) {
+std::unique_ptr<LogicalOperator> GenReturn(
+    Return &ret, std::unique_ptr<LogicalOperator> input_op,
+    SymbolTable &symbol_table, bool is_write,
+    const std::unordered_set<Symbol> &bound_symbols, AstTreeStorage &storage) {
   // Similar to WITH clause, but we want to accumulate and advance command when
   // the query writes to the database. This way we handle the case when we want
   // to return expressions with the latest updated results. For example,
@@ -554,22 +555,22 @@ LogicalOperator *GenReturn(Return &ret, LogicalOperator *input_op,
   bool accumulate = is_write;
   bool advance_command = false;
   ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage);
-  return GenReturnBody(input_op, advance_command, body, accumulate);
+  return GenReturnBody(std::move(input_op), advance_command, body, accumulate);
 }
 
-LogicalOperator *GenCreateForPattern(
-    Pattern &pattern, LogicalOperator *input_op,
+std::unique_ptr<LogicalOperator> GenCreateForPattern(
+    Pattern &pattern, std::unique_ptr<LogicalOperator> input_op,
     const SymbolTable &symbol_table,
     std::unordered_set<Symbol> &bound_symbols) {
-  auto base = [&](NodeAtom *node) -> LogicalOperator * {
+  auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
     if (bound_symbols.insert(symbol_table.at(*node->identifier_)).second)
-      return new CreateNode(node, std::shared_ptr<LogicalOperator>(input_op));
+      return std::make_unique<CreateNode>(node, std::move(input_op));
     else
-      return input_op;
+      return std::move(input_op);
   };
 
-  auto collect = [&](LogicalOperator *last_op, NodeAtom *prev_node,
-                     EdgeAtom *edge, NodeAtom *node) {
+  auto collect = [&](std::unique_ptr<LogicalOperator> last_op,
+                     NodeAtom *prev_node, EdgeAtom *edge, NodeAtom *node) {
     // Store the symbol from the first node as the input to CreateExpand.
     const auto &input_symbol = symbol_table.at(*prev_node->identifier_);
     // If the expand node was already bound, then we need to indicate this,
@@ -581,65 +582,66 @@ LogicalOperator *GenCreateForPattern(
     if (!bound_symbols.insert(symbol_table.at(*edge->identifier_)).second) {
       LOG(FATAL) << "Symbols used for created edges cannot be redeclared.";
     }
-    return new CreateExpand(node, edge,
-                            std::shared_ptr<LogicalOperator>(last_op),
-                            input_symbol, node_existing);
+    return std::make_unique<CreateExpand>(node, edge, std::move(last_op),
+                                          input_symbol, node_existing);
   };
 
-  LogicalOperator *last_op =
-      ReducePattern<LogicalOperator *>(pattern, base, collect);
+  auto last_op =
+      ReducePattern<std::unique_ptr<LogicalOperator>>(pattern, base, collect);
 
   // If the pattern is named, append the path constructing logical operator.
   if (pattern.identifier_->user_declared_) {
     std::vector<Symbol> path_elements;
     for (const PatternAtom *atom : pattern.atoms_)
       path_elements.emplace_back(symbol_table.at(*atom->identifier_));
-    last_op = new ConstructNamedPath(std::shared_ptr<LogicalOperator>(last_op),
-                                     symbol_table.at(*pattern.identifier_),
-                                     path_elements);
+    last_op = std::make_unique<ConstructNamedPath>(
+        std::move(last_op), symbol_table.at(*pattern.identifier_),
+        path_elements);
   }
 
   return last_op;
 }
 
-// Generate an operator for a clause which writes to the database. If the clause
-// isn't handled, returns nullptr.
-LogicalOperator *HandleWriteClause(Clause *clause, LogicalOperator *input_op,
-                                   const SymbolTable &symbol_table,
-                                   std::unordered_set<Symbol> &bound_symbols) {
+// Generate an operator for a clause which writes to the database. Ownership of
+// input_op is transferred to the newly created operator. If the clause isn't
+// handled, returns nullptr and input_op is left as is.
+std::unique_ptr<LogicalOperator> HandleWriteClause(
+    Clause *clause, std::unique_ptr<LogicalOperator> &input_op,
+    const SymbolTable &symbol_table,
+    std::unordered_set<Symbol> &bound_symbols) {
   if (auto *create = dynamic_cast<Create *>(clause)) {
-    return GenCreate(*create, input_op, symbol_table, bound_symbols);
+    return GenCreate(*create, std::move(input_op), symbol_table, bound_symbols);
   } else if (auto *del = dynamic_cast<query::Delete *>(clause)) {
-    return new plan::Delete(std::shared_ptr<LogicalOperator>(input_op),
-                            del->expressions_, del->detach_);
+    return std::make_unique<plan::Delete>(std::move(input_op),
+                                          del->expressions_, del->detach_);
   } else if (auto *set = dynamic_cast<query::SetProperty *>(clause)) {
-    return new plan::SetProperty(std::shared_ptr<LogicalOperator>(input_op),
-                                 set->property_lookup_, set->expression_);
+    return std::make_unique<plan::SetProperty>(
+        std::move(input_op), set->property_lookup_, set->expression_);
   } else if (auto *set = dynamic_cast<query::SetProperties *>(clause)) {
     auto op = set->update_ ? plan::SetProperties::Op::UPDATE
                            : plan::SetProperties::Op::REPLACE;
     const auto &input_symbol = symbol_table.at(*set->identifier_);
-    return new plan::SetProperties(std::shared_ptr<LogicalOperator>(input_op),
-                                   input_symbol, set->expression_, op);
+    return std::make_unique<plan::SetProperties>(
+        std::move(input_op), input_symbol, set->expression_, op);
   } else if (auto *set = dynamic_cast<query::SetLabels *>(clause)) {
     const auto &input_symbol = symbol_table.at(*set->identifier_);
-    return new plan::SetLabels(std::shared_ptr<LogicalOperator>(input_op),
-                               input_symbol, set->labels_);
+    return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol,
+                                             set->labels_);
   } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause)) {
-    return new plan::RemoveProperty(std::shared_ptr<LogicalOperator>(input_op),
-                                    rem->property_lookup_);
+    return std::make_unique<plan::RemoveProperty>(std::move(input_op),
+                                                  rem->property_lookup_);
   } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause)) {
     const auto &input_symbol = symbol_table.at(*rem->identifier_);
-    return new plan::RemoveLabels(std::shared_ptr<LogicalOperator>(input_op),
-                                  input_symbol, rem->labels_);
+    return std::make_unique<plan::RemoveLabels>(std::move(input_op),
+                                                input_symbol, rem->labels_);
   }
   return nullptr;
 }
 
-LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
-                         SymbolTable &symbol_table, bool is_write,
-                         std::unordered_set<Symbol> &bound_symbols,
-                         AstTreeStorage &storage) {
+std::unique_ptr<LogicalOperator> GenWith(
+    With &with, std::unique_ptr<LogicalOperator> input_op,
+    SymbolTable &symbol_table, bool is_write,
+    std::unordered_set<Symbol> &bound_symbols, AstTreeStorage &storage) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to
@@ -649,8 +651,8 @@ LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
   bool advance_command = is_write;
   ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage,
                          with.where_);
-  LogicalOperator *last_op =
-      GenReturnBody(input_op, advance_command, body, accumulate);
+  auto last_op =
+      GenReturnBody(std::move(input_op), advance_command, body, accumulate);
   // Reset bound symbols, so that only those in WITH are exposed.
   bound_symbols.clear();
   for (const auto &symbol : body.output_symbols()) {
@@ -659,13 +661,12 @@ LogicalOperator *GenWith(With &with, LogicalOperator *input_op,
   return last_op;
 }
 
-LogicalOperator *GenUnion(CypherUnion &cypher_union,
-                          std::shared_ptr<LogicalOperator> left_op,
-                          std::shared_ptr<LogicalOperator> right_op,
-                          SymbolTable &symbol_table) {
-  return new Union(left_op, right_op, cypher_union.union_symbols_,
-                   left_op->OutputSymbols(symbol_table),
-                   right_op->OutputSymbols(symbol_table));
+std::unique_ptr<LogicalOperator> GenUnion(
+    CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
+    std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table) {
+  return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_,
+                                 left_op->OutputSymbols(symbol_table),
+                                 right_op->OutputSymbols(symbol_table));
 }
 
 }  // namespace impl
