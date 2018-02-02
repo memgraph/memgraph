@@ -74,7 +74,7 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
     while (true) {
       auto delta = buffer.pop();
       if (!delta) break;
-      latest_tx_ = std::max(latest_tx_, delta->transaction_id());
+      latest_tx_ = std::max(latest_tx_, delta->transaction_id);
       delta->Encode(writer_, encoder_);
       if (++current_wal_file_delta_count_ >= FLAGS_wal_rotate_deltas_count)
         RotateFile();

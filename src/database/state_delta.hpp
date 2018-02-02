@@ -10,9 +10,16 @@
 namespace database {
 /** Describes single change to the database state. Used for durability (WAL) and
  * state communication over network in HA and for distributed remote storage
- * changes*/
-class StateDelta {
- public:
+ * changes.
+ *
+ * Labels, Properties and EdgeTypes are stored both as values (integers) and
+ * strings (their names). The values are used when applying deltas in a running
+ * database. Names are used when recovering the database as it's not guaranteed
+ * that after recovery the old name<->value mapping will be preserved.
+ *
+ * TODO: ensure the mapping is preserved after recovery and don't save strings
+ * in StateDeltas. */
+struct StateDelta {
   /** Defines StateDelta type. For each type the comment indicates which values
    * need to be stored. All deltas have the transaction_id member, so that's
    * omitted in the comment. */
@@ -21,20 +28,21 @@ class StateDelta {
     TRANSACTION_COMMIT,
     TRANSACTION_ABORT,
     CREATE_VERTEX,        // vertex_id
-    CREATE_EDGE,          // edge_id, from_vertex_id, to_vertex_id, edge_type
-    SET_PROPERTY_VERTEX,  // vertex_id, property, property_value
-    SET_PROPERTY_EDGE,    // edge_id, property, property_value
+    CREATE_EDGE,          // edge_id, from_vertex_id, to_vertex_id, edge_type,
+                          // edge_type_name
+    SET_PROPERTY_VERTEX,  // vertex_id, property, property_name, property_value
+    SET_PROPERTY_EDGE,    // edge_id, property, property_name, property_value
     // remove property is done by setting a PropertyValue::Null
-    ADD_LABEL,      // vertex_id, label
-    REMOVE_LABEL,   // vertex_id, label
+    ADD_LABEL,      // vertex_id, label, label_name
+    REMOVE_LABEL,   // vertex_id, label, label_name
     REMOVE_VERTEX,  // vertex_id
     REMOVE_EDGE,    // edge_id
-    BUILD_INDEX     // label, property
+    BUILD_INDEX     // label, label_name, property, property_name
   };
 
   StateDelta() = default;
   StateDelta(const enum Type &type, tx::transaction_id_t tx_id)
-      : type_(type), transaction_id_(tx_id) {}
+      : type(type), transaction_id(tx_id) {}
 
   /** Attempts to decode a StateDelta from the given decoder. Returns the
    * decoded value if successful, otherwise returns nullopt. */
@@ -48,9 +56,6 @@ class StateDelta {
       HashedFileWriter &writer,
       communication::bolt::PrimitiveEncoder<HashedFileWriter> &encoder) const;
 
-  tx::transaction_id_t transaction_id() const { return transaction_id_; }
-  Type type() const { return type_; }
-
   static StateDelta TxBegin(tx::transaction_id_t tx_id);
   static StateDelta TxCommit(tx::transaction_id_t tx_id);
   static StateDelta TxAbort(tx::transaction_id_t tx_id);
@@ -58,43 +63,49 @@ class StateDelta {
                                  gid::Gid vertex_id);
   static StateDelta CreateEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
                                gid::Gid vertex_from_id, gid::Gid vertex_to_id,
-                               const std::string &edge_type);
+                               storage::EdgeType edge_type,
+                               const std::string &edge_type_name);
   static StateDelta PropsSetVertex(tx::transaction_id_t tx_id,
                                    gid::Gid vertex_id,
-                                   const std::string &property,
+                                   storage::Property property,
+                                   const std::string &property_name,
                                    const PropertyValue &value);
   static StateDelta PropsSetEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
-                                 const std::string &property,
+                                 storage::Property property,
+                                 const std::string &property_name,
                                  const PropertyValue &value);
   static StateDelta AddLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
-                             const std::string &label);
+                             storage::Label label,
+                             const std::string &label_name);
   static StateDelta RemoveLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
-                                const std::string &label);
+                                storage::Label label,
+                                const std::string &label_name);
   static StateDelta RemoveVertex(tx::transaction_id_t tx_id,
                                  gid::Gid vertex_id);
   static StateDelta RemoveEdge(tx::transaction_id_t tx_id, gid::Gid edge_id);
-  static StateDelta BuildIndex(tx::transaction_id_t tx_id,
-                               const std::string &label,
-                               const std::string &property);
-
-  std::pair<std::string, std::string> IndexName() const;
+  static StateDelta BuildIndex(tx::transaction_id_t tx_id, storage::Label label,
+                               const std::string &label_name,
+                               storage::Property property,
+                               const std::string &property_name);
 
   /// Applies CRUD delta to database accessor. Fails on other types of deltas
   void Apply(GraphDbAccessor &dba) const;
 
- private:
   // Members valid for every delta.
-  enum Type type_;
-  tx::transaction_id_t transaction_id_;
+  enum Type type;
+  tx::transaction_id_t transaction_id;
 
   // Members valid only for some deltas, see StateDelta::Type comments above.
-  gid::Gid vertex_id_;
-  gid::Gid edge_id_;
-  gid::Gid vertex_from_id_;
-  gid::Gid vertex_to_id_;
-  std::string edge_type_;
-  std::string property_;
-  PropertyValue value_ = PropertyValue::Null;
-  std::string label_;
+  gid::Gid vertex_id;
+  gid::Gid edge_id;
+  gid::Gid vertex_from_id;
+  gid::Gid vertex_to_id;
+  storage::EdgeType edge_type;
+  std::string edge_type_name;
+  storage::Property property;
+  std::string property_name;
+  PropertyValue value = PropertyValue::Null;
+  storage::Label label;
+  std::string label_name;
 };
 }  // namespace database

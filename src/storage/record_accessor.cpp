@@ -25,7 +25,7 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   vertex.properties_.set(key, value);
   auto &dba = db_accessor();
   // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(),
+  dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                                dba.PropertyName(key), value));
   if (is_local()) {
     db_accessor().UpdatePropertyIndex(key, *this, &vertex);
@@ -38,7 +38,7 @@ void RecordAccessor<Edge>::PropsSet(storage::Property key,
   update().properties_.set(key, value);
   auto &dba = db_accessor();
   // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(),
+  dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
                                              dba.PropertyName(key), value));
 }
 
@@ -46,8 +46,9 @@ template <>
 size_t RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
   // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetVertex(
-      dba.transaction_id(), gid(), dba.PropertyName(key), PropertyValue::Null));
+  dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
+                                               dba.PropertyName(key),
+                                               PropertyValue::Null));
   return update().properties_.erase(key);
 }
 
@@ -55,8 +56,9 @@ template <>
 size_t RecordAccessor<Edge>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
   // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetEdge(
-      dba.transaction_id(), gid(), dba.PropertyName(key), PropertyValue::Null));
+  dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
+                                             dba.PropertyName(key),
+                                             PropertyValue::Null));
   return update().properties_.erase(key);
 }
 
@@ -66,9 +68,9 @@ void RecordAccessor<Vertex>::PropsClear() {
   // TODO use the delta for handling.
   auto &dba = db_accessor();
   for (const auto &kv : updated.properties_)
-    dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(),
-                                                 dba.PropertyName(kv.first),
-                                                 PropertyValue::Null));
+    dba.wal().Emplace(StateDelta::PropsSetVertex(
+        dba.transaction_id(), gid(), kv.first, dba.PropertyName(kv.first),
+        PropertyValue::Null));
   updated.properties_.clear();
 }
 
@@ -78,9 +80,9 @@ void RecordAccessor<Edge>::PropsClear() {
   auto &dba = db_accessor();
   // TODO use the delta for handling.
   for (const auto &kv : updated.properties_)
-    dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(),
-                                               dba.PropertyName(kv.first),
-                                               PropertyValue::Null));
+    dba.wal().Emplace(StateDelta::PropsSetEdge(
+        dba.transaction_id(), gid(), kv.first, dba.PropertyName(kv.first),
+        PropertyValue::Null));
   updated.properties_.clear();
 }
 

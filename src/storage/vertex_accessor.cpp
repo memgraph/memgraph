@@ -20,8 +20,8 @@ bool VertexAccessor::add_label(storage::Label label) {
   auto &dba = db_accessor();
   dba.UpdateLabelIndices(label, *this, &vertex);
   // TODO support distributed.
-  dba.wal().Emplace(database::StateDelta::AddLabel(dba.transaction_id(), gid(),
-                                                   dba.LabelName(label)));
+  dba.wal().Emplace(database::StateDelta::AddLabel(
+      dba.transaction_id(), gid(), label, dba.LabelName(label)));
   return true;
 }
 
@@ -35,7 +35,7 @@ size_t VertexAccessor::remove_label(storage::Label label) {
   auto &dba = db_accessor();
   // TODO support distributed.
   dba.wal().Emplace(database::StateDelta::RemoveLabel(
-      dba.transaction_id(), gid(), dba.LabelName(label)));
+      dba.transaction_id(), gid(), label, dba.LabelName(label)));
   return 1;
 }
 

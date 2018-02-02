@@ -272,27 +272,28 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
     while (true) {
       auto delta = database::StateDelta::Decode(wal_reader, decoder);
       if (!delta) break;
-      if (should_skip(delta->transaction_id())) continue;
-      switch (delta->type()) {
+      if (should_skip(delta->transaction_id)) continue;
+      switch (delta->type) {
         case database::StateDelta::Type::TRANSACTION_BEGIN:
-          DCHECK(accessors.find(delta->transaction_id()) == accessors.end())
+          DCHECK(accessors.find(delta->transaction_id) == accessors.end())
               << "Double transaction start";
-          accessors.emplace(delta->transaction_id(), db);
+          accessors.emplace(delta->transaction_id, db);
           break;
         case database::StateDelta::Type::TRANSACTION_ABORT:
-          get_accessor(delta->transaction_id()).Abort();
-          accessors.erase(accessors.find(delta->transaction_id()));
+          get_accessor(delta->transaction_id).Abort();
+          accessors.erase(accessors.find(delta->transaction_id));
           break;
         case database::StateDelta::Type::TRANSACTION_COMMIT:
-          get_accessor(delta->transaction_id()).Commit();
-          accessors.erase(accessors.find(delta->transaction_id()));
+          get_accessor(delta->transaction_id).Commit();
+          accessors.erase(accessors.find(delta->transaction_id));
           break;
         case database::StateDelta::Type::BUILD_INDEX:
           // TODO index building might still be problematic in HA
-          recovery_data.indexes.emplace_back(delta->IndexName());
+          recovery_data.indexes.emplace_back(delta->label_name,
+                                             delta->property_name);
           break;
         default:
-          delta->Apply(get_accessor(delta->transaction_id()));
+          delta->Apply(get_accessor(delta->transaction_id));
       }
     }  // reading all deltas in a single wal file
   }    // reading all wal files

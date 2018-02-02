@@ -357,29 +357,28 @@ TEST_F(Durability, WalEncoding) {
   ASSERT_EQ(deltas.size(), 11);
 
   using Type = enum database::StateDelta::Type;
-  EXPECT_EQ(deltas[0].type(), Type::TRANSACTION_BEGIN);
-  EXPECT_EQ(deltas[0].transaction_id(), 1);
-  EXPECT_EQ(deltas[1].type(), Type::CREATE_VERTEX);
-  EXPECT_EQ(deltas[1].transaction_id(), 1);
-  EXPECT_EQ(deltas[2].type(), Type::ADD_LABEL);
-  EXPECT_EQ(deltas[2].transaction_id(), 1);
-  EXPECT_EQ(deltas[3].type(), Type::SET_PROPERTY_VERTEX);
-  EXPECT_EQ(deltas[3].transaction_id(), 1);
-  EXPECT_EQ(deltas[4].type(), Type::CREATE_VERTEX);
-  EXPECT_EQ(deltas[4].transaction_id(), 1);
-  EXPECT_EQ(deltas[5].type(), Type::CREATE_EDGE);
-  EXPECT_EQ(deltas[5].transaction_id(), 1);
-  EXPECT_EQ(deltas[6].type(), Type::SET_PROPERTY_EDGE);
-  EXPECT_EQ(deltas[6].transaction_id(), 1);
+  EXPECT_EQ(deltas[0].type, Type::TRANSACTION_BEGIN);
+  EXPECT_EQ(deltas[0].transaction_id, 1);
+  EXPECT_EQ(deltas[1].type, Type::CREATE_VERTEX);
+  EXPECT_EQ(deltas[1].transaction_id, 1);
+  EXPECT_EQ(deltas[2].type, Type::ADD_LABEL);
+  EXPECT_EQ(deltas[2].transaction_id, 1);
+  EXPECT_EQ(deltas[3].type, Type::SET_PROPERTY_VERTEX);
+  EXPECT_EQ(deltas[3].transaction_id, 1);
+  EXPECT_EQ(deltas[4].type, Type::CREATE_VERTEX);
+  EXPECT_EQ(deltas[4].transaction_id, 1);
+  EXPECT_EQ(deltas[5].type, Type::CREATE_EDGE);
+  EXPECT_EQ(deltas[5].transaction_id, 1);
+  EXPECT_EQ(deltas[6].type, Type::SET_PROPERTY_EDGE);
+  EXPECT_EQ(deltas[6].transaction_id, 1);
   // The next two deltas are the BuildIndex internal transactions.
-  EXPECT_EQ(deltas[7].type(), Type::TRANSACTION_BEGIN);
-  EXPECT_EQ(deltas[8].type(), Type::BUILD_INDEX);
-  auto index_name = deltas[8].IndexName();
-  EXPECT_EQ(index_name.first, "l1");
-  EXPECT_EQ(index_name.second, "p1");
-  EXPECT_EQ(deltas[9].type(), Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(deltas[10].type(), Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(deltas[10].transaction_id(), 1);
+  EXPECT_EQ(deltas[7].type, Type::TRANSACTION_BEGIN);
+  EXPECT_EQ(deltas[8].type, Type::BUILD_INDEX);
+  EXPECT_EQ(deltas[8].label_name, "l1");
+  EXPECT_EQ(deltas[8].property_name, "p1");
+  EXPECT_EQ(deltas[9].type, Type::TRANSACTION_COMMIT);
+  EXPECT_EQ(deltas[10].type, Type::TRANSACTION_COMMIT);
+  EXPECT_EQ(deltas[10].transaction_id, 1);
 }
 
 TEST_F(Durability, SnapshotEncoding) {

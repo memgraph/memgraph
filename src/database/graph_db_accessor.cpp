@@ -219,9 +219,9 @@ void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   // built at this point even if this DBA's transaction aborts for some
   // reason.
   auto wal_build_index_tx_id = transaction_id();
-  wal().Emplace(database::StateDelta::BuildIndex(wal_build_index_tx_id,
-                                                 LabelName(key.label_),
-                                                 PropertyName(key.property_)));
+  wal().Emplace(database::StateDelta::BuildIndex(
+      wal_build_index_tx_id, key.label_, LabelName(key.label_), key.property_,
+      PropertyName(key.property_)));
 
   // After these two operations we are certain that everything is contained in
   // the index under the assumption that the original index creation transaction
@@ -419,7 +419,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     // outcomes are success or error (serialization, timeout).
   }
   wal().Emplace(database::StateDelta::CreateEdge(
-      transaction_.id_, edge_vlist->gid_, from.gid(), to.gid(),
+      transaction_.id_, edge_vlist->gid_, from.gid(), to.gid(), edge_type,
       EdgeTypeName(edge_type)));
   return EdgeAccessor(edge_vlist, *this, from.address(), to.address(),
                       edge_type);

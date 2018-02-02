@@ -57,8 +57,8 @@ TEST(StateDelta, CreateEdge) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto delta = database::StateDelta::CreateEdge(dba.transaction_id(), gid2,
-                                                  gid0, gid1, "edge");
+    auto delta = database::StateDelta::CreateEdge(
+        dba.transaction_id(), gid2, gid0, gid1, dba.EdgeType("edge"), "edge");
     delta.Apply(dba);
     dba.Commit();
   }
@@ -106,8 +106,8 @@ TEST(StateDelta, AddLabel) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto delta =
-        database::StateDelta::AddLabel(dba.transaction_id(), gid0, "label");
+    auto delta = database::StateDelta::AddLabel(dba.transaction_id(), gid0,
+                                                dba.Label("label"), "label");
     delta.Apply(dba);
     dba.Commit();
   }
@@ -133,8 +133,8 @@ TEST(StateDelta, RemoveLabel) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto delta =
-        database::StateDelta::RemoveLabel(dba.transaction_id(), gid0, "label");
+    auto delta = database::StateDelta::RemoveLabel(dba.transaction_id(), gid0,
+                                                   dba.Label("label"), "label");
     delta.Apply(dba);
     dba.Commit();
   }
@@ -159,7 +159,8 @@ TEST(StateDelta, SetPropertyVertex) {
   {
     database::GraphDbAccessor dba(db);
     auto delta = database::StateDelta::PropsSetVertex(
-        dba.transaction_id(), gid0, "property", PropertyValue(2212));
+        dba.transaction_id(), gid0, dba.Property("property"), "property",
+        PropertyValue(2212));
     delta.Apply(dba);
     dba.Commit();
   }
@@ -188,7 +189,8 @@ TEST(StateDelta, SetPropertyEdge) {
   {
     database::GraphDbAccessor dba(db);
     auto delta = database::StateDelta::PropsSetEdge(
-        dba.transaction_id(), gid2, "property", PropertyValue(2212));
+        dba.transaction_id(), gid2, dba.Property("property"), "property",
+        PropertyValue(2212));
     delta.Apply(dba);
     dba.Commit();
   }
