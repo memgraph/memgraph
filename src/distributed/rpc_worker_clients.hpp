@@ -43,9 +43,10 @@ class RpcWorkerClients {
   auto ExecuteOnWorker(
       int worker_id,
       std::function<TResult(communication::rpc::ClientPool &)> execute) {
-    auto &client = GetClientPool(worker_id);
-    return std::async(std::launch::async,
-                      [execute, &client]() { return execute(client); });
+    auto &client_pool = GetClientPool(worker_id);
+    return std::async(std::launch::async, [execute, &client_pool]() {
+      return execute(client_pool);
+    });
   }
 
   /** Asynchroniously executes the `execute` function on all worker rpc clients

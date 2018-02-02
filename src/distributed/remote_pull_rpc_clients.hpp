@@ -32,10 +32,10 @@ class RemotePullRpcClients {
       int batch_size = kDefaultBatchSize) {
     return clients_.ExecuteOnWorker<RemotePullData>(
         worker_id,
-        [&dba, plan_id, params, symbols, batch_size](ClientPool &client) {
-          auto result =
-              client.Call<RemotePullRpc>(dba.transaction_id(), plan_id, params,
-                                         symbols, batch_size, true, true);
+        [&dba, plan_id, params, symbols, batch_size](ClientPool &client_pool) {
+          auto result = client_pool.Call<RemotePullRpc>(
+              dba.transaction_id(), plan_id, params, symbols, batch_size, true,
+              true);
 
           auto handle_vertex = [&dba](auto &v) {
             dba.remote_vertices().emplace(v.global_address.gid(),

@@ -4,7 +4,6 @@
 
 #include <experimental/optional>
 #include <memory>
-#include <queue>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -17,6 +16,7 @@
 #include "boost/serialization/shared_ptr.hpp"
 #include "boost/serialization/unique_ptr.hpp"
 
+#include "distributed/remote_pull_produce_rpc_messages.hpp"
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -2274,7 +2274,7 @@ class ProduceRemote : public LogicalOperator {
 class PullRemote : public LogicalOperator {
  public:
   PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-             const std::vector<Symbol> &symbols);
+             const std::vector<Symbol> &symbols, bool pull_local = true);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
@@ -2284,11 +2284,13 @@ class PullRemote : public LogicalOperator {
   }
   const auto &symbols() const { return symbols_; }
   auto plan_id() const { return plan_id_; }
+  auto pull_local() const { return pull_local_; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
   int64_t plan_id_ = 0;
   std::vector<Symbol> symbols_;
+  bool pull_local_ = true;
 
   PullRemote() {}
 
@@ -2304,10 +2306,13 @@ class PullRemote : public LogicalOperator {
     const PullRemote &self_;
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
-    std::queue<std::vector<query::TypedValue>> results_;
+    std::unordered_map<int, std::future<distributed::RemotePullData>>
+        remote_pulls_;
+    std::unordered_map<int, std::vector<std::vector<query::TypedValue>>>
+        remote_results_;
     std::vector<int> worker_ids_;
-    int last_pulled_worker_ = -1;
-    bool remote_pull_ended_ = false;
+    int last_pulled_worker_id_index_ = 0;
+    bool remote_pulls_initialized_ = false;
   };
 
   friend class boost::serialization::access;
@@ -2317,6 +2322,7 @@ class PullRemote : public LogicalOperator {
     ar &input_;
     ar &plan_id_;
     ar &symbols_;
+    ar &pull_local_;
   }
 };
 
