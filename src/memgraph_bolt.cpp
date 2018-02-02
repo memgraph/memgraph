@@ -14,7 +14,9 @@
 #include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
+#include "stats/stats.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/signals/handler.hpp"
 #include "utils/stacktrace.hpp"
@@ -42,8 +44,8 @@ DEFINE_HIDDEN_string(
     log_link_basename, "",
     "Basename used for symlink creation to the last log file.");
 DEFINE_uint64(memory_warning_threshold, 1024,
-              "Memory warning treshold, in MB. If Memgraph detects there is "
-              "less available RAM available it will log a warning. Set to 0 to "
+              "Memory warning threshold, in MB. If Memgraph detects there is "
+              "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
 // Distributed flags.
@@ -163,6 +165,8 @@ int main(int argc, char **argv) {
 
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
+
+  InitStatsLogging();
 
   CHECK(!(FLAGS_master && FLAGS_worker))
       << "Can't run Memgraph as worker and master at the same time";

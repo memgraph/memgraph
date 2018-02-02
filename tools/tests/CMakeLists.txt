@@ -3,6 +3,9 @@ include_directories(SYSTEM ${GTEST_INCLUDE_DIR})
 add_executable(mg_recovery_check mg_recovery_check.cpp)
 target_link_libraries(mg_recovery_check memgraph_lib gtest gtest_main)
 
+add_executable(mg_statsd_client statsd/mg_statsd_client.cpp)
+target_link_libraries(mg_statsd_client memgraph_lib)
+
 # Copy CSV data to CMake build dir
 configure_file(csv/comment_nodes.csv csv/comment_nodes.csv COPYONLY)
 configure_file(csv/forum_nodes.csv csv/forum_nodes.csv COPYONLY)

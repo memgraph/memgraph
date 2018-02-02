@@ -30,7 +30,7 @@ bool Endpoint::operator==(const Endpoint &other) const {
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
-  return os << "Address:" << endpoint.address() << "Port:" << endpoint.port();
+  return os << endpoint.address() << ":" << endpoint.port();
 }
 
 }  // namespace io::network

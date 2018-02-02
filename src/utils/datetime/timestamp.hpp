@@ -24,42 +24,46 @@ class Timestamp : public TotalOrdering<Timestamp> {
   Timestamp(const Timestamp&) = default;
   Timestamp(Timestamp&&) = default;
 
-  static Timestamp now() {
+  static Timestamp Now() {
     timespec time;
     clock_gettime(CLOCK_REALTIME, &time);
 
     return {time.tv_sec, time.tv_nsec};
   }
 
-  long year() const { return time.tm_year + 1900; }
+  auto SecSinceTheEpoch() const { return unix_time; }
 
-  long month() const { return time.tm_mon + 1; }
+  auto NanoSec() const { return nsec; }
 
-  long day() const { return time.tm_mday; }
+  long Year() const { return time.tm_year + 1900; }
 
-  long hour() const { return time.tm_hour; }
+  long Month() const { return time.tm_mon + 1; }
 
-  long min() const { return time.tm_min; }
+  long Day() const { return time.tm_mday; }
 
-  long sec() const { return time.tm_sec; }
+  long Hour() const { return time.tm_hour; }
 
-  long subsec() const { return nsec / 10000; }
+  long Min() const { return time.tm_min; }
 
-  const std::string to_iso8601() const {
-    return fmt::format(fiso8601, year(), month(), day(), hour(), min(), sec(),
-                       subsec());
+  long Sec() const { return time.tm_sec; }
+
+  long Subsec() const { return nsec / 10000; }
+
+  const std::string ToIso8601() const {
+    return fmt::format(fiso8601, Year(), Month(), Day(), Hour(), Min(), Sec(),
+                       Subsec());
   }
 
-  const std::string to_string(const std::string& format = fiso8601) const {
-    return fmt::format(format, year(), month(), day(), hour(), min(), sec(),
-                       subsec());
+  const std::string ToString(const std::string& format = fiso8601) const {
+    return fmt::format(format, Year(), Month(), Day(), Hour(), Min(), Sec(),
+                       Subsec());
   }
 
   friend std::ostream& operator<<(std::ostream& stream, const Timestamp& ts) {
-    return stream << ts.to_iso8601();
+    return stream << ts.ToIso8601();
   }
 
-  operator std::string() const { return to_string(); }
+  operator std::string() const { return ToString(); }
 
   constexpr friend bool operator==(const Timestamp& a, const Timestamp& b) {
     return a.unix_time == b.unix_time && a.nsec == b.nsec;
@@ -73,6 +77,7 @@ class Timestamp : public TotalOrdering<Timestamp> {
  private:
   std::tm time;
 
+  /** http://en.cppreference.com/w/cpp/chrono/c/time_t */
   std::time_t unix_time;
   long nsec;
 

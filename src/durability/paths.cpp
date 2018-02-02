@@ -71,8 +71,8 @@ std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
 
 fs::path MakeSnapshotPath(const fs::path &durability_dir, const int worker_id) {
   std::string date_str =
-      Timestamp(Timestamp::now())
-          .to_string("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
+      Timestamp(Timestamp::Now())
+          .ToString("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
   auto file_name = date_str + "_worker_" + std::to_string(worker_id);
   return durability_dir / kSnapshotDir / file_name;
 }
@@ -83,7 +83,7 @@ fs::path MakeSnapshotPath(const fs::path &durability_dir, const int worker_id) {
 fs::path WalFilenameForTransactionId(
     const std::experimental::filesystem::path &wal_dir, int worker_id,
     std::experimental::optional<tx::transaction_id_t> tx_id) {
-  auto file_name = Timestamp::now().to_iso8601();
+  auto file_name = Timestamp::Now().ToIso8601();
   if (tx_id) {
     file_name += "__max_transaction_" + std::to_string(*tx_id);
   } else {

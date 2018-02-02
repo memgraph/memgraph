@@ -1,3 +1,5 @@
+#pragma once
+
 #include "boost/archive/binary_iarchive.hpp"
 #include "boost/archive/binary_oarchive.hpp"
 #include "boost/serialization/export.hpp"
@@ -7,6 +9,7 @@
 #include "distributed/plan_rpc_messages.hpp"
 #include "distributed/remote_data_rpc_messages.hpp"
 #include "distributed/remote_pull_produce_rpc_messages.hpp"
+#include "stats/stats_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 
@@ -67,7 +70,11 @@ BOOST_CLASS_EXPORT(distributed::RemotePullRes);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullReq);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullRes);
 
-// Distributed indexes
+// Distributed indexes.
 BOOST_CLASS_EXPORT(distributed::BuildIndexReq);
 BOOST_CLASS_EXPORT(distributed::BuildIndexRes);
 BOOST_CLASS_EXPORT(distributed::IndexLabelPropertyTx);
+
+// Stats.
+BOOST_CLASS_EXPORT(stats::StatsReq);
+BOOST_CLASS_EXPORT(stats::StatsRes);
