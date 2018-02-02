@@ -263,8 +263,8 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
 
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
-  auto remote_pull = [this, plan_id, &params, &symbols](
-      database::GraphDbAccessor &dba, int worker_id) {
+  auto remote_pull = [this, &params, &symbols](database::GraphDbAccessor &dba,
+                                               int worker_id) {
     return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
                                                      params, symbols, 3);
   };
@@ -358,9 +358,9 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
   ctx.symbol_table_[*return_p] = ctx.symbol_table_.CreateSymbol("", true);
   auto produce = MakeProduce(p, return_n_r, return_m, return_p);
 
-  auto check_result = [prop](
-      int worker_id,
-      const std::vector<std::vector<query::TypedValue>> &frames) {
+  auto check_result = [prop](int worker_id,
+                             const std::vector<std::vector<query::TypedValue>>
+                                 &frames) {
     int offset = worker_id * 10;
     ASSERT_EQ(frames.size(), 1);
     auto &row = frames[0];
@@ -387,8 +387,8 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
                                      ctx.symbol_table_[*return_m], p_sym};
-  auto remote_pull = [this, plan_id, &params, &symbols](
-      database::GraphDbAccessor &dba, int worker_id) {
+  auto remote_pull = [this, &params, &symbols](database::GraphDbAccessor &dba,
+                                               int worker_id) {
     return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
                                                      params, symbols, 3);
   };

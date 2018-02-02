@@ -2649,6 +2649,19 @@ std::unique_ptr<Cursor> PullRemote::MakeCursor(
   return std::make_unique<PullRemote::PullRemoteCursor>(*this, db);
 }
 
+bool Synchronize::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor) && pull_remote_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+std::unique_ptr<Cursor> Synchronize::MakeCursor(
+    database::GraphDbAccessor &) const {
+  // TODO: Implement a concrete cursor.
+  return nullptr;
+}
+
 }  // namespace query::plan
 
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Once);
@@ -2685,3 +2698,4 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateIndex);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Union);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ProduceRemote);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemote);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Synchronize);

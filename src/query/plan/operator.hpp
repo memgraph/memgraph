@@ -99,6 +99,7 @@ class CreateIndex;
 class Union;
 class ProduceRemote;
 class PullRemote;
+class Synchronize;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -108,7 +109,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, Aggregate, Skip, Limit,
     OrderBy, Merge, Optional, Unwind, Distinct, Union, ProduceRemote,
-    PullRemote>;
+    PullRemote, Synchronize>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -2317,6 +2318,35 @@ class PullRemote : public LogicalOperator {
   }
 };
 
+/** Operator used to synchronize the execution of master and workers. */
+class Synchronize : public LogicalOperator {
+ public:
+  Synchronize(const std::shared_ptr<LogicalOperator> &input,
+              const std::shared_ptr<PullRemote> &pull_remote,
+              bool advance_command = false)
+      : input_(input),
+        pull_remote_(pull_remote),
+        advance_command_(advance_command) {}
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(
+      database::GraphDbAccessor &db) const override;
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  std::shared_ptr<PullRemote> pull_remote_;
+  bool advance_command_ = false;
+
+  Synchronize() {}
+
+  friend class boost::serialization::access;
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &input_;
+    ar &pull_remote_;
+    ar &advance_command_;
+  }
+};
+
 }  // namespace plan
 }  // namespace query
 
@@ -2353,3 +2383,4 @@ BOOST_CLASS_EXPORT_KEY(query::plan::CreateIndex);
 BOOST_CLASS_EXPORT_KEY(query::plan::Union);
 BOOST_CLASS_EXPORT_KEY(query::plan::ProduceRemote);
 BOOST_CLASS_EXPORT_KEY(query::plan::PullRemote);
+BOOST_CLASS_EXPORT_KEY(query::plan::Synchronize);
