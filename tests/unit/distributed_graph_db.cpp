@@ -1,4 +1,3 @@
-#include <experimental/optional>
 #include <memory>
 #include <thread>
 #include <unordered_set>
@@ -23,74 +22,12 @@
 #include "query_plan_common.hpp"
 #include "transactions/engine_master.hpp"
 
+#include "distributed_common.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
 
-template <typename T>
-using optional = std::experimental::optional<T>;
-
 using namespace distributed;
-
-class DistributedGraphDbTest : public ::testing::Test {
-  const std::string kLocal = "127.0.0.1";
-  class WorkerInThread {
-   public:
-    WorkerInThread(database::Config config) : worker_(config) {
-      thread_ = std::thread([this, config] { worker_.WaitForShutdown(); });
-    }
-
-    ~WorkerInThread() {
-      if (thread_.joinable()) thread_.join();
-    }
-
-    database::Worker worker_;
-    std::thread thread_;
-  };
-
- protected:
-  void SetUp() override {
-    const auto kInitTime = 200ms;
-
-    database::Config master_config;
-    master_config.master_endpoint = {kLocal, 0};
-    master_.emplace(master_config);
-    std::this_thread::sleep_for(kInitTime);
-
-    auto worker_config = [this](int worker_id) {
-      database::Config config;
-      config.worker_id = worker_id;
-      config.master_endpoint = master_->endpoint();
-      config.worker_endpoint = {kLocal, 0};
-      return config;
-    };
-
-    worker1_.emplace(worker_config(1));
-    std::this_thread::sleep_for(kInitTime);
-    worker2_.emplace(worker_config(2));
-    std::this_thread::sleep_for(kInitTime);
-  }
-
-  void TearDown() override {
-    // Kill master first because it will expect a shutdown response from the
-    // workers.
-    master_ = std::experimental::nullopt;
-
-    worker2_ = std::experimental::nullopt;
-    worker1_ = std::experimental::nullopt;
-  }
-
-  database::Master &master() { return *master_; }
-  auto &master_tx_engine() {
-    return dynamic_cast<tx::MasterEngine &>(master_->tx_engine());
-  }
-  database::Worker &worker1() { return worker1_->worker_; }
-  database::Worker &worker2() { return worker2_->worker_; }
-
- private:
-  optional<database::Master> master_;
-  optional<WorkerInThread> worker1_;
-  optional<WorkerInThread> worker2_;
-};
+using namespace database;
 
 TEST_F(DistributedGraphDbTest, Coordination) {
   EXPECT_NE(master().endpoint().port(), 0);
@@ -162,7 +99,6 @@ TEST_F(DistributedGraphDbTest, Counters) {
 }
 
 TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
-  using GraphDbAccessor = database::GraphDbAccessor;
   // Only old data is visible remotely, so create and commit some data.
   gid::Gid v1_id, v2_id, e1_id;
 
@@ -186,10 +122,10 @@ TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
   }
 
   // The master must start a transaction before workers can work in it.
-  database::GraphDbAccessor master_dba{master()};
+  GraphDbAccessor master_dba{master()};
 
   {
-    database::GraphDbAccessor w1_dba{worker1(), master_dba.transaction_id()};
+    GraphDbAccessor w1_dba{worker1(), master_dba.transaction_id()};
     VertexAccessor v1_in_w1{{v1_id, 0}, w1_dba};
     EXPECT_NE(v1_in_w1.GetOld(), nullptr);
     EXPECT_EQ(v1_in_w1.GetNew(), nullptr);
@@ -198,7 +134,7 @@ TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
   }
 
   {
-    database::GraphDbAccessor w2_dba{worker2(), master_dba.transaction_id()};
+    GraphDbAccessor w2_dba{worker2(), master_dba.transaction_id()};
     VertexAccessor v2_in_w2{{v2_id, 0}, w2_dba};
     EXPECT_NE(v2_in_w2.GetOld(), nullptr);
     EXPECT_EQ(v2_in_w2.GetNew(), nullptr);
@@ -237,7 +173,7 @@ TEST_F(DistributedGraphDbTest, DispatchPlan) {
 }
 
 TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
-  database::GraphDbAccessor dba{master()};
+  GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstTreeStorage storage;
@@ -263,7 +199,7 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
 
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
-  auto remote_pull = [this, &params, &symbols](database::GraphDbAccessor &dba,
+  auto remote_pull = [this, &params, &symbols](GraphDbAccessor &dba,
                                                int worker_id) {
     return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
                                                      params, symbols, 3);
@@ -285,8 +221,8 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
     EXPECT_EQ(batch.frames[1][0].ValueInt(), 2);
   };
 
-  database::GraphDbAccessor dba_1{master()};
-  database::GraphDbAccessor dba_2{master()};
+  GraphDbAccessor dba_1{master()};
+  GraphDbAccessor dba_2{master()};
   for (int worker_id : {1, 2}) {
     // TODO flor, proper test async here.
     auto tx1_batch1 = remote_pull(dba_1, worker_id).get();
@@ -310,9 +246,9 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
   // sequence ID, so we can check we retrieved all.
   storage::Property prop;
   {
-    database::GraphDbAccessor dba{master()};
+    GraphDbAccessor dba{master()};
     prop = dba.Property("prop");
-    auto create_data = [prop](database::GraphDbAccessor &dba, int worker_id) {
+    auto create_data = [prop](GraphDbAccessor &dba, int worker_id) {
       auto v1 = dba.InsertVertex();
       v1.PropsSet(prop, worker_id * 10);
       auto v2 = dba.InsertVertex();
@@ -321,14 +257,14 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
       e12.PropsSet(prop, worker_id * 10 + 2);
     };
     create_data(dba, 0);
-    database::GraphDbAccessor dba_w1{worker1(), dba.transaction_id()};
+    GraphDbAccessor dba_w1{worker1(), dba.transaction_id()};
     create_data(dba_w1, 1);
-    database::GraphDbAccessor dba_w2{worker2(), dba.transaction_id()};
+    GraphDbAccessor dba_w2{worker2(), dba.transaction_id()};
     create_data(dba_w2, 2);
     dba.Commit();
   }
 
-  database::GraphDbAccessor dba{master()};
+  GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstTreeStorage storage;
@@ -358,9 +294,9 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
   ctx.symbol_table_[*return_p] = ctx.symbol_table_.CreateSymbol("", true);
   auto produce = MakeProduce(p, return_n_r, return_m, return_p);
 
-  auto check_result = [prop](int worker_id,
-                             const std::vector<std::vector<query::TypedValue>>
-                                 &frames) {
+  auto check_result = [prop](
+      int worker_id,
+      const std::vector<std::vector<query::TypedValue>> &frames) {
     int offset = worker_id * 10;
     ASSERT_EQ(frames.size(), 1);
     auto &row = frames[0];
@@ -387,7 +323,7 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
                                      ctx.symbol_table_[*return_m], p_sym};
-  auto remote_pull = [this, &params, &symbols](database::GraphDbAccessor &dba,
+  auto remote_pull = [this, &params, &symbols](GraphDbAccessor &dba,
                                                int worker_id) {
     return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
                                                      params, symbols, 3);
@@ -402,7 +338,6 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
 }
 
 TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
-  using GraphDbAccessor = database::GraphDbAccessor;
   storage::Label label;
   storage::Property property;
 
@@ -448,14 +383,14 @@ TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
 }
 
 TEST_F(DistributedGraphDbTest, WorkerOwnedDbAccessors) {
-  database::GraphDbAccessor dba_w1(worker1());
+  GraphDbAccessor dba_w1(worker1());
   auto v = dba_w1.InsertVertex();
   auto prop = dba_w1.Property("p");
   v.PropsSet(prop, 42);
   auto v_ga = v.GlobalAddress();
   dba_w1.Commit();
 
-  database::GraphDbAccessor dba_w2(worker2());
+  GraphDbAccessor dba_w2(worker2());
   VertexAccessor v_in_w2{v_ga, dba_w2};
   EXPECT_EQ(v_in_w2.PropsAt(prop).Value<int64_t>(), 42);
 }

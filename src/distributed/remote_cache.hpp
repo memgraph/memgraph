@@ -29,19 +29,15 @@ class RemoteCache {
   RemoteCache(distributed::RemoteDataRpcClients &remote_data_clients)
       : remote_data_clients_(remote_data_clients) {}
 
-  /**
-   * Returns the "new" Vertex/Edge for the given gid.
-   *
-   * @param gid - global ID.
-   * @param init_if_necessary - If "new" is not initialized and this flag is
-   * set, then "new" is initialized with a copy of "old" before returning.
-   */
-  // TODO most likely remove this function in the new remote_data_comm arch
-  TRecord *FindNew(gid::Gid gid, bool init_if_necessary) {
+  /// Returns the new data for the given ID. Creates it (as copy of old) if
+  /// necessary.
+  TRecord *FindNew(gid::Gid gid) {
+    std::lock_guard<std::mutex> guard{lock_};
     auto found = cache_.find(gid);
-    DCHECK(found != cache_.end()) << "Uninitialized remote Vertex/Edge";
+    DCHECK(found != cache_.end())
+        << "FindNew for uninitialized remote Vertex/Edge";
     auto &pair = found->second;
-    if (!pair.second && init_if_necessary) {
+    if (!pair.second) {
       pair.second = std::unique_ptr<TRecord>(pair.first->CloneData());
     }
     return pair.second.get();

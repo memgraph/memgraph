@@ -103,4 +103,7 @@ void WriteAheadLog::Emplace(database::StateDelta &&delta) {
     deltas_.emplace(std::move(delta));
 }
 
+void WriteAheadLog::Emplace(const database::StateDelta &delta) {
+  if (enabled_ && FLAGS_wal_flush_interval_millis >= 0) deltas_.emplace(delta);
+}
 }  // namespace durability

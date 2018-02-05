@@ -1,6 +1,7 @@
 #include "glog/logging.h"
 
 #include "database/graph_db_accessor.hpp"
+#include "database/state_delta.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
@@ -21,69 +22,54 @@ const PropertyValue &RecordAccessor<TRecord>::PropsAt(
 template <>
 void RecordAccessor<Vertex>::PropsSet(storage::Property key,
                                       PropertyValue value) {
-  Vertex &vertex = update();
-  vertex.properties_.set(key, value);
   auto &dba = db_accessor();
-  // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
-                                               dba.PropertyName(key), value));
+  ProcessDelta(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
+                                          dba.PropertyName(key), value));
   if (is_local()) {
-    db_accessor().UpdatePropertyIndex(key, *this, &vertex);
+    dba.UpdatePropertyIndex(key, *this, &update());
   }
 }
 
 template <>
 void RecordAccessor<Edge>::PropsSet(storage::Property key,
                                     PropertyValue value) {
-  update().properties_.set(key, value);
   auto &dba = db_accessor();
-  // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
-                                             dba.PropertyName(key), value));
+  ProcessDelta(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
+                                        dba.PropertyName(key), value));
 }
 
 template <>
-size_t RecordAccessor<Vertex>::PropsErase(storage::Property key) {
+void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
-  // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
-                                               dba.PropertyName(key),
-                                               PropertyValue::Null));
-  return update().properties_.erase(key);
+  ProcessDelta(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
+                                          dba.PropertyName(key),
+                                          PropertyValue::Null));
 }
 
 template <>
-size_t RecordAccessor<Edge>::PropsErase(storage::Property key) {
+void RecordAccessor<Edge>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
-  // TODO use the delta for handling.
-  dba.wal().Emplace(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
-                                             dba.PropertyName(key),
-                                             PropertyValue::Null));
-  return update().properties_.erase(key);
+  ProcessDelta(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
+                                        dba.PropertyName(key),
+                                        PropertyValue::Null));
 }
 
-template <>
-void RecordAccessor<Vertex>::PropsClear() {
-  auto &updated = update();
-  // TODO use the delta for handling.
+template <typename TRecord>
+void RecordAccessor<TRecord>::PropsClear() {
   auto &dba = db_accessor();
-  for (const auto &kv : updated.properties_)
-    dba.wal().Emplace(StateDelta::PropsSetVertex(
-        dba.transaction_id(), gid(), kv.first, dba.PropertyName(kv.first),
-        PropertyValue::Null));
-  updated.properties_.clear();
-}
-
-template <>
-void RecordAccessor<Edge>::PropsClear() {
-  auto &updated = update();
-  auto &dba = db_accessor();
-  // TODO use the delta for handling.
-  for (const auto &kv : updated.properties_)
-    dba.wal().Emplace(StateDelta::PropsSetEdge(
-        dba.transaction_id(), gid(), kv.first, dba.PropertyName(kv.first),
-        PropertyValue::Null));
-  updated.properties_.clear();
+  std::vector<storage::Property> to_remove;
+  for (const auto &kv : update().properties_) to_remove.emplace_back(kv.first);
+  for (const auto &prop : to_remove) {
+    if (std::is_same<TRecord, Vertex>::value) {
+      ProcessDelta(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), prop,
+                                              dba.PropertyName(prop),
+                                              PropertyValue::Null));
+    } else {
+      ProcessDelta(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), prop,
+                                            dba.PropertyName(prop),
+                                            PropertyValue::Null));
+    }
+  }
 }
 
 template <typename TRecord>
@@ -187,11 +173,11 @@ TRecord &RecordAccessor<TRecord>::update() const {
 
   if (is_local()) {
     new_ = address_.local()->update(t);
-    DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   } else {
-    // TODO implement
-    throw std::runtime_error("Not yet implemented");
+    new_ = db_accessor().template remote_elements<TRecord>().FindNew(
+        address_.gid());
   }
+  DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
 }
 
@@ -205,10 +191,41 @@ const TRecord &RecordAccessor<TRecord>::current() const {
 }
 
 template <typename TRecord>
-void RecordAccessor<TRecord>::ProcessDelta(const GraphStateDelta &) const {
-  LOG(ERROR) << "Delta processing not yet implemented";
+void RecordAccessor<TRecord>::ProcessDelta(
+    const database::StateDelta &delta) const {
+  // Apply the delta both on local and remote data. We need to see the changes
+  // we make to remote data, even if it's not applied immediately.
+  auto &updated = update();
+  switch (delta.type) {
+    case StateDelta::Type::TRANSACTION_BEGIN:
+    case StateDelta::Type::TRANSACTION_COMMIT:
+    case StateDelta::Type::TRANSACTION_ABORT:
+    case StateDelta::Type::CREATE_VERTEX:
+    case StateDelta::Type::CREATE_EDGE:
+    case StateDelta::Type::REMOVE_VERTEX:
+    case StateDelta::Type::REMOVE_EDGE:
+    case StateDelta::Type::BUILD_INDEX:
+      LOG(FATAL)
+          << "Can only apply record update deltas for remote graph element";
+    case StateDelta::Type::SET_PROPERTY_VERTEX:
+    case StateDelta::Type::SET_PROPERTY_EDGE:
+      updated.properties_.set(delta.property, delta.value);
+      break;
+    case StateDelta::Type::ADD_LABEL:
+      // It is only possible that ADD_LABEL gets calld on a VertexAccessor.
+      reinterpret_cast<Vertex &>(updated).labels_.emplace_back(delta.label);
+      break;
+    case StateDelta::Type::REMOVE_LABEL: {
+      // It is only possible that REMOVE_LABEL gets calld on a VertexAccessor.
+      auto &labels = reinterpret_cast<Vertex &>(updated).labels_;
+      auto found = std::find(labels.begin(), labels.end(), delta.label);
+      std::swap(*found, labels.back());
+      labels.pop_back();
+    } break;
+  }
+
   if (is_local()) {
-    // TODO write delta to WAL
+    db_accessor().wal().Emplace(delta);
   } else {
     // TODO use the delta to perform a remote update.
     // TODO check for results (success, serialization_error, ...)

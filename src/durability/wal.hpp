@@ -38,8 +38,11 @@ class WriteAheadLog {
    * (optional) recovery. */
   void Enable() { enabled_ = true; }
 
-  // Emplaces the given DeltaState onto the buffer, if the WAL is enabled.
+  /// Emplaces the given DeltaState onto the buffer, if the WAL is enabled.
   void Emplace(database::StateDelta &&delta);
+
+  /// Emplaces the given DeltaState onto the buffer, if the WAL is enabled.
+  void Emplace(const database::StateDelta &delta);
 
  private:
   /** Groups the logic of WAL file handling (flushing, naming, rotating) */

@@ -12,20 +12,7 @@
 
 namespace database {
 class GraphDbAccessor;
-};
-
-/// Mock class for a DB delta.
-// TODO replace with the real thing.
-class GraphStateDelta {
- public:
-  /// Indicates what the result of applying the delta to the remote worker
-  /// (owner of the Vertex/Edge the delta affects).
-  enum class RemoteResult {
-    SUCCES,
-    SERIALIZATION_ERROR,
-    LOCK_TIMEOUT_ERROR
-    // TODO: network error?
-  };
+struct StateDelta;
 };
 
 /**
@@ -74,7 +61,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   void PropsSet(storage::Property key, PropertyValue value);
 
   /** Erases the property for the given key. */
-  size_t PropsErase(storage::Property key);
+  void PropsErase(storage::Property key);
 
   /** Removes all the properties from this record. */
   void PropsClear();
@@ -183,10 +170,8 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    * the accessor is local that means writing the delta to the write-ahead log.
    * If it's remote, then the delta needs to be sent to it's owner for
    * processing.
-   *
-   * @param delta The delta to process.
    */
-  void ProcessDelta(const GraphStateDelta &delta) const;
+  void ProcessDelta(const database::StateDelta &delta) const;
 
  private:
   // The database accessor for which this record accessor is created
