@@ -78,6 +78,8 @@ $mvn clean compile assembly:single
 cd ${script_dir}
 virtualenv -p python3 ve3
 source ve3/bin/activate
-pip install -i $deps_pypi_url \
-            --trusted-host $deps_pypi_trusted -r requirements.txt
+# Temporary workaround, our deps PyPI cache is sometimes stupid...
+# pip install -i $deps_pypi_url \
+#             --trusted-host $deps_pypi_trusted -r requirements.txt
+pip install -r requirements.txt
 deactivate
