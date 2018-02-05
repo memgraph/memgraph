@@ -518,6 +518,16 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     --depth_;
     return true;
   }
+
+  bool PreVisit(query::plan::Synchronize &op) override {
+    WithPrintLn([&op](auto &out) {
+      out << "* Synchronize";
+      if (op.advance_command()) out << " (ADV CMD)";
+    });
+    Branch(*op.pull_remote());
+    op.input()->Accept(*this);
+    return false;
+  }
 #undef PRE_VISIT
 
  private:

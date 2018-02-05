@@ -1474,7 +1474,9 @@ class Accumulate : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
 
+  auto input() const { return input_; }
   const auto &symbols() const { return symbols_; };
+  auto advance_command() const { return advance_command_; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -2330,6 +2332,10 @@ class Synchronize : public LogicalOperator {
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
+
+  auto input() const { return input_; }
+  auto pull_remote() const { return pull_remote_; }
+  auto advance_command() const { return advance_command_; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;

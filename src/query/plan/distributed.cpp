@@ -48,29 +48,46 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
 
   // ScanAll are all done on each machine locally.
-  bool PreVisit(ScanAll &) override { return true; }
+  bool PreVisit(ScanAll &scan) override {
+    prev_ops_.push_back(&scan);
+    return true;
+  }
   bool PostVisit(ScanAll &) override {
+    prev_ops_.pop_back();
     RaiseIfCartesian();
     RaiseIfHasWorkerPlan();
     has_scan_all_ = true;
     return true;
   }
-  bool PreVisit(ScanAllByLabel &) override { return true; }
+
+  bool PreVisit(ScanAllByLabel &scan) override {
+    prev_ops_.push_back(&scan);
+    return true;
+  }
   bool PostVisit(ScanAllByLabel &) override {
+    prev_ops_.pop_back();
     RaiseIfCartesian();
     RaiseIfHasWorkerPlan();
     has_scan_all_ = true;
     return true;
   }
-  bool PreVisit(ScanAllByLabelPropertyRange &) override { return true; }
+  bool PreVisit(ScanAllByLabelPropertyRange &scan) override {
+    prev_ops_.push_back(&scan);
+    return true;
+  }
   bool PostVisit(ScanAllByLabelPropertyRange &) override {
+    prev_ops_.pop_back();
     RaiseIfCartesian();
     RaiseIfHasWorkerPlan();
     has_scan_all_ = true;
     return true;
   }
-  bool PreVisit(ScanAllByLabelPropertyValue &) override { return true; }
+  bool PreVisit(ScanAllByLabelPropertyValue &scan) override {
+    prev_ops_.push_back(&scan);
+    return true;
+  }
   bool PostVisit(ScanAllByLabelPropertyValue &) override {
+    prev_ops_.pop_back();
     RaiseIfCartesian();
     RaiseIfHasWorkerPlan();
     has_scan_all_ = true;
@@ -79,28 +96,46 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
   // Expand is done locally on each machine with RPC calls for worker-boundary
   // crossing edges.
-  bool PreVisit(Expand &) override { return true; }
+  bool PreVisit(Expand &exp) override {
+    prev_ops_.push_back(&exp);
+    return true;
+  }
   // TODO: ExpandVariable
 
   // The following operators filter the frame or put something on it. They
   // should be worker local.
-  bool PreVisit(ConstructNamedPath &) override { return true; }
-  bool PreVisit(Filter &) override { return true; }
-  bool PreVisit(ExpandUniquenessFilter<VertexAccessor> &) override {
+  bool PreVisit(ConstructNamedPath &op) override {
+    prev_ops_.push_back(&op);
     return true;
   }
-  bool PreVisit(ExpandUniquenessFilter<EdgeAccessor> &) override {
+  bool PreVisit(Filter &op) override {
+    prev_ops_.push_back(&op);
     return true;
   }
-  bool PreVisit(Optional &) override { return true; }
+  bool PreVisit(ExpandUniquenessFilter<VertexAccessor> &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PreVisit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+  bool PreVisit(Optional &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
 
   // Skip needs to skip only the first N results from *all* of the results.
   // Therefore, the earliest (deepest in the plan tree) encountered Skip will
   // break the plan in 2 parts.
   //  1) Master plan with Skip and everything above it.
   //  2) Worker plan with operators below Skip, but without Skip itself.
-  bool PreVisit(Skip &) override { return true; }
+  bool PreVisit(Skip &skip) override {
+    prev_ops_.push_back(&skip);
+    return true;
+  }
   bool PostVisit(Skip &skip) override {
+    prev_ops_.pop_back();
     if (ShouldSplit()) {
       auto input = skip.input();
       distributed_plan_.worker_plan = input;
@@ -116,8 +151,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   // improve the execution speed of workers. So, the 2 parts of the plan are:
   //  1) Master plan with Limit and everything above.
   //  2) Worker plan with operators below Limit, but including Limit itself.
-  bool PreVisit(Limit &) override { return true; }
+  bool PreVisit(Limit &limit) override {
+    prev_ops_.push_back(&limit);
+    return true;
+  }
   bool PostVisit(Limit &limit) override {
+    prev_ops_.pop_back();
     if (ShouldSplit()) {
       // Shallow copy Limit
       distributed_plan_.worker_plan = std::make_shared<Limit>(limit);
@@ -132,8 +171,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   // OrderBy is an associative operator, this means we can do ordering
   // on workers and then merge the results on master. This requires a more
   // involved solution, so for now treat OrderBy just like Split.
-  bool PreVisit(OrderBy &) override { return true; }
+  bool PreVisit(OrderBy &order_by) override {
+    prev_ops_.push_back(&order_by);
+    return true;
+  }
   bool PostVisit(OrderBy &order_by) override {
+    prev_ops_.pop_back();
     // TODO: Associative combination of OrderBy
     if (ShouldSplit()) {
       auto input = order_by.input();
@@ -146,8 +189,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
 
   // Treat Distinct just like Limit.
-  bool PreVisit(Distinct &) override { return true; }
+  bool PreVisit(Distinct &distinct) override {
+    prev_ops_.push_back(&distinct);
+    return true;
+  }
   bool PostVisit(Distinct &distinct) override {
+    prev_ops_.pop_back();
     if (ShouldSplit()) {
       // Shallow copy Distinct
       distributed_plan_.worker_plan = std::make_shared<Distinct>(distinct);
@@ -173,8 +220,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   //
   // Non-associative aggregation needs to see all of the results and is
   // completely done on master.
-  bool PreVisit(Aggregate &) override { return true; }
+  bool PreVisit(Aggregate &aggr_op) override {
+    prev_ops_.push_back(&aggr_op);
+    return true;
+  }
   bool PostVisit(Aggregate &aggr_op) override {
+    prev_ops_.pop_back();
     if (!ShouldSplit()) {
       // We have already split the plan, so the aggregation we are visiting is
       // on master.
@@ -311,8 +362,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(Produce &) override { return true; }
+  bool PreVisit(Produce &produce) override {
+    prev_ops_.push_back(&produce);
+    return true;
+  }
   bool PostVisit(Produce &produce) override {
+    prev_ops_.pop_back();
     if (!master_aggr_) return true;
     // We have to rewire master/worker aggregation.
     DCHECK(worker_aggr_);
@@ -323,15 +378,105 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Unwind &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
   bool Visit(Once &) override { return true; }
 
   bool Visit(CreateIndex &) override { return true; }
 
-  // TODO: Write operators, accumulate and unwind
+  // Accumulate is used only if the query performs any writes. In such a case,
+  // we need to synchronize the work done on master and all workers.
+  // Synchronization will force applying changes to distributed storage, and
+  // then we can continue with the rest of the plan. Currently, the remainder of
+  // the plan is executed on master. In the future, when we support Cartesian
+  // products after the WITH clause, we will need to split the plan in more
+  // subparts to be executed on workers.
+  bool PreVisit(Accumulate &acc) override {
+    prev_ops_.push_back(&acc);
+    return true;
+  }
+  bool PostVisit(Accumulate &acc) override {
+    prev_ops_.pop_back();
+    if (!ShouldSplit()) return true;
+    if (acc.advance_command())
+      throw utils::NotYetImplemented("WITH clause distributed planning");
+    // Accumulate on workers, but set advance_command to false, because the
+    // Synchronize operator should do that in distributed execution.
+    distributed_plan_.worker_plan =
+        std::make_shared<Accumulate>(acc.input(), acc.symbols(), false);
+    // Create a synchronization point. Use pull remote to fetch accumulated
+    // symbols from workers. Local input operations are the same as on workers.
+    auto pull_remote = std::make_shared<PullRemote>(
+        nullptr, distributed_plan_.plan_id, acc.symbols());
+    auto sync = std::make_shared<Synchronize>(
+        distributed_plan_.worker_plan, pull_remote, acc.advance_command());
+    auto *prev_op = prev_ops_.back();
+    // Wire the previous operator (on master) into our synchronization operator.
+    // TODO: Find a better way to replace the previous operation's input than
+    // using dynamic casting.
+    if (auto *produce = dynamic_cast<Produce *>(prev_op)) {
+      produce->set_input(sync);
+    } else if (auto *aggr_op = dynamic_cast<Aggregate *>(prev_op)) {
+      aggr_op->set_input(sync);
+    } else {
+      throw utils::NotYetImplemented("WITH clause distributed planning");
+    }
+    return true;
+  }
+
+  bool PreVisit(CreateNode &op) override {
+    // TODO: Creation needs to be modified if running on master, so as to
+    // distribute node creation to workers.
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PreVisit(CreateExpand &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PreVisit(Delete &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PreVisit(SetProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PreVisit(SetProperties &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PreVisit(SetLabels &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PreVisit(RemoveProperty &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PreVisit(RemoveLabels &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
 
  protected:
   bool DefaultPreVisit() override {
     throw utils::NotYetImplemented("distributed planning");
+  }
+
+  bool DefaultPostVisit() override {
+    prev_ops_.pop_back();
+    return true;
   }
 
  private:
@@ -339,6 +484,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   // Used for rewiring the master/worker aggregation in PostVisit(Produce)
   std::shared_ptr<LogicalOperator> worker_aggr_;
   std::unique_ptr<LogicalOperator> master_aggr_;
+  std::vector<LogicalOperator *> prev_ops_;
   bool has_scan_all_ = false;
 
   void RaiseIfCartesian() {
