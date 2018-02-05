@@ -17,9 +17,13 @@ namespace impl {
 // global one, using the given worker_id.
 template <typename TArchive, typename TAddress>
 void SaveAddress(TArchive &ar, TAddress address, int worker_id) {
-  auto gid = address.is_remote() ? address.gid() : address.local()->gid_;
-  ar << gid;
-  ar << worker_id;
+  if (address.is_local()) {
+    ar << address.local()->gid_;
+    ar << worker_id;
+  } else {
+    ar << address.gid();
+    ar << address.worker_id();
+  }
 };
 
 // Saves the given properties into the given archive.

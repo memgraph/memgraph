@@ -31,15 +31,15 @@ using namespace database;
 
 TEST_F(DistributedGraphDbTest, Coordination) {
   EXPECT_NE(master().endpoint().port(), 0);
-  EXPECT_NE(worker1().endpoint().port(), 0);
-  EXPECT_NE(worker2().endpoint().port(), 0);
+  EXPECT_NE(worker(1).endpoint().port(), 0);
+  EXPECT_NE(worker(2).endpoint().port(), 0);
 
-  EXPECT_EQ(master().GetEndpoint(1), worker1().endpoint());
-  EXPECT_EQ(master().GetEndpoint(2), worker2().endpoint());
-  EXPECT_EQ(worker1().GetEndpoint(0), master().endpoint());
-  EXPECT_EQ(worker1().GetEndpoint(2), worker2().endpoint());
-  EXPECT_EQ(worker2().GetEndpoint(0), master().endpoint());
-  EXPECT_EQ(worker2().GetEndpoint(1), worker1().endpoint());
+  EXPECT_EQ(master().GetEndpoint(1), worker(1).endpoint());
+  EXPECT_EQ(master().GetEndpoint(2), worker(2).endpoint());
+  EXPECT_EQ(worker(1).GetEndpoint(0), master().endpoint());
+  EXPECT_EQ(worker(1).GetEndpoint(2), worker(2).endpoint());
+  EXPECT_EQ(worker(2).GetEndpoint(0), master().endpoint());
+  EXPECT_EQ(worker(2).GetEndpoint(1), worker(1).endpoint());
 }
 
 TEST_F(DistributedGraphDbTest, TxEngine) {
@@ -47,12 +47,12 @@ TEST_F(DistributedGraphDbTest, TxEngine) {
   auto *tx2 = master_tx_engine().Begin();
   EXPECT_EQ(tx2->snapshot().size(), 1);
   EXPECT_EQ(
-      worker1().tx_engine().RunningTransaction(tx1->id_)->snapshot().size(), 0);
-  EXPECT_EQ(worker2().tx_engine().RunningTransaction(tx2->id_)->snapshot(),
+      worker(1).tx_engine().RunningTransaction(tx1->id_)->snapshot().size(), 0);
+  EXPECT_EQ(worker(2).tx_engine().RunningTransaction(tx2->id_)->snapshot(),
             tx2->snapshot());
 
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-  EXPECT_DEATH(worker2().tx_engine().RunningTransaction(123), "");
+  EXPECT_DEATH(worker(2).tx_engine().RunningTransaction(123), "");
 }
 
 template <typename TType>
@@ -75,80 +75,27 @@ TEST_F(DistributedGraphDbTest, StorageTypes) {
   };
 
   test_mappers(mapper_vec<storage::Label>{master().label_mapper(),
-                                          worker1().label_mapper(),
-                                          worker2().label_mapper()},
+                                          worker(1).label_mapper(),
+                                          worker(2).label_mapper()},
                std::vector<storage::Label>{});
   test_mappers(mapper_vec<storage::EdgeType>{master().edge_type_mapper(),
-                                             worker1().edge_type_mapper(),
-                                             worker2().edge_type_mapper()},
+                                             worker(1).edge_type_mapper(),
+                                             worker(2).edge_type_mapper()},
                std::vector<storage::EdgeType>{});
   test_mappers(mapper_vec<storage::Property>{master().property_mapper(),
-                                             worker1().property_mapper(),
-                                             worker2().property_mapper()},
+                                             worker(1).property_mapper(),
+                                             worker(2).property_mapper()},
                std::vector<storage::Property>{});
 }
 
 TEST_F(DistributedGraphDbTest, Counters) {
   EXPECT_EQ(master().counters().Get("a"), 0);
-  EXPECT_EQ(worker1().counters().Get("a"), 1);
-  EXPECT_EQ(worker2().counters().Get("a"), 2);
+  EXPECT_EQ(worker(1).counters().Get("a"), 1);
+  EXPECT_EQ(worker(2).counters().Get("a"), 2);
 
-  EXPECT_EQ(worker1().counters().Get("b"), 0);
-  EXPECT_EQ(worker2().counters().Get("b"), 1);
+  EXPECT_EQ(worker(1).counters().Get("b"), 0);
+  EXPECT_EQ(worker(2).counters().Get("b"), 1);
   EXPECT_EQ(master().counters().Get("b"), 2);
-}
-
-TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
-  // Only old data is visible remotely, so create and commit some data.
-  gid::Gid v1_id, v2_id, e1_id;
-
-  {
-    GraphDbAccessor dba{master()};
-    auto v1 = dba.InsertVertex();
-    auto v2 = dba.InsertVertex();
-    auto e1 = dba.InsertEdge(v1, v2, dba.EdgeType("et"));
-
-    // Set some data so we see we're getting the right stuff.
-    v1.PropsSet(dba.Property("p1"), 42);
-    v1.add_label(dba.Label("label"));
-    v2.PropsSet(dba.Property("p2"), "value");
-    e1.PropsSet(dba.Property("p3"), true);
-
-    v1_id = v1.gid();
-    v2_id = v2.gid();
-    e1_id = e1.gid();
-
-    dba.Commit();
-  }
-
-  // The master must start a transaction before workers can work in it.
-  GraphDbAccessor master_dba{master()};
-
-  {
-    GraphDbAccessor w1_dba{worker1(), master_dba.transaction_id()};
-    VertexAccessor v1_in_w1{{v1_id, 0}, w1_dba};
-    EXPECT_NE(v1_in_w1.GetOld(), nullptr);
-    EXPECT_EQ(v1_in_w1.GetNew(), nullptr);
-    EXPECT_EQ(v1_in_w1.PropsAt(w1_dba.Property("p1")).Value<int64_t>(), 42);
-    EXPECT_TRUE(v1_in_w1.has_label(w1_dba.Label("label")));
-  }
-
-  {
-    GraphDbAccessor w2_dba{worker2(), master_dba.transaction_id()};
-    VertexAccessor v2_in_w2{{v2_id, 0}, w2_dba};
-    EXPECT_NE(v2_in_w2.GetOld(), nullptr);
-    EXPECT_EQ(v2_in_w2.GetNew(), nullptr);
-    EXPECT_EQ(v2_in_w2.PropsAt(w2_dba.Property("p2")).Value<std::string>(),
-              "value");
-    EXPECT_FALSE(v2_in_w2.has_label(w2_dba.Label("label")));
-
-    VertexAccessor v1_in_w2{{v1_id, 0}, w2_dba};
-    EdgeAccessor e1_in_w2{{e1_id, 0}, w2_dba};
-    EXPECT_EQ(e1_in_w2.from(), v1_in_w2);
-    EXPECT_EQ(e1_in_w2.to(), v2_in_w2);
-    EXPECT_EQ(e1_in_w2.EdgeType(), w2_dba.EdgeType("et"));
-    EXPECT_EQ(e1_in_w2.PropsAt(w2_dba.Property("p3")).Value<bool>(), true);
-  }
 }
 
 TEST_F(DistributedGraphDbTest, DispatchPlan) {
@@ -168,8 +115,8 @@ TEST_F(DistributedGraphDbTest, DispatchPlan) {
     EXPECT_EQ(cached.symbol_table.max_position(), symbol_table.max_position());
     EXPECT_EQ(cached.symbol_table.table(), symbol_table.table());
   };
-  check_for_worker(worker1());
-  check_for_worker(worker2());
+  check_for_worker(worker(1));
+  check_for_worker(worker(2));
 }
 
 TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
@@ -234,10 +181,8 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
     auto tx1_batch2 = remote_pull(dba_1, worker_id).get();
     expect_second_batch(tx1_batch2);
   }
-  master().remote_pull_clients().EndAllRemotePulls(dba_1.transaction_id(),
-                                                   plan_id);
-  master().remote_pull_clients().EndAllRemotePulls(dba_2.transaction_id(),
-                                                   plan_id);
+  for (auto tx_id : {dba_1.transaction_id(), dba_2.transaction_id()})
+    master().remote_pull_clients().EndAllRemotePulls(tx_id, plan_id);
 }
 
 TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
@@ -257,9 +202,9 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
       e12.PropsSet(prop, worker_id * 10 + 2);
     };
     create_data(dba, 0);
-    GraphDbAccessor dba_w1{worker1(), dba.transaction_id()};
+    GraphDbAccessor dba_w1{worker(1), dba.transaction_id()};
     create_data(dba_w1, 1);
-    GraphDbAccessor dba_w2{worker2(), dba.transaction_id()};
+    GraphDbAccessor dba_w2{worker(2), dba.transaction_id()};
     create_data(dba_w2, 2);
     dba.Commit();
   }
@@ -347,8 +292,8 @@ TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
     property = dba0.Property("property");
     auto tx_id = dba0.transaction_id();
 
-    GraphDbAccessor dba1{worker1(), tx_id};
-    GraphDbAccessor dba2{worker2(), tx_id};
+    GraphDbAccessor dba1{worker(1), tx_id};
+    GraphDbAccessor dba2{worker(2), tx_id};
     auto add_vertex = [label, property](GraphDbAccessor &dba) {
       auto vertex = dba.InsertVertex();
       vertex.add_label(label);
@@ -370,27 +315,27 @@ TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
   GraphDbAccessor dba_master{master()};
 
   {
-    GraphDbAccessor dba{worker1(), dba_master.transaction_id()};
+    GraphDbAccessor dba{worker(1), dba_master.transaction_id()};
     EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
     EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 50);
   }
 
   {
-    GraphDbAccessor dba{worker2(), dba_master.transaction_id()};
+    GraphDbAccessor dba{worker(2), dba_master.transaction_id()};
     EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
     EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 300);
   }
 }
 
 TEST_F(DistributedGraphDbTest, WorkerOwnedDbAccessors) {
-  GraphDbAccessor dba_w1(worker1());
+  GraphDbAccessor dba_w1(worker(1));
   auto v = dba_w1.InsertVertex();
   auto prop = dba_w1.Property("p");
   v.PropsSet(prop, 42);
   auto v_ga = v.GlobalAddress();
   dba_w1.Commit();
 
-  GraphDbAccessor dba_w2(worker2());
+  GraphDbAccessor dba_w2(worker(2));
   VertexAccessor v_in_w2{v_ga, dba_w2};
   EXPECT_EQ(v_in_w2.PropsAt(prop).Value<int64_t>(), 42);
 }
