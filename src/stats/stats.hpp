@@ -8,6 +8,10 @@
 #include "io/network/endpoint.hpp"
 #include "stats/stats_rpc_messages.hpp"
 
+DECLARE_string(statsd_address);
+DECLARE_int32(statsd_port);
+DECLARE_int32(statsd_flush_interval);
+
 namespace stats {
 
 // TODO (buda): documentation + tests
@@ -24,8 +28,7 @@ class StatsClient {
   void Log(StatsReq req);
 
   void Start(const io::network::Endpoint &endpoint);
-
-  ~StatsClient();
+  void Stop();
 
  private:
   ConcurrentPushQueue<StatsReq> queue_;
@@ -38,5 +41,6 @@ class StatsClient {
 // TODO (buda): ON/OFF compile OR runtime parameter?
 
 void InitStatsLogging();
+void StopStatsLogging();
 void LogStat(const std::string &metric_path, double value,
              const std::vector<std::pair<std::string, std::string>> &tags = {});

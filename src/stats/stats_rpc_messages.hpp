@@ -37,6 +37,26 @@ struct StatsReq : public communication::rpc::Message {
 
 RPC_NO_MEMBER_MESSAGE(StatsRes);
 
+struct BatchStatsReq : public communication::rpc::Message {
+  BatchStatsReq() {}
+  BatchStatsReq(std::vector<StatsReq> requests) : requests(requests) {}
+
+  std::vector<StatsReq> requests;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<communication::rpc::Message>(*this);
+    ar &requests;
+  }
+};
+
+RPC_NO_MEMBER_MESSAGE(BatchStatsRes);
+
 using StatsRpc = communication::rpc::RequestResponse<StatsReq, StatsRes>;
+using BatchStatsRpc =
+    communication::rpc::RequestResponse<BatchStatsReq, BatchStatsRes>;
 
 }  // namespace stats

@@ -78,3 +78,5 @@ BOOST_CLASS_EXPORT(distributed::IndexLabelPropertyTx);
 // Stats.
 BOOST_CLASS_EXPORT(stats::StatsReq);
 BOOST_CLASS_EXPORT(stats::StatsRes);
+BOOST_CLASS_EXPORT(stats::BatchStatsReq);
+BOOST_CLASS_EXPORT(stats::BatchStatsRes);
