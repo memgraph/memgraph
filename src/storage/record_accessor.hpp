@@ -122,6 +122,18 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   bool Reconstruct() const;
 
   /**
+   * Ensures there is an updateable version of the record in the version_list,
+   * and that the `new_` pointer points to it. Returns a reference to that
+   * version.
+   *
+   * It is not legal to call this function on a Vertex/Edge that has been
+   * deleted in the current transaction+command.
+   *
+   * @throws RecordDeletedError
+   */
+  TRecord &update() const;
+
+  /**
    * Returns true if the given accessor is visible to the given transaction.
    *
    * @param current_state If true then the graph state for the
@@ -134,6 +146,14 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
            (current_state && new_ && !new_->is_expired_by(t));
   }
 
+  /**
+   * Processes the delta that's a consequence of changes in this accessor. If
+   * the accessor is local that means writing the delta to the write-ahead log.
+   * If it's remote, then the delta needs to be sent to it's owner for
+   * processing.
+   */
+  void ProcessDelta(const database::StateDelta &delta) const;
+
  protected:
   /**
    * Pointer to the version (either old_ or new_) that READ operations
@@ -145,18 +165,6 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
    */
   mutable TRecord *current_{nullptr};
 
-  /**
-   * Ensures there is an updateable version of the record in the version_list,
-   * and that the `new_` pointer points to it. Returns a reference to that
-   * version.
-   *
-   * It is not legal to call this function on a Vertex/Edge that has been
-   * deleted in the current transaction+command.
-   *
-   * @throws RecordDeletedError
-   */
-  TRecord &update() const;
-
   /** Returns the current version (either new_ or old_) set on this
    * RecordAccessor. */
   const TRecord &current() const;
@@ -164,14 +172,6 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   /** Indicates if this accessor represents a local Vertex/Edge, or one whose
    * owner is some other worker in a distributed system. */
   bool is_local() const { return address_.is_local(); }
-
-  /**
-   * Processes the delta that's a consequence of changes in this accessor. If
-   * the accessor is local that means writing the delta to the write-ahead log.
-   * If it's remote, then the delta needs to be sent to it's owner for
-   * processing.
-   */
-  void ProcessDelta(const database::StateDelta &delta) const;
 
  private:
   // The database accessor for which this record accessor is created
@@ -212,5 +212,9 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
 
 /** Error when trying to update a deleted record */
 class RecordDeletedError : public utils::BasicException {
-  using utils::BasicException::BasicException;
+ public:
+  RecordDeletedError()
+      : utils::BasicException(
+            "Can't update a record deleted in the current transaction+commad") {
+  }
 };

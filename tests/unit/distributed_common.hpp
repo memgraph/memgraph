@@ -11,7 +11,7 @@ class DistributedGraphDbTest : public ::testing::Test {
 
   class WorkerInThread {
    public:
-    WorkerInThread(database::Config config) : worker_(config) {
+    explicit WorkerInThread(database::Config config) : worker_(config) {
       thread_ = std::thread([this, config] { worker_.WaitForShutdown(); });
     }
 

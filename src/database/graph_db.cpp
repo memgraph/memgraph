@@ -11,6 +11,8 @@
 #include "distributed/remote_data_rpc_server.hpp"
 #include "distributed/remote_produce_rpc_server.hpp"
 #include "distributed/remote_pull_rpc_clients.hpp"
+#include "distributed/remote_updates_rpc_clients.hpp"
+#include "distributed/remote_updates_rpc_server.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
@@ -108,14 +110,26 @@ class SingleNode : public PrivateBase {
   distributed::PlanConsumer &plan_consumer() override {
     LOG(FATAL) << "Plan Consumer not available in single-node.";
   }
+  distributed::RemoteUpdatesRpcServer &remote_updates_server() override {
+    LOG(FATAL) << "Remote updates server not available in single-node.";
+  }
+  distributed::RemoteUpdatesRpcClients &remote_updates_clients() override {
+    LOG(FATAL) << "Remote updates clients not available in single-node.";
+  }
 };
 
-#define IMPL_DISTRIBUTED_GETTERS                                      \
-  distributed::RemoteDataRpcServer &remote_data_server() override {   \
-    return remote_data_server_;                                       \
-  }                                                                   \
-  distributed::RemoteDataRpcClients &remote_data_clients() override { \
-    return remote_data_clients_;                                      \
+#define IMPL_DISTRIBUTED_GETTERS                                            \
+  distributed::RemoteDataRpcServer &remote_data_server() override {         \
+    return remote_data_server_;                                             \
+  }                                                                         \
+  distributed::RemoteDataRpcClients &remote_data_clients() override {       \
+    return remote_data_clients_;                                            \
+  }                                                                         \
+  distributed::RemoteUpdatesRpcServer &remote_updates_server() override {   \
+    return remote_updates_server_;                                          \
+  }                                                                         \
+  distributed::RemoteUpdatesRpcClients &remote_updates_clients() override { \
+    return remote_updates_clients_;                                         \
   }
 
 class Master : public PrivateBase {
@@ -148,6 +162,8 @@ class Master : public PrivateBase {
   distributed::RemotePullRpcClients remote_pull_clients_{coordination_};
   distributed::RpcWorkerClients index_rpc_clients_{coordination_,
                                                    distributed::kIndexRpcName};
+  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, system_};
+  distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
 };
 
 class Worker : public PrivateBase {
@@ -179,6 +195,8 @@ class Worker : public PrivateBase {
   distributed::RemoteProduceRpcServer remote_produce_server_{*this, system_,
                                                              plan_consumer_};
   distributed::IndexRpcServer index_rpc_server_{*this, system_};
+  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, system_};
+  distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
 };
 
 #undef IMPL_GETTERS
@@ -240,6 +258,12 @@ distributed::RemotePullRpcClients &PublicBase::remote_pull_clients() {
 }
 distributed::RemoteProduceRpcServer &PublicBase::remote_produce_server() {
   return impl_->remote_produce_server();
+}
+distributed::RemoteUpdatesRpcServer &PublicBase::remote_updates_server() {
+  return impl_->remote_updates_server();
+}
+distributed::RemoteUpdatesRpcClients &PublicBase::remote_updates_clients() {
+  return impl_->remote_updates_clients();
 }
 
 void PublicBase::MakeSnapshot() {

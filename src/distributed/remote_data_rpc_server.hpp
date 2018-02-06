@@ -17,7 +17,7 @@ class RemoteDataRpcServer {
   // invalidation.
  public:
   RemoteDataRpcServer(database::GraphDb &db, communication::rpc::System &system)
-      : db_(db), system_(system) {
+      : db_(db), rpc_server_(system, kRemoteDataRpcName) {
     rpc_server_.Register<RemoteVertexRpc>([this](const RemoteVertexReq &req) {
       database::GraphDbAccessor dba(db_, req.member.tx_id);
       auto vertex = dba.FindVertexChecked(req.member.gid, false);
@@ -36,7 +36,6 @@ class RemoteDataRpcServer {
 
  private:
   database::GraphDb &db_;
-  communication::rpc::System &system_;
-  communication::rpc::Server rpc_server_{system_, kRemoteDataRpcName};
+  communication::rpc::Server rpc_server_;
 };
 }  // namespace distributed

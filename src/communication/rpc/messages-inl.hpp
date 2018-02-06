@@ -4,11 +4,13 @@
 #include "boost/archive/binary_oarchive.hpp"
 #include "boost/serialization/export.hpp"
 
+#include "database/state_delta.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
 #include "distributed/index_rpc_messages.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "distributed/remote_data_rpc_messages.hpp"
 #include "distributed/remote_pull_produce_rpc_messages.hpp"
+#include "distributed/remote_updates_rpc_messages.hpp"
 #include "stats/stats_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
@@ -24,7 +26,6 @@ ID_VALUE_EXPORT_BOOST_TYPE(EdgeType)
 ID_VALUE_EXPORT_BOOST_TYPE(Property)
 
 #undef ID_VALUE_EXPORT_BOOST_TYPE
-
 
 // Distributed transaction engine.
 BOOST_CLASS_EXPORT(tx::TxAndSnapshot);
@@ -80,3 +81,8 @@ BOOST_CLASS_EXPORT(stats::StatsReq);
 BOOST_CLASS_EXPORT(stats::StatsRes);
 BOOST_CLASS_EXPORT(stats::BatchStatsReq);
 BOOST_CLASS_EXPORT(stats::BatchStatsRes);
+
+// Remote updates.
+BOOST_CLASS_EXPORT(database::StateDelta);
+BOOST_CLASS_EXPORT(distributed::RemoteUpdateReq);
+BOOST_CLASS_EXPORT(distributed::RemoteUpdateRes);

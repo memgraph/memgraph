@@ -6,6 +6,7 @@
 #include "durability/hashed_file_writer.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
+#include "utils/serialization.hpp"
 
 namespace database {
 /** Describes single change to the database state. Used for durability (WAL) and
@@ -107,5 +108,44 @@ struct StateDelta {
   PropertyValue value = PropertyValue::Null;
   storage::Label label;
   std::string label_name;
+
+ private:
+  friend class boost::serialization::access;
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &type;
+    ar &transaction_id;
+    ar &vertex_id;
+    ar &edge_id;
+    ar &vertex_from_id;
+    ar &vertex_to_id;
+    ar &edge_type;
+    ar &edge_type_name;
+    ar &property;
+    ar &property_name;
+    utils::SaveTypedValue(ar, value);
+    ar &label;
+    ar &label_name;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &type;
+    ar &transaction_id;
+    ar &vertex_id;
+    ar &edge_id;
+    ar &vertex_from_id;
+    ar &vertex_to_id;
+    ar &edge_type;
+    ar &edge_type_name;
+    ar &property;
+    ar &property_name;
+    query::TypedValue tv;
+    utils::LoadTypedValue(ar, tv);
+    value = tv;
+    ar &label;
+    ar &label_name;
+  }
 };
 }  // namespace database

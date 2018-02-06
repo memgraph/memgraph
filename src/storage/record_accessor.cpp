@@ -2,9 +2,11 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
+#include "distributed/remote_updates_rpc_clients.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
+#include "threading/sync/lock_timeout_exception.hpp"
 
 using database::StateDelta;
 
@@ -160,14 +162,10 @@ TRecord &RecordAccessor<TRecord>::update() const {
   }
 
   const auto &t = db_accessor_->transaction();
-  {
-    const std::string err =
-        "Can't update a record deleted in the current transaction+commad";
-    if (!new_ && old_->is_expired_by(t))
-      throw RecordDeletedError(err);
-    else if (new_ && new_->is_expired_by(t))
-      throw RecordDeletedError(err);
-  }
+  if (!new_ && old_->is_expired_by(t))
+    throw RecordDeletedError();
+  else if (new_ && new_->is_expired_by(t))
+    throw RecordDeletedError();
 
   if (new_) return *new_;
 
@@ -227,8 +225,18 @@ void RecordAccessor<TRecord>::ProcessDelta(
   if (is_local()) {
     db_accessor().wal().Emplace(delta);
   } else {
-    // TODO use the delta to perform a remote update.
-    // TODO check for results (success, serialization_error, ...)
+    auto result = db_accessor().db().remote_updates_clients().RemoteUpdate(
+        address().worker_id(), delta);
+    switch (result) {
+      case distributed::RemoteUpdateResult::DONE:
+        break;
+      case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
+        throw mvcc::SerializationError();
+      case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:
+        throw RecordDeletedError();
+      case distributed::RemoteUpdateResult::LOCK_TIMEOUT_ERROR:
+        throw LockTimeoutException("Lock timeout on remote worker");
+    }
   }
 }
 
