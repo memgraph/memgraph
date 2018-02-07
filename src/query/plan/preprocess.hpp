@@ -30,6 +30,15 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Reduce &reduce) override {
+    // Remove the symbols bound by reduce, because we are only interested
+    // in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*reduce.accumulator_));
+    symbols_.erase(symbol_table_.at(*reduce.identifier_));
+    return true;
+  }
+
+
   bool Visit(Identifier &ident) override {
     symbols_.insert(symbol_table_.at(ident));
     return true;

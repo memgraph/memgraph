@@ -678,6 +678,30 @@ Feature: Functions
             """
         Then an error should be raised
 
+    Scenario: Reduce test 01:
+        When executing query:
+            """
+            RETURN reduce(a = true, x IN [1, 2, '3'] | a AND x < 2) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: Reduce test 02:
+        When executing query:
+            """
+            RETURN reduce(s = 0, x IN [1, 2, 3] | s + x) AS s
+            """
+        Then the result should be:
+            | s |
+            | 6 |
+
+    Scenario: Reduce test 03:
+        When executing query:
+            """
+            RETURN reduce(a = true, x IN [true, true, '3'] | a AND x) AS a
+            """
+        Then an error should be raised
 
     Scenario: Assert test fail, no message:
         Given an empty graph

@@ -795,6 +795,36 @@ TEST_F(TestSymbolGenerator, WithReturnAll) {
   EXPECT_NE(symbol_table.at(*all->identifier_), symbol_table.at(*ret_as_x));
 }
 
+TEST_F(TestSymbolGenerator, WithReturnReduce) {
+  // Test WITH 42 AS x RETURN reduce(y = 0, x IN [x] y + x) AS x, x AS y
+  auto *with_as_x = AS("x");
+  auto *list_x = IDENT("x");
+  auto *expr_x = IDENT("x");
+  auto *expr_y = IDENT("y");
+  auto *reduce =
+      REDUCE("y", LITERAL(0), "x", LIST(list_x), ADD(expr_y, expr_x));
+  auto *ret_as_x = AS("x");
+  auto *ret_x = IDENT("x");
+  auto *ret_as_y = AS("y");
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x),
+                                  RETURN(reduce, ret_as_x, ret_x, ret_as_y)));
+  query->Accept(symbol_generator);
+  // Symbols for `WITH .. AS x`, `REDUCE(y, x ...)`, `REDUCE(...) AS x` and `AS
+  // y`.
+  EXPECT_EQ(symbol_table.max_position(), 5);
+  // Check `WITH .. AS x` is the same as `[x]` and `RETURN ... x AS y`
+  EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*list_x));
+  EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*ret_x));
+  EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*reduce->identifier_));
+  EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*ret_as_x));
+  // Check `REDUCE(y, x ...)` is only equal to `y + x`
+  EXPECT_EQ(symbol_table.at(*reduce->identifier_), symbol_table.at(*expr_x));
+  EXPECT_NE(symbol_table.at(*reduce->identifier_), symbol_table.at(*ret_as_x));
+  EXPECT_EQ(symbol_table.at(*reduce->accumulator_), symbol_table.at(*expr_y));
+  EXPECT_NE(symbol_table.at(*reduce->accumulator_), symbol_table.at(*ret_as_y));
+}
+
+
 TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   // Test MATCH (n) -[r *bfs..n.prop] (r, n | r.prop)]-> (m) RETURN r AS r
   auto prop = dba.Property("prop");

@@ -550,6 +550,7 @@ functions.
  `endsWith`      | Check if the first argument ends with the second.
  `contains`      | Check if the first argument has an element which is equal to the second argument.
  `all`           | Check if all elements of a list satisfy a predicate.<br/>The syntax is: `all(variable IN list WHERE predicate)`.<br/> NOTE: Whenever possible, use Memgraph's lambda functions when [matching](#filtering-variable-length-paths) instead.
+ `reduce`        | Accumulate list elements into a single result by applying an expression. The syntax is:<br/>`reduce(accumulator = initial_value, variable IN list | expression)`.
  `assert`        | Raises an exception reported to the client if the given argument is not `true`.
  `counter`       | Generates integers that are guaranteed to be unique on the database level, for the given counter name.
  `counterSet`    | Sets the counter with the given name to the given value.

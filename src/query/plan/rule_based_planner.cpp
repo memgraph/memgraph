@@ -210,6 +210,23 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Reduce &reduce) override {
+    // Remove the symbols bound by reduce, because we are only interested
+    // in free (unbound) symbols.
+    used_symbols_.erase(symbol_table_.at(*reduce.accumulator_));
+    used_symbols_.erase(symbol_table_.at(*reduce.identifier_));
+    DCHECK(has_aggregation_.size() >= 5U)
+        << "Expected 5 has_aggregation_ flags for REDUCE arguments";
+    bool has_aggr = false;
+    for (int i = 0; i < 5; ++i) {
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
+
   bool Visit(Identifier &ident) override {
     const auto &symbol = symbol_table_.at(ident);
     if (!utils::Contains(output_symbols_, symbol)) {

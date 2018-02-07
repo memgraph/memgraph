@@ -333,6 +333,15 @@ bool SymbolGenerator::PreVisit(All &all) {
   return false;
 }
 
+bool SymbolGenerator::PreVisit(Reduce &reduce) {
+  reduce.initializer_->Accept(*this);
+  reduce.list_->Accept(*this);
+  VisitWithIdentifiers(*reduce.expression_,
+                       {reduce.accumulator_, reduce.identifier_});
+  return false;
+}
+
+
 // Pattern and its subparts.
 
 bool SymbolGenerator::PreVisit(Pattern &pattern) {

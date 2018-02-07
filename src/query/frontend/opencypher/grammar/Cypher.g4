@@ -187,6 +187,7 @@ atom : literal
      | patternComprehension
      | ( FILTER SP? '(' SP? filterExpression SP? ')' )
      | ( EXTRACT SP? '(' SP? filterExpression SP? ( SP? '|' expression )? ')' )
+     | ( REDUCE SP? '(' SP? reduceExpression SP? ')' )
      | ( ALL SP? '(' SP? filterExpression SP? ')' )
      | ( ANY SP? '(' SP? filterExpression SP? ')' )
      | ( NONE SP? '(' SP? filterExpression SP? ')' )
@@ -225,6 +226,8 @@ parenthesizedExpression : '(' SP? expression SP? ')' ;
 relationshipsPattern : nodePattern ( SP? patternElementChain )+ ;
 
 filterExpression : idInColl ( SP? where )? ;
+
+reduceExpression : accumulator=variable SP? '=' SP? initial=expression SP? ',' SP? idInColl SP? '|' SP? expression ;
 
 idInColl : variable SP IN SP expression ;
 
@@ -327,6 +330,7 @@ symbolicName : UnescapedSymbolicName
              | EscapedSymbolicName
              | UNION
              | ALL
+             | REDUCE
              | OPTIONAL
              | MATCH
              | UNWIND
@@ -379,6 +383,8 @@ symbolicName : UnescapedSymbolicName
 UNION : ( 'U' | 'u' ) ( 'N' | 'n' ) ( 'I' | 'i' ) ( 'O' | 'o' ) ( 'N' | 'n' )  ;
 
 ALL : ( 'A' | 'a' ) ( 'L' | 'l' ) ( 'L' | 'l' )  ;
+
+REDUCE : ( 'R' | 'r' ) ( 'E' | 'e' ) ( 'D' | 'd' ) ( 'U' | 'u' ) ( 'C' | 'c' ) ( 'E' | 'e' ) ;
 
 OPTIONAL : ( 'O' | 'o' ) ( 'P' | 'p' ) ( 'T' | 't' ) ( 'I' | 'i' ) ( 'O' | 'o' ) ( 'N' | 'n' ) ( 'A' | 'a' ) ( 'L' | 'l' )  ;
 

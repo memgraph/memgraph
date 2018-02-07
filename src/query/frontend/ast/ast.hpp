@@ -1391,6 +1391,81 @@ class Aggregation : public BinaryOperator {
                                                         const unsigned int);
 };
 
+class Reduce : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      accumulator_->Accept(visitor) && initializer_->Accept(visitor) &&
+          identifier_->Accept(visitor) && list_->Accept(visitor) &&
+          expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Reduce *Clone(AstTreeStorage &storage) const override {
+    return storage.Create<Reduce>(
+        accumulator_->Clone(storage), initializer_->Clone(storage),
+        identifier_->Clone(storage), list_->Clone(storage),
+        expression_->Clone(storage));
+  }
+  // None of these should be nullptr after construction.
+
+  /// Identifier for the accumulating variable
+  Identifier *accumulator_ = nullptr;
+  /// Expression which produces the initial accumulator value.
+  Expression *initializer_ = nullptr;
+  /// Identifier for the list element.
+  Identifier *identifier_ = nullptr;
+  /// Expression which produces a list which will be reduced.
+  Expression *list_ = nullptr;
+  /// Expression which does the reduction, i.e. produces the new accumulator
+  /// value.
+  Expression *expression_ = nullptr;
+
+ protected:
+  Reduce(int uid, Identifier *accumulator, Expression *initializer,
+         Identifier *identifier, Expression *list, Expression *expression)
+      : Expression(uid),
+        accumulator_(accumulator),
+        initializer_(initializer),
+        identifier_(identifier),
+        list_(list),
+        expression_(expression) {}
+
+ private:
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar << boost::serialization::base_object<Expression>(*this);
+    SavePointer(ar, accumulator_);
+    SavePointer(ar, initializer_);
+    SavePointer(ar, identifier_);
+    SavePointer(ar, list_);
+    SavePointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar >> boost::serialization::base_object<Expression>(*this);
+    LoadPointer(ar, accumulator_);
+    LoadPointer(ar, initializer_);
+    LoadPointer(ar, identifier_);
+    LoadPointer(ar, list_);
+    LoadPointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &, Reduce *,
+                                                        const unsigned int);
+};
+
+// TODO: Think about representing All and Any as Reduce.
 class All : public Expression {
   friend class AstTreeStorage;
 
@@ -2847,6 +2922,8 @@ LOAD_AND_CONSTRUCT(query::LabelsTest, 0, nullptr,
 LOAD_AND_CONSTRUCT(query::Function, 0);
 LOAD_AND_CONSTRUCT(query::Aggregation, 0, nullptr, nullptr,
                    query::Aggregation::Op::COUNT);
+LOAD_AND_CONSTRUCT(query::Reduce, 0, nullptr, nullptr, nullptr, nullptr,
+                   nullptr);
 LOAD_AND_CONSTRUCT(query::All, 0, nullptr, nullptr, nullptr);
 LOAD_AND_CONSTRUCT(query::ParameterLookup, 0);
 LOAD_AND_CONSTRUCT(query::NamedExpression, 0);
@@ -2906,6 +2983,7 @@ BOOST_CLASS_EXPORT_KEY(query::PropertyLookup);
 BOOST_CLASS_EXPORT_KEY(query::LabelsTest);
 BOOST_CLASS_EXPORT_KEY(query::Aggregation);
 BOOST_CLASS_EXPORT_KEY(query::Function);
+BOOST_CLASS_EXPORT_KEY(query::Reduce);
 BOOST_CLASS_EXPORT_KEY(query::All);
 BOOST_CLASS_EXPORT_KEY(query::ParameterLookup);
 BOOST_CLASS_EXPORT_KEY(query::Create);

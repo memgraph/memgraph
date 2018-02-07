@@ -1221,6 +1221,24 @@ TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
   EXPECT_THROW(all->Accept(eval.eval), QueryRuntimeException);
 }
 
+TEST(ExpressionEvaluator, FunctionReduce) {
+  AstTreeStorage storage;
+  auto *ident_sum = IDENT("sum");
+  auto *ident_x = IDENT("x");
+  auto *reduce = REDUCE("sum", LITERAL(0), "x", LIST(LITERAL(1), LITERAL(2)),
+                        ADD(ident_sum, ident_x));
+  NoContextExpressionEvaluator eval;
+  const auto sum_sym = eval.symbol_table.CreateSymbol("sum", true);
+  eval.symbol_table[*reduce->accumulator_] = sum_sym;
+  eval.symbol_table[*ident_sum] = sum_sym;
+  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
+  eval.symbol_table[*reduce->identifier_] = x_sym;
+  eval.symbol_table[*ident_x] = x_sym;
+  auto value = reduce->Accept(eval.eval);
+  ASSERT_EQ(value.type(), TypedValue::Type::Int);
+  EXPECT_EQ(value.Value<int64_t>(), 3);
+}
+
 TEST(ExpressionEvaluator, FunctionAssert) {
   // Invalid calls.
   ASSERT_THROW(EvaluateFunction("ASSERT", {}), QueryRuntimeException);

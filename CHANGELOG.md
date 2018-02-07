@@ -3,6 +3,7 @@
 ## Next Release
 
 * Snapshot format changed (not backward compatible).
+* `reduce` function added.
 
 ## v0.9.0
 

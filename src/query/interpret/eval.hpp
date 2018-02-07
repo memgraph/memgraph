@@ -354,6 +354,27 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return function.function()(arguments, db_accessor_);
   }
 
+  TypedValue Visit(Reduce &reduce) override {
+    auto list_value = reduce.list_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue::Null;
+    }
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("'REDUCE' expected a list, but got {}",
+                                  list_value.type());
+    }
+    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &element_symbol = symbol_table_.at(*reduce.identifier_);
+    const auto &accumulator_symbol = symbol_table_.at(*reduce.accumulator_);
+    auto accumulator = reduce.initializer_->Accept(*this);
+    for (const auto &element : list) {
+      frame_[accumulator_symbol] = accumulator;
+      frame_[element_symbol] = element;
+      accumulator = reduce.expression_->Accept(*this);
+    }
+    return accumulator;
+  }
+
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
     if (list_value.IsNull()) {

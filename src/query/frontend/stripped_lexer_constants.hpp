@@ -86,7 +86,8 @@ const trie::Trie kKeywords = {
     "where",   "or",    "xor",       "and",    "not",        "in",
     "starts",  "ends",  "contains",  "is",     "null",       "case",
     "when",    "then",  "else",      "end",    "count",      "filter",
-    "extract", "any",   "none",      "single", "true",       "false"};
+    "extract", "any",   "none",      "single", "true",       "false",
+    "reduce"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(std::string(

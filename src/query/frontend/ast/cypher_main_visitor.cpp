@@ -865,6 +865,21 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
     Where *where = ctx->filterExpression()->where()->accept(this);
     return static_cast<Expression *>(
         storage_.Create<All>(ident, list_expr, where));
+  } else if (ctx->REDUCE()) {
+    auto *accumulator = storage_.Create<Identifier>(
+        ctx->reduceExpression()->accumulator->accept(this).as<std::string>());
+    Expression *initializer = ctx->reduceExpression()->initial->accept(this);
+    auto *ident = storage_.Create<Identifier>(ctx->reduceExpression()
+                                                  ->idInColl()
+                                                  ->variable()
+                                                  ->accept(this)
+                                                  .as<std::string>());
+    Expression *list =
+        ctx->reduceExpression()->idInColl()->expression()->accept(this);
+    Expression *expr =
+        ctx->reduceExpression()->expression().back()->accept(this);
+    return static_cast<Expression *>(
+        storage_.Create<Reduce>(accumulator, initializer, ident, list, expr));
   } else if (ctx->caseExpression()) {
     return static_cast<Expression *>(ctx->caseExpression()->accept(this));
   }

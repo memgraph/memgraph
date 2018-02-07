@@ -1563,6 +1563,27 @@ TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
   EXPECT_TRUE(eq);
 }
 
+TYPED_TEST(CypherMainVisitorTest, ReturnReduce) {
+  TypeParam ast_generator("RETURN reduce(sum = 0, x IN [1,2,3] | sum + x)");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *ret = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_TRUE(ret);
+  ASSERT_EQ(ret->body_.named_expressions.size(), 1U);
+  auto *reduce =
+      dynamic_cast<Reduce *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(reduce);
+  EXPECT_EQ(reduce->accumulator_->name_, "sum");
+  CheckLiteral(ast_generator.context_, reduce->initializer_, 0);
+  EXPECT_EQ(reduce->identifier_->name_, "x");
+  auto *list_literal = dynamic_cast<ListLiteral *>(reduce->list_);
+  EXPECT_TRUE(list_literal);
+  auto *add = dynamic_cast<AdditionOperator *>(reduce->expression_);
+  EXPECT_TRUE(add);
+}
+
 TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   TypeParam ast_generator(
       "MATCH (n) -[r:type1|type2 *bfs..10 (e, n|e.prop = 42)]-> (m) RETURN r");
