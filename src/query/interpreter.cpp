@@ -89,16 +89,18 @@ Interpreter::Results Interpreter::operator()(
           ctx.symbol_table_, std::move(ast_storage));
     }
 
-    if (FLAGS_query_plan_cache) {
-      plan = plan_cache_.access().insert(stripped.hash(), plan).first->second;
-    }
-
     // Dispatch plans to workers (if we have any for them).
     if (plan->distributed_plan().worker_plan) {
       auto &dispatcher = db_accessor.db().plan_dispatcher();
       dispatcher.DispatchPlan(plan->distributed_plan().plan_id,
                               plan->distributed_plan().worker_plan,
                               plan->symbol_table());
+    }
+
+    if (FLAGS_query_plan_cache) {
+      // TODO: If the same plan was already cached, invalidate the dispatched
+      // plan (above) from workers.
+      plan = plan_cache_.access().insert(stripped.hash(), plan).first->second;
     }
   }
 
