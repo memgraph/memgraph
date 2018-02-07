@@ -5,6 +5,17 @@
 #include "gflags/gflags.h"
 
 #include "long_running_common.hpp"
+#include "stats/stats.hpp"
+
+// TODO(mtomic): this sucks but I don't know a different way to make it work
+#include "boost/archive/binary_iarchive.hpp"
+#include "boost/archive/binary_oarchive.hpp"
+#include "boost/serialization/export.hpp"
+BOOST_CLASS_EXPORT(stats::StatsReq);
+BOOST_CLASS_EXPORT(stats::StatsRes);
+BOOST_CLASS_EXPORT(stats::BatchStatsReq);
+BOOST_CLASS_EXPORT(stats::BatchStatsRes);
+
 
 class CardFraudClient : public TestClient {
  public:
@@ -97,6 +108,8 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
+  InitStatsLogging();
+
   nlohmann::json config;
   std::cin >> config;
 
@@ -106,6 +119,8 @@ int main(int argc, char **argv) {
   CreateIndex(client, "Pos", "id");
   CreateIndex(client, "Transaction", "fraud_reported");
 
+  LOG(INFO) << "Done building indexes.";
+
   std::vector<std::unique_ptr<TestClient>> clients;
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     clients.emplace_back(std::make_unique<CardFraudClient>(i, num_pos, config));
@@ -113,6 +128,7 @@ int main(int argc, char **argv) {
 
   RunMultithreadedTest(clients);
 
-  return 0;
+  StopStatsLogging();
 
+  return 0;
 }

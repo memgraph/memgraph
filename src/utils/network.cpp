@@ -3,6 +3,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 
+#include <climits>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -39,6 +41,14 @@ std::string ResolveHostname(std::string hostname) {
 
   freeaddrinfo(servinfo);
   return address;
+}
+
+/// Gets hostname
+std::experimental::optional<std::string> GetHostname() {
+  char hostname[HOST_NAME_MAX + 1];
+  int result = gethostname(hostname, sizeof(hostname));
+  if (result) return std::experimental::nullopt;
+  return std::string(hostname);
 }
 
 };  // namespace utils

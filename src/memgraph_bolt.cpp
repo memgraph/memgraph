@@ -167,6 +167,7 @@ int main(int argc, char **argv) {
   std::set_terminate(&terminate_handler);
 
   InitStatsLogging();
+  utils::OnScopeExit stop_stats([] { StopStatsLogging(); });
 
   CHECK(!(FLAGS_master && FLAGS_worker))
       << "Can't run Memgraph as worker and master at the same time";

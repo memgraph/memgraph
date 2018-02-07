@@ -1,8 +1,12 @@
+#pragma once
+
 #include "json/json.hpp"
 
 #include "bolt_client.hpp"
 #include "common.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "stats/stats.hpp"
+#include "utils/network.hpp"
 #include "utils/timer.hpp"
 
 const int MAX_RETRIES = 30;
@@ -14,6 +18,9 @@ DEFINE_string(output, "", "Output file");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_int32(duration, 30, "Number of seconds to execute benchmark");
+
+DEFINE_string(group, "unknown", "Test group name");
+DEFINE_string(scenario, "unknown", "Test scenario name");
 
 class TestClient {
  public:
@@ -78,6 +85,13 @@ class TestClient {
 };
 
 void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
+  static const auto HOSTNAME =
+      utils::GetHostname().value_or("unknown_hostname");
+  static const auto TEST_PREFIX = fmt::format("{}.long_running.{}.{}", HOSTNAME,
+                                              FLAGS_group, FLAGS_scenario);
+  static const auto EXECUTED_QUERIES =
+      fmt::format("{}.executed_queries", TEST_PREFIX);
+
   CHECK((int)clients.size() == FLAGS_num_workers);
 
   // Open stream for writing stats.
@@ -120,10 +134,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
     // little bit chaotic. Think about refactoring this part to only use json
     // and write DecodedValue to json converter.
     const std::vector<std::string> fields = {
-        "wall_time",
-        "parsing_time",
-        "planning_time",
-        "plan_execution_time",
+        "wall_time", "parsing_time", "planning_time", "plan_execution_time",
     };
     for (const auto &query_stats : stats) {
       std::map<std::string, double> new_aggregated_query_stats;
@@ -150,16 +161,17 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
       }
     }
 
+    LogStat(EXECUTED_QUERIES, executed_queries);
+
     out << "{\"num_executed_queries\": " << executed_queries << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
-    utils::PrintIterable(
-        out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
-          stream << "{\"query\": " << nlohmann::json(x.first)
-                 << ", \"stats\": ";
-          PrintJsonDecodedValue(stream, DecodedValue(x.second));
-          stream << "}";
-        });
+    utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream,
+                                                         const auto &x) {
+      stream << "{\"query\": " << nlohmann::json(x.first) << ", \"stats\": ";
+      PrintJsonDecodedValue(stream, DecodedValue(x.second));
+      stream << "}";
+    });
     out << "]}" << std::endl;
     out.flush();
     std::this_thread::sleep_for(1s);

@@ -3,12 +3,15 @@
 #include "communication/rpc/server.hpp"
 #include "io/network/socket.hpp"
 #include "stats/stats.hpp"
+#include "utils/flag_validation.hpp"
 
-DEFINE_string(address, "", "address");
-DEFINE_int32(port, 2500, "port");
+DEFINE_string(interface, "0.0.0.0",
+              "Communication interface on which to listen.");
+DEFINE_VALIDATED_int32(port, 2500, "Communication port on which to listen.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 
-DEFINE_string(graphite_address, "", "Graphite address");
-DEFINE_int32(graphite_port, 0, "port");
+DEFINE_string(graphite_address, "", "Graphite address.");
+DEFINE_int32(graphite_port, 0, "Graphite port.");
 
 std::string GraphiteFormat(const stats::StatsReq &req) {
   std::stringstream sstr;
@@ -23,7 +26,7 @@ std::string GraphiteFormat(const stats::StatsReq &req) {
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::rpc::System system({FLAGS_address, (uint16_t)FLAGS_port});
+  communication::rpc::System system({FLAGS_interface, (uint16_t)FLAGS_port});
   communication::rpc::Server server(system, "stats");
 
   io::network::Socket graphite_socket;
@@ -40,7 +43,7 @@ int main(int argc, char *argv[]) {
   });
 
   server.Register<stats::BatchStatsRpc>([&](const stats::BatchStatsReq &req) {
-    // TODO(mtomic): batching? 
+    // TODO(mtomic): batching?
     for (size_t i = 0; i < req.requests.size(); ++i) {
       std::string data = GraphiteFormat(req.requests[i]);
       graphite_socket.Write(data, i + 1 < req.requests.size());
