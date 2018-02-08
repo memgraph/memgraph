@@ -26,8 +26,11 @@ constexpr int kDefaultBatchSize = 20;
 enum class RemotePullState {
   CURSOR_EXHAUSTED,
   CURSOR_IN_PROGRESS,
-  SERIALIZATION_ERROR  // future-proofing for full CRUD
-                       // TODO in full CRUD other errors
+  SERIALIZATION_ERROR,
+  LOCK_TIMEOUT_ERROR,
+  UPDATE_DELETED_ERROR,
+  RECONSTRUCTION_ERROR,
+  QUERY_ERROR
 };
 
 const std::string kRemotePullProduceRpcName = "RemotePullProduceRpc";

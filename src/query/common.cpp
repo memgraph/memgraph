@@ -180,4 +180,37 @@ std::string ParseParameter(const std::string &s) {
   }
   return out;
 }
+
+void ReconstructTypedValue(TypedValue &value) {
+  using Type = TypedValue::Type;
+  switch (value.type()) {
+    case Type::Vertex:
+      if (!value.ValueVertex().Reconstruct()) throw ReconstructionException();
+      break;
+    case Type::Edge:
+      if (!value.ValueEdge().Reconstruct()) throw ReconstructionException();
+      break;
+    case Type::List:
+      for (TypedValue &inner_value : value.Value<std::vector<TypedValue>>())
+        ReconstructTypedValue(inner_value);
+      break;
+    case Type::Map:
+      for (auto &kv : value.Value<std::map<std::string, TypedValue>>())
+        ReconstructTypedValue(kv.second);
+      break;
+    case Type::Path:
+      for (auto &vertex : value.ValuePath().vertices()) {
+        if (!vertex.Reconstruct()) throw ReconstructionException();
+      }
+      for (auto &edge : value.ValuePath().edges()) {
+        if (!edge.Reconstruct()) throw ReconstructionException();
+      }
+    case Type::Null:
+    case Type::Bool:
+    case Type::Int:
+    case Type::Double:
+    case Type::String:
+      break;
+  }
+}
 }  // namespace query

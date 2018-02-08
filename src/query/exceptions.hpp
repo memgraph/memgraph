@@ -99,4 +99,12 @@ class HintedAbortError : public utils::BasicException {
             "--query-execution-time-sec flag") {}
 };
 
+class ReconstructionException : public QueryException {
+ public:
+  ReconstructionException()
+      : QueryException(
+            "Record invalid after WITH clause. Most likely deleted by a "
+            "preceeding DELETE.") {}
+};
+
 }  // namespace query

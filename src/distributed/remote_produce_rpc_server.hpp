@@ -12,6 +12,7 @@
 #include "distributed/plan_consumer.hpp"
 #include "distributed/remote_pull_produce_rpc_messages.hpp"
 #include "query/context.hpp"
+#include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/parameters.hpp"
@@ -47,16 +48,30 @@ class RemoteProduceRpcServer {
     /** Returns a vector of typed values (one for each `pull_symbol`), and a
      * `bool` indicating if the pull was successful (or the cursor is
      * exhausted). */
-    std::pair<std::vector<query::TypedValue>, bool> Pull() {
+    std::pair<std::vector<query::TypedValue>, RemotePullState> Pull() {
+      RemotePullState state = RemotePullState::CURSOR_IN_PROGRESS;
       std::vector<query::TypedValue> results;
-      auto success = cursor_->Pull(frame_, context_);
-      if (success) {
-        results.reserve(pull_symbols_.size());
-        for (const auto &symbol : pull_symbols_) {
-          results.emplace_back(std::move(frame_[symbol]));
+      try {
+        if (cursor_->Pull(frame_, context_)) {
+          results.reserve(pull_symbols_.size());
+          for (const auto &symbol : pull_symbols_) {
+            results.emplace_back(std::move(frame_[symbol]));
+          }
+        } else {
+          state = RemotePullState::CURSOR_EXHAUSTED;
         }
+      } catch (const mvcc::SerializationError &) {
+        state = RemotePullState::SERIALIZATION_ERROR;
+      } catch (const LockTimeoutException &) {
+        state = RemotePullState::LOCK_TIMEOUT_ERROR;
+      } catch (const RecordDeletedError &) {
+        state = RemotePullState::UPDATE_DELETED_ERROR;
+      } catch (const query::ReconstructionException &) {
+        state = RemotePullState::RECONSTRUCTION_ERROR;
+      } catch (const query::QueryRuntimeException &) {
+        state = RemotePullState::QUERY_ERROR;
       }
-      return std::make_pair(std::move(results), success);
+      return std::make_pair(std::move(results), state);
     }
 
    private:
@@ -123,17 +138,13 @@ class RemoteProduceRpcServer {
     auto &ongoing_produce = GetOngoingProduce(req);
 
     RemotePullResData result{db_.WorkerId(), req.send_old, req.send_new};
-
     result.state_and_frames.pull_state = RemotePullState::CURSOR_IN_PROGRESS;
 
     for (int i = 0; i < req.batch_size; ++i) {
-      // TODO exception handling (Serialization errors)
-      // when full CRUD. Maybe put it in OngoingProduce::Pull
       auto pull_result = ongoing_produce.Pull();
-      if (!pull_result.second) {
-        result.state_and_frames.pull_state = RemotePullState::CURSOR_EXHAUSTED;
+      result.state_and_frames.pull_state = pull_result.second;
+      if (pull_result.second != RemotePullState::CURSOR_IN_PROGRESS)
         break;
-      }
       result.state_and_frames.frames.emplace_back(std::move(pull_result.first));
     }
 

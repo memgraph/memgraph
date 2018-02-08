@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 
+#include "query/typed_value.hpp"
+
 namespace query {
 
 // These are the functions for parsing literals and parameter names from
@@ -23,4 +25,12 @@ std::string ParseParameter(const std::string &s);
  * by some previous part of execution.
  */
 enum class GraphView { AS_IS, OLD, NEW };
+
+/**
+ * Helper function for recursively reconstructing all the accessors in the
+ * given TypedValue.
+ *
+ * @returns - If the reconstruction succeeded.
+ */
+void ReconstructTypedValue(TypedValue &value);
 }

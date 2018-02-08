@@ -452,7 +452,7 @@ TEST(QueryPlan, DeleteAdvance) {
       n.op_, std::vector<Expression *>{n_get}, false);
   auto advance = std::make_shared<Accumulate>(
       delete_op, std::vector<Symbol>{n.sym_}, true);
-  EXPECT_THROW(PullAll(advance, dba, symbol_table), QueryRuntimeException);
+  EXPECT_THROW(PullAll(advance, dba, symbol_table), ReconstructionException);
 }
 
 TEST(QueryPlan, SetProperty) {

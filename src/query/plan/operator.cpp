@@ -19,6 +19,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
+#include "utils/exceptions.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -321,10 +322,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -1618,47 +1619,6 @@ void ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Reset() {
 template class ExpandUniquenessFilter<VertexAccessor>;
 template class ExpandUniquenessFilter<EdgeAccessor>;
 
-namespace {
-
-/**
- * Helper function for recursively reconstructing all the accessors in the
- * given TypedValue.
- */
-void ReconstructTypedValue(TypedValue &value) {
-  const static std::string vertex_error_msg =
-      "Vertex invalid after WITH clause, (most likely deleted by a "
-      "preceeding DELETE clause)";
-  const static std::string edge_error_msg =
-      "Edge invalid after WITH clause, (most likely deleted by a "
-      "preceeding DELETE clause)";
-  switch (value.type()) {
-    case TypedValue::Type::Vertex:
-      if (!value.Value<VertexAccessor>().Reconstruct())
-        throw QueryRuntimeException(vertex_error_msg);
-      break;
-    case TypedValue::Type::Edge:
-      if (!value.Value<EdgeAccessor>().Reconstruct())
-        throw QueryRuntimeException(edge_error_msg);
-      break;
-    case TypedValue::Type::List:
-      for (TypedValue &inner_value : value.Value<std::vector<TypedValue>>())
-        ReconstructTypedValue(inner_value);
-      break;
-    case TypedValue::Type::Map:
-      for (auto &kv : value.Value<std::map<std::string, TypedValue>>())
-        ReconstructTypedValue(kv.second);
-      break;
-    case TypedValue::Type::Path:
-      for (auto &vertex : value.ValuePath().vertices())
-        if (vertex.Reconstruct()) throw QueryRuntimeException(vertex_error_msg);
-      for (auto &edge : value.ValuePath().edges())
-        if (edge.Reconstruct()) throw QueryRuntimeException(edge_error_msg);
-    default:
-      break;
-  }
-}
-}  // namespace
-
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
                        const std::vector<Symbol> &symbols, bool advance_command)
     : input_(input), symbols_(symbols), advance_command_(advance_command) {}
@@ -1690,7 +1650,7 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame, Context &context) {
     if (self_.advance_command_) {
       db_.AdvanceCommand();
       for (auto &row : cache_)
-        for (auto &col : row) ReconstructTypedValue(col);
+        for (auto &col : row) query::ReconstructTypedValue(col);
     }
   }
 
@@ -2633,7 +2593,20 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
           EndRemotePull();
           throw mvcc::SerializationError(
               "Serialization error occured during PullRemote !");
-          break;
+        case distributed::RemotePullState::LOCK_TIMEOUT_ERROR:
+          EndRemotePull();
+          throw LockTimeoutException(
+              "LockTimeout error occured during PullRemote !");
+        case distributed::RemotePullState::UPDATE_DELETED_ERROR:
+          EndRemotePull();
+          throw RecordDeletedError();
+        case distributed::RemotePullState::RECONSTRUCTION_ERROR:
+          EndRemotePull();
+          throw query::ReconstructionException();
+        case distributed::RemotePullState::QUERY_ERROR:
+          EndRemotePull();
+          throw QueryRuntimeException(
+              "Query runtime error occurred duing PullRemote !");
       }
     }
 
