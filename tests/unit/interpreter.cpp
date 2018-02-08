@@ -250,3 +250,51 @@ TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
       interpreter_("CREATE INDEX ON :X(y)", dba, {}, true).PullAll(stream),
       query::IndexInMulticommandTxException);
 }
+
+// Test shortest path end to end.
+TEST_F(InterpreterTest, ShortestPath) {
+  {
+    ResultStreamFaker stream;
+    database::GraphDbAccessor dba(db_);
+    interpreter_(
+        "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
+        "}]->(m)-[:r2 {w: 2}]->(l), (n)-[:r3 {w: 4}]->(l)",
+        dba, {}, true)
+        .PullAll(stream);
+
+    dba.Commit();
+  }
+
+  ResultStreamFaker stream;
+  database::GraphDbAccessor dba(db_);
+  interpreter_("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e", dba,
+               {}, false)
+      .PullAll(stream);
+
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "e");
+  ASSERT_EQ(stream.GetResults().size(), 3U);
+
+  std::vector<std::vector<std::string>> expected_results{
+      {"r1"}, {"r2"}, {"r1", "r2"}};
+
+  for (const auto &result : stream.GetResults()) {
+    const auto &edges =
+        query::test_common::ToList<EdgeAccessor>(result[0].ValueList());
+
+    std::vector<std::string> datum;
+    for (const auto &edge : edges) {
+      datum.push_back(dba.EdgeTypeName(edge.EdgeType()));
+    }
+
+    bool any_match = false;
+    for (const auto &expected : expected_results) {
+      if (expected == datum) {
+        any_match = true;
+        break;
+      }
+    }
+
+    EXPECT_TRUE(any_match);
+  }
+}

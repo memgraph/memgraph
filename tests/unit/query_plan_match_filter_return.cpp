@@ -429,11 +429,15 @@ class QueryPlanExpandVariable : public testing::Test {
       auto convert = [this](std::experimental::optional<size_t> bound) {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
+
       return std::make_shared<ExpandVariable>(
           n_to_sym, edge_sym, EdgeAtom::Type::DEPTH_FIRST, direction,
           edge_types, is_reverse, convert(lower), convert(upper), filter_op,
-          n_from.sym_, false, symbol_table.CreateSymbol("inner_edge", false),
-          symbol_table.CreateSymbol("inner_node", false), nullptr, graph_view);
+          n_from.sym_, false,
+          ExpandVariable::Lambda{symbol_table.CreateSymbol("inner_edge", false),
+                                 symbol_table.CreateSymbol("inner_node", false),
+                                 nullptr},
+          std::experimental::nullopt, std::experimental::nullopt, graph_view);
     } else
       return std::make_shared<Expand>(n_to_sym, edge_sym, direction, edge_types,
                                       filter_op, n_from.sym_, false,
@@ -763,11 +767,14 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
                         ? existing_node_input->sym_
                         : symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
-    last_op = std::make_shared<ExpandVariable>(
-        node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
-        std::vector<storage::EdgeType>{}, false, nullptr, LITERAL(max_depth),
-        last_op, n.sym_, existing_node_input != nullptr, inner_edge, inner_node,
-        where, graph_view);
+    auto filter_lambda =
+
+        last_op = std::make_shared<ExpandVariable>(
+            node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
+            std::vector<storage::EdgeType>{}, false, nullptr,
+            LITERAL(max_depth), last_op, n.sym_, existing_node_input != nullptr,
+            ExpandVariable::Lambda{inner_edge, inner_node, where},
+            std::experimental::nullopt, std::experimental::nullopt, graph_view);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(dba);
@@ -910,6 +917,333 @@ TEST_F(QueryPlanExpandBreadthFirst, ExistingNode) {
     auto results = ExpandPreceeding(0);
     ASSERT_EQ(results.size(), 3);
     for (int i = 0; i < 3; i++) EXPECT_EQ(GetProp(results[i].second), 0);
+  }
+}
+
+/** A test fixture for weighted shortest path expansion */
+class QueryPlanExpandWeightedShortestPath : public testing::Test {
+ public:
+  struct ResultType {
+    std::vector<EdgeAccessor> path;
+    VertexAccessor vertex;
+    double total_weight;
+  };
+
+ protected:
+  // style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
+  // macro requirements
+  database::SingleNode db;
+  database::GraphDbAccessor dba{db};
+  std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
+  storage::EdgeType edge_type = dba.EdgeType("edge_type");
+
+  // make 5 vertices because we'll need to compare against them exactly
+  // v[0] has `prop` with the value 0
+  std::vector<VertexAccessor> v;
+
+  // make some edges too, in a map (from, to) vertex indices
+  std::unordered_map<std::pair<int, int>, EdgeAccessor> e;
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // inner edge and vertex symbols
+  Symbol filter_edge = symbol_table.CreateSymbol("f_edge", true);
+  Symbol filter_node = symbol_table.CreateSymbol("f_node", true);
+
+  Symbol weight_edge = symbol_table.CreateSymbol("w_edge", true);
+  Symbol weight_node = symbol_table.CreateSymbol("w_node", true);
+
+  Symbol total_weight = symbol_table.CreateSymbol("total_weight", true);
+
+  void SetUp() {
+    for (int i = 0; i < 5; i++) {
+      v.push_back(dba.InsertVertex());
+      v.back().PropsSet(prop.second, i);
+    }
+
+    auto add_edge = [&](int from, int to, double weight) {
+      EdgeAccessor edge = dba.InsertEdge(v[from], v[to], edge_type);
+      edge.PropsSet(prop.second, weight);
+      e.emplace(std::make_pair(from, to), edge);
+    };
+
+    add_edge(0, 1, 5);
+    add_edge(1, 4, 5);
+    add_edge(0, 2, 3);
+    add_edge(2, 3, 3);
+    add_edge(3, 4, 3);
+    add_edge(4, 0, 12);
+
+    dba.AdvanceCommand();
+    for (auto &vertex : v) vertex.Reconstruct();
+    for (auto &edge : e) edge.second.Reconstruct();
+  }
+
+  // defines and performs a breadth-first expansion with the given params
+  // returns a vector of pairs. each pair is (vector-of-edges, vertex)
+  auto ExpandWShortest(EdgeAtom::Direction direction, int max_depth,
+                       Expression *where,
+                       GraphView graph_view = GraphView::AS_IS,
+                       std::experimental::optional<int> node_id = 0,
+                       ScanAllTuple *existing_node_input = nullptr) {
+    // scan the nodes optionally filtering on property value
+    auto n =
+        MakeScanAll(storage, symbol_table, "n",
+                    existing_node_input ? existing_node_input->op_ : nullptr);
+    auto last_op = n.op_;
+    if (node_id) {
+      last_op = std::make_shared<Filter>(
+          last_op,
+          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+    }
+
+    auto ident_e = IDENT("e");
+    symbol_table[*ident_e] = weight_edge;
+
+    // expand wshortest
+    auto node_sym = existing_node_input
+                        ? existing_node_input->sym_
+                        : symbol_table.CreateSymbol("node", true);
+    auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
+    auto filter_lambda = last_op = std::make_shared<ExpandVariable>(
+        node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
+        direction, std::vector<storage::EdgeType>{}, false, nullptr,
+        LITERAL(max_depth), last_op, n.sym_, existing_node_input != nullptr,
+        ExpandVariable::Lambda{filter_edge, filter_node, where},
+        ExpandVariable::Lambda{weight_edge, weight_node,
+                               PROPERTY_LOOKUP(ident_e, prop)},
+        total_weight, graph_view);
+
+    Frame frame(symbol_table.max_position());
+    auto cursor = last_op->MakeCursor(dba);
+    std::vector<ResultType> results;
+    Context context(dba);
+    context.symbol_table_ = symbol_table;
+    while (cursor->Pull(frame, context)) {
+      results.push_back(ResultType{std::vector<EdgeAccessor>(),
+                                   frame[node_sym].Value<VertexAccessor>(),
+                                   frame[total_weight].Value<double>()});
+      for (const TypedValue &edge : frame[edge_list_sym].ValueList())
+        results.back().path.emplace_back(edge.Value<EdgeAccessor>());
+    }
+
+    return results;
+  }
+
+  template <typename TAccessor>
+  auto GetProp(const TAccessor &accessor) {
+    return accessor.PropsAt(prop.second).template Value<int64_t>();
+  }
+
+  template <typename TAccessor>
+  auto GetDoubleProp(const TAccessor &accessor) {
+    return accessor.PropsAt(prop.second).template Value<double>();
+  }
+
+  Expression *PropNe(Symbol symbol, int value) {
+    auto ident = IDENT("inner_element");
+    symbol_table[*ident] = symbol;
+    return NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(value));
+  }
+};
+
+// Testing weighted shortest path on this graph:
+//
+//      5            5
+//      /-->--[1]-->--\
+//     /               \
+//    /        12       \         2
+//  [0]--------<--------[4]------->-------[5]
+//    \                 /  (only for GraphState test)
+//     \               /
+//      \->[2]->-[3]->/
+//      3      3     3
+
+TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
+  auto results =
+      ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+
+  ASSERT_EQ(results.size(), 4);
+
+  // check end nodes
+  EXPECT_EQ(GetProp(results[0].vertex), 2);
+  EXPECT_EQ(GetProp(results[1].vertex), 1);
+  EXPECT_EQ(GetProp(results[2].vertex), 3);
+  EXPECT_EQ(GetProp(results[3].vertex), 4);
+
+  // check paths and total weights
+  EXPECT_EQ(results[0].path.size(), 1);
+  EXPECT_EQ(GetDoubleProp(results[0].path[0]), 3);
+  EXPECT_EQ(results[0].total_weight, 3);
+
+  EXPECT_EQ(results[1].path.size(), 1);
+  EXPECT_EQ(GetDoubleProp(results[1].path[0]), 5);
+  EXPECT_EQ(results[1].total_weight, 5);
+
+  EXPECT_EQ(results[2].path.size(), 2);
+  EXPECT_EQ(GetDoubleProp(results[2].path[0]), 3);
+  EXPECT_EQ(GetDoubleProp(results[2].path[1]), 3);
+  EXPECT_EQ(results[2].total_weight, 6);
+
+  EXPECT_EQ(results[3].path.size(), 3);
+  EXPECT_EQ(GetDoubleProp(results[3].path[0]), 3);
+  EXPECT_EQ(GetDoubleProp(results[3].path[1]), 3);
+  EXPECT_EQ(GetDoubleProp(results[3].path[2]), 3);
+  EXPECT_EQ(results[3].total_weight, 9);
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
+  {
+    auto results =
+        ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+  }
+  {
+    auto results =
+        ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 4);
+    EXPECT_EQ(results[0].total_weight, 12);
+    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(results[1].total_weight, 15);
+    EXPECT_EQ(GetProp(results[2].vertex), 1);
+    EXPECT_EQ(results[2].total_weight, 17);
+    EXPECT_EQ(GetProp(results[3].vertex), 2);
+    EXPECT_EQ(results[3].total_weight, 18);
+  }
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
+  {
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
+                                   PropNe(filter_node, 2));
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 1);
+    EXPECT_EQ(results[0].total_weight, 5);
+    EXPECT_EQ(GetProp(results[1].vertex), 4);
+    EXPECT_EQ(results[1].total_weight, 10);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 13);
+  }
+  {
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
+                                   PropNe(filter_node, 1));
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 3);
+    EXPECT_EQ(results[1].total_weight, 6);
+    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(results[2].total_weight, 9);
+  }
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, GraphState) {
+  auto ExpandSize = [this](GraphView graph_view) {
+    return ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
+                           graph_view)
+        .size();
+  };
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 4);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 4);
+  auto new_vertex = dba.InsertVertex();
+  new_vertex.PropsSet(prop.second, 5);
+  auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
+  edge.PropsSet(prop.second, 2);
+  EXPECT_EQ(CountIterable(dba.Vertices(false)), 5);
+  EXPECT_EQ(CountIterable(dba.Vertices(true)), 6);
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 4);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 5);
+  dba.AdvanceCommand();
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 5);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 5);
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
+  auto ExpandPreceeding = [this](
+      std::experimental::optional<int> preceeding_node_id) {
+    // scan the nodes optionally filtering on property value
+    auto n0 = MakeScanAll(storage, symbol_table, "n0");
+    if (preceeding_node_id) {
+      auto filter = std::make_shared<Filter>(
+          n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
+                     LITERAL(*preceeding_node_id)));
+      // inject the filter op into the ScanAllTuple. that way the filter op
+      // can be passed into the ExpandWShortest function without too much
+      // refactor
+      n0.op_ = filter;
+    }
+
+    return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
+                           GraphView::AS_IS, std::experimental::nullopt, &n0);
+  };
+
+  EXPECT_EQ(ExpandPreceeding(std::experimental::nullopt).size(), 20);
+  {
+    auto results = ExpandPreceeding(3);
+    ASSERT_EQ(results.size(), 4);
+    for (int i = 0; i < 4; i++) EXPECT_EQ(GetProp(results[i].vertex), 3);
+  }
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
+  {
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 10);
+  }
+  {
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
+    ASSERT_EQ(results.size(), 3);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 4);
+    EXPECT_EQ(results[2].total_weight, 12);
+  }
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, Exceptions) {
+  {
+    auto new_vertex = dba.InsertVertex();
+    new_vertex.PropsSet(prop.second, 5);
+    auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
+    edge.PropsSet(prop.second, "not a number");
+    EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
+                                 GraphView::NEW),
+                 QueryRuntimeException);
+  }
+  {
+    auto new_vertex = dba.InsertVertex();
+    new_vertex.PropsSet(prop.second, 5);
+    auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
+    edge.PropsSet(prop.second, -10);  // negative weight
+    EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
+                                 GraphView::NEW),
+                 QueryRuntimeException);
+  }
+  {
+    // negative upper bound
+    EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true),
+                                 GraphView::NEW),
+                 QueryRuntimeException);
   }
 }
 

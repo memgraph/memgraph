@@ -470,10 +470,10 @@ To find only the shortest path, simply append `LIMIT 1` to the `RETURN` clause.
 
     MATCH (a {id: 723})-[r:Type *bfs..10]-(b {id: 882}) RETURN * LIMIT 1
 
-Breadth-fist expansion allows an arbitrary expression filter that determines
+Breadth-first expansion allows an arbitrary expression filter that determines
 if an expansion is allowed. Following is an example in which expansion is
-allowed only over edges whose `x` property is greater then `12` and nodes `y`
-whose property is lesser then `3`:
+allowed only over edges whose `x` property is greater than `12` and nodes `y`
+whose property is less than `3`:
 
     MATCH (a {id: 723})-[*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
 
@@ -489,6 +489,40 @@ neighbourhood in breadth-first manner.
 
 Currently, it isn't possible to get all shortest paths to a single node using
 Memgraph's breadth-first expansion.
+
+#### Weighted Shortest Path
+
+Another standard use-case in a graph is searching for the weighted shortest
+path between nodes. The openCypher standard does not define this feature, so
+Memgraph provides a custom implementation, based on the edge expansion syntax.
+
+Finding the weighted shortest path between nodes is done using the weighted
+shortest path expansion:
+
+    MATCH (a {id: 723})-[le *wShortest 10 (e, n | e.weight) total_weight]-(b {id: 882}) RETURN *
+
+The above query will find the shortest path of length up to 10 nodes between
+nodes `a`  and `b`.
+
+Weighted Shortest Path expansion allows an arbitrary expression that determines
+the weight for the current expansion. Total weight of a path is calculated as
+the sum of all weights on the path between two nodes. Following is an example in
+which the weight between nodes is defined as the product of edge weights
+(instead of sum), assuming all weights are greater than '1':
+
+    MATCH (a {id: 723})-[le *wShortest 10 (e, n | log(e.weight)) total_weight]-(b {id: 882}) RETURN exp(total_weight)
+
+
+Weighted Shortest Path expansions also allows an arbitrary expression filter
+that determines if an expansion is allowed. Following is an example in which
+expansion is allowed only over edges whose `x` property is greater than `12`
+and nodes `y` whose property is less than `3`:
+
+    MATCH (a {id: 723})-[le *wShortest 10 (e, n | e.weight) total_weight (e, n | e.x > 12 and n.y < 3)]-(b {id: 882}) RETURN exp(total_weight)
+
+Both weight and filter expression are defined as lambda functions over `e` and
+`n`, which denote the edge and the node being expanded over in the weighted
+shortest path search.
 
 #### UNWIND
 

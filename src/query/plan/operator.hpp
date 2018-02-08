@@ -807,8 +807,33 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
   // that should be inaccessible (private class function won't compile)
   friend class ExpandVariableCursor;
   friend class ExpandBreadthFirstCursor;
+  friend class ExpandWeightedShortestPathCursor;
 
  public:
+  struct Lambda {
+    // Symbols for a single node and edge that are currently getting expanded.
+    Symbol inner_edge_symbol;
+    Symbol inner_node_symbol;
+    // Expression used in lambda during expansion.
+    Expression *expression;
+
+    BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+    template <class TArchive>
+    void save(TArchive &ar, const unsigned int) const {
+      ar &inner_edge_symbol;
+      ar &inner_node_symbol;
+      SavePointer(ar, expression);
+    }
+
+    template <class TArchive>
+    void load(TArchive &ar, const unsigned int) {
+      ar &inner_edge_symbol;
+      ar &inner_node_symbol;
+      LoadPointer(ar, expression);
+    }
+  };
+
   /**
    * Creates a variable-length expansion. Most params are forwarded
    * to the @c ExpandCommon constructor, and are documented there.
@@ -838,9 +863,9 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
                  bool is_reverse, Expression *lower_bound,
                  Expression *upper_bound,
                  const std::shared_ptr<LogicalOperator> &input,
-                 Symbol input_symbol, bool existing_node,
-                 Symbol inner_edge_symbol, Symbol inner_node_symbol,
-                 Expression *filter = nullptr,
+                 Symbol input_symbol, bool existing_node, Lambda filter_lambda,
+                 std::experimental::optional<Lambda> weight_lambda,
+                 std::experimental::optional<Symbol> total_weight,
                  GraphView graph_view = GraphView::AS_IS);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -858,12 +883,10 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
   // both are optional, defaults are (1, inf)
   Expression *lower_bound_;
   Expression *upper_bound_;
-  // symbols for a single node and edge that are currently getting expanded
-  Symbol inner_edge_symbol_;
-  Symbol inner_node_symbol_;
-  // a filtering expression for skipping expansions during expansion
-  // can refer to inner node and edges
-  Expression *filter_;
+
+  Lambda filter_lambda_;
+  std::experimental::optional<Lambda> weight_lambda_;
+  std::experimental::optional<Symbol> total_weight_;
 
   ExpandVariable() {}
 
@@ -879,9 +902,9 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
     ar &is_reverse_;
     SavePointer(ar, lower_bound_);
     SavePointer(ar, upper_bound_);
-    ar &inner_edge_symbol_;
-    ar &inner_node_symbol_;
-    SavePointer(ar, filter_);
+    ar &filter_lambda_;
+    ar &weight_lambda_;
+    ar &total_weight_;
   }
 
   template <class TArchive>
@@ -892,9 +915,9 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
     ar &is_reverse_;
     LoadPointer(ar, lower_bound_);
     LoadPointer(ar, upper_bound_);
-    ar &inner_edge_symbol_;
-    ar &inner_node_symbol_;
-    LoadPointer(ar, filter_);
+    ar &filter_lambda_;
+    ar &weight_lambda_;
+    ar &total_weight_;
   }
 };
 

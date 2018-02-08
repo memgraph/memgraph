@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <queue>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -322,10 +323,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -573,20 +574,23 @@ ExpandVariable::ExpandVariable(
     const std::vector<storage::EdgeType> &edge_types, bool is_reverse,
     Expression *lower_bound, Expression *upper_bound,
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, Symbol inner_edge_symbol, Symbol inner_node_symbol,
-    Expression *filter, GraphView graph_view)
+    bool existing_node, Lambda filter_lambda,
+    std::experimental::optional<Lambda> weight_lambda,
+    std::experimental::optional<Symbol> total_weight, GraphView graph_view)
     : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
                    input_symbol, existing_node, graph_view),
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
-      inner_edge_symbol_(inner_edge_symbol),
-      inner_node_symbol_(inner_node_symbol),
-      filter_(filter) {
+      filter_lambda_(filter_lambda),
+      weight_lambda_(weight_lambda),
+      total_weight_(total_weight) {
   DCHECK(type_ == EdgeAtom::Type::DEPTH_FIRST ||
-         type_ == EdgeAtom::Type::BREADTH_FIRST)
-      << "ExpandVariable can only be used with breadth or depth first type";
+         type_ == EdgeAtom::Type::BREADTH_FIRST ||
+         type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
+      << "ExpandVariable can only be used with breadth first, depth first or "
+         "weighted shortest path type";
   DCHECK(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse))
       << "Breadth first expansion can't be reversed";
 }
@@ -855,9 +859,11 @@ class ExpandVariableCursor : public Cursor {
       if (!self_.HandleExistingNode(current_vertex, frame)) continue;
 
       // Skip expanding out of filtered expansion.
-      frame[self_.inner_edge_symbol_] = current_edge.first;
-      frame[self_.inner_node_symbol_] = current_vertex;
-      if (self_.filter_ && !EvaluateFilter(evaluator, self_.filter_)) continue;
+      frame[self_.filter_lambda_.inner_edge_symbol] = current_edge.first;
+      frame[self_.filter_lambda_.inner_node_symbol] = current_vertex;
+      if (self_.filter_lambda_.expression &&
+          !EvaluateFilter(evaluator, self_.filter_lambda_.expression))
+        continue;
 
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
@@ -899,11 +905,11 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
-      frame[self_.inner_edge_symbol_] = edge;
-      frame[self_.inner_node_symbol_] = vertex;
+      frame[self_.filter_lambda_.inner_edge_symbol] = edge;
+      frame[self_.filter_lambda_.inner_node_symbol] = vertex;
 
-      if (self_.filter_) {
-        TypedValue result = self_.filter_->Accept(evaluator);
+      if (self_.filter_lambda_.expression) {
+        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
         switch (result.type()) {
           case TypedValue::Type::Null:
             return;
@@ -1035,10 +1041,211 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
   std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
+class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
+ public:
+  ExpandWeightedShortestPathCursor(const ExpandVariable &self,
+                                   database::GraphDbAccessor &db)
+      : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+
+  bool Pull(Frame &frame, Context &context) override {
+    ExpressionEvaluator evaluator(frame, context.parameters_,
+                                  context.symbol_table_, db_,
+                                  self_.graph_view_);
+    // For the given (vertex, edge, vertex) tuple checks if they satisfy the
+    // "where" condition. if so, places them in the priority queue.
+    auto expand_pair = [this, &evaluator, &frame](
+        VertexAccessor from, EdgeAccessor edge, VertexAccessor vertex) {
+      SwitchAccessor(edge, self_.graph_view_);
+      SwitchAccessor(vertex, self_.graph_view_);
+
+      if (self_.filter_lambda_.expression) {
+        frame[self_.filter_lambda_.inner_edge_symbol] = edge;
+        frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return;
+      }
+
+      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
+      frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+
+      TypedValue typed_weight =
+          self_.weight_lambda_->expression->Accept(evaluator);
+
+      if (!typed_weight.IsNumeric()) {
+        throw QueryRuntimeException("Calculated weight must be numeric, got {}",
+                                    typed_weight.type());
+      }
+      if ((typed_weight < 0).Value<bool>()) {
+        throw QueryRuntimeException("Calculated weight can't be negative!");
+      }
+
+      auto total_weight = weights_[from] + typed_weight;
+      auto found_it = weights_.find(vertex);
+      if (found_it != weights_.end() &&
+          found_it->second.Value<double>() <= total_weight.Value<double>())
+        return;
+
+      pq_.push(std::make_pair(std::make_pair(vertex, edge),
+                              total_weight.Value<double>()));
+    };
+
+    // Populates the priority queue structure with expansions
+    // from the given vertex. skips expansions that don't satisfy
+    // the "where" condition.
+    auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
+      if (self_.direction_ != EdgeAtom::Direction::IN) {
+        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_)) {
+          expand_pair(vertex, edge, edge.to());
+        }
+      }
+      if (self_.direction_ != EdgeAtom::Direction::OUT) {
+        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_)) {
+          expand_pair(vertex, edge, edge.from());
+        }
+      }
+    };
+
+    while (true) {
+      if (pq_.empty()) {
+        if (!input_cursor_->Pull(frame, context)) return false;
+        auto vertex_value = frame[self_.input_symbol_];
+        if (vertex_value.IsNull()) continue;
+        auto vertex = vertex_value.Value<VertexAccessor>();
+        if (self_.existing_node_) {
+          TypedValue &node = frame[self_.node_symbol_];
+          // Due to optional matching the existing node could be null.
+          // Skip expansion for such nodes.
+          if (node.IsNull()) continue;
+        }
+        SwitchAccessor(vertex, self_.graph_view_);
+        upper_bound_ =
+            self_.upper_bound_
+                ? EvaluateInt(evaluator, self_.upper_bound_,
+                              "Max depth in weighted shortest path expansion")
+                : std::numeric_limits<int>::max();
+        if (upper_bound_ < 1)
+          throw QueryRuntimeException(
+              "Max depth in weighted shortest path expansion must be greater "
+              "than zero");
+
+        // Clear existing data structures.
+        previous_.clear();
+        weights_.clear();
+
+        pq_.push(std::make_pair(
+            std::make_pair(vertex, std::experimental::nullopt), 0.0));
+      }
+
+      while (!pq_.empty()) {
+        auto current = pq_.top();
+        pq_.pop();
+
+        // Check if the edge has already been processed.
+        if (weights_.find(current.first.first) != weights_.end()) {
+          continue;
+        }
+        previous_.emplace(current.first.first, current.first.second);
+        weights_.emplace(current.first.first, current.second);
+
+        // Reconstruct the path.
+        auto last_vertex = current.first.first;
+        std::vector<TypedValue> edge_list{};
+        while (true) {
+          // Origin_vertex must be in previous.
+          const auto &previous_edge = previous_.find(last_vertex)->second;
+          if (!previous_edge) break;
+          last_vertex = previous_edge->from() == last_vertex
+                            ? previous_edge->to()
+                            : previous_edge->from();
+          edge_list.push_back(previous_edge.value());
+        }
+
+        // Expand only if what we've just expanded is less then max depth.
+        if (static_cast<int>(edge_list.size()) < upper_bound_)
+          expand_from_vertex(current.first.first);
+
+        if (edge_list.empty()) continue;
+
+        // Place destination node on the frame, handle existence flag.
+        if (self_.existing_node_) {
+          TypedValue &node = frame[self_.node_symbol_];
+          if ((node != current.first.first).Value<bool>())
+            continue;
+          else
+            // Prevent expanding other paths, because we found the
+            // shortest to existing node.
+            ClearQueue();
+        } else {
+          frame[self_.node_symbol_] = current.first.first;
+        }
+
+        if (!self_.is_reverse_) {
+          // Place edges on the frame in the correct order.
+          std::reverse(edge_list.begin(), edge_list.end());
+        }
+        frame[self_.edge_symbol_] = std::move(edge_list);
+        frame[self_.total_weight_.value()] = current.second;
+        return true;
+      }
+    }
+  }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    previous_.clear();
+    weights_.clear();
+    ClearQueue();
+  }
+
+ private:
+  const ExpandVariable &self_;
+  database::GraphDbAccessor &db_;
+  const std::unique_ptr<query::plan::Cursor> input_cursor_;
+
+  // Upper bound on the path length.
+  int upper_bound_{-1};
+
+  // Maps vertices to weights they got in expansion.
+  std::unordered_map<VertexAccessor, TypedValue> weights_;
+
+  // Maps vertices to edges used to reach them.
+  std::unordered_map<VertexAccessor, std::experimental::optional<EdgeAccessor>>
+      previous_;
+
+  // Priority queue comparator. Keep lowest weight on top of the queue.
+  class PriorityQueueComparator {
+   public:
+    bool operator()(
+        const std::pair<std::pair<VertexAccessor,
+                                  std::experimental::optional<EdgeAccessor>>,
+                        double> &lhs,
+        const std::pair<std::pair<VertexAccessor,
+                                  std::experimental::optional<EdgeAccessor>>,
+                        double> &rhs) {
+      return lhs.second > rhs.second;
+    }
+  };
+  std::priority_queue<
+      std::pair<
+          std::pair<VertexAccessor, std::experimental::optional<EdgeAccessor>>,
+          double>,
+      std::vector<std::pair<
+          std::pair<VertexAccessor, std::experimental::optional<EdgeAccessor>>,
+          double>>,
+      PriorityQueueComparator>
+      pq_;
+
+  void ClearQueue() {
+    while (!pq_.empty()) pq_.pop();
+  }
+};
+
 std::unique_ptr<Cursor> ExpandVariable::MakeCursor(
     database::GraphDbAccessor &db) const {
   if (type_ == EdgeAtom::Type::BREADTH_FIRST)
     return std::make_unique<ExpandBreadthFirstCursor>(*this, db);
+  else if (type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
+    return std::make_unique<ExpandWeightedShortestPathCursor>(*this, db);
   else
     return std::make_unique<ExpandVariableCursor>(*this, db);
 }
@@ -1597,8 +1804,8 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
     for (const auto &previous_symbol : self_.previous_symbols_) {
       TypedValue &previous_value = frame[previous_symbol];
       // This shouldn't raise a TypedValueException, because the planner
-      // makes sure these are all of the expected type. In case they are not, an
-      // error should be raised long before this code is executed.
+      // makes sure these are all of the expected type. In case they are not,
+      // an error should be raised long before this code is executed.
       if (ContainsSame<TAccessor>(previous_value, expand_value)) return false;
     }
     return true;
@@ -2626,8 +2833,8 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
 
     if (!have_remote_results) {
       // If we didn't find any remote results and there aren't any remote
-      // pulls, we've exhausted all remote results. Make sure we signal that to
-      // workers and exit the loop.
+      // pulls, we've exhausted all remote results. Make sure we signal that
+      // to workers and exit the loop.
       if (remote_pulls_.empty()) {
         EndRemotePull();
         break;
@@ -2659,8 +2866,8 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
   remote_results_[pull_from_worker_id].resize(
       remote_results_[pull_from_worker_id].size() - 1);
 
-  // Remove the worker if we exhausted all locally stored results and there are
-  // no more pending remote pulls for that worker.
+  // Remove the worker if we exhausted all locally stored results and there
+  // are no more pending remote pulls for that worker.
   if (remote_results_[pull_from_worker_id].empty() &&
       remote_pulls_.find(pull_from_worker_id) == remote_pulls_.end()) {
     worker_ids_.erase(worker_ids_.begin() + last_pulled_worker_id_index_);
