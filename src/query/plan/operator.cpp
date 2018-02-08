@@ -2613,7 +2613,8 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
     // Get locally stored results from workers in a round-robin fasion.
     int num_workers = worker_ids_.size();
     for (int i = 0; i < num_workers; ++i) {
-      int worker_id_index = (last_pulled_worker_id_index_ + i) % num_workers;
+      int worker_id_index =
+          (last_pulled_worker_id_index_ + i + 1) % num_workers;
       int worker_id = worker_ids_[worker_id_index];
 
       if (!remote_results_[worker_id].empty()) {
@@ -2623,10 +2624,20 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
       }
     }
 
-    // If there are no remote results available, pull and return local results.
-    if (!have_remote_results && self_.pull_local() &&
-        input_cursor_->Pull(frame, context)) {
-      return true;
+    if (!have_remote_results) {
+      // If we didn't find any remote results and there aren't any remote
+      // pulls, we've exhausted all remote results. Make sure we signal that to
+      // workers and exit the loop.
+      if (remote_pulls_.empty()) {
+        EndRemotePull();
+        break;
+      }
+
+      // If there are no remote results available, pull and return local
+      // results.
+      if (self_.pull_local() && input_cursor_->Pull(frame, context)) {
+        return true;
+      }
     }
   }
 
@@ -2634,9 +2645,8 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
   if (!have_remote_results) {
     if (self_.pull_local() && input_cursor_->Pull(frame, context)) {
       return true;
-    } else {
-      return false;
     }
+    return false;
   }
 
   int pull_from_worker_id = worker_ids_[last_pulled_worker_id_index_];

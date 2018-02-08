@@ -13,20 +13,18 @@
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "distributed/remote_data_rpc_server.hpp"
 #include "distributed/remote_pull_rpc_clients.hpp"
+#include "distributed_common.hpp"
 #include "io/network/endpoint.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/planner.hpp"
-#include "query_plan_common.hpp"
-#include "transactions/engine_master.hpp"
-
-#include "distributed_common.hpp"
 #include "query/interpreter.hpp"
+#include "query/plan/planner.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
+#include "transactions/engine_master.hpp"
 
 using namespace distributed;
 using namespace database;
@@ -340,28 +338,4 @@ TEST_F(DistributedGraphDbTest, WorkerOwnedDbAccessors) {
   GraphDbAccessor dba_w2(worker(2));
   VertexAccessor v_in_w2{v_ga, dba_w2};
   EXPECT_EQ(v_in_w2.PropsAt(prop).Value<int64_t>(), 42);
-}
-
-TEST_F(DistributedGraphDbTest, RemotePullTest) {
-  using Interpreter = query::Interpreter;
-  std::map<std::string, query::TypedValue> params = {};
-
-  GraphDbAccessor dba(master());
-
-  ResultStreamFaker result;
-  Interpreter interpreter_;
-  interpreter_("OPTIONAL MATCH(n) UNWIND(RANGE(0, 20)) AS X RETURN 1", dba,
-               params, false)
-      .PullAll(result);
-
-  // Three instances (master + 2 workers) with 21 result each.
-  uint expected_results = 3U * 21;
-  ASSERT_EQ(result.GetHeader().size(), 1U);
-  EXPECT_EQ(result.GetHeader()[0], "1");
-  ASSERT_EQ(result.GetResults().size(), expected_results);
-
-  for (uint i = 0; i < expected_results; ++i) {
-    ASSERT_EQ(result.GetResults()[i].size(), 1U);
-    ASSERT_EQ(result.GetResults()[i][0].Value<int64_t>(), 1);
-  }
 }
