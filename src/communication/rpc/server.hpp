@@ -18,7 +18,8 @@ class Server;
 
 class System {
  public:
-  System(const io::network::Endpoint &endpoint, const size_t worker_count = 4);
+  System(const io::network::Endpoint &endpoint,
+         const size_t workers_count = std::thread::hardware_concurrency());
   System(const System &) = delete;
   System(System &&) = delete;
   System &operator=(const System &) = delete;
@@ -49,7 +50,8 @@ class System {
 
 class Server {
  public:
-  Server(System &system, const std::string &name, int workers_count = 4);
+  Server(System &system, const std::string &name,
+         int workers_count = std::thread::hardware_concurrency());
   ~Server();
 
   template <typename TRequestResponse>
@@ -65,9 +67,8 @@ class Server {
         "TRequestResponse::Response must be derived from Message");
     auto callbacks_accessor = callbacks_.access();
     auto got = callbacks_accessor.insert(
-        typeid(typename TRequestResponse::Request), [callback = callback](
-                                                        const Message
-                                                            &base_message) {
+        typeid(typename TRequestResponse::Request),
+        [callback = callback](const Message &base_message) {
           const auto &message =
               dynamic_cast<const typename TRequestResponse::Request &>(
                   base_message);

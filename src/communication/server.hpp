@@ -43,10 +43,10 @@ class Server {
 
   /**
    * Constructs and binds server to endpoint, operates on session data and
-   * invokes n workers
+   * invokes workers_count workers
    */
   Server(const io::network::Endpoint &endpoint, TSessionData &session_data,
-         size_t n)
+         size_t workers_count = std::thread::hardware_concurrency())
       : session_data_(session_data) {
     // Without server we can't continue with application so we can just
     // terminate here.
@@ -58,10 +58,11 @@ class Server {
     if (!socket_.Listen(1024)) {
       LOG(FATAL) << "Cannot listen on socket!";
     }
-    working_thread_ = std::thread([this, n]() {
-      std::cout << fmt::format("Starting {} workers", n) << std::endl;
-      workers_.reserve(n);
-      for (size_t i = 0; i < n; ++i) {
+    working_thread_ = std::thread([this, workers_count]() {
+      std::cout << fmt::format("Starting {} workers", workers_count)
+                << std::endl;
+      workers_.reserve(workers_count);
+      for (size_t i = 0; i < workers_count; ++i) {
         workers_.push_back(std::make_unique<WorkerT>(session_data_));
         worker_threads_.emplace_back(
             [this](WorkerT &worker) -> void { worker.Start(alive_); },
@@ -74,9 +75,11 @@ class Server {
                 << std::endl;
 
       std::vector<std::unique_ptr<ConnectionAcceptor>> acceptors;
-      acceptors.emplace_back(std::make_unique<ConnectionAcceptor>(socket_, *this));
+      acceptors.emplace_back(
+          std::make_unique<ConnectionAcceptor>(socket_, *this));
       auto &acceptor = *acceptors.back().get();
-      io::network::SocketEventDispatcher<ConnectionAcceptor> dispatcher{acceptors};
+      io::network::SocketEventDispatcher<ConnectionAcceptor> dispatcher{
+          acceptors};
       dispatcher.AddListener(socket_.fd(), acceptor, EPOLLIN);
       while (alive_) {
         dispatcher.WaitAndProcessEvents();
