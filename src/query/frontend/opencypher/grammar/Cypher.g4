@@ -124,12 +124,12 @@ relationshipPattern : ( leftArrowHead SP? dash SP? ( relationshipDetail )? SP? d
                     ;
 
 relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  properties SP? ']'
-                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  relationshipLambda SP? ']'
+                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  relationshipLambda SP? (relationshipLambda SP?)? ']'
                    | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )? ( (properties SP?) | (relationshipLambda SP?) )* ']';
 
 relationshipLambda: '(' SP? traversed_edge=variable SP? ',' SP? traversed_node=variable SP? '|' SP? expression SP? ')';
 
-variableExpansion : '*' SP? (BFS)? SP? ( expression SP? )? ( '..' ( SP? expression )? )? ;
+variableExpansion : '*' SP? (BFS | WSHORTEST)? SP? ( expression SP? )? ( '..' ( SP? expression )? )? ;
 
 properties : mapLiteral
            | parameter
@@ -481,6 +481,8 @@ FALSE : ( 'F' | 'f' ) ( 'A' | 'a' ) ( 'L' | 'l' ) ( 'S' | 's' ) ( 'E' | 'e' )  ;
 INDEX : ( 'I' | 'i') ( 'N' | 'n' ) ( 'D' | 'd' ) ( 'E' | 'e' ) ( 'X' | 'x' ) ;
 
 BFS : ( 'B' | 'b' ) ( 'F' | 'f' ) ( 'S' | 's' ) ;
+
+WSHORTEST : ( 'W' | 'w' ) ( 'S' | 's' ) ( 'H' | 'h' ) ( 'O' | 'o' ) ( 'R' | 'r' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'S' | 's' ) ( 'T' | 't' ) ;
 
 UnescapedSymbolicName : IdentifierStart ( IdentifierPart )* ;
 

@@ -100,7 +100,7 @@ TEST_F(DistributedGraphDbTest, RemoteExpansion) {
     GraphDbAccessor dba{master()};
     std::vector<VertexAccessor> visited;
 
-    auto expand = [&visited, &dba](auto &v) {
+    auto expand = [](auto &v) {
       for (auto e : v.out()) return e.to();
       for (auto e : v.in()) return e.from();
       CHECK(false) << "No edge in vertex";

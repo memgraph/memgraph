@@ -419,18 +419,24 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     }
     scope_.in_edge_range = false;
     scope_.in_pattern = false;
-    if (edge_atom.filter_expression_) {
-      VisitWithIdentifiers(*edge_atom.filter_expression_,
-                           {edge_atom.inner_edge_, edge_atom.inner_node_});
+    if (edge_atom.filter_lambda_.expression) {
+      VisitWithIdentifiers(*edge_atom.filter_lambda_.expression,
+                           {edge_atom.filter_lambda_.inner_edge,
+                            edge_atom.filter_lambda_.inner_node});
     } else {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
-      symbol_table_[*edge_atom.inner_edge_] = symbol_table_.CreateSymbol(
-          edge_atom.inner_edge_->name_, edge_atom.inner_edge_->user_declared_,
-          Symbol::Type::Edge);
-      symbol_table_[*edge_atom.inner_node_] = symbol_table_.CreateSymbol(
-          edge_atom.inner_node_->name_, edge_atom.inner_node_->user_declared_,
-          Symbol::Type::Vertex);
+      const auto *inner_edge = edge_atom.filter_lambda_.inner_edge;
+      symbol_table_[*inner_edge] = symbol_table_.CreateSymbol(
+          inner_edge->name_, inner_edge->user_declared_, Symbol::Type::Edge);
+      const auto *inner_node = edge_atom.filter_lambda_.inner_node;
+      symbol_table_[*inner_node] = symbol_table_.CreateSymbol(
+          inner_node->name_, inner_node->user_declared_, Symbol::Type::Vertex);
+    }
+    if (edge_atom.weight_lambda_.expression) {
+      VisitWithIdentifiers(*edge_atom.weight_lambda_.expression,
+                           {edge_atom.weight_lambda_.inner_edge,
+                            edge_atom.weight_lambda_.inner_node});
     }
     scope_.in_pattern = true;
   }

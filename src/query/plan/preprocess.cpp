@@ -44,13 +44,22 @@ std::vector<Expansion> NormalizePatterns(
   auto collect_expansion = [&](auto *prev_node, auto *edge,
                                auto *current_node) {
     UsedSymbolsCollector collector(symbol_table);
-    // Remove symbols which are bound by variable expansions.
     if (edge->IsVariable()) {
       if (edge->lower_bound_) edge->lower_bound_->Accept(collector);
       if (edge->upper_bound_) edge->upper_bound_->Accept(collector);
-      collector.symbols_.erase(symbol_table.at(*edge->inner_edge_));
-      collector.symbols_.erase(symbol_table.at(*edge->inner_node_));
-      if (edge->filter_expression_) edge->filter_expression_->Accept(collector);
+      if (edge->filter_lambda_.expression)
+        edge->filter_lambda_.expression->Accept(collector);
+      // Remove symbols which are bound by lambda arguments.
+      collector.symbols_.erase(
+          symbol_table.at(*edge->filter_lambda_.inner_edge));
+      collector.symbols_.erase(
+          symbol_table.at(*edge->filter_lambda_.inner_node));
+      if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
+        collector.symbols_.erase(
+            symbol_table.at(*edge->weight_lambda_.inner_edge));
+        collector.symbols_.erase(
+            symbol_table.at(*edge->weight_lambda_.inner_node));
+      }
     }
     expansions.emplace_back(Expansion{prev_node, edge, edge->direction_, false,
                                       collector.symbols_, current_node});
@@ -223,11 +232,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       {
         collector.symbols_.clear();
         prop_pair.second->Accept(collector);
-        collector.symbols_.emplace(symbol_table.at(*atom->inner_node_));
-        collector.symbols_.emplace(symbol_table.at(*atom->inner_edge_));
+        collector.symbols_.emplace(
+            symbol_table.at(*atom->filter_lambda_.inner_node));
+        collector.symbols_.emplace(
+            symbol_table.at(*atom->filter_lambda_.inner_edge));
         // First handle the inline property filter.
-        auto *property_lookup =
-            storage.Create<PropertyLookup>(atom->inner_edge_, prop_pair.first);
+        auto *property_lookup = storage.Create<PropertyLookup>(
+            atom->filter_lambda_.inner_edge, prop_pair.first);
         auto *prop_equal =
             storage.Create<EqualOperator>(property_lookup, prop_pair.second);
         // Currently, variable expand has no gains if we set PropertyFilter.

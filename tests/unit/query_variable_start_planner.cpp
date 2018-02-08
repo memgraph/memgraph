@@ -307,9 +307,9 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
       std::vector<storage::EdgeType>{});
-  bfs->inner_edge_ = IDENT("r");
-  bfs->inner_node_ = IDENT("n");
-  bfs->filter_expression_ = NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3));
+  bfs->filter_lambda_.inner_edge = IDENT("r");
+  bfs->filter_lambda_.inner_node = IDENT("n");
+  bfs->filter_lambda_.expression = NEQ(PROPERTY_LOOKUP("n", id), LITERAL(3));
   bfs->upper_bound_ = LITERAL(10);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:

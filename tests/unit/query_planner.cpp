@@ -1851,9 +1851,9 @@ TYPED_TEST(TestPlanner, MatchBreadthFirst) {
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
       std::vector<storage::EdgeType>{edge_type});
-  bfs->inner_edge_ = IDENT("r");
-  bfs->inner_node_ = IDENT("n");
-  bfs->filter_expression_ = IDENT("n");
+  bfs->filter_lambda_.inner_edge = IDENT("r");
+  bfs->filter_lambda_.inner_node = IDENT("n");
+  bfs->filter_lambda_.expression = IDENT("n");
   bfs->upper_bound_ = LITERAL(10);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectExpandBreadthFirst(),
@@ -1929,9 +1929,9 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   database::SingleNode db;
   AstTreeStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH);
-  edge->inner_edge_ = IDENT("ie");
-  edge->inner_node_ = IDENT("in");
-  edge->filter_expression_ = LITERAL(true);
+  edge->filter_lambda_.inner_edge = IDENT("ie");
+  edge->filter_lambda_.inner_node = IDENT("in");
+  edge->filter_lambda_.expression = LITERAL(true);
   auto ret = storage.Create<query::Return>();
   ret->body_.all_identifiers = true;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), ret));

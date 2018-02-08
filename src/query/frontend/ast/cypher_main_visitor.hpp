@@ -296,7 +296,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::RelationshipTypesContext *ctx) override;
 
   /**
-   * @return std::tuple<bool, int64_t, int64_t>.
+   * @return std::tuple<EdgeAtom::Type, int64_t, int64_t>.
    */
   antlrcpp::Any visitVariableExpansion(
       CypherParser::VariableExpansionContext *ctx) override;

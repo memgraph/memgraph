@@ -160,10 +160,10 @@ auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
   auto r_val =
       storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
                                EdgeAtom::Type::DEPTH_FIRST, dir, edge_types);
-  r_val->inner_edge_ =
+  r_val->filter_lambda_.inner_edge =
       inner_edge ? inner_edge
                  : storage.Create<Identifier>(utils::RandomString(20));
-  r_val->inner_node_ =
+  r_val->filter_lambda_.inner_node =
       inner_node ? inner_node
                  : storage.Create<Identifier>(utils::RandomString(20));
   return r_val;

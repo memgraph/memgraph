@@ -1604,12 +1604,12 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
       UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
                            ast_generator.db_accessor_.EdgeType("type2")));
   EXPECT_EQ(bfs->identifier_->name_, "r");
-  EXPECT_EQ(bfs->inner_edge_->name_, "e");
-  EXPECT_TRUE(bfs->inner_edge_->user_declared_);
-  EXPECT_EQ(bfs->inner_node_->name_, "n");
-  EXPECT_TRUE(bfs->inner_node_->user_declared_);
+  EXPECT_EQ(bfs->filter_lambda_.inner_edge->name_, "e");
+  EXPECT_TRUE(bfs->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_EQ(bfs->filter_lambda_.inner_node->name_, "n");
+  EXPECT_TRUE(bfs->filter_lambda_.inner_node->user_declared_);
   CheckLiteral(ast_generator.context_, bfs->upper_bound_, 10);
-  auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_expression_);
+  auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_lambda_.expression);
   ASSERT_TRUE(eq);
 }
 
@@ -1626,8 +1626,94 @@ TYPED_TEST(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
   auto *var_expand = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(var_expand);
   ASSERT_TRUE(var_expand->IsVariable());
-  EXPECT_FALSE(var_expand->inner_edge_->user_declared_);
-  EXPECT_FALSE(var_expand->inner_node_->user_declared_);
+  EXPECT_FALSE(var_expand->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_FALSE(var_expand->filter_lambda_.inner_node->user_declared_);
+}
+
+TYPED_TEST(CypherMainVisitorTest, MatchWShortestReturn) {
+  TypeParam ast_generator(
+      "MATCH ()-[r:type1|type2 *wShortest 10 (we, wn | 42) (e, n | true)]->() "
+      "RETURN r");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_TRUE(shortest->IsVariable());
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH);
+  EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_THAT(
+      shortest->edge_types_,
+      UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
+                           ast_generator.db_accessor_.EdgeType("type2")));
+  CheckLiteral(ast_generator.context_, shortest->upper_bound_, 10);
+  EXPECT_FALSE(shortest->lower_bound_);
+  EXPECT_EQ(shortest->identifier_->name_, "r");
+  EXPECT_EQ(shortest->filter_lambda_.inner_edge->name_, "e");
+  EXPECT_TRUE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_EQ(shortest->filter_lambda_.inner_node->name_, "n");
+  EXPECT_TRUE(shortest->filter_lambda_.inner_node->user_declared_);
+  CheckLiteral(ast_generator.context_, shortest->filter_lambda_.expression,
+               true);
+  EXPECT_EQ(shortest->weight_lambda_.inner_edge->name_, "we");
+  EXPECT_TRUE(shortest->weight_lambda_.inner_edge->user_declared_);
+  EXPECT_EQ(shortest->weight_lambda_.inner_node->name_, "wn");
+  EXPECT_TRUE(shortest->weight_lambda_.inner_node->user_declared_);
+  CheckLiteral(ast_generator.context_, shortest->weight_lambda_.expression, 42);
+}
+
+TYPED_TEST(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
+  TypeParam ast_generator(
+      "MATCH ()-[r:type1|type2 *wShortest 10 (we, wn | 42)]->() "
+      "RETURN r");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_TRUE(shortest->IsVariable());
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH);
+  EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_THAT(
+      shortest->edge_types_,
+      UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
+                           ast_generator.db_accessor_.EdgeType("type2")));
+  CheckLiteral(ast_generator.context_, shortest->upper_bound_, 10);
+  EXPECT_FALSE(shortest->lower_bound_);
+  EXPECT_EQ(shortest->identifier_->name_, "r");
+  EXPECT_FALSE(shortest->filter_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+  EXPECT_EQ(shortest->weight_lambda_.inner_edge->name_, "we");
+  EXPECT_TRUE(shortest->weight_lambda_.inner_edge->user_declared_);
+  EXPECT_EQ(shortest->weight_lambda_.inner_node->name_, "wn");
+  EXPECT_TRUE(shortest->weight_lambda_.inner_node->user_declared_);
+  CheckLiteral(ast_generator.context_, shortest->weight_lambda_.expression, 42);
+}
+
+
+TYPED_TEST(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
+  ASSERT_THROW(
+      TypeParam("MATCH ()-[r *wShortest 10.. (e, n | 42)]-() RETURN r"),
+      SemanticException);
+  ASSERT_THROW(
+      TypeParam("MATCH ()-[r *wShortest 10..20 (e, n | 42)]-() RETURN r"),
+      SemanticException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, SemanticExceptionOnWShortestWithoutLambda) {
+  ASSERT_THROW(TypeParam("MATCH ()-[r *wShortest]-() RETURN r"),
+               SemanticException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, SemanticExceptionOnUnionTypeMix) {

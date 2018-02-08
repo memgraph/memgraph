@@ -352,8 +352,10 @@ class RuleBasedPlanner {
         DCHECK(!utils::Contains(bound_symbols, edge_symbol))
             << "Existing edges are not supported";
         if (edge->IsVariable()) {
-          Symbol inner_edge_symbol = symbol_table.at(*edge->inner_edge_);
-          Symbol inner_node_symbol = symbol_table.at(*edge->inner_node_);
+          Symbol inner_edge_symbol =
+              symbol_table.at(*edge->filter_lambda_.inner_edge);
+          Symbol inner_node_symbol =
+              symbol_table.at(*edge->filter_lambda_.inner_node);
           {
             // Bind the inner edge and node symbols so they're available for
             // inline filtering in ExpandVariable.
@@ -369,7 +371,7 @@ class RuleBasedPlanner {
           // lambda filtering uses bound symbols.
           auto *filter_expr = impl::BoolJoin<AndOperator>(
               storage, impl::ExtractFilters(bound_symbols, filters, storage),
-              edge->filter_expression_);
+              edge->filter_lambda_.expression);
           // At this point it's possible we have leftover filters for inline
           // filtering (they use the inner symbols. If they were not collected,
           // we have to remove them manually because no other filter-extraction
@@ -386,6 +388,7 @@ class RuleBasedPlanner {
           bound_symbols.erase(inner_edge_symbol);
           bound_symbols.erase(inner_node_symbol);
 
+          // TODO: Pass weight lambda.
           last_op = std::make_unique<ExpandVariable>(
               node_symbol, edge_symbol, edge->type_, expansion.direction,
               edge->edge_types_, expansion.is_flipped, edge->lower_bound_,

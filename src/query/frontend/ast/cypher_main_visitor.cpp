@@ -459,18 +459,11 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
   auto relationshipDetail = ctx->relationshipDetail();
   auto *variableExpansion =
       relationshipDetail ? relationshipDetail->variableExpansion() : nullptr;
-  bool is_bfs = false;
+  edge->type_ = EdgeAtom::Type::SINGLE;
   if (variableExpansion)
-    std::tie(is_bfs, edge->lower_bound_, edge->upper_bound_) =
+    std::tie(edge->type_, edge->lower_bound_, edge->upper_bound_) =
         variableExpansion->accept(this)
-            .as<std::tuple<bool, Expression *, Expression *>>();
-
-  if (!variableExpansion)
-    edge->type_ = EdgeAtom::Type::SINGLE;
-  else if (is_bfs)
-    edge->type_ = EdgeAtom::Type::BREADTH_FIRST;
-  else
-    edge->type_ = EdgeAtom::Type::DEPTH_FIRST;
+            .as<std::tuple<EdgeAtom::Type, Expression *, Expression *>>();
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
     edge->direction_ = EdgeAtom::Direction::IN;
@@ -504,25 +497,47 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
   if (variableExpansion) {
+    auto visit_lambda = [this](auto *lambda) {
+      EdgeAtom::Lambda edge_lambda;
+      std::string traversed_edge_variable =
+          lambda->traversed_edge->accept(this);
+      edge_lambda.inner_edge =
+          storage_.Create<Identifier>(traversed_edge_variable);
+      std::string traversed_node_variable =
+          lambda->traversed_node->accept(this);
+      edge_lambda.inner_node =
+          storage_.Create<Identifier>(traversed_node_variable);
+      edge_lambda.expression = lambda->expression()->accept(this);
+      return edge_lambda;
+    };
     switch (relationshipLambdas.size()) {
       case 0:
-        // In variable length and BFS expansion inner variables are mandatory.
-        anonymous_identifiers.push_back(&edge->inner_edge_);
-        anonymous_identifiers.push_back(&edge->inner_node_);
+        if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
+          throw SemanticException(
+              "Lambda for calculating weights is mandatory");
+        // In variable expansion inner variables are mandatory.
+        anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
+        anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
         break;
-      case 1: {
-        auto *lambda = relationshipLambdas[0];
-        std::string traversed_edge_variable =
-            lambda->traversed_edge->accept(this);
-        edge->inner_edge_ =
-            storage_.Create<Identifier>(traversed_edge_variable);
-        std::string traversed_node_variable =
-            lambda->traversed_node->accept(this);
-        edge->inner_node_ =
-            storage_.Create<Identifier>(traversed_node_variable);
-        edge->filter_expression_ = lambda->expression()->accept(this);
+      case 1:
+        if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
+          // For wShortest, the first (and required) lambda is used for weight
+          // calculation.
+          edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
+          // Add mandatory inner variables for filter lambda.
+          anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
+          anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
+        } else {
+          // Other variable expands only have the filter lambda.
+          edge->filter_lambda_ = visit_lambda(relationshipLambdas[0]);
+        }
         break;
-      };
+      case 2:
+        if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
+          throw SemanticException("Only one relationship lambda allowed");
+        edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
+        edge->filter_lambda_ = visit_lambda(relationshipLambdas[1]);
+        break;
       default:
         throw SemanticException("Only one relationship lambda allowed");
     }
@@ -576,7 +591,11 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
   DCHECK(ctx->expression().size() <= 2U)
       << "Expected 0, 1 or 2 bounds in range literal.";
 
-  bool is_bfs = !ctx->getTokens(CypherParser::BFS).empty();
+  EdgeAtom::Type edge_type = EdgeAtom::Type::DEPTH_FIRST;
+  if (!ctx->getTokens(CypherParser::BFS).empty())
+    edge_type = EdgeAtom::Type::BREADTH_FIRST;
+  else if (!ctx->getTokens(CypherParser::WSHORTEST).empty())
+    edge_type = EdgeAtom::Type::WEIGHTED_SHORTEST_PATH;
   Expression *lower = nullptr;
   Expression *upper = nullptr;
 
@@ -587,7 +606,7 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
     Expression *bound = ctx->expression()[0]->accept(this);
     if (!dots_tokens.size()) {
       // Case -[*bound]-
-      lower = bound;
+      if (edge_type != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) lower = bound;
       upper = bound;
     } else if (dots_tokens[0]->getSourceInterval().startsAfter(
                    ctx->expression()[0]->getSourceInterval())) {
@@ -602,8 +621,10 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
     lower = ctx->expression()[0]->accept(this);
     upper = ctx->expression()[1]->accept(this);
   }
+  if (lower && edge_type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
+    throw SemanticException("Lower bound is not allowed in wShortest.");
 
-  return std::make_tuple(is_bfs, lower, upper);
+  return std::make_tuple(edge_type, lower, upper);
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression(

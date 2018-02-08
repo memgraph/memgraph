@@ -834,9 +834,9 @@ TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   auto *bfs = storage.Create<EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT,
       std::vector<storage::EdgeType>{});
-  bfs->inner_edge_ = IDENT("r");
-  bfs->inner_node_ = IDENT("n");
-  bfs->filter_expression_ = r_prop;
+  bfs->filter_lambda_.inner_edge = IDENT("r");
+  bfs->filter_lambda_.inner_node = IDENT("n");
+  bfs->filter_lambda_.expression = r_prop;
   bfs->upper_bound_ = n_prop;
   auto *ret_r = IDENT("r");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, bfs, NODE("m"))),
@@ -845,13 +845,14 @@ TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   // Symbols for pattern, `n`, `[r]`, `r|`, `n|`, `m` and `AS r`.
   EXPECT_EQ(symbol_table.max_position(), 7);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*bfs->identifier_));
-  EXPECT_NE(symbol_table.at(*ret_r), symbol_table.at(*bfs->inner_edge_));
-  EXPECT_TRUE(symbol_table.at(*bfs->inner_edge_).user_declared());
-  EXPECT_EQ(symbol_table.at(*bfs->inner_edge_),
+  EXPECT_NE(symbol_table.at(*ret_r),
+            symbol_table.at(*bfs->filter_lambda_.inner_edge));
+  EXPECT_TRUE(symbol_table.at(*bfs->filter_lambda_.inner_edge).user_declared());
+  EXPECT_EQ(symbol_table.at(*bfs->filter_lambda_.inner_edge),
             symbol_table.at(*r_prop->expression_));
   EXPECT_NE(symbol_table.at(*node_n->identifier_),
-            symbol_table.at(*bfs->inner_node_));
-  EXPECT_TRUE(symbol_table.at(*bfs->inner_node_).user_declared());
+            symbol_table.at(*bfs->filter_lambda_.inner_node));
+  EXPECT_TRUE(symbol_table.at(*bfs->filter_lambda_.inner_node).user_declared());
   EXPECT_EQ(symbol_table.at(*node_n->identifier_),
             symbol_table.at(*n_prop->expression_));
 }
@@ -860,9 +861,9 @@ TEST_F(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
   // Test MATCH (n) -[r *bfs..10 (e, n | r)]-> (m) RETURN r
   auto *bfs = storage.Create<EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
-  bfs->inner_edge_ = IDENT("e");
-  bfs->inner_node_ = IDENT("n");
-  bfs->filter_expression_ = IDENT("r");
+  bfs->filter_lambda_.inner_edge = IDENT("e");
+  bfs->filter_lambda_.inner_node = IDENT("n");
+  bfs->filter_lambda_.expression = IDENT("r");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
@@ -874,24 +875,24 @@ TEST_F(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
   auto *node_a = NODE("a");
   auto *bfs = storage.Create<EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
-  bfs->inner_edge_ = IDENT("e");
-  bfs->inner_node_ = IDENT("n");
-  bfs->filter_expression_ = IDENT("a");
+  bfs->filter_lambda_.inner_edge = IDENT("e");
+  bfs->filter_lambda_.inner_node = IDENT("n");
+  bfs->filter_lambda_.expression = IDENT("a");
   bfs->upper_bound_ = LITERAL(10);
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r")));
   query->Accept(symbol_generator);
   EXPECT_EQ(symbol_table.at(*node_a->identifier_),
-            symbol_table.at(*bfs->filter_expression_));
+            symbol_table.at(*bfs->filter_lambda_.expression));
 }
 
 TEST_F(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   // Test MATCH (n) -[r *bfs..10 (e, n | m)]-> (m) RETURN r
   auto *bfs = storage.Create<EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
-  bfs->inner_edge_ = IDENT("e");
-  bfs->inner_node_ = IDENT("n");
-  bfs->filter_expression_ = IDENT("m");
+  bfs->filter_lambda_.inner_edge = IDENT("e");
+  bfs->filter_lambda_.inner_node = IDENT("n");
+  bfs->filter_lambda_.expression = IDENT("m");
   bfs->upper_bound_ = LITERAL(10);
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
@@ -905,8 +906,10 @@ TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   auto edge = storage.Create<EdgeAtom>(
       storage.Create<Identifier>("anon_r", false), EdgeAtom::Type::DEPTH_FIRST,
       EdgeAtom::Direction::BOTH);
-  edge->inner_edge_ = storage.Create<Identifier>("anon_inner_e", false);
-  edge->inner_node_ = storage.Create<Identifier>("anon_inner_n", false);
+  edge->filter_lambda_.inner_edge =
+      storage.Create<Identifier>("anon_inner_e", false);
+  edge->filter_lambda_.inner_node =
+      storage.Create<Identifier>("anon_inner_n", false);
   auto end_node =
       storage.Create<NodeAtom>(storage.Create<Identifier>("anon_end", false));
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node, edge, end_node)),
@@ -924,6 +927,52 @@ TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
       EXPECT_FALSE(id_and_symbol.second.user_declared());
     }
   }
+}
+
+TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
+  // Test MATCH (n) -[r *wShortest (r, n | r.weight) (r, n | r.filter)]-> (m)
+  // RETURN r AS r
+  auto weight = dba.Property("weight");
+  auto filter = dba.Property("filter");
+  auto *node_n = NODE("n");
+  auto *r_weight = PROPERTY_LOOKUP("r", weight);
+  auto *r_filter = PROPERTY_LOOKUP("r", filter);
+  auto *shortest = storage.Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
+      EdgeAtom::Direction::OUT, std::vector<storage::EdgeType>{});
+  {
+    shortest->weight_lambda_.inner_edge = IDENT("r");
+    shortest->weight_lambda_.inner_node = IDENT("n");
+    shortest->weight_lambda_.expression = r_weight;
+  }
+  {
+    shortest->filter_lambda_.inner_edge = IDENT("r");
+    shortest->filter_lambda_.inner_node = IDENT("n");
+    shortest->filter_lambda_.expression = r_filter;
+  }
+  auto *ret_r = IDENT("r");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, shortest, NODE("m"))),
+                                   RETURN(ret_r, AS("r"))));
+  query->Accept(symbol_generator);
+  // Symbols for pattern, `n`, `[r]`, (`r|`, `n|`)x2, `m` and `AS r`.
+  EXPECT_EQ(symbol_table.max_position(), 9);
+  EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*shortest->identifier_));
+  EXPECT_NE(symbol_table.at(*ret_r),
+            symbol_table.at(*shortest->weight_lambda_.inner_edge));
+  EXPECT_NE(symbol_table.at(*ret_r),
+            symbol_table.at(*shortest->filter_lambda_.inner_edge));
+  EXPECT_TRUE(
+      symbol_table.at(*shortest->filter_lambda_.inner_edge).user_declared());
+  EXPECT_EQ(symbol_table.at(*shortest->weight_lambda_.inner_edge),
+            symbol_table.at(*r_weight->expression_));
+  EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_edge),
+            symbol_table.at(*shortest->filter_lambda_.inner_edge));
+  EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_node),
+            symbol_table.at(*shortest->filter_lambda_.inner_node));
+  EXPECT_EQ(symbol_table.at(*shortest->filter_lambda_.inner_edge),
+            symbol_table.at(*r_filter->expression_));
+  EXPECT_TRUE(
+      symbol_table.at(*shortest->filter_lambda_.inner_node).user_declared());
 }
 
 TEST_F(TestSymbolGenerator, MatchUnionSymbols) {

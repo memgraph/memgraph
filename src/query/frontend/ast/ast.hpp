@@ -40,14 +40,14 @@ namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type * override {          \
+      std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
   auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
-      std::remove_pointer<decltype(this)>::type>::type * override {          \
+      std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression_->Clone(storage));                                        \
@@ -60,7 +60,6 @@ namespace query {
   }
 
 class Tree;
-
 
 // It would be better to call this AstTree, but we already have a class Tree,
 // which could be renamed to Node or AstTreeNode, but we also have a class
@@ -85,7 +84,7 @@ class AstTreeStorage {
   Query *query() const;
 
   /// Id for using get_helper<AstTreeStorage> in boost archives.
-  static void * const kHelperId;
+  static void *const kHelperId;
 
   /// Load an Ast Node into this storage.
   template <class TArchive, class TNode>
@@ -1364,8 +1363,8 @@ class Aggregation : public BinaryOperator {
   Op op_;
 
  protected:
-  /** Aggregation's first expression is the value being aggregated. The second
-   * expression is the key used only in COLLECT_MAP. */
+  /// Aggregation's first expression is the value being aggregated. The second
+  /// expression is the key used only in COLLECT_MAP.
   Aggregation(int uid, Expression *expression1, Expression *expression2, Op op)
       : BinaryOperator(uid, expression1, expression2), op_(op) {
     // COUNT without expression denotes COUNT(*) in cypher.
@@ -1738,8 +1737,23 @@ class EdgeAtom : public PatternAtom {
   }
 
  public:
-  enum class Type { SINGLE, DEPTH_FIRST, BREADTH_FIRST };
+  enum class Type {
+    SINGLE,
+    DEPTH_FIRST,
+    BREADTH_FIRST,
+    WEIGHTED_SHORTEST_PATH
+  };
   enum class Direction { IN, OUT, BOTH };
+
+  /// Lambda for use in filtering or weight calculation during variable expands.
+  struct Lambda {
+    /// Argument identifier for the edge currently being traversed.
+    Identifier *inner_edge = nullptr;
+    /// Argument identifier for the destination node of the edge.
+    Identifier *inner_node = nullptr;
+    /// Evaluates the result of the lambda.
+    Expression *expression = nullptr;
+  };
 
   DEFVISITABLE(TreeVisitor<TypedValue>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1770,9 +1784,13 @@ class EdgeAtom : public PatternAtom {
     }
     edge_atom->lower_bound_ = CloneOpt(lower_bound_, storage);
     edge_atom->upper_bound_ = CloneOpt(upper_bound_, storage);
-    edge_atom->inner_edge_ = CloneOpt(inner_edge_, storage);
-    edge_atom->inner_node_ = CloneOpt(inner_node_, storage);
-    edge_atom->filter_expression_ = CloneOpt(filter_expression_, storage);
+    auto clone_lambda = [&storage](const auto &lambda) {
+      return Lambda{CloneOpt(lambda.inner_edge, storage),
+                    CloneOpt(lambda.inner_node, storage),
+                    CloneOpt(lambda.expression, storage)};
+    };
+    edge_atom->filter_lambda_ = clone_lambda(filter_lambda_);
+    edge_atom->weight_lambda_ = clone_lambda(weight_lambda_);
     return edge_atom;
   }
 
@@ -1780,8 +1798,9 @@ class EdgeAtom : public PatternAtom {
     switch (type_) {
       case Type::DEPTH_FIRST:
       case Type::BREADTH_FIRST:
+      case Type::WEIGHTED_SHORTEST_PATH:
         return true;
-      default:
+      case Type::SINGLE:
         return false;
     }
   }
@@ -1792,14 +1811,20 @@ class EdgeAtom : public PatternAtom {
   std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
       properties_;
 
-  // Used in variable length and BFS expansions. Bounds can be nullptr. Inner
-  // element symbols can only be null in SINGLE expansion. Filter can be
-  // nullptr.
+  // Members used only in variable length expansions.
+
+  /// Evaluates to lower bound in variable length expands.
   Expression *lower_bound_ = nullptr;
+  /// Evaluated to upper bound in variable length expands.
   Expression *upper_bound_ = nullptr;
-  Identifier *inner_edge_ = nullptr;
-  Identifier *inner_node_ = nullptr;
-  Expression *filter_expression_ = nullptr;
+  /// Filter lambda for variable length expands.
+  /// Can have an empty expression, but identifiers must be valid, because an
+  /// optimization pass may inline other expressions into this lambda.
+  Lambda filter_lambda_;
+  /// Used in weighted shortest path.
+  /// It must have valid expressions and identifiers. In all other expand types,
+  /// it is empty.
+  Lambda weight_lambda_;
 
  protected:
   using PatternAtom::PatternAtom;
@@ -1834,9 +1859,13 @@ class EdgeAtom : public PatternAtom {
     }
     SavePointer(ar, lower_bound_);
     SavePointer(ar, upper_bound_);
-    SavePointer(ar, inner_edge_);
-    SavePointer(ar, inner_node_);
-    SavePointer(ar, filter_expression_);
+    auto save_lambda = [&ar](const auto &lambda) {
+      SavePointer(ar, lambda.inner_edge);
+      SavePointer(ar, lambda.inner_node);
+      SavePointer(ar, lambda.expression);
+    };
+    save_lambda(filter_lambda_);
+    save_lambda(weight_lambda_);
   }
 
   template <class TArchive>
@@ -1858,9 +1887,13 @@ class EdgeAtom : public PatternAtom {
     }
     LoadPointer(ar, lower_bound_);
     LoadPointer(ar, upper_bound_);
-    LoadPointer(ar, inner_edge_);
-    LoadPointer(ar, inner_node_);
-    LoadPointer(ar, filter_expression_);
+    auto load_lambda = [&ar](auto &lambda) {
+      LoadPointer(ar, lambda.inner_edge);
+      LoadPointer(ar, lambda.inner_node);
+      LoadPointer(ar, lambda.expression);
+    };
+    load_lambda(filter_lambda_);
+    load_lambda(weight_lambda_);
   }
 
   template <class TArchive>
@@ -2014,10 +2047,8 @@ class CypherUnion : public Tree {
 
   SingleQuery *single_query_ = nullptr;
   bool distinct_ = false;
-  /**
-   * @brief Holds symbols that are created during symbol generation phase.
-   * These symbols are used when UNION/UNION ALL combines single query results.
-   */
+  /// Holds symbols that are created during symbol generation phase.
+  /// These symbols are used when UNION/UNION ALL combines single query results.
   std::vector<Symbol> union_symbols_;
 
  protected:
@@ -2225,24 +2256,22 @@ class Match : public Clause {
                                                         const unsigned int);
 };
 
-/** @brief Defines the order for sorting values (ascending or descending). */
+/// Defines the order for sorting values (ascending or descending).
 enum class Ordering { ASC, DESC };
 
-/**
- * @brief Contents common to @c Return and @c With clauses.
- */
+/// Contents common to @c Return and @c With clauses.
 struct ReturnBody {
-  /** @brief True if distinct results should be produced. */
+  /// True if distinct results should be produced.
   bool distinct = false;
-  /** @brief True if asterisk was found in return body */
+  /// True if asterisk was found in return body
   bool all_identifiers = false;
-  /** @brief Expressions which are used to produce results. */
+  /// Expressions which are used to produce results.
   std::vector<NamedExpression *> named_expressions;
-  /** @brief Expressions used for ordering the results. */
+  /// Expressions used for ordering the results.
   std::vector<std::pair<Ordering, Expression *>> order_by;
-  /** @brief Optional expression on how many results to skip. */
+  /// Optional expression on how many results to skip.
   Expression *skip = nullptr;
-  /** @brief Optional expression on how much to limit the results. */
+  /// Optional expression on how much to limit the results.
   Expression *limit = nullptr;
 };
 
