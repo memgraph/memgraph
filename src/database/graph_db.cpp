@@ -7,6 +7,7 @@
 #include "distributed/index_rpc_server.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
+#include "distributed/remote_data_manager.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "distributed/remote_data_rpc_server.hpp"
 #include "distributed/remote_produce_rpc_server.hpp"
@@ -116,6 +117,9 @@ class SingleNode : public PrivateBase {
   distributed::RemoteUpdatesRpcClients &remote_updates_clients() override {
     LOG(FATAL) << "Remote updates clients not available in single-node.";
   }
+  distributed::RemoteDataManager &remote_data_manager() override {
+    LOG(FATAL) << "Remote data manager not available in single-node.";
+  }
 };
 
 #define IMPL_DISTRIBUTED_GETTERS                                            \
@@ -130,6 +134,9 @@ class SingleNode : public PrivateBase {
   }                                                                         \
   distributed::RemoteUpdatesRpcClients &remote_updates_clients() override { \
     return remote_updates_clients_;                                         \
+  }                                                                         \
+  distributed::RemoteDataManager &remote_data_manager() override {          \
+    return remote_data_manager_;                                            \
   }
 
 class Master : public PrivateBase {
@@ -164,6 +171,7 @@ class Master : public PrivateBase {
                                                    distributed::kIndexRpcName};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, system_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
+  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
 };
 
 class Worker : public PrivateBase {
@@ -197,6 +205,7 @@ class Worker : public PrivateBase {
   distributed::IndexRpcServer index_rpc_server_{*this, system_};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, system_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
+  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
 };
 
 #undef IMPL_GETTERS
@@ -264,6 +273,9 @@ distributed::RemoteUpdatesRpcServer &PublicBase::remote_updates_server() {
 }
 distributed::RemoteUpdatesRpcClients &PublicBase::remote_updates_clients() {
   return impl_->remote_updates_clients();
+}
+distributed::RemoteDataManager &PublicBase::remote_data_manager() {
+  return impl_->remote_data_manager();
 }
 
 void PublicBase::MakeSnapshot() {

@@ -18,22 +18,12 @@ namespace database {
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
     : db_(db),
       transaction_(*db.tx_engine().Begin()),
-      transaction_starter_{true} {
-  if (db_.type() != GraphDb::Type::SINGLE_NODE) {
-    remote_vertices_.emplace(db_.remote_data_clients());
-    remote_edges_.emplace(db_.remote_data_clients());
-  }
-}
+      transaction_starter_{true} {}
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db, tx::transaction_id_t tx_id)
     : db_(db),
       transaction_(*db.tx_engine().RunningTransaction(tx_id)),
-      transaction_starter_{false} {
-  if (db_.type() != GraphDb::Type::SINGLE_NODE) {
-    remote_vertices_.emplace(db_.remote_data_clients());
-    remote_edges_.emplace(db_.remote_data_clients());
-  }
-}
+      transaction_starter_{false} {}
 
 GraphDbAccessor::~GraphDbAccessor() {
   if (transaction_starter_ && !commited_ && !aborted_) {
@@ -523,16 +513,6 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
                                   PropertyName(key.property_)));
   }
   return info;
-}
-
-template <>
-distributed::RemoteCache<Vertex> &GraphDbAccessor::remote_elements() {
-  return remote_vertices();
-}
-
-template <>
-distributed::RemoteCache<Edge> &GraphDbAccessor::remote_elements() {
-  return remote_edges();
 }
 
 mvcc::VersionList<Vertex> *GraphDbAccessor::LocalVertexAddress(

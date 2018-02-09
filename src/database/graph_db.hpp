@@ -23,6 +23,7 @@ class RemotePullRpcClients;
 class RemoteProduceRpcServer;
 class RemoteUpdatesRpcServer;
 class RemoteUpdatesRpcClients;
+class RemoteDataManager;
 }
 
 namespace database {
@@ -95,6 +96,7 @@ class GraphDb {
   virtual distributed::RemoteDataRpcClients &remote_data_clients() = 0;
   virtual distributed::RemoteUpdatesRpcServer &remote_updates_server() = 0;
   virtual distributed::RemoteUpdatesRpcClients &remote_updates_clients() = 0;
+  virtual distributed::RemoteDataManager &remote_data_manager() = 0;
 
   // Supported only in distributed master.
   virtual distributed::RemotePullRpcClients &remote_pull_clients() = 0;
@@ -141,6 +143,7 @@ class PublicBase : public GraphDb {
   distributed::RemoteProduceRpcServer &remote_produce_server() override;
   distributed::RemoteUpdatesRpcServer &remote_updates_server() override;
   distributed::RemoteUpdatesRpcClients &remote_updates_clients() override;
+  distributed::RemoteDataManager &remote_data_manager() override;
 
  protected:
   explicit PublicBase(std::unique_ptr<PrivateBase> impl);

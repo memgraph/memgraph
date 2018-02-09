@@ -16,8 +16,7 @@ namespace distributed {
  * distributed system. Maps global IDs to (old, new) Vertex/Edge pointer
  * pairs.  It is possible that either "old" or "new" are nullptrs, but at
  * least one must be not-null. The RemoteCache is the owner of TRecord
- * objects it points to. This class is thread-safe, because it's owning
- * GraphDbAccessor is thread-safe.
+ * objects it points to.
  *
  * @tparam TRecord - Edge or Vertex
  */

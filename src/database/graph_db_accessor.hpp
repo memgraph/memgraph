@@ -550,21 +550,6 @@ class GraphDbAccessor {
   /* Returns a list of index names present in the database. */
   std::vector<std::string> IndexInfo() const;
 
-  distributed::RemoteCache<Vertex> &remote_vertices() {
-    CHECK(remote_vertices_)
-        << "Attempting to get a remote cache in single-node Memgraph";
-    return remote_vertices_.value();
-  }
-  distributed::RemoteCache<Edge> &remote_edges() {
-    CHECK(remote_edges_)
-        << "Attempting to get a remote cache in single-node Memgraph";
-    return remote_edges_.value();
-  }
-
-  /** Gets remote_vertices or remote_edges, depending on type param. */
-  template <typename TRecord>
-  distributed::RemoteCache<TRecord> &remote_elements();
-
   /// Gets the local address for the given gid. Fails if not present.
   mvcc::VersionList<Vertex> *LocalVertexAddress(gid::Gid gid) const;
 
@@ -580,10 +565,6 @@ class GraphDbAccessor {
 
   bool commited_{false};
   bool aborted_{false};
-
-  std::experimental::optional<distributed::RemoteCache<Vertex>>
-      remote_vertices_;
-  std::experimental::optional<distributed::RemoteCache<Edge>> remote_edges_;
 
   /**
    * Insert this vertex into corresponding label and label+property (if it

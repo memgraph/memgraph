@@ -2,6 +2,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
+#include "distributed/remote_data_manager.hpp"
 #include "distributed/remote_updates_rpc_clients.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
@@ -137,17 +138,20 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
+  auto &dba = db_accessor();
   if (is_local()) {
-    address_.local()->find_set_old_new(db_accessor_->transaction(), old_, new_);
+    address_.local()->find_set_old_new(dba.transaction(), old_, new_);
   } else {
     // It's not possible that we have a global address for a graph element
     // that's local, because that is resolved in the constructor.
     // TODO in write queries it's possible the command has been advanced and
     // we need to invalidate the RemoteCache and really get the latest stuff.
     // But only do that after the command has been advanced.
-    db_accessor().template remote_elements<TRecord>().FindSetOldNew(
-        db_accessor().transaction().id_, address_.worker_id(), address_.gid(),
-        old_, new_);
+    auto &remote_cache =
+        dba.db().remote_data_manager().template Elements<TRecord>(
+            dba.transaction_id());
+    remote_cache.FindSetOldNew(dba.transaction().id_, address_.worker_id(),
+                               address_.gid(), old_, new_);
   }
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
@@ -155,13 +159,14 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
 
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() const {
+  auto &dba = db_accessor();
   // Edges have lazily initialize mutable, versioned data (properties).
   if (std::is_same<TRecord, Edge>::value && current_ == nullptr) {
     bool reconstructed = Reconstruct();
     DCHECK(reconstructed) << "Unable to initialize record";
   }
 
-  const auto &t = db_accessor_->transaction();
+  const auto &t = dba.transaction();
   if (!new_ && old_->is_expired_by(t))
     throw RecordDeletedError();
   else if (new_ && new_->is_expired_by(t))
@@ -172,8 +177,10 @@ TRecord &RecordAccessor<TRecord>::update() const {
   if (is_local()) {
     new_ = address_.local()->update(t);
   } else {
-    new_ = db_accessor().template remote_elements<TRecord>().FindNew(
-        address_.gid());
+    auto &remote_cache =
+        dba.db().remote_data_manager().template Elements<TRecord>(
+            dba.transaction_id());
+    new_ = remote_cache.FindNew(address_.gid());
   }
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;

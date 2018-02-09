@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
+#include "distributed/remote_data_manager.hpp"
 #include "distributed/remote_pull_produce_rpc_messages.hpp"
 #include "distributed/rpc_worker_clients.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -38,18 +39,22 @@ class RemotePullRpcClients {
               true);
 
           auto handle_vertex = [&dba](auto &v) {
-            dba.remote_vertices().emplace(v.global_address.gid(),
-                                          std::move(v.old_record),
-                                          std::move(v.new_record));
+            dba.db()
+                .remote_data_manager()
+                .Vertices(dba.transaction_id())
+                .emplace(v.global_address.gid(), std::move(v.old_record),
+                         std::move(v.new_record));
             if (v.element_in_frame) {
               VertexAccessor va(v.global_address, dba);
               *v.element_in_frame = va;
             }
           };
           auto handle_edge = [&dba](auto &e) {
-            dba.remote_edges().emplace(e.global_address.gid(),
-                                       std::move(e.old_record),
-                                       std::move(e.new_record));
+            dba.db()
+                .remote_data_manager()
+                .Edges(dba.transaction_id())
+                .emplace(e.global_address.gid(), std::move(e.old_record),
+                         std::move(e.new_record));
             if (e.element_in_frame) {
               EdgeAccessor ea(e.global_address, dba);
               *e.element_in_frame = ea;
