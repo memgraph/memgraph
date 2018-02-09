@@ -123,9 +123,9 @@ relationshipPattern : ( leftArrowHead SP? dash SP? ( relationshipDetail )? SP? d
                     | ( dash SP? ( relationshipDetail )? SP? dash )
                     ;
 
-relationshipDetail : '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  properties SP? ']'
-                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  relationshipLambda SP? (relationshipLambda SP?)? ']'
-                   | '[' SP? ( variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )? ( (properties SP?) | (relationshipLambda SP?) )* ']';
+relationshipDetail : '[' SP? ( name=variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )?  properties SP? ']'
+                   | '[' SP? ( name=variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )? relationshipLambda SP? ( total_weight=variable SP? )? (relationshipLambda SP?)? ']'
+                   | '[' SP? ( name=variable SP? )? ( relationshipTypes SP? )? ( variableExpansion SP? )? (properties SP?)* ( relationshipLambda SP? total_weight=variable SP? )? (relationshipLambda SP?)? ']';
 
 relationshipLambda: '(' SP? traversed_edge=variable SP? ',' SP? traversed_node=variable SP? '|' SP? expression SP? ')';
 

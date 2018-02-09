@@ -1768,7 +1768,10 @@ class EdgeAtom : public PatternAtom {
         cont = lower_bound_->Accept(visitor);
       }
       if (cont && upper_bound_) {
-        upper_bound_->Accept(visitor);
+        cont = upper_bound_->Accept(visitor);
+      }
+      if (cont && total_weight_) {
+        total_weight_->Accept(visitor);
       }
     }
     return visitor.PostVisit(*this);
@@ -1791,6 +1794,7 @@ class EdgeAtom : public PatternAtom {
     };
     edge_atom->filter_lambda_ = clone_lambda(filter_lambda_);
     edge_atom->weight_lambda_ = clone_lambda(weight_lambda_);
+    edge_atom->total_weight_ = CloneOpt(total_weight_, storage);
     return edge_atom;
   }
 
@@ -1825,6 +1829,8 @@ class EdgeAtom : public PatternAtom {
   /// It must have valid expressions and identifiers. In all other expand types,
   /// it is empty.
   Lambda weight_lambda_;
+  /// Variable where the total weight for weighted shortest path will be stored.
+  Identifier *total_weight_ = nullptr;
 
  protected:
   using PatternAtom::PatternAtom;
@@ -1866,6 +1872,7 @@ class EdgeAtom : public PatternAtom {
     };
     save_lambda(filter_lambda_);
     save_lambda(weight_lambda_);
+    SavePointer(ar, total_weight_);
   }
 
   template <class TArchive>
@@ -1894,6 +1901,7 @@ class EdgeAtom : public PatternAtom {
     };
     load_lambda(filter_lambda_);
     load_lambda(weight_lambda_);
+    LoadPointer(ar, total_weight_);
   }
 
   template <class TArchive>

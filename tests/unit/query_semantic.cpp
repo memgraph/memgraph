@@ -944,6 +944,7 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
     shortest->weight_lambda_.inner_edge = IDENT("r");
     shortest->weight_lambda_.inner_node = IDENT("n");
     shortest->weight_lambda_.expression = r_weight;
+    shortest->total_weight_ = IDENT("total_weight");
   }
   {
     shortest->filter_lambda_.inner_edge = IDENT("r");
@@ -954,8 +955,9 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, shortest, NODE("m"))),
                                    RETURN(ret_r, AS("r"))));
   query->Accept(symbol_generator);
-  // Symbols for pattern, `n`, `[r]`, (`r|`, `n|`)x2, `m` and `AS r`.
-  EXPECT_EQ(symbol_table.max_position(), 9);
+  // Symbols for pattern, `n`, `[r]`, `total_weight`, (`r|`, `n|`)x2, `m` and
+  // `AS r`.
+  EXPECT_EQ(symbol_table.max_position(), 10);
   EXPECT_EQ(symbol_table.at(*ret_r), symbol_table.at(*shortest->identifier_));
   EXPECT_NE(symbol_table.at(*ret_r),
             symbol_table.at(*shortest->weight_lambda_.inner_edge));

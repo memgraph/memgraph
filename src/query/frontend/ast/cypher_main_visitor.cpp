@@ -480,8 +480,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     return edge;
   }
 
-  if (relationshipDetail->variable()) {
-    std::string variable = relationshipDetail->variable()->accept(this);
+  if (relationshipDetail->name) {
+    std::string variable = relationshipDetail->name->accept(this);
     edge->identifier_ = storage_.Create<Identifier>(variable);
     users_identifiers.insert(variable);
   } else {
@@ -497,6 +497,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
   if (variableExpansion) {
+    if (relationshipDetail->total_weight &&
+        edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
+      throw SemanticException(
+          "Variable for total weight is allowed only in wShortest");
     auto visit_lambda = [this](auto *lambda) {
       EdgeAtom::Lambda edge_lambda;
       std::string traversed_edge_variable =
@@ -509,6 +513,15 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
           storage_.Create<Identifier>(traversed_node_variable);
       edge_lambda.expression = lambda->expression()->accept(this);
       return edge_lambda;
+    };
+    auto visit_total_weight = [&]() {
+      if (relationshipDetail->total_weight) {
+        std::string total_weight_name =
+            relationshipDetail->total_weight->accept(this);
+        edge->total_weight_ = storage_.Create<Identifier>(total_weight_name);
+      } else {
+        anonymous_identifiers.push_back(&edge->total_weight_);
+      }
     };
     switch (relationshipLambdas.size()) {
       case 0:
@@ -524,6 +537,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
           // For wShortest, the first (and required) lambda is used for weight
           // calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
+          visit_total_weight();
           // Add mandatory inner variables for filter lambda.
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
@@ -536,6 +550,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
         if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
           throw SemanticException("Only one relationship lambda allowed");
         edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
+        visit_total_weight();
         edge->filter_lambda_ = visit_lambda(relationshipLambdas[1]);
         break;
       default:

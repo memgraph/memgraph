@@ -1632,8 +1632,8 @@ TYPED_TEST(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
 
 TYPED_TEST(CypherMainVisitorTest, MatchWShortestReturn) {
   TypeParam ast_generator(
-      "MATCH ()-[r:type1|type2 *wShortest 10 (we, wn | 42) (e, n | true)]->() "
-      "RETURN r");
+      "MATCH ()-[r:type1|type2 *wShortest 10 (we, wn | 42) total_weight "
+      "(e, n | true)]->() RETURN r");
   auto *query = ast_generator.query_;
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1665,6 +1665,9 @@ TYPED_TEST(CypherMainVisitorTest, MatchWShortestReturn) {
   EXPECT_EQ(shortest->weight_lambda_.inner_node->name_, "wn");
   EXPECT_TRUE(shortest->weight_lambda_.inner_node->user_declared_);
   CheckLiteral(ast_generator.context_, shortest->weight_lambda_.expression, 42);
+  ASSERT_TRUE(shortest->total_weight_);
+  EXPECT_EQ(shortest->total_weight_->name_, "total_weight");
+  EXPECT_TRUE(shortest->total_weight_->user_declared_);
 }
 
 TYPED_TEST(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
@@ -1699,6 +1702,8 @@ TYPED_TEST(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
   EXPECT_EQ(shortest->weight_lambda_.inner_node->name_, "wn");
   EXPECT_TRUE(shortest->weight_lambda_.inner_node->user_declared_);
   CheckLiteral(ast_generator.context_, shortest->weight_lambda_.expression, 42);
+  ASSERT_TRUE(shortest->total_weight_);
+  EXPECT_FALSE(shortest->total_weight_->user_declared_);
 }
 
 

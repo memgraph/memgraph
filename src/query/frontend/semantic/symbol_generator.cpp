@@ -443,6 +443,14 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
   scope_.in_pattern_atom_identifier = true;
   edge_atom.identifier_->Accept(*this);
   scope_.in_pattern_atom_identifier = false;
+  if (edge_atom.total_weight_) {
+    if (HasSymbol(edge_atom.total_weight_->name_)) {
+      throw RedeclareVariableError(edge_atom.total_weight_->name_);
+    }
+    symbol_table_[*edge_atom.total_weight_] = GetOrCreateSymbol(
+        edge_atom.total_weight_->name_, edge_atom.total_weight_->user_declared_,
+        Symbol::Type::Number);
+  }
   return false;
 }
 
