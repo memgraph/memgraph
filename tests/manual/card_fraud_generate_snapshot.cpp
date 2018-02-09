@@ -1,3 +1,4 @@
+#include <experimental/filesystem>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -17,8 +18,8 @@
 
 DEFINE_string(num_workers, "1",
               "Number of distributed workers (including master)");
-DEFINE_string(durability_directory_prefix, "tmp",
-              "Prefix for durability directories");
+DEFINE_string(dir, "tmp",
+              "Directory for storing workers durability directories.");
 DEFINE_string(config, "", "Path to config JSON file");
 
 /**
@@ -41,6 +42,7 @@ DEFINE_string(config, "", "Path to config JSON file");
  *    }
  *  ],
  *  "compromised_pos_probability" : 0.2,
+ *  "fraud_reported_probability" : 0.1,
  *  "hop_percentage" : 0.1
  *}
  */
@@ -359,6 +361,7 @@ int main(int argc, char **argv) {
   const fs::path kSnapshotDir = "snapshots";
 
   double compromised_pos_probability = config["compromised_pos_probability"];
+  double fraud_reported_probability = config["fraud_reported_probability"];
   double hop_probability = config["hop_probability"];
 
   LOG(INFO) << "Creating snapshots with config: ";
@@ -450,8 +453,8 @@ int main(int argc, char **argv) {
   // Write snapshot files.
   LOG(INFO) << "Writing snapshots...";
   for (int worker_id = 0; worker_id < num_workers; ++worker_id) {
-    const fs::path durability_dir = FLAGS_durability_directory_prefix +
-                                    "_worker_" + std::to_string(worker_id);
+    const fs::path durability_dir =
+        FLAGS_dir / fs::path("worker_" + std::to_string(worker_id));
     if (!durability::EnsureDir(durability_dir / kSnapshotDir)) {
       LOG(ERROR) << "Unable to create durability directory!";
       exit(0);
@@ -501,11 +504,9 @@ int main(int argc, char **argv) {
       DCHECK(out_edges[1].type == GraphState::Edge::Type::AT);
       DCHECK(in_edges.size() == 0);
       bool fraud_reported = false;
-      if (state.IsCompromisedCard(out_edges[1].to.first,
-                                  out_edges[1].to.second) &&
-          state.IsCompromisedPos(out_edges[0].to.first,
-                                 out_edges[0].to.second)) {
-        fraud_reported = value_generator.Bernoulli(0.1);
+      if (state.IsCompromisedCard(out_edges[0].to.first,
+                                  out_edges[0].to.second)) {
+        fraud_reported = value_generator.Bernoulli(fraud_reported_probability);
       }
       auto props = value_generator.MakeTxProperties(fraud_reported, worker_id);
       writer.WriteNode(tx_id, std::vector<std::string>{kLabelTransaction},
