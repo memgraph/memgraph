@@ -795,6 +795,29 @@ TEST_F(TestSymbolGenerator, WithReturnAll) {
   EXPECT_NE(symbol_table.at(*all->identifier_), symbol_table.at(*ret_as_x));
 }
 
+TEST_F(TestSymbolGenerator, WithReturnSingle) {
+  // Test WITH 42 AS x RETURN single(x IN [x] WHERE x = 2) AS x, x AS y
+  auto *with_as_x = AS("x");
+  auto *list_x = IDENT("x");
+  auto *where_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(list_x), WHERE(EQ(where_x, LITERAL(2))));
+  auto *ret_as_x = AS("x");
+  auto *ret_x = IDENT("x");
+  auto query = QUERY(SINGLE_QUERY(WITH(LITERAL(42), with_as_x),
+                                  RETURN(single, ret_as_x, ret_x, AS("y"))));
+  query->Accept(symbol_generator);
+  // Symbols for `WITH .. AS x`, `SINGLE(x ...)`, `SINGLE(...) AS x` and `AS y`.
+  EXPECT_EQ(symbol_table.max_position(), 4);
+  // Check `WITH .. AS x` is the same as `[x]` and `RETURN ... x AS y`
+  EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*list_x));
+  EXPECT_EQ(symbol_table.at(*with_as_x), symbol_table.at(*ret_x));
+  EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*single->identifier_));
+  EXPECT_NE(symbol_table.at(*with_as_x), symbol_table.at(*ret_as_x));
+  // Check `SINGLE(x ...)` is only equal to `WHERE x = 2`
+  EXPECT_EQ(symbol_table.at(*single->identifier_), symbol_table.at(*where_x));
+  EXPECT_NE(symbol_table.at(*single->identifier_), symbol_table.at(*ret_as_x));
+}
+
 TEST_F(TestSymbolGenerator, WithReturnReduce) {
   // Test WITH 42 AS x RETURN reduce(y = 0, x IN [x] y + x) AS x, x AS y
   auto *with_as_x = AS("x");

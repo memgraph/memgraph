@@ -402,6 +402,40 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return true;
   }
 
+  TypedValue Visit(Single &single) override {
+    auto list_value = single.list_expression_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue::Null;
+    }
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("'SINGLE' expected a list, but got {}",
+                                  list_value.type());
+    }
+    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &symbol = symbol_table_.at(*single.identifier_);
+    bool predicate_satisfied = false;
+    for (const auto &element : list) {
+      frame_[symbol] = element;
+      auto result = single.where_->expression_->Accept(*this);
+      if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
+        throw QueryRuntimeException(
+            "Predicate of 'SINGLE' needs to evaluate to 'Boolean', but it "
+            "resulted in '{}'",
+            result.type());
+      }
+      if (result.IsNull() || !result.Value<bool>()) {
+        continue;
+      }
+      // Return false if more than one element satisfies the predicate.
+      if (predicate_satisfied) {
+        return false;
+      } else {
+        predicate_satisfied = true;
+      }
+    }
+    return predicate_satisfied;
+  }
+
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return parameters_.AtTokenPosition(param_lookup.token_position_);
   }

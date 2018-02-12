@@ -600,6 +600,9 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 #define ALL(variable, list, where)                                        \
   storage.Create<query::All>(storage.Create<query::Identifier>(variable), \
                              list, where)
+#define SINGLE(variable, list, where)                                        \
+  storage.Create<query::Single>(storage.Create<query::Identifier>(variable), \
+                                list, where)
 #define REDUCE(accumulator, initializer, variable, list, expr)     \
   storage.Create<query::Reduce>(                                   \
       storage.Create<query::Identifier>(accumulator), initializer, \

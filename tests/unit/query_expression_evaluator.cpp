@@ -1221,6 +1221,44 @@ TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
   EXPECT_THROW(all->Accept(eval.eval), QueryRuntimeException);
 }
 
+TEST(ExpressionEvaluator, FunctionSingle) {
+  AstTreeStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single =
+      SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
+  eval.symbol_table[*single->identifier_] = x_sym;
+  eval.symbol_table[*ident_x] = x_sym;
+  auto value = single->Accept(eval.eval);
+  ASSERT_EQ(value.type(), TypedValue::Type::Bool);
+  EXPECT_TRUE(value.Value<bool>());
+}
+
+TEST(ExpressionEvaluator, FunctionSingle2) {
+  AstTreeStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)),
+                        WHERE(GREATER(ident_x, LITERAL(0))));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
+  eval.symbol_table[*single->identifier_] = x_sym;
+  eval.symbol_table[*ident_x] = x_sym;
+  auto value = single->Accept(eval.eval);
+  ASSERT_EQ(value.type(), TypedValue::Type::Bool);
+  EXPECT_FALSE(value.Value<bool>());
+}
+
+TEST(ExpressionEvaluator, FunctionSingleNullList) {
+  AstTreeStorage storage;
+  auto *single = SINGLE("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
+  eval.symbol_table[*single->identifier_] = x_sym;
+  auto value = single->Accept(eval.eval);
+  EXPECT_TRUE(value.IsNull());
+}
+
 TEST(ExpressionEvaluator, FunctionReduce) {
   AstTreeStorage storage;
   auto *ident_sum = IDENT("sum");

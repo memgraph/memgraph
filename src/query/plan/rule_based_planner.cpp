@@ -210,6 +210,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Single &single) override {
+    // Remove the symbol which is bound by single, because we are only
+    // interested in free (unbound) symbols.
+    used_symbols_.erase(symbol_table_.at(*single.identifier_));
+    DCHECK(has_aggregation_.size() >= 3U)
+        << "Expected 3 has_aggregation_ flags for SINGLE arguments";
+    bool has_aggr = false;
+    for (int i = 0; i < 3; ++i) {
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
   bool PostVisit(Reduce &reduce) override {
     // Remove the symbols bound by reduce, because we are only interested
     // in free (unbound) symbols.
@@ -225,7 +240,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     has_aggregation_.emplace_back(has_aggr);
     return true;
   }
-
 
   bool Visit(Identifier &ident) override {
     const auto &symbol = symbol_table_.at(ident);

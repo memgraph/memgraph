@@ -1563,6 +1563,25 @@ TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
   EXPECT_TRUE(eq);
 }
 
+TYPED_TEST(CypherMainVisitorTest, ReturnSingle) {
+  TypeParam ast_generator("RETURN single(x IN [1,2,3] WHERE x = 2)");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *ret = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_TRUE(ret);
+  ASSERT_EQ(ret->body_.named_expressions.size(), 1U);
+  auto *single =
+      dynamic_cast<Single *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(single);
+  EXPECT_EQ(single->identifier_->name_, "x");
+  auto *list_literal = dynamic_cast<ListLiteral *>(single->list_expression_);
+  EXPECT_TRUE(list_literal);
+  auto *eq = dynamic_cast<EqualOperator *>(single->where_->expression_);
+  EXPECT_TRUE(eq);
+}
+
 TYPED_TEST(CypherMainVisitorTest, ReturnReduce) {
   TypeParam ast_generator("RETURN reduce(sum = 0, x IN [1,2,3] | sum + x)");
   auto *query = ast_generator.query_;

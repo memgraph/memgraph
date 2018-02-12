@@ -678,6 +678,31 @@ Feature: Functions
             """
         Then an error should be raised
 
+    Scenario: Single test 01:
+        When executing query:
+            """
+            RETURN single(x IN [1, 2, '3'] WHERE x < 4) AS a
+            """
+        Then the result should be:
+            | a     |
+            | false |
+
+    Scenario: Single test 02:
+        When executing query:
+            """
+            RETURN single(x IN [1, 2, 3] WHERE x = 1) AS a
+            """
+        Then the result should be:
+            | a    |
+            | true |
+
+    Scenario: Single test 03:
+        When executing query:
+            """
+            RETURN single(x IN [1, 2, '3'] WHERE x > 2) AS a
+            """
+        Then an error should be raised
+
     Scenario: Reduce test 01:
         When executing query:
             """

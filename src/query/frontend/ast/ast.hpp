@@ -1523,6 +1523,67 @@ class All : public Expression {
                                                         const unsigned int);
 };
 
+// TODO: This is pretty much copy pasted from All. Consider merging Reduce, All,
+// Any and Single into something like a higher-order function call which takes a
+// list argument and a function which is applied on list elements.
+class Single : public Expression {
+  friend class AstTreeStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
+          where_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Single *Clone(AstTreeStorage &storage) const override {
+    return storage.Create<Single>(identifier_->Clone(storage),
+                                  list_expression_->Clone(storage),
+                                  where_->Clone(storage));
+  }
+
+  // None of these should be nullptr after construction.
+  Identifier *identifier_ = nullptr;
+  Expression *list_expression_ = nullptr;
+  Where *where_ = nullptr;
+
+ protected:
+  Single(int uid, Identifier *identifier, Expression *list_expression,
+         Where *where)
+      : Expression(uid),
+        identifier_(identifier),
+        list_expression_(list_expression),
+        where_(where) {}
+
+ private:
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar << boost::serialization::base_object<Expression>(*this);
+    SavePointer(ar, identifier_);
+    SavePointer(ar, list_expression_);
+    SavePointer(ar, where_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar >> boost::serialization::base_object<Expression>(*this);
+    LoadPointer(ar, identifier_);
+    LoadPointer(ar, list_expression_);
+    LoadPointer(ar, where_);
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &, Single *,
+                                                        const unsigned int);
+};
+
 class ParameterLookup : public Expression {
   friend class AstTreeStorage;
 
@@ -2962,6 +3023,7 @@ LOAD_AND_CONSTRUCT(query::Aggregation, 0, nullptr, nullptr,
 LOAD_AND_CONSTRUCT(query::Reduce, 0, nullptr, nullptr, nullptr, nullptr,
                    nullptr);
 LOAD_AND_CONSTRUCT(query::All, 0, nullptr, nullptr, nullptr);
+LOAD_AND_CONSTRUCT(query::Single, 0, nullptr, nullptr, nullptr);
 LOAD_AND_CONSTRUCT(query::ParameterLookup, 0);
 LOAD_AND_CONSTRUCT(query::NamedExpression, 0);
 LOAD_AND_CONSTRUCT(query::NodeAtom, 0);
@@ -3022,6 +3084,7 @@ BOOST_CLASS_EXPORT_KEY(query::Aggregation);
 BOOST_CLASS_EXPORT_KEY(query::Function);
 BOOST_CLASS_EXPORT_KEY(query::Reduce);
 BOOST_CLASS_EXPORT_KEY(query::All);
+BOOST_CLASS_EXPORT_KEY(query::Single);
 BOOST_CLASS_EXPORT_KEY(query::ParameterLookup);
 BOOST_CLASS_EXPORT_KEY(query::Create);
 BOOST_CLASS_EXPORT_KEY(query::Match);

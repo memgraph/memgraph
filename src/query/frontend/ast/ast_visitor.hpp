@@ -16,6 +16,7 @@ class Aggregation;
 class Function;
 class Reduce;
 class All;
+class Single;
 class ParameterLookup;
 class Create;
 class Match;
@@ -68,9 +69,9 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    Aggregation, Function, Reduce, All, Create, Match, Return, With, Pattern,
-    NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind>;
+    Aggregation, Function, Reduce, All, Single, Create, Match, Return, With,
+    Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties,
+    SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
 
 using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral,
                                              ParameterLookup, CreateIndex>;
@@ -93,8 +94,8 @@ using TreeVisitor = ::utils::Visitor<
     LessEqualOperator, GreaterEqualOperator, InListOperator,
     ListMapIndexingOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
     UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, PropertyLookup,
-    LabelsTest, Aggregation, Function, Reduce, All, ParameterLookup, Create,
-    Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
+    LabelsTest, Aggregation, Function, Reduce, All, Single, ParameterLookup,
+    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
     Unwind, Identifier, PrimitiveLiteral, CreateIndex>;
 

@@ -30,6 +30,13 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Single &single) override {
+    // Remove the symbol which is bound by single, because we are only
+    // interested in free (unbound) symbols.
+    symbols_.erase(symbol_table_.at(*single.identifier_));
+    return true;
+  }
+
   bool PostVisit(Reduce &reduce) override {
     // Remove the symbols bound by reduce, because we are only interested
     // in free (unbound) symbols.
@@ -37,7 +44,6 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     symbols_.erase(symbol_table_.at(*reduce.identifier_));
     return true;
   }
-
 
   bool Visit(Identifier &ident) override {
     symbols_.insert(symbol_table_.at(ident));
