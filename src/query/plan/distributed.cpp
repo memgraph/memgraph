@@ -9,6 +9,7 @@
 #include "boost/archive/binary_oarchive.hpp"
 
 #include "query/plan/operator.hpp"
+#include "query/plan/preprocess.hpp"
 #include "utils/exceptions.hpp"
 
 namespace query::plan {
@@ -249,9 +250,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     if (!is_associative()) {
       auto input = aggr_op.input();
       distributed_plan_.worker_plan = input;
+      std::unordered_set<Symbol> pull_symbols(aggr_op.remember().begin(),
+                                              aggr_op.remember().end());
+      for (const auto &elem : aggr_op.aggregations()) {
+        UsedSymbolsCollector collector(distributed_plan_.symbol_table);
+        elem.value->Accept(collector);
+        if (elem.key) elem.key->Accept(collector);
+        pull_symbols.insert(collector.symbols_.begin(),
+                            collector.symbols_.end());
+      }
       aggr_op.set_input(std::make_shared<PullRemote>(
           input, distributed_plan_.plan_id,
-          input->OutputSymbols(distributed_plan_.symbol_table)));
+          std::vector<Symbol>(pull_symbols.begin(), pull_symbols.end())));
       return true;
     }
     auto make_ident = [this](const auto &symbol) {

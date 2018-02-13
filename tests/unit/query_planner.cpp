@@ -1984,6 +1984,25 @@ TYPED_TEST(TestPlanner, DistributedAvg) {
   CheckDistributedPlan(distributed_plan, expected);
 }
 
+TYPED_TEST(TestPlanner, DistributedCollectList) {
+  // Test MATCH (n) RETURN COLLECT(n.prop) AS res
+  AstTreeStorage storage;
+  database::Master db;
+  database::GraphDbAccessor dba(db);
+  auto prop = dba.Property("prop");
+  auto node_n = NODE("n");
+  auto collect = COLLECT_LIST(PROPERTY_LOOKUP("n", prop));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN(collect, AS("res"))));
+  auto distributed_plan = MakeDistributedPlan<TypeParam>(storage);
+  auto &symbol_table = distributed_plan.symbol_table;
+  auto aggr = ExpectAggregate({collect}, {});
+  ExpectPullRemote pull({symbol_table.at(*node_n->identifier_)});
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectScanAll(), pull, aggr, ExpectProduce()),
+      MakeCheckers(ExpectScanAll())};
+  CheckDistributedPlan(distributed_plan, expected);
+}
+
 TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
   // Test MATCH (n) CREATE (m) RETURN m
   AstTreeStorage storage;
