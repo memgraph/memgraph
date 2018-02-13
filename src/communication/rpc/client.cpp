@@ -62,9 +62,12 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
   }
 
   // Serialize and send request.
-  std::stringstream request_stream;
-  boost::archive::binary_oarchive request_archive(request_stream);
-  request_archive << request;
+  std::stringstream request_stream(std::ios_base::out | std::ios_base::binary);
+  {
+    boost::archive::binary_oarchive request_archive(request_stream);
+    request_archive << request;
+    // Archive destructor ensures everything is written.
+  }
 
   const std::string &request_buffer = request_stream.str();
   MessageSize request_data_size = request_buffer.size();
@@ -104,14 +107,17 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
         sizeof(uint32_t) + sizeof(MessageSize) + response_data_size;
     if (received_bytes_ < response_size) continue;
 
-    std::stringstream response_stream;
-    response_stream.str(
-        std::string(reinterpret_cast<char *>(buffer_.data() + sizeof(uint32_t) +
-                                             sizeof(MessageSize)),
-                    response_data_size));
-    boost::archive::binary_iarchive response_archive(response_stream);
     std::unique_ptr<Message> response;
-    response_archive >> response;
+    {
+      std::stringstream response_stream(std::ios_base::in |
+                                        std::ios_base::binary);
+      response_stream.str(std::string(
+          reinterpret_cast<char *>(buffer_.data() + sizeof(uint32_t) +
+                                   sizeof(MessageSize)),
+          response_data_size));
+      boost::archive::binary_iarchive response_archive(response_stream);
+      response_archive >> response;
+    }
 
     std::copy(buffer_.begin() + response_size,
               buffer_.begin() + received_bytes_, buffer_.begin());

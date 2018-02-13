@@ -38,14 +38,16 @@ void Session::Execute() {
     return;
 
   // TODO (mferencevic): check for exceptions
-  std::stringstream stream;
-  stream.str(
-      std::string(reinterpret_cast<char *>(buffer_.data() + sizeof(uint32_t) +
-                                           sizeof(MessageSize)),
-                  message_len));
-  boost::archive::binary_iarchive archive(stream);
   std::unique_ptr<Message> message;
-  archive >> message;
+  {
+    std::stringstream stream(std::ios_base::in | std::ios_base::binary);
+    stream.str(
+        std::string(reinterpret_cast<char *>(buffer_.data() + sizeof(uint32_t) +
+                                             sizeof(MessageSize)),
+                    message_len));
+    boost::archive::binary_iarchive archive(stream);
+    archive >> message;
+  }
   buffer_.Shift(sizeof(uint32_t) + sizeof(MessageSize) + message_len);
 
   system_.AddTask(socket_, service_name_, message_id, std::move(message));
@@ -68,9 +70,12 @@ void SendMessage(Socket &socket, uint32_t message_id,
   CHECK(message) << "Trying to send nullptr instead of message";
 
   // Serialize and send message
-  std::stringstream stream;
-  boost::archive::binary_oarchive archive(stream);
-  archive << message;
+  std::stringstream stream(std::ios_base::out | std::ios_base::binary);
+  {
+    boost::archive::binary_oarchive archive(stream);
+    archive << message;
+    // Archive destructor ensures everything is written.
+  }
 
   const std::string &buffer = stream.str();
   uint64_t message_size = sizeof(MessageSize) + buffer.size();
