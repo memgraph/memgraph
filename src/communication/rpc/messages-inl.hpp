@@ -39,6 +39,8 @@ BOOST_CLASS_EXPORT(tx::AbortReq);
 BOOST_CLASS_EXPORT(tx::AbortRes);
 BOOST_CLASS_EXPORT(tx::SnapshotReq);
 BOOST_CLASS_EXPORT(tx::SnapshotRes);
+BOOST_CLASS_EXPORT(tx::CommandReq);
+BOOST_CLASS_EXPORT(tx::CommandRes);
 BOOST_CLASS_EXPORT(tx::GcSnapshotReq);
 BOOST_CLASS_EXPORT(tx::ClogInfoReq);
 BOOST_CLASS_EXPORT(tx::ClogInfoRes);
@@ -70,6 +72,8 @@ BOOST_CLASS_EXPORT(distributed::RemotePullReq);
 BOOST_CLASS_EXPORT(distributed::RemotePullRes);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullReq);
 BOOST_CLASS_EXPORT(distributed::EndRemotePullRes);
+BOOST_CLASS_EXPORT(distributed::TransactionCommandAdvancedReq);
+BOOST_CLASS_EXPORT(distributed::TransactionCommandAdvancedRes);
 
 // Distributed indexes.
 BOOST_CLASS_EXPORT(distributed::BuildIndexReq);
@@ -86,3 +90,7 @@ BOOST_CLASS_EXPORT(stats::BatchStatsRes);
 BOOST_CLASS_EXPORT(database::StateDelta);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateReq);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateRes);
+BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyReq);
+BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyRes);
+BOOST_CLASS_EXPORT(distributed::RemoteUpdateDiscardReq);
+BOOST_CLASS_EXPORT(distributed::RemoteUpdateDiscardRes);

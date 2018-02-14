@@ -41,6 +41,14 @@ command_id_t SingleNodeEngine::Advance(transaction_id_t id) {
   return ++(t->cid_);
 }
 
+command_id_t SingleNodeEngine::UpdateCommand(transaction_id_t id) {
+  std::lock_guard<SpinLock> guard(lock_);
+  auto it = store_.find(id);
+  DCHECK(it != store_.end())
+      << "Transaction::advance on non-existing transaction";
+  return it->second->cid_;
+}
+
 void SingleNodeEngine::Commit(const Transaction &t) {
   std::lock_guard<SpinLock> guard(lock_);
   clog_.set_committed(t.id_);

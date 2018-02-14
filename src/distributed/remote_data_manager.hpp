@@ -41,6 +41,12 @@ class RemoteDataManager {
   template <typename TRecord>
   auto &Elements(tx::transaction_id_t tx_id);
 
+  /// Calls RemoteCache::ClearCache on vertex and edge caches.
+  void ClearCaches(tx::transaction_id_t tx_id) {
+    Vertices(tx_id).ClearCache();
+    Edges(tx_id).ClearCache();
+  }
+
  private:
   RemoteDataRpcClients &remote_data_clients_;
   SpinLock lock_;

@@ -18,6 +18,8 @@ class Frame {
     return elems_[symbol.position()];
   }
 
+  auto &elems() { return elems_; }
+
  private:
   int size_;
   std::vector<TypedValue> elems_;

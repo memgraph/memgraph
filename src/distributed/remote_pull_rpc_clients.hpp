@@ -27,16 +27,20 @@ class RemotePullRpcClients {
   /// Calls a remote pull asynchroniously. IMPORTANT: take care not to call this
   /// function for the same (tx_id, worker_id, plan_id) before the previous call
   /// has ended.
+  ///
+  /// @todo: it might be cleaner to split RemotePull into {InitRemoteCursor,
+  /// RemotePull, RemoteAccumulate}, but that's a lot of refactoring and more
+  /// RPC calls.
   std::future<RemotePullData> RemotePull(
       database::GraphDbAccessor &dba, int worker_id, int64_t plan_id,
       const Parameters &params, const std::vector<query::Symbol> &symbols,
-      int batch_size = kDefaultBatchSize) {
+      bool accumulate, int batch_size = kDefaultBatchSize) {
     return clients_.ExecuteOnWorker<RemotePullData>(
-        worker_id,
-        [&dba, plan_id, params, symbols, batch_size](ClientPool &client_pool) {
+        worker_id, [&dba, plan_id, params, symbols, accumulate,
+                    batch_size](ClientPool &client_pool) {
           auto result = client_pool.Call<RemotePullRpc>(
-              dba.transaction_id(), plan_id, params, symbols, batch_size, true,
-              true);
+              dba.transaction_id(), plan_id, params, symbols, accumulate,
+              batch_size, true, true);
 
           auto handle_vertex = [&dba](auto &v) {
             dba.db()
@@ -86,7 +90,7 @@ class RemotePullRpcClients {
   // Notifies a worker that the given transaction/plan is done. Otherwise the
   // server is left with potentially unconsumed Cursors that never get deleted.
   //
-  // TODO - maybe this needs to be done with hooks into the transactional
+  // @todo - this needs to be done with hooks into the transactional
   // engine, so that the Worker discards it's stuff when the relevant
   // transaction are done.
   std::future<void> EndRemotePull(int worker_id, tx::transaction_id_t tx_id,
@@ -94,7 +98,7 @@ class RemotePullRpcClients {
     return clients_.ExecuteOnWorker<void>(
         worker_id, [tx_id, plan_id](ClientPool &client_pool) {
           return client_pool.Call<EndRemotePullRpc>(
-              EndRemotePullReqData{tx_id, plan_id});
+              EndRemotePullData{tx_id, plan_id});
         });
   }
 
@@ -105,6 +109,13 @@ class RemotePullRpcClients {
       futures.emplace_back(EndRemotePull(worker_id, tx_id, plan_id));
     }
     for (auto &future : futures) future.wait();
+  }
+
+  std::vector<std::future<void>> NotifyAllTransactionCommandAdvanced(
+      tx::transaction_id_t tx_id) {
+    return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {
+      client.template Call<TransactionCommandAdvancedRpc>(tx_id);
+    });
   }
 
  private:

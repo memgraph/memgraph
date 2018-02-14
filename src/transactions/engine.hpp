@@ -28,6 +28,9 @@ class Engine {
   /// Advances the command on the transaction with the given id.
   virtual command_id_t Advance(transaction_id_t id) = 0;
 
+  /// Updates the command on the workers to the master's value.
+  virtual command_id_t UpdateCommand(transaction_id_t id) = 0;
+
   /// Comits the given transaction. Deletes the transaction object, it's not
   /// valid after this function executes.
   virtual void Commit(const Transaction &t) = 0;

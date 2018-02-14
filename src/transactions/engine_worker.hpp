@@ -22,6 +22,7 @@ class WorkerEngine : public Engine {
 
   Transaction *Begin() override;
   command_id_t Advance(transaction_id_t id) override;
+  command_id_t UpdateCommand(transaction_id_t id) override;
   void Commit(const Transaction &t) override;
   void Abort(const Transaction &t) override;
   CommitLog::Info Info(transaction_id_t tid) const override;
@@ -35,13 +36,16 @@ class WorkerEngine : public Engine {
 
  private:
   // Local caches.
-  ConcurrentMap<transaction_id_t, Transaction *> active_;
+  mutable ConcurrentMap<transaction_id_t, Transaction *> active_;
   std::atomic<transaction_id_t> local_last_{0};
   // Mutable because just getting info can cause a cache fill.
   mutable CommitLog clog_;
 
   // Communication to the transactional master.
   mutable communication::rpc::ClientPool rpc_client_pool_;
-};
 
+  // Removes (destructs) a Transaction that's expired. If there is no cached
+  // transacton for the given id, nothing is done.
+  void ClearCache(transaction_id_t tx_id) const;
+};
 }  // namespace tx

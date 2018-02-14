@@ -149,7 +149,7 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
   auto remote_pull = [this, &params, &symbols](GraphDbAccessor &dba,
                                                int worker_id) {
     return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
-                                                     params, symbols, 3);
+                                                     params, symbols, false, 3);
   };
   auto expect_first_batch = [](auto &batch) {
     EXPECT_EQ(batch.pull_state,
@@ -271,7 +271,7 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
   auto remote_pull = [this, &params, &symbols](GraphDbAccessor &dba,
                                                int worker_id) {
     return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
-                                                     params, symbols, 3);
+                                                     params, symbols, false, 3);
   };
   auto future_w1_results = remote_pull(dba, 1);
   auto future_w2_results = remote_pull(dba, 2);
@@ -338,4 +338,58 @@ TEST_F(DistributedGraphDbTest, WorkerOwnedDbAccessors) {
   GraphDbAccessor dba_w2(worker(2));
   VertexAccessor v_in_w2{v_ga, dba_w2};
   EXPECT_EQ(v_in_w2.PropsAt(prop).Value<int64_t>(), 42);
+}
+
+TEST_F(DistributedGraphDbTest, Synchronize) {
+  auto from = InsertVertex(worker(1));
+  auto to = InsertVertex(worker(2));
+  InsertEdge(from, to, "et");
+
+  // Query: MATCH (n)--(m) SET m.prop = 2 RETURN n.prop
+  // This query ensures that a remote update gets applied and the local stuff
+  // gets reconstructed.
+  auto &db = master();
+  GraphDbAccessor dba{db};
+  Context ctx{dba};
+  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  AstTreeStorage storage;
+  // MATCH
+  auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
+  auto r_m =
+      MakeExpand(storage, ctx.symbol_table_, n.op_, n.sym_, "r",
+                 EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
+
+  // SET
+  auto literal = LITERAL(42);
+  auto prop = PROPERTY_PAIR("prop");
+  auto m_p = PROPERTY_LOOKUP("m", prop);
+  ctx.symbol_table_[*m_p->expression_] = r_m.node_sym_;
+  auto set_m_p = std::make_shared<plan::SetProperty>(r_m.op_, m_p, literal);
+
+  const int plan_id = 42;
+  master().plan_dispatcher().DispatchPlan(plan_id, set_m_p, ctx.symbol_table_);
+
+  // Master-side PullRemote, Synchronize
+  auto pull_remote = std::make_shared<query::plan::PullRemote>(
+      nullptr, plan_id, std::vector<Symbol>{n.sym_});
+  auto synchronize =
+      std::make_shared<query::plan::Synchronize>(set_m_p, pull_remote, true);
+
+  // RETURN
+  auto n_p =
+      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), prop);
+  ctx.symbol_table_[*n_p->expression_] = n.sym_;
+  auto return_n_p = NEXPR("n.prop", n_p);
+  auto return_n_p_sym = ctx.symbol_table_.CreateSymbol("n.p", true);
+  ctx.symbol_table_[*return_n_p] = return_n_p_sym;
+  auto produce = MakeProduce(synchronize, return_n_p);
+
+  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+  ASSERT_EQ(results.size(), 2);
+  ASSERT_EQ(results[0].size(), 1);
+  EXPECT_EQ(results[0][0].ValueInt(), 42);
+  ASSERT_EQ(results[1].size(), 1);
+  EXPECT_EQ(results[1][0].ValueInt(), 42);
+
+  // TODO test without advance command?
 }

@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "transactions/engine_master.hpp"
 
 class DistributedGraphDbTest : public ::testing::Test {
@@ -61,6 +62,44 @@ class DistributedGraphDbTest : public ::testing::Test {
 
   database::Worker &worker(int worker_id) {
     return workers_[worker_id - 1]->worker_;
+  }
+
+  /// Inserts a vertex and returns it's global address. Does it in a new
+  /// transaction.
+  auto InsertVertex(database::GraphDb &db) {
+    database::GraphDbAccessor dba{db};
+    auto r_val = dba.InsertVertex().GlobalAddress();
+    dba.Commit();
+    return r_val;
+  }
+
+  /// Inserts an edge (on the 'from' side) and returns it's global address.
+  auto InsertEdge(Edges::VertexAddress from, Edges::VertexAddress to,
+                  const std::string &edge_type_name) {
+    database::GraphDbAccessor dba{worker(from.worker_id())};
+    auto from_v = dba.FindVertexChecked(from.gid(), false);
+    auto edge_type = dba.EdgeType(edge_type_name);
+
+    // If 'to' is on the same worker as 'from', create and send local.
+    if (to.worker_id() == from.worker_id()) {
+      auto to_v = dba.FindVertexChecked(to.gid(), false);
+      auto r_val = dba.InsertEdge(from_v, to_v, edge_type).GlobalAddress();
+      dba.Commit();
+      return r_val;
+    }
+
+    // 'to' is not on the same worker as 'from'
+    auto edge_ga = dba.InsertOnlyEdge(from, to, edge_type,
+                                      dba.db().storage().EdgeGenerator().Next())
+                       .GlobalAddress();
+    from_v.update().out_.emplace(to, edge_ga, edge_type);
+    database::GraphDbAccessor dba_to{worker(to.worker_id()),
+                                     dba.transaction_id()};
+    auto to_v = dba_to.FindVertexChecked(to.gid(), false);
+    to_v.update().in_.emplace(from, edge_ga, edge_type);
+
+    dba.Commit();
+    return edge_ga;
   }
 
  private:

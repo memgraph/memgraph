@@ -34,16 +34,32 @@ command_id_t WorkerEngine::Advance(transaction_id_t tx_id) {
   return res->member;
 }
 
+command_id_t WorkerEngine::UpdateCommand(transaction_id_t tx_id) {
+  command_id_t cmd_id = rpc_client_pool_.Call<CommandRpc>(tx_id)->member;
+
+  // Assume there is no concurrent work being done on this worker in the given
+  // transaction. This assumption is sound because command advancing needs to be
+  // done in a synchronized fashion, while no workers are executing in that
+  // transaction. That assumption lets us freely modify the command id in the
+  // cached transaction object, and ensures there are no race conditions on
+  // caching a transaction object if it wasn't cached already.
+
+  auto access = active_.access();
+  auto found = access.find(tx_id);
+  if (found != access.end()) {
+    found->second->cid_ = cmd_id;
+  }
+  return cmd_id;
+}
+
 void WorkerEngine::Commit(const Transaction &t) {
   auto res = rpc_client_pool_.Call<CommitRpc>(t.id_);
-  auto removal = active_.access().remove(t.id_);
-  CHECK(removal) << "Can't commit a transaction not in local cache";
+  ClearCache(t.id_);
 }
 
 void WorkerEngine::Abort(const Transaction &t) {
   auto res = rpc_client_pool_.Call<AbortRpc>(t.id_);
-  auto removal = active_.access().remove(t.id_);
-  CHECK(removal) << "Can't abort a transaction not in local cache";
+  ClearCache(t.id_);
 }
 
 CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
@@ -54,12 +70,11 @@ CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
     // @review: this version of Call is just used because Info has no
     // default constructor.
     info = rpc_client_pool_.Call<ClogInfoRpc>(tid)->member;
-    DCHECK(info.is_committed() || info.is_aborted())
-        << "It is expected that the transaction is not running anymore. This "
-           "function should be used only after the snapshot of the current "
-           "transaction is checked (in MVCC).";
-    if (info.is_committed()) clog_.set_committed(tid);
-    if (info.is_aborted()) clog_.set_aborted(tid);
+    if (!info.is_active()) {
+      if (info.is_committed()) clog_.set_committed(tid);
+      if (info.is_aborted()) clog_.set_aborted(tid);
+      ClearCache(tid);
+    }
   }
 
   return info;
@@ -91,10 +106,19 @@ tx::Transaction *WorkerEngine::RunningTransaction(tx::transaction_id_t tx_id) {
 
   Snapshot snapshot(
       std::move(rpc_client_pool_.Call<SnapshotRpc>(tx_id)->member));
-  auto insertion =
-      accessor.insert(tx_id, new Transaction(tx_id, snapshot, *this));
+  auto new_tx = new Transaction(tx_id, snapshot, *this);
+  auto insertion = accessor.insert(tx_id, new_tx);
+  if (!insertion.second) delete new_tx;
   utils::EnsureAtomicGe(local_last_, tx_id);
   return insertion.first->second;
 }
 
+void WorkerEngine::ClearCache(transaction_id_t tx_id) const {
+  auto access = active_.access();
+  auto found = access.find(tx_id);
+  if (found != access.end()) {
+    delete found->second;
+    access.remove(tx_id);
+  }
+}
 }  // namespace tx

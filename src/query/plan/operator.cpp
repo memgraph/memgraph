@@ -14,6 +14,8 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "distributed/remote_pull_rpc_clients.hpp"
+#include "distributed/remote_updates_rpc_clients.hpp"
+#include "distributed/remote_updates_rpc_server.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -2720,18 +2722,6 @@ void Union::UnionCursor::Reset() {
   right_cursor_->Reset();
 }
 
-ProduceRemote::ProduceRemote(const std::shared_ptr<LogicalOperator> &input,
-                             const std::vector<Symbol> &symbols)
-    : input_(input ? input : std::make_shared<Once>()), symbols_(symbols) {}
-
-ACCEPT_WITH_INPUT(ProduceRemote)
-
-std::unique_ptr<Cursor> ProduceRemote::MakeCursor(
-    database::GraphDbAccessor &) const {
-  // TODO: Implement a concrete cursor.
-  return nullptr;
-}
-
 PullRemote::PullRemote(const std::shared_ptr<LogicalOperator> &input,
                        int64_t plan_id, const std::vector<Symbol> &symbols)
     : input_(input), plan_id_(plan_id), symbols_(symbols) {}
@@ -2761,7 +2751,8 @@ void PullRemote::PullRemoteCursor::EndRemotePull() {
 bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
   auto insert_future_for_worker = [&](int worker_id) {
     remote_pulls_[worker_id] = db_.db().remote_pull_clients().RemotePull(
-        db_, worker_id, self_.plan_id(), context.parameters_, self_.symbols());
+        db_, worker_id, self_.plan_id(), context.parameters_, self_.symbols(),
+        false);
   };
 
   if (!remote_pulls_initialized_) {
@@ -2804,7 +2795,8 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
               "LockTimeout error occured during PullRemote !");
         case distributed::RemotePullState::UPDATE_DELETED_ERROR:
           EndRemotePull();
-          throw RecordDeletedError();
+          throw QueryRuntimeException(
+              "RecordDeleted error ocured during PullRemote !");
         case distributed::RemotePullState::RECONSTRUCTION_ERROR:
           EndRemotePull();
           throw query::ReconstructionException();
@@ -2896,10 +2888,141 @@ bool Synchronize::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
+namespace {
+class SynchronizeCursor : public Cursor {
+ public:
+  SynchronizeCursor(const Synchronize &self, database::GraphDbAccessor &db)
+      : self_(self),
+        input_cursor_(self.input()->MakeCursor(db)),
+        pull_remote_cursor_(
+            self.pull_remote() ? self.pull_remote()->MakeCursor(db) : nullptr) {
+  }
+
+  bool Pull(Frame &frame, Context &context) override {
+    if (!initial_pull_done_) {
+      InitialPull(frame, context);
+      initial_pull_done_ = true;
+    }
+    // Yield local stuff while available.
+    if (!local_frames_.empty()) {
+      auto &result = local_frames_.back();
+      for (size_t i = 0; i < frame.elems().size(); ++i) {
+        if (self_.advance_command()) {
+          query::ReconstructTypedValue(result[i]);
+        }
+        frame.elems()[i] = std::move(result[i]);
+      }
+      local_frames_.resize(local_frames_.size() - 1);
+      return true;
+    }
+
+    // We're out of local stuff, yield from pull_remote if available.
+    if (pull_remote_cursor_ && pull_remote_cursor_->Pull(frame, context))
+      return true;
+
+    return false;
+  }
+
+  void Reset() override {
+    throw QueryRuntimeException("Unsupported: Reset during Synchronize!");
+  }
+
+ private:
+  const Synchronize &self_;
+  const std::unique_ptr<Cursor> input_cursor_;
+  const std::unique_ptr<Cursor> pull_remote_cursor_;
+  bool initial_pull_done_{false};
+  std::vector<std::vector<TypedValue>> local_frames_;
+
+  void InitialPull(Frame &frame, Context &context) {
+    auto &db = context.db_accessor_.db();
+
+    // Tell all workers to accumulate, only if there is a remote pull.
+    std::vector<std::future<distributed::RemotePullData>> worker_accumulations;
+    if (pull_remote_cursor_) {
+      for (auto worker_id : db.remote_pull_clients().GetWorkerIds()) {
+        if (worker_id == db.WorkerId()) continue;
+        worker_accumulations.emplace_back(db.remote_pull_clients().RemotePull(
+            context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
+            context.parameters_, self_.pull_remote()->symbols(), true, 0));
+      }
+    }
+
+    // Accumulate local results
+    while (input_cursor_->Pull(frame, context)) {
+      local_frames_.emplace_back();
+      auto &local_frame = local_frames_.back();
+      local_frame.reserve(frame.elems().size());
+      for (auto &elem : frame.elems()) {
+        local_frame.emplace_back(std::move(elem));
+      }
+    }
+
+    // Wait for all workers to finish accumulation (first sync point).
+    for (auto &accu : worker_accumulations) {
+      switch (accu.get().pull_state) {
+        case distributed::RemotePullState::CURSOR_EXHAUSTED:
+          continue;
+        case distributed::RemotePullState::CURSOR_IN_PROGRESS:
+          throw QueryRuntimeException(
+              "Expected exhausted cursor after remote pull accumulate");
+        case distributed::RemotePullState::SERIALIZATION_ERROR:
+          throw mvcc::SerializationError(
+              "Failed to perform remote accumulate due to SerializationError");
+        case distributed::RemotePullState::UPDATE_DELETED_ERROR:
+          throw QueryRuntimeException(
+              "Failed to perform remote accumulate due to RecordDeletedError");
+        case distributed::RemotePullState::LOCK_TIMEOUT_ERROR:
+          throw LockTimeoutException(
+              "Failed to perform remote accumulate due to "
+              "LockTimeoutException");
+        case distributed::RemotePullState::RECONSTRUCTION_ERROR:
+          throw QueryRuntimeException(
+              "Failed to perform remote accumulate due to ReconstructionError");
+        case distributed::RemotePullState::QUERY_ERROR:
+          throw QueryRuntimeException(
+              "Failed to perform remote accumulate due to Query runtime error");
+      }
+    }
+
+    if (self_.advance_command()) {
+      context.db_accessor_.AdvanceCommand();
+    }
+
+    // Make all the workers apply their deltas.
+    auto tx_id = context.db_accessor_.transaction_id();
+    auto apply_futures =
+        db.remote_updates_clients().RemoteUpdateApplyAll(db.WorkerId(), tx_id);
+    db.remote_updates_server().Apply(tx_id);
+    for (auto &future : apply_futures) {
+      switch (future.get()) {
+        case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
+          throw mvcc::SerializationError(
+              "Failed to apply deferred updates due to SerializationError");
+        case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:
+          throw QueryRuntimeException(
+              "Failed to apply deferred updates due to RecordDeletedError");
+        case distributed::RemoteUpdateResult::LOCK_TIMEOUT_ERROR:
+          throw LockTimeoutException(
+              "Failed to apply deferred update due to LockTimeoutException");
+        case distributed::RemoteUpdateResult::DONE:
+          break;
+      }
+    }
+
+    // If the command advanced, let the workers know.
+    if (self_.advance_command()) {
+      auto futures =
+          db.remote_pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
+      for (auto &future : futures) future.wait();
+    }
+  }
+};
+}
+
 std::unique_ptr<Cursor> Synchronize::MakeCursor(
-    database::GraphDbAccessor &) const {
-  // TODO: Implement a concrete cursor.
-  return nullptr;
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<SynchronizeCursor>(*this, db);
 }
 
 }  // namespace query::plan
@@ -2936,6 +3059,5 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Unwind);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Distinct);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateIndex);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Union);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ProduceRemote);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemote);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Synchronize);

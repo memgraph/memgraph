@@ -55,6 +55,19 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
   tx::transaction_id_t owner = owner_;
   if (owner_ == tx.id_) return LockStatus::AlreadyHeld;
 
+  // In a distributed worker the transaction objects (and the locks they own)
+  // are not destructed at the same time like on the master. Consequently a lock
+  // might be active for a dead transaction. By asking the transaction engine
+  // for transaction info, we'll make the worker refresh it's knowledge about
+  // live transactions and release obsolete locks.
+  auto info = engine.Info(owner);
+  if (!info.is_active()) {
+    if (lock_.try_lock()) {
+      owner_ = tx.id_;
+      return LockStatus::Acquired;
+    }
+  }
+
   // Insert edge into local lock_graph.
   auto accessor = engine.local_lock_graph().access();
   auto it = accessor.insert(tx.id_, owner).first;
@@ -63,8 +76,7 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
     // Find oldest transaction in lock cycle if cycle exists and notify that
     // transaction that it should abort.
     // TODO: maybe we can be smarter and abort some other transaction and not
-    // the
-    // oldest one.
+    // the oldest one.
     auto oldest = FindOldestTxInLockCycle(tx.id_, accessor);
     if (oldest) {
       engine.LocalForEachActiveTransaction([&](tx::Transaction &t) {

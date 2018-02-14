@@ -23,8 +23,7 @@ struct TxAndSnapshot {
   }
 };
 RPC_SINGLE_MEMBER_MESSAGE(BeginRes, TxAndSnapshot);
-using BeginRpc =
-    communication::rpc::RequestResponse<BeginReq, BeginRes>;
+using BeginRpc = communication::rpc::RequestResponse<BeginReq, BeginRes>;
 
 RPC_SINGLE_MEMBER_MESSAGE(AdvanceReq, transaction_id_t);
 RPC_SINGLE_MEMBER_MESSAGE(AdvanceRes, command_id_t);
@@ -42,6 +41,10 @@ RPC_SINGLE_MEMBER_MESSAGE(SnapshotReq, transaction_id_t)
 RPC_SINGLE_MEMBER_MESSAGE(SnapshotRes, Snapshot)
 using SnapshotRpc =
     communication::rpc::RequestResponse<SnapshotReq, SnapshotRes>;
+
+RPC_SINGLE_MEMBER_MESSAGE(CommandReq, transaction_id_t)
+RPC_SINGLE_MEMBER_MESSAGE(CommandRes, command_id_t)
+using CommandRpc = communication::rpc::RequestResponse<CommandReq, CommandRes>;
 
 RPC_NO_MEMBER_MESSAGE(GcSnapshotReq)
 using GcSnapshotRpc =

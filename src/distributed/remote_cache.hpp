@@ -89,6 +89,15 @@ class RemoteCache {
           std::make_pair(std::move(old_record), std::move(new_record));
   }
 
+  /// Removes all the cached data. All the pointers to that data still held by
+  /// RecordAccessors will become invalid and must never be dereferenced after
+  /// this call. To make a RecordAccessor valid again Reconstruct must be called
+  /// on it. This is typically done after the command advanced.
+  void ClearCache() {
+    std::lock_guard<std::mutex> guard{lock_};
+    cache_.clear();
+  }
+
  private:
   std::mutex lock_;
   distributed::RemoteDataRpcClients &remote_data_clients_;

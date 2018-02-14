@@ -113,7 +113,6 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  PRE_VISIT(ProduceRemote);
   PRE_VISIT(PullRemote);
 
   bool PreVisit(Synchronize &op) override {
@@ -1685,9 +1684,8 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
   AstTreeStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto check_planned_range = [&label, &property, &db](const auto &rel_expr,
-                                                      auto lower_bound,
-                                                      auto upper_bound) {
+  auto check_planned_range = [&label, &property, &db](
+      const auto &rel_expr, auto lower_bound, auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
     AstTreeStorage storage;
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr),
@@ -2020,5 +2018,4 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
       MakeCheckers(ExpectScanAll(), ExpectCreateNode(), acc)};
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
-
 }  // namespace

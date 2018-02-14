@@ -31,6 +31,7 @@ class SingleNodeEngine : public Engine {
 
   Transaction *Begin() override;
   command_id_t Advance(transaction_id_t id) override;
+  command_id_t UpdateCommand(transaction_id_t id) override;
   void Commit(const Transaction &t) override;
   void Abort(const Transaction &t) override;
   CommitLog::Info Info(transaction_id_t tx) const override;

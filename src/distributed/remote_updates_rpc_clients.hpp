@@ -33,6 +33,16 @@ class RemoteUpdatesRpcClients {
         ->member;
   }
 
+  /// Calls for all the workers (except the given one) to apply their updates
+  /// and returns the future results.
+  std::vector<std::future<RemoteUpdateResult>> RemoteUpdateApplyAll(
+      int skip_worker_id, tx::transaction_id_t tx_id) {
+    return worker_clients_.ExecuteOnWorkers<RemoteUpdateResult>(
+        skip_worker_id, [tx_id](auto &client) {
+          return client.template Call<RemoteUpdateApplyRpc>(tx_id)->member;
+        });
+  }
+
   /// Calls for the worker with the given ID to discard remote updates.
   void RemoteUpdateDiscard(int worker_id, tx::transaction_id_t tx_id) {
     worker_clients_.GetClientPool(worker_id).Call<RemoteUpdateDiscardRpc>(

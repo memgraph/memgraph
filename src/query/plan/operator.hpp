@@ -97,7 +97,6 @@ class Unwind;
 class Distinct;
 class CreateIndex;
 class Union;
-class ProduceRemote;
 class PullRemote;
 class Synchronize;
 
@@ -108,8 +107,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, ProduceRemote,
-    PullRemote, Synchronize>;
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, PullRemote, Synchronize>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -2271,29 +2269,14 @@ class Union : public LogicalOperator {
   }
 };
 
-class ProduceRemote : public LogicalOperator {
- public:
-  ProduceRemote(const std::shared_ptr<LogicalOperator> &input,
-                const std::vector<Symbol> &symbols);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(
-      database::GraphDbAccessor &db) const override;
-
- private:
-  std::shared_ptr<LogicalOperator> input_;
-  std::vector<Symbol> symbols_;
-
-  ProduceRemote() {}
-
-  friend class boost::serialization::access;
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &symbols_;
-  }
-};
-
+/**
+ * An operator in distributed Memgraph that yields both local and remote (from
+ * other workers) frames. Obtaining remote frames is done through RPC calls to
+ * `distributed::RemoteProduceRpcServer`s running on all the workers.
+ *
+ * This operator aims to yield results as fast as possible and loose minimal
+ * time on data transfer. It gives no guarantees on result order.
+ */
 class PullRemote : public LogicalOperator {
  public:
   PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
@@ -2346,12 +2329,30 @@ class PullRemote : public LogicalOperator {
   }
 };
 
-/** Operator used to synchronize the execution of master and workers. */
+/**
+ * Operator used to synchronize stages of plan execution between the master and
+ * all the workers. Synchronization is necessary in queries that update that
+ * graph state because updates (as well as creations and deletions) are deferred
+ * to avoid multithreaded modification of graph element data (as it's not
+ * thread-safe).
+ *
+ * Logic of the synchronize operator is:
+ *
+ * 1. If there is a RemotePull, tell all the workers to pull on that plan and
+ *    accumulate results without sending them to the master. This is async.
+ * 2. Accumulate local results, in parallel with 1. getting executed on workers.
+ * 3. Wait till the master and all the workers are done accumulating.
+ * 4. Advance the command, if necessary.
+ * 5. Tell all the workers to apply their updates. This is async.
+ * 6. Apply local updates, in parallel with 5. on the workers.
+ * 7. Notify workers that the command has advanced, if necessary.
+ * 8. Yield all the resutls, first local, then from RemotePull if available.
+ */
 class Synchronize : public LogicalOperator {
  public:
   Synchronize(const std::shared_ptr<LogicalOperator> &input,
               const std::shared_ptr<PullRemote> &pull_remote,
-              bool advance_command = false)
+              bool advance_command)
       : input_(input),
         pull_remote_(pull_remote),
         advance_command_(advance_command) {}
@@ -2413,6 +2414,5 @@ BOOST_CLASS_EXPORT_KEY(query::plan::Unwind);
 BOOST_CLASS_EXPORT_KEY(query::plan::Distinct);
 BOOST_CLASS_EXPORT_KEY(query::plan::CreateIndex);
 BOOST_CLASS_EXPORT_KEY(query::plan::Union);
-BOOST_CLASS_EXPORT_KEY(query::plan::ProduceRemote);
 BOOST_CLASS_EXPORT_KEY(query::plan::PullRemote);
 BOOST_CLASS_EXPORT_KEY(query::plan::Synchronize);

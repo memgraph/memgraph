@@ -502,8 +502,6 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  PRE_VISIT(ProduceRemote);
-
   bool PreVisit(query::plan::PullRemote &op) override {
     WithPrintLn([&op](auto &out) {
       out << "* PullRemote {";

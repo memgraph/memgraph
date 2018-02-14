@@ -65,36 +65,9 @@ TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
 
 TEST_F(DistributedGraphDbTest, RemoteExpansion) {
   // Model (v1)-->(v2), where each vertex is on one worker.
-  std::vector<Edges::VertexAddress> v_ga;
-  {
-    GraphDbAccessor dba{master()};
-    v_ga.emplace_back(GraphDbAccessor(worker(1), dba.transaction_id())
-                          .InsertVertex()
-                          .GlobalAddress());
-    v_ga.emplace_back(GraphDbAccessor(worker(2), dba.transaction_id())
-                          .InsertVertex()
-                          .GlobalAddress());
-    dba.Commit();
-  }
-  {
-    GraphDbAccessor dba{master()};
-    auto edge_type = dba.EdgeType("et");
-    auto prop = dba.Property("prop");
-    GraphDbAccessor dba1{worker(1), dba.transaction_id()};
-    auto edge_ga =
-        dba1.InsertOnlyEdge(v_ga[0], v_ga[1], edge_type,
-                            dba1.db().storage().EdgeGenerator().Next())
-            .GlobalAddress();
-    for (int i : {0, 1}) {
-      GraphDbAccessor dba_w{worker(i + 1), dba.transaction_id()};
-      auto v = dba_w.FindVertexChecked(v_ga[i].gid(), false);
-      // Update the vertex to create a new record.
-      v.PropsSet(prop, 42);
-      auto &edges = i == 0 ? v.GetNew()->out_ : v.GetNew()->in_;
-      edges.emplace(v_ga[(i + 1) % 2], edge_ga, edge_type);
-    }
-    dba.Commit();
-  }
+  auto from = InsertVertex(worker(1));
+  auto to = InsertVertex(worker(2));
+  InsertEdge(from, to, "et");
   {
     // Expand on the master for three hops. Collect vertex gids.
     GraphDbAccessor dba{master()};
@@ -107,11 +80,11 @@ TEST_F(DistributedGraphDbTest, RemoteExpansion) {
     };
 
     // Do a few hops back and forth, all on the master.
-    VertexAccessor v{v_ga[0], dba};
+    VertexAccessor v{from, dba};
     for (int i = 0; i < 5; ++i) {
       v = expand(v);
       EXPECT_FALSE(v.address().is_local());
-      EXPECT_EQ(v.address(), v_ga[(i + 1) % 2]);
+      EXPECT_EQ(v.address(), i % 2 ? from : to);
     }
   }
 }

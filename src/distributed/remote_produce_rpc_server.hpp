@@ -10,7 +10,9 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/plan_consumer.hpp"
+#include "distributed/remote_data_manager.hpp"
 #include "distributed/remote_pull_produce_rpc_messages.hpp"
+#include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -29,7 +31,10 @@ namespace distributed {
  * identified.
  */
 class RemoteProduceRpcServer {
-  /** Encapsulates an execution in progress. */
+  /// Encapsulates a Cursor execution in progress. Can be used for pulling a
+  /// single result from the execution, or pulling all and accumulating the
+  /// results. Accumulations are used for synchronizing updates in distributed
+  /// MG (see query::plan::Synchronize).
   class OngoingProduce {
    public:
     OngoingProduce(database::GraphDb &db, tx::transaction_id_t tx_id,
@@ -45,12 +50,60 @@ class RemoteProduceRpcServer {
       context_.parameters_ = std::move(parameters);
     }
 
-    /** Returns a vector of typed values (one for each `pull_symbol`), and a
-     * `bool` indicating if the pull was successful (or the cursor is
-     * exhausted). */
+    /// Returns a vector of typed values (one for each `pull_symbol`), and an
+    /// indication of the pull result. The result data is valid only if the
+    /// returned state is CURSOR_IN_PROGRESS.
     std::pair<std::vector<query::TypedValue>, RemotePullState> Pull() {
-      RemotePullState state = RemotePullState::CURSOR_IN_PROGRESS;
+      if (!accumulation_.empty()) {
+        auto results = std::move(accumulation_.back());
+        accumulation_.pop_back();
+        for (auto &element : results) {
+          try {
+            query::ReconstructTypedValue(element);
+          } catch (query::ReconstructionException &) {
+            cursor_state_ = RemotePullState::RECONSTRUCTION_ERROR;
+            return std::make_pair(std::move(results), cursor_state_);
+          }
+        }
+
+        return std::make_pair(std::move(results),
+                              RemotePullState::CURSOR_IN_PROGRESS);
+      }
+
+      return PullOneFromCursor();
+    }
+
+    /// Accumulates all the frames pulled from the cursor and returns
+    /// CURSOR_EXHAUSTED. If an error occurs, an appropriate value is returned.
+    RemotePullState Accumulate() {
+      while (true) {
+        auto result = PullOneFromCursor();
+        if (result.second != RemotePullState::CURSOR_IN_PROGRESS)
+          return result.second;
+        else
+          accumulation_.emplace_back(std::move(result.first));
+      }
+    }
+
+   private:
+    database::GraphDbAccessor dba_;
+    std::unique_ptr<query::plan::Cursor> cursor_;
+    query::Context context_;
+    std::vector<query::Symbol> pull_symbols_;
+    query::Frame frame_;
+    RemotePullState cursor_state_{RemotePullState::CURSOR_IN_PROGRESS};
+    std::vector<std::vector<query::TypedValue>> accumulation_;
+
+    std::pair<std::vector<query::TypedValue>, RemotePullState>
+    PullOneFromCursor() {
       std::vector<query::TypedValue> results;
+
+      // Check if we already exhausted this cursor (or it entered an error
+      // state). This happens when we accumulate before normal pull.
+      if (cursor_state_ != RemotePullState::CURSOR_IN_PROGRESS) {
+        return std::make_pair(results, cursor_state_);
+      }
+
       try {
         if (cursor_->Pull(frame_, context_)) {
           results.reserve(pull_symbols_.size());
@@ -58,32 +111,21 @@ class RemoteProduceRpcServer {
             results.emplace_back(std::move(frame_[symbol]));
           }
         } else {
-          state = RemotePullState::CURSOR_EXHAUSTED;
+          cursor_state_ = RemotePullState::CURSOR_EXHAUSTED;
         }
       } catch (const mvcc::SerializationError &) {
-        state = RemotePullState::SERIALIZATION_ERROR;
+        cursor_state_ = RemotePullState::SERIALIZATION_ERROR;
       } catch (const LockTimeoutException &) {
-        state = RemotePullState::LOCK_TIMEOUT_ERROR;
+        cursor_state_ = RemotePullState::LOCK_TIMEOUT_ERROR;
       } catch (const RecordDeletedError &) {
-        state = RemotePullState::UPDATE_DELETED_ERROR;
+        cursor_state_ = RemotePullState::UPDATE_DELETED_ERROR;
       } catch (const query::ReconstructionException &) {
-        state = RemotePullState::RECONSTRUCTION_ERROR;
+        cursor_state_ = RemotePullState::RECONSTRUCTION_ERROR;
       } catch (const query::QueryRuntimeException &) {
-        state = RemotePullState::QUERY_ERROR;
+        cursor_state_ = RemotePullState::QUERY_ERROR;
       }
-      return std::make_pair(std::move(results), state);
+      return std::make_pair(std::move(results), cursor_state_);
     }
-
-   private:
-    // TODO currently each OngoingProduce has it's own GDBA. There is no sharing
-    // of them in the same transaction. This should be correct, but it's
-    // inefficient in multi-command queries, and when a single query will get
-    // broken down into multiple parts.
-    database::GraphDbAccessor dba_;
-    std::unique_ptr<query::plan::Cursor> cursor_;
-    query::Context context_;
-    std::vector<query::Symbol> pull_symbols_;
-    query::Frame frame_;
   };
 
  public:
@@ -106,6 +148,13 @@ class RemoteProduceRpcServer {
       ongoing_produces_.erase(it);
       return std::make_unique<EndRemotePullRes>();
     });
+
+    remote_produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
+        [this](const TransactionCommandAdvancedReq &req) {
+          db_.tx_engine().UpdateCommand(req.member);
+          db_.remote_data_manager().ClearCaches(req.member);
+          return std::make_unique<TransactionCommandAdvancedRes>();
+        });
   }
 
  private:
@@ -140,11 +189,19 @@ class RemoteProduceRpcServer {
     RemotePullResData result{db_.WorkerId(), req.send_old, req.send_new};
     result.state_and_frames.pull_state = RemotePullState::CURSOR_IN_PROGRESS;
 
+    if (req.accumulate) {
+      result.state_and_frames.pull_state = ongoing_produce.Accumulate();
+      // If an error ocurred, we need to return that error.
+      if (result.state_and_frames.pull_state !=
+          RemotePullState::CURSOR_EXHAUSTED) {
+        return result;
+      }
+    }
+
     for (int i = 0; i < req.batch_size; ++i) {
       auto pull_result = ongoing_produce.Pull();
       result.state_and_frames.pull_state = pull_result.second;
-      if (pull_result.second != RemotePullState::CURSOR_IN_PROGRESS)
-        break;
+      if (pull_result.second != RemotePullState::CURSOR_IN_PROGRESS) break;
       result.state_and_frames.frames.emplace_back(std::move(pull_result.first));
     }
 

@@ -39,11 +39,12 @@ struct RemotePullReq : public communication::rpc::Message {
   RemotePullReq() {}
   RemotePullReq(tx::transaction_id_t tx_id, int64_t plan_id,
                 const Parameters &params, std::vector<query::Symbol> symbols,
-                int batch_size, bool send_old, bool send_new)
+                bool accumulate, int batch_size, bool send_old, bool send_new)
       : tx_id(tx_id),
         plan_id(plan_id),
         params(params),
         symbols(symbols),
+        accumulate(accumulate),
         batch_size(batch_size),
         send_old(send_old),
         send_new(send_new) {}
@@ -52,6 +53,7 @@ struct RemotePullReq : public communication::rpc::Message {
   int64_t plan_id;
   Parameters params;
   std::vector<query::Symbol> symbols;
+  bool accumulate;
   int batch_size;
   // Indicates which of (old, new) records of a graph element should be sent.
   bool send_old;
@@ -72,6 +74,7 @@ struct RemotePullReq : public communication::rpc::Message {
       utils::SaveTypedValue(ar, kv.second);
     }
     ar << symbols;
+    ar << accumulate;
     ar << batch_size;
     ar << send_old;
     ar << send_new;
@@ -93,6 +96,7 @@ struct RemotePullReq : public communication::rpc::Message {
       params.Add(token_pos, param);
     }
     ar >> symbols;
+    ar >> accumulate;
     ar >> batch_size;
     ar >> send_old;
     ar >> send_new;
@@ -360,11 +364,16 @@ using RemotePullRpc =
 // optimization not to have to send the full RemotePullReqData pack every
 // time.
 
-using EndRemotePullReqData = std::pair<tx::transaction_id_t, int64_t>;
-RPC_SINGLE_MEMBER_MESSAGE(EndRemotePullReq, EndRemotePullReqData);
+using EndRemotePullData = std::pair<tx::transaction_id_t, int64_t>;
+RPC_SINGLE_MEMBER_MESSAGE(EndRemotePullReq, EndRemotePullData);
 RPC_NO_MEMBER_MESSAGE(EndRemotePullRes);
-
 using EndRemotePullRpc =
     communication::rpc::RequestResponse<EndRemotePullReq, EndRemotePullRes>;
+
+RPC_SINGLE_MEMBER_MESSAGE(TransactionCommandAdvancedReq, tx::transaction_id_t);
+RPC_NO_MEMBER_MESSAGE(TransactionCommandAdvancedRes);
+using TransactionCommandAdvancedRpc =
+    communication::rpc::RequestResponse<TransactionCommandAdvancedReq,
+                                        TransactionCommandAdvancedRes>;
 
 }  // namespace distributed
