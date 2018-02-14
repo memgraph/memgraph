@@ -26,6 +26,8 @@
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
 
+DECLARE_int32(remote_pull_sleep);
+
 namespace database {
 class GraphDbAccessor;
 }

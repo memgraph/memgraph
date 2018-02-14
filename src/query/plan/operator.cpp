@@ -24,6 +24,9 @@
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 
+DEFINE_HIDDEN_int32(remote_pull_sleep, 2,
+                    "Sleep between remote result pulling in milliseconds");
+
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
 #define ACCEPT_WITH_INPUT(class_name)                                    \
@@ -2830,11 +2833,15 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
         break;
       }
 
-      // If there are no remote results available, pull and return local
+      // If there are no remote results available, try to pull and return local
       // results.
       if (input_cursor_ && input_cursor_->Pull(frame, context)) {
         return true;
       }
+
+      // If there aren't any local/remote results available, sleep.
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(FLAGS_remote_pull_sleep));
     }
   }
 
