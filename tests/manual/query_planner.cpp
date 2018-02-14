@@ -522,7 +522,7 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
       out << "* Synchronize";
       if (op.advance_command()) out << " (ADV CMD)";
     });
-    Branch(*op.pull_remote());
+    if (op.pull_remote()) Branch(*op.pull_remote());
     op.input()->Accept(*this);
     return false;
   }

@@ -42,11 +42,13 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
   // Returns true if the plan should be run on master and workers. Note, that
   // false is returned if the plan is already split.
-  bool ShouldSplit() {
+  bool ShouldSplit() const {
     // At the moment, the plan should be run on workers only if we encountered a
     // ScanAll.
     return !distributed_plan_.worker_plan && has_scan_all_;
   }
+
+  bool NeedsSynchronize() const { return needs_synchronize_; }
 
   // ScanAll are all done on each machine locally.
   bool PreVisit(ScanAll &scan) override {
@@ -410,19 +412,20 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
   bool PostVisit(Accumulate &acc) override {
     prev_ops_.pop_back();
-    if (!ShouldSplit()) return true;
-    if (acc.advance_command())
-      throw utils::NotYetImplemented("WITH clause distributed planning");
-    // Accumulate on workers, but set advance_command to false, because the
-    // Synchronize operator should do that in distributed execution.
-    distributed_plan_.worker_plan =
-        std::make_shared<Accumulate>(acc.input(), acc.symbols(), false);
+    DCHECK(needs_synchronize_)
+        << "Expected Accumulate to follow a write operator";
     // Create a synchronization point. Use pull remote to fetch accumulated
-    // symbols from workers. Local input operations are the same as on workers.
-    auto pull_remote = std::make_shared<PullRemote>(
-        nullptr, distributed_plan_.plan_id, acc.symbols());
-    auto sync = std::make_shared<Synchronize>(
-        distributed_plan_.worker_plan, pull_remote, acc.advance_command());
+    // symbols from workers. Accumulation is done through Synchronize, so we
+    // don't need the Accumulate operator itself. Local input operations are the
+    // same as on workers.
+    std::shared_ptr<PullRemote> pull_remote;
+    if (ShouldSplit()) {
+      distributed_plan_.worker_plan = acc.input();
+      pull_remote = std::make_shared<PullRemote>(
+          nullptr, distributed_plan_.plan_id, acc.symbols());
+    }
+    auto sync = std::make_shared<Synchronize>(acc.input(), pull_remote,
+                                              acc.advance_command());
     auto *prev_op = prev_ops_.back();
     // Wire the previous operator (on master) into our synchronization operator.
     // TODO: Find a better way to replace the previous operation's input than
@@ -432,8 +435,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     } else if (auto *aggr_op = dynamic_cast<Aggregate *>(prev_op)) {
       aggr_op->set_input(sync);
     } else {
-      throw utils::NotYetImplemented("WITH clause distributed planning");
+      throw utils::NotYetImplemented("distributed planning");
     }
+    needs_synchronize_ = false;
     return true;
   }
 
@@ -444,8 +448,20 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(CreateNode &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
+    return true;
+  }
+
   bool PreVisit(CreateExpand &op) override {
     prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(CreateExpand &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
     return true;
   }
 
@@ -454,8 +470,20 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(Delete &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
+    return true;
+  }
+
   bool PreVisit(SetProperty &op) override {
     prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(SetProperty &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
     return true;
   }
 
@@ -464,8 +492,20 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(SetProperties &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
+    return true;
+  }
+
   bool PreVisit(SetLabels &op) override {
     prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(SetLabels &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
     return true;
   }
 
@@ -474,8 +514,20 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(RemoveProperty &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
+    return true;
+  }
+
   bool PreVisit(RemoveLabels &op) override {
     prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(RemoveLabels &op) override {
+    prev_ops_.pop_back();
+    needs_synchronize_ = true;
     return true;
   }
 
@@ -496,6 +548,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   std::unique_ptr<LogicalOperator> master_aggr_;
   std::vector<LogicalOperator *> prev_ops_;
   bool has_scan_all_ = false;
+  bool needs_synchronize_ = false;
 
   void RaiseIfCartesian() {
     if (has_scan_all_)
@@ -526,10 +579,24 @@ DistributedPlan MakeDistributedPlan(const LogicalOperator &original_plan,
     // We haven't split the plan, this means that it should be the same on
     // master and worker. We only need to prepend PullRemote to master plan.
     distributed_plan.worker_plan = std::move(distributed_plan.master_plan);
-    distributed_plan.master_plan = std::make_unique<PullRemote>(
-        distributed_plan.worker_plan, distributed_plan.plan_id,
-        distributed_plan.worker_plan->OutputSymbols(
-            distributed_plan.symbol_table));
+    // If the plan performs writes, we need to finish with Synchronize.
+    if (planner.NeedsSynchronize()) {
+      auto pull_remote = std::make_shared<PullRemote>(
+          nullptr, distributed_plan.plan_id,
+          distributed_plan.worker_plan->OutputSymbols(
+              distributed_plan.symbol_table));
+      distributed_plan.master_plan = std::make_unique<Synchronize>(
+          distributed_plan.worker_plan, pull_remote, false);
+    } else {
+      distributed_plan.master_plan = std::make_unique<PullRemote>(
+          distributed_plan.worker_plan, distributed_plan.plan_id,
+          distributed_plan.worker_plan->OutputSymbols(
+              distributed_plan.symbol_table));
+    }
+  } else if (!distributed_plan.worker_plan && planner.NeedsSynchronize()) {
+    // If the plan performs writes, we still need to Synchronize.
+    distributed_plan.master_plan = std::make_unique<Synchronize>(
+        std::move(distributed_plan.master_plan), nullptr, false);
   }
   return distributed_plan;
 }

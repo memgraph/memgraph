@@ -384,16 +384,28 @@ class ExpectPullRemote : public OpChecker<PullRemote> {
 
 class ExpectSynchronize : public OpChecker<Synchronize> {
  public:
-  ExpectSynchronize() {}
-  ExpectSynchronize(const std::vector<Symbol> &symbols)
-      : expect_pull_(symbols) {}
+  explicit ExpectSynchronize(bool advance_command)
+      : has_pull_(false), advance_command_(advance_command) {}
+  ExpectSynchronize(const std::vector<Symbol> &symbols = {},
+                    bool advance_command = false)
+      : expect_pull_(symbols),
+        has_pull_(true),
+        advance_command_(advance_command) {}
 
   void ExpectOp(Synchronize &op, const SymbolTable &symbol_table) override {
-    expect_pull_.ExpectOp(*op.pull_remote(), symbol_table);
+    if (has_pull_) {
+      ASSERT_TRUE(op.pull_remote());
+      expect_pull_.ExpectOp(*op.pull_remote(), symbol_table);
+    } else {
+      EXPECT_FALSE(op.pull_remote());
+    }
+    EXPECT_EQ(op.advance_command(), advance_command_);
   }
 
  private:
   ExpectPullRemote expect_pull_;
+  bool has_pull_ = true;
+  bool advance_command_ = false;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -565,7 +577,9 @@ TYPED_TEST(TestPlanner, CreateNodeReturn) {
             ExpectProduce());
   {
     ExpectedDistributedPlan expected{
-        MakeCheckers(ExpectCreateNode(), acc, ExpectProduce()), {}};
+        MakeCheckers(ExpectCreateNode(), ExpectSynchronize(false),
+                     ExpectProduce()),
+        {}};
     std::atomic<int64_t> next_plan_id{0};
     auto distributed_plan =
         MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
@@ -582,6 +596,11 @@ TYPED_TEST(TestPlanner, CreateExpand) {
   QUERY(SINGLE_QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand());
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectCreateNode(), ExpectCreateExpand(),
+                   ExpectSynchronize(false)),
+      {}};
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateMultipleNode) {
@@ -589,6 +608,11 @@ TYPED_TEST(TestPlanner, CreateMultipleNode) {
   AstTreeStorage storage;
   QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateNode());
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectCreateNode(), ExpectCreateNode(),
+                   ExpectSynchronize(false)),
+      {}};
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
@@ -602,6 +626,11 @@ TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
       PATTERN(NODE("l")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectCreateNode());
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectCreateNode(), ExpectCreateExpand(), ExpectCreateNode(),
+                   ExpectSynchronize(false)),
+      {}};
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateNamedPattern) {
@@ -614,6 +643,11 @@ TYPED_TEST(TestPlanner, CreateNamedPattern) {
       "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectConstructNamedPath());
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectCreateNode(), ExpectCreateExpand(),
+                   ExpectConstructNamedPath(), ExpectSynchronize(false)),
+      {}};
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchCreateExpand) {
@@ -628,7 +662,7 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
                      NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectCreateExpand());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectScanAll(), ExpectCreateExpand(), ExpectPullRemote()),
+      MakeCheckers(ExpectScanAll(), ExpectCreateExpand(), ExpectSynchronize()),
       MakeCheckers(ExpectScanAll(), ExpectCreateExpand())};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -732,7 +766,8 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto edge = EDGE("r");
   auto node_m = NODE("m");
   auto pattern = NAMED_PATTERN("p", node_n, edge, node_m);
-  QUERY(SINGLE_QUERY(OPTIONAL_MATCH(pattern), RETURN("p")));
+  auto as_p = AS("p");
+  QUERY(SINGLE_QUERY(OPTIONAL_MATCH(pattern), RETURN("p", as_p)));
   auto symbol_table = MakeSymbolTable(*storage.query());
   std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
                                       new ExpectConstructNamedPath()};
@@ -744,6 +779,12 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table,
             ExpectOptional(optional_symbols, optional), ExpectProduce());
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectOptional(optional_symbols, optional), ExpectProduce(),
+                   ExpectPullRemote({symbol_table.at(*as_p)})),
+      MakeCheckers(ExpectOptional(optional_symbols, optional),
+                   ExpectProduce())};
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
@@ -773,7 +814,7 @@ TYPED_TEST(TestPlanner, MatchDelete) {
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectDelete());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectScanAll(), ExpectDelete(), ExpectPullRemote()),
+      MakeCheckers(ExpectScanAll(), ExpectDelete(), ExpectSynchronize()),
       MakeCheckers(ExpectScanAll(), ExpectDelete())};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -792,7 +833,7 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
                        ExpectSetProperties(), ExpectSetLabels());
   ExpectedDistributedPlan expected{
       MakeCheckers(ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(),
-                   ExpectSetLabels(), ExpectPullRemote()),
+                   ExpectSetLabels(), ExpectSynchronize()),
       MakeCheckers(ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(),
                    ExpectSetLabels())};
   CheckDistributedPlan<TypeParam>(storage, expected);
@@ -811,7 +852,7 @@ TYPED_TEST(TestPlanner, MatchRemove) {
                        ExpectRemoveLabels());
   ExpectedDistributedPlan expected{
       MakeCheckers(ExpectScanAll(), ExpectRemoveProperty(),
-                   ExpectRemoveLabels(), ExpectPullRemote()),
+                   ExpectRemoveLabels(), ExpectSynchronize()),
       MakeCheckers(ExpectScanAll(), ExpectRemoveProperty(),
                    ExpectRemoveLabels())};
   CheckDistributedPlan<TypeParam>(storage, expected);
@@ -947,6 +988,11 @@ TYPED_TEST(TestPlanner, CreateMultiExpand) {
              PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectCreateExpand());
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectCreateNode(), ExpectCreateExpand(),
+                   ExpectCreateExpand(), ExpectSynchronize(false)),
+      {}};
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
@@ -1032,7 +1078,7 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
                        ExpectCreateExpand());
   ExpectedDistributedPlan expected{
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectCreateExpand(),
-                   ExpectPullRemote()),
+                   ExpectSynchronize()),
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectCreateExpand())};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -1074,6 +1120,12 @@ TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   // us here (but who knows if they change it again).
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc,
             ExpectProduce(), ExpectSkip(), ExpectProduce(), ExpectLimit());
+  ExpectedDistributedPlan expected{
+      MakeCheckers(ExpectCreateNode(), ExpectSynchronize(true),
+                   ExpectProduce(), ExpectSkip(), ExpectProduce(),
+                   ExpectLimit()),
+      {}};
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
@@ -2012,10 +2064,10 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
   database::Master db;
   auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode(), acc,
+      MakeCheckers(ExpectScanAll(), ExpectCreateNode(),
                    ExpectSynchronize({symbol_table.at(*ident_m)}),
                    ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode(), acc)};
+      MakeCheckers(ExpectScanAll(), ExpectCreateNode())};
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 }  // namespace

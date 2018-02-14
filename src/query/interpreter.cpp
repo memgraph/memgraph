@@ -104,27 +104,6 @@ Interpreter::Results Interpreter::operator()(
     }
   }
 
-  auto *logical_plan = &plan->plan();
-  // TODO review: is the check below necessary?
-  DCHECK(dynamic_cast<const plan::Produce *>(logical_plan) ||
-         dynamic_cast<const plan::Skip *>(logical_plan) ||
-         dynamic_cast<const plan::Limit *>(logical_plan) ||
-         dynamic_cast<const plan::OrderBy *>(logical_plan) ||
-         dynamic_cast<const plan::Distinct *>(logical_plan) ||
-         dynamic_cast<const plan::Union *>(logical_plan) ||
-         dynamic_cast<const plan::CreateNode *>(logical_plan) ||
-         dynamic_cast<const plan::CreateExpand *>(logical_plan) ||
-         dynamic_cast<const plan::SetProperty *>(logical_plan) ||
-         dynamic_cast<const plan::SetProperties *>(logical_plan) ||
-         dynamic_cast<const plan::SetLabels *>(logical_plan) ||
-         dynamic_cast<const plan::RemoveProperty *>(logical_plan) ||
-         dynamic_cast<const plan::RemoveLabels *>(logical_plan) ||
-         dynamic_cast<const plan::Delete *>(logical_plan) ||
-         dynamic_cast<const plan::Merge *>(logical_plan) ||
-         dynamic_cast<const plan::CreateIndex *>(logical_plan) ||
-         dynamic_cast<const plan::PullRemote *>(logical_plan))
-      << "Unknown top level LogicalOperator";
-
   ctx.symbol_table_ = plan->symbol_table();
 
   auto planning_time = planning_timer.Elapsed();
@@ -140,10 +119,10 @@ Interpreter::Results Interpreter::operator()(
   // have to be correct (for Bolt clients)
   summary["type"] = "rw";
 
-  auto cursor = logical_plan->MakeCursor(ctx.db_accessor_);
+  auto cursor = plan->plan().MakeCursor(ctx.db_accessor_);
   std::vector<std::string> header;
   std::vector<Symbol> output_symbols(
-      logical_plan->OutputSymbols(ctx.symbol_table_));
+      plan->plan().OutputSymbols(ctx.symbol_table_));
   for (const auto &symbol : output_symbols) {
     // When the symbol is aliased or expanded from '*' (inside RETURN or
     // WITH), then there is no token position, so use symbol name.

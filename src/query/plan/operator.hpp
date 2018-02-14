@@ -2362,6 +2362,11 @@ class Synchronize : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
 
+  std::vector<Symbol> OutputSymbols(
+      const SymbolTable &symbol_table) const override {
+    return input_->OutputSymbols(symbol_table);
+  }
+
   auto input() const { return input_; }
   auto pull_remote() const { return pull_remote_; }
   auto advance_command() const { return advance_command_; }
