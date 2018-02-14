@@ -2733,18 +2733,16 @@ std::unique_ptr<Cursor> ProduceRemote::MakeCursor(
 }
 
 PullRemote::PullRemote(const std::shared_ptr<LogicalOperator> &input,
-                       int64_t plan_id, const std::vector<Symbol> &symbols,
-                       bool pull_local)
-    : input_(input ? input : std::make_shared<Once>()),
-      plan_id_(plan_id),
-      symbols_(symbols),
-      pull_local_(pull_local) {}
+                       int64_t plan_id, const std::vector<Symbol> &symbols)
+    : input_(input), plan_id_(plan_id), symbols_(symbols) {}
 
 ACCEPT_WITH_INPUT(PullRemote);
 
 PullRemote::PullRemoteCursor::PullRemoteCursor(const PullRemote &self,
                                                database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {
+    : self_(self),
+      db_(db),
+      input_cursor_(self.input_ ? self.input_->MakeCursor(db) : nullptr) {
   worker_ids_ = db_.db().remote_pull_clients().GetWorkerIds();
   // Remove master from the worker ids list.
   worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
@@ -2842,7 +2840,7 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
 
       // If there are no remote results available, pull and return local
       // results.
-      if (self_.pull_local() && input_cursor_->Pull(frame, context)) {
+      if (input_cursor_ && input_cursor_->Pull(frame, context)) {
         return true;
       }
     }
@@ -2850,7 +2848,7 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
 
   // No more remote results, make sure local results get exhausted.
   if (!have_remote_results) {
-    if (self_.pull_local() && input_cursor_->Pull(frame, context)) {
+    if (input_cursor_ && input_cursor_->Pull(frame, context)) {
       return true;
     }
     return false;

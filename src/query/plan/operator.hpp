@@ -2297,7 +2297,7 @@ class ProduceRemote : public LogicalOperator {
 class PullRemote : public LogicalOperator {
  public:
   PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-             const std::vector<Symbol> &symbols, bool pull_local = true);
+             const std::vector<Symbol> &symbols);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
@@ -2307,13 +2307,11 @@ class PullRemote : public LogicalOperator {
   }
   const auto &symbols() const { return symbols_; }
   auto plan_id() const { return plan_id_; }
-  auto pull_local() const { return pull_local_; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
   int64_t plan_id_ = 0;
   std::vector<Symbol> symbols_;
-  bool pull_local_ = true;
 
   PullRemote() {}
 
@@ -2345,7 +2343,6 @@ class PullRemote : public LogicalOperator {
     ar &input_;
     ar &plan_id_;
     ar &symbols_;
-    ar &pull_local_;
   }
 };
 
