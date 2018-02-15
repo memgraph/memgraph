@@ -6,6 +6,7 @@
 
 #include "long_running_common.hpp"
 #include "stats/stats.hpp"
+#include "stats/stats_rpc_messages.hpp"
 
 // TODO(mtomic): this sucks but I don't know a different way to make it work
 #include "boost/archive/binary_iarchive.hpp"
@@ -15,7 +16,6 @@ BOOST_CLASS_EXPORT(stats::StatsReq);
 BOOST_CLASS_EXPORT(stats::StatsRes);
 BOOST_CLASS_EXPORT(stats::BatchStatsReq);
 BOOST_CLASS_EXPORT(stats::BatchStatsRes);
-
 
 class CardFraudClient : public TestClient {
  public:
@@ -108,7 +108,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  InitStatsLogging();
+  stats::InitStatsLogging();
 
   nlohmann::json config;
   std::cin >> config;
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
 
   RunMultithreadedTest(clients);
 
-  StopStatsLogging();
+  stats::StopStatsLogging();
 
   return 0;
 }

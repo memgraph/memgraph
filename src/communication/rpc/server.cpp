@@ -6,6 +6,7 @@
 #include "boost/serialization/unique_ptr.hpp"
 
 #include "communication/rpc/server.hpp"
+#include "stats/metrics.hpp"
 
 namespace communication::rpc {
 
@@ -36,12 +37,26 @@ void System::Remove(const Server &server) {
   services_.erase(it);
 }
 
+std::string RequestName(const std::string &service_name,
+                        const std::type_index &msg_type_id) {
+  int s;
+  char *message_type = abi::__cxa_demangle(msg_type_id.name(), NULL, NULL, &s);
+  std::string ret;
+  if (s == 0) {
+    ret = fmt::format("rpc.server.{}.{}", service_name, message_type);
+  } else {
+    ret = fmt::format("rpc.server.{}.unknown", service_name);
+  }
+  free(message_type);
+  return ret;
+}
+
 Server::Server(System &system, const std::string &service_name,
                int workers_count)
     : system_(system), service_name_(service_name) {
   system_.Add(*this);
   for (int i = 0; i < workers_count; ++i) {
-    threads_.push_back(std::thread([this]() {
+    threads_.push_back(std::thread([this, service_name]() {
       // TODO: Add logging.
       while (alive_) {
         auto task = queue_.AwaitPop();
@@ -52,7 +67,12 @@ Server::Server(System &system, const std::string &service_name,
         auto callbacks_accessor = callbacks_.access();
         auto it = callbacks_accessor.find(message->type_index());
         if (it == callbacks_accessor.end()) continue;
-        auto response = it->second(*(message.get()));
+
+        auto req_name = RequestName(service_name, message->type_index());
+        std::unique_ptr<Message> response = nullptr;
+
+        stats::Stopwatch(req_name,
+                         [&] { response = it->second(*(message.get())); });
         SendMessage(*socket, message_id, response);
       }
     }));

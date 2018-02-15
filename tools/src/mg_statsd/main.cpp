@@ -3,6 +3,7 @@
 #include "communication/rpc/server.hpp"
 #include "io/network/socket.hpp"
 #include "stats/stats.hpp"
+#include "stats/stats_rpc_messages.hpp"
 #include "utils/flag_validation.hpp"
 
 DEFINE_string(interface, "0.0.0.0",

@@ -166,8 +166,8 @@ int main(int argc, char **argv) {
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
 
-  InitStatsLogging();
-  utils::OnScopeExit stop_stats([] { StopStatsLogging(); });
+  stats::InitStatsLogging();
+  utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
 
   CHECK(!(FLAGS_master && FLAGS_worker))
       << "Can't run Memgraph as worker and master at the same time";

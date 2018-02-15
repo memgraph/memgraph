@@ -1,6 +1,8 @@
 #include "gflags/gflags.h"
+#include "glog/logging.h"
 
 #include "stats/stats.hpp"
+#include "stats/stats_rpc_messages.hpp"
 #include "utils/string.hpp"
 
 // TODO (buda): move this logic to a unit test
@@ -47,7 +49,7 @@ int main(int argc, char *argv[]) {
   LOG(INFO) << "Usage: metric_path tag1=value1 ... tagn=valuen "
                "metric_value";
 
-  InitStatsLogging();
+  stats::InitStatsLogging();
 
   std::string line;
   std::string metric_path;
@@ -60,7 +62,7 @@ int main(int argc, char *argv[]) {
       LOG(ERROR) << "Invalid input";
       continue;
     }
-    LogStat(metric_path, value, tags);
+    stats::LogStat(metric_path, value, tags);
   }
 
   return 0;

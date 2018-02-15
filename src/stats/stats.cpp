@@ -1,7 +1,11 @@
+#include "stats/stats.hpp"
+
 #include "glog/logging.h"
 
 #include "communication/rpc/client.hpp"
-#include "stats/stats.hpp"
+#include "data_structures/concurrent/push_queue.hpp"
+
+#include "stats/stats_rpc_messages.hpp"
 
 DEFINE_HIDDEN_string(statsd_address, "", "Stats server IP address");
 DEFINE_HIDDEN_int32(statsd_port, 2500, "Stats server port");
@@ -10,82 +14,100 @@ DEFINE_HIDDEN_int32(statsd_flush_interval, 500,
 
 namespace stats {
 
-const std::string kStatsServiceName = "stats";
+const std::string kStatsServiceName = "statsd-service";
 
-StatsClient::StatsClient() {}
+std::string statsd_prefix = "";
+std::thread stats_dispatch_thread;
+std::thread counter_refresh_thread;
+std::atomic<bool> stats_running{false};
+ConcurrentPushQueue<StatsReq> stats_queue;
 
-void StatsClient::Log(StatsReq req) {
-  if (is_running_) {
-    queue_.push(req);
+void RefreshMetrics() {
+  LOG(INFO) << "Metrics flush thread started";
+  while (stats_running) {
+    auto &metrics = AccessMetrics();
+    for (auto &kv : metrics) {
+      auto value = kv.second->Flush();
+      if (value) {
+        LogStat(kv.first, *value);
+      }
+    }
+    ReleaseMetrics();
+    // TODO(mtomic): hardcoded sleep time
+    std::this_thread::sleep_for(std::chrono::seconds(1));
   }
+  LOG(INFO) << "Metrics flush thread stopped";
 }
 
-void StatsClient::Start(const io::network::Endpoint &endpoint) {
+
+void StatsDispatchMain(const io::network::Endpoint &endpoint) {
   // TODO(mtomic): we probably want to batch based on request size and MTU
   const int MAX_BATCH_SIZE = 100;
 
-  dispatch_thread_ = std::thread([this, endpoint]() {
-    CHECK(!is_running_) << "Stats logging already initialized!";
-    LOG(INFO) << "Stats dispatcher thread started";
+  LOG(INFO) << "Stats dispatcher thread started";
 
-    communication::rpc::Client client(endpoint, kStatsServiceName);
+  communication::rpc::Client client(endpoint, kStatsServiceName);
 
-    BatchStatsReq batch_request;
-    batch_request.requests.reserve(MAX_BATCH_SIZE);
+  BatchStatsReq batch_request;
+  batch_request.requests.reserve(MAX_BATCH_SIZE);
 
-    is_running_ = true;
-    while (is_running_) {
-      auto last = queue_.begin();
-      size_t sent = 0, total = 0;
+  while (stats_running) {
+    auto last = stats_queue.begin();
+    size_t sent = 0, total = 0;
 
-      auto flush_batch = [&] {
-        if (auto rep = client.Call<BatchStatsRpc>(batch_request)) {
-          sent += batch_request.requests.size();
-        }
-        total += batch_request.requests.size();
-        batch_request.requests.clear();
-      };
-
-      for (auto it = last; it != queue_.end(); it++) {
-        batch_request.requests.emplace_back(std::move(*it));
-        if (batch_request.requests.size() == MAX_BATCH_SIZE) {
-          flush_batch();
-        }
+    auto flush_batch = [&] {
+      if (auto rep = client.Call<BatchStatsRpc>(batch_request)) {
+        sent += batch_request.requests.size();
       }
+      total += batch_request.requests.size();
+      batch_request.requests.clear();
+    };
 
-      if (!batch_request.requests.empty()) {
+    for (auto it = last; it != stats_queue.end(); it++) {
+      batch_request.requests.emplace_back(std::move(*it));
+      if (batch_request.requests.size() == MAX_BATCH_SIZE) {
         flush_batch();
       }
-
-      VLOG(10) << fmt::format("Sent {} out of {} events from queue.", sent,
-                              total);
-      last.delete_tail();
-      std::this_thread::sleep_for(
-          std::chrono::milliseconds(FLAGS_statsd_flush_interval));
     }
-  });
-}
 
-void StatsClient::Stop() {
-  if (is_running_) {
-    is_running_ = false;
-    dispatch_thread_.join();
+    if (!batch_request.requests.empty()) {
+      flush_batch();
+    }
+
+    VLOG(10) << fmt::format("Sent {} out of {} events from queue.", sent,
+                            total);
+    last.delete_tail();
+    std::this_thread::sleep_for(
+        std::chrono::milliseconds(FLAGS_statsd_flush_interval));
   }
 }
-
-StatsClient client;
-
-}  // namespace stats
-
-void InitStatsLogging() {
-  if (FLAGS_statsd_address != "") {
-    stats::client.Start({FLAGS_statsd_address, (uint16_t)FLAGS_statsd_port});
-  }
-}
-
-void StopStatsLogging() { stats::client.Stop(); }
 
 void LogStat(const std::string &metric_path, double value,
              const std::vector<std::pair<std::string, std::string>> &tags) {
-  stats::client.Log({metric_path, tags, value});
+  if (stats_running) {
+    stats_queue.push(statsd_prefix + metric_path, tags, value);
+  }
 }
+
+void InitStatsLogging(std::string prefix) {
+  if (!prefix.empty()) {
+    statsd_prefix = prefix + ".";
+  }
+  if (FLAGS_statsd_address != "") {
+    stats_running = true;
+    stats_dispatch_thread = std::thread(
+        StatsDispatchMain, io::network::Endpoint{FLAGS_statsd_address,
+                                                 (uint16_t)FLAGS_statsd_port});
+    counter_refresh_thread = std::thread(RefreshMetrics);
+  }
+}
+
+void StopStatsLogging() {
+  if (stats_running) {
+    stats_running = false;
+    stats_dispatch_thread.join();
+    counter_refresh_thread.join();
+  }
+}
+
+}  // namespace stats
