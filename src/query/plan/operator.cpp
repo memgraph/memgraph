@@ -328,10 +328,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -1058,8 +1058,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                   self_.graph_view_);
     // For the given (vertex, edge, vertex) tuple checks if they satisfy the
     // "where" condition. if so, places them in the priority queue.
-    auto expand_pair = [this, &evaluator, &frame](
-        VertexAccessor from, EdgeAccessor edge, VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame](VertexAccessor from,
+                                                  EdgeAccessor edge,
+                                                  VertexAccessor vertex) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -3025,11 +3026,24 @@ class SynchronizeCursor : public Cursor {
     }
   }
 };
-}
+}  // namespace
 
 std::unique_ptr<Cursor> Synchronize::MakeCursor(
     database::GraphDbAccessor &db) const {
   return std::make_unique<SynchronizeCursor>(*this, db);
+}
+
+bool Cartesian::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    left_op_->Accept(visitor) && right_op_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
+
+std::unique_ptr<Cursor> Cartesian::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  // TODO: Implement cursor.
+  return nullptr;
 }
 
 }  // namespace query::plan
@@ -3068,3 +3082,4 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateIndex);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Union);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemote);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Synchronize);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Cartesian);

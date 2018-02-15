@@ -101,6 +101,7 @@ class CreateIndex;
 class Union;
 class PullRemote;
 class Synchronize;
+class Cartesian;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -109,7 +110,8 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, PullRemote, Synchronize>;
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, PullRemote, Synchronize,
+    Cartesian>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -2382,6 +2384,44 @@ class Synchronize : public LogicalOperator {
   }
 };
 
+/** Operator for producing a Cartesian product from 2 input branches */
+class Cartesian : public LogicalOperator {
+ public:
+  /** Construct the operator with left input branch and right input branch. */
+  Cartesian(const std::shared_ptr<LogicalOperator> &left_op,
+            const std::vector<Symbol> &left_symbols,
+            const std::shared_ptr<LogicalOperator> &right_op,
+            const std::vector<Symbol> &right_symbols)
+      : left_op_(left_op),
+        left_symbols_(left_symbols),
+        right_op_(right_op),
+        right_symbols_(right_symbols) {}
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(
+      database::GraphDbAccessor &db) const override;
+
+  auto left_op() const { return left_op_; }
+  auto right_op() const { return right_op_; }
+
+ private:
+  std::shared_ptr<LogicalOperator> left_op_;
+  std::vector<Symbol> left_symbols_;
+  std::shared_ptr<LogicalOperator> right_op_;
+  std::vector<Symbol> right_symbols_;
+
+  Cartesian() {}
+
+  friend class boost::serialization::access;
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &left_op_;
+    ar &left_symbols_;
+    ar &right_op_;
+    ar &right_symbols_;
+  }
+};
+
 }  // namespace plan
 }  // namespace query
 
@@ -2418,3 +2458,4 @@ BOOST_CLASS_EXPORT_KEY(query::plan::CreateIndex);
 BOOST_CLASS_EXPORT_KEY(query::plan::Union);
 BOOST_CLASS_EXPORT_KEY(query::plan::PullRemote);
 BOOST_CLASS_EXPORT_KEY(query::plan::Synchronize);
+BOOST_CLASS_EXPORT_KEY(query::plan::Cartesian);
