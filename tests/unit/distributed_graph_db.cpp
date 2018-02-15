@@ -181,8 +181,6 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
     auto tx1_batch2 = remote_pull(dba_1, worker_id).get();
     expect_second_batch(tx1_batch2);
   }
-  for (auto tx_id : {dba_1.transaction_id(), dba_2.transaction_id()})
-    master().remote_pull_clients().EndAllRemotePulls(tx_id, plan_id);
 }
 
 TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
@@ -277,9 +275,6 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
   auto future_w2_results = remote_pull(dba, 2);
   check_result(1, future_w1_results.get().frames);
   check_result(2, future_w2_results.get().frames);
-
-  master().remote_pull_clients().EndAllRemotePulls(dba.transaction_id(),
-                                                   plan_id);
 }
 
 TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {

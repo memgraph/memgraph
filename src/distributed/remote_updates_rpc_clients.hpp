@@ -43,12 +43,6 @@ class RemoteUpdatesRpcClients {
         });
   }
 
-  /// Calls for the worker with the given ID to discard remote updates.
-  void RemoteUpdateDiscard(int worker_id, tx::transaction_id_t tx_id) {
-    worker_clients_.GetClientPool(worker_id).Call<RemoteUpdateDiscardRpc>(
-        tx_id);
-  }
-
  private:
   RpcWorkerClients worker_clients_;
 };

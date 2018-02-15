@@ -26,10 +26,4 @@ RPC_SINGLE_MEMBER_MESSAGE(RemoteUpdateApplyRes, RemoteUpdateResult);
 using RemoteUpdateApplyRpc =
     communication::rpc::RequestResponse<RemoteUpdateApplyReq,
                                         RemoteUpdateApplyRes>;
-
-RPC_SINGLE_MEMBER_MESSAGE(RemoteUpdateDiscardReq, tx::transaction_id_t);
-RPC_NO_MEMBER_MESSAGE(RemoteUpdateDiscardRes);
-using RemoteUpdateDiscardRpc =
-    communication::rpc::RequestResponse<RemoteUpdateDiscardReq,
-                                        RemoteUpdateDiscardRes>;
 }  // namespace distributed

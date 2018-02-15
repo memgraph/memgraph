@@ -20,6 +20,8 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
+#include "transactions/engine.hpp"
+#include "transactions/tx_end_listener.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {
@@ -129,25 +131,17 @@ class RemoteProduceRpcServer {
   };
 
  public:
-  RemoteProduceRpcServer(database::GraphDb &db,
+  RemoteProduceRpcServer(database::GraphDb &db, tx::Engine &engine,
                          communication::rpc::System &system,
                          const distributed::PlanConsumer &plan_consumer)
       : db_(db),
         remote_produce_rpc_server_(system, kRemotePullProduceRpcName),
-        plan_consumer_(plan_consumer) {
+        plan_consumer_(plan_consumer),
+        engine_(engine) {
     remote_produce_rpc_server_.Register<RemotePullRpc>(
         [this](const RemotePullReq &req) {
           return std::make_unique<RemotePullRes>(RemotePull(req));
         });
-
-    remote_produce_rpc_server_.Register<EndRemotePullRpc>([this](
-        const EndRemotePullReq &req) {
-      std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
-      auto it = ongoing_produces_.find(req.member);
-      CHECK(it != ongoing_produces_.end()) << "Failed to find ongoing produce";
-      ongoing_produces_.erase(it);
-      return std::make_unique<EndRemotePullRes>();
-    });
 
     remote_produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
         [this](const TransactionCommandAdvancedReq &req) {
@@ -165,6 +159,22 @@ class RemoteProduceRpcServer {
   std::map<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>
       ongoing_produces_;
   std::mutex ongoing_produces_lock_;
+
+  tx::Engine &engine_;
+  tx::TxEndListener tx_end_listener_{
+      engine_, [this](tx::transaction_id_t tx_id) { ClearCache(tx_id); }};
+
+  // Removes all onging pulls for the given tx_id (that transaction expired).
+  void ClearCache(tx::transaction_id_t tx_id) {
+    std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
+    for (auto it = ongoing_produces_.begin(); it != ongoing_produces_.end();) {
+      if (it->first.first == tx_id) {
+        it = ongoing_produces_.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  }
 
   auto &GetOngoingProduce(const RemotePullReq &req) {
     std::lock_guard<std::mutex> guard{ongoing_produces_lock_};

@@ -2741,16 +2741,6 @@ PullRemote::PullRemoteCursor::PullRemoteCursor(const PullRemote &self,
   worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
 }
 
-void PullRemote::PullRemoteCursor::EndRemotePull() {
-  std::vector<std::future<void>> futures;
-  for (auto &worker_id : worker_ids_) {
-    futures.emplace_back(db_.db().remote_pull_clients().EndRemotePull(
-        worker_id, db_.transaction().id_, self_.plan_id()));
-  }
-  for (auto &future : futures) future.wait();
-  worker_ids_.clear();
-}
-
 bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
   auto insert_future_for_worker = [&](int worker_id) {
     remote_pulls_[worker_id] = db_.db().remote_pull_clients().RemotePull(
@@ -2789,22 +2779,17 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
           insert_future_for_worker(worker_id);
           break;
         case distributed::RemotePullState::SERIALIZATION_ERROR:
-          EndRemotePull();
           throw mvcc::SerializationError(
               "Serialization error occured during PullRemote !");
         case distributed::RemotePullState::LOCK_TIMEOUT_ERROR:
-          EndRemotePull();
           throw LockTimeoutException(
               "LockTimeout error occured during PullRemote !");
         case distributed::RemotePullState::UPDATE_DELETED_ERROR:
-          EndRemotePull();
           throw QueryRuntimeException(
               "RecordDeleted error ocured during PullRemote !");
         case distributed::RemotePullState::RECONSTRUCTION_ERROR:
-          EndRemotePull();
           throw query::ReconstructionException();
         case distributed::RemotePullState::QUERY_ERROR:
-          EndRemotePull();
           throw QueryRuntimeException(
               "Query runtime error occurred duing PullRemote !");
       }
@@ -2825,11 +2810,8 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
     }
 
     if (!have_remote_results) {
-      // If we didn't find any remote results and there aren't any remote
-      // pulls, we've exhausted all remote results. Make sure we signal that
-      // to workers and exit the loop.
       if (remote_pulls_.empty()) {
-        EndRemotePull();
+        worker_ids_.clear();
         break;
       }
 
@@ -2868,18 +2850,12 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
   if (remote_results_[pull_from_worker_id].empty() &&
       remote_pulls_.find(pull_from_worker_id) == remote_pulls_.end()) {
     worker_ids_.erase(worker_ids_.begin() + last_pulled_worker_id_index_);
-    db_.db()
-        .remote_pull_clients()
-        .EndRemotePull(pull_from_worker_id, db_.transaction().id_,
-                       self_.plan_id())
-        .wait();
   }
 
   return true;
 }
 
 void PullRemote::PullRemoteCursor::Reset() {
-  EndRemotePull();
   throw QueryRuntimeException("Unsupported: Reset during PullRemote!");
 }
 

@@ -364,12 +364,6 @@ using RemotePullRpc =
 // optimization not to have to send the full RemotePullReqData pack every
 // time.
 
-using EndRemotePullData = std::pair<tx::transaction_id_t, int64_t>;
-RPC_SINGLE_MEMBER_MESSAGE(EndRemotePullReq, EndRemotePullData);
-RPC_NO_MEMBER_MESSAGE(EndRemotePullRes);
-using EndRemotePullRpc =
-    communication::rpc::RequestResponse<EndRemotePullReq, EndRemotePullRes>;
-
 RPC_SINGLE_MEMBER_MESSAGE(TransactionCommandAdvancedReq, tx::transaction_id_t);
 RPC_NO_MEMBER_MESSAGE(TransactionCommandAdvancedRes);
 using TransactionCommandAdvancedRpc =

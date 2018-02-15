@@ -1,3 +1,5 @@
+#include <chrono>
+
 #include "glog/logging.h"
 
 #include "transactions/engine_rpc_messages.hpp"
@@ -7,7 +9,22 @@
 namespace tx {
 
 WorkerEngine::WorkerEngine(const io::network::Endpoint &endpoint)
-    : rpc_client_pool_(endpoint, kTransactionEngineRpc) {}
+    : rpc_client_pool_(endpoint, kTransactionEngineRpc) {
+  cache_clearing_scheduler_.Run(kCacheReleasePeriod, [this]() {
+    // Use the GC snapshot as it always has at least one member.
+    auto res = rpc_client_pool_.Call<GcSnapshotRpc>();
+    // There is a race-condition between this scheduled call and worker
+    // shutdown. It is possible that the worker has responded to the master it
+    // is shutting down, and the master is shutting down (and can't responde to
+    // RPCs). At the same time this call gets scheduled, so we get a failed RPC.
+    if (!res) {
+      LOG(WARNING) << "Transaction cache GC RPC call failed";
+    } else {
+      CHECK(!res->member.empty()) << "Recieved an empty GcSnapshot";
+      ClearCachesBasedOnOldest(res->member.front());
+    }
+  });
+}
 
 WorkerEngine::~WorkerEngine() {
   for (auto &kv : active_.access()) {
@@ -119,6 +136,23 @@ void WorkerEngine::ClearCache(transaction_id_t tx_id) const {
   if (found != access.end()) {
     delete found->second;
     access.remove(tx_id);
+  }
+  NotifyListeners(tx_id);
+}
+
+void WorkerEngine::ClearCachesBasedOnOldest(transaction_id_t oldest_active) {
+  // Take care to handle concurrent calls to this correctly. Try to update the
+  // oldest_active_, and only if successful (nobody else did it concurrently),
+  // clear caches between the previous oldest (now expired) and new oldest
+  // (possibly still alive).
+  auto previous_oldest = oldest_active_.load();
+  while (
+      !oldest_active_.compare_exchange_strong(previous_oldest, oldest_active)) {
+    ;
+  }
+  for (tx::transaction_id_t expired = previous_oldest; expired < oldest_active;
+       ++expired) {
+    ClearCache(expired);
   }
 }
 }  // namespace tx

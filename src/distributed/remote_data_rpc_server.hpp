@@ -12,9 +12,6 @@ namespace distributed {
 
 /** Serves this worker's data to others. */
 class RemoteDataRpcServer {
-  // TODO maybe reuse GraphDbAccessors. It would reduce the load on tx::Engine
-  // locks (not sure what the gain would be). But have some way of cache
-  // invalidation.
  public:
   RemoteDataRpcServer(database::GraphDb &db, communication::rpc::System &system)
       : db_(db), rpc_server_(system, kRemoteDataRpcName) {

@@ -50,23 +50,31 @@ command_id_t SingleNodeEngine::UpdateCommand(transaction_id_t id) {
 }
 
 void SingleNodeEngine::Commit(const Transaction &t) {
-  std::lock_guard<SpinLock> guard(lock_);
-  clog_.set_committed(t.id_);
-  active_.remove(t.id_);
-  if (wal_) {
-    wal_->Emplace(database::StateDelta::TxCommit(t.id_));
+  auto tx_id = t.id_;
+  {
+    std::lock_guard<SpinLock> guard(lock_);
+    clog_.set_committed(tx_id);
+    active_.remove(tx_id);
+    if (wal_) {
+      wal_->Emplace(database::StateDelta::TxCommit(tx_id));
+    }
+    store_.erase(store_.find(tx_id));
   }
-  store_.erase(store_.find(t.id_));
+  NotifyListeners(tx_id);
 }
 
 void SingleNodeEngine::Abort(const Transaction &t) {
-  std::lock_guard<SpinLock> guard(lock_);
-  clog_.set_aborted(t.id_);
-  active_.remove(t.id_);
-  if (wal_) {
-    wal_->Emplace(database::StateDelta::TxAbort(t.id_));
+  auto tx_id = t.id_;
+  {
+    std::lock_guard<SpinLock> guard(lock_);
+    clog_.set_aborted(tx_id);
+    active_.remove(tx_id);
+    if (wal_) {
+      wal_->Emplace(database::StateDelta::TxAbort(tx_id));
+    }
+    store_.erase(store_.find(tx_id));
   }
-  store_.erase(store_.find(t.id_));
+  NotifyListeners(tx_id);
 }
 
 CommitLog::Info SingleNodeEngine::Info(transaction_id_t tx) const {

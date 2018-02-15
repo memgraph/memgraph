@@ -2309,8 +2309,6 @@ class PullRemote : public LogicalOperator {
     void Reset() override;
 
    private:
-    void EndRemotePull();
-
     const PullRemote &self_;
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;

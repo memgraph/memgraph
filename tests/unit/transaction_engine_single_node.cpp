@@ -6,37 +6,40 @@
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
+#include "transactions/tx_end_listener.hpp"
+
+using namespace tx;
 
 TEST(Engine, GcSnapshot) {
-  tx::SingleNodeEngine engine;
-  ASSERT_EQ(engine.GlobalGcSnapshot(), tx::Snapshot({1}));
+  SingleNodeEngine engine;
+  ASSERT_EQ(engine.GlobalGcSnapshot(), Snapshot({1}));
 
-  std::vector<tx::Transaction *> transactions;
+  std::vector<Transaction *> transactions;
   // create transactions and check the GC snapshot
   for (int i = 0; i < 5; ++i) {
     transactions.push_back(engine.Begin());
-    EXPECT_EQ(engine.GlobalGcSnapshot(), tx::Snapshot({1}));
+    EXPECT_EQ(engine.GlobalGcSnapshot(), Snapshot({1}));
   }
 
   // commit transactions in the middle, expect
   // the GcSnapshot did not change
   engine.Commit(*transactions[1]);
-  EXPECT_EQ(engine.GlobalGcSnapshot(), tx::Snapshot({1}));
+  EXPECT_EQ(engine.GlobalGcSnapshot(), Snapshot({1}));
   engine.Commit(*transactions[2]);
-  EXPECT_EQ(engine.GlobalGcSnapshot(), tx::Snapshot({1}));
+  EXPECT_EQ(engine.GlobalGcSnapshot(), Snapshot({1}));
 
   // have the first three transactions committed
   engine.Commit(*transactions[0]);
-  EXPECT_EQ(engine.GlobalGcSnapshot(), tx::Snapshot({1, 2, 3, 4}));
+  EXPECT_EQ(engine.GlobalGcSnapshot(), Snapshot({1, 2, 3, 4}));
 
   // commit all
   engine.Commit(*transactions[3]);
   engine.Commit(*transactions[4]);
-  EXPECT_EQ(engine.GlobalGcSnapshot(), tx::Snapshot({6}));
+  EXPECT_EQ(engine.GlobalGcSnapshot(), Snapshot({6}));
 }
 
 TEST(Engine, Advance) {
-  tx::SingleNodeEngine engine;
+  SingleNodeEngine engine;
 
   auto t0 = engine.Begin();
   auto t1 = engine.Begin();
@@ -49,9 +52,9 @@ TEST(Engine, Advance) {
 }
 
 TEST(Engine, ConcurrentBegin) {
-  tx::SingleNodeEngine engine;
+  SingleNodeEngine engine;
   std::vector<std::thread> threads;
-  ConcurrentSet<tx::transaction_id_t> tx_ids;
+  ConcurrentSet<transaction_id_t> tx_ids;
   for (int i = 0; i < 10; ++i) {
     threads.emplace_back([&engine, accessor = tx_ids.access() ]() mutable {
       for (int j = 0; j < 100; ++j) {
@@ -65,10 +68,29 @@ TEST(Engine, ConcurrentBegin) {
 }
 
 TEST(Engine, RunningTransaction) {
-  tx::SingleNodeEngine engine;
+  SingleNodeEngine engine;
   auto t0 = engine.Begin();
   auto t1 = engine.Begin();
   EXPECT_EQ(t0, engine.RunningTransaction(t0->id_));
   EXPECT_NE(t1, engine.RunningTransaction(t0->id_));
   EXPECT_EQ(t1, engine.RunningTransaction(t1->id_));
+}
+
+TEST(Engine, TxEndListener) {
+  SingleNodeEngine engine;
+  int count = 0;
+  {
+    TxEndListener listener{engine, [&count](auto) { count++; }};
+    EXPECT_EQ(count, 0);
+    auto t1 = engine.Begin();
+    EXPECT_EQ(count, 0);
+    auto t2 = engine.Begin();
+    engine.Abort(*t1);
+    EXPECT_EQ(count, 1);
+    engine.Commit(*t2);
+    EXPECT_EQ(count, 2);
+  }
+  auto t3 = engine.Begin();
+  engine.Commit(*t3);
+  EXPECT_EQ(count, 2);
 }

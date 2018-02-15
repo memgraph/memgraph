@@ -70,8 +70,6 @@ BOOST_CLASS_EXPORT(distributed::ConsumePlanRes);
 // Remote pull.
 BOOST_CLASS_EXPORT(distributed::RemotePullReq);
 BOOST_CLASS_EXPORT(distributed::RemotePullRes);
-BOOST_CLASS_EXPORT(distributed::EndRemotePullReq);
-BOOST_CLASS_EXPORT(distributed::EndRemotePullRes);
 BOOST_CLASS_EXPORT(distributed::TransactionCommandAdvancedReq);
 BOOST_CLASS_EXPORT(distributed::TransactionCommandAdvancedRes);
 
@@ -92,5 +90,3 @@ BOOST_CLASS_EXPORT(distributed::RemoteUpdateReq);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateRes);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyReq);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyRes);
-BOOST_CLASS_EXPORT(distributed::RemoteUpdateDiscardReq);
-BOOST_CLASS_EXPORT(distributed::RemoteUpdateDiscardRes);

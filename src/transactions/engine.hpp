@@ -1,11 +1,17 @@
 #pragma once
 
+#include <algorithm>
+#include <mutex>
+#include <vector>
+
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/transaction.hpp"
 #include "transactions/type.hpp"
 
 namespace tx {
+class TxEndListener;
 /**
  * Database transaction engine. Used for managing transactions and the related
  * information such as transaction snapshots and the transaction state info.
@@ -19,6 +25,8 @@ namespace tx {
  * determined by the users of a particular method.
  */
 class Engine {
+  friend class TxEndListener;
+
  public:
   virtual ~Engine() = default;
 
@@ -74,7 +82,7 @@ class Engine {
       std::function<void(Transaction &)> f) = 0;
 
   /** Gets a transaction object for a running transaction. */
-  virtual tx::Transaction *RunningTransaction(tx::transaction_id_t tx_id) = 0;
+  virtual tx::Transaction *RunningTransaction(transaction_id_t tx_id) = 0;
 
   auto &local_lock_graph() { return local_lock_graph_; }
   const auto &local_lock_graph() const { return local_lock_graph_; }
@@ -84,5 +92,19 @@ class Engine {
   // tx_that_holds_lock). Used for local deadlock resolution.
   // TODO consider global deadlock resolution.
   ConcurrentMap<transaction_id_t, transaction_id_t> local_lock_graph_;
+
+  // Transaction end listeners and the lock for protecting that datastructure.
+  std::vector<TxEndListener *> end_listeners_;
+  mutable SpinLock end_listeners_lock_;
+
+  /** Register a transaction end listener with this engine. */
+  void Register(TxEndListener *listener);
+
+  /** Unregister a transaction end listener with this engine. */
+  void Unregister(TxEndListener *listener);
+
+ protected:
+  /** Notifies all registered listeners that a transaction has ended. */
+  void NotifyListeners(transaction_id_t tx_id) const;
 };
 }  // namespace tx

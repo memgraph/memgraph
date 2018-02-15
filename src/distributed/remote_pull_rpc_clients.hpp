@@ -87,30 +87,6 @@ class RemotePullRpcClients {
 
   auto GetWorkerIds() { return clients_.GetWorkerIds(); }
 
-  // Notifies a worker that the given transaction/plan is done. Otherwise the
-  // server is left with potentially unconsumed Cursors that never get deleted.
-  //
-  // @todo - this needs to be done with hooks into the transactional
-  // engine, so that the Worker discards it's stuff when the relevant
-  // transaction are done.
-  std::future<void> EndRemotePull(int worker_id, tx::transaction_id_t tx_id,
-                                  int64_t plan_id) {
-    return clients_.ExecuteOnWorker<void>(
-        worker_id, [tx_id, plan_id](ClientPool &client_pool) {
-          return client_pool.Call<EndRemotePullRpc>(
-              EndRemotePullData{tx_id, plan_id});
-        });
-  }
-
-  void EndAllRemotePulls(tx::transaction_id_t tx_id, int64_t plan_id) {
-    std::vector<std::future<void>> futures;
-    for (auto worker_id : clients_.GetWorkerIds()) {
-      if (worker_id == 0) continue;
-      futures.emplace_back(EndRemotePull(worker_id, tx_id, plan_id));
-    }
-    for (auto &future : futures) future.wait();
-  }
-
   std::vector<std::future<void>> NotifyAllTransactionCommandAdvanced(
       tx::transaction_id_t tx_id) {
     return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {

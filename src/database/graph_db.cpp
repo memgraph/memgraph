@@ -169,9 +169,11 @@ class Master : public PrivateBase {
   distributed::RemotePullRpcClients remote_pull_clients_{coordination_};
   distributed::RpcWorkerClients index_rpc_clients_{coordination_,
                                                    distributed::kIndexRpcName};
-  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, system_};
+  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, tx_engine_,
+                                                             system_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
-  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
+  distributed::RemoteDataManager remote_data_manager_{tx_engine_,
+                                                      remote_data_clients_};
 };
 
 class Worker : public PrivateBase {
@@ -200,12 +202,14 @@ class Worker : public PrivateBase {
   distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
   distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
   distributed::PlanConsumer plan_consumer_{system_};
-  distributed::RemoteProduceRpcServer remote_produce_server_{*this, system_,
-                                                             plan_consumer_};
+  distributed::RemoteProduceRpcServer remote_produce_server_{
+      *this, tx_engine_, system_, plan_consumer_};
   distributed::IndexRpcServer index_rpc_server_{*this, system_};
-  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, system_};
+  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, tx_engine_,
+                                                             system_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
-  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
+  distributed::RemoteDataManager remote_data_manager_{tx_engine_,
+                                                      remote_data_clients_};
 };
 
 #undef IMPL_GETTERS

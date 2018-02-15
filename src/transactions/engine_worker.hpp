@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 
 #include "communication/rpc/client_pool.hpp"
@@ -9,6 +10,7 @@
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
+#include "utils/scheduler.hpp"
 
 namespace tx {
 
@@ -17,6 +19,10 @@ namespace tx {
  * begin/advance/end transactions on the master. */
 class WorkerEngine : public Engine {
  public:
+  /// The wait time between two releases of local transaction objects that have
+  /// expired on the master.
+  static constexpr std::chrono::seconds kCacheReleasePeriod{1};
+
   WorkerEngine(const io::network::Endpoint &endpoint);
   ~WorkerEngine();
 
@@ -47,5 +53,11 @@ class WorkerEngine : public Engine {
   // Removes (destructs) a Transaction that's expired. If there is no cached
   // transacton for the given id, nothing is done.
   void ClearCache(transaction_id_t tx_id) const;
+
+  // Used for clearing of caches of transactions that have expired.
+  // Initialize the oldest_active_ with 1 because there's never a tx with id=0
+  std::atomic<transaction_id_t> oldest_active_{1};
+  void ClearCachesBasedOnOldest(transaction_id_t oldest_active);
+  Scheduler cache_clearing_scheduler_;
 };
 }  // namespace tx

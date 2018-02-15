@@ -7,6 +7,7 @@
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 #include "threading/sync/spinlock.hpp"
+#include "transactions/tx_end_listener.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {
@@ -24,8 +25,9 @@ class RemoteDataManager {
   }
 
  public:
-  RemoteDataManager(distributed::RemoteDataRpcClients &remote_data_clients)
-      : remote_data_clients_(remote_data_clients) {}
+  RemoteDataManager(tx::Engine &tx_engine,
+                    distributed::RemoteDataRpcClients &remote_data_clients)
+      : remote_data_clients_(remote_data_clients), tx_engine_(tx_engine) {}
 
   /// Gets or creates the remote vertex cache for the given transaction.
   auto &Vertices(tx::transaction_id_t tx_id) {
@@ -53,6 +55,21 @@ class RemoteDataManager {
   std::unordered_map<tx::transaction_id_t, RemoteCache<Vertex>>
       vertices_caches_;
   std::unordered_map<tx::transaction_id_t, RemoteCache<Edge>> edges_caches_;
+
+  tx::Engine &tx_engine_;
+  tx::TxEndListener tx_end_listener_{
+      tx_engine_, [this](tx::transaction_id_t tx_id) { ClearCache(tx_id); }};
+
+  // Clears the caches for the given transaction ID.
+  void ClearCache(tx::transaction_id_t tx_id) {
+    std::lock_guard<SpinLock> guard{lock_};
+    auto remove = [tx_id](auto &map) {
+      auto found = map.find(tx_id);
+      if (found != map.end()) map.erase(found);
+    };
+    remove(vertices_caches_);
+    remove(edges_caches_);
+  }
 };
 
 template <>

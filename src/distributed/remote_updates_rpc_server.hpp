@@ -19,6 +19,7 @@
 #include "storage/vertex_accessor.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
 #include "threading/sync/spinlock.hpp"
+#include "transactions/tx_end_listener.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {
@@ -121,9 +122,9 @@ class RemoteUpdatesRpcServer {
   };
 
  public:
-  RemoteUpdatesRpcServer(database::GraphDb &db,
+  RemoteUpdatesRpcServer(database::GraphDb &db, tx::Engine &engine,
                          communication::rpc::System &system)
-      : db_(db), server_(system, kRemoteUpdatesRpc) {
+      : db_(db), engine_(engine), server_(system, kRemoteUpdatesRpc) {
     server_.Register<RemoteUpdateRpc>([this](const RemoteUpdateReq &req) {
       using DeltaType = database::StateDelta::Type;
       switch (req.member.type) {
@@ -144,12 +145,6 @@ class RemoteUpdatesRpcServer {
     server_.Register<RemoteUpdateApplyRpc>(
         [this](const RemoteUpdateApplyReq &req) {
           return std::make_unique<RemoteUpdateApplyRes>(Apply(req.member));
-        });
-
-    server_.Register<RemoteUpdateDiscardRpc>(
-        [this](const RemoteUpdateDiscardReq &req) {
-          Discard(req.member);
-          return std::make_unique<RemoteUpdateDiscardRes>();
         });
   }
 
@@ -175,19 +170,19 @@ class RemoteUpdatesRpcServer {
     return RemoteUpdateResult::DONE;
   }
 
-  /// Discards all the existing updates for the given transaction ID.
-  void Discard(tx::transaction_id_t tx_id) {
-    vertex_updates_.access().remove(tx_id);
-    edge_updates_.access().remove(tx_id);
-  }
-
  private:
   database::GraphDb &db_;
+  tx::Engine &engine_;
   communication::rpc::Server server_;
   ConcurrentMap<tx::transaction_id_t, TransactionUpdates<VertexAccessor>>
       vertex_updates_;
   ConcurrentMap<tx::transaction_id_t, TransactionUpdates<EdgeAccessor>>
       edge_updates_;
+  tx::TxEndListener tx_end_listener_{engine_,
+                                     [this](tx::transaction_id_t tx_id) {
+                                       vertex_updates_.access().remove(tx_id);
+                                       edge_updates_.access().remove(tx_id);
+                                     }};
 
   // Processes a single delta recieved in the RPC request.
   template <typename TCollection>

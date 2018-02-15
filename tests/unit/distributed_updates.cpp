@@ -58,10 +58,4 @@ TEST_F(DistributedUpdateTest, RemoteUpdateApply) {
   EXPECT_LABEL(v1_dba1, false, true);
 }
 
-TEST_F(DistributedUpdateTest, RemoteUpdateDiscard) {
-  EXPECT_LABEL(v1_dba1, false, false);
-  worker(1).remote_updates_server().Discard(dba1->transaction_id());
-  EXPECT_LABEL(v1_dba1, false, false);
-}
-
 #undef EXPECT_LABEL

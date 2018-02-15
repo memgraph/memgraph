@@ -55,7 +55,7 @@ RPC_SINGLE_MEMBER_MESSAGE(ClogInfoRes, CommitLog::Info)
 using ClogInfoRpc =
     communication::rpc::RequestResponse<ClogInfoReq, ClogInfoRes>;
 
-RPC_SINGLE_MEMBER_MESSAGE(ActiveTransactionsReq, transaction_id_t)
+RPC_NO_MEMBER_MESSAGE(ActiveTransactionsReq)
 using ActiveTransactionsRpc =
     communication::rpc::RequestResponse<ActiveTransactionsReq, SnapshotRes>;
 
