@@ -2402,7 +2402,9 @@ class Cartesian : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
 
   auto left_op() const { return left_op_; }
+  auto left_symbols() const { return left_symbols_; }
   auto right_op() const { return right_op_; }
+  auto right_symbols() const { return right_symbols_; }
 
  private:
   std::shared_ptr<LogicalOperator> left_op_;

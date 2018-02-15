@@ -246,6 +246,139 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   EXPECT_EQ(results.size(), 2);
 }
 
+TEST(QueryPlan, Cartesian) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+
+  auto add_vertex = [&dba](std::string label) {
+    auto vertex = dba.InsertVertex();
+    vertex.add_label(dba.Label(label));
+    return vertex;
+  };
+
+  std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
+                                       add_vertex("v3")};
+  dba.AdvanceCommand();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_n = NEXPR("n", IDENT("n"));
+  symbol_table[*return_n->expression_] = n.sym_;
+  symbol_table[*return_n] =
+      symbol_table.CreateSymbol("named_expression_1", true);
+  auto return_m = NEXPR("m", IDENT("m"));
+  symbol_table[*return_m->expression_] = m.sym_;
+  symbol_table[*return_m] =
+      symbol_table.CreateSymbol("named_expression_2", true);
+
+  std::vector<Symbol> left_symbols{n.sym_};
+  std::vector<Symbol> right_symbols{m.sym_};
+  auto cartesian_op =
+      std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
+
+  auto produce = MakeProduce(cartesian_op, return_n, return_m);
+
+  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  EXPECT_EQ(results.size(), 9);
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      EXPECT_EQ(results[3 * i + j][0].Value<VertexAccessor>(), vertices[j]);
+      EXPECT_EQ(results[3 * i + j][1].Value<VertexAccessor>(), vertices[i]);
+    }
+  }
+}
+
+TEST(QueryPlan, CartesianEmptySet) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto return_n = NEXPR("n", IDENT("n"));
+  symbol_table[*return_n->expression_] = n.sym_;
+  symbol_table[*return_n] =
+      symbol_table.CreateSymbol("named_expression_1", true);
+  auto return_m = NEXPR("m", IDENT("m"));
+  symbol_table[*return_m->expression_] = m.sym_;
+  symbol_table[*return_m] =
+      symbol_table.CreateSymbol("named_expression_2", true);
+
+  std::vector<Symbol> left_symbols{n.sym_};
+  std::vector<Symbol> right_symbols{m.sym_};
+  auto cartesian_op =
+      std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
+
+  auto produce = MakeProduce(cartesian_op, return_n, return_m);
+
+  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  EXPECT_EQ(results.size(), 0);
+}
+
+TEST(QueryPlan, CartesianThreeWay) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  auto add_vertex = [&dba](std::string label) {
+    auto vertex = dba.InsertVertex();
+    vertex.add_label(dba.Label(label));
+    return vertex;
+  };
+
+  std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
+                                       add_vertex("v3")};
+  dba.AdvanceCommand();
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto m = MakeScanAll(storage, symbol_table, "m");
+  auto l = MakeScanAll(storage, symbol_table, "l");
+  auto return_n = NEXPR("n", IDENT("n"));
+  symbol_table[*return_n->expression_] = n.sym_;
+  symbol_table[*return_n] =
+      symbol_table.CreateSymbol("named_expression_1", true);
+  auto return_m = NEXPR("m", IDENT("m"));
+  symbol_table[*return_m->expression_] = m.sym_;
+  symbol_table[*return_m] =
+      symbol_table.CreateSymbol("named_expression_2", true);
+  auto return_l = NEXPR("l", IDENT("l"));
+  symbol_table[*return_l->expression_] = l.sym_;
+  symbol_table[*return_l] =
+      symbol_table.CreateSymbol("named_expression_3", true);
+
+  std::vector<Symbol> n_symbols{n.sym_};
+  std::vector<Symbol> m_symbols{m.sym_};
+  std::vector<Symbol> n_m_symbols{n.sym_, m.sym_};
+  std::vector<Symbol> l_symbols{l.sym_};
+  auto cartesian_op_1 =
+      std::make_shared<Cartesian>(n.op_, n_symbols, m.op_, m_symbols);
+
+  auto cartesian_op_2 = std::make_shared<Cartesian>(cartesian_op_1, n_m_symbols,
+                                                    l.op_, l_symbols);
+
+  auto produce = MakeProduce(cartesian_op_2, return_n, return_m, return_l);
+
+  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  EXPECT_EQ(results.size(), 27);
+  int id = 0;
+  for (int i = 0; i < 3; ++i) {
+    for (int j = 0; j < 3; ++j) {
+      for (int k = 0; k < 3; ++k) {
+        EXPECT_EQ(results[id][0].Value<VertexAccessor>(), vertices[k]);
+        EXPECT_EQ(results[id][1].Value<VertexAccessor>(), vertices[j]);
+        EXPECT_EQ(results[id][2].Value<VertexAccessor>(), vertices[i]);
+        ++id;
+      }
+    }
+  }
+}
+
 class ExpandFixture : public testing::Test {
  protected:
   database::SingleNode db_;

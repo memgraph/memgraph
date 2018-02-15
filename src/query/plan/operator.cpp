@@ -328,10 +328,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -1058,9 +1058,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                   self_.graph_view_);
     // For the given (vertex, edge, vertex) tuple checks if they satisfy the
     // "where" condition. if so, places them in the priority queue.
-    auto expand_pair = [this, &evaluator, &frame](VertexAccessor from,
-                                                  EdgeAccessor edge,
-                                                  VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame](
+        VertexAccessor from, EdgeAccessor edge, VertexAccessor vertex) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -3026,6 +3025,86 @@ class SynchronizeCursor : public Cursor {
     }
   }
 };
+
+class CartesianCursor : public Cursor {
+ public:
+  CartesianCursor(const Cartesian &self, database::GraphDbAccessor &db)
+      : self_(self),
+        left_op_cursor_(self.left_op()->MakeCursor(db)),
+        right_op_cursor_(self_.right_op()->MakeCursor(db)) {
+    CHECK(left_op_cursor_ != nullptr)
+        << "CartesianCursor: Missing left operator cursor.";
+    CHECK(right_op_cursor_ != nullptr)
+        << "CartesianCursor: Missing right operator cursor.";
+  }
+
+  bool Pull(Frame &frame, Context &context) override {
+    auto copy_frame = [&frame]() {
+      std::vector<TypedValue> result;
+      for (auto &elem : frame.elems()) {
+        result.emplace_back(std::move(elem));
+      }
+      return result;
+    };
+
+    if (!cartesian_pull_initialized_) {
+      // Pull all left_op frames.
+      while (left_op_cursor_->Pull(frame, context)) {
+        left_op_frames_.emplace_back(copy_frame());
+      }
+
+      // We're setting the iterator to 'end' here so it pulls the right cursor.
+      left_op_frames_it_ = left_op_frames_.end();
+      cartesian_pull_initialized_ = true;
+    }
+
+    // If left operator yielded zero results there is no cartesian product.
+    if (left_op_frames_.empty()) {
+      return false;
+    }
+
+    auto restore_frame = [&frame](const std::vector<Symbol> &symbols,
+                                  const std::vector<TypedValue> &restore_from) {
+      for (const auto &symbol : symbols) {
+        frame[symbol] = restore_from[symbol.position()];
+      }
+    };
+
+    if (left_op_frames_it_ == left_op_frames_.end()) {
+      // Advance right_op_cursor_.
+      if (!right_op_cursor_->Pull(frame, context)) return false;
+
+      right_op_frame_ = copy_frame();
+      left_op_frames_it_ = left_op_frames_.begin();
+    } else {
+      // Make sure right_op_cursor last pulled results are on frame.
+      restore_frame(self_.right_symbols(), right_op_frame_);
+    }
+
+    restore_frame(self_.left_symbols(), *left_op_frames_it_);
+    left_op_frames_it_++;
+    return true;
+  }
+
+  void Reset() override {
+    left_op_cursor_->Reset();
+    right_op_cursor_->Reset();
+    right_op_frame_.clear();
+    left_op_frames_.clear();
+    left_op_frames_it_ = left_op_frames_.end();
+    cartesian_pull_initialized_ = false;
+  }
+
+ private:
+  const Cartesian &self_;
+  std::vector<std::vector<TypedValue>> left_op_frames_;
+  std::vector<TypedValue> right_op_frame_;
+  const std::unique_ptr<Cursor> left_op_cursor_;
+  const std::unique_ptr<Cursor> right_op_cursor_;
+  std::vector<std::vector<TypedValue>>::iterator left_op_frames_it_;
+  bool cartesian_pull_initialized_{false};
+};
+
 }  // namespace
 
 std::unique_ptr<Cursor> Synchronize::MakeCursor(
@@ -3042,8 +3121,7 @@ bool Cartesian::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 
 std::unique_ptr<Cursor> Cartesian::MakeCursor(
     database::GraphDbAccessor &db) const {
-  // TODO: Implement cursor.
-  return nullptr;
+  return std::make_unique<CartesianCursor>(*this, db);
 }
 
 }  // namespace query::plan
