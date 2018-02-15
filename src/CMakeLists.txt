@@ -4,6 +4,7 @@
 set(memgraph_src_files
     communication/bolt/v1/decoder/decoded_value.cpp
     communication/bolt/v1/session.cpp
+    communication/rpc/buffer.cpp
     communication/rpc/client.cpp
     communication/rpc/protocol.cpp
     communication/rpc/server.cpp

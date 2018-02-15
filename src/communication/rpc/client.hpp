@@ -6,6 +6,7 @@
 
 #include <glog/logging.h>
 
+#include "communication/rpc/buffer.hpp"
 #include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
@@ -53,8 +54,7 @@ class Client {
   std::experimental::optional<io::network::Socket> socket_;
 
   uint32_t next_message_id_{0};
-  std::array<uint8_t, kMaxMessageSize> buffer_;
-  size_t received_bytes_{0};
+  Buffer buffer_;
 
   std::mutex mutex_;
 };

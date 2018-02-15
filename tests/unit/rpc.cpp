@@ -54,6 +54,24 @@ struct SumRes : public Message {
 BOOST_CLASS_EXPORT(SumRes);
 using Sum = RequestResponse<SumReq, SumRes>;
 
+struct EchoMessage : public Message {
+  EchoMessage(const std::string &data) : data(data) {}
+  std::string data;
+
+ private:
+  friend class boost::serialization::access;
+  EchoMessage() {}  // Needed for serialization.
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &data;
+  }
+};
+BOOST_CLASS_EXPORT(EchoMessage);
+
+using Echo = RequestResponse<EchoMessage, EchoMessage>;
+
 TEST(Rpc, Call) {
   System server_system({"127.0.0.1", 0});
   Server server(server_system, "main");
@@ -142,4 +160,19 @@ TEST(Rpc, ClientPool) {
     threads[i].join();
   }
   EXPECT_LE(t2.Elapsed(), 200ms);
+}
+
+TEST(Rpc, LargeMessage) {
+  System server_system({"127.0.0.1", 0});
+  Server server(server_system, "main");
+  server.Register<Echo>([](const EchoMessage &request) {
+    return std::make_unique<EchoMessage>(request.data);
+  });
+  std::this_thread::sleep_for(100ms);
+
+  std::string testdata(100000, 'a');
+
+  Client client(server_system.endpoint(), "main");
+  auto echo = client.Call<Echo>(testdata);
+  EXPECT_EQ(echo->data, testdata);
 }

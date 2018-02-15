@@ -22,6 +22,7 @@ void Session::Execute() {
   if (!handshake_done_) {
     if (buffer_.size() < sizeof(MessageSize)) return;
     MessageSize service_len = *reinterpret_cast<MessageSize *>(buffer_.data());
+    buffer_.Resize(sizeof(MessageSize) + service_len);
     if (buffer_.size() < sizeof(MessageSize) + service_len) return;
     service_name_ = std::string(
         reinterpret_cast<char *>(buffer_.data() + sizeof(MessageSize)),
@@ -34,8 +35,9 @@ void Session::Execute() {
   uint32_t message_id = *reinterpret_cast<uint32_t *>(buffer_.data());
   MessageSize message_len =
       *reinterpret_cast<MessageSize *>(buffer_.data() + sizeof(uint32_t));
-  if (buffer_.size() < sizeof(uint32_t) + sizeof(MessageSize) + message_len)
-    return;
+  uint64_t request_size = sizeof(uint32_t) + sizeof(MessageSize) + message_len;
+  buffer_.Resize(request_size);
+  if (buffer_.size() < request_size) return;
 
   // TODO (mferencevic): check for exceptions
   std::unique_ptr<Message> message;
@@ -78,10 +80,10 @@ void SendMessage(Socket &socket, uint32_t message_id,
   }
 
   const std::string &buffer = stream.str();
-  uint64_t message_size = sizeof(MessageSize) + buffer.size();
-  CHECK(message_size <= kMaxMessageSize) << fmt::format(
-      "Trying to send message of size {}, max message size is {}", message_size,
-      kMaxMessageSize);
+  CHECK(buffer.size() <= std::numeric_limits<MessageSize>::max())
+      << fmt::format(
+             "Trying to send message of size {}, max message size is {}",
+             buffer.size(), std::numeric_limits<MessageSize>::max());
 
   if (!socket.Write(reinterpret_cast<uint8_t *>(&message_id), sizeof(uint32_t),
                     true)) {

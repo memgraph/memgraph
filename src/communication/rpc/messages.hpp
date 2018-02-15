@@ -9,9 +9,7 @@
 
 namespace communication::rpc {
 
-// This buffer should be larger than the largest serialized message.
-const uint64_t kMaxMessageSize = 262144;
-using MessageSize = uint16_t;
+using MessageSize = uint32_t;
 
 /**
  * Base class for messages.

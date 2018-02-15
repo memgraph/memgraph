@@ -4,7 +4,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "communication/bolt/v1/decoder/buffer.hpp"
+#include "communication/rpc/buffer.hpp"
 #include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
@@ -26,7 +26,6 @@ namespace communication::rpc {
 using Endpoint = io::network::Endpoint;
 using Socket = io::network::Socket;
 using StreamBuffer = io::network::StreamBuffer;
-using Buffer = bolt::Buffer<kMaxMessageSize>;
 
 // Forward declaration of class System
 class System;

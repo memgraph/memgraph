@@ -27,7 +27,7 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
   // Connect to the remote server.
   if (!socket_) {
     socket_.emplace();
-    received_bytes_ = 0;
+    buffer_.Clear();
     if (!socket_->Connect(endpoint_)) {
       LOG(ERROR) << "Couldn't connect to remote address: " << endpoint_;
       socket_ = std::experimental::nullopt;
@@ -70,12 +70,12 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
   }
 
   const std::string &request_buffer = request_stream.str();
-  MessageSize request_data_size = request_buffer.size();
-  int64_t request_size = sizeof(uint32_t) + request_data_size;
-  CHECK(request_size <= kMaxMessageSize) << fmt::format(
-      "Trying to send message of size {}, max message size is {}", request_size,
-      kMaxMessageSize);
+  CHECK(request_buffer.size() <= std::numeric_limits<MessageSize>::max())
+      << fmt::format(
+             "Trying to send message of size {}, max message size is {}",
+             request_buffer.size(), std::numeric_limits<MessageSize>::max());
 
+  MessageSize request_data_size = request_buffer.size();
   if (!socket_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
                       sizeof(MessageSize), true)) {
     LOG(ERROR) << "Couldn't send request size!";
@@ -91,21 +91,22 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
 
   // Receive response.
   while (true) {
-    auto received = socket_->Read(buffer_.data() + received_bytes_,
-                                  buffer_.size() - received_bytes_);
+    auto buff = buffer_.Allocate();
+    auto received = socket_->Read(buff.data, buff.len);
     if (received <= 0) {
       socket_ = std::experimental::nullopt;
       return nullptr;
     }
-    received_bytes_ += received;
+    buffer_.Written(received);
 
-    if (received_bytes_ < sizeof(uint32_t) + sizeof(MessageSize)) continue;
+    if (buffer_.size() < sizeof(uint32_t) + sizeof(MessageSize)) continue;
     uint32_t response_id = *reinterpret_cast<uint32_t *>(buffer_.data());
     MessageSize response_data_size =
         *reinterpret_cast<MessageSize *>(buffer_.data() + sizeof(uint32_t));
     size_t response_size =
         sizeof(uint32_t) + sizeof(MessageSize) + response_data_size;
-    if (received_bytes_ < response_size) continue;
+    buffer_.Resize(response_size);
+    if (buffer_.size() < response_size) continue;
 
     std::unique_ptr<Message> response;
     {
@@ -119,9 +120,7 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
       response_archive >> response;
     }
 
-    std::copy(buffer_.begin() + response_size,
-              buffer_.begin() + received_bytes_, buffer_.begin());
-    received_bytes_ -= response_size;
+    buffer_.Shift(response_size);
 
     if (response_id != request_id) {
       // This can happen if some stale response arrives after we issued a new
