@@ -12,6 +12,7 @@
 #include "durability/paths.hpp"
 #include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
+#include "storage/address_types.hpp"
 #include "utils/datetime/timestamp.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
@@ -226,9 +227,9 @@ class Writer {
 
     encoder_.WriteInt(in_edges.size());
     for (auto &edge : in_edges) {
-      auto edge_addr = Edges::EdgeAddress(edge.gid, edge.from.first);
+      auto edge_addr = storage::EdgeAddress(edge.gid, edge.from.first);
       auto vertex_addr =
-          Edges::VertexAddress(edge.from.second, edge.from.first);
+          storage::VertexAddress(edge.from.second, edge.from.first);
       encoder_.WriteInt(edge_addr.raw());
       encoder_.WriteInt(vertex_addr.raw());
       encoder_.WriteString(
@@ -237,8 +238,8 @@ class Writer {
 
     encoder_.WriteInt(out_edges.size());
     for (auto &edge : out_edges) {
-      auto edge_addr = Edges::EdgeAddress(edge.gid, edge.from.first);
-      auto vertex_addr = Edges::VertexAddress(edge.to.second, edge.to.first);
+      auto edge_addr = storage::EdgeAddress(edge.gid, edge.from.first);
+      auto vertex_addr = storage::VertexAddress(edge.to.second, edge.to.first);
       encoder_.WriteInt(edge_addr.raw());
       encoder_.WriteInt(vertex_addr.raw());
       encoder_.WriteString(

@@ -6,6 +6,7 @@
 
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "query/typed_value.hpp"
+#include "storage/address_types.hpp"
 #include "storage/property_value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
@@ -35,8 +36,8 @@ struct DecodedSnapshotVertex {
 struct DecodedInlinedVertexEdge {
   // Addresses down below must always be global_address and never direct
   // pointers to a record.
-  Edges::EdgeAddress address;
-  Edges::VertexAddress vertex;
+  storage::EdgeAddress address;
+  storage::VertexAddress vertex;
   std::string type;
 };
 

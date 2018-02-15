@@ -1,5 +1,6 @@
 #pragma once
 
+#include "storage/address_types.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 
@@ -19,8 +20,8 @@ class VertexAccessor;
  * location, which is often a performance bottleneck in traversals.
  */
 class EdgeAccessor : public RecordAccessor<Edge> {
-  using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
-  using EdgeAddress = storage::Address<mvcc::VersionList<Edge>>;
+  using EdgeAddress = storage::EdgeAddress;
+  using VertexAddress = storage::VertexAddress;
 
  public:
   /** Constructor that reads data from the random memory location (lower

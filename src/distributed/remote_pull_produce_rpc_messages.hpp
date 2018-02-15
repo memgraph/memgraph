@@ -11,7 +11,7 @@
 #include "distributed/serialization.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
-#include "storage/edges.hpp"
+#include "storage/address_types.hpp"
 #include "transactions/type.hpp"
 #include "utils/serialization.hpp"
 
@@ -258,16 +258,16 @@ struct RemotePullResData {
 
     switch (type) {
       case query::TypedValue::Type::Vertex: {
-        Edges::VertexAddress::StorageT address;
+        storage::VertexAddress::StorageT address;
         ar >> address;
-        vertices.emplace_back(Edges::VertexAddress(address), load_vertex(ar),
+        vertices.emplace_back(storage::VertexAddress(address), load_vertex(ar),
                               load_vertex(ar), &value);
         break;
       }
       case query::TypedValue::Type::Edge: {
-        Edges::VertexAddress::StorageT address;
+        storage::VertexAddress::StorageT address;
         ar >> address;
-        edges.emplace_back(Edges::EdgeAddress(address), load_edge(ar),
+        edges.emplace_back(storage::EdgeAddress(address), load_edge(ar),
                            load_edge(ar), &value);
         break;
       }
@@ -278,20 +278,20 @@ struct RemotePullResData {
         paths.emplace_back(value);
         auto &path_data = paths.back();
 
-        Edges::VertexAddress::StorageT vertex_address;
-        Edges::EdgeAddress::StorageT edge_address;
+        storage::VertexAddress::StorageT vertex_address;
+        storage::EdgeAddress::StorageT edge_address;
         ar >> vertex_address;
-        path_data.vertices.emplace_back(Edges::VertexAddress(vertex_address),
+        path_data.vertices.emplace_back(storage::VertexAddress(vertex_address),
                                         load_vertex(ar), load_vertex(ar),
                                         nullptr);
         for (size_t i = 0; i < path_size; ++i) {
           ar >> edge_address;
-          path_data.edges.emplace_back(Edges::EdgeAddress(edge_address),
+          path_data.edges.emplace_back(storage::EdgeAddress(edge_address),
                                        load_edge(ar), load_edge(ar), nullptr);
           ar >> vertex_address;
-          path_data.vertices.emplace_back(Edges::VertexAddress(vertex_address),
-                                          load_vertex(ar), load_vertex(ar),
-                                          nullptr);
+          path_data.vertices.emplace_back(
+              storage::VertexAddress(vertex_address), load_vertex(ar),
+              load_vertex(ar), nullptr);
         }
         break;
       }

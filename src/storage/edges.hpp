@@ -7,12 +7,9 @@
 
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
+#include "storage/address_types.hpp"
 #include "storage/types.hpp"
 #include "utils/algorithm.hpp"
-
-// forward declare Vertex and Edge because they need this data structure
-class Edge;
-class Vertex;
 
 /**
  * A data stucture that holds a number of edges. This implementation assumes
@@ -20,14 +17,10 @@ class Vertex;
  * vertex (and consequently that edge Addresses are unique in it).
  */
 class Edges {
- public:
-  using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
-  using EdgeAddress = storage::Address<mvcc::VersionList<Edge>>;
-
  private:
   struct Element {
-    VertexAddress vertex;
-    EdgeAddress edge;
+    storage::VertexAddress vertex;
+    storage::EdgeAddress edge;
     storage::EdgeType edge_type;
   };
 
@@ -55,7 +48,8 @@ class Edges {
      * If nullptr edges are not filtered on type.
      */
     Iterator(std::vector<Element>::const_iterator position,
-             std::vector<Element>::const_iterator end, VertexAddress vertex,
+             std::vector<Element>::const_iterator end,
+             storage::VertexAddress vertex,
              const std::vector<storage::EdgeType> *edge_types)
         : position_(position),
           end_(end),
@@ -86,7 +80,7 @@ class Edges {
 
     // Optional predicates. If set they define which edges are skipped by the
     // iterator. Only one can be not-null in the current implementation.
-    VertexAddress vertex_{nullptr};
+    storage::VertexAddress vertex_{nullptr};
     // For edge types we use a vector pointer because it's optional.
     const std::vector<storage::EdgeType> *edge_types_ = nullptr;
 
@@ -94,10 +88,9 @@ class Edges {
      * present in this iterator. */
     void update_position() {
       if (vertex_.local()) {
-        position_ = std::find_if(position_,
-                                 end_, [v = this->vertex_](const Element &e) {
-                                   return e.vertex == v;
-                                 });
+        position_ = std::find_if(
+            position_, end_,
+            [v = this->vertex_](const Element &e) { return e.vertex == v; });
       }
       if (edge_types_) {
         position_ = std::find_if(position_, end_, [this](const Element &e) {
@@ -116,7 +109,7 @@ class Edges {
    * @param edge - The edge.
    * @param edge_type - Type of the edge.
    */
-  void emplace(VertexAddress vertex, EdgeAddress edge,
+  void emplace(storage::VertexAddress vertex, storage::EdgeAddress edge,
                storage::EdgeType edge_type) {
     storage_.emplace_back(Element{vertex, edge, edge_type});
   }
@@ -124,7 +117,7 @@ class Edges {
   /**
    * Removes an edge from this structure.
    */
-  void RemoveEdge(EdgeAddress edge) {
+  void RemoveEdge(storage::EdgeAddress edge) {
     auto found = std::find_if(
         storage_.begin(), storage_.end(),
         [edge](const Element &element) { return edge == element.edge; });
@@ -146,7 +139,7 @@ class Edges {
    * @param edge_types - The edge types at least one of which must be matched.
    * If nullptr edges are not filtered on type.
    */
-  auto begin(VertexAddress vertex,
+  auto begin(storage::VertexAddress vertex,
              const std::vector<storage::EdgeType> *edge_types) const {
     if (edge_types && edge_types->empty()) edge_types = nullptr;
     return Iterator(storage_.begin(), storage_.end(), vertex, edge_types);

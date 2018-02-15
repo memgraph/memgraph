@@ -97,13 +97,13 @@ gid::Gid RecordAccessor<TRecord>::gid() const {
 }
 
 template <typename TRecord>
-storage::Address<mvcc::VersionList<TRecord>> RecordAccessor<TRecord>::address()
+typename RecordAccessor<TRecord>::AddressT RecordAccessor<TRecord>::address()
     const {
   return address_;
 }
 
 template <typename TRecord>
-storage::Address<mvcc::VersionList<TRecord>>
+typename RecordAccessor<TRecord>::AddressT
 RecordAccessor<TRecord>::GlobalAddress() const {
   return is_local() ? storage::Address<mvcc::VersionList<TRecord>>(
                           gid(), db_accessor_->db_.WorkerId())

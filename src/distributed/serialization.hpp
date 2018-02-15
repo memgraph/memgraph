@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "storage/address_types.hpp"
 #include "storage/edge.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
@@ -99,7 +100,7 @@ void SaveElement(TArchive &ar, const Vertex &record, int worker_id) {
 namespace impl {
 
 template <typename TArchive>
-Edges::VertexAddress LoadVertexAddress(TArchive &ar) {
+storage::VertexAddress LoadVertexAddress(TArchive &ar) {
   gid::Gid vertex_id;
   ar >> vertex_id;
   int worker_id;

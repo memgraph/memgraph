@@ -6,6 +6,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
 #include "distributed/index_rpc_messages.hpp"
+#include "storage/address_types.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex.hpp"
@@ -415,8 +416,8 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
                       edge_type);
 }
 
-EdgeAccessor GraphDbAccessor::InsertOnlyEdge(Edges::VertexAddress &from,
-                                             Edges::VertexAddress &to,
+EdgeAccessor GraphDbAccessor::InsertOnlyEdge(storage::VertexAddress &from,
+                                             storage::VertexAddress &to,
                                              storage::EdgeType edge_type,
                                              gid::Gid edge_gid) {
   auto gid = db_.storage().edge_generator_.Next(edge_gid);

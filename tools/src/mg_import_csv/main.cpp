@@ -16,6 +16,7 @@
 #include "durability/snapshot_decoded_value.hpp"
 #include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
+#include "storage/address_types.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
@@ -378,12 +379,12 @@ void Convert(const std::vector<std::string> &nodes,
     }
     for (auto edge : edges) {
       auto encoded = edge.second;
-      vertices[encoded.from].out.push_back({Edges::EdgeAddress(encoded.id, 0),
-                                            Edges::VertexAddress(encoded.to, 0),
-                                            encoded.type});
-      vertices[encoded.to].in.push_back({Edges::EdgeAddress(encoded.id, 0),
-                                         Edges::VertexAddress(encoded.from, 0),
-                                         encoded.type});
+      vertices[encoded.from].out.push_back(
+          {storage::EdgeAddress(encoded.id, 0),
+           storage::VertexAddress(encoded.to, 0), encoded.type});
+      vertices[encoded.to].in.push_back(
+          {storage::EdgeAddress(encoded.id, 0),
+           storage::VertexAddress(encoded.from, 0), encoded.type});
     }
     for (auto vertex_pair : vertices) {
       auto &vertex = vertex_pair.second;

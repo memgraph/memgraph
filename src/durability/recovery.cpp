@@ -12,6 +12,7 @@
 #include "durability/version.hpp"
 #include "durability/wal.hpp"
 #include "query/typed_value.hpp"
+#include "storage/address_types.hpp"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
 
@@ -114,7 +115,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
 
   database::GraphDbAccessor dba(db);
   std::unordered_map<gid::Gid,
-                     std::pair<Edges::VertexAddress, Edges::VertexAddress>>
+                     std::pair<storage::VertexAddress, storage::VertexAddress>>
       edge_gid_endpoints_mapping;
   for (int64_t i = 0; i < vertex_count; ++i) {
     auto vertex = decoder.ReadSnapshotVertex();
@@ -142,22 +143,22 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     }
   }
 
-  auto vertex_transform_to_local_if_possible =
-      [&db, &dba](Edges::VertexAddress &address) {
-        if (address.is_local()) return;
-        // If the worker id matches it should be a local apperance
-        if (address.worker_id() == db.WorkerId()) {
-          address = Edges::VertexAddress(dba.LocalVertexAddress(address.gid()));
-          CHECK(address.is_local()) << "Address should be local but isn't";
-        }
-      };
+  auto vertex_transform_to_local_if_possible = [&db, &dba](
+      storage::VertexAddress &address) {
+    if (address.is_local()) return;
+    // If the worker id matches it should be a local apperance
+    if (address.worker_id() == db.WorkerId()) {
+      address = storage::VertexAddress(dba.LocalVertexAddress(address.gid()));
+      CHECK(address.is_local()) << "Address should be local but isn't";
+    }
+  };
 
   auto edge_transform_to_local_if_possible =
-      [&db, &dba](Edges::EdgeAddress &address) {
+      [&db, &dba](storage::EdgeAddress &address) {
         if (address.is_local()) return;
         // If the worker id matches it should be a local apperance
         if (address.worker_id() == db.WorkerId()) {
-          address = Edges::EdgeAddress(dba.LocalEdgeAddress(address.gid()));
+          address = storage::EdgeAddress(dba.LocalEdgeAddress(address.gid()));
           CHECK(address.is_local()) << "Address should be local but isn't";
         }
       };
@@ -171,8 +172,8 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     // edges must be bolt-compliant
     auto &edge_endpoints = edge_gid_endpoints_mapping[edge.id];
 
-    Edges::VertexAddress from;
-    Edges::VertexAddress to;
+    storage::VertexAddress from;
+    storage::VertexAddress to;
     std::tie(from, to) = edge_endpoints;
 
     // From and to are written in the global_address format and we should

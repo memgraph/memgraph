@@ -9,6 +9,7 @@
 
 #include "database/graph_db.hpp"
 #include "distributed/remote_cache.hpp"
+#include "storage/address_types.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
@@ -280,8 +281,8 @@ class GraphDbAccessor {
    * Insert edge into main storage, but don't insert it into from and to
    * vertices edge lists.
    */
-  EdgeAccessor InsertOnlyEdge(Edges::VertexAddress &from,
-                              Edges::VertexAddress &to,
+  EdgeAccessor InsertOnlyEdge(storage::VertexAddress &from,
+                              storage::VertexAddress &to,
                               storage::EdgeType edge_type, gid::Gid edge_gid);
 
   /**
