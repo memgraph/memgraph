@@ -44,9 +44,9 @@ for test in tests:
     if name.startswith("benchmark") and mode == "diff":
         continue
 
-    # larger timeout for benchmark tests
+    # larger timeout for benchmark and concurrent tests
     prefix = ""
-    if name.startswith("benchmark"):
+    if name.startswith("benchmark") or name.startswith("concurrent"):
         prefix = "TIMEOUT=600 "
 
     outfile_paths = []
