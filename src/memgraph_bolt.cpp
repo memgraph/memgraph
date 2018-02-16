@@ -55,6 +55,7 @@ DEFINE_HIDDEN_bool(
 DEFINE_HIDDEN_bool(
     worker, false,
     "If this Memgraph server is a worker in a distributed deployment.");
+DECLARE_int32(worker_id);
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
@@ -166,7 +167,15 @@ int main(int argc, char **argv) {
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
 
-  stats::InitStatsLogging();
+  std::string stats_prefix;
+  if (FLAGS_master) {
+    stats_prefix = "master";
+  } else if (FLAGS_worker) {
+    stats_prefix = fmt::format("worker-{}", FLAGS_worker_id);
+  } else {
+    stats_prefix = "memgraph";
+  }
+  stats::InitStatsLogging(stats_prefix);
   utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
 
   CHECK(!(FLAGS_master && FLAGS_worker))
