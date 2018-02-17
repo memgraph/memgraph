@@ -108,7 +108,8 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  stats::InitStatsLogging();
+  stats::InitStatsLogging(
+      fmt::format("client.long_running.{}.{}", FLAGS_group, FLAGS_scenario));
 
   nlohmann::json config;
   std::cin >> config;

@@ -28,7 +28,7 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
   communication::rpc::System system({FLAGS_interface, (uint16_t)FLAGS_port});
-  communication::rpc::Server server(system, "stats");
+  communication::rpc::Server server(system, stats::kStatsServiceName);
 
   io::network::Socket graphite_socket;
 
@@ -38,6 +38,7 @@ int main(int argc, char *argv[]) {
   graphite_socket.SetKeepAlive();
 
   server.Register<stats::StatsRpc>([&](const stats::StatsReq &req) {
+    LOG(INFO) << "StatsRpc::Received";
     std::string data = GraphiteFormat(req);
     graphite_socket.Write(data);
     return std::make_unique<stats::StatsRes>();
@@ -45,6 +46,8 @@ int main(int argc, char *argv[]) {
 
   server.Register<stats::BatchStatsRpc>([&](const stats::BatchStatsReq &req) {
     // TODO(mtomic): batching?
+    LOG(INFO) << fmt::format("BatchStatsRpc::Received: {}",
+                             req.requests.size());
     for (size_t i = 0; i < req.requests.size(); ++i) {
       std::string data = GraphiteFormat(req.requests[i]);
       graphite_socket.Write(data, i + 1 < req.requests.size());

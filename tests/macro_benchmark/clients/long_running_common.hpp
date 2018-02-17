@@ -23,10 +23,7 @@ DEFINE_int32(duration, 30, "Number of seconds to execute benchmark");
 DEFINE_string(group, "unknown", "Test group name");
 DEFINE_string(scenario, "unknown", "Test scenario name");
 
-static const auto EXECUTED_QUERIES =
-    fmt::format("{}.{}.executed_queries", FLAGS_group, FLAGS_scenario);
-
-auto &executed_queries = stats::GetCounter(EXECUTED_QUERIES);
+auto &executed_queries = stats::GetCounter("executed_queries");
 
 class TestClient {
  public:
@@ -131,10 +128,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
     // little bit chaotic. Think about refactoring this part to only use json
     // and write DecodedValue to json converter.
     const std::vector<std::string> fields = {
-        "wall_time",
-        "parsing_time",
-        "planning_time",
-        "plan_execution_time",
+        "wall_time", "parsing_time", "planning_time", "plan_execution_time",
     };
     for (const auto &query_stats : stats) {
       std::map<std::string, double> new_aggregated_query_stats;
@@ -164,13 +158,12 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
     out << "{\"num_executed_queries\": " << executed_queries.Value() << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
-    utils::PrintIterable(
-        out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
-          stream << "{\"query\": " << nlohmann::json(x.first)
-                 << ", \"stats\": ";
-          PrintJsonDecodedValue(stream, DecodedValue(x.second));
-          stream << "}";
-        });
+    utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream,
+                                                         const auto &x) {
+      stream << "{\"query\": " << nlohmann::json(x.first) << ", \"stats\": ";
+      PrintJsonDecodedValue(stream, DecodedValue(x.second));
+      stream << "}";
+    });
     out << "]}" << std::endl;
     out.flush();
     std::this_thread::sleep_for(1s);

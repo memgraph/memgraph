@@ -14,8 +14,6 @@ DEFINE_HIDDEN_int32(statsd_flush_interval, 500,
 
 namespace stats {
 
-const std::string kStatsServiceName = "statsd-service";
-
 std::string statsd_prefix = "";
 std::thread stats_dispatch_thread;
 std::thread counter_refresh_thread;
@@ -38,7 +36,6 @@ void RefreshMetrics() {
   }
   LOG(INFO) << "Metrics flush thread stopped";
 }
-
 
 void StatsDispatchMain(const io::network::Endpoint &endpoint) {
   // TODO(mtomic): we probably want to batch based on request size and MTU
