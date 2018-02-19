@@ -213,4 +213,70 @@ void ReconstructTypedValue(TypedValue &value) {
       break;
   }
 }
+
+bool TypedValueVectorCompare::operator()(
+    const std::vector<TypedValue> &c1,
+    const std::vector<TypedValue> &c2) const {
+  // ordering is invalid if there are more elements in the collections
+  // then there are in the ordering_ vector
+  DCHECK(c1.size() <= ordering_.size() && c2.size() <= ordering_.size())
+      << "Collections contain more elements then there are orderings";
+
+  auto c1_it = c1.begin();
+  auto c2_it = c2.begin();
+  auto ordering_it = ordering_.begin();
+  for (; c1_it != c1.end() && c2_it != c2.end();
+       c1_it++, c2_it++, ordering_it++) {
+    if (TypedValueCompare(*c1_it, *c2_it)) return *ordering_it == Ordering::ASC;
+    if (TypedValueCompare(*c2_it, *c1_it))
+      return *ordering_it == Ordering::DESC;
+  }
+
+  // at least one collection is exhausted
+  // c1 is less then c2 iff c1 reached the end but c2 didn't
+  return (c1_it == c1.end()) && (c2_it != c2.end());
+}
+
+bool TypedValueVectorCompare::TypedValueCompare(const TypedValue &a,
+                                                const TypedValue &b) const {
+  // in ordering null comes after everything else
+  // at the same time Null is not less that null
+  // first deal with Null < Whatever case
+  if (a.IsNull()) return false;
+  // now deal with NotNull < Null case
+  if (b.IsNull()) return true;
+
+  // comparisons are from this point legal only between values of
+  // the  same type, or int+float combinations
+  if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())))
+    throw QueryRuntimeException(
+        "Can't compare value of type {} to value of type {}", a.type(),
+        b.type());
+
+  switch (a.type()) {
+    case TypedValue::Type::Bool:
+      return !a.Value<bool>() && b.Value<bool>();
+    case TypedValue::Type::Int:
+      if (b.type() == TypedValue::Type::Double)
+        return a.Value<int64_t>() < b.Value<double>();
+      else
+        return a.Value<int64_t>() < b.Value<int64_t>();
+    case TypedValue::Type::Double:
+      if (b.type() == TypedValue::Type::Int)
+        return a.Value<double>() < b.Value<int64_t>();
+      else
+        return a.Value<double>() < b.Value<double>();
+    case TypedValue::Type::String:
+      return a.Value<std::string>() < b.Value<std::string>();
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      throw QueryRuntimeException(
+          "Comparison is not defined for values of type {}", a.type());
+    default:
+      LOG(FATAL) << "Unhandled comparison for types";
+  }
+}
 }  // namespace query

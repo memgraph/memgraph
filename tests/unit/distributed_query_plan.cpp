@@ -262,3 +262,61 @@ TEST_F(DistributedGraphDbTest, Create) {
   EXPECT_GT(VertexCount(worker(1)), 200);
   EXPECT_GT(VertexCount(worker(2)), 200);
 }
+
+TEST_F(DistributedGraphDbTest, PullRemoteOrderBy) {
+  // Create some data on the master and both workers.
+  storage::Property prop;
+  {
+    GraphDbAccessor dba{master()};
+    auto tx_id = dba.transaction_id();
+    GraphDbAccessor dba1{worker(1), tx_id};
+    GraphDbAccessor dba2{worker(2), tx_id};
+    prop = dba.Property("prop");
+    auto add_data = [prop](GraphDbAccessor &dba, int value) {
+      dba.InsertVertex().PropsSet(prop, value);
+    };
+
+    std::vector<int> data;
+    for (int i = 0; i < 300; ++i) data.push_back(i);
+    std::random_shuffle(data.begin(), data.end());
+
+    for (int i = 0; i < 100; ++i) add_data(dba, data[i]);
+    for (int i = 100; i < 200; ++i) add_data(dba1, data[i]);
+    for (int i = 200; i < 300; ++i) add_data(dba2, data[i]);
+
+    dba.Commit();
+  }
+
+  auto &db = master();
+  GraphDbAccessor dba{db};
+  Context ctx{dba};
+  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  AstTreeStorage storage;
+
+  // Query plan for:  MATCH (n) RETURN n.prop ORDER BY n.prop;
+  auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
+  auto n_p = PROPERTY_LOOKUP("n", prop);
+  ctx.symbol_table_[*n_p->expression_] = n.sym_;
+  auto order_by = std::make_shared<plan::OrderBy>(
+      n.op_,
+      std::vector<std::pair<Ordering, Expression *>>{{Ordering::ASC, n_p}},
+      std::vector<Symbol>{n.sym_});
+
+  const int plan_id = 42;
+  master().plan_dispatcher().DispatchPlan(plan_id, order_by, ctx.symbol_table_);
+
+  auto pull_remote_order_by = std::make_shared<plan::PullRemoteOrderBy>(
+      order_by, plan_id,
+      std::vector<std::pair<Ordering, Expression *>>{{Ordering::ASC, n_p}},
+      std::vector<Symbol>{n.sym_});
+
+  auto n_p_ne = NEXPR("n.prop", n_p);
+  ctx.symbol_table_[*n_p_ne] = ctx.symbol_table_.CreateSymbol("n.prop", true);
+  auto produce = MakeProduce(pull_remote_order_by, n_p_ne);
+  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+
+  ASSERT_EQ(results.size(), 300);
+  for (int j = 0; j < 300; ++j) {
+    EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], j));
+  }
+}

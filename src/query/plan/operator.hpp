@@ -101,6 +101,7 @@ class Union;
 class PullRemote;
 class Synchronize;
 class Cartesian;
+class PullRemoteOrderBy;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -110,7 +111,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, Aggregate, Skip, Limit,
     OrderBy, Merge, Optional, Unwind, Distinct, Union, PullRemote, Synchronize,
-    Cartesian>;
+    Cartesian, PullRemoteOrderBy>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -1946,42 +1947,12 @@ class OrderBy : public LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
 
  private:
-  // custom Comparator type for comparing vectors of TypedValues
-  // does lexicographical ordering of elements based on the above
-  // defined TypedValueCompare, and also accepts a vector of Orderings
-  // the define how respective elements compare
-  class TypedValueVectorCompare {
-   public:
-    TypedValueVectorCompare() {}
-    explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering)
-        : ordering_(ordering) {}
-    bool operator()(const std::vector<TypedValue> &c1,
-                    const std::vector<TypedValue> &c2) const;
-
-   private:
-    std::vector<Ordering> ordering_;
-
-    friend class boost::serialization::access;
-
-    template <class TArchive>
-    void serialize(TArchive &ar, const unsigned int) {
-      ar &ordering_;
-    }
-  };
-
   std::shared_ptr<LogicalOperator> input_;
   TypedValueVectorCompare compare_;
   std::vector<Expression *> order_by_;
   std::vector<Symbol> output_symbols_;
 
   OrderBy() {}
-
-  // custom comparison for TypedValue objects
-  // behaves generally like Neo's ORDER BY comparison operator:
-  //  - null is greater than anything else
-  //  - primitives compare naturally, only implicit cast is int->double
-  //  - (list, map, path, vertex, edge) can't compare to anything
-  static bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
 
   class OrderByCursor : public Cursor {
    public:
@@ -2364,13 +2335,15 @@ class Union : public LogicalOperator {
 class PullRemote : public LogicalOperator {
  public:
   PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-             const std::vector<Symbol> &symbols);
+             const std::vector<Symbol> &symbols)
+      : input_(input), plan_id_(plan_id), symbols_(symbols) {}
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
+  auto input() const { return input_; }
   const auto &symbols() const { return symbols_; }
   auto plan_id() const { return plan_id_; }
 
@@ -2380,25 +2353,6 @@ class PullRemote : public LogicalOperator {
   std::vector<Symbol> symbols_;
 
   PullRemote() {}
-
-  class PullRemoteCursor : public Cursor {
-   public:
-    PullRemoteCursor(const PullRemote &self, database::GraphDbAccessor &db);
-    bool Pull(Frame &, Context &) override;
-    void Reset() override;
-
-   private:
-    const PullRemote &self_;
-    database::GraphDbAccessor &db_;
-    const std::unique_ptr<Cursor> input_cursor_;
-    std::unordered_map<int, std::future<distributed::RemotePullData>>
-        remote_pulls_;
-    std::unordered_map<int, std::vector<std::vector<query::TypedValue>>>
-        remote_results_;
-    std::vector<int> worker_ids_;
-    int last_pulled_worker_id_index_ = 0;
-    bool remote_pulls_initialized_ = false;
-  };
 
   friend class boost::serialization::access;
   template <class TArchive>
@@ -2510,6 +2464,67 @@ class Cartesian : public LogicalOperator {
   }
 };
 
+/**
+ * Operator that merges distributed OrderBy operators.
+ *
+ * Instead of using a regular OrderBy on master (which would collect all remote
+ * results and order them), we can have each worker do an OrderBy locally and
+ * have the master rely on the fact that the results are ordered and merge them
+ * by having only one result from each worker.
+ */
+class PullRemoteOrderBy : public LogicalOperator {
+ public:
+  PullRemoteOrderBy(
+      const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
+      const std::vector<std::pair<Ordering, Expression *>> &order_by,
+      const std::vector<Symbol> &symbols);
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  std::unique_ptr<Cursor> MakeCursor(
+      database::GraphDbAccessor &db) const override;
+
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+
+  auto input() const { return input_; }
+  auto plan_id() const { return plan_id_; }
+  const auto &symbols() const { return symbols_; }
+  auto order_by() const { return order_by_; }
+  auto compare() const { return compare_; }
+
+ private:
+  std::shared_ptr<LogicalOperator> input_;
+  int64_t plan_id_ = 0;
+  std::vector<Symbol> symbols_;
+  std::vector<Expression *> order_by_;
+  TypedValueVectorCompare compare_;
+
+  PullRemoteOrderBy() {}
+
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &plan_id_;
+    ar &symbols_;
+    SavePointers(ar, order_by_);
+    ar &compare_;
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
+    ar &input_;
+    ar &plan_id_;
+    ar &symbols_;
+    LoadPointers(ar, order_by_);
+    ar &compare_;
+  }
+};
+
 }  // namespace plan
 }  // namespace query
 
@@ -2547,3 +2562,4 @@ BOOST_CLASS_EXPORT_KEY(query::plan::Union);
 BOOST_CLASS_EXPORT_KEY(query::plan::PullRemote);
 BOOST_CLASS_EXPORT_KEY(query::plan::Synchronize);
 BOOST_CLASS_EXPORT_KEY(query::plan::Cartesian);
+BOOST_CLASS_EXPORT_KEY(query::plan::PullRemoteOrderBy);
