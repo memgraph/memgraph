@@ -7,7 +7,6 @@
 #include <glog/logging.h>
 
 #include "data_structures/bitset/dynamic_bitset.hpp"
-#include "data_structures/concurrent/concurrent_list.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
