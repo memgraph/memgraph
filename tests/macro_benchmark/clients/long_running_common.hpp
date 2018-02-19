@@ -150,7 +150,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
         auto it = aggregated_query_stats.insert({stat.first, DecodedValue(0.0)})
                       .first;
         it->second =
-            (it->second.ValueDouble() * old_count + stat.second * new_count) /
+            (it->second.ValueDouble() * old_count + stat.second) /
             (old_count + new_count);
       }
     }

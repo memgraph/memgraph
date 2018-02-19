@@ -19,12 +19,20 @@ BOOST_CLASS_EXPORT(stats::BatchStatsRes);
 
 class CardFraudClient : public TestClient {
  public:
-  CardFraudClient(int id, int num_pos, nlohmann::json config)
-      : TestClient(), rg_(id), num_pos_(num_pos), config_(config) {}
+  CardFraudClient(int id, int num_pos, int num_cards, int num_transactions,
+                  nlohmann::json config)
+      : TestClient(),
+        rg_(id),
+        num_pos_(num_pos),
+        num_cards_(num_cards),
+        num_transactions_(num_transactions),
+        config_(config) {}
 
  private:
   std::mt19937 rg_;
   int num_pos_;
+  int num_cards_;
+  int num_transactions_;
   nlohmann::json config_;
 
   auto GetFraudulentTransactions() {
@@ -53,6 +61,15 @@ class CardFraudClient : public TestClient {
         {{"id", id}});
   }
 
+  auto GetTransaction(int id) {
+    return Execute("MATCH (t:Transaction {id: $id}) RETURN (t)", {{"id", id}});
+  }
+
+  auto TepsQuery() {
+    auto result = Execute("MATCH (u)--(v) RETURN count(1)", {});
+    DCHECK(result.records[0][0].ValueInt() == num_transactions_ * 2);
+  }
+
   auto CompromisePos(int id) {
     return Execute(
         "MATCH (p:Pos {id: $id}) "
@@ -77,15 +94,21 @@ class CardFraudClient : public TestClient {
       CompromisePos(pos_id);
       GetFraudulentTransactions();
       ResolvePos(pos_id);
+    } else if (config_["scenario"] == "teps") {
+      TepsQuery();
+    } else if (config_["scenario"] == "point_lookup") {
+      std::uniform_int_distribution<int> dist(0, num_transactions_ - 1);
+      int tx_id = dist(rg_);
+      GetTransaction(tx_id);
     } else {
       LOG(FATAL) << "Should not get here!";
     }
   }
 };
 
-int64_t NumPos(BoltClient &client) {
-  auto result = ExecuteNTimesTillSuccess(
-      client, "MATCH (n :Pos) RETURN COUNT(n) as cnt;", {}, MAX_RETRIES);
+int64_t NumNodesWithLabel(BoltClient &client, std::string label) {
+  std::string query = fmt::format("MATCH (u :{}) RETURN COUNT(u)", label);
+  auto result = ExecuteNTimesTillSuccess(client, query, {}, MAX_RETRIES);
   return result.records[0][0].ValueInt();
 }
 
@@ -115,16 +138,23 @@ int main(int argc, char **argv) {
   std::cin >> config;
 
   BoltClient client(FLAGS_address, FLAGS_port, FLAGS_username, FLAGS_password);
-  int num_pos = NumPos(client);
-  CreateIndex(client, "Card", "id");
-  CreateIndex(client, "Pos", "id");
-  CreateIndex(client, "Transaction", "fraud_reported");
 
+  int num_pos = NumNodesWithLabel(client, "Pos");
+  int num_cards = NumNodesWithLabel(client, "Card");
+  int num_transactions = NumNodesWithLabel(client, "Transaction");
+
+  CreateIndex(client, "Pos", "id");
+  CreateIndex(client, "Card", "id");
+  CreateIndex(client, "Transaction", "fraud_reported");
+  CreateIndex(client, "Transaction", "id");
   LOG(INFO) << "Done building indexes.";
+
+  client.Close();
 
   std::vector<std::unique_ptr<TestClient>> clients;
   for (int i = 0; i < FLAGS_num_workers; ++i) {
-    clients.emplace_back(std::make_unique<CardFraudClient>(i, num_pos, config));
+    clients.emplace_back(std::make_unique<CardFraudClient>(
+        i, num_pos, num_cards, num_transactions, config));
   }
 
   RunMultithreadedTest(clients);
