@@ -56,11 +56,14 @@ Server::Server(System &system, const std::string &service_name,
                int workers_count)
     : system_(system), service_name_(service_name) {
   system_.Add(*this);
+  stats::Gauge &queue_size =
+      stats::GetGauge(fmt::format("rpc.server.{}.queue_size", service_name));
   for (int i = 0; i < workers_count; ++i) {
-    threads_.push_back(std::thread([this, service_name]() {
+    threads_.push_back(std::thread([this, service_name, &queue_size]() {
       // TODO: Add logging.
       while (alive_) {
         auto task = queue_.AwaitPop();
+        queue_size.Set(queue_.size());
         if (!task) continue;
         auto socket = std::move(std::get<0>(*task));
         auto message_id = std::get<1>(*task);
