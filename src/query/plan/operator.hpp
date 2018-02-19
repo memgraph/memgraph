@@ -2376,6 +2376,7 @@ class Synchronize : public LogicalOperator {
   friend class boost::serialization::access;
   template <class TArchive>
   void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
     ar &input_;
     ar &pull_remote_;
     ar &advance_command_;
@@ -2415,6 +2416,7 @@ class Cartesian : public LogicalOperator {
   friend class boost::serialization::access;
   template <class TArchive>
   void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<LogicalOperator>(*this);
     ar &left_op_;
     ar &left_symbols_;
     ar &right_op_;
