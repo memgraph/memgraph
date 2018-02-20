@@ -4,6 +4,7 @@
 
 #include <experimental/optional>
 #include <memory>
+#include <random>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -237,15 +238,16 @@ class Once : public LogicalOperator {
 class CreateNode : public LogicalOperator {
  public:
   /**
-   *
-   * @param node_atom @c NodeAtom with information on how to create a node.
    * @param input Optional. If @c nullptr, then a single node will be
    *    created (a single successful @c Cursor::Pull from this op's @c Cursor).
    *    If a valid input, then a node will be created for each
    *    successful pull from the given input.
+   * @param node_atom @c NodeAtom with information on how to create a node.
+   * @param on_random_worker If the node should be created locally or on random
+   * worker.
    */
-  CreateNode(NodeAtom *node_atom,
-             const std::shared_ptr<LogicalOperator> &input);
+  CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeAtom *node_atom,
+             bool on_random_worker);
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
@@ -257,8 +259,9 @@ class CreateNode : public LogicalOperator {
  private:
   CreateNode() {}
 
-  NodeAtom *node_atom_ = nullptr;
   std::shared_ptr<LogicalOperator> input_;
+  NodeAtom *node_atom_ = nullptr;
+  bool on_random_worker_;
 
   class CreateNodeCursor : public Cursor {
    public:
@@ -271,10 +274,15 @@ class CreateNode : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
 
-    /**
-     * Creates a single node and places it in the frame.
-     */
-    void Create(Frame &, Context &);
+    // For random worker choosing in distributed.
+    std::mt19937 gen_{std::random_device{}()};
+    std::uniform_int_distribution<int> rand_;
+
+    /** Creates a single node locally and places it in the frame. */
+    void CreateLocally(Frame &, Context &);
+
+    /** Creates a single node on the given worker and places it in the frame. */
+    void CreateOnWorker(int worker_id, Frame &, Context &);
   };
 
   friend class boost::serialization::access;
@@ -286,6 +294,7 @@ class CreateNode : public LogicalOperator {
     ar &boost::serialization::base_object<LogicalOperator>(*this);
     ar &input_;
     SavePointer(ar, node_atom_);
+    ar &on_random_worker_;
   }
 
   template <class TArchive>
@@ -293,6 +302,7 @@ class CreateNode : public LogicalOperator {
     ar &boost::serialization::base_object<LogicalOperator>(*this);
     ar &input_;
     LoadPointer(ar, node_atom_);
+    ar &on_random_worker_;
   }
 };
 

@@ -94,9 +94,11 @@ std::unique_ptr<Cursor> Once::MakeCursor(database::GraphDbAccessor &) const {
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
-CreateNode::CreateNode(NodeAtom *node_atom,
-                       const std::shared_ptr<LogicalOperator> &input)
-    : node_atom_(node_atom), input_(input ? input : std::make_shared<Once>()) {}
+CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input,
+                       NodeAtom *node_atom, bool on_random_worker)
+    : input_(input ? input : std::make_shared<Once>()),
+      node_atom_(node_atom),
+      on_random_worker_(on_random_worker) {}
 
 ACCEPT_WITH_INPUT(CreateNode)
 
@@ -118,7 +120,17 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self,
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
   if (input_cursor_->Pull(frame, context)) {
-    Create(frame, context);
+    if (self_.on_random_worker_) {
+      auto worker_ids = context.db_accessor_.db().GetWorkerIds();
+      auto worker_id = worker_ids[rand_(gen_) % worker_ids.size()];
+      if (worker_id == context.db_accessor_.db().WorkerId()) {
+        CreateLocally(frame, context);
+      } else {
+        CreateOnWorker(worker_id, frame, context);
+      }
+    } else {
+      CreateLocally(frame, context);
+    }
     return true;
   }
   return false;
@@ -126,7 +138,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
 
 void CreateNode::CreateNodeCursor::Reset() { input_cursor_->Reset(); }
 
-void CreateNode::CreateNodeCursor::Create(Frame &frame, Context &context) {
+void CreateNode::CreateNodeCursor::CreateLocally(Frame &frame,
+                                                 Context &context) {
   auto new_node = db_.InsertVertex();
   for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
 
@@ -136,6 +149,29 @@ void CreateNode::CreateNodeCursor::Create(Frame &frame, Context &context) {
                                 context.symbol_table_, db_, GraphView::NEW);
   for (auto &kv : self_.node_atom_->properties_)
     PropsSetChecked(new_node, kv.first.second, kv.second->Accept(evaluator));
+  frame[context.symbol_table_.at(*self_.node_atom_->identifier_)] = new_node;
+}
+
+void CreateNode::CreateNodeCursor::CreateOnWorker(int worker_id, Frame &frame,
+                                                  Context &context) {
+  std::unordered_map<storage::Property, query::TypedValue> properties;
+
+  // Evaluator should use the latest accessors, as modified in this query, when
+  // setting properties on new nodes.
+  ExpressionEvaluator evaluator(frame, context.parameters_,
+                                context.symbol_table_, db_, GraphView::NEW);
+  for (auto &kv : self_.node_atom_->properties_) {
+    auto value = kv.second->Accept(evaluator);
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                  value.type());
+    }
+    properties.emplace(kv.first.second, std::move(value));
+  }
+
+  auto new_node = context.db_accessor_.InsertVertexIntoRemote(
+      worker_id, self_.node_atom_->labels_, properties);
+
   frame[context.symbol_table_.at(*self_.node_atom_->identifier_)] = new_node;
 }
 
@@ -349,10 +385,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -1894,7 +1930,7 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
     for (const auto &previous_symbol : self_.previous_symbols_) {
       TypedValue &previous_value = frame[previous_symbol];
       // This shouldn't raise a TypedValueException, because the planner
-      // makes sure these are all of the expected type. In case they are not,
+      // makes sure these are all of the expected type. In case they are not
       // an error should be raised long before this code is executed.
       if (ContainsSame<TAccessor>(previous_value, expand_value)) return false;
     }

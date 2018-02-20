@@ -94,7 +94,7 @@ TEST(QueryPlan, AccumulateAdvance) {
     auto node = NODE("n");
     auto sym_n = symbol_table.CreateSymbol("n", true);
     symbol_table[*node->identifier_] = sym_n;
-    auto create = std::make_shared<CreateNode>(node, nullptr);
+    auto create = std::make_shared<CreateNode>(nullptr, node, false);
     auto accumulate = std::make_shared<Accumulate>(
         create, std::vector<Symbol>{sym_n}, advance);
     auto match = MakeScanAll(storage, symbol_table, "m", accumulate);

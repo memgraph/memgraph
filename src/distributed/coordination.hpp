@@ -14,7 +14,7 @@ class Coordination {
 
   /** Gets the connected worker ids - should only be called on a master
    * instance*/
-  virtual std::vector<int> GetWorkerIds() = 0;
+  virtual std::vector<int> GetWorkerIds() const = 0;
 };
 
 }  // namespace distributed

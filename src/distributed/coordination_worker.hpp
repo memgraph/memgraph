@@ -30,7 +30,7 @@ class WorkerCoordination : public Coordination {
 
   /** Shouldn't be called on worker for now!
    * TODO fix this */
-  std::vector<int> GetWorkerIds() override;
+  std::vector<int> GetWorkerIds() const override;
 
   /** Starts listening for a remote shutdown command (issued by the master).
    * Blocks the calling thread until that has finished. */

@@ -54,7 +54,7 @@ void WorkerCoordination::WaitForShutdown() {
   std::this_thread::sleep_for(100ms);
 };
 
-std::vector<int> WorkerCoordination::GetWorkerIds() {
+std::vector<int> WorkerCoordination::GetWorkerIds() const {
   LOG(FATAL) << "Unimplemented worker ids discovery on worker";
 };
 }  // namespace distributed

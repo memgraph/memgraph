@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <memory>
+#include <vector>
 
 #include "database/counters.hpp"
 #include "database/storage.hpp"
@@ -90,6 +91,7 @@ class GraphDb {
   virtual database::Counters &counters() = 0;
   virtual void CollectGarbage() = 0;
   virtual int WorkerId() const = 0;
+  virtual std::vector<int> GetWorkerIds() const = 0;
 
   // Supported only in distributed master and worker, not in single-node.
   virtual distributed::RemoteDataRpcServer &remote_data_server() = 0;
@@ -134,6 +136,7 @@ class PublicBase : public GraphDb {
   database::Counters &counters() override;
   void CollectGarbage() override;
   int WorkerId() const override;
+  std::vector<int> GetWorkerIds() const override;
   distributed::RemoteDataRpcServer &remote_data_server() override;
   distributed::RemoteDataRpcClients &remote_data_clients() override;
   distributed::PlanDispatcher &plan_dispatcher() override;

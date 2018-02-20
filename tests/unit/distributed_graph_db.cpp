@@ -388,3 +388,31 @@ TEST_F(DistributedGraphDbTest, Synchronize) {
 
   // TODO test without advance command?
 }
+
+TEST_F(DistributedGraphDbTest, Create) {
+  // Query: UNWIND range(0, 1000) as x CREATE ()
+  auto &db = master();
+  GraphDbAccessor dba{db};
+  Context ctx{dba};
+  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  AstTreeStorage storage;
+  auto range = FN("range", LITERAL(0), LITERAL(1000));
+  auto x = ctx.symbol_table_.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, range, x);
+  auto node = NODE("n");
+  ctx.symbol_table_[*node->identifier_] =
+      ctx.symbol_table_.CreateSymbol("n", true);
+  auto create = std::make_shared<query::plan::CreateNode>(unwind, node, true);
+  PullAll(create, dba, ctx.symbol_table_);
+  dba.Commit();
+
+  auto vertex_count = [](database::GraphDb &db) {
+    database::GraphDbAccessor dba{db};
+    auto vertices = dba.Vertices(false);
+    return std::distance(vertices.begin(), vertices.end());
+  };
+
+  EXPECT_GT(vertex_count(master()), 200);
+  EXPECT_GT(vertex_count(worker(1)), 200);
+  EXPECT_GT(vertex_count(worker(2)), 200);
+}

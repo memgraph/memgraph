@@ -99,6 +99,7 @@ class SingleNode : public PrivateBase {
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_;
   database::SingleNodeCounters counters_;
+  std::vector<int> GetWorkerIds() const override { return {0}; }
   distributed::RemoteDataRpcServer &remote_data_server() override {
     LOG(FATAL) << "Remote data server not available in single-node.";
   }
@@ -123,6 +124,9 @@ class SingleNode : public PrivateBase {
 };
 
 #define IMPL_DISTRIBUTED_GETTERS                                            \
+  std::vector<int> GetWorkerIds() const override {                          \
+    return coordination_.GetWorkerIds();                                    \
+  }                                                                         \
   distributed::RemoteDataRpcServer &remote_data_server() override {         \
     return remote_data_server_;                                             \
   }                                                                         \
@@ -251,6 +255,9 @@ ConcurrentIdMapper<Property> &PublicBase::property_mapper() {
 database::Counters &PublicBase::counters() { return impl_->counters(); }
 void PublicBase::CollectGarbage() { impl_->CollectGarbage(); }
 int PublicBase::WorkerId() const { return impl_->WorkerId(); }
+std::vector<int> PublicBase::GetWorkerIds() const {
+  return impl_->GetWorkerIds();
+}
 distributed::RemoteDataRpcServer &PublicBase::remote_data_server() {
   return impl_->remote_data_server();
 }

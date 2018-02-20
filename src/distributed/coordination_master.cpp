@@ -57,7 +57,7 @@ Endpoint MasterCoordination::GetEndpoint(int worker_id) {
   return found->second;
 }
 
-std::vector<int> MasterCoordination::GetWorkerIds() {
+std::vector<int> MasterCoordination::GetWorkerIds() const {
   std::vector<int> worker_ids;
   for (auto worker : workers_) worker_ids.push_back(worker.first);
   return worker_ids;
