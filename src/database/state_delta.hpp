@@ -4,6 +4,7 @@
 #include "communication/bolt/v1/encoder/primitive_encoder.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
+#include "storage/address_types.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
 #include "utils/serialization.hpp"
@@ -28,9 +29,11 @@ struct StateDelta {
     TRANSACTION_BEGIN,
     TRANSACTION_COMMIT,
     TRANSACTION_ABORT,
-    CREATE_VERTEX,        // vertex_id
-    CREATE_EDGE,          // edge_id, from_vertex_id, to_vertex_id, edge_type,
-                          // edge_type_name
+    CREATE_VERTEX,  // vertex_id
+    CREATE_EDGE,    // edge_id, from_vertex_id, to_vertex_id, edge_type,
+                    // edge_type_name
+    ADD_OUT_EDGE,   // vertex_id, edge_address, vertex_to_address, edge_type
+    ADD_IN_EDGE,    // vertex_id, edge_address, vertex_from_address, edge_type
     SET_PROPERTY_VERTEX,  // vertex_id, property, property_name, property_value
     SET_PROPERTY_EDGE,    // edge_id, property, property_name, property_value
     // remove property is done by setting a PropertyValue::Null
@@ -66,6 +69,14 @@ struct StateDelta {
                                gid::Gid vertex_from_id, gid::Gid vertex_to_id,
                                storage::EdgeType edge_type,
                                const std::string &edge_type_name);
+  static StateDelta AddOutEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+                               storage::VertexAddress vertex_to_address,
+                               storage::EdgeAddress edge_address,
+                               storage::EdgeType edge_type);
+  static StateDelta AddInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+                              storage::VertexAddress vertex_from_address,
+                              storage::EdgeAddress edge_address,
+                              storage::EdgeType edge_type);
   static StateDelta PropsSetVertex(tx::transaction_id_t tx_id,
                                    gid::Gid vertex_id,
                                    storage::Property property,
@@ -97,10 +108,15 @@ struct StateDelta {
   tx::transaction_id_t transaction_id;
 
   // Members valid only for some deltas, see StateDelta::Type comments above.
+  // TODO: when preparing the WAL for distributed, most likely remove Gids and
+  // only keep addresses.
   gid::Gid vertex_id;
   gid::Gid edge_id;
+  storage::EdgeAddress edge_address;
   gid::Gid vertex_from_id;
+  storage::VertexAddress vertex_from_address;
   gid::Gid vertex_to_id;
+  storage::VertexAddress vertex_to_address;
   storage::EdgeType edge_type;
   std::string edge_type_name;
   storage::Property property;
@@ -118,8 +134,11 @@ struct StateDelta {
     ar &transaction_id;
     ar &vertex_id;
     ar &edge_id;
+    ar &edge_address;
     ar &vertex_from_id;
+    ar &vertex_from_address;
     ar &vertex_to_id;
+    ar &vertex_to_address;
     ar &edge_type;
     ar &edge_type_name;
     ar &property;
@@ -135,8 +154,11 @@ struct StateDelta {
     ar &transaction_id;
     ar &vertex_id;
     ar &edge_id;
+    ar &edge_address;
     ar &vertex_from_id;
+    ar &vertex_from_address;
     ar &vertex_to_id;
+    ar &vertex_to_address;
     ar &edge_type;
     ar &edge_type_name;
     ar &property;

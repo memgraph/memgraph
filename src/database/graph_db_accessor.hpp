@@ -2,6 +2,7 @@
 
 #include <experimental/optional>
 #include <unordered_map>
+#include <vector>
 
 #include "cppitertools/filter.hpp"
 #include "cppitertools/imap.hpp"
@@ -9,6 +10,7 @@
 
 #include "database/graph_db.hpp"
 #include "distributed/remote_cache.hpp"
+#include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/types.hpp"
@@ -75,6 +77,13 @@ class GraphDbAccessor {
    */
   VertexAccessor InsertVertex(std::experimental::optional<gid::Gid>
                                   requested_gid = std::experimental::nullopt);
+
+  /** Creates a new Vertex on the given worker. It is NOT allowed to call this
+   * function with this worker's id. */
+  VertexAccessor InsertVertexIntoRemote(
+      int worker_id, const std::vector<storage::Label> &labels,
+      const std::unordered_map<storage::Property, query::TypedValue>
+          &properties);
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or
@@ -281,9 +290,11 @@ class GraphDbAccessor {
    * Insert edge into main storage, but don't insert it into from and to
    * vertices edge lists.
    */
-  EdgeAccessor InsertOnlyEdge(storage::VertexAddress &from,
-                              storage::VertexAddress &to,
-                              storage::EdgeType edge_type, gid::Gid edge_gid);
+  EdgeAccessor InsertOnlyEdge(storage::VertexAddress from,
+                              storage::VertexAddress to,
+                              storage::EdgeType edge_type,
+                              std::experimental::optional<gid::Gid>
+                                  requested_gid = std::experimental::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -533,6 +544,7 @@ class GraphDbAccessor {
   const tx::Transaction &transaction() const { return transaction_; }
   durability::WriteAheadLog &wal();
   auto &db() { return db_; }
+  const auto &db() const { return db_; }
 
   /**
    * Returns the current value of the counter with the given name, and
@@ -556,6 +568,16 @@ class GraphDbAccessor {
 
   /// Gets the local edge address for the given gid. Fails if not present.
   mvcc::VersionList<Edge> *LocalEdgeAddress(gid::Gid gid) const;
+
+  /// Converts an address to local, if possible. Returns the same address if
+  /// not.
+  template <typename TAddress>
+  TAddress LocalizedAddress(TAddress address) const;
+
+  /// Converts local address to remote, returns remote as they are.
+  /// not.
+  template <typename TAddress>
+  TAddress GlobalizedAddress(TAddress address) const;
 
  private:
   GraphDb &db_;

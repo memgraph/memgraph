@@ -67,7 +67,7 @@ class DistributedGraphDbTest : public ::testing::Test {
 
   /// Inserts a vertex and returns it's global address. Does it in a new
   /// transaction.
-  auto InsertVertex(database::GraphDb &db) {
+  storage::VertexAddress InsertVertex(database::GraphDb &db) {
     database::GraphDbAccessor dba{db};
     auto r_val = dba.InsertVertex().GlobalAddress();
     dba.Commit();
@@ -75,8 +75,9 @@ class DistributedGraphDbTest : public ::testing::Test {
   }
 
   /// Inserts an edge (on the 'from' side) and returns it's global address.
-  auto InsertEdge(storage::VertexAddress from, storage::VertexAddress to,
-                  const std::string &edge_type_name) {
+  storage::EdgeAddress InsertEdge(storage::VertexAddress from,
+                                  storage::VertexAddress to,
+                                  const std::string &edge_type_name) {
     database::GraphDbAccessor dba{worker(from.worker_id())};
     auto from_v = dba.FindVertexChecked(from.gid(), false);
     auto edge_type = dba.EdgeType(edge_type_name);

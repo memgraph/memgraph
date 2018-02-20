@@ -39,6 +39,35 @@ StateDelta StateDelta::CreateEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
   return op;
 }
 
+StateDelta StateDelta::AddOutEdge(tx::transaction_id_t tx_id,
+                                  gid::Gid vertex_id,
+                                  storage::VertexAddress vertex_to_address,
+                                  storage::EdgeAddress edge_address,
+                                  storage::EdgeType edge_type) {
+  CHECK(vertex_to_address.is_remote() && edge_address.is_remote())
+      << "WAL can only contain global addresses.";
+  StateDelta op(StateDelta::Type::ADD_OUT_EDGE, tx_id);
+  op.vertex_id = vertex_id;
+  op.vertex_to_address = vertex_to_address;
+  op.edge_address = edge_address;
+  op.edge_type = edge_type;
+  return op;
+}
+
+StateDelta StateDelta::AddInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+                                 storage::VertexAddress vertex_from_address,
+                                 storage::EdgeAddress edge_address,
+                                 storage::EdgeType edge_type) {
+  CHECK(vertex_from_address.is_remote() && edge_address.is_remote())
+      << "WAL can only contain global addresses.";
+  StateDelta op(StateDelta::Type::ADD_IN_EDGE, tx_id);
+  op.vertex_id = vertex_id;
+  op.vertex_from_address = vertex_from_address;
+  op.edge_address = edge_address;
+  op.edge_type = edge_type;
+  return op;
+}
+
 StateDelta StateDelta::PropsSetVertex(tx::transaction_id_t tx_id,
                                       gid::Gid vertex_id,
                                       storage::Property property,
@@ -133,6 +162,18 @@ void StateDelta::Encode(
       encoder.WriteInt(edge_type.storage());
       encoder.WriteString(edge_type_name);
       break;
+    case Type::ADD_OUT_EDGE:
+      encoder.WriteInt(vertex_id);
+      encoder.WriteInt(vertex_to_address.raw());
+      encoder.WriteInt(edge_address.raw());
+      encoder.WriteInt(edge_type.storage());
+      break;
+    case Type::ADD_IN_EDGE:
+      encoder.WriteInt(vertex_id);
+      encoder.WriteInt(vertex_from_address.raw());
+      encoder.WriteInt(edge_address.raw());
+      encoder.WriteInt(edge_type.storage());
+      break;
     case Type::SET_PROPERTY_VERTEX:
       encoder.WriteInt(vertex_id);
       encoder.WriteInt(property.storage());
@@ -205,6 +246,19 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
         DECODE_MEMBER_CAST(edge_type, ValueInt, storage::EdgeType)
         DECODE_MEMBER(edge_type_name, ValueString)
         break;
+      case Type::ADD_OUT_EDGE:
+        DECODE_MEMBER(vertex_id, ValueInt)
+        DECODE_MEMBER_CAST(vertex_to_address, ValueInt, storage::VertexAddress)
+        DECODE_MEMBER_CAST(edge_address, ValueInt, storage::EdgeAddress)
+        DECODE_MEMBER_CAST(edge_type, ValueInt, storage::EdgeType)
+        break;
+      case Type::ADD_IN_EDGE:
+        DECODE_MEMBER(vertex_id, ValueInt)
+        DECODE_MEMBER_CAST(vertex_from_address, ValueInt,
+                           storage::VertexAddress)
+        DECODE_MEMBER_CAST(edge_address, ValueInt, storage::EdgeAddress)
+        DECODE_MEMBER_CAST(edge_type, ValueInt, storage::EdgeType)
+        break;
       case Type::SET_PROPERTY_VERTEX:
         DECODE_MEMBER(vertex_id, ValueInt)
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
@@ -273,6 +327,9 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       dba.InsertEdge(*from, *to, dba.EdgeType(edge_type_name), edge_id);
       break;
     }
+    case Type::ADD_OUT_EDGE:
+    case Type::ADD_IN_EDGE:
+      LOG(FATAL) << "Partial edge-creation not yet supported in Apply";
     case Type::SET_PROPERTY_VERTEX: {
       auto vertex = dba.FindVertex(vertex_id, true);
       DCHECK(vertex) << "Failed to find vertex.";

@@ -2,6 +2,7 @@
 
 #include <mutex>
 #include <unordered_map>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -14,8 +15,10 @@
 #include "database/state_delta.hpp"
 #include "distributed/remote_updates_rpc_messages.hpp"
 #include "mvcc/version_list.hpp"
+#include "query/typed_value.hpp"
 #include "storage/gid.hpp"
 #include "storage/record_accessor.hpp"
+#include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
 #include "threading/sync/spinlock.hpp"
@@ -90,6 +93,21 @@ class RemoteUpdatesRpcServer {
       return RemoteUpdateResult::DONE;
     }
 
+    /// Creates a new vertex and returns it's gid.
+    RemoteCreateResult CreateVertex(
+        const std::vector<storage::Label> &labels,
+        const std::unordered_map<storage::Property, query::TypedValue>
+            &properties) {
+      auto result = db_accessor_.InsertVertex();
+      for (auto &label : labels) result.add_label(label);
+      for (auto &kv : properties) result.PropsSet(kv.first, kv.second);
+      std::lock_guard<SpinLock> guard{lock_};
+      deltas_.emplace(
+          result.gid(),
+          std::make_pair(result, std::vector<database::StateDelta>{}));
+      return {RemoteUpdateResult::DONE, result.gid()};
+    }
+
     /// Applies all the deltas on the record.
     RemoteUpdateResult Apply() {
       std::lock_guard<SpinLock> guard{lock_};
@@ -109,6 +127,8 @@ class RemoteUpdatesRpcServer {
       return RemoteUpdateResult::DONE;
     }
 
+    auto &db_accessor() { return db_accessor_; }
+
    private:
     database::GraphDbAccessor db_accessor_;
     std::unordered_map<
@@ -127,15 +147,16 @@ class RemoteUpdatesRpcServer {
       : db_(db), engine_(engine), server_(system, kRemoteUpdatesRpc) {
     server_.Register<RemoteUpdateRpc>([this](const RemoteUpdateReq &req) {
       using DeltaType = database::StateDelta::Type;
-      switch (req.member.type) {
+      auto &delta = req.member;
+      switch (delta.type) {
         case DeltaType::SET_PROPERTY_VERTEX:
         case DeltaType::ADD_LABEL:
         case DeltaType::REMOVE_LABEL:
           return std::make_unique<RemoteUpdateRes>(
-              Process(vertex_updates_, req.member));
+              GetUpdates(vertex_updates_, delta.transaction_id).Emplace(delta));
         case DeltaType::SET_PROPERTY_EDGE:
           return std::make_unique<RemoteUpdateRes>(
-              Process(edge_updates_, req.member));
+              GetUpdates(edge_updates_, delta.transaction_id).Emplace(delta));
         default:
           LOG(FATAL) << "Can't perform a remote update with delta type: "
                      << static_cast<int>(req.member.type);
@@ -146,6 +167,41 @@ class RemoteUpdatesRpcServer {
         [this](const RemoteUpdateApplyReq &req) {
           return std::make_unique<RemoteUpdateApplyRes>(Apply(req.member));
         });
+
+    server_.Register<RemoteCreateVertexRpc>(
+        [this](const RemoteCreateVertexReq &req) {
+          return std::make_unique<RemoteCreateVertexRes>(
+              GetUpdates(vertex_updates_, req.member.tx_id)
+                  .CreateVertex(req.member.labels, req.member.properties));
+        });
+
+    server_.Register<RemoteCreateEdgeRpc>(
+        [this](const RemoteCreateEdgeReq &req) {
+          auto data = req.member;
+          auto creation_result = CreateEdge(data);
+
+          // If `from` and `to` are both on this worker, we handle it in this
+          // RPC call. Do it only if CreateEdge succeeded.
+          if (creation_result.result == RemoteUpdateResult::DONE &&
+              data.to.worker_id() == db_.WorkerId()) {
+            auto to_delta = database::StateDelta::AddInEdge(
+                data.tx_id, data.to.gid(), data.from,
+                {creation_result.gid, db_.WorkerId()}, data.edge_type);
+            creation_result.result =
+                GetUpdates(vertex_updates_, data.tx_id).Emplace(to_delta);
+          }
+
+          return std::make_unique<RemoteCreateEdgeRes>(creation_result);
+        });
+
+    server_.Register<RemoteAddInEdgeRpc>([this](const RemoteAddInEdgeReq &req) {
+      auto to_delta = database::StateDelta::AddInEdge(
+          req.member.tx_id, req.member.to, req.member.from,
+          req.member.edge_address, req.member.edge_type);
+      auto result =
+          GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
+      return std::make_unique<RemoteAddInEdgeRes>(result);
+    });
   }
 
   /// Applies all existsing updates for the given transaction ID. If there are
@@ -174,29 +230,39 @@ class RemoteUpdatesRpcServer {
   database::GraphDb &db_;
   tx::Engine &engine_;
   communication::rpc::Server server_;
-  ConcurrentMap<tx::transaction_id_t, TransactionUpdates<VertexAccessor>>
-      vertex_updates_;
-  ConcurrentMap<tx::transaction_id_t, TransactionUpdates<EdgeAccessor>>
-      edge_updates_;
   tx::TxEndListener tx_end_listener_{engine_,
                                      [this](tx::transaction_id_t tx_id) {
                                        vertex_updates_.access().remove(tx_id);
                                        edge_updates_.access().remove(tx_id);
                                      }};
+  template <typename TAccessor>
+  using MapT =
+      ConcurrentMap<tx::transaction_id_t, TransactionUpdates<TAccessor>>;
+  MapT<VertexAccessor> vertex_updates_;
+  MapT<EdgeAccessor> edge_updates_;
 
-  // Processes a single delta recieved in the RPC request.
-  template <typename TCollection>
-  RemoteUpdateResult Process(TCollection &updates,
-                             const database::StateDelta &delta) {
-    auto tx_id = delta.transaction_id;
-    auto access = updates.access();
-    auto &transaction_updates =
-        access
-            .emplace(tx_id, std::make_tuple(tx_id),
-                     std::make_tuple(std::ref(db_), tx_id))
-            .first->second;
+  // Gets/creates the TransactionUpdates for the given transaction.
+  template <typename TAccessor>
+  TransactionUpdates<TAccessor> &GetUpdates(MapT<TAccessor> &updates,
+                                            tx::transaction_id_t tx_id) {
+    return updates.access()
+        .emplace(tx_id, std::make_tuple(tx_id),
+                 std::make_tuple(std::ref(db_), tx_id))
+        .first->second;
+  }
 
-    return transaction_updates.Emplace(delta);
+  RemoteCreateResult CreateEdge(const RemoteCreateEdgeReqData &req) {
+    auto &dba = GetUpdates(edge_updates_, req.tx_id).db_accessor();
+
+    auto edge = dba.InsertOnlyEdge({req.from, db_.WorkerId()},
+                                   dba.LocalizedAddress(req.to), req.edge_type);
+
+    auto from_delta = database::StateDelta::AddOutEdge(
+        req.tx_id, req.from, req.to, dba.GlobalizedAddress(edge.address()),
+        req.edge_type);
+
+    auto result = GetUpdates(vertex_updates_, req.tx_id).Emplace(from_delta);
+    return {result, edge.gid()};
   }
 };
 

@@ -6,6 +6,8 @@
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
 #include "distributed/index_rpc_messages.hpp"
+#include "distributed/remote_data_manager.hpp"
+#include "distributed/remote_updates_rpc_clients.hpp"
 #include "storage/address_types.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
@@ -15,6 +17,35 @@
 #include "utils/on_scope_exit.hpp"
 
 namespace database {
+
+#define LOCALIZED_ADDRESS_SPECIALIZATION(type)              \
+  template <>                                               \
+  storage::type##Address GraphDbAccessor::LocalizedAddress( \
+      storage::type##Address address) const {               \
+    if (address.is_local()) return address;                 \
+    if (address.worker_id() == db().WorkerId()) {           \
+      return Local##type##Address(address.gid());           \
+    }                                                       \
+    return address;                                         \
+  }
+
+LOCALIZED_ADDRESS_SPECIALIZATION(Vertex)
+LOCALIZED_ADDRESS_SPECIALIZATION(Edge)
+
+#undef LOCALIZED_ADDRESS_SPECIALIZATION
+
+#define GLOBALIZED_ADDRESS_SPECIALIZATION(type)              \
+  template <>                                                \
+  storage::type##Address GraphDbAccessor::GlobalizedAddress( \
+      storage::type##Address address) const {                \
+    if (address.is_remote()) return address;                 \
+    return {address.local()->gid_, db().WorkerId()};         \
+  }
+
+GLOBALIZED_ADDRESS_SPECIALIZATION(Vertex)
+GLOBALIZED_ADDRESS_SPECIALIZATION(Edge)
+
+#undef GLOBALIZED_ADDRESS_SPECIALIZATION
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
     : db_(db),
@@ -74,6 +105,26 @@ VertexAccessor GraphDbAccessor::InsertVertex(
   wal().Emplace(
       database::StateDelta::CreateVertex(transaction_.id_, vertex_vlist->gid_));
   return VertexAccessor(vertex_vlist, *this);
+}
+
+VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
+    int worker_id, const std::vector<storage::Label> &labels,
+    const std::unordered_map<storage::Property, query::TypedValue>
+        &properties) {
+  CHECK(worker_id != db().WorkerId())
+      << "Not allowed to call InsertVertexIntoRemote for local worker";
+
+  gid::Gid gid = db().remote_updates_clients().RemoteCreateVertex(
+      worker_id, transaction_id(), labels, properties);
+
+  auto vertex = std::make_unique<Vertex>();
+  vertex->labels_ = labels;
+  for (auto &kv : properties) vertex->properties_.set(kv.first, kv.second);
+
+  db().remote_data_manager()
+      .Vertices(transaction_id())
+      .emplace(gid, nullptr, std::move(vertex));
+  return VertexAccessor({gid, worker_id}, *this);
 }
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
@@ -375,55 +426,79 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, storage::EdgeType edge_type,
     std::experimental::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  // An edge is created on the worker of it's "from" vertex.
-  if (!from.is_local()) {
-    LOG(ERROR) << "Remote edge insertion not implemented.";
-    // TODO call remote InsertEdge(...)->gid. Possible outcomes are successful
-    // creation or an error (serialization, timeout). If successful, create an
-    // EdgeAccessor and return it. The remote InsertEdge(...) will be calling
-    // remote Connect(...) if "to" is not local to it.
+
+  // The address of an edge we'll create.
+  storage::EdgeAddress edge_address;
+
+  Vertex *from_updated;
+  if (from.is_local()) {
+    auto gid = db_.storage().edge_generator_.Next(requested_gid);
+    edge_address = new mvcc::VersionList<Edge>(
+        transaction_, gid, from.address(), to.address(), edge_type);
+    // We need to insert edge_address to edges_ before calling update since
+    // update can throw and edge_vlist will not be garbage collected if it is
+    // not in edges_ skiplist.
+    bool success =
+        db_.storage().edges_.access().insert(gid, edge_address.local()).second;
+    CHECK(success) << "Attempting to insert an edge with an existing GID: "
+                   << gid;
+
+    from.SwitchNew();
+    from_updated = &from.update();
+
+    // TODO when preparing WAL for distributed, most likely never use
+    // `CREATE_EDGE`, but always have it split into 3 parts (edge insertion,
+    // in/out modification).
+    wal().Emplace(database::StateDelta::CreateEdge(
+        transaction_.id_, gid, from.gid(), to.gid(), edge_type,
+        EdgeTypeName(edge_type)));
+
+  } else {
+    edge_address = db().remote_updates_clients().RemoteCreateEdge(
+        transaction_id(), from, to, edge_type);
+
+    from_updated = db().remote_data_manager()
+                       .Vertices(transaction_id())
+                       .FindNew(from.gid());
+
+    // Create an Edge and insert it into the RemoteCache so we see it locally.
+    db().remote_data_manager()
+        .Edges(transaction_id())
+        .emplace(
+            edge_address.gid(), nullptr,
+            std::make_unique<Edge>(from.address(), to.address(), edge_type));
   }
-  auto gid = db_.storage().edge_generator_.Next(requested_gid);
-  auto edge_vlist = new mvcc::VersionList<Edge>(
-      transaction_, gid, from.address(), to.address(), edge_type);
-  // We need to insert edge_vlist to edges_ before calling update since update
-  // can throw and edge_vlist will not be garbage collected if it is not in
-  // edges_ skiplist.
-  bool success = db_.storage().edges_.access().insert(gid, edge_vlist).second;
-  CHECK(success) << "Attempting to insert an edge with an existing GID: "
-                 << gid;
+  from_updated->out_.emplace(to.address(), edge_address, edge_type);
 
-  // ensure that the "from" accessor has the latest version
-  from.SwitchNew();
-  from.update().out_.emplace(to.address(), edge_vlist, edge_type);
-
-  // It is possible that the "to" accessor is remote.
+  Vertex *to_updated;
   if (to.is_local()) {
     // ensure that the "to" accessor has the latest version (Switch new)
     // WARNING: must do that after the above "from.update()" for cases when
     // we are creating a cycle and "from" and "to" are the same vlist
     to.SwitchNew();
-    to.update().in_.emplace(from.address(), edge_vlist, edge_type);
+    to_updated = &to.update();
   } else {
-    LOG(ERROR) << "Connecting to a remote vertex not implemented.";
-    // TODO call remote Connect(from_gid, edge_gid, to_gid, edge_type). Possible
-    // outcomes are success or error (serialization, timeout).
+    // The RPC call for the `to` side is already handled if `from` is not local.
+    if (from.is_local() ||
+        from.address().worker_id() != to.address().worker_id()) {
+      db().remote_updates_clients().RemoteAddInEdge(
+          transaction_id(), from, GlobalizedAddress(edge_address), to,
+          edge_type);
+    }
+    to_updated =
+        db().remote_data_manager().Vertices(transaction_id()).FindNew(to.gid());
   }
-  wal().Emplace(database::StateDelta::CreateEdge(
-      transaction_.id_, edge_vlist->gid_, from.gid(), to.gid(), edge_type,
-      EdgeTypeName(edge_type)));
-  return EdgeAccessor(edge_vlist, *this, from.address(), to.address(),
+  to_updated->in_.emplace(from.address(), edge_address, edge_type);
+
+  return EdgeAccessor(edge_address, *this, from.address(), to.address(),
                       edge_type);
 }
 
-EdgeAccessor GraphDbAccessor::InsertOnlyEdge(storage::VertexAddress &from,
-                                             storage::VertexAddress &to,
-                                             storage::EdgeType edge_type,
-                                             gid::Gid edge_gid) {
-  auto gid = db_.storage().edge_generator_.Next(edge_gid);
-  DCHECK(gid == edge_gid) << "Gid should be equal as edge gid since "
-                             "this edges are only added after vertices "
-                             "reference them by their gid";
+EdgeAccessor GraphDbAccessor::InsertOnlyEdge(
+    storage::VertexAddress from, storage::VertexAddress to,
+    storage::EdgeType edge_type,
+    std::experimental::optional<gid::Gid> requested_gid) {
+  auto gid = db_.storage().edge_generator_.Next(requested_gid);
   auto edge_vlist =
       new mvcc::VersionList<Edge>(transaction_, gid, from, to, edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
@@ -530,4 +605,5 @@ mvcc::VersionList<Edge> *GraphDbAccessor::LocalEdgeAddress(gid::Gid gid) const {
   CHECK(found != access.end()) << "Failed to find edge for gid: " << gid;
   return found->second;
 }
+
 }  // namespace database

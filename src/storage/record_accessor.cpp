@@ -14,7 +14,8 @@ using database::StateDelta;
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(AddressT address,
                                         database::GraphDbAccessor &db_accessor)
-    : db_accessor_(&db_accessor), address_(NormalizedAddress(address)) {}
+    : db_accessor_(&db_accessor),
+      address_(db_accessor.LocalizedAddress(address)) {}
 
 template <typename TRecord>
 const PropertyValue &RecordAccessor<TRecord>::PropsAt(
@@ -198,6 +199,7 @@ const TRecord &RecordAccessor<TRecord>::current() const {
 template <typename TRecord>
 void RecordAccessor<TRecord>::ProcessDelta(
     const database::StateDelta &delta) const {
+  auto &dba = db_accessor();
   // Apply the delta both on local and remote data. We need to see the changes
   // we make to remote data, even if it's not applied immediately.
   auto &updated = update();
@@ -227,12 +229,22 @@ void RecordAccessor<TRecord>::ProcessDelta(
       std::swap(*found, labels.back());
       labels.pop_back();
     } break;
+    case StateDelta::Type::ADD_OUT_EDGE:
+      reinterpret_cast<Vertex &>(updated).out_.emplace(
+          dba.LocalizedAddress(delta.vertex_to_address),
+          dba.LocalizedAddress(delta.edge_address), delta.edge_type);
+      break;
+    case StateDelta::Type::ADD_IN_EDGE:
+      reinterpret_cast<Vertex &>(updated).in_.emplace(
+          dba.LocalizedAddress(delta.vertex_from_address),
+          dba.LocalizedAddress(delta.edge_address), delta.edge_type);
+      break;
   }
 
   if (is_local()) {
-    db_accessor().wal().Emplace(delta);
+    dba.wal().Emplace(delta);
   } else {
-    auto result = db_accessor().db().remote_updates_clients().RemoteUpdate(
+    auto result = dba.db().remote_updates_clients().RemoteUpdate(
         address().worker_id(), delta);
     switch (result) {
       case distributed::RemoteUpdateResult::DONE:
@@ -245,28 +257,6 @@ void RecordAccessor<TRecord>::ProcessDelta(
         throw LockTimeoutException("Lock timeout on remote worker");
     }
   }
-}
-
-template <>
-RecordAccessor<Vertex>::AddressT RecordAccessor<Vertex>::NormalizedAddress(
-    AddressT address) const {
-  if (address.is_local()) return address;
-  if (address.worker_id() == db_accessor().db_.WorkerId()) {
-    return AddressT(db_accessor().LocalVertexAddress(address.gid()));
-  }
-
-  return address;
-}
-
-template <>
-RecordAccessor<Edge>::AddressT RecordAccessor<Edge>::NormalizedAddress(
-    AddressT address) const {
-  if (address.is_local()) return address;
-  if (address.worker_id() == db_accessor().db_.WorkerId()) {
-    return AddressT(db_accessor().LocalEdgeAddress(address.gid()));
-  }
-
-  return address;
 }
 
 template class RecordAccessor<Vertex>;

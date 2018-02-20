@@ -90,3 +90,15 @@ BOOST_CLASS_EXPORT(distributed::RemoteUpdateReq);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateRes);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyReq);
 BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyRes);
+
+// Remote creates
+BOOST_CLASS_EXPORT(distributed::RemoteCreateResult);
+BOOST_CLASS_EXPORT(distributed::RemoteCreateVertexReq);
+BOOST_CLASS_EXPORT(distributed::RemoteCreateVertexReqData);
+BOOST_CLASS_EXPORT(distributed::RemoteCreateVertexRes);
+BOOST_CLASS_EXPORT(distributed::RemoteCreateEdgeReqData);
+BOOST_CLASS_EXPORT(distributed::RemoteCreateEdgeReq);
+BOOST_CLASS_EXPORT(distributed::RemoteCreateEdgeRes);
+BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeReqData);
+BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeReq);
+BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeRes);
