@@ -32,33 +32,117 @@ std::pair<std::unique_ptr<LogicalOperator>, AstTreeStorage> Clone(
               AstTreeStorage::kHelperId))};
 }
 
+int64_t AddWorkerPlan(DistributedPlan &distributed_plan,
+                      std::atomic<int64_t> &next_plan_id,
+                      const std::shared_ptr<LogicalOperator> &worker_plan) {
+  int64_t plan_id = next_plan_id++;
+  distributed_plan.worker_plans.emplace_back(plan_id, worker_plan);
+  return plan_id;
+}
+
 class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
  public:
-  DistributedPlanner(DistributedPlan &distributed_plan)
-      : distributed_plan_(distributed_plan) {}
+  DistributedPlanner(DistributedPlan &distributed_plan,
+                     std::atomic<int64_t> &next_plan_id)
+      : distributed_plan_(distributed_plan), next_plan_id_(next_plan_id) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
   // Returns true if the plan should be run on master and workers. Note, that
   // false is returned if the plan is already split.
-  bool ShouldSplit() const {
-    // At the moment, the plan should be run on workers only if we encountered a
-    // ScanAll.
-    return !distributed_plan_.worker_plan && has_scan_all_;
-  }
+  bool ShouldSplit() const { return should_split_; }
 
   bool NeedsSynchronize() const { return needs_synchronize_; }
 
   // ScanAll are all done on each machine locally.
+  // We need special care when multiple ScanAll operators appear, this means we
+  // need a Cartesian product. Both the left and the right side of Cartesian
+  // should be sent as standalone plans to each worker. Then, the master
+  // execution should use PullRemote to wire them into Cartesian.  In case of
+  // multiple Cartesians, we send each ScanAll part to workers and chain them
+  // into multiple Cartesians on master.
+  //
+  // For example, `ScanAll(n) > ScanAll(m) > ScanAll(l)` is transformed to:
+  //
+  //    workers       |   master
+  //
+  //  * ScanAll(n) - - - - - - - - - \
+  //                                  + PullRemote(n) \
+  //  * ScanAll(m) \                                   + Cartesian
+  //                +- PullRemote(m) \                /
+  //                                  + Cartesian - -
+  //                +- PullRemote(n) /
+  //  * ScanAll(l) /
+  //
+  // Things get more complicated if any branch of the Cartesian has a Filter
+  // operator which depends on the result from another branch.
+  //
+  // For example, `ScanAll (n) > ScanAll (m) > Filter (m.prop = n.prop)`:
+  //
+  //              workers                         |    master
+  //
+  //  * ScanAll(n) - - - - - - - - - - - - - -  \
+  //                                             + PullRemote(n) \
+  //                                                              + Cartesian
+  //                                             + PullRemote(m) /
+  //  * ScanAll(m) - - Filter (m.prop = n.prop) /
+  //
+  // Since the Filter depends on the first ScanAll branch, we can either:
+  //  * enforce the first branch is evaluated before and data sent back to
+  //    workers to evaluate the second; or
+  //  * move the Filter after the Cartesian (or maybe inline it inside).
+  //
+  // Inserting the Cartesian operator is done through PlanCartesian while
+  // post-visiting Produce, Aggregate or write operators.
+  //
+  // TODO: Consider planning Cartesian during regular planning in
+  // RuleBasedPlanner.
+  // TODO: Finish Cartesian planning:
+  //  * checking Filters can be used;
+  //  * checking ExpandUniquenessFilter can be used;
+  //  * checking indexed ScanAll can be used;
+  //  * checking Expand into existing can be used;
+  //  * allowing Cartesian after Produce (i.e. after WITH clause);
+  //  * ...
+  std::shared_ptr<Cartesian> PlanCartesian(
+      const std::shared_ptr<LogicalOperator> &rhs_input) {
+    std::shared_ptr<Cartesian> cartesian;
+    auto pull_id = AddWorkerPlan(rhs_input);
+    std::shared_ptr<LogicalOperator> right_op = std::make_shared<PullRemote>(
+        rhs_input, pull_id,
+        rhs_input->ModifiedSymbols(distributed_plan_.symbol_table));
+    // We use this ordering of operators, so that left hand side can be
+    // accumulated without having whole product accumulations. This (obviously)
+    // relies on the fact that Cartesian accumulation strategy accumulates the
+    // left operator input.
+    while (!left_cartesians_.empty()) {
+      auto left_op = left_cartesians_.back();
+      left_cartesians_.pop_back();
+      cartesian = std::make_shared<Cartesian>(
+          left_op, left_op->ModifiedSymbols(distributed_plan_.symbol_table),
+          right_op, right_op->ModifiedSymbols(distributed_plan_.symbol_table));
+      right_op = cartesian;
+    }
+    return cartesian;
+  };
+
   bool PreVisit(ScanAll &scan) override {
     prev_ops_.push_back(&scan);
     return true;
   }
-  bool PostVisit(ScanAll &) override {
+  bool PostVisit(ScanAll &scan) override {
     prev_ops_.pop_back();
-    RaiseIfCartesian();
-    RaiseIfHasWorkerPlan();
+    should_split_ = true;
+    if (has_scan_all_) {
+      // Prepare for Cartesian planning
+      auto id = AddWorkerPlan(scan.input());
+      auto left_op = std::make_shared<PullRemote>(
+          scan.input(), id,
+          scan.input()->ModifiedSymbols(distributed_plan_.symbol_table));
+      left_cartesians_.push_back(left_op);
+      scan.set_input(std::make_shared<Once>());
+    }
     has_scan_all_ = true;
     return true;
   }
@@ -67,10 +151,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&scan);
     return true;
   }
-  bool PostVisit(ScanAllByLabel &) override {
+  bool PostVisit(ScanAllByLabel &scan) override {
     prev_ops_.pop_back();
-    RaiseIfCartesian();
-    RaiseIfHasWorkerPlan();
+    should_split_ = true;
+    if (has_scan_all_) {
+      // Prepare for Cartesian planning
+      auto id = AddWorkerPlan(scan.input());
+      auto left_op = std::make_shared<PullRemote>(
+          scan.input(), id,
+          scan.input()->ModifiedSymbols(distributed_plan_.symbol_table));
+      left_cartesians_.push_back(left_op);
+      scan.set_input(std::make_shared<Once>());
+    }
     has_scan_all_ = true;
     return true;
   }
@@ -78,10 +170,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&scan);
     return true;
   }
-  bool PostVisit(ScanAllByLabelPropertyRange &) override {
+  bool PostVisit(ScanAllByLabelPropertyRange &scan) override {
     prev_ops_.pop_back();
-    RaiseIfCartesian();
-    RaiseIfHasWorkerPlan();
+    should_split_ = true;
+    if (has_scan_all_) {
+      // Prepare for Cartesian planning
+      auto id = AddWorkerPlan(scan.input());
+      auto left_op = std::make_shared<PullRemote>(
+          scan.input(), id,
+          scan.input()->ModifiedSymbols(distributed_plan_.symbol_table));
+      left_cartesians_.push_back(left_op);
+      scan.set_input(std::make_shared<Once>());
+    }
     has_scan_all_ = true;
     return true;
   }
@@ -89,10 +189,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&scan);
     return true;
   }
-  bool PostVisit(ScanAllByLabelPropertyValue &) override {
+  bool PostVisit(ScanAllByLabelPropertyValue &scan) override {
     prev_ops_.pop_back();
-    RaiseIfCartesian();
-    RaiseIfHasWorkerPlan();
+    should_split_ = true;
+    if (has_scan_all_) {
+      // Prepare for Cartesian planning
+      auto id = AddWorkerPlan(scan.input());
+      auto left_op = std::make_shared<PullRemote>(
+          scan.input(), id,
+          scan.input()->ModifiedSymbols(distributed_plan_.symbol_table));
+      left_cartesians_.push_back(left_op);
+      scan.set_input(std::make_shared<Once>());
+    }
     has_scan_all_ = true;
     return true;
   }
@@ -141,10 +249,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     if (ShouldSplit()) {
       auto input = skip.input();
-      distributed_plan_.worker_plan = input;
-      skip.set_input(std::make_shared<PullRemote>(
-          input, distributed_plan_.plan_id,
-          input->OutputSymbols(distributed_plan_.symbol_table)));
+      auto pull_id = AddWorkerPlan(input);
+      Split(skip, std::make_shared<PullRemote>(
+                      input, pull_id,
+                      input->OutputSymbols(distributed_plan_.symbol_table)));
     }
     return true;
   }
@@ -162,18 +270,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     if (ShouldSplit()) {
       // Shallow copy Limit
-      distributed_plan_.worker_plan = std::make_shared<Limit>(limit);
+      auto pull_id = AddWorkerPlan(std::make_shared<Limit>(limit));
       auto input = limit.input();
-      limit.set_input(std::make_shared<PullRemote>(
-          input, distributed_plan_.plan_id,
-          input->OutputSymbols(distributed_plan_.symbol_table)));
+      Split(limit, std::make_shared<PullRemote>(
+                       input, pull_id,
+                       input->OutputSymbols(distributed_plan_.symbol_table)));
     }
     return true;
   }
 
   // OrderBy is an associative operator, this means we can do ordering
   // on workers and then merge the results on master. This requires a more
-  // involved solution, so for now treat OrderBy just like Split.
+  // involved solution, so for now treat OrderBy just like Skip.
   bool PreVisit(OrderBy &order_by) override {
     prev_ops_.push_back(&order_by);
     return true;
@@ -183,10 +291,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // TODO: Associative combination of OrderBy
     if (ShouldSplit()) {
       auto input = order_by.input();
-      distributed_plan_.worker_plan = input;
-      order_by.set_input(std::make_shared<PullRemote>(
-          input, distributed_plan_.plan_id,
-          input->OutputSymbols(distributed_plan_.symbol_table)));
+      auto pull_id = AddWorkerPlan(input);
+      Split(order_by,
+            std::make_shared<PullRemote>(
+                input, pull_id,
+                input->OutputSymbols(distributed_plan_.symbol_table)));
     }
     return true;
   }
@@ -200,11 +309,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     if (ShouldSplit()) {
       // Shallow copy Distinct
-      distributed_plan_.worker_plan = std::make_shared<Distinct>(distinct);
+      auto pull_id = AddWorkerPlan(std::make_shared<Distinct>(distinct));
       auto input = distinct.input();
-      distinct.set_input(std::make_shared<PullRemote>(
-          input, distributed_plan_.plan_id,
-          input->OutputSymbols(distributed_plan_.symbol_table)));
+      Split(distinct,
+            std::make_shared<PullRemote>(
+                input, pull_id,
+                input->OutputSymbols(distributed_plan_.symbol_table)));
     }
     return true;
   }
@@ -229,6 +339,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
   bool PostVisit(Aggregate &aggr_op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(aggr_op, PlanCartesian(aggr_op.input()));
+      return true;
+    }
     if (!ShouldSplit()) {
       // We have already split the plan, so the aggregation we are visiting is
       // on master.
@@ -251,7 +365,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     };
     if (!is_associative()) {
       auto input = aggr_op.input();
-      distributed_plan_.worker_plan = input;
+      auto pull_id = AddWorkerPlan(input);
       std::unordered_set<Symbol> pull_symbols(aggr_op.remember().begin(),
                                               aggr_op.remember().end());
       for (const auto &elem : aggr_op.aggregations()) {
@@ -261,9 +375,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
         pull_symbols.insert(collector.symbols_.begin(),
                             collector.symbols_.end());
       }
-      aggr_op.set_input(std::make_shared<PullRemote>(
-          input, distributed_plan_.plan_id,
-          std::vector<Symbol>(pull_symbols.begin(), pull_symbols.end())));
+      Split(aggr_op,
+            std::make_shared<PullRemote>(
+                input, pull_id,
+                std::vector<Symbol>(pull_symbols.begin(), pull_symbols.end())));
       return true;
     }
     auto make_ident = [this](const auto &symbol) {
@@ -357,20 +472,24 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
           throw utils::NotYetImplemented("distributed planning");
       }
     }
-    // Rewiring is done in PostVisit(Produce), so just store our results.
-    worker_aggr_ = std::make_shared<Aggregate>(
+    // Rewire master/worker aggregation.
+    auto worker_plan = std::make_shared<Aggregate>(
         aggr_op.input(), worker_aggrs, aggr_op.group_by(), aggr_op.remember());
+    auto pull_id = AddWorkerPlan(worker_plan);
     std::vector<Symbol> pull_symbols;
     pull_symbols.reserve(worker_aggrs.size() + aggr_op.remember().size());
     for (const auto &aggr : worker_aggrs)
       pull_symbols.push_back(aggr.output_sym);
     for (const auto &sym : aggr_op.remember()) pull_symbols.push_back(sym);
-    auto pull_op = std::make_shared<PullRemote>(
-        worker_aggr_, distributed_plan_.plan_id, pull_symbols);
+    auto pull_op =
+        std::make_shared<PullRemote>(worker_plan, pull_id, pull_symbols);
     auto master_aggr_op = std::make_shared<Aggregate>(
         pull_op, master_aggrs, aggr_op.group_by(), aggr_op.remember());
     // Make our master Aggregate into Produce + Aggregate
-    master_aggr_ = std::make_unique<Produce>(master_aggr_op, produce_exprs);
+    auto master_plan = std::make_unique<Produce>(master_aggr_op, produce_exprs);
+    auto produce = dynamic_cast<Produce *>(prev_ops_.back());
+    DCHECK(produce) << "Expected Aggregate is directly below Produce";
+    Split(*produce, std::move(master_plan));
     return true;
   }
 
@@ -380,13 +499,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
   bool PostVisit(Produce &produce) override {
     prev_ops_.pop_back();
-    if (!master_aggr_) return true;
-    // We have to rewire master/worker aggregation.
-    DCHECK(worker_aggr_);
-    DCHECK(ShouldSplit());
-    DCHECK(std::dynamic_pointer_cast<Aggregate>(produce.input()));
-    distributed_plan_.worker_plan = std::move(worker_aggr_);
-    produce.set_input(std::move(master_aggr_));
+    if (!left_cartesians_.empty()) {
+      // TODO: It might be better to plan Cartesians later if this Produce isn't
+      // the last one and is not followed by an operator which requires a merge
+      // point (Skip, OrderBy, etc.).
+      if (!on_master_) {
+        Split(produce, PlanCartesian(produce.input()));
+      } else {
+        // We are on master, so our produce input must come on the left hand
+        // side.
+        throw utils::NotYetImplemented("distributed planning");
+      }
+    }
     return true;
   }
 
@@ -420,9 +544,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // same as on workers.
     std::shared_ptr<PullRemote> pull_remote;
     if (ShouldSplit()) {
-      distributed_plan_.worker_plan = acc.input();
-      pull_remote = std::make_shared<PullRemote>(
-          nullptr, distributed_plan_.plan_id, acc.symbols());
+      auto pull_id = AddWorkerPlan(acc.input());
+      pull_remote =
+          std::make_shared<PullRemote>(nullptr, pull_id, acc.symbols());
     }
     auto sync = std::make_shared<Synchronize>(acc.input(), pull_remote,
                                               acc.advance_command());
@@ -431,9 +555,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // TODO: Find a better way to replace the previous operation's input than
     // using dynamic casting.
     if (auto *produce = dynamic_cast<Produce *>(prev_op)) {
-      produce->set_input(sync);
+      Split(*produce, sync);
     } else if (auto *aggr_op = dynamic_cast<Aggregate *>(prev_op)) {
-      aggr_op->set_input(sync);
+      Split(*aggr_op, sync);
     } else {
       throw utils::NotYetImplemented("distributed planning");
     }
@@ -441,15 +565,19 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  // CRUD operators follow
+
   bool PreVisit(CreateNode &op) override {
     // TODO: Creation needs to be modified if running on master, so as to
     // distribute node creation to workers.
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(CreateNode &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -458,9 +586,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(CreateExpand &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -469,9 +599,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(Delete &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -480,9 +612,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(SetProperty &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -491,9 +625,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(SetProperties &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -502,9 +638,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(SetLabels &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -513,9 +651,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(RemoveProperty &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -524,9 +664,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-
   bool PostVisit(RemoveLabels &op) override {
     prev_ops_.pop_back();
+    if (!left_cartesians_.empty()) {
+      Split(op, PlanCartesian(op.input()));
+    }
     needs_synchronize_ = true;
     return true;
   }
@@ -543,21 +685,29 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
  private:
   DistributedPlan &distributed_plan_;
-  // Used for rewiring the master/worker aggregation in PostVisit(Produce)
-  std::shared_ptr<LogicalOperator> worker_aggr_;
-  std::unique_ptr<LogicalOperator> master_aggr_;
+  std::atomic<int64_t> &next_plan_id_;
   std::vector<LogicalOperator *> prev_ops_;
+  // Left side operators that still need to be wired into Cartesian.
+  std::vector<std::shared_ptr<LogicalOperator>> left_cartesians_;
   bool has_scan_all_ = false;
   bool needs_synchronize_ = false;
+  bool should_split_ = false;
+  // True if we have added a worker merge point on master, i.e. the rest of the
+  // plan is executing on master.
+  bool on_master_ = false;
 
-  void RaiseIfCartesian() {
-    if (has_scan_all_)
-      throw utils::NotYetImplemented("Cartesian product distributed planning");
+  // Sets the master_op input to be merge_op. Afterwards, on_master_ is true.
+  template <class TOp>
+  void Split(TOp &master_op, std::shared_ptr<LogicalOperator> merge_op) {
+    if (on_master_) throw utils::NotYetImplemented("distributed planning");
+    master_op.set_input(merge_op);
+    on_master_ = true;
   }
 
-  void RaiseIfHasWorkerPlan() {
-    if (distributed_plan_.worker_plan)
-      throw utils::NotYetImplemented("distributed planning");
+  int64_t AddWorkerPlan(const std::shared_ptr<LogicalOperator> &worker_plan) {
+    should_split_ = false;
+    return ::query::plan::AddWorkerPlan(distributed_plan_, next_plan_id_,
+                                        worker_plan);
   }
 };
 
@@ -569,31 +719,32 @@ DistributedPlan MakeDistributedPlan(const LogicalOperator &original_plan,
   DistributedPlan distributed_plan;
   // If we will generate multiple worker plans, we will need to increment the
   // next_plan_id for each one.
-  distributed_plan.plan_id = next_plan_id++;
+  distributed_plan.master_plan_id = next_plan_id++;
   distributed_plan.symbol_table = symbol_table;
   std::tie(distributed_plan.master_plan, distributed_plan.ast_storage) =
       Clone(original_plan);
-  DistributedPlanner planner(distributed_plan);
+  DistributedPlanner planner(distributed_plan, next_plan_id);
   distributed_plan.master_plan->Accept(planner);
   if (planner.ShouldSplit()) {
     // We haven't split the plan, this means that it should be the same on
     // master and worker. We only need to prepend PullRemote to master plan.
-    distributed_plan.worker_plan = std::move(distributed_plan.master_plan);
+    std::shared_ptr<LogicalOperator> worker_plan(
+        std::move(distributed_plan.master_plan));
+    auto pull_id = AddWorkerPlan(distributed_plan, next_plan_id, worker_plan);
     // If the plan performs writes, we need to finish with Synchronize.
     if (planner.NeedsSynchronize()) {
       auto pull_remote = std::make_shared<PullRemote>(
-          nullptr, distributed_plan.plan_id,
-          distributed_plan.worker_plan->OutputSymbols(
-              distributed_plan.symbol_table));
-      distributed_plan.master_plan = std::make_unique<Synchronize>(
-          distributed_plan.worker_plan, pull_remote, false);
+          nullptr, pull_id,
+          worker_plan->OutputSymbols(distributed_plan.symbol_table));
+      distributed_plan.master_plan =
+          std::make_unique<Synchronize>(worker_plan, pull_remote, false);
     } else {
       distributed_plan.master_plan = std::make_unique<PullRemote>(
-          distributed_plan.worker_plan, distributed_plan.plan_id,
-          distributed_plan.worker_plan->OutputSymbols(
-              distributed_plan.symbol_table));
+          worker_plan, pull_id,
+          worker_plan->OutputSymbols(distributed_plan.symbol_table));
     }
-  } else if (!distributed_plan.worker_plan && planner.NeedsSynchronize()) {
+  } else if (distributed_plan.worker_plans.empty() &&
+             planner.NeedsSynchronize()) {
     // If the plan performs writes, we still need to Synchronize.
     distributed_plan.master_plan = std::make_unique<Synchronize>(
         std::move(distributed_plan.master_plan), nullptr, false);

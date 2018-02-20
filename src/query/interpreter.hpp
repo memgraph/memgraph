@@ -30,7 +30,7 @@ class Interpreter {
 
     CachedPlan(std::unique_ptr<plan::LogicalOperator> plan, double cost,
                SymbolTable symbol_table, AstTreeStorage storage)
-        : distributed_plan_{0, std::move(plan), nullptr, std::move(storage),
+        : distributed_plan_{0, std::move(plan), {}, std::move(storage),
                             symbol_table},
           cost_(cost) {}
 

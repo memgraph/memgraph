@@ -504,13 +504,13 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(query::plan::PullRemote &op) override {
     WithPrintLn([&op](auto &out) {
-      out << "* PullRemote {";
+      out << "* PullRemote [" << op.plan_id() << "] {";
       utils::PrintIterable(
           out, op.symbols(), ", ",
           [](auto &out, const auto &sym) { out << sym.name(); });
       out << "}";
     });
-    WithPrintLn([](auto &out) { out << " \\"; });
+    WithPrintLn([](auto &out) { out << "|\\"; });
     ++depth_;
     WithPrintLn([](auto &out) { out << "* workers"; });
     --depth_;
@@ -526,6 +526,13 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     op.input()->Accept(*this);
     return false;
   }
+
+  bool PreVisit(query::plan::Cartesian &op) override {
+    WithPrintLn([](auto &out) { out << "* Cartesian"; });
+    Branch(*op.right_op());
+    op.left_op()->Accept(*this);
+    return false;
+  }
 #undef PRE_VISIT
 
  private:
@@ -533,7 +540,10 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   // corresponding to the current depth_.
   template <class TFun>
   void WithPrintLn(TFun fun) {
-    std::cout << std::string(depth_ * 2, ' ');
+    std::cout << " ";
+    for (int i = 0; i < depth_; ++i) {
+      std::cout << "|  ";
+    }
     fun(std::cout);
     std::cout << std::endl;
   }
@@ -542,7 +552,7 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   // and printing the branch name.
   void Branch(query::plan::LogicalOperator &op,
               const std::string &branch_name = "") {
-    WithPrintLn([&](auto &out) { out << " \\ " << branch_name; });
+    WithPrintLn([&](auto &out) { out << "|\\ " << branch_name; });
     ++depth_;
     op.Accept(*this);
     --depth_;
@@ -625,10 +635,13 @@ DEFCOMMAND(ShowDistributed) {
     distributed_plan.master_plan->Accept(printer);
     std::cout << std::endl;
   }
-  if (distributed_plan.worker_plan) {
-    std::cout << "---- Worker Plan ---- " << std::endl;
+  for (size_t i = 0; i < distributed_plan.worker_plans.size(); ++i) {
+    int64_t id;
+    std::shared_ptr<query::plan::LogicalOperator> worker_plan;
+    std::tie(id, worker_plan) = distributed_plan.worker_plans[i];
+    std::cout << "---- Worker Plan #" << id << " ---- " << std::endl;
     PlanPrinter printer(dba);
-    distributed_plan.worker_plan->Accept(printer);
+    worker_plan->Accept(printer);
     std::cout << std::endl;
   }
 }

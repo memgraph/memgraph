@@ -10,13 +10,12 @@ namespace query::plan {
 
 /// Complete plan split into master/worker parts.
 struct DistributedPlan {
-  int64_t plan_id;
+  int64_t master_plan_id;
   /// Plan to be executed on the master server.
   std::unique_ptr<LogicalOperator> master_plan;
-  /// Plan to be executed on each worker.
-  ///
-  /// Worker plan is also shared in the master plan.
-  std::shared_ptr<LogicalOperator> worker_plan;
+  /// Pairs of {plan_id, plan} for execution on each worker.
+  std::vector<std::pair<int64_t, std::shared_ptr<LogicalOperator>>>
+      worker_plans;
   /// Ast storage with newly added expressions.
   AstTreeStorage ast_storage;
   /// Symbol table with newly added symbols.
