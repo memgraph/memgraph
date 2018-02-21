@@ -39,8 +39,8 @@ class RemotePullRpcClients {
         worker_id, [&dba, plan_id, params, symbols, accumulate,
                     batch_size](ClientPool &client_pool) {
           auto result = client_pool.Call<RemotePullRpc>(
-              dba.transaction_id(), plan_id, params, symbols, accumulate,
-              batch_size, true, true);
+              dba.transaction_id(), dba.transaction().snapshot(), plan_id,
+              params, symbols, accumulate, batch_size, true, true);
 
           auto handle_vertex = [&dba](auto &v) {
             dba.db()

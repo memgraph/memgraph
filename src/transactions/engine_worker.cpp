@@ -109,20 +109,29 @@ bool WorkerEngine::GlobalIsActive(transaction_id_t tid) const {
   return rpc_client_pool_.Call<IsActiveRpc>(tid)->member;
 }
 
-tx::transaction_id_t WorkerEngine::LocalLast() const { return local_last_; }
+transaction_id_t WorkerEngine::LocalLast() const { return local_last_; }
 
 void WorkerEngine::LocalForEachActiveTransaction(
     std::function<void(Transaction &)> f) {
   for (auto pair : active_.access()) f(*pair.second);
 }
 
-tx::Transaction *WorkerEngine::RunningTransaction(tx::transaction_id_t tx_id) {
+Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id) {
   auto accessor = active_.access();
   auto found = accessor.find(tx_id);
   if (found != accessor.end()) return found->second;
 
   Snapshot snapshot(
       std::move(rpc_client_pool_.Call<SnapshotRpc>(tx_id)->member));
+  return RunningTransaction(tx_id, snapshot);
+}
+
+Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id,
+                                              const Snapshot &snapshot) {
+  auto accessor = active_.access();
+  auto found = accessor.find(tx_id);
+  if (found != accessor.end()) return found->second;
+
   auto new_tx = new Transaction(tx_id, snapshot, *this);
   auto insertion = accessor.insert(tx_id, new_tx);
   if (!insertion.second) delete new_tx;

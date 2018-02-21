@@ -35,10 +35,14 @@ class WorkerEngine : public Engine {
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
   bool GlobalIsActive(transaction_id_t tid) const override;
-  tx::transaction_id_t LocalLast() const override;
+  transaction_id_t LocalLast() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
-  tx::Transaction *RunningTransaction(tx::transaction_id_t tx_id) override;
+  Transaction *RunningTransaction(transaction_id_t tx_id) override;
+
+  // Caches the transaction for the given info an returs a ptr to it.
+  Transaction *RunningTransaction(transaction_id_t tx_id,
+                                  const Snapshot &snapshot);
 
  private:
   // Local caches.

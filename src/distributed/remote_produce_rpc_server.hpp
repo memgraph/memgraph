@@ -21,6 +21,7 @@
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
 #include "transactions/engine.hpp"
+#include "transactions/engine_worker.hpp"
 #include "transactions/tx_end_listener.hpp"
 #include "transactions/type.hpp"
 
@@ -131,13 +132,13 @@ class RemoteProduceRpcServer {
   };
 
  public:
-  RemoteProduceRpcServer(database::GraphDb &db, tx::Engine &engine,
+  RemoteProduceRpcServer(database::GraphDb &db, tx::Engine &tx_engine,
                          communication::rpc::System &system,
                          const distributed::PlanConsumer &plan_consumer)
       : db_(db),
         remote_produce_rpc_server_(system, kRemotePullProduceRpcName),
         plan_consumer_(plan_consumer),
-        engine_(engine) {
+        tx_engine_(tx_engine) {
     remote_produce_rpc_server_.Register<RemotePullRpc>(
         [this](const RemotePullReq &req) {
           return std::make_unique<RemotePullRes>(RemotePull(req));
@@ -145,7 +146,7 @@ class RemoteProduceRpcServer {
 
     remote_produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
         [this](const TransactionCommandAdvancedReq &req) {
-          db_.tx_engine().UpdateCommand(req.member);
+          tx_engine_.UpdateCommand(req.member);
           db_.remote_data_manager().ClearCaches(req.member);
           return std::make_unique<TransactionCommandAdvancedRes>();
         });
@@ -160,9 +161,9 @@ class RemoteProduceRpcServer {
       ongoing_produces_;
   std::mutex ongoing_produces_lock_;
 
-  tx::Engine &engine_;
+  tx::Engine &tx_engine_;
   tx::TxEndListener tx_end_listener_{
-      engine_, [this](tx::transaction_id_t tx_id) { ClearCache(tx_id); }};
+      tx_engine_, [this](tx::transaction_id_t tx_id) { ClearCache(tx_id); }};
 
   // Removes all onging pulls for the given tx_id (that transaction expired).
   void ClearCache(tx::transaction_id_t tx_id) {
@@ -182,7 +183,11 @@ class RemoteProduceRpcServer {
     if (found != ongoing_produces_.end()) {
       return found->second;
     }
-
+    if (db_.type() == database::GraphDb::Type::DISTRIBUTED_WORKER) {
+      // On the worker cache the snapshot to have one RPC less.
+      dynamic_cast<tx::WorkerEngine &>(tx_engine_)
+          .RunningTransaction(req.tx_id, req.tx_snapshot);
+    }
     auto &plan_pack = plan_consumer_.PlanForId(req.plan_id);
     return ongoing_produces_
         .emplace(std::piecewise_construct,

@@ -37,10 +37,12 @@ const std::string kRemotePullProduceRpcName = "RemotePullProduceRpc";
 
 struct RemotePullReq : public communication::rpc::Message {
   RemotePullReq() {}
-  RemotePullReq(tx::transaction_id_t tx_id, int64_t plan_id,
-                const Parameters &params, std::vector<query::Symbol> symbols,
-                bool accumulate, int batch_size, bool send_old, bool send_new)
+  RemotePullReq(tx::transaction_id_t tx_id, tx::Snapshot tx_snapshot,
+                int64_t plan_id, const Parameters &params,
+                std::vector<query::Symbol> symbols, bool accumulate,
+                int batch_size, bool send_old, bool send_new)
       : tx_id(tx_id),
+        tx_snapshot(tx_snapshot),
         plan_id(plan_id),
         params(params),
         symbols(symbols),
@@ -50,6 +52,7 @@ struct RemotePullReq : public communication::rpc::Message {
         send_new(send_new) {}
 
   tx::transaction_id_t tx_id;
+  tx::Snapshot tx_snapshot;
   int64_t plan_id;
   Parameters params;
   std::vector<query::Symbol> symbols;
@@ -66,6 +69,7 @@ struct RemotePullReq : public communication::rpc::Message {
   void save(TArchive &ar, unsigned int) const {
     ar << boost::serialization::base_object<communication::rpc::Message>(*this);
     ar << tx_id;
+    ar << tx_snapshot;
     ar << plan_id;
     ar << params.size();
     for (auto &kv : params) {
@@ -84,6 +88,7 @@ struct RemotePullReq : public communication::rpc::Message {
   void load(TArchive &ar, unsigned int) {
     ar >> boost::serialization::base_object<communication::rpc::Message>(*this);
     ar >> tx_id;
+    ar >> tx_snapshot;
     ar >> plan_id;
     size_t params_size;
     ar >> params_size;
