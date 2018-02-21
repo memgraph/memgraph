@@ -568,8 +568,6 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   // CRUD operators follow
 
   bool PreVisit(CreateNode &op) override {
-    // TODO: Creation needs to be modified if running on master, so as to
-    // distribute node creation to workers.
     prev_ops_.push_back(&op);
     return true;
   }
@@ -577,6 +575,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     if (!left_cartesians_.empty()) {
       Split(op, PlanCartesian(op.input()));
+    }
+    // Creation needs to be modified if running on master, so as to distribute
+    // node creation to workers.
+    if (!ShouldSplit()) {
+      op.set_on_random_worker(true);
     }
     needs_synchronize_ = true;
     return true;

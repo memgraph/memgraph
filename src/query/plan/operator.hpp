@@ -255,13 +255,15 @@ class CreateNode : public LogicalOperator {
 
   auto input() const { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  auto on_random_worker() const { return on_random_worker_; }
+  void set_on_random_worker(bool v) { on_random_worker_ = v; }
 
  private:
   CreateNode() {}
 
   std::shared_ptr<LogicalOperator> input_;
   NodeAtom *node_atom_ = nullptr;
-  bool on_random_worker_;
+  bool on_random_worker_ = false;
 
   class CreateNodeCursor : public Cursor {
    public:
