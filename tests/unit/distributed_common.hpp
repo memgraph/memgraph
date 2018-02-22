@@ -109,6 +109,12 @@ class DistributedGraphDbTest : public ::testing::Test {
     return edge_ga;
   }
 
+  auto VertexCount(database::GraphDb &db) {
+    database::GraphDbAccessor dba{db};
+    auto vertices = dba.Vertices(false);
+    return std::distance(vertices.begin(), vertices.end());
+  };
+
  private:
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;

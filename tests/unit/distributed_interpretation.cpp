@@ -1,5 +1,5 @@
-#include "gtest/gtest.h"
 #include "gmock/gmock.h"
+#include "gtest/gtest.h"
 
 #include "database/graph_db.hpp"
 #include "distributed_common.hpp"
@@ -10,46 +10,50 @@
 using namespace distributed;
 using namespace database;
 
-TEST_F(DistributedGraphDbTest, RemotePullTest) {
-  using Interpreter = query::Interpreter;
-  std::map<std::string, query::TypedValue> params = {};
+class DistributedInterpretationTest : public DistributedGraphDbTest {
+ protected:
+  auto Run(const std::string &query) {
+    std::map<std::string, query::TypedValue> params = {};
+    GraphDbAccessor dba(master());
+    ResultStreamFaker result;
+    query::Interpreter interpreter_;
+    interpreter_(query, dba, params, false).PullAll(result);
+    dba.Commit();
+    return result.GetResults();
+  }
+};
 
-  GraphDbAccessor dba(master());
+TEST_F(DistributedInterpretationTest, RemotePullTest) {
+  auto results = Run("OPTIONAL MATCH(n) UNWIND(RANGE(0, 20)) AS X RETURN 1");
+  ASSERT_EQ(results.size(), 3 * 21);
 
-  ResultStreamFaker result;
-  Interpreter interpreter_;
-  interpreter_("OPTIONAL MATCH(n) UNWIND(RANGE(0, 20)) AS X RETURN 1", dba,
-               params, false)
-      .PullAll(result);
-
-  // Three instances (master + 2 workers) with 21 result each.
-  uint expected_results = 3U * 21;
-  ASSERT_EQ(result.GetHeader().size(), 1U);
-  EXPECT_EQ(result.GetHeader()[0], "1");
-  ASSERT_EQ(result.GetResults().size(), expected_results);
-
-  for (uint i = 0; i < expected_results; ++i) {
-    ASSERT_EQ(result.GetResults()[i].size(), 1U);
-    ASSERT_EQ(result.GetResults()[i][0].Value<int64_t>(), 1);
+  for (auto result : results) {
+    ASSERT_EQ(result.size(), 1U);
+    ASSERT_EQ(result[0].ValueInt(), 1);
   }
 }
 
-TEST_F(DistributedGraphDbTest, RemotePullNoResultsTest) {
-  using Interpreter = query::Interpreter;
-  std::map<std::string, query::TypedValue> params = {};
-
-  GraphDbAccessor dba(master());
-
-  ResultStreamFaker result;
-  Interpreter interpreter_;
-  interpreter_("MATCH (n) RETURN n", dba, params, false).PullAll(result);
-
-  ASSERT_EQ(result.GetHeader().size(), 1U);
-  EXPECT_EQ(result.GetHeader()[0], "n");
-  ASSERT_EQ(result.GetResults().size(), 0U);
+TEST_F(DistributedInterpretationTest, RemotePullNoResultsTest) {
+  auto results = Run("MATCH (n) RETURN n");
+  ASSERT_EQ(results.size(), 0U);
 }
 
-TEST_F(DistributedGraphDbTest, RemoteExpandTest2) {
+TEST_F(DistributedInterpretationTest, CreateExpand) {
+  InsertVertex(master());
+  InsertVertex(worker(1));
+  InsertVertex(worker(1));
+  InsertVertex(worker(2));
+  InsertVertex(worker(2));
+  InsertVertex(worker(2));
+
+  Run("MATCH (n) CREATE (n)-[:T]->(m) RETURN n");
+
+  EXPECT_EQ(VertexCount(master()), 2);
+  EXPECT_EQ(VertexCount(worker(1)), 4);
+  EXPECT_EQ(VertexCount(worker(2)), 6);
+}
+
+TEST_F(DistributedInterpretationTest, RemoteExpandTest2) {
   // Make a fully connected graph with vertices scattered across master and
   // worker storage.
   // Vertex count is low, because test gets exponentially slower. The expected
@@ -70,21 +74,15 @@ TEST_F(DistributedGraphDbTest, RemoteExpandTest2) {
   };
   std::vector<std::string> edge_types;
   edge_types.reserve(vertices.size() * vertices.size());
-  for (int i = 0; i < vertices.size(); ++i) {
-    for (int j = 0; j < vertices.size(); ++j) {
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    for (size_t j = 0; j < vertices.size(); ++j) {
       auto edge_type = get_edge_type(i, j);
       edge_types.push_back(edge_type);
       InsertEdge(vertices[i], vertices[j], edge_type);
     }
   }
-  query::Interpreter interpret;
-  std::map<std::string, query::TypedValue> params;
-  GraphDbAccessor dba(master());
-  ResultStreamFaker result;
-  interpret("MATCH (n)-[r1]-(m)-[r2]-(l) RETURN type(r1), type(r2)", dba,
-            params, false)
-      .PullAll(result);
-  ASSERT_EQ(result.GetHeader().size(), 2U);
+
+  auto results = Run("MATCH (n)-[r1]-(m)-[r2]-(l) RETURN type(r1), type(r2)");
   // We expect the number of results to be:
   size_t expected_result_size =
       // pick (n)
@@ -96,11 +94,11 @@ TEST_F(DistributedGraphDbTest, RemoteExpandTest2) {
       (2 * vertices.size() - 1 - 1);
   std::vector<std::vector<std::string>> expected;
   expected.reserve(expected_result_size);
-  for (int n = 0; n < vertices.size(); ++n) {
-    for (int m = 0; m < vertices.size(); ++m) {
+  for (size_t n = 0; n < vertices.size(); ++n) {
+    for (size_t m = 0; m < vertices.size(); ++m) {
       std::vector<std::string> r1s{get_edge_type(n, m)};
       if (n != m) r1s.push_back(get_edge_type(m, n));
-      for (int l = 0; l < vertices.size(); ++l) {
+      for (size_t l = 0; l < vertices.size(); ++l) {
         std::vector<std::string> r2s{get_edge_type(m, l)};
         if (m != l) r2s.push_back(get_edge_type(l, m));
         for (const auto &r1 : r1s) {
@@ -113,10 +111,10 @@ TEST_F(DistributedGraphDbTest, RemoteExpandTest2) {
     }
   }
   ASSERT_EQ(expected.size(), expected_result_size);
-  ASSERT_EQ(result.GetResults().size(), expected_result_size);
+  ASSERT_EQ(results.size(), expected_result_size);
   std::vector<std::vector<std::string>> got;
-  got.reserve(result.GetResults().size());
-  for (const auto &res : result.GetResults()) {
+  got.reserve(results.size());
+  for (const auto &res : results) {
     std::vector<std::string> row;
     row.reserve(res.size());
     for (const auto &col : res) {

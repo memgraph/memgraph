@@ -5,7 +5,6 @@
 #include <experimental/optional>
 #include <future>
 #include <memory>
-#include <random>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -274,16 +273,6 @@ class CreateNode : public LogicalOperator {
     const CreateNode &self_;
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
-
-    // For random worker choosing in distributed.
-    std::mt19937 gen_{std::random_device{}()};
-    std::uniform_int_distribution<int> rand_;
-
-    /** Creates a single node locally and places it in the frame. */
-    void CreateLocally(Frame &, Context &);
-
-    /** Creates a single node on the given worker and places it in the frame. */
-    void CreateOnWorker(int worker_id, Frame &, Context &);
   };
 
   friend class boost::serialization::access;
@@ -372,12 +361,9 @@ class CreateExpand : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
 
-    /**
-     *  Helper function for getting an existing node or creating a new one.
-     *  @return The newly created or already existing node.
-     */
-    VertexAccessor &OtherVertex(Frame &frame, const SymbolTable &symbol_table,
-                                ExpressionEvaluator &evaluator);
+    /** Gets the existing node (if existing_node_ == true), or creates a new
+     * node (on the given worker) and returns it. */
+    VertexAccessor &OtherVertex(int worker_id, Frame &frame, Context &context);
 
     /**
      * Helper function for creating an edge and adding it

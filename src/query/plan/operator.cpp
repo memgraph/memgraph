@@ -4,6 +4,7 @@
 #include <future>
 #include <limits>
 #include <queue>
+#include <random>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -102,6 +103,65 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input,
       node_atom_(node_atom),
       on_random_worker_(on_random_worker) {}
 
+namespace {
+
+// Returns a random worker id. Worker ID is obtained from the Db.
+int RandomWorkerId(database::GraphDb &db) {
+  thread_local std::mt19937 gen_{std::random_device{}()};
+  thread_local std::uniform_int_distribution<int> rand_;
+
+  auto worker_ids = db.GetWorkerIds();
+  return worker_ids[rand_(gen_) % worker_ids.size()];
+}
+
+// Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
+// frame.
+VertexAccessor &CreateLocalVertex(NodeAtom *node_atom, Frame &frame,
+                                  Context &context) {
+  auto &dba = context.db_accessor_;
+  auto new_node = dba.InsertVertex();
+  for (auto label : node_atom->labels_) new_node.add_label(label);
+
+  // Evaluator should use the latest accessors, as modified in this query, when
+  // setting properties on new nodes.
+  ExpressionEvaluator evaluator(frame, context.parameters_,
+                                context.symbol_table_, dba, GraphView::NEW);
+  for (auto &kv : node_atom->properties_)
+    PropsSetChecked(new_node, kv.first.second, kv.second->Accept(evaluator));
+  frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
+  return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
+}
+
+// Creates a vertex on the GraphDb with the given worker_id. Can be this worker.
+VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
+                                     Frame &frame, Context &context) {
+  auto &dba = context.db_accessor_;
+
+  if (worker_id == dba.db().WorkerId())
+    return CreateLocalVertex(node_atom, frame, context);
+
+  std::unordered_map<storage::Property, query::TypedValue> properties;
+
+  // Evaluator should use the latest accessors, as modified in this query, when
+  // setting properties on new nodes.
+  ExpressionEvaluator evaluator(frame, context.parameters_,
+                                context.symbol_table_, dba, GraphView::NEW);
+  for (auto &kv : node_atom->properties_) {
+    auto value = kv.second->Accept(evaluator);
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                  value.type());
+    }
+    properties.emplace(kv.first.second, std::move(value));
+  }
+
+  auto new_node =
+      dba.InsertVertexIntoRemote(worker_id, node_atom->labels_, properties);
+  frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
+  return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
+}
+}  // namespace
+
 ACCEPT_WITH_INPUT(CreateNode)
 
 std::unique_ptr<Cursor> CreateNode::MakeCursor(
@@ -123,15 +183,10 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self,
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
   if (input_cursor_->Pull(frame, context)) {
     if (self_.on_random_worker_) {
-      auto worker_ids = context.db_accessor_.db().GetWorkerIds();
-      auto worker_id = worker_ids[rand_(gen_) % worker_ids.size()];
-      if (worker_id == context.db_accessor_.db().WorkerId()) {
-        CreateLocally(frame, context);
-      } else {
-        CreateOnWorker(worker_id, frame, context);
-      }
+      CreateVertexOnWorker(RandomWorkerId(db_.db()), self_.node_atom_, frame,
+                           context);
     } else {
-      CreateLocally(frame, context);
+      CreateLocalVertex(self_.node_atom_, frame, context);
     }
     return true;
   }
@@ -139,43 +194,6 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
 }
 
 void CreateNode::CreateNodeCursor::Reset() { input_cursor_->Reset(); }
-
-void CreateNode::CreateNodeCursor::CreateLocally(Frame &frame,
-                                                 Context &context) {
-  auto new_node = db_.InsertVertex();
-  for (auto label : self_.node_atom_->labels_) new_node.add_label(label);
-
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, context.parameters_,
-                                context.symbol_table_, db_, GraphView::NEW);
-  for (auto &kv : self_.node_atom_->properties_)
-    PropsSetChecked(new_node, kv.first.second, kv.second->Accept(evaluator));
-  frame[context.symbol_table_.at(*self_.node_atom_->identifier_)] = new_node;
-}
-
-void CreateNode::CreateNodeCursor::CreateOnWorker(int worker_id, Frame &frame,
-                                                  Context &context) {
-  std::unordered_map<storage::Property, query::TypedValue> properties;
-
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, context.parameters_,
-                                context.symbol_table_, db_, GraphView::NEW);
-  for (auto &kv : self_.node_atom_->properties_) {
-    auto value = kv.second->Accept(evaluator);
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                  value.type());
-    }
-    properties.emplace(kv.first.second, std::move(value));
-  }
-
-  auto new_node = context.db_accessor_.InsertVertexIntoRemote(
-      worker_id, self_.node_atom_->labels_, properties);
-
-  frame[context.symbol_table_.at(*self_.node_atom_->identifier_)] = new_node;
-}
 
 CreateExpand::CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
                            const std::shared_ptr<LogicalOperator> &input,
@@ -221,7 +239,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
   v1.SwitchNew();
 
   // get the destination vertex (possibly an existing node)
-  auto &v2 = OtherVertex(frame, context.symbol_table_, evaluator);
+  auto &v2 = OtherVertex(v1.GlobalAddress().worker_id(), frame, context);
   v2.SwitchNew();
 
   // create an edge between the two nodes
@@ -246,23 +264,15 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
 void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 
 VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
-    Frame &frame, const SymbolTable &symbol_table,
-    ExpressionEvaluator &evaluator) {
+    int worker_id, Frame &frame, Context &context) {
   if (self_.existing_node_) {
     const auto &dest_node_symbol =
-        symbol_table.at(*self_.node_atom_->identifier_);
+        context.symbol_table_.at(*self_.node_atom_->identifier_);
     TypedValue &dest_node_value = frame[dest_node_symbol];
     ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.Value<VertexAccessor>();
   } else {
-    // the node does not exist, it needs to be created
-    auto node = db_.InsertVertex();
-    for (auto label : self_.node_atom_->labels_) node.add_label(label);
-    for (auto kv : self_.node_atom_->properties_)
-      PropsSetChecked(node, kv.first.second, kv.second->Accept(evaluator));
-    auto symbol = symbol_table.at(*self_.node_atom_->identifier_);
-    frame[symbol] = node;
-    return frame[symbol].Value<VertexAccessor>();
+    return CreateVertexOnWorker(worker_id, self_.node_atom_, frame, context);
   }
 }
 
