@@ -10,6 +10,8 @@
 #include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
+#include "stats/metrics.hpp"
+#include "utils/demangle.hpp"
 
 namespace communication::rpc {
 
@@ -28,8 +30,14 @@ class Client {
                   "TRequestResponse::Request must be derived from Message");
     static_assert(std::is_base_of<Message, Res>::value,
                   "TRequestResponse::Response must be derived from Message");
-    auto response = Call(std::unique_ptr<Message>(
-        std::make_unique<Req>(std::forward<Args>(args)...)));
+    std::string request_name =
+        fmt::format("rpc.client.{}.{}", service_name_,
+                    utils::Demangle(typeid(Req).name()).value_or("unknown"));
+    std::unique_ptr<Message> response = nullptr;
+    stats::Stopwatch(request_name, [&] {
+      response = Call(std::unique_ptr<Message>(
+          std::make_unique<Req>(std::forward<Args>(args)...)));
+    });
     auto *real_response = dynamic_cast<Res *>(response.get());
     if (!real_response && response) {
       // Since message_id was checked in private Call function, this means

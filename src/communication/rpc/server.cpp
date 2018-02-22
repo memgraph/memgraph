@@ -7,6 +7,7 @@
 
 #include "communication/rpc/server.hpp"
 #include "stats/metrics.hpp"
+#include "utils/demangle.hpp"
 
 namespace communication::rpc {
 
@@ -72,10 +73,12 @@ Server::Server(System &system, const std::string &service_name,
         auto it = callbacks_accessor.find(message->type_index());
         if (it == callbacks_accessor.end()) continue;
 
-        auto req_name = RequestName(service_name, message->type_index());
+        auto request_name = fmt::format(
+            "rpc.server.{}.{}", service_name,
+            utils::Demangle(message->type_index().name()).value_or("unknown"));
         std::unique_ptr<Message> response = nullptr;
 
-        stats::Stopwatch(req_name,
+        stats::Stopwatch(request_name,
                          [&] { response = it->second(*(message.get())); });
         SendMessage(*socket, message_id, response);
       }
