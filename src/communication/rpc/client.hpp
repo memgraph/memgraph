@@ -3,6 +3,7 @@
 #include <experimental/optional>
 #include <memory>
 #include <mutex>
+#include <random>
 
 #include <glog/logging.h>
 
@@ -62,6 +63,11 @@ class Client {
   Buffer buffer_;
 
   std::mutex mutex_;
+
+  // Random generator for simulated network latency (enable with a flag).
+  // Distribution parameters are rule-of-thumb chosen.
+  std::mt19937 gen_{std::random_device{}()};
+  std::lognormal_distribution<> rand_{0.0, 1.11};
 };
 
 }  // namespace communication::rpc

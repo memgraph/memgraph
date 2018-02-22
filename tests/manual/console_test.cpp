@@ -10,6 +10,8 @@
 #include "query/interpreter.hpp"
 #include "utils/random_graph_generator.hpp"
 
+DECLARE_int32(min_log_level);
+
 /** A graph-generation progress reporter */
 class ProgressReporter {
  public:
@@ -63,6 +65,8 @@ void random_generate(database::GraphDb &db, int64_t node_count,
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  FLAGS_min_log_level = 1000;
+  google::InitGoogleLogging(argv[0]);
 
   // parse the first cmd line argument as the count of nodes to randomly create
   int node_count = argc > 1 ? std::stoi(argv[1]) : 0;

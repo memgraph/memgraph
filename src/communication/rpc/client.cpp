@@ -1,11 +1,19 @@
+#include <chrono>
+#include <thread>
+
 #include "boost/archive/binary_iarchive.hpp"
 #include "boost/archive/binary_oarchive.hpp"
 #include "boost/serialization/access.hpp"
 #include "boost/serialization/base_object.hpp"
 #include "boost/serialization/export.hpp"
 #include "boost/serialization/unique_ptr.hpp"
+#include "gflags/gflags.h"
 
 #include "communication/rpc/client.hpp"
+
+DEFINE_HIDDEN_bool(rpc_random_latency, false,
+                   "If a random wait should happen on each RPC call, to "
+                   "simulate network latency.");
 
 namespace communication::rpc {
 
@@ -13,6 +21,11 @@ Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
 
 std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
   std::lock_guard<std::mutex> guard(mutex_);
+
+  if (FLAGS_rpc_random_latency) {
+    auto microseconds = (int)(1000 * rand_(gen_));
+    std::this_thread::sleep_for(std::chrono::microseconds(microseconds));
+  }
 
   // Check if the connection is broken (if we haven't used the client for a
   // long time the server could have died).
