@@ -200,6 +200,9 @@ template <typename TRecord>
 void RecordAccessor<TRecord>::ProcessDelta(
     const database::StateDelta &delta) const {
   auto &dba = db_accessor();
+  // We need to reconstruct the record as in the meantime some local update
+  // have updated it.
+  Reconstruct();
   // Apply the delta both on local and remote data. We need to see the changes
   // we make to remote data, even if it's not applied immediately.
   auto &updated = update();

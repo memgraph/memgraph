@@ -128,6 +128,35 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithData) {
   }
 }
 
+// Checks if expiring a local record for a local update before applying a remote
+// update delta causes a problem
+TEST_F(DistributedGraphDbTest, UpdateVertexRemoteAndLocal) {
+  gid::Gid gid;
+  storage::Label l1;
+  storage::Label l2;
+  {
+    database::GraphDbAccessor dba{worker(1)};
+    auto v = dba.InsertVertex();
+    gid = v.gid();
+    l1 = dba.Label("label1");
+    l2 = dba.Label("label2");
+    dba.Commit();
+  }
+  {
+    database::GraphDbAccessor dba0{master()};
+    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+    auto v_local = dba1.FindVertexChecked(gid, false);
+    auto v_remote = VertexAccessor(storage::VertexAddress(gid, 1), dba0);
+
+    v_remote.add_label(l2);
+    v_local.add_label(l1);
+
+    auto result =
+        worker(1).remote_updates_server().Apply(dba0.transaction_id());
+    EXPECT_EQ(result, distributed::RemoteUpdateResult::DONE);
+  }
+}
+
 class DistributedEdgeCreateTest : public DistributedGraphDbTest {
  protected:
   storage::VertexAddress w1_a;
