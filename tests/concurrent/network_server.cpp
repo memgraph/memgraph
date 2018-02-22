@@ -21,7 +21,7 @@ TEST(Network, Server) {
   // initialize server
   TestData session_data;
   int N = (std::thread::hardware_concurrency() + 1) / 2;
-  ServerT server(endpoint, session_data, N);
+  ServerT server(endpoint, session_data, false, N);
 
   const auto &ep = server.endpoint();
   // start clients

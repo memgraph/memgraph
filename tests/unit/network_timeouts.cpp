@@ -31,7 +31,7 @@ class RunningServer {
   database::SingleNode db_;
   SessionData session_data_{db_};
   Endpoint endpoint_{"127.0.0.1", 0};
-  ServerT server_{endpoint_, session_data_, 1};
+  ServerT server_{endpoint_, session_data_, true, 1};
 };
 
 class TestClient : public ClientT {
@@ -48,7 +48,7 @@ class TestClient : public ClientT {
 
 TEST(NetworkTimeouts, InactiveSession) {
   FLAGS_query_execution_time_sec = 60;
-  FLAGS_session_inactivity_timeout = 1;
+  FLAGS_session_inactivity_timeout = 2;
   RunningServer rs;
 
   TestClient client(rs.server_.endpoint());
@@ -68,12 +68,12 @@ TEST(NetworkTimeouts, InactiveSession) {
   client.Execute("RETURN 1", {});
 
   // After sleep, session should have timed out.
-  std::this_thread::sleep_for(1500ms);
+  std::this_thread::sleep_for(3500ms);
   EXPECT_THROW(client.Execute("RETURN 1", {}), ClientException);
 }
 
 TEST(NetworkTimeouts, TimeoutInMultiCommandTransaction) {
-  FLAGS_query_execution_time_sec = 1;
+  FLAGS_query_execution_time_sec = 2;
   FLAGS_session_inactivity_timeout = 60;
   RunningServer rs;
 
@@ -88,7 +88,7 @@ TEST(NetworkTimeouts, TimeoutInMultiCommandTransaction) {
   client.Execute("RETURN 1", {});
 
   // Session shouldn't be alive anymore.
-  std::this_thread::sleep_for(2s);
+  std::this_thread::sleep_for(4s);
   EXPECT_THROW(client.Execute("RETURN 1", {}), ClientException);
 }
 

@@ -30,7 +30,6 @@ class TestSession {
     event_.data.ptr = this;
   }
 
-  bool Alive() const { return socket_.IsOpen(); }
   bool TimedOut() const { return false; }
 
   int Id() const { return socket_.fd(); }
@@ -52,11 +51,6 @@ class TestSession {
   io::network::StreamBuffer Allocate() { return buffer_.Allocate(); }
 
   void Written(size_t len) { buffer_.Written(len); }
-
-  void Close() {
-    DLOG(INFO) << "Close session!";
-    this->socket_.Close();
-  }
 
   Socket &socket() { return socket_; }
 

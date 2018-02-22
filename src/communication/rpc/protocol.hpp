@@ -42,11 +42,6 @@ class Session {
   int Id() const { return socket_->fd(); }
 
   /**
-   * Returns the protocol alive state
-   */
-  bool Alive() const;
-
-  /**
    * Executes the protocol after data has been read into the buffer.
    * Goes through the protocol states in order to execute commands from the
    * client.
@@ -71,11 +66,6 @@ class Session {
 
   bool TimedOut() { return false; }
 
-  /**
-   * Closes the session (client socket).
-   */
-  void Close();
-
   Socket &socket() { return *socket_; }
 
   void RefreshLastEventTime(
@@ -93,7 +83,6 @@ class Session {
   std::string service_name_;
   bool handshake_done_{false};
 
-  bool alive_{true};
   Buffer buffer_;
 };
 

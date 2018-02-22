@@ -13,7 +13,7 @@ namespace communication::rpc {
 
 System::System(const io::network::Endpoint &endpoint,
                const size_t workers_count)
-    : server_(endpoint, *this, workers_count) {}
+    : server_(endpoint, *this, false, workers_count) {}
 
 System::~System() {}
 

@@ -19,11 +19,10 @@ TEST(Network, SessionLeak) {
 
   // initialize listen socket
   Endpoint endpoint(interface, 0);
-  std::cout << endpoint << std::endl;
 
   // initialize server
   TestData session_data;
-  ServerT server(endpoint, session_data, 2);
+  ServerT server(endpoint, session_data, false, 2);
 
   // start clients
   int N = 50;

@@ -193,8 +193,7 @@ std::experimental::optional<Socket> Socket::Accept() {
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more,
-                   const std::function<bool()> &keep_retrying) {
+bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   int flags = MSG_NOSIGNAL | (have_more ? MSG_MORE : 0);
@@ -205,12 +204,8 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more,
         // Terminal error, return failure.
         return false;
       }
-      // TODO: This can still cause timed out session to continue for a very
-      // long time. For example if timeout on send is 1 second and after every
-      // sencond we succeed in writing only one byte that this function can
-      // block for len seconds. Change semantics of keep_retrying function so
-      // that this check can be done in while loop even if send succeeds.
-      if (!keep_retrying()) return false;
+      // Non-fatal error, retry.
+      continue;
     } else {
       len -= written;
       data += written;
@@ -219,13 +214,12 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more,
   return true;
 }
 
-bool Socket::Write(const std::string &s, bool have_more,
-                   const std::function<bool()> &keep_retrying) {
-  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more,
-               keep_retrying);
+bool Socket::Write(const std::string &s, bool have_more) {
+  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(),
+               have_more);
 }
 
-int Socket::Read(void *buffer, size_t len) {
-  return read(socket_, buffer, len);
+int Socket::Read(void *buffer, size_t len, bool nonblock) {
+  return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
 }  // namespace io::network

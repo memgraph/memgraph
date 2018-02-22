@@ -1,5 +1,7 @@
 #pragma once
 
+#include <thread>
+
 #include "glog/logging.h"
 
 #include "communication/bolt/v1/constants.hpp"
@@ -17,7 +19,9 @@
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
 #include "query/interpreter.hpp"
+#include "threading/sync/spinlock.hpp"
 #include "transactions/transaction.hpp"
+#include "utils/exceptions.hpp"
 
 DECLARE_int32(session_inactivity_timeout);
 
@@ -31,6 +35,16 @@ struct SessionData {
 };
 
 /**
+ * Bolt Session Exception
+ *
+ * Used to indicate that something went wrong during the session execution.
+ */
+class SessionException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
+
+/**
  * Bolt Session
  *
  * This class is responsible for handling a single client connection.
@@ -40,25 +54,7 @@ struct SessionData {
 template <typename TSocket>
 class Session {
  public:
-  // Wrapper around socket that checks if session has timed out on write
-  // failures, used in encoder buffer.
-  class TimeoutSocket {
-   public:
-    explicit TimeoutSocket(Session &session) : session_(session) {}
-
-    bool Write(const uint8_t *data, size_t len) {
-      // The have_more flag is hardcoded to false here because the bolt data
-      // is internally buffered and doesn't need to be buffered by the kernel.
-      return session_.socket_.Write(data, len, false,
-                                    [this] { return !session_.TimedOut(); });
-    }
-
-   private:
-    Session &session_;
-  };
-
-  using ResultStreamT =
-      ResultStream<Encoder<ChunkedEncoderBuffer<TimeoutSocket>>>;
+  using ResultStreamT = ResultStream<Encoder<ChunkedEncoderBuffer<TSocket>>>;
   using StreamBuffer = io::network::StreamBuffer;
 
   Session(TSocket &&socket, SessionData &data)
@@ -67,8 +63,9 @@ class Session {
         interpreter_(data.interpreter) {}
 
   ~Session() {
-    DCHECK(!db_accessor_)
-        << "Transaction should have already be closed in Close";
+    if (db_accessor_) {
+      Abort();
+    }
   }
 
   /**
@@ -158,24 +155,17 @@ class Session {
    * Returns true if session has timed out. Session times out if there was no
    * activity in FLAGS_sessions_inactivity_timeout seconds or if there is a
    * active transaction with shoul_abort flag set to true.
+   * This function must be thread safe because this function and
+   * `RefreshLastEventTime` are called from different threads in the
+   * network stack.
    */
-  bool TimedOut() const {
+  bool TimedOut() {
+    std::unique_lock<SpinLock> guard(lock_);
     return db_accessor_
                ? db_accessor_->should_abort()
                : last_event_time_ + std::chrono::seconds(
                                         FLAGS_session_inactivity_timeout) <
                      std::chrono::steady_clock::now();
-  }
-
-  /**
-   * Closes the session (client socket).
-   */
-  void Close() {
-    DLOG(INFO) << "Closing session";
-    if (db_accessor_) {
-      Abort();
-    }
-    this->socket_.Close();
   }
 
   /**
@@ -198,9 +188,16 @@ class Session {
 
   TSocket &socket() { return socket_; }
 
+  /**
+   * Function that is called by the network stack to set the last event time.
+   * It is used to determine whether the session has timed out.
+   * This function must be thread safe because this function and
+   * `TimedOut` are called from different threads in the network stack.
+   */
   void RefreshLastEventTime(
       const std::chrono::time_point<std::chrono::steady_clock>
           &last_event_time) {
+    std::unique_lock<SpinLock> guard(lock_);
     last_event_time_ = last_event_time;
   }
 
@@ -210,9 +207,8 @@ class Session {
   database::MasterBase &db_;
   query::Interpreter &interpreter_;
 
-  TimeoutSocket timeout_socket_{*this};
-  ChunkedEncoderBuffer<TimeoutSocket> encoder_buffer_{timeout_socket_};
-  Encoder<ChunkedEncoderBuffer<TimeoutSocket>> encoder_{encoder_buffer_};
+  ChunkedEncoderBuffer<TSocket> encoder_buffer_{socket_};
+  Encoder<ChunkedEncoderBuffer<TSocket>> encoder_{encoder_buffer_};
   ResultStreamT output_stream_{encoder_};
 
   Buffer<> buffer_;
@@ -224,9 +220,11 @@ class Session {
   // GraphDbAccessor of active transaction in the session, can be null if
   // there is no associated transaction.
   std::unique_ptr<database::GraphDbAccessor> db_accessor_;
-  // Time of the last event.
+
+  // Time of the last event and associated lock.
   std::chrono::time_point<std::chrono::steady_clock> last_event_time_ =
       std::chrono::steady_clock::now();
+  SpinLock lock_;
 
  private:
   void ClientFailureInvalidData() {
@@ -235,10 +233,17 @@ class Session {
     // We don't care about the return status because this is called when we
     // are about to close the connection to the client.
     encoder_buffer_.Clear();
-    encoder_.MessageFailure({{"code", "Memgraph.InvalidData"},
-                             {"message", "The client has sent invalid data!"}});
-    // Close the connection.
-    Close();
+    encoder_.MessageFailure({{"code", "Memgraph.ExecutionException"},
+                             {"message",
+                              "Something went wrong while executing the query! "
+                              "Check the server logs for more details."}});
+    // Throw an exception to indicate that something went wrong with execution
+    // of the session to trigger session cleanup and socket close.
+    if (TimedOut()) {
+      throw SessionException("The session has timed out!");
+    } else {
+      throw SessionException("The client has sent invalid data!");
+    }
   }
 };
 }  // namespace communication::bolt

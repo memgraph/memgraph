@@ -25,7 +25,7 @@ State StateHandshakeRun(TSession &session) {
   // make sense to check which version the client prefers this will change in
   // the future.
 
-  if (!session.timeout_socket_.Write(kProtocol, sizeof(kProtocol))) {
+  if (!session.socket_.Write(kProtocol, sizeof(kProtocol))) {
     DLOG(WARNING) << "Couldn't write handshake response!";
     return State::Close;
   }

@@ -132,23 +132,13 @@ class Socket {
    * @param len length of char* or uint8_t* data
    * @param have_more set to true if you plan to send more data to allow the
    * kernel to buffer the data instead of immediately sending it out
-   * @param keep_retrying while function executes to true socket will retry to
-   * write data if nonterminal error occurred on socket (EAGAIN, EWOULDBLOCK,
-   * EINTR)... useful if socket is in nonblocking mode or timeout is set on a
-   * socket. By default Write doesn't retry if any error occurrs.
-   *
-   * TODO: Logic for retrying can be in derived class or in a wrapper of this
-   * class, unfortunately from current return value we don't know what error
-   * occured nor how much data was written.
    *
    * @return write success status:
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false,
-             const std::function<bool()> &keep_retrying = [] { return false; });
-  bool Write(const std::string &s, bool have_more = false,
-             const std::function<bool()> &keep_retrying = [] { return false; });
+  bool Write(const uint8_t *data, size_t len, bool have_more = false);
+  bool Write(const std::string &s, bool have_more = false);
 
   /**
    * Read data from the socket.
@@ -156,17 +146,14 @@ class Socket {
    *
    * @param buffer pointer to the read buffer
    * @param len length of the read buffer
+   * @param nonblock set to true if you want a non-blocking read
    *
    * @return read success status:
    *             > 0 if data was read, means number of read bytes
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
-  // TODO: Return type should be something like StatusOr<int> which would return
-  // number of read bytes if read succeeded and error code and error message
-  // otherwise (deduced from errno). We can implement that type easily on top of
-  // std::variant once c++17 becomes available in memgraph.
-  int Read(void *buffer, size_t len);
+  int Read(void *buffer, size_t len, bool nonblock = false);
 
  private:
   Socket(int fd, const Endpoint &endpoint) : socket_(fd), endpoint_(endpoint) {}

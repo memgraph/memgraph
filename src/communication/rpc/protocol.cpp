@@ -16,8 +16,6 @@ namespace communication::rpc {
 Session::Session(Socket &&socket, System &system)
     : socket_(std::make_shared<Socket>(std::move(socket))), system_(system) {}
 
-bool Session::Alive() const { return alive_; }
-
 void Session::Execute() {
   if (!handshake_done_) {
     if (buffer_.size() < sizeof(MessageSize)) return;
@@ -58,14 +56,6 @@ void Session::Execute() {
 StreamBuffer Session::Allocate() { return buffer_.Allocate(); }
 
 void Session::Written(size_t len) { buffer_.Written(len); }
-
-void Session::Close() {
-  DLOG(INFO) << "Closing session";
-  // We explicitly close the socket here to remove the socket from the epoll
-  // event loop. The response message send will fail but that is OK and
-  // intended because the remote side closed the connection.
-  socket_.get()->Close();
-}
 
 void SendMessage(Socket &socket, uint32_t message_id,
                  std::unique_ptr<Message> &message) {

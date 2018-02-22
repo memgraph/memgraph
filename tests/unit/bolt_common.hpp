@@ -20,9 +20,6 @@ class TestSocket {
   TestSocket(TestSocket &&) = default;
   TestSocket &operator=(TestSocket &&) = default;
 
-  void Close() { socket_ = -1; }
-  bool IsOpen() { return socket_ != -1; }
-
   int id() const { return socket_; }
 
   bool Write(const uint8_t *data, size_t len, bool have_more = false,

@@ -31,8 +31,6 @@ class TestSession {
     event_.data.ptr = this;
   }
 
-  bool Alive() const { return socket_.IsOpen(); }
-
   bool TimedOut() const { return false; }
 
   int Id() const { return socket_.fd(); }
@@ -42,8 +40,6 @@ class TestSession {
   io::network::StreamBuffer Allocate() { return buffer_.Allocate(); }
 
   void Written(size_t len) { buffer_.Written(len); }
-
-  void Close() { this->socket_.Close(); }
 
   Socket &socket() { return socket_; }
 
@@ -86,7 +82,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   TestData data;
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   int Nc = N * 3;
-  communication::Server<TestSession, TestData> server(endpoint, data, N);
+  communication::Server<TestSession, TestData> server(endpoint, data, false, N);
 
   const auto &ep = server.endpoint();
   // start clients
