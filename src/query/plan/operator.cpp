@@ -1,6 +1,7 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
+#include <future>
 #include <limits>
 #include <queue>
 #include <string>
@@ -22,9 +23,10 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 
-DEFINE_HIDDEN_int32(remote_pull_sleep, 2,
+DEFINE_HIDDEN_int32(remote_pull_sleep, 1,
                     "Sleep between remote result pulling in milliseconds");
 
 // macro for the default implementation of LogicalOperator::Accept
@@ -527,33 +529,105 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
     }
   };
 
+  auto push_future_edge = [this, &frame](auto edge, auto direction) {
+    auto edge_to = std::async(std::launch::async, [edge, direction]() {
+      if (direction == EdgeAtom::Direction::IN)
+        return std::make_pair(edge, edge.from());
+      if (direction == EdgeAtom::Direction::OUT)
+        return std::make_pair(edge, edge.to());
+      LOG(FATAL) << "Must indicate exact expansion direction here";
+    });
+    future_expands_.emplace_back(
+        FutureExpand{std::move(edge_to), frame.elems()});
+  };
+
+  auto find_ready_future = [this]() {
+    return std::find_if(future_expands_.begin(), future_expands_.end(),
+                        [](const auto &future) {
+                          return utils::IsFutureReady(future.edge_to);
+                        });
+  };
+
+  auto put_future_edge_on_frame = [this, &frame](auto &future) {
+    auto edge_to = future.edge_to.get();
+    frame.elems() = future.frame_elems;
+    frame[self_.edge_symbol_] = edge_to.first;
+    frame[self_.node_symbol_] = edge_to.second;
+  };
+
   while (true) {
     if (db_.should_abort()) throw HintedAbortError();
+    // Try to get any remote edges we may have available first. If we yielded
+    // all of the local edges first, we may accumulate large amounts of future
+    // edges.
+    {
+      auto future_it = find_ready_future();
+      if (future_it != future_expands_.end()) {
+        // Backup the current frame (if we haven't done so already) before
+        // putting the future edge.
+        if (last_frame_.empty()) last_frame_ = frame.elems();
+        put_future_edge_on_frame(*future_it);
+        // Erase the future and return true to yield the result.
+        future_expands_.erase(future_it);
+        return true;
+      }
+    }
+    // In case we have replaced the frame with the one for a future edge,
+    // restore it.
+    if (!last_frame_.empty()) {
+      frame.elems() = last_frame_;
+      last_frame_.clear();
+    }
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
-      EdgeAccessor edge = *(*in_edges_it_)++;
-      frame[self_.edge_symbol_] = edge;
-      pull_node(edge, EdgeAtom::Direction::IN);
-      return true;
+      auto edge = *(*in_edges_it_)++;
+      if (edge.address().is_local() || self_.existing_node_) {
+        frame[self_.edge_symbol_] = edge;
+        pull_node(edge, EdgeAtom::Direction::IN);
+        return true;
+      } else {
+        push_future_edge(edge, EdgeAtom::Direction::IN);
+        continue;
+      }
     }
 
     // attempt to get a value from the outgoing edges
     if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
-      EdgeAccessor edge = *(*out_edges_it_)++;
+      auto edge = *(*out_edges_it_)++;
       // when expanding in EdgeAtom::Direction::BOTH directions
       // we should do only one expansion for cycles, and it was
       // already done in the block above
       if (self_.direction_ == EdgeAtom::Direction::BOTH && edge.is_cycle())
         continue;
-      frame[self_.edge_symbol_] = edge;
-      pull_node(edge, EdgeAtom::Direction::OUT);
-      return true;
+      if (edge.address().is_local() || self_.existing_node_) {
+        frame[self_.edge_symbol_] = edge;
+        pull_node(edge, EdgeAtom::Direction::OUT);
+        return true;
+      } else {
+        push_future_edge(edge, EdgeAtom::Direction::OUT);
+        continue;
+      }
     }
 
     // if we are here, either the edges have not been initialized,
     // or they have been exhausted. attempt to initialize the edges,
     // if the input is exhausted
-    if (!InitEdges(frame, context)) return false;
+    if (!InitEdges(frame, context)) {
+      // We are done with local and remote edges so return false.
+      if (future_expands_.empty()) return false;
+      // We still need to yield remote edges.
+      auto future_it = find_ready_future();
+      if (future_it != future_expands_.end()) {
+        put_future_edge_on_frame(*future_it);
+        // Erase the future and return true to yield the result.
+        future_expands_.erase(future_it);
+        return true;
+      }
+      // We are still waiting for future edges, so sleep and fallthrough to
+      // continue the loop.
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(FLAGS_remote_pull_sleep));
+    }
 
     // we have re-initialized the edges, continue with the loop
   }
@@ -565,6 +639,8 @@ void Expand::ExpandCursor::Reset() {
   in_edges_it_ = std::experimental::nullopt;
   out_edges_ = std::experimental::nullopt;
   out_edges_it_ = std::experimental::nullopt;
+  future_expands_.clear();
+  last_frame_.clear();
 }
 
 namespace {
@@ -1130,8 +1206,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                   self_.graph_view_);
     // For the given (vertex, edge, vertex) tuple checks if they satisfy the
     // "where" condition. if so, places them in the priority queue.
-    auto expand_pair = [this, &evaluator, &frame](
-        VertexAccessor from, EdgeAccessor edge, VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame](VertexAccessor from,
+                                                  EdgeAccessor edge,
+                                                  VertexAccessor vertex) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -2953,7 +3030,7 @@ bool PullRemote::PullRemoteCursor::Pull(Frame &frame, Context &context) {
       if (found_it == remote_pulls_.end()) continue;
 
       auto &remote_pull = found_it->second;
-      if (!remote_pull.valid()) continue;
+      if (!utils::IsFutureReady(remote_pull)) continue;
 
       auto remote_results = remote_pull.get();
       switch (remote_results.pull_state) {

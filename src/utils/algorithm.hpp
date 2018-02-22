@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
+#include <future>
 #include <string>
 #include <utility>
 
@@ -122,4 +124,16 @@ class Iterable {
   TIterator begin_;
   TIterator end_;
 };
+
+/**
+ * Returns true if the future has the result available.
+ * NOTE: The behaviour is undefined if future isn't valid, i.e.
+ * `future.valid() == false`.
+ */
+template <typename T>
+bool IsFutureReady(const std::future<T> &future) {
+  auto status = future.wait_for(std::chrono::seconds(0));
+  return status == std::future_status::ready;
+}
+
 }  // namespace utils

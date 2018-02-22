@@ -3,6 +3,7 @@
 #pragma once
 
 #include <experimental/optional>
+#include <future>
 #include <memory>
 #include <random>
 #include <unordered_map>
@@ -26,8 +27,6 @@
 #include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
-
-DECLARE_int32(remote_pull_sleep);
 
 namespace database {
 class GraphDbAccessor;
@@ -779,7 +778,7 @@ class ExpandCommon {
  * Filtering on existing means that for a pattern that references
  * an already declared node or edge (for example in
  * MATCH (a) MATCH (a)--(b)),
- * only expansions that match defined equalities are succesfully
+ * only expansions that match defined equalities are successfully
  * pulled.
  */
 class Expand : public LogicalOperator, public ExpandCommon {
@@ -802,6 +801,11 @@ class Expand : public LogicalOperator, public ExpandCommon {
     void Reset() override;
 
    private:
+    struct FutureExpand {
+      std::future<std::pair<EdgeAccessor, VertexAccessor>> edge_to;
+      std::vector<TypedValue> frame_elems;
+    };
+
     const Expand &self_;
     const std::unique_ptr<Cursor> input_cursor_;
     database::GraphDbAccessor &db_;
@@ -813,6 +817,11 @@ class Expand : public LogicalOperator, public ExpandCommon {
     std::experimental::optional<InEdgeIteratorT> in_edges_it_;
     std::experimental::optional<OutEdgeT> out_edges_;
     std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
+    // Edges which are being asynchronously fetched from a remote worker.
+    std::vector<FutureExpand> future_expands_;
+    // Stores the last frame before we yield the frame for future edge. It needs
+    // to be restored afterward.
+    std::vector<TypedValue> last_frame_;
 
     bool InitEdges(Frame &, Context &);
   };
