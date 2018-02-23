@@ -146,7 +146,7 @@ class LogicalOperator
    * database.
    */
   virtual std::unique_ptr<Cursor> MakeCursor(
-      database::GraphDbAccessor &db) const = 0;
+      database::GraphDbAccessor &) const = 0;
 
   /** Return @c Symbol vector where the query results will be stored.
    *
@@ -179,6 +179,24 @@ class LogicalOperator
    */
   virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const = 0;
 
+  /**
+   * Returns true if the operator takes only one input operator.
+   * NOTE: When this method returns true, you may use `input` and `set_input`
+   * methods.
+   */
+  virtual bool HasSingleInput() const = 0;
+
+  /**
+   * Returns the input operator if it has any.
+   * NOTE: This should only be called if `HasSingleInput() == true`.
+   */
+  virtual std::shared_ptr<LogicalOperator> input() const = 0;
+  /**
+   * Set a different input on this operator.
+   * NOTE: This should only be called if `HasSingleInput() == true`.
+   */
+  virtual void set_input(std::shared_ptr<LogicalOperator>) = 0;
+
  private:
   friend class boost::serialization::access;
 
@@ -207,6 +225,10 @@ class Once : public LogicalOperator {
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
     return {};
   }
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
 
  private:
   class OnceCursor : public Cursor {
@@ -252,8 +274,12 @@ class CreateNode : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   auto on_random_worker() const { return on_random_worker_; }
   void set_on_random_worker(bool v) { on_random_worker_ = v; }
 
@@ -332,8 +358,11 @@ class CreateExpand : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   // info on what's getting expanded
@@ -429,8 +458,12 @@ class ScanAll : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   auto output_symbol() const { return output_symbol_; }
   auto graph_view() const { return graph_view_; }
 
@@ -781,6 +814,12 @@ class Expand : public LogicalOperator, public ExpandCommon {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   class ExpandCursor : public Cursor {
    public:
     ExpandCursor(const Expand &self, database::GraphDbAccessor &db);
@@ -913,6 +952,12 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   auto type() const { return type_; }
 
  private:
@@ -978,7 +1023,12 @@ class ConstructNamedPath : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  const auto &input() const { return input_; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   const auto &path_symbol() const { return path_symbol_; }
   const auto &path_elements() const { return path_elements_; }
 
@@ -1016,6 +1066,12 @@ class Filter : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1075,9 +1131,13 @@ class Produce : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   const std::vector<NamedExpression *> &named_expressions();
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1130,8 +1190,11 @@ class Delete : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1191,8 +1254,11 @@ class SetProperty : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1265,8 +1331,11 @@ class SetProperties : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1335,8 +1404,11 @@ class SetLabels : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1380,8 +1452,11 @@ class RemoveProperty : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1436,8 +1511,11 @@ class RemoveLabels : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1501,6 +1579,12 @@ class ExpandUniquenessFilter : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1568,7 +1652,12 @@ class Accumulate : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   const auto &symbols() const { return symbols_; };
   auto advance_command() const { return advance_command_; }
 
@@ -1671,11 +1760,15 @@ class Aggregate : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   const auto &aggregations() const { return aggregations_; }
   const auto &group_by() const { return group_by_; }
   const auto &remember() const { return remember_; }
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1808,8 +1901,11 @@ class Skip : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1876,8 +1972,11 @@ class Limit : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -1942,9 +2041,15 @@ class OrderBy : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
+  const auto &order_by() const { return order_by_; }
+  const auto &compare() const { return compare_; }
   const auto &output_symbols() const { return output_symbols_; }
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -2021,7 +2126,15 @@ class Merge : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
+  // TODO: Consider whether we want to treat Merge as having single input. It
+  // makes sense that we do, because other branches are executed depending on
+  // the input.
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   auto merge_match() const { return merge_match_; }
   auto merge_create() const { return merge_create_; }
 
@@ -2080,7 +2193,13 @@ class Optional : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
+  // TODO: Consider whether we want to treat Optional as having single input.
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   auto optional() const { return optional_; }
   const auto &optional_symbols() const { return optional_symbols_; }
 
@@ -2134,6 +2253,12 @@ class Unwind : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
   Expression *input_expression() const { return input_expression_; }
 
@@ -2199,8 +2324,11 @@ class Distinct : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) { input_ = input; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
 
  private:
   std::shared_ptr<LogicalOperator> input_;
@@ -2255,6 +2383,10 @@ class CreateIndex : public LogicalOperator {
     return {};
   }
 
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
+
   auto label() const { return label_; }
   auto property() const { return property_; }
 
@@ -2293,6 +2425,10 @@ class Union : public LogicalOperator {
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
 
  private:
   std::shared_ptr<LogicalOperator> left_op_, right_op_;
@@ -2343,7 +2479,12 @@ class PullRemote : public LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   const auto &symbols() const { return symbols_; }
   auto plan_id() const { return plan_id_; }
 
@@ -2401,7 +2542,12 @@ class Synchronize : public LogicalOperator {
     return input_->OutputSymbols(symbol_table);
   }
 
-  auto input() const { return input_; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   auto pull_remote() const { return pull_remote_; }
   auto advance_command() const { return advance_command_; }
 
@@ -2439,6 +2585,10 @@ class Cartesian : public LogicalOperator {
   std::unique_ptr<Cursor> MakeCursor(
       database::GraphDbAccessor &db) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override;
+  std::shared_ptr<LogicalOperator> input() const override;
+  void set_input(std::shared_ptr<LogicalOperator>) override;
 
   auto left_op() const { return left_op_; }
   auto left_symbols() const { return left_symbols_; }
@@ -2485,11 +2635,16 @@ class PullRemoteOrderBy : public LogicalOperator {
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
-  auto input() const { return input_; }
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override {
+    input_ = input;
+  }
+
   auto plan_id() const { return plan_id_; }
   const auto &symbols() const { return symbols_; }
   auto order_by() const { return order_by_; }
-  auto compare() const { return compare_; }
+  const auto &compare() const { return compare_; }
 
  private:
   std::shared_ptr<LogicalOperator> input_;

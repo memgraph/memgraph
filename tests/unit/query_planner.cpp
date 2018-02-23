@@ -125,6 +125,8 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
     CheckOp(op);
     return false;
   }
+
+  PRE_VISIT(PullRemoteOrderBy);
 #undef PRE_VISIT
 
   std::list<BaseOpChecker *> checkers_;
@@ -443,6 +445,19 @@ class ExpectCreateNode : public OpChecker<CreateNode> {
 
  private:
   bool on_random_worker_ = false;
+};
+
+class ExpectPullRemoteOrderBy : public OpChecker<PullRemoteOrderBy> {
+ public:
+  ExpectPullRemoteOrderBy(const std::vector<Symbol> symbols)
+      : symbols_(symbols) {}
+
+  void ExpectOp(PullRemoteOrderBy &op, const SymbolTable &) override {
+    EXPECT_THAT(op.symbols(), testing::UnorderedElementsAreArray(symbols_));
+  }
+
+ private:
+  std::vector<Symbol> symbols_;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -1253,23 +1268,30 @@ TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
 }
 
 TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
-  // Test MATCH (n) RETURN n ORDER BY n.prop
+  // Test MATCH (n) RETURN n AS m ORDER BY n.prop
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   AstTreeStorage storage;
-  auto *as_n = NEXPR("n", IDENT("n"));
-  auto ret = RETURN(as_n, ORDER_BY(PROPERTY_LOOKUP("n", prop)));
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ret));
+  auto *as_m = NEXPR("m", IDENT("n"));
+  auto *node_n = NODE("n");
+  auto ret = RETURN(as_m, ORDER_BY(PROPERTY_LOOKUP("n", prop)));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
             ExpectOrderBy());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
+  ExpectPullRemoteOrderBy pull_order_by(
+      {symbol_table.at(*as_m), symbol_table.at(*node_n->identifier_)});
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), pull, ExpectOrderBy()),
-      MakeCheckers(ExpectScanAll(), ExpectProduce()));
+      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectOrderBy(),
+                   pull_order_by),
+      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectOrderBy()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  // Even though last operator pulls and orders by `m` and `n`, we expect only
+  // `m` as the output of the query execution.
+  EXPECT_THAT(planner.plan().OutputSymbols(symbol_table),
+              testing::UnorderedElementsAre(symbol_table.at(*as_m)));
 }
 
 TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
@@ -1300,6 +1322,10 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(),
             ExpectCreateExpand(), acc, ExpectProduce(), ExpectOrderBy(),
             ExpectFilter());
+  auto expected = ExpectDistributed(MakeCheckers(
+      ExpectCreateNode(true), ExpectCreateExpand(), ExpectSynchronize(true),
+      ExpectProduce(), ExpectOrderBy(), ExpectFilter()));
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
@@ -1311,6 +1337,9 @@ TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
       RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
   auto aggr = ExpectAggregate({sum, count}, {});
   CheckPlan<TypeParam>(storage, aggr, ExpectProduce(), ExpectOrderBy());
+  auto expected =
+      ExpectDistributed(MakeCheckers(aggr, ExpectProduce(), ExpectOrderBy()));
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchMerge) {

@@ -474,7 +474,17 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
 
   PRE_VISIT(Skip);
   PRE_VISIT(Limit);
-  PRE_VISIT(OrderBy);
+
+  bool PreVisit(query::plan::OrderBy &op) override {
+    WithPrintLn([&op](auto &out) {
+      out << "* OrderBy {";
+      utils::PrintIterable(
+          out, op.output_symbols(), ", ",
+          [](auto &out, const auto &sym) { out << sym.name(); });
+      out << "}";
+    });
+    return true;
+  }
 
   bool PreVisit(query::plan::Merge &op) override {
     WithPrintLn([](auto &out) { out << "* Merge"; });
@@ -534,6 +544,22 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     Branch(*op.right_op());
     op.left_op()->Accept(*this);
     return false;
+  }
+
+  bool PreVisit(query::plan::PullRemoteOrderBy &op) override {
+    WithPrintLn([&op](auto &out) {
+      out << "* PullRemoteOrderBy {";
+      utils::PrintIterable(
+          out, op.symbols(), ", ",
+          [](auto &out, const auto &sym) { out << sym.name(); });
+      out << "}";
+    });
+
+    WithPrintLn([](auto &out) { out << "|\\"; });
+    ++depth_;
+    WithPrintLn([](auto &out) { out << "* workers"; });
+    --depth_;
+    return true;
   }
 #undef PRE_VISIT
 

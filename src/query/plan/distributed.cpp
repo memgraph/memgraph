@@ -280,8 +280,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
 
   // OrderBy is an associative operator, this means we can do ordering
-  // on workers and then merge the results on master. This requires a more
-  // involved solution, so for now treat OrderBy just like Skip.
+  // on workers and then merge the results on master.
   bool PreVisit(OrderBy &order_by) override {
     prev_ops_.push_back(&order_by);
     return true;
@@ -290,12 +289,37 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     // TODO: Associative combination of OrderBy
     if (ShouldSplit()) {
-      auto input = order_by.input();
-      auto pull_id = AddWorkerPlan(input);
-      Split(order_by,
-            std::make_shared<PullRemote>(
-                input, pull_id,
-                input->OutputSymbols(distributed_plan_.symbol_table)));
+      std::unordered_set<Symbol> pull_symbols(order_by.output_symbols().begin(),
+                                              order_by.output_symbols().end());
+      // Pull symbols need to also include those used in order by expressions.
+      // For example, `RETURN n AS m ORDER BY n.prop`, output symbols will
+      // contain `m`, while we also need to pull `n`.
+      // TODO: Consider creating a virtual symbol for expressions like `n.prop`
+      // and sending them instead. It's possible that the evaluated expression
+      // requires less network traffic than sending the value of the used symbol
+      // `n` itself.
+      for (const auto &expr : order_by.order_by()) {
+        UsedSymbolsCollector collector(distributed_plan_.symbol_table);
+        expr->Accept(collector);
+        pull_symbols.insert(collector.symbols_.begin(),
+                            collector.symbols_.end());
+      }
+      // Create a copy of OrderBy but with added symbols used in expressions, so
+      // that they can be pulled.
+      std::vector<std::pair<Ordering, Expression *>> ordering;
+      ordering.reserve(order_by.order_by().size());
+      for (int i = 0; i < order_by.order_by().size(); ++i) {
+        ordering.emplace_back(order_by.compare().ordering()[i],
+                              order_by.order_by()[i]);
+      }
+      auto worker_plan = std::make_shared<OrderBy>(
+          order_by.input(), ordering,
+          std::vector<Symbol>(pull_symbols.begin(), pull_symbols.end()));
+      auto pull_id = AddWorkerPlan(worker_plan);
+      auto merge_op = std::make_unique<PullRemoteOrderBy>(
+          worker_plan, pull_id, ordering,
+          std::vector<Symbol>(pull_symbols.begin(), pull_symbols.end()));
+      SplitOnPrevious(std::move(merge_op));
     }
     return true;
   }
@@ -487,9 +511,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
         pull_op, master_aggrs, aggr_op.group_by(), aggr_op.remember());
     // Make our master Aggregate into Produce + Aggregate
     auto master_plan = std::make_unique<Produce>(master_aggr_op, produce_exprs);
-    auto produce = dynamic_cast<Produce *>(prev_ops_.back());
-    DCHECK(produce) << "Expected Aggregate is directly below Produce";
-    Split(*produce, std::move(master_plan));
+    SplitOnPrevious(std::move(master_plan));
     return true;
   }
 
@@ -548,19 +570,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       pull_remote =
           std::make_shared<PullRemote>(nullptr, pull_id, acc.symbols());
     }
-    auto sync = std::make_shared<Synchronize>(acc.input(), pull_remote,
+    auto sync = std::make_unique<Synchronize>(acc.input(), pull_remote,
                                               acc.advance_command());
-    auto *prev_op = prev_ops_.back();
-    // Wire the previous operator (on master) into our synchronization operator.
-    // TODO: Find a better way to replace the previous operation's input than
-    // using dynamic casting.
-    if (auto *produce = dynamic_cast<Produce *>(prev_op)) {
-      Split(*produce, sync);
-    } else if (auto *aggr_op = dynamic_cast<Aggregate *>(prev_op)) {
-      Split(*aggr_op, sync);
-    } else {
-      throw utils::NotYetImplemented("distributed planning");
-    }
+    SplitOnPrevious(std::move(sync));
     needs_synchronize_ = false;
     return true;
   }
@@ -703,8 +715,21 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   template <class TOp>
   void Split(TOp &master_op, std::shared_ptr<LogicalOperator> merge_op) {
     if (on_master_) throw utils::NotYetImplemented("distributed planning");
-    master_op.set_input(merge_op);
     on_master_ = true;
+    master_op.set_input(merge_op);
+  }
+
+  void SplitOnPrevious(std::unique_ptr<LogicalOperator> merge_op) {
+    if (on_master_) throw utils::NotYetImplemented("distributed planning");
+    if (prev_ops_.empty()) {
+      distributed_plan_.master_plan = std::move(merge_op);
+      on_master_ = true;
+      return;
+    }
+    auto *master_op = prev_ops_.back();
+    if (!master_op->HasSingleInput())
+      throw utils::NotYetImplemented("distributed planning");
+    Split(*master_op, std::move(merge_op));
   }
 
   int64_t AddWorkerPlan(const std::shared_ptr<LogicalOperator> &worker_plan) {

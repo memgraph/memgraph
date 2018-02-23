@@ -40,6 +40,15 @@ DEFINE_HIDDEN_int32(remote_pull_sleep, 1,
     return visitor.PostVisit(*this);                                     \
   }
 
+#define WITHOUT_SINGLE_INPUT(class_name)                                 \
+  bool class_name::HasSingleInput() const { return false; }              \
+  std::shared_ptr<LogicalOperator> class_name::input() const {           \
+    LOG(FATAL) << "Operator " << #class_name << " has no single input!"; \
+  }                                                                      \
+  void class_name::set_input(std::shared_ptr<LogicalOperator>) {         \
+    LOG(FATAL) << "Operator " << #class_name << " has no single input!"; \
+  }
+
 namespace query::plan {
 
 namespace {
@@ -94,6 +103,8 @@ bool Once::OnceCursor::Pull(Frame &, Context &) {
 std::unique_ptr<Cursor> Once::MakeCursor(database::GraphDbAccessor &) const {
   return std::make_unique<OnceCursor>();
 }
+
+WITHOUT_SINGLE_INPUT(Once);
 
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
@@ -397,10 +408,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -2820,6 +2831,8 @@ bool CreateIndex::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.Visit(*this);
 }
 
+WITHOUT_SINGLE_INPUT(CreateIndex);
+
 class CreateIndexCursor : public Cursor {
  public:
   CreateIndexCursor(const CreateIndex &self, database::GraphDbAccessor &db)
@@ -2883,6 +2896,8 @@ std::vector<Symbol> Union::OutputSymbols(const SymbolTable &) const {
 std::vector<Symbol> Union::ModifiedSymbols(const SymbolTable &) const {
   return union_symbols_;
 }
+
+WITHOUT_SINGLE_INPUT(Union);
 
 Union::UnionCursor::UnionCursor(const Union &self,
                                 database::GraphDbAccessor &db)
@@ -2964,6 +2979,8 @@ bool Cartesian::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   }
   return visitor.PostVisit(*this);
 }
+
+WITHOUT_SINGLE_INPUT(Cartesian);
 
 PullRemoteOrderBy::PullRemoteOrderBy(
     const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,

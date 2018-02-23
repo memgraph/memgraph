@@ -49,6 +49,8 @@ class TypedValueVectorCompare {
   bool operator()(const std::vector<TypedValue> &c1,
                   const std::vector<TypedValue> &c2) const;
 
+  const auto &ordering() const { return ordering_; }
+
  private:
   std::vector<Ordering> ordering_;
 
