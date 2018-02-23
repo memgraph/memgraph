@@ -244,6 +244,7 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
     impl_->wal().Enable();
     snapshot_creator_ = std::make_unique<Scheduler>();
     snapshot_creator_->Run(
+        "Snapshot",
         std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
         [this] { MakeSnapshot(); });
   }
@@ -320,6 +321,7 @@ MasterBase::MasterBase(std::unique_ptr<impl::PrivateBase> impl)
     : PublicBase(std::move(impl)) {
   if (impl_->config_.query_execution_time_sec != -1) {
     transaction_killer_.Run(
+        "TX killer",
         std::chrono::seconds(std::max(
             1, std::min(5, impl_->config_.query_execution_time_sec / 4))),
         [this]() {

@@ -13,6 +13,7 @@
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 #include "threading/sync/spinlock.hpp"
+#include "utils/thread.hpp"
 
 namespace communication {
 
@@ -35,10 +36,12 @@ class Listener {
   static const int kMaxEvents = 1;
 
  public:
-  Listener(TSessionData &data, bool check_for_timeouts)
+  Listener(TSessionData &data, bool check_for_timeouts,
+           const std::string &service_name)
       : data_(data), alive_(true) {
     if (check_for_timeouts) {
-      thread_ = std::thread([this]() {
+      thread_ = std::thread([this, service_name]() {
+        utils::ThreadSetName(fmt::format("{} timeout", service_name));
         while (alive_) {
           {
             std::unique_lock<SpinLock> guard(lock_);

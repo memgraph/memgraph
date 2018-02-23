@@ -82,7 +82,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   TestData data;
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   int Nc = N * 3;
-  communication::Server<TestSession, TestData> server(endpoint, data, false, N);
+  communication::Server<TestSession, TestData> server(endpoint, data, false, "Test", N);
 
   const auto &ep = server.endpoint();
   // start clients

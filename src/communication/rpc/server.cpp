@@ -11,7 +11,7 @@ namespace communication::rpc {
 
 Server::Server(const io::network::Endpoint &endpoint,
                size_t workers_count)
-    : server_(endpoint, *this, false, workers_count) {}
+    : server_(endpoint, *this, false, "RPC", workers_count) {}
 
 void Server::StopProcessingCalls() {
   server_.Shutdown();

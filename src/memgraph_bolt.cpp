@@ -89,25 +89,13 @@ void InitSignalHandlers(const std::function<void()> &shutdown) {
   })) << "Unable to register SIGUSR1 handler!";
 }
 
-void StartMemWarningLogger() {
-  Scheduler mem_log_scheduler;
-  if (FLAGS_memory_warning_threshold > 0) {
-    mem_log_scheduler.Run(std::chrono::seconds(3), [] {
-      auto free_ram_mb = utils::AvailableMem() / 1024;
-      if (free_ram_mb < FLAGS_memory_warning_threshold)
-        LOG(WARNING) << "Running out of available RAM, only " << free_ram_mb
-                     << " MB left.";
-    });
-  }
-}
-
 void MasterMain() {
   google::SetUsageMessage("Memgraph distributed master");
 
   database::Master db;
   SessionData session_data{db};
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, false, FLAGS_num_workers);
+                 session_data, false, "Bolt", FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {
@@ -119,14 +107,12 @@ void MasterMain() {
   };
 
   InitSignalHandlers(shutdown);
-  StartMemWarningLogger();
   server.AwaitShutdown();
 }
 
 void WorkerMain() {
   google::SetUsageMessage("Memgraph distributed worker");
   database::Worker db;
-  StartMemWarningLogger();
   db.WaitForShutdown();
 }
 
@@ -135,7 +121,7 @@ void SingleNodeMain() {
   database::SingleNode db;
   SessionData session_data{db};
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, false, FLAGS_num_workers);
+                 session_data, false, "Bolt", FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {
@@ -146,8 +132,6 @@ void SingleNodeMain() {
     server.Shutdown();
   };
   InitSignalHandlers(shutdown);
-
-  StartMemWarningLogger();
 
   server.AwaitShutdown();
 }
@@ -177,6 +161,17 @@ int main(int argc, char **argv) {
   }
   stats::InitStatsLogging(stats_prefix);
   utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
+
+  // Start memory warning logger.
+  Scheduler mem_log_scheduler;
+  if (FLAGS_memory_warning_threshold > 0) {
+    mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
+      auto free_ram_mb = utils::AvailableMem() / 1024;
+      if (free_ram_mb < FLAGS_memory_warning_threshold)
+        LOG(WARNING) << "Running out of available RAM, only " << free_ram_mb
+                     << " MB left.";
+    });
+  }
 
   CHECK(!(FLAGS_master && FLAGS_worker))
       << "Can't run Memgraph as worker and master at the same time";

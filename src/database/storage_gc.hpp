@@ -50,7 +50,7 @@ class StorageGc {
         vertices_(storage.vertices_),
         edges_(storage.edges_) {
     if (pause_sec > 0)
-      scheduler_.Run(std::chrono::seconds(pause_sec),
+      scheduler_.Run("Storage GC", std::chrono::seconds(pause_sec),
                      [this] { CollectGarbage(); });
   }
 

@@ -26,7 +26,8 @@ WriteAheadLog::WriteAheadLog(
   if (durability_enabled) {
     CheckDurabilityDir(durability_dir);
     wal_file_.Init();
-    scheduler_.Run(std::chrono::milliseconds(FLAGS_wal_flush_interval_millis),
+    scheduler_.Run("WAL",
+                   std::chrono::milliseconds(FLAGS_wal_flush_interval_millis),
                    [this]() { wal_file_.Flush(deltas_); });
   }
 }

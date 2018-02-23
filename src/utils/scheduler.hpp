@@ -9,6 +9,8 @@
 
 #include "glog/logging.h"
 
+#include "utils/thread.hpp"
+
 /**
  * Class used to run scheduled function execution.
  */
@@ -24,14 +26,17 @@ class Scheduler {
    * @Tparam TPeriod duration in seconds between two ticks
    */
   template <typename TRep, typename TPeriod>
-  void Run(const std::chrono::duration<TRep, TPeriod> &pause,
+  void Run(const std::string &service_name,
+           const std::chrono::duration<TRep, TPeriod> &pause,
            const std::function<void()> &f) {
     DCHECK(is_working_ == false) << "Thread already running.";
     DCHECK(pause > std::chrono::seconds(0)) << "Pause is invalid.";
 
     is_working_ = true;
-    thread_ = std::thread([this, pause, f]() {
+    thread_ = std::thread([this, pause, f, service_name]() {
       auto start_time = std::chrono::system_clock::now();
+
+      utils::ThreadSetName(service_name);
 
       while (true) {
         // First wait then execute the function. We do that in that order

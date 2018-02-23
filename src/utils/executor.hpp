@@ -16,7 +16,7 @@ class Executor {
   explicit Executor(const std::chrono::duration<TRep, TPeriod> pause) {
     DCHECK(pause > std::chrono::seconds(0))
         << "Duration between executions should be reasonable";
-    scheduler_.Run(pause, std::bind(&Executor::Execute, this));
+    scheduler_.Run("Executor", pause, std::bind(&Executor::Execute, this));
   }
 
   ~Executor() {

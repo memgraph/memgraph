@@ -10,20 +10,22 @@ namespace tx {
 
 WorkerEngine::WorkerEngine(const io::network::Endpoint &endpoint)
     : rpc_client_pool_(endpoint) {
-  cache_clearing_scheduler_.Run(kCacheReleasePeriod, [this]() {
-    // Use the GC snapshot as it always has at least one member.
-    auto res = rpc_client_pool_.Call<GcSnapshotRpc>();
-    // There is a race-condition between this scheduled call and worker
-    // shutdown. It is possible that the worker has responded to the master it
-    // is shutting down, and the master is shutting down (and can't responde to
-    // RPCs). At the same time this call gets scheduled, so we get a failed RPC.
-    if (!res) {
-      LOG(WARNING) << "Transaction cache GC RPC call failed";
-    } else {
-      CHECK(!res->member.empty()) << "Recieved an empty GcSnapshot";
-      ClearCachesBasedOnOldest(res->member.front());
-    }
-  });
+  cache_clearing_scheduler_.Run(
+      "TX cache clear", kCacheReleasePeriod, [this]() {
+        // Use the GC snapshot as it always has at least one member.
+        auto res = rpc_client_pool_.Call<GcSnapshotRpc>();
+        // There is a race-condition between this scheduled call and worker
+        // shutdown. It is possible that the worker has responded to the master
+        // it is shutting down, and the master is shutting down (and can't
+        // responde to RPCs). At the same time this call gets scheduled, so we
+        // get a failed RPC.
+        if (!res) {
+          LOG(WARNING) << "Transaction cache GC RPC call failed";
+        } else {
+          CHECK(!res->member.empty()) << "Recieved an empty GcSnapshot";
+          ClearCachesBasedOnOldest(res->member.front());
+        }
+      });
 }
 
 WorkerEngine::~WorkerEngine() {

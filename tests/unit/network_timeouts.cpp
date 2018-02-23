@@ -31,7 +31,7 @@ class RunningServer {
   database::SingleNode db_;
   SessionData session_data_{db_};
   Endpoint endpoint_{"127.0.0.1", 0};
-  ServerT server_{endpoint_, session_data_, true, 1};
+  ServerT server_{endpoint_, session_data_, true, "Test", 1};
 };
 
 class TestClient : public ClientT {

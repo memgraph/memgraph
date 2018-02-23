@@ -12,6 +12,7 @@
 
 #include "communication/listener.hpp"
 #include "io/network/socket.hpp"
+#include "utils/thread.hpp"
 
 namespace communication {
 
@@ -42,9 +43,9 @@ class Server {
    * invokes workers_count workers
    */
   Server(const io::network::Endpoint &endpoint, TSessionData &session_data,
-         bool check_for_timeouts,
+         bool check_for_timeouts, const std::string &service_name,
          size_t workers_count = std::thread::hardware_concurrency())
-      : listener_(session_data, check_for_timeouts) {
+      : listener_(session_data, check_for_timeouts, service_name) {
     // Without server we can't continue with application so we can just
     // terminate here.
     if (!socket_.Bind(endpoint)) {
@@ -55,25 +56,30 @@ class Server {
       LOG(FATAL) << "Cannot listen on socket!";
     }
 
-    thread_ = std::thread([this, workers_count]() {
-      std::cout << fmt::format("Starting {} workers", workers_count)
-                << std::endl;
+    thread_ = std::thread([this, workers_count, service_name]() {
+      std::cout << "Starting " << workers_count << " " << service_name
+                << " workers" << std::endl;
+      utils::ThreadSetName(fmt::format("{} server", service_name));
       for (size_t i = 0; i < workers_count; ++i) {
-        worker_threads_.emplace_back([this]() {
+        worker_threads_.emplace_back([this, service_name, i]() {
+          utils::ThreadSetName(
+              fmt::format("{} worker {}", service_name, i + 1));
           while (alive_) {
             listener_.WaitAndProcessEvents();
           }
         });
       }
 
-      std::cout << "Server is fully armed and operational" << std::endl;
-      std::cout << "Listening on " << socket_.endpoint() << std::endl;
+      std::cout << service_name << " server is fully armed and operational"
+                << std::endl;
+      std::cout << service_name << " listening on " << socket_.endpoint()
+                << std::endl;
 
       while (alive_) {
         AcceptConnection();
       }
 
-      std::cout << "Shutting down..." << std::endl;
+      std::cout << service_name << " shutting down..." << std::endl;
       for (auto &worker_thread : worker_threads_) {
         worker_thread.join();
       }

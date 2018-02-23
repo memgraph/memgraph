@@ -4,6 +4,7 @@
 
 #include "communication/rpc/client.hpp"
 #include "data_structures/concurrent/push_queue.hpp"
+#include "utils/thread.hpp"
 
 #include "stats/stats_rpc_messages.hpp"
 
@@ -22,6 +23,7 @@ ConcurrentPushQueue<StatsReq> stats_queue;
 
 void RefreshMetrics() {
   LOG(INFO) << "Metrics flush thread started";
+  utils::ThreadSetName("Stats refresh");
   while (stats_running) {
     auto &metrics = AccessMetrics();
     for (auto &kv : metrics) {
@@ -42,6 +44,7 @@ void StatsDispatchMain(const io::network::Endpoint &endpoint) {
   const int MAX_BATCH_SIZE = 100;
 
   LOG(INFO) << "Stats dispatcher thread started";
+  utils::ThreadSetName("Stats dispatcher");
 
   communication::rpc::Client client(endpoint);
 
