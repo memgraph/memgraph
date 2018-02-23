@@ -115,8 +115,8 @@ message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 find_package(Threads REQUIRED)
 
 # optional Ltalloc
-option(USE_LTALLOC "Use Ltalloc instead of default allocator (default ON). \
-Set this to OFF to prevent linking with Ltalloc." ON)
+option(USE_LTALLOC "Use Ltalloc instead of default allocator (default OFF). \
+Set this to ON to link with Ltalloc." OFF)
 
 # optional readline
 option(USE_READLINE "Use GNU Readline library if available (default ON). \
