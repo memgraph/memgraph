@@ -38,7 +38,7 @@ DEFINE_VALIDATED_int32(port, 7687, "Communication port on which to listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
-                       "Number of workers", FLAG_IN_RANGE(1, INT32_MAX));
+                       "Number of workers (Bolt)", FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 DEFINE_HIDDEN_string(
     log_link_basename, "",

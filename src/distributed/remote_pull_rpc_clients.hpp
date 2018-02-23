@@ -22,7 +22,7 @@ class RemotePullRpcClients {
 
  public:
   RemotePullRpcClients(Coordination &coordination)
-      : clients_(coordination, kRemotePullProduceRpcName) {}
+      : clients_(coordination) {}
 
   /// Calls a remote pull asynchroniously. IMPORTANT: take care not to call this
   /// function for the same (tx_id, worker_id, plan_id) before the previous call

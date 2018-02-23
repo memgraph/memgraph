@@ -43,7 +43,7 @@ void StatsDispatchMain(const io::network::Endpoint &endpoint) {
 
   LOG(INFO) << "Stats dispatcher thread started";
 
-  communication::rpc::Client client(endpoint, kStatsServiceName);
+  communication::rpc::Client client(endpoint);
 
   BatchStatsReq batch_request;
   batch_request.requests.reserve(MAX_BATCH_SIZE);

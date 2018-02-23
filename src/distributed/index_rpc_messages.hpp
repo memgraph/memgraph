@@ -7,7 +7,6 @@
 #include "distributed/serialization.hpp"
 
 namespace distributed {
-const std::string kIndexRpcName = "IndexRpc";
 
 struct IndexLabelPropertyTx {
   storage::Label label;

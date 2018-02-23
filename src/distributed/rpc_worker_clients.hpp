@@ -14,9 +14,7 @@ namespace distributed {
  * Thread safe. */
 class RpcWorkerClients {
  public:
-  RpcWorkerClients(Coordination &coordination,
-                   const std::string &rpc_client_name)
-      : coordination_(coordination), rpc_client_name_(rpc_client_name) {}
+  RpcWorkerClients(Coordination &coordination) : coordination_(coordination) {}
 
   RpcWorkerClients(const RpcWorkerClients &) = delete;
   RpcWorkerClients(RpcWorkerClients &&) = delete;
@@ -29,8 +27,7 @@ class RpcWorkerClients {
     if (found != client_pools_.end()) return found->second;
     return client_pools_
         .emplace(std::piecewise_construct, std::forward_as_tuple(worker_id),
-                 std::forward_as_tuple(coordination_.GetEndpoint(worker_id),
-                                       rpc_client_name_))
+                 std::forward_as_tuple(coordination_.GetEndpoint(worker_id)))
         .first->second;
   }
 
@@ -67,7 +64,6 @@ class RpcWorkerClients {
  private:
   // TODO make Coordination const, it's member GetEndpoint must be const too.
   Coordination &coordination_;
-  const std::string rpc_client_name_;
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   std::mutex lock_;
 };

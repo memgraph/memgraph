@@ -27,7 +27,7 @@ class MasterCoordination : public Coordination {
   int RegisterWorker(int desired_worker_id, Endpoint endpoint);
 
  public:
-  explicit MasterCoordination(communication::rpc::System &system);
+  explicit MasterCoordination(communication::rpc::Server &server);
 
   /** Shuts down all the workers and this master server. */
   ~MasterCoordination();
@@ -39,7 +39,7 @@ class MasterCoordination : public Coordination {
   std::vector<int> GetWorkerIds() const override;
 
  private:
-  communication::rpc::Server server_;
+  communication::rpc::Server &server_;
   // Most master functions aren't thread-safe.
   mutable std::mutex lock_;
   std::unordered_map<int, Endpoint> workers_;

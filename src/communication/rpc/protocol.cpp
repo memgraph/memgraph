@@ -4,92 +4,83 @@
 #include "boost/archive/binary_oarchive.hpp"
 #include "boost/serialization/unique_ptr.hpp"
 #include "fmt/format.h"
-#include "glog/logging.h"
 
 #include "communication/rpc/messages-inl.hpp"
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/protocol.hpp"
 #include "communication/rpc/server.hpp"
+#include "stats/metrics.hpp"
+#include "utils/demangle.hpp"
 
 namespace communication::rpc {
 
-Session::Session(Socket &&socket, System &system)
-    : socket_(std::make_shared<Socket>(std::move(socket))), system_(system) {}
+Session::Session(Socket &&socket, Server &server)
+    : socket_(std::move(socket)), server_(server) {}
 
 void Session::Execute() {
-  if (!handshake_done_) {
-    if (buffer_.size() < sizeof(MessageSize)) return;
-    MessageSize service_len = *reinterpret_cast<MessageSize *>(buffer_.data());
-    buffer_.Resize(sizeof(MessageSize) + service_len);
-    if (buffer_.size() < sizeof(MessageSize) + service_len) return;
-    service_name_ = std::string(
-        reinterpret_cast<char *>(buffer_.data() + sizeof(MessageSize)),
-        service_len);
-    buffer_.Shift(sizeof(MessageSize) + service_len);
-    handshake_done_ = true;
-  }
-
-  if (buffer_.size() < sizeof(uint32_t) + sizeof(MessageSize)) return;
-  uint32_t message_id = *reinterpret_cast<uint32_t *>(buffer_.data());
-  MessageSize message_len =
-      *reinterpret_cast<MessageSize *>(buffer_.data() + sizeof(uint32_t));
-  uint64_t request_size = sizeof(uint32_t) + sizeof(MessageSize) + message_len;
+  if (buffer_.size() < sizeof(MessageSize)) return;
+  MessageSize request_len = *reinterpret_cast<MessageSize *>(buffer_.data());
+  uint64_t request_size = sizeof(MessageSize) + request_len;
   buffer_.Resize(request_size);
   if (buffer_.size() < request_size) return;
 
-  // TODO (mferencevic): check for exceptions
-  std::unique_ptr<Message> message;
+  std::unique_ptr<Message> request;
   {
     std::stringstream stream(std::ios_base::in | std::ios_base::binary);
-    stream.str(
-        std::string(reinterpret_cast<char *>(buffer_.data() + sizeof(uint32_t) +
-                                             sizeof(MessageSize)),
-                    message_len));
+    stream.str(std::string(
+        reinterpret_cast<char *>(buffer_.data() + sizeof(MessageSize)),
+        request_len));
     boost::archive::binary_iarchive archive(stream);
-    archive >> message;
+    archive >> request;
   }
-  buffer_.Shift(sizeof(uint32_t) + sizeof(MessageSize) + message_len);
+  buffer_.Shift(sizeof(MessageSize) + request_len);
 
-  system_.AddTask(socket_, service_name_, message_id, std::move(message));
+  auto callbacks_accessor = server_.callbacks_.access();
+  auto it = callbacks_accessor.find(request->type_index());
+  if (it == callbacks_accessor.end()) {
+    // Throw exception to close the socket and cleanup the session.
+    throw SessionException(
+        "Session trying to execute an unregistered RPC call!");
+  }
+
+  auto request_name = fmt::format(
+      "rpc.server.{}",
+      utils::Demangle(request->type_index().name()).value_or("unknown"));
+  std::unique_ptr<Message> response = nullptr;
+
+  stats::Stopwatch(request_name,
+                   [&] { response = it->second(*(request.get())); });
+
+  if (!response) {
+    throw SessionException("Trying to send nullptr instead of message");
+  }
+
+  // Serialize and send response
+  std::stringstream stream(std::ios_base::out | std::ios_base::binary);
+  {
+    boost::archive::binary_oarchive archive(stream);
+    archive << response;
+    // Archive destructor ensures everything is written.
+  }
+
+  const std::string &buffer = stream.str();
+  if (buffer.size() > std::numeric_limits<MessageSize>::max()) {
+    throw SessionException(fmt::format(
+        "Trying to send response of size {}, max response size is {}",
+        buffer.size(), std::numeric_limits<MessageSize>::max()));
+  }
+
+  MessageSize buffer_size = buffer.size();
+  if (!socket_.Write(reinterpret_cast<uint8_t *>(&buffer_size),
+                     sizeof(MessageSize), true)) {
+    throw SessionException("Couldn't send response size!");
+  }
+  if (!socket_.Write(buffer)) {
+    throw SessionException("Couldn't send response data!");
+  }
 }
 
 StreamBuffer Session::Allocate() { return buffer_.Allocate(); }
 
 void Session::Written(size_t len) { buffer_.Written(len); }
-
-void SendMessage(Socket &socket, uint32_t message_id,
-                 std::unique_ptr<Message> &message) {
-  CHECK(message) << "Trying to send nullptr instead of message";
-
-  // Serialize and send message
-  std::stringstream stream(std::ios_base::out | std::ios_base::binary);
-  {
-    boost::archive::binary_oarchive archive(stream);
-    archive << message;
-    // Archive destructor ensures everything is written.
-  }
-
-  const std::string &buffer = stream.str();
-  CHECK(buffer.size() <= std::numeric_limits<MessageSize>::max())
-      << fmt::format(
-             "Trying to send message of size {}, max message size is {}",
-             buffer.size(), std::numeric_limits<MessageSize>::max());
-
-  if (!socket.Write(reinterpret_cast<uint8_t *>(&message_id), sizeof(uint32_t),
-                    true)) {
-    LOG(WARNING) << "Couldn't send message id!";
-    return;
-  }
-
-  MessageSize buffer_size = buffer.size();
-  if (!socket.Write(reinterpret_cast<uint8_t *>(&buffer_size),
-                    sizeof(MessageSize), true)) {
-    LOG(WARNING) << "Couldn't send message size!";
-    return;
-  }
-  if (!socket.Write(buffer)) {
-    LOG(WARNING) << "Couldn't send message data!";
-    return;
-  }
-}
 }  // namespace communication::rpc

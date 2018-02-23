@@ -11,8 +11,6 @@
 
 namespace stats {
 
-static const std::string kStatsServiceName = "statsd-service";
-
 /**
  * Start sending metrics to StatsD server.
  *

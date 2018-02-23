@@ -14,7 +14,7 @@ class WorkerCoordination : public Coordination {
   using Endpoint = io::network::Endpoint;
 
  public:
-  WorkerCoordination(communication::rpc::System &system,
+  WorkerCoordination(communication::rpc::Server &server,
                      const Endpoint &master_endpoint);
 
   /**
@@ -37,9 +37,8 @@ class WorkerCoordination : public Coordination {
   void WaitForShutdown();
 
  private:
-  communication::rpc::System &system_;
+  communication::rpc::Server &server_;
   communication::rpc::ClientPool client_pool_;
-  communication::rpc::Server server_;
   mutable ConcurrentMap<int, Endpoint> endpoint_cache_;
 };
 }  // namespace distributed

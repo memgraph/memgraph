@@ -16,9 +16,7 @@
  * Has classes and functions that implement the server side of our
  * RPC protocol.
  *
- * Handshake layout: MessageSize service_size, service_size characters service
- *
- * Message layout: uint32_t message_id, MessageSize message_size,
+ * Message layout: MessageSize message_size,
  *                 message_size bytes serialized_message
  */
 namespace communication::rpc {
@@ -27,8 +25,16 @@ using Endpoint = io::network::Endpoint;
 using Socket = io::network::Socket;
 using StreamBuffer = io::network::StreamBuffer;
 
-// Forward declaration of class System
-class System;
+// Forward declaration of class Server
+class Server;
+
+/**
+ * This class is thrown when the Session wants to indicate that a fatal error
+ * occured during execution.
+ */
+class SessionException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
 
 /**
  * Distributed Protocol Session
@@ -37,9 +43,9 @@ class System;
  */
 class Session {
  public:
-  Session(Socket &&socket, System &system);
+  Session(Socket &&socket, Server &server);
 
-  int Id() const { return socket_->fd(); }
+  int Id() const { return socket_.fd(); }
 
   /**
    * Executes the protocol after data has been read into the buffer.
@@ -66,7 +72,7 @@ class Session {
 
   bool TimedOut() { return false; }
 
-  Socket &socket() { return *socket_; }
+  Socket &socket() { return socket_; }
 
   void RefreshLastEventTime(
       const std::chrono::time_point<std::chrono::steady_clock>
@@ -75,21 +81,12 @@ class Session {
   }
 
  private:
-  std::shared_ptr<Socket> socket_;
+  Socket socket_;
   std::chrono::time_point<std::chrono::steady_clock> last_event_time_ =
       std::chrono::steady_clock::now();
-  System &system_;
-
-  std::string service_name_;
-  bool handshake_done_{false};
+  Server &server_;
 
   Buffer buffer_;
 };
-
-/**
- * Distributed Protocol Server Send Message
- */
-void SendMessage(Socket &socket, uint32_t message_id,
-                 std::unique_ptr<Message> &message);
 
 }  // namespace communication::rpc

@@ -19,10 +19,10 @@ class WorkerEngineTest : public testing::Test {
  protected:
   const std::string local{"127.0.0.1"};
 
-  System master_system_{{local, 0}};
-  MasterEngine master_{master_system_};
+  Server master_server_{{local, 0}};
+  MasterEngine master_{master_server_};
 
-  WorkerEngine worker_{master_system_.endpoint()};
+  WorkerEngine worker_{master_server_.endpoint()};
 };
 
 TEST_F(WorkerEngineTest, BeginOnWorker) {

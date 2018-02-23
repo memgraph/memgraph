@@ -13,8 +13,6 @@
 
 namespace distributed {
 
-const std::string kRemoteUpdatesRpc = "RemoteUpdatesRpc";
-
 /// The result of sending or applying a deferred update to a worker.
 enum class RemoteUpdateResult {
   DONE,

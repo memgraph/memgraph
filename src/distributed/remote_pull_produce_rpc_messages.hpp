@@ -33,8 +33,6 @@ enum class RemotePullState {
   QUERY_ERROR
 };
 
-const std::string kRemotePullProduceRpcName = "RemotePullProduceRpc";
-
 struct RemotePullReq : public communication::rpc::Message {
   RemotePullReq() {}
   RemotePullReq(tx::transaction_id_t tx_id, tx::Snapshot tx_snapshot,

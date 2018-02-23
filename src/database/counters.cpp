@@ -7,8 +7,6 @@
 
 namespace database {
 
-const std::string kCountersRpc = "CountersRpc";
-
 RPC_SINGLE_MEMBER_MESSAGE(CountersGetReq, std::string);
 RPC_SINGLE_MEMBER_MESSAGE(CountersGetRes, int64_t);
 using CountersGetRpc =
@@ -32,8 +30,8 @@ void SingleNodeCounters::Set(const std::string &name, int64_t value) {
   if (!name_counter_pair.second) name_counter_pair.first->second.store(value);
 }
 
-MasterCounters::MasterCounters(communication::rpc::System &system)
-    : rpc_server_(system, kCountersRpc) {
+MasterCounters::MasterCounters(communication::rpc::Server &server)
+    : rpc_server_(server) {
   rpc_server_.Register<CountersGetRpc>([this](const CountersGetReq &req) {
     return std::make_unique<CountersGetRes>(Get(req.member));
   });
@@ -44,7 +42,7 @@ MasterCounters::MasterCounters(communication::rpc::System &system)
 }
 
 WorkerCounters::WorkerCounters(const io::network::Endpoint &master_endpoint)
-    : rpc_client_pool_(master_endpoint, kCountersRpc) {}
+    : rpc_client_pool_(master_endpoint) {}
 
 int64_t WorkerCounters::Get(const std::string &name) {
   auto response = rpc_client_pool_.Call<CountersGetRpc>(name);

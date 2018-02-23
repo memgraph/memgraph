@@ -73,28 +73,26 @@ BOOST_CLASS_EXPORT(EchoMessage);
 using Echo = RequestResponse<EchoMessage, EchoMessage>;
 
 TEST(Rpc, Call) {
-  System server_system({"127.0.0.1", 0});
-  Server server(server_system, "main");
+  Server server({"127.0.0.1", 0});
   server.Register<Sum>([](const SumReq &request) {
     return std::make_unique<SumRes>(request.x + request.y);
   });
   std::this_thread::sleep_for(100ms);
 
-  Client client(server_system.endpoint(), "main");
+  Client client(server.endpoint());
   auto sum = client.Call<Sum>(10, 20);
   EXPECT_EQ(sum->sum, 30);
 }
 
 TEST(Rpc, Abort) {
-  System server_system({"127.0.0.1", 0});
-  Server server(server_system, "main");
+  Server server({"127.0.0.1", 0});
   server.Register<Sum>([](const SumReq &request) {
     std::this_thread::sleep_for(500ms);
     return std::make_unique<SumRes>(request.x + request.y);
   });
   std::this_thread::sleep_for(100ms);
 
-  Client client(server_system.endpoint(), "main");
+  Client client(server.endpoint());
 
   std::thread thread([&client]() {
     std::this_thread::sleep_for(100ms);
@@ -111,8 +109,7 @@ TEST(Rpc, Abort) {
 }
 
 TEST(Rpc, ClientPool) {
-  System server_system({"127.0.0.1", 0});
-  Server server(server_system, "main", 4);
+  Server server({"127.0.0.1", 0});
   server.Register<Sum>([](const SumReq &request) {
     std::this_thread::sleep_for(100ms);
     return std::make_unique<SumRes>(request.x + request.y);
@@ -120,7 +117,7 @@ TEST(Rpc, ClientPool) {
   std::this_thread::sleep_for(100ms);
 
 
-  Client client(server_system.endpoint(), "main");
+  Client client(server.endpoint());
 
   /* these calls should take more than 400ms because we're using a regular
    * client */
@@ -142,7 +139,7 @@ TEST(Rpc, ClientPool) {
 
   EXPECT_GE(t1.Elapsed(), 400ms);
 
-  ClientPool pool(server_system.endpoint(), "main");
+  ClientPool pool(server.endpoint());
 
   /* these calls shouldn't take much more that 100ms because they execute in
    * parallel */
@@ -163,8 +160,7 @@ TEST(Rpc, ClientPool) {
 }
 
 TEST(Rpc, LargeMessage) {
-  System server_system({"127.0.0.1", 0});
-  Server server(server_system, "main");
+  Server server({"127.0.0.1", 0});
   server.Register<Echo>([](const EchoMessage &request) {
     return std::make_unique<EchoMessage>(request.data);
   });
@@ -172,7 +168,7 @@ TEST(Rpc, LargeMessage) {
 
   std::string testdata(100000, 'a');
 
-  Client client(server_system.endpoint(), "main");
+  Client client(server.endpoint());
   auto echo = client.Call<Echo>(testdata);
   EXPECT_EQ(echo->data, testdata);
 }

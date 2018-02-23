@@ -10,8 +10,6 @@
 
 namespace distributed {
 
-const std::string kDistributedPlanServerName = "DistributedPlanRpc";
-
 using communication::rpc::Message;
 using SymbolTable = query::SymbolTable;
 using AstTreeStorage = query::AstTreeStorage;

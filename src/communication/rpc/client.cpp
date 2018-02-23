@@ -9,14 +9,10 @@
 
 namespace communication::rpc {
 
-Client::Client(const io::network::Endpoint &endpoint,
-               const std::string &service_name)
-    : endpoint_(endpoint), service_name_(service_name) {}
+Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
 
 std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
   std::lock_guard<std::mutex> guard(mutex_);
-
-  uint32_t request_id = ++next_message_id_;
 
   // Check if the connection is broken (if we haven't used the client for a
   // long time the server could have died).
@@ -35,30 +31,6 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
     }
 
     socket_->SetKeepAlive();
-
-    // Send service name size.
-    MessageSize service_len = service_name_.size();
-    if (!socket_->Write(reinterpret_cast<uint8_t *>(&service_len),
-                        sizeof(MessageSize), true)) {
-      LOG(ERROR) << "Couldn't send service name size!";
-      socket_ = std::experimental::nullopt;
-      return nullptr;
-    }
-
-    // Send service name.
-    if (!socket_->Write(service_name_)) {
-      LOG(ERROR) << "Couldn't send service name!";
-      socket_ = std::experimental::nullopt;
-      return nullptr;
-    }
-  }
-
-  // Send current request ID.
-  if (!socket_->Write(reinterpret_cast<uint8_t *>(&request_id),
-                      sizeof(uint32_t), true)) {
-    LOG(ERROR) << "Couldn't send request ID!";
-    socket_ = std::experimental::nullopt;
-    return nullptr;
   }
 
   // Serialize and send request.
@@ -99,12 +71,10 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
     }
     buffer_.Written(received);
 
-    if (buffer_.size() < sizeof(uint32_t) + sizeof(MessageSize)) continue;
-    uint32_t response_id = *reinterpret_cast<uint32_t *>(buffer_.data());
+    if (buffer_.size() < sizeof(MessageSize)) continue;
     MessageSize response_data_size =
-        *reinterpret_cast<MessageSize *>(buffer_.data() + sizeof(uint32_t));
-    size_t response_size =
-        sizeof(uint32_t) + sizeof(MessageSize) + response_data_size;
+        *reinterpret_cast<MessageSize *>(buffer_.data());
+    size_t response_size = sizeof(MessageSize) + response_data_size;
     buffer_.Resize(response_size);
     if (buffer_.size() < response_size) continue;
 
@@ -113,20 +83,13 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
       std::stringstream response_stream(std::ios_base::in |
                                         std::ios_base::binary);
       response_stream.str(std::string(
-          reinterpret_cast<char *>(buffer_.data() + sizeof(uint32_t) +
-                                   sizeof(MessageSize)),
+          reinterpret_cast<char *>(buffer_.data() + sizeof(MessageSize)),
           response_data_size));
       boost::archive::binary_iarchive response_archive(response_stream);
       response_archive >> response;
     }
 
     buffer_.Shift(response_size);
-
-    if (response_id != request_id) {
-      // This can happen if some stale response arrives after we issued a new
-      // request.
-      continue;
-    }
 
     return response;
   }

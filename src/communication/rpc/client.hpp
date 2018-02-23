@@ -18,7 +18,7 @@ namespace communication::rpc {
 // Client is thread safe, but it is recommended to use thread_local clients.
 class Client {
  public:
-  Client(const io::network::Endpoint &endpoint, const std::string &name);
+  Client(const io::network::Endpoint &endpoint);
 
   // Call function can initiate only one request at the time. Function blocks
   // until there is a response. If there was an error nullptr is returned.
@@ -31,7 +31,7 @@ class Client {
     static_assert(std::is_base_of<Message, Res>::value,
                   "TRequestResponse::Response must be derived from Message");
     std::string request_name =
-        fmt::format("rpc.client.{}.{}", service_name_,
+        fmt::format("rpc.client.{}",
                     utils::Demangle(typeid(Req).name()).value_or("unknown"));
     std::unique_ptr<Message> response = nullptr;
     stats::Stopwatch(request_name, [&] {
@@ -57,11 +57,8 @@ class Client {
   std::unique_ptr<Message> Call(std::unique_ptr<Message> request);
 
   io::network::Endpoint endpoint_;
-  std::string service_name_;
-
   std::experimental::optional<io::network::Socket> socket_;
 
-  uint32_t next_message_id_{0};
   Buffer buffer_;
 
   std::mutex mutex_;

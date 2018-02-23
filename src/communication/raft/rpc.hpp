@@ -19,19 +19,15 @@
 
 namespace communication::raft {
 
-const char *kRaftChannelName = "raft-peer-rpc-channel";
-
 template <class State>
 using PeerProtocol = rpc::RequestResponse<PeerRpcRequest<State>, PeerRpcReply>;
 
 template <class State>
 class RpcNetwork : public RaftNetworkInterface<State> {
  public:
-  RpcNetwork(rpc::System &system,
+  RpcNetwork(rpc::Server &server,
              std::unordered_map<std::string, io::network::Endpoint> directory)
-      : system_(system),
-        directory_(std::move(directory)),
-        server_(system, kRaftChannelName) {}
+      : server_(server), directory_(std::move(directory)) {}
 
   virtual void Start(RaftMember<State> &member) override {
     server_.Register<PeerProtocol<State>>(
@@ -106,15 +102,14 @@ class RpcNetwork : public RaftNetworkInterface<State> {
     auto it = clients_.find(id);
     if (it == clients_.end()) {
       auto ne = directory_[id];
-      it = clients_.try_emplace(id, ne, kRaftChannelName).first;
+      it = clients_.try_emplace(id, ne).first;
     }
     return it->second;
   }
 
-  rpc::System &system_;
+  rpc::Server &server_;
   // TODO(mtomic): how to update and distribute this?
   std::unordered_map<MemberId, io::network::Endpoint> directory_;
-  rpc::Server server_;
 
   std::unordered_map<MemberId, rpc::Client> clients_;
 };

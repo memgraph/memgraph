@@ -14,8 +14,7 @@ namespace communication::rpc {
  */
 class ClientPool {
  public:
-  ClientPool(const io::network::Endpoint &endpoint, const std::string &name)
-      : endpoint_(endpoint), name_(name) {}
+  ClientPool(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
 
   template <typename TRequestResponse, typename... Args>
   std::unique_ptr<typename TRequestResponse::Response> Call(Args &&... args) {
@@ -23,7 +22,7 @@ class ClientPool {
 
     std::unique_lock<std::mutex> lock(mutex_);
     if (unused_clients_.empty()) {
-      client = std::make_unique<Client>(endpoint_, name_);
+      client = std::make_unique<Client>(endpoint_);
     } else {
       client = std::move(unused_clients_.top());
       unused_clients_.pop();
@@ -39,7 +38,6 @@ class ClientPool {
 
  private:
   io::network::Endpoint endpoint_;
-  std::string name_;
 
   std::mutex mutex_;
   std::stack<std::unique_ptr<Client>> unused_clients_;

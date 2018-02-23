@@ -29,10 +29,8 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   // Initialize client.
-  Client client(
-      io::network::Endpoint(utils::ResolveHostname(FLAGS_server_interface),
-                            FLAGS_server_port),
-      "main");
+  Client client(io::network::Endpoint(
+      utils::ResolveHostname(FLAGS_server_interface), FLAGS_server_port));
 
   // Try to send 100 values to server.
   // If requests timeout, try to resend it.

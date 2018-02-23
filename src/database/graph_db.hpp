@@ -43,6 +43,7 @@ struct Config {
   // Misc flags.
   int gc_cycle_sec;
   int query_execution_time_sec;
+  int rpc_num_workers;
 
   // Distributed master/worker flags.
   int worker_id;

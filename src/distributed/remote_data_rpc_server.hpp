@@ -13,8 +13,8 @@ namespace distributed {
 /** Serves this worker's data to others. */
 class RemoteDataRpcServer {
  public:
-  RemoteDataRpcServer(database::GraphDb &db, communication::rpc::System &system)
-      : db_(db), rpc_server_(system, kRemoteDataRpcName) {
+  RemoteDataRpcServer(database::GraphDb &db, communication::rpc::Server &server)
+      : db_(db), rpc_server_(server) {
     rpc_server_.Register<RemoteVertexRpc>([this](const RemoteVertexReq &req) {
       database::GraphDbAccessor dba(db_, req.member.tx_id);
       auto vertex = dba.FindVertexChecked(req.member.gid, false);
@@ -33,6 +33,6 @@ class RemoteDataRpcServer {
 
  private:
   database::GraphDb &db_;
-  communication::rpc::Server rpc_server_;
+  communication::rpc::Server &rpc_server_;
 };
 }  // namespace distributed

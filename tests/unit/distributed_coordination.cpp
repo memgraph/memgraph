@@ -12,7 +12,7 @@
 #include "distributed/coordination_worker.hpp"
 #include "io/network/endpoint.hpp"
 
-using communication::rpc::System;
+using communication::rpc::Server;
 using namespace distributed;
 using namespace std::literals::chrono_literals;
 
@@ -23,34 +23,34 @@ class WorkerInThread {
  public:
   WorkerInThread(io::network::Endpoint master_endpoint, int desired_id = -1) {
     worker_thread_ = std::thread([this, master_endpoint, desired_id] {
-      system_.emplace(Endpoint(kLocal, 0));
-      coord_.emplace(*system_, master_endpoint);
+      server_.emplace(Endpoint(kLocal, 0));
+      coord_.emplace(*server_, master_endpoint);
       worker_id_ = coord_->RegisterWorker(desired_id);
       coord_->WaitForShutdown();
     });
   }
 
   int worker_id() const { return worker_id_; }
-  auto endpoint() const { return system_->endpoint(); }
+  auto endpoint() const { return server_->endpoint(); }
   auto worker_endpoint(int worker_id) { return coord_->GetEndpoint(worker_id); }
   void join() { worker_thread_.join(); }
 
  private:
   std::thread worker_thread_;
-  std::experimental::optional<System> system_;
+  std::experimental::optional<Server> server_;
   std::experimental::optional<WorkerCoordination> coord_;
   std::atomic<int> worker_id_{0};
 };
 
 TEST(Distributed, Coordination) {
-  System master_system({kLocal, 0});
+  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerInThread>> workers;
   {
-    MasterCoordination master_coord(master_system);
+    MasterCoordination master_coord(master_server);
 
     for (int i = 0; i < kWorkerCount; ++i)
       workers.emplace_back(
-          std::make_unique<WorkerInThread>(master_system.endpoint()));
+          std::make_unique<WorkerInThread>(master_server.endpoint()));
 
     // Wait till all the workers are safely initialized.
     std::this_thread::sleep_for(300ms);
@@ -72,16 +72,16 @@ TEST(Distributed, Coordination) {
 }
 
 TEST(Distributed, DesiredAndUniqueId) {
-  System master_system({kLocal, 0});
+  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerInThread>> workers;
   {
-    MasterCoordination master_coord(master_system);
+    MasterCoordination master_coord(master_server);
 
     workers.emplace_back(
-        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+        std::make_unique<WorkerInThread>(master_server.endpoint(), 42));
     std::this_thread::sleep_for(200ms);
     workers.emplace_back(
-        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+        std::make_unique<WorkerInThread>(master_server.endpoint(), 42));
     std::this_thread::sleep_for(200ms);
 
     EXPECT_EQ(workers[0]->worker_id(), 42);
@@ -92,16 +92,16 @@ TEST(Distributed, DesiredAndUniqueId) {
 }
 
 TEST(Distributed, CoordinationWorkersId) {
-  System master_system({kLocal, 0});
+  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerInThread>> workers;
   {
-    MasterCoordination master_coord(master_system);
+    MasterCoordination master_coord(master_server);
 
     workers.emplace_back(
-        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+        std::make_unique<WorkerInThread>(master_server.endpoint(), 42));
     std::this_thread::sleep_for(200ms);
     workers.emplace_back(
-        std::make_unique<WorkerInThread>(master_system.endpoint(), 42));
+        std::make_unique<WorkerInThread>(master_server.endpoint(), 42));
     std::this_thread::sleep_for(200ms);
 
     std::vector<int> ids;

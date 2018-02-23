@@ -11,7 +11,6 @@
 #include "transactions/type.hpp"
 
 namespace distributed {
-const std::string kRemoteDataRpcName = "RemoteDataRpc";
 
 struct TxGidPair {
   tx::transaction_id_t tx_id;

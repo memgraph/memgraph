@@ -143,8 +143,8 @@ class RemoteUpdatesRpcServer {
 
  public:
   RemoteUpdatesRpcServer(database::GraphDb &db, tx::Engine &engine,
-                         communication::rpc::System &system)
-      : db_(db), engine_(engine), server_(system, kRemoteUpdatesRpc) {
+                         communication::rpc::Server &server)
+      : db_(db), engine_(engine), server_(server) {
     server_.Register<RemoteUpdateRpc>([this](const RemoteUpdateReq &req) {
       using DeltaType = database::StateDelta::Type;
       auto &delta = req.member;
@@ -229,7 +229,7 @@ class RemoteUpdatesRpcServer {
  private:
   database::GraphDb &db_;
   tx::Engine &engine_;
-  communication::rpc::Server server_;
+  communication::rpc::Server &server_;
   tx::TxEndListener tx_end_listener_{engine_,
                                      [this](tx::transaction_id_t tx_id) {
                                        vertex_updates_.access().remove(tx_id);

@@ -2,8 +2,8 @@
 
 namespace distributed {
 
-PlanConsumer::PlanConsumer(communication::rpc::System &system)
-    : server_(system, kDistributedPlanServerName) {
+PlanConsumer::PlanConsumer(communication::rpc::Server &server)
+    : server_(server) {
   server_.Register<DistributedPlanRpc>([this](const DispatchPlanReq &req) {
     plan_cache_.access().insert(
         req.plan_id_,

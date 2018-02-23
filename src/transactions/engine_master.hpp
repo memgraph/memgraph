@@ -13,10 +13,10 @@ class MasterEngine : public SingleNodeEngine {
    * @param wal - Optional. If present, the Engine will write tx
    * Begin/Commit/Abort atomically (while under lock).
    */
-  MasterEngine(communication::rpc::System &system,
+  MasterEngine(communication::rpc::Server &server,
                durability::WriteAheadLog *wal = nullptr);
 
  private:
-  communication::rpc::Server rpc_server_;
+  communication::rpc::Server &rpc_server_;
 };
 }  // namespace tx

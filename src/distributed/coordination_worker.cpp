@@ -9,15 +9,13 @@ namespace distributed {
 
 using namespace std::literals::chrono_literals;
 
-WorkerCoordination::WorkerCoordination(communication::rpc::System &system,
+WorkerCoordination::WorkerCoordination(communication::rpc::Server &server,
                                        const Endpoint &master_endpoint)
-    : system_(system),
-      client_pool_(master_endpoint, kCoordinationServerName),
-      server_(system_, kCoordinationServerName) {}
+    : server_(server), client_pool_(master_endpoint) {}
 
 int WorkerCoordination::RegisterWorker(int desired_worker_id) {
   auto result = client_pool_.Call<RegisterWorkerRpc>(desired_worker_id,
-                                                     system_.endpoint());
+                                                     server_.endpoint());
   CHECK(result) << "Failed to RegisterWorker with the master";
   return result->member;
 }

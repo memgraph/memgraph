@@ -7,8 +7,6 @@
 
 namespace tx {
 
-const std::string kTransactionEngineRpc = "transaction_engine_rpc";
-
 RPC_NO_MEMBER_MESSAGE(BeginReq)
 struct TxAndSnapshot {
   transaction_id_t tx_id;

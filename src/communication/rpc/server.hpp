@@ -13,46 +13,18 @@
 
 namespace communication::rpc {
 
-// Forward declaration of Server class
-class Server;
-
-class System {
- public:
-  System(const io::network::Endpoint &endpoint,
-         const size_t workers_count = std::thread::hardware_concurrency());
-  System(const System &) = delete;
-  System(System &&) = delete;
-  System &operator=(const System &) = delete;
-  System &operator=(System &&) = delete;
-  ~System();
-
-  const io::network::Endpoint &endpoint() const { return server_.endpoint(); }
-
- private:
-  using ServerT = communication::Server<Session, System>;
-  friend class Session;
-  friend class Server;
-
-  /** Start a threadpool that relays the messages from the sockets to the
-   * LocalEventStreams */
-  void StartServer(int workers_count);
-
-  void AddTask(std::shared_ptr<Socket> socket, const std::string &service,
-               uint64_t message_id, std::unique_ptr<Message> message);
-  void Add(Server &server);
-  void Remove(const Server &server);
-
-  std::mutex mutex_;
-  // Service name to its server mapping.
-  std::unordered_map<std::string, Server *> services_;
-  ServerT server_;
-};
-
 class Server {
  public:
-  Server(System &system, const std::string &name,
-         int workers_count = std::thread::hardware_concurrency());
-  ~Server();
+  Server(const io::network::Endpoint &endpoint,
+         size_t workers_count = std::thread::hardware_concurrency());
+  Server(const Server &) = delete;
+  Server(Server &&) = delete;
+  Server &operator=(const Server &) = delete;
+  Server &operator=(Server &&) = delete;
+
+  void StopProcessingCalls();
+
+  const io::network::Endpoint &endpoint() const;
 
   template <typename TRequestResponse>
   void Register(
@@ -77,19 +49,15 @@ class Server {
     CHECK(got.second) << "Callback for that message type already registered";
   }
 
-  const std::string &service_name() const { return service_name_; }
-
  private:
-  friend class System;
-  System &system_;
-  Queue<std::tuple<std::shared_ptr<Socket>, uint64_t, std::unique_ptr<Message>>>
-      queue_;
-  std::string service_name_;
+  friend class Session;
+
   ConcurrentMap<std::type_index,
                 std::function<std::unique_ptr<Message>(const Message &)>>
       callbacks_;
-  std::atomic<bool> alive_{true};
-  std::vector<std::thread> threads_;
+
+  std::mutex mutex_;
+  communication::Server<Session, Server> server_;
 };
 
 }  // namespace communication::rpc

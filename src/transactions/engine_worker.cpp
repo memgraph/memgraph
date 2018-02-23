@@ -9,7 +9,7 @@
 namespace tx {
 
 WorkerEngine::WorkerEngine(const io::network::Endpoint &endpoint)
-    : rpc_client_pool_(endpoint, kTransactionEngineRpc) {
+    : rpc_client_pool_(endpoint) {
   cache_clearing_scheduler_.Run(kCacheReleasePeriod, [this]() {
     // Use the GC snapshot as it always has at least one member.
     auto res = rpc_client_pool_.Call<GcSnapshotRpc>();

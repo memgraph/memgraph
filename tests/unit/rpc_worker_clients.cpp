@@ -31,21 +31,17 @@ class RpcWorkerClientsTest : public ::testing::Test {
  protected:
   const io::network::Endpoint kLocalHost{"127.0.0.1", 0};
   const int kWorkerCount = 2;
-  const std::string kRpcName = "test_rpc";
   void SetUp() override {
     for (int i = 1; i <= kWorkerCount; ++i) {
-      workers_system_.emplace_back(
-          std::make_unique<communication::rpc::System>(kLocalHost));
+      workers_server_.emplace_back(
+          std::make_unique<communication::rpc::Server>(kLocalHost));
 
       workers_coord_.emplace_back(
           std::make_unique<distributed::WorkerCoordination>(
-              *workers_system_.back(), master_system_.endpoint()));
+              *workers_server_.back(), master_server_.endpoint()));
 
       workers_coord_.back()->RegisterWorker(i);
-      workers_rpc_server_.emplace_back(
-          std::make_unique<communication::rpc::Server>(*workers_system_.back(),
-                                                       kRpcName));
-      workers_rpc_server_.back()->Register<distributed::IncrementCounterRpc>(
+      workers_server_.back()->Register<distributed::IncrementCounterRpc>(
           [this, i](const distributed::IncrementCounterReq &) {
             workers_cnt_[i]++;
             return std::make_unique<distributed::IncrementCounterRes>();
@@ -65,16 +61,15 @@ class RpcWorkerClientsTest : public ::testing::Test {
     for (auto &worker : wait_on_shutdown) worker.join();
   }
 
-  std::vector<std::unique_ptr<communication::rpc::System>> workers_system_;
+  std::vector<std::unique_ptr<communication::rpc::Server>> workers_server_;
   std::vector<std::unique_ptr<distributed::WorkerCoordination>> workers_coord_;
-  std::vector<std::unique_ptr<communication::rpc::Server>> workers_rpc_server_;
   std::unordered_map<int, int> workers_cnt_;
 
-  communication::rpc::System master_system_{kLocalHost};
+  communication::rpc::Server master_server_{kLocalHost};
   std::experimental::optional<distributed::MasterCoordination> master_coord_{
-      master_system_};
+      master_server_};
 
-  distributed::RpcWorkerClients rpc_workers_{*master_coord_, kRpcName};
+  distributed::RpcWorkerClients rpc_workers_{*master_coord_};
 };
 
 TEST_F(RpcWorkerClientsTest, GetWorkerIds) {

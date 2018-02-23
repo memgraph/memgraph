@@ -24,13 +24,13 @@ class PlanConsumer {
     const AstTreeStorage storage;
   };
 
-  explicit PlanConsumer(communication::rpc::System &system);
+  explicit PlanConsumer(communication::rpc::Server &server);
 
   /** Return cached plan and symbol table for a given plan id. */
   PlanPack &PlanForId(int64_t plan_id) const;
 
  private:
-  communication::rpc::Server server_;
+  communication::rpc::Server &server_;
   // TODO remove unique_ptr. This is to get it to work, emplacing into a
   // ConcurrentMap is tricky.
   mutable ConcurrentMap<int64_t, std::unique_ptr<PlanPack>> plan_cache_;

@@ -133,10 +133,10 @@ class RemoteProduceRpcServer {
 
  public:
   RemoteProduceRpcServer(database::GraphDb &db, tx::Engine &tx_engine,
-                         communication::rpc::System &system,
+                         communication::rpc::Server &server,
                          const distributed::PlanConsumer &plan_consumer)
       : db_(db),
-        remote_produce_rpc_server_(system, kRemotePullProduceRpcName),
+        remote_produce_rpc_server_(server),
         plan_consumer_(plan_consumer),
         tx_engine_(tx_engine) {
     remote_produce_rpc_server_.Register<RemotePullRpc>(
@@ -154,7 +154,7 @@ class RemoteProduceRpcServer {
 
  private:
   database::GraphDb &db_;
-  communication::rpc::Server remote_produce_rpc_server_;
+  communication::rpc::Server &remote_produce_rpc_server_;
   const distributed::PlanConsumer &plan_consumer_;
 
   std::map<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>

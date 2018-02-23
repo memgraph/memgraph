@@ -32,7 +32,7 @@ ID_VALUE_RPC_CALLS(Property)
 template <typename TId>
 WorkerConcurrentIdMapper<TId>::WorkerConcurrentIdMapper(
     const io::network::Endpoint &master_endpoint)
-    : rpc_client_pool_(master_endpoint, impl::RpcServerNameFromType<TId>()) {}
+    : rpc_client_pool_(master_endpoint) {}
 
 template <typename TId>
 TId WorkerConcurrentIdMapper<TId>::value_to_id(const std::string &value) {

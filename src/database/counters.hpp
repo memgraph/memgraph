@@ -45,10 +45,10 @@ class SingleNodeCounters : public Counters {
 /** Implementation for distributed master. */
 class MasterCounters : public SingleNodeCounters {
  public:
-  MasterCounters(communication::rpc::System &system);
+  MasterCounters(communication::rpc::Server &server);
 
  private:
-  communication::rpc::Server rpc_server_;
+  communication::rpc::Server &rpc_server_;
 };
 
 /** Implementation for distributed worker. */

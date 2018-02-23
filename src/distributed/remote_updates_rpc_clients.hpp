@@ -21,7 +21,7 @@ namespace distributed {
 class RemoteUpdatesRpcClients {
  public:
   explicit RemoteUpdatesRpcClients(distributed::Coordination &coordination)
-      : worker_clients_(coordination, kRemoteUpdatesRpc) {}
+      : worker_clients_(coordination) {}
 
   /// Sends an update delta to the given worker.
   RemoteUpdateResult RemoteUpdate(int worker_id,

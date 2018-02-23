@@ -27,8 +27,7 @@ std::string GraphiteFormat(const stats::StatsReq &req) {
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  communication::rpc::System system({FLAGS_interface, (uint16_t)FLAGS_port});
-  communication::rpc::Server server(system, stats::kStatsServiceName);
+  communication::rpc::Server server({FLAGS_interface, (uint16_t)FLAGS_port});
 
   io::network::Socket graphite_socket;
 

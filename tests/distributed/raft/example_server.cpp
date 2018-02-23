@@ -29,9 +29,7 @@ int main(int argc, char **argv) {
   // Unhandled exception handler init.
   std::set_terminate(&terminate_handler);
 
-  System server_system(
-      io::network::Endpoint(FLAGS_interface, stoul(FLAGS_port)));
-  Server server(server_system, "main");
+  Server server(io::network::Endpoint(FLAGS_interface, stoul(FLAGS_port)));
   std::ofstream log(FLAGS_log, std::ios_base::app);
 
   // Handler for regular termination signals.

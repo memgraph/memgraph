@@ -14,8 +14,7 @@ namespace distributed {
 /** Provides access to other worker's data. */
 class RemoteDataRpcClients {
  public:
-  RemoteDataRpcClients(Coordination &coordination)
-      : clients_(coordination, kRemoteDataRpcName) {}
+  RemoteDataRpcClients(Coordination &coordination) : clients_(coordination) {}
 
   /// Returns a remote worker's data for the given params. That worker must own
   /// the vertex for the given id, and that vertex must be visible in given

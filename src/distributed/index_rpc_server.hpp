@@ -10,8 +10,8 @@ namespace distributed {
 
 class IndexRpcServer {
  public:
-  IndexRpcServer(database::GraphDb &db, communication::rpc::System &system)
-      : db_(db), system_(system) {
+  IndexRpcServer(database::GraphDb &db, communication::rpc::Server &server)
+      : db_(db), rpc_server_(server) {
     rpc_server_.Register<BuildIndexRpc>([this](const BuildIndexReq &req) {
 
       LabelPropertyIndex::Key key{req.member.label, req.member.property};
@@ -36,8 +36,7 @@ class IndexRpcServer {
 
  private:
   database::GraphDb &db_;
-  communication::rpc::System &system_;
-  communication::rpc::Server rpc_server_{system_, kIndexRpcName};
+  communication::rpc::Server &rpc_server_;
 };
 
 }  // namespace distributed

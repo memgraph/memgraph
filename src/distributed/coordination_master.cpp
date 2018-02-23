@@ -3,10 +3,10 @@
 
 namespace distributed {
 
-MasterCoordination::MasterCoordination(communication::rpc::System &system)
-    : server_(system, kCoordinationServerName) {
+MasterCoordination::MasterCoordination(communication::rpc::Server &server)
+    : server_(server) {
   // The master is always worker 0.
-  workers_.emplace(0, system.endpoint());
+  workers_.emplace(0, server_.endpoint());
 
   server_.Register<RegisterWorkerRpc>([this](const RegisterWorkerReq &req) {
     auto worker_id = RegisterWorker(req.desired_worker_id, req.endpoint);
@@ -43,7 +43,7 @@ MasterCoordination::~MasterCoordination() {
   for (const auto &kv : workers_) {
     // Skip master (self).
     if (kv.first == 0) continue;
-    communication::rpc::Client client(kv.second, kCoordinationServerName);
+    communication::rpc::Client client(kv.second);
     auto result = client.Call<StopWorkerRpc>();
     CHECK(result) << "Failed to shut down worker: " << kv.first;
   }

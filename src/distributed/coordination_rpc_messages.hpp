@@ -8,8 +8,6 @@
 
 namespace distributed {
 
-const std::string kCoordinationServerName = "CoordinationRpc";
-
 using communication::rpc::Message;
 using Endpoint = io::network::Endpoint;
 

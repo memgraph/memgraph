@@ -47,6 +47,10 @@ DEFINE_VALIDATED_HIDDEN_int32(
     "indicates the port on which to serve. If zero (default value), a port is "
     "chosen at random. Sent to the master when registring worker node.",
     FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+DEFINE_VALIDATED_HIDDEN_int32(rpc_num_workers,
+                              std::max(std::thread::hardware_concurrency(), 1U),
+                              "Number of workers (RPC)",
+                              FLAG_IN_RANGE(1, INT32_MAX));
 
 database::Config::Config()
     // Durability flags.
@@ -59,6 +63,7 @@ database::Config::Config()
       // Misc flags.
       gc_cycle_sec{FLAGS_gc_cycle_sec},
       query_execution_time_sec{FLAGS_query_execution_time_sec},
+      rpc_num_workers{FLAGS_rpc_num_workers},
       // Distributed flags.
       worker_id{FLAGS_worker_id},
       master_endpoint{FLAGS_master_host,

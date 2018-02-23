@@ -12,9 +12,9 @@ namespace storage {
 template <typename TId>
 class MasterConcurrentIdMapper : public SingleNodeConcurrentIdMapper<TId> {
  public:
-  explicit MasterConcurrentIdMapper(communication::rpc::System &system);
+  explicit MasterConcurrentIdMapper(communication::rpc::Server &server);
 
  private:
-  communication::rpc::Server rpc_server_;
+  communication::rpc::Server &rpc_server_;
 };
 }  // namespace storage

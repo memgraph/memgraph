@@ -161,20 +161,27 @@ class Master : public PrivateBase {
     return index_rpc_clients_;
   }
 
-  communication::rpc::System system_{config_.master_endpoint};
-  tx::MasterEngine tx_engine_{system_, &wal_};
+  ~Master() {
+    // The server is stopped explicitly here to disable RPC calls during the
+    // destruction of this object. This works because this destructor is called
+    // before the destructors of all objects.
+    server_.StopProcessingCalls();
+  }
+
+  communication::rpc::Server server_{
+      config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
+  tx::MasterEngine tx_engine_{server_, &wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
-  distributed::MasterCoordination coordination_{system_};
-  TypemapPack<MasterConcurrentIdMapper> typemap_pack_{system_};
-  database::MasterCounters counters_{system_};
-  distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
+  distributed::MasterCoordination coordination_{server_};
+  TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
+  database::MasterCounters counters_{server_};
+  distributed::RemoteDataRpcServer remote_data_server_{*this, server_};
   distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
   distributed::PlanDispatcher plan_dispatcher_{coordination_};
   distributed::RemotePullRpcClients remote_pull_clients_{coordination_};
-  distributed::RpcWorkerClients index_rpc_clients_{coordination_,
-                                                   distributed::kIndexRpcName};
+  distributed::RpcWorkerClients index_rpc_clients_{coordination_};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, tx_engine_,
-                                                             system_};
+                                                             server_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
   distributed::RemoteDataManager remote_data_manager_{tx_engine_,
                                                       remote_data_clients_};
@@ -196,21 +203,29 @@ class Worker : public PrivateBase {
     return remote_produce_server_;
   }
 
-  communication::rpc::System system_{config_.worker_endpoint};
-  distributed::WorkerCoordination coordination_{system_,
+  ~Worker() {
+    // The server is stopped explicitly here to disable RPC calls during the
+    // destruction of this object. This works because this destructor is called
+    // before the destructors of all objects.
+    server_.StopProcessingCalls();
+  }
+
+  communication::rpc::Server server_{
+      config_.worker_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
+  distributed::WorkerCoordination coordination_{server_,
                                                 config_.master_endpoint};
   tx::WorkerEngine tx_engine_{config_.master_endpoint};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{config_.master_endpoint};
   database::WorkerCounters counters_{config_.master_endpoint};
-  distributed::RemoteDataRpcServer remote_data_server_{*this, system_};
+  distributed::RemoteDataRpcServer remote_data_server_{*this, server_};
   distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
-  distributed::PlanConsumer plan_consumer_{system_};
+  distributed::PlanConsumer plan_consumer_{server_};
   distributed::RemoteProduceRpcServer remote_produce_server_{
-      *this, tx_engine_, system_, plan_consumer_};
-  distributed::IndexRpcServer index_rpc_server_{*this, system_};
+      *this, tx_engine_, server_, plan_consumer_};
+  distributed::IndexRpcServer index_rpc_server_{*this, server_};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, tx_engine_,
-                                                             system_};
+                                                             server_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
   distributed::RemoteDataManager remote_data_manager_{tx_engine_,
                                                       remote_data_clients_};
@@ -334,7 +349,7 @@ Master::Master(Config config)
     : MasterBase(std::make_unique<impl::Master>(config)) {}
 
 io::network::Endpoint Master::endpoint() const {
-  return dynamic_cast<impl::Master *>(impl_.get())->system_.endpoint();
+  return dynamic_cast<impl::Master *>(impl_.get())->server_.endpoint();
 }
 
 io::network::Endpoint Master::GetEndpoint(int worker_id) {
@@ -346,7 +361,7 @@ Worker::Worker(Config config)
     : PublicBase(std::make_unique<impl::Worker>(config)) {}
 
 io::network::Endpoint Worker::endpoint() const {
-  return dynamic_cast<impl::Worker *>(impl_.get())->system_.endpoint();
+  return dynamic_cast<impl::Worker *>(impl_.get())->server_.endpoint();
 }
 
 io::network::Endpoint Worker::GetEndpoint(int worker_id) {

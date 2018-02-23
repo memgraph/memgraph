@@ -9,9 +9,9 @@
 
 namespace tx {
 
-MasterEngine::MasterEngine(communication::rpc::System &system,
+MasterEngine::MasterEngine(communication::rpc::Server &server,
                            durability::WriteAheadLog *wal)
-    : SingleNodeEngine(wal), rpc_server_(system, kTransactionEngineRpc) {
+    : SingleNodeEngine(wal), rpc_server_(server) {
   rpc_server_.Register<BeginRpc>([this](const BeginReq &) {
     auto tx = Begin();
     return std::make_unique<BeginRes>(TxAndSnapshot{tx->id_, tx->snapshot()});

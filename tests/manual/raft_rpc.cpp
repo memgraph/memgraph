@@ -42,8 +42,8 @@ int main(int argc, char *argv[]) {
       {"b", Endpoint("127.0.0.1", 12346)},
       {"c", Endpoint("127.0.0.1", 12347)}};
 
-  communication::rpc::System my_system(directory[FLAGS_member_id]);
-  RpcNetwork<DummyState> network(my_system, directory);
+  communication::rpc::Server server(directory[FLAGS_member_id]);
+  RpcNetwork<DummyState> network(server, directory);
   raft::SimpleFileStorage<DummyState> storage(FLAGS_log_dir);
 
   raft::RaftConfig config{{"a", "b", "c"}, 150ms, 300ms, 70ms, 30ms};
