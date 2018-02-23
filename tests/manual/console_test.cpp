@@ -65,7 +65,7 @@ void random_generate(database::GraphDb &db, int64_t node_count,
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  FLAGS_min_log_level = 1000;
+  FLAGS_min_log_level = google::ERROR;
   google::InitGoogleLogging(argv[0]);
 
   // parse the first cmd line argument as the count of nodes to randomly create

@@ -31,6 +31,8 @@ DEFINE_string(save_mock_db_file, "",
 DEFINE_string(load_mock_db_file, "",
               "File from which the mock database should be loaded");
 
+DECLARE_int32(min_log_level);
+
 #ifdef HAS_READLINE
 // TODO: This is copied from src/query/console.cpp
 // It should probably be moved to some utils file.
@@ -746,6 +748,7 @@ auto MakeLogicalPlans(query::AstTreeStorage &ast,
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  FLAGS_min_log_level = google::ERROR;
   google::InitGoogleLogging(argv[0]);
   auto in_db_filename = utils::Trim(FLAGS_load_mock_db_file);
   if (!in_db_filename.empty() &&

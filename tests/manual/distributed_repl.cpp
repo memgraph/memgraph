@@ -34,7 +34,7 @@ class WorkerInThread {
 
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  FLAGS_min_log_level = 1000;
+  FLAGS_min_log_level = google::ERROR;
   google::InitGoogleLogging(argv[0]);
 
   // Start the master
