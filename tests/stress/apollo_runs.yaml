@@ -10,4 +10,4 @@
   project: release
   commands: TIMEOUT=43200 ./continuous_integration --large-dataset
   infiles: *STRESS_INFILES
-  slave_group: remote_16c56g
+  slave_group: remote_16c128g

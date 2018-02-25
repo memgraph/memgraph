@@ -24,7 +24,7 @@
     --no-strict
   infiles: *MACRO_BENCHMARK_INFILES
   outfile_paths: *MACRO_BENCHMARK_OUTFILE_PATHS
-  slave_group: &QUERY_PARALLEL_SUITE_SLAVE_GROUP remote_20c140g
+  slave_group: &QUERY_PARALLEL_SUITE_SLAVE_GROUP remote_16c128g
 
 - name: macro_benchmark_parent__query_suite
   project: ^mg-master-diff$ # regex to match only 'mg-master-diff'
