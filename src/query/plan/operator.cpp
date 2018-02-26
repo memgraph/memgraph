@@ -2933,7 +2933,12 @@ void Union::UnionCursor::Reset() {
   right_cursor_->Reset();
 }
 
-ACCEPT_WITH_INPUT(PullRemote);
+bool PullRemote::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    if (input_) input_->Accept(visitor);
+  }
+  return visitor.PostVisit(*this);
+}
 
 std::vector<Symbol> PullRemote::OutputSymbols(const SymbolTable &table) const {
   return input_ ? input_->OutputSymbols(table) : std::vector<Symbol>{};
