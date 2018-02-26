@@ -6,7 +6,6 @@
 #include "data_structures/concurrent/concurrent_set.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
-#include "transactions/tx_end_listener.hpp"
 
 using namespace tx;
 
@@ -74,23 +73,4 @@ TEST(Engine, RunningTransaction) {
   EXPECT_EQ(t0, engine.RunningTransaction(t0->id_));
   EXPECT_NE(t1, engine.RunningTransaction(t0->id_));
   EXPECT_EQ(t1, engine.RunningTransaction(t1->id_));
-}
-
-TEST(Engine, TxEndListener) {
-  SingleNodeEngine engine;
-  int count = 0;
-  {
-    TxEndListener listener{engine, [&count](auto) { count++; }};
-    EXPECT_EQ(count, 0);
-    auto t1 = engine.Begin();
-    EXPECT_EQ(count, 0);
-    auto t2 = engine.Begin();
-    engine.Abort(*t1);
-    EXPECT_EQ(count, 1);
-    engine.Commit(*t2);
-    EXPECT_EQ(count, 2);
-  }
-  auto t3 = engine.Begin();
-  engine.Commit(*t3);
-  EXPECT_EQ(count, 2);
 }

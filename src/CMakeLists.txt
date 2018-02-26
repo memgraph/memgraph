@@ -49,7 +49,6 @@ set(memgraph_src_files
     storage/record_accessor.cpp
     storage/vertex_accessor.cpp
     threading/thread.cpp
-    transactions/engine.cpp
     transactions/engine_master.cpp
     transactions/engine_single_node.cpp
     transactions/engine_worker.cpp

@@ -1,13 +1,10 @@
 #pragma once
 
-#include <mutex>
-
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/remote_cache.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
-#include "threading/sync/spinlock.hpp"
-#include "transactions/tx_end_listener.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {
@@ -17,17 +14,19 @@ class RemoteDataManager {
   // Helper, gets or inserts a data cache for the given transaction.
   template <typename TCollection>
   auto &GetCache(TCollection &collection, tx::transaction_id_t tx_id) {
-    std::lock_guard<SpinLock> guard{lock_};
-    auto found = collection.find(tx_id);
-    if (found != collection.end()) return found->second;
+    auto access = collection.access();
+    auto found = access.find(tx_id);
+    if (found != access.end()) return found->second;
 
-    return collection.emplace(tx_id, remote_data_clients_).first->second;
+    return access
+        .emplace(tx_id, std::make_tuple(tx_id),
+                 std::make_tuple(std::ref(remote_data_clients_)))
+        .first->second;
   }
 
  public:
-  RemoteDataManager(tx::Engine &tx_engine,
-                    distributed::RemoteDataRpcClients &remote_data_clients)
-      : remote_data_clients_(remote_data_clients), tx_engine_(tx_engine) {}
+  RemoteDataManager(distributed::RemoteDataRpcClients &remote_data_clients)
+      : remote_data_clients_(remote_data_clients) {}
 
   /// Gets or creates the remote vertex cache for the given transaction.
   auto &Vertices(tx::transaction_id_t tx_id) {
@@ -43,33 +42,33 @@ class RemoteDataManager {
   template <typename TRecord>
   auto &Elements(tx::transaction_id_t tx_id);
 
-  /// Calls RemoteCache::ClearCache on vertex and edge caches.
-  void ClearCaches(tx::transaction_id_t tx_id) {
+  /// Removes all the caches for a single transaction.
+  void ClearCacheForSingleTransaction(tx::transaction_id_t tx_id) {
     Vertices(tx_id).ClearCache();
     Edges(tx_id).ClearCache();
   }
 
+  /// Clears the cache of local transactions that have expired. The signature of
+  /// this method is dictated by `distributed::CacheCleaner`.
+  void ClearTransactionalCache(tx::transaction_id_t oldest_active) {
+    auto vertex_access = vertices_caches_.access();
+    for (auto &kv : vertex_access) {
+      if (kv.first < oldest_active) {
+        vertex_access.remove(kv.first);
+      }
+    }
+    auto edge_access = edges_caches_.access();
+    for (auto &kv : edge_access) {
+      if (kv.first < oldest_active) {
+        edge_access.remove(kv.first);
+      }
+    }
+  }
+
  private:
   RemoteDataRpcClients &remote_data_clients_;
-  SpinLock lock_;
-  std::unordered_map<tx::transaction_id_t, RemoteCache<Vertex>>
-      vertices_caches_;
-  std::unordered_map<tx::transaction_id_t, RemoteCache<Edge>> edges_caches_;
-
-  tx::Engine &tx_engine_;
-  tx::TxEndListener tx_end_listener_{
-      tx_engine_, [this](tx::transaction_id_t tx_id) { ClearCache(tx_id); }};
-
-  // Clears the caches for the given transaction ID.
-  void ClearCache(tx::transaction_id_t tx_id) {
-    std::lock_guard<SpinLock> guard{lock_};
-    auto remove = [tx_id](auto &map) {
-      auto found = map.find(tx_id);
-      if (found != map.end()) map.erase(found);
-    };
-    remove(vertices_caches_);
-    remove(edges_caches_);
-  }
+  ConcurrentMap<tx::transaction_id_t, RemoteCache<Vertex>> vertices_caches_;
+  ConcurrentMap<tx::transaction_id_t, RemoteCache<Edge>> edges_caches_;
 };
 
 template <>

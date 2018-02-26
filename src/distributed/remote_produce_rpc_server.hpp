@@ -1,12 +1,11 @@
 #pragma once
 
 #include <cstdint>
-#include <map>
-#include <mutex>
 #include <utility>
 #include <vector>
 
 #include "communication/rpc/server.hpp"
+#include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/plan_consumer.hpp"
@@ -22,7 +21,6 @@
 #include "query/typed_value.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/engine_worker.hpp"
-#include "transactions/tx_end_listener.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {
@@ -147,40 +145,34 @@ class RemoteProduceRpcServer {
     remote_produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
         [this](const TransactionCommandAdvancedReq &req) {
           tx_engine_.UpdateCommand(req.member);
-          db_.remote_data_manager().ClearCaches(req.member);
+          db_.remote_data_manager().ClearCacheForSingleTransaction(req.member);
           return std::make_unique<TransactionCommandAdvancedRes>();
         });
+  }
+
+  /// Clears the cache of local transactions that have expired. The signature of
+  /// this method is dictated by `distributed::TransactionalCacheCleaner`.
+  void ClearTransactionalCache(tx::transaction_id_t oldest_active) {
+    auto access = ongoing_produces_.access();
+    for (auto &kv : access) {
+      if (kv.first.first < oldest_active) {
+        access.remove(kv.first);
+      }
+    }
   }
 
  private:
   database::GraphDb &db_;
   communication::rpc::Server &remote_produce_rpc_server_;
   const distributed::PlanConsumer &plan_consumer_;
-
-  std::map<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>
+  ConcurrentMap<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>
       ongoing_produces_;
-  std::mutex ongoing_produces_lock_;
-
   tx::Engine &tx_engine_;
-  tx::TxEndListener tx_end_listener_{
-      tx_engine_, [this](tx::transaction_id_t tx_id) { ClearCache(tx_id); }};
-
-  // Removes all onging pulls for the given tx_id (that transaction expired).
-  void ClearCache(tx::transaction_id_t tx_id) {
-    std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
-    for (auto it = ongoing_produces_.begin(); it != ongoing_produces_.end();) {
-      if (it->first.first == tx_id) {
-        it = ongoing_produces_.erase(it);
-      } else {
-        ++it;
-      }
-    }
-  }
 
   auto &GetOngoingProduce(const RemotePullReq &req) {
-    std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
-    auto found = ongoing_produces_.find({req.tx_id, req.plan_id});
-    if (found != ongoing_produces_.end()) {
+    auto access = ongoing_produces_.access();
+    auto found = access.find({req.tx_id, req.plan_id});
+    if (found != access.end()) {
       return found->second;
     }
     if (db_.type() == database::GraphDb::Type::DISTRIBUTED_WORKER) {
@@ -189,9 +181,9 @@ class RemoteProduceRpcServer {
           .RunningTransaction(req.tx_id, req.tx_snapshot);
     }
     auto &plan_pack = plan_consumer_.PlanForId(req.plan_id);
-    return ongoing_produces_
-        .emplace(std::piecewise_construct,
-                 std::forward_as_tuple(req.tx_id, req.plan_id),
+    auto key_par = std::make_pair(req.tx_id, req.tx_id);
+    return access
+        .emplace(key_par, std::forward_as_tuple(key_par),
                  std::forward_as_tuple(db_, req.tx_id, plan_pack.plan,
                                        plan_pack.symbol_table, req.params,
                                        req.symbols))

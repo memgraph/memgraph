@@ -50,31 +50,23 @@ command_id_t SingleNodeEngine::UpdateCommand(transaction_id_t id) {
 }
 
 void SingleNodeEngine::Commit(const Transaction &t) {
-  auto tx_id = t.id_;
-  {
-    std::lock_guard<SpinLock> guard(lock_);
-    clog_.set_committed(tx_id);
-    active_.remove(tx_id);
-    if (wal_) {
-      wal_->Emplace(database::StateDelta::TxCommit(tx_id));
-    }
-    store_.erase(store_.find(tx_id));
+  std::lock_guard<SpinLock> guard(lock_);
+  clog_.set_committed(t.id_);
+  active_.remove(t.id_);
+  if (wal_) {
+    wal_->Emplace(database::StateDelta::TxCommit(t.id_));
   }
-  NotifyListeners(tx_id);
+  store_.erase(store_.find(t.id_));
 }
 
 void SingleNodeEngine::Abort(const Transaction &t) {
-  auto tx_id = t.id_;
-  {
-    std::lock_guard<SpinLock> guard(lock_);
-    clog_.set_aborted(tx_id);
-    active_.remove(tx_id);
-    if (wal_) {
-      wal_->Emplace(database::StateDelta::TxAbort(tx_id));
-    }
-    store_.erase(store_.find(tx_id));
+  std::lock_guard<SpinLock> guard(lock_);
+  clog_.set_aborted(t.id_);
+  active_.remove(t.id_);
+  if (wal_) {
+    wal_->Emplace(database::StateDelta::TxAbort(t.id_));
   }
-  NotifyListeners(tx_id);
+  store_.erase(store_.find(t.id_));
 }
 
 CommitLog::Info SingleNodeEngine::Info(transaction_id_t tx) const {
@@ -103,8 +95,11 @@ Snapshot SingleNodeEngine::GlobalActiveTransactions() {
   return active_transactions;
 }
 
-tx::transaction_id_t SingleNodeEngine::LocalLast() const {
-  return counter_.load();
+transaction_id_t SingleNodeEngine::LocalLast() const { return counter_.load(); }
+
+transaction_id_t SingleNodeEngine::LocalOldestActive() const {
+  std::lock_guard<SpinLock> guard(lock_);
+  return active_.empty() ? counter_ + 1 : active_.front();
 }
 
 void SingleNodeEngine::LocalForEachActiveTransaction(
@@ -115,8 +110,7 @@ void SingleNodeEngine::LocalForEachActiveTransaction(
   }
 }
 
-tx::Transaction *SingleNodeEngine::RunningTransaction(
-    tx::transaction_id_t tx_id) {
+Transaction *SingleNodeEngine::RunningTransaction(transaction_id_t tx_id) {
   std::lock_guard<SpinLock> guard(lock_);
   auto found = store_.find(tx_id);
   CHECK(found != store_.end())

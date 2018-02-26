@@ -10,7 +10,6 @@
 #include "transactions/engine_master.hpp"
 #include "transactions/engine_rpc_messages.hpp"
 #include "transactions/engine_worker.hpp"
-#include "transactions/tx_end_listener.hpp"
 
 using namespace tx;
 using namespace communication::rpc;
@@ -125,24 +124,4 @@ TEST_F(WorkerEngineTest, LocalForEachActiveTransaction) {
   worker_.LocalForEachActiveTransaction(
       [&local](Transaction &t) { local.insert(t.id_); });
   EXPECT_EQ(local, std::unordered_set<tx::transaction_id_t>({1, 4}));
-}
-
-TEST_F(WorkerEngineTest, TxEndListener) {
-  std::atomic<int> has_expired{0};
-  TxEndListener worker_end_listner{
-      worker_, [&has_expired](transaction_id_t tid) {
-        std::cout << "asdasdadas: " << tid << std::endl;
-        ++has_expired;
-      }};
-
-  auto sleep_period =
-      WorkerEngine::kCacheReleasePeriod + std::chrono::milliseconds(200);
-  auto t1 = master_.Begin();
-  auto t2 = master_.Begin();
-  std::this_thread::sleep_for(sleep_period);
-  EXPECT_EQ(has_expired.load(), 0);
-  master_.Commit(*t1);
-  master_.Abort(*t2);
-  std::this_thread::sleep_for(sleep_period);
-  EXPECT_EQ(has_expired.load(), 2);
 }

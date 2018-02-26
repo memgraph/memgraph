@@ -14,6 +14,7 @@
 #include "distributed/remote_pull_rpc_clients.hpp"
 #include "distributed/remote_updates_rpc_clients.hpp"
 #include "distributed/remote_updates_rpc_server.hpp"
+#include "distributed/transactional_cache_cleaner.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
@@ -145,7 +146,11 @@ class SingleNode : public PrivateBase {
 
 class Master : public PrivateBase {
  public:
-  explicit Master(const Config &config) : PrivateBase(config) {}
+  explicit Master(const Config &config) : PrivateBase(config) {
+    cache_cleaner_.Register(remote_updates_server_);
+    cache_cleaner_.Register(remote_data_manager_);
+  }
+
   GraphDb::Type type() const override {
     return GraphDb::Type::DISTRIBUTED_MASTER;
   }
@@ -180,17 +185,20 @@ class Master : public PrivateBase {
   distributed::PlanDispatcher plan_dispatcher_{coordination_};
   distributed::RemotePullRpcClients remote_pull_clients_{coordination_};
   distributed::RpcWorkerClients index_rpc_clients_{coordination_};
-  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, tx_engine_,
-                                                             server_};
+  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
-  distributed::RemoteDataManager remote_data_manager_{tx_engine_,
-                                                      remote_data_clients_};
+  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
+  distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
 };
 
 class Worker : public PrivateBase {
  public:
   explicit Worker(const Config &config) : PrivateBase(config) {
     coordination_.RegisterWorker(config.worker_id);
+    cache_cleaner_.Register(tx_engine_);
+    cache_cleaner_.Register(remote_produce_server_);
+    cache_cleaner_.Register(remote_updates_server_);
+    cache_cleaner_.Register(remote_data_manager_);
   }
 
   GraphDb::Type type() const override {
@@ -224,11 +232,10 @@ class Worker : public PrivateBase {
   distributed::RemoteProduceRpcServer remote_produce_server_{
       *this, tx_engine_, server_, plan_consumer_};
   distributed::IndexRpcServer index_rpc_server_{*this, server_};
-  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, tx_engine_,
-                                                             server_};
+  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
-  distributed::RemoteDataManager remote_data_manager_{tx_engine_,
-                                                      remote_data_clients_};
+  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
+  distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
 };
 
 #undef IMPL_GETTERS
@@ -244,8 +251,7 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
     impl_->wal().Enable();
     snapshot_creator_ = std::make_unique<Scheduler>();
     snapshot_creator_->Run(
-        "Snapshot",
-        std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
+        "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
         [this] { MakeSnapshot(); });
   }
 }

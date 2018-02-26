@@ -11,7 +11,6 @@
 #include "transactions/type.hpp"
 
 namespace tx {
-class TxEndListener;
 /**
  * Database transaction engine. Used for managing transactions and the related
  * information such as transaction snapshots and the transaction state info.
@@ -25,8 +24,6 @@ class TxEndListener;
  * determined by the users of a particular method.
  */
 class Engine {
-  friend class TxEndListener;
-
  public:
   virtual ~Engine() = default;
 
@@ -58,7 +55,7 @@ class Engine {
    * last.
    *
    * The idea is that data records can only be deleted if they were expired (and
-   * that was committed) by a transaction older then the older currently active.
+   * that was committed) by a transaction older than the older currently active.
    * We need the full snapshot to prevent overlaps (see general GC
    * documentation).
    *
@@ -73,6 +70,11 @@ class Engine {
 
   /** Returns the ID of last locally known transaction. */
   virtual tx::transaction_id_t LocalLast() const = 0;
+
+  /** Returns the ID of the oldest transaction locally known to be active. It is
+   * guaranteed that all the transactions older than the returned are globally
+   * not active. */
+  virtual transaction_id_t LocalOldestActive() const = 0;
 
   /** Calls function f on each locally active transaction. */
   virtual void LocalForEachActiveTransaction(
@@ -89,19 +91,5 @@ class Engine {
   // tx_that_holds_lock). Used for local deadlock resolution.
   // TODO consider global deadlock resolution.
   ConcurrentMap<transaction_id_t, transaction_id_t> local_lock_graph_;
-
-  // Transaction end listeners and the lock for protecting that datastructure.
-  std::vector<TxEndListener *> end_listeners_;
-  mutable SpinLock end_listeners_lock_;
-
-  /** Register a transaction end listener with this engine. */
-  void Register(TxEndListener *listener);
-
-  /** Unregister a transaction end listener with this engine. */
-  void Unregister(TxEndListener *listener);
-
- protected:
-  /** Notifies all registered listeners that a transaction has ended. */
-  void NotifyListeners(transaction_id_t tx_id) const;
 };
 }  // namespace tx

@@ -38,6 +38,7 @@ class SingleNodeEngine : public Engine {
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
   tx::transaction_id_t LocalLast() const override;
+  transaction_id_t LocalOldestActive() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
   tx::Transaction *RunningTransaction(tx::transaction_id_t tx_id) override;
@@ -47,7 +48,7 @@ class SingleNodeEngine : public Engine {
   CommitLog clog_;
   std::unordered_map<transaction_id_t, std::unique_ptr<Transaction>> store_;
   Snapshot active_;
-  SpinLock lock_;
+  mutable SpinLock lock_;
   // Optional. If present, the Engine will write tx Begin/Commit/Abort
   // atomically (while under lock).
   durability::WriteAheadLog *wal_{nullptr};

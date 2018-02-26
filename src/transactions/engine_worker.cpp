@@ -9,24 +9,7 @@
 namespace tx {
 
 WorkerEngine::WorkerEngine(const io::network::Endpoint &endpoint)
-    : rpc_client_pool_(endpoint) {
-  cache_clearing_scheduler_.Run(
-      "TX cache clear", kCacheReleasePeriod, [this]() {
-        // Use the GC snapshot as it always has at least one member.
-        auto res = rpc_client_pool_.Call<GcSnapshotRpc>();
-        // There is a race-condition between this scheduled call and worker
-        // shutdown. It is possible that the worker has responded to the master
-        // it is shutting down, and the master is shutting down (and can't
-        // responde to RPCs). At the same time this call gets scheduled, so we
-        // get a failed RPC.
-        if (!res) {
-          LOG(WARNING) << "Transaction cache GC RPC call failed";
-        } else {
-          CHECK(!res->member.empty()) << "Recieved an empty GcSnapshot";
-          ClearCachesBasedOnOldest(res->member.front());
-        }
-      });
-}
+    : rpc_client_pool_(endpoint) {}
 
 WorkerEngine::~WorkerEngine() {
   for (auto &kv : active_.access()) {
@@ -35,10 +18,10 @@ WorkerEngine::~WorkerEngine() {
 }
 
 Transaction *WorkerEngine::Begin() {
-  auto res = rpc_client_pool_.Call<BeginRpc>();
-  Transaction *tx =
-      new Transaction(res->member.tx_id, res->member.snapshot, *this);
-  auto insertion = active_.access().insert(res->member.tx_id, tx);
+  auto data = rpc_client_pool_.Call<BeginRpc>()->member;
+  UpdateOldestActive(data.snapshot, data.tx_id);
+  Transaction *tx = new Transaction(data.tx_id, data.snapshot, *this);
+  auto insertion = active_.access().insert(data.tx_id, tx);
   CHECK(insertion.second) << "Failed to start creation from worker";
   return tx;
 }
@@ -73,12 +56,12 @@ command_id_t WorkerEngine::UpdateCommand(transaction_id_t tx_id) {
 
 void WorkerEngine::Commit(const Transaction &t) {
   auto res = rpc_client_pool_.Call<CommitRpc>(t.id_);
-  ClearCache(t.id_);
+  ClearSingleTransaction(t.id_);
 }
 
 void WorkerEngine::Abort(const Transaction &t) {
   auto res = rpc_client_pool_.Call<AbortRpc>(t.id_);
-  ClearCache(t.id_);
+  ClearSingleTransaction(t.id_);
 }
 
 CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
@@ -92,7 +75,7 @@ CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
     if (!info.is_active()) {
       if (info.is_committed()) clog_.set_committed(tid);
       if (info.is_aborted()) clog_.set_aborted(tid);
-      ClearCache(tid);
+      ClearSingleTransaction(tid);
     }
   }
 
@@ -100,11 +83,16 @@ CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
 }
 
 Snapshot WorkerEngine::GlobalGcSnapshot() {
-  return std::move(rpc_client_pool_.Call<GcSnapshotRpc>()->member);
+  auto snapshot = std::move(rpc_client_pool_.Call<GcSnapshotRpc>()->member);
+  UpdateOldestActive(snapshot, local_last_.load());
+  return snapshot;
 }
 
 Snapshot WorkerEngine::GlobalActiveTransactions() {
-  return std::move(rpc_client_pool_.Call<ActiveTransactionsRpc>()->member);
+  auto snapshot =
+      std::move(rpc_client_pool_.Call<ActiveTransactionsRpc>()->member);
+  UpdateOldestActive(snapshot, local_last_.load());
+  return snapshot;
 }
 
 transaction_id_t WorkerEngine::LocalLast() const { return local_last_; }
@@ -114,13 +102,17 @@ void WorkerEngine::LocalForEachActiveTransaction(
   for (auto pair : active_.access()) f(*pair.second);
 }
 
+transaction_id_t WorkerEngine::LocalOldestActive() const {
+  return oldest_active_;
+}
+
 Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id) {
   auto accessor = active_.access();
   auto found = accessor.find(tx_id);
   if (found != accessor.end()) return found->second;
 
-  Snapshot snapshot(
-      std::move(rpc_client_pool_.Call<SnapshotRpc>(tx_id)->member));
+  auto snapshot = std::move(rpc_client_pool_.Call<SnapshotRpc>(tx_id)->member);
+  UpdateOldestActive(snapshot, local_last_.load());
   return RunningTransaction(tx_id, snapshot);
 }
 
@@ -137,29 +129,32 @@ Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id,
   return insertion.first->second;
 }
 
-void WorkerEngine::ClearCache(transaction_id_t tx_id) const {
+void WorkerEngine::ClearTransactionalCache(
+    transaction_id_t oldest_active) const {
+  auto access = active_.access();
+  for (auto kv : access) {
+    if (kv.first < oldest_active) {
+      delete kv.second;
+      access.remove(kv.first);
+    }
+  }
+}
+
+void WorkerEngine::ClearSingleTransaction(transaction_id_t tx_id) const {
   auto access = active_.access();
   auto found = access.find(tx_id);
   if (found != access.end()) {
     delete found->second;
-    access.remove(tx_id);
+    access.remove(found->first);
   }
-  NotifyListeners(tx_id);
 }
 
-void WorkerEngine::ClearCachesBasedOnOldest(transaction_id_t oldest_active) {
-  // Take care to handle concurrent calls to this correctly. Try to update the
-  // oldest_active_, and only if successful (nobody else did it concurrently),
-  // clear caches between the previous oldest (now expired) and new oldest
-  // (possibly still alive).
-  auto previous_oldest = oldest_active_.load();
-  while (
-      !oldest_active_.compare_exchange_strong(previous_oldest, oldest_active)) {
-    ;
-  }
-  for (tx::transaction_id_t expired = previous_oldest; expired < oldest_active;
-       ++expired) {
-    ClearCache(expired);
+void WorkerEngine::UpdateOldestActive(const Snapshot &snapshot,
+                                      transaction_id_t alternative) {
+  if (snapshot.empty()) {
+    oldest_active_.store(std::max(alternative, oldest_active_.load()));
+  } else {
+    oldest_active_.store(snapshot.front());
   }
 }
 }  // namespace tx

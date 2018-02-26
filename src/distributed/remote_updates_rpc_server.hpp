@@ -21,7 +21,6 @@
 #include "storage/vertex_accessor.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
 #include "threading/sync/spinlock.hpp"
-#include "transactions/tx_end_listener.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {
@@ -186,10 +185,10 @@ class RemoteUpdatesRpcServer {
   };
 
  public:
-  RemoteUpdatesRpcServer(database::GraphDb &db, tx::Engine &engine,
+  RemoteUpdatesRpcServer(database::GraphDb &db,
                          communication::rpc::Server &server)
-      : db_(db), engine_(engine), server_(server) {
-    server_.Register<RemoteUpdateRpc>([this](const RemoteUpdateReq &req) {
+      : db_(db) {
+    server.Register<RemoteUpdateRpc>([this](const RemoteUpdateReq &req) {
       using DeltaType = database::StateDelta::Type;
       auto &delta = req.member;
       switch (delta.type) {
@@ -207,19 +206,19 @@ class RemoteUpdatesRpcServer {
       }
     });
 
-    server_.Register<RemoteUpdateApplyRpc>(
+    server.Register<RemoteUpdateApplyRpc>(
         [this](const RemoteUpdateApplyReq &req) {
           return std::make_unique<RemoteUpdateApplyRes>(Apply(req.member));
         });
 
-    server_.Register<RemoteCreateVertexRpc>(
+    server.Register<RemoteCreateVertexRpc>(
         [this](const RemoteCreateVertexReq &req) {
           return std::make_unique<RemoteCreateVertexRes>(
               GetUpdates(vertex_updates_, req.member.tx_id)
                   .CreateVertex(req.member.labels, req.member.properties));
         });
 
-    server_.Register<RemoteCreateEdgeRpc>(
+    server.Register<RemoteCreateEdgeRpc>(
         [this](const RemoteCreateEdgeReq &req) {
           auto data = req.member;
           auto creation_result = CreateEdge(data);
@@ -238,7 +237,7 @@ class RemoteUpdatesRpcServer {
           return std::make_unique<RemoteCreateEdgeRes>(creation_result);
         });
 
-    server_.Register<RemoteAddInEdgeRpc>([this](const RemoteAddInEdgeReq &req) {
+    server.Register<RemoteAddInEdgeRpc>([this](const RemoteAddInEdgeReq &req) {
       auto to_delta = database::StateDelta::AddInEdge(
           req.member.tx_id, req.member.to, req.member.from,
           req.member.edge_address, req.member.edge_type);
@@ -270,15 +269,26 @@ class RemoteUpdatesRpcServer {
     return RemoteUpdateResult::DONE;
   }
 
+  /// Clears the cache of local transactions that have expired. The signature of
+  /// this method is dictated by `distributed::CacheCleaner`.
+  void ClearTransactionalCache(tx::transaction_id_t oldest_active) {
+    auto vertex_access = vertex_updates_.access();
+    for (auto &kv : vertex_access) {
+      if (kv.first < oldest_active) {
+        vertex_access.remove(kv.first);
+      }
+    }
+    auto edge_access = edge_updates_.access();
+    for (auto &kv : edge_access) {
+      if (kv.first < oldest_active) {
+        edge_access.remove(kv.first);
+      }
+    }
+  }
+
  private:
   database::GraphDb &db_;
-  tx::Engine &engine_;
-  communication::rpc::Server &server_;
-  tx::TxEndListener tx_end_listener_{engine_,
-                                     [this](tx::transaction_id_t tx_id) {
-                                       vertex_updates_.access().remove(tx_id);
-                                       edge_updates_.access().remove(tx_id);
-                                     }};
+
   template <typename TAccessor>
   using MapT =
       ConcurrentMap<tx::transaction_id_t, TransactionUpdates<TAccessor>>;
