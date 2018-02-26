@@ -185,7 +185,7 @@ class RemoteUpdatesRpcServer {
           if (creation_result.result == RemoteUpdateResult::DONE &&
               data.to.worker_id() == db_.WorkerId()) {
             auto to_delta = database::StateDelta::AddInEdge(
-                data.tx_id, data.to.gid(), data.from,
+                data.tx_id, data.to.gid(), {data.from, db_.WorkerId()},
                 {creation_result.gid, db_.WorkerId()}, data.edge_type);
             creation_result.result =
                 GetUpdates(vertex_updates_, data.tx_id).Emplace(to_delta);

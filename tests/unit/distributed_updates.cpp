@@ -173,6 +173,8 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
 
   void CreateEdge(database::GraphDb &creator, storage::VertexAddress from_addr,
                   storage::VertexAddress to_addr) {
+    CHECK(from_addr.is_remote() && to_addr.is_remote())
+        << "Local address given to CreateEdge";
     database::GraphDbAccessor dba{creator};
     auto edge_type = dba.EdgeType("et");
     VertexAccessor v1{from_addr, dba};
