@@ -14,6 +14,7 @@
     - \./memgraph/tests/macro_benchmark/\.harness_summary
 
 - name: macro_benchmark__query_parallel_suite
+  project: ^mg-master-release-daily$ # regex to match only 'mg-master-release-daily'
   supervisor: ./harness
   arguments: &QUERY_PARALLEL_SUITE_ARGS >
     QueryParallelSuite MemgraphRunner
@@ -37,7 +38,7 @@
   link_to_run: macro_benchmark__query_suite
 
 - name: macro_benchmark_parent__query_parallel_suite
-  project: ^mg-master-diff$ # regex to match only 'mg-master-diff'
+  project: ^NEVER$ # regex that currently doesn't match any project
   cd: ../../../parent/tests/macro_benchmark # all files are relative to the parent build
   supervisor: ./harness
   arguments: *QUERY_PARALLEL_SUITE_ARGS
@@ -52,9 +53,11 @@
   cd: ../../..
   commands: >
     ./memgraph/tools/apollo/macro_benchmark_summary
-    --current macro_benchmark__query_suite/memgraph/tests/macro_benchmark/.harness_summary macro_benchmark__query_parallel_suite/memgraph/tests/macro_benchmark/.harness_summary
-    --previous macro_benchmark_parent__query_suite/parent/tests/macro_benchmark/.harness_summary macro_benchmark_parent__query_parallel_suite/parent/tests/macro_benchmark/.harness_summary
+    --current macro_benchmark__query_suite/memgraph/tests/macro_benchmark/.harness_summary
+    --previous macro_benchmark_parent__query_suite/parent/tests/macro_benchmark/.harness_summary
     --output .harness_summary
+  # --current macro_benchmark__query_suite/memgraph/tests/macro_benchmark/.harness_summary macro_benchmark__query_parallel_suite/memgraph/tests/macro_benchmark/.harness_summary
+  # --previous macro_benchmark_parent__query_suite/parent/tests/macro_benchmark/.harness_summary macro_benchmark_parent__query_parallel_suite/parent/tests/macro_benchmark/.harness_summary
   infiles:
     - memgraph/tools/apollo/macro_benchmark_summary
   outfile_paths:
