@@ -2,7 +2,6 @@
 
 #include <mutex>
 #include <unordered_map>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -112,9 +111,54 @@ class RemoteUpdatesRpcServer {
     RemoteUpdateResult Apply() {
       std::lock_guard<SpinLock> guard{lock_};
       for (auto &kv : deltas_) {
+        auto &record_accessor = kv.second.first;
+        // We need to reconstruct the record as in the meantime some local
+        // update might have updated it.
+        record_accessor.Reconstruct();
         for (database::StateDelta &delta : kv.second.second) {
           try {
-            kv.second.first.ProcessDelta(delta);
+            auto &updated = record_accessor.update();
+            auto &dba = db_accessor_;
+            switch (delta.type) {
+              case database::StateDelta::Type::TRANSACTION_BEGIN:
+              case database::StateDelta::Type::TRANSACTION_COMMIT:
+              case database::StateDelta::Type::TRANSACTION_ABORT:
+              case database::StateDelta::Type::CREATE_VERTEX:
+              case database::StateDelta::Type::CREATE_EDGE:
+              case database::StateDelta::Type::REMOVE_VERTEX:
+              case database::StateDelta::Type::REMOVE_EDGE:
+              case database::StateDelta::Type::BUILD_INDEX:
+                LOG(FATAL) << "Can only apply record update deltas for remote "
+                              "graph element";
+              case database::StateDelta::Type::SET_PROPERTY_VERTEX:
+              case database::StateDelta::Type::SET_PROPERTY_EDGE:
+                record_accessor.PropsSet(delta.property, delta.value);
+                break;
+              case database::StateDelta::Type::ADD_LABEL:
+                // It is only possible that ADD_LABEL gets called on a
+                // VertexAccessor.
+                reinterpret_cast<VertexAccessor &>(record_accessor)
+                    .add_label(delta.label);
+                break;
+              case database::StateDelta::Type::REMOVE_LABEL: {
+                // It is only possible that REMOVE_LABEL gets called on a
+                // VertexAccessor.
+                reinterpret_cast<VertexAccessor &>(record_accessor)
+                    .remove_label(delta.label);
+              } break;
+              case database::StateDelta::Type::ADD_OUT_EDGE:
+                reinterpret_cast<Vertex &>(updated).out_.emplace(
+                    dba.LocalizedAddress(delta.vertex_to_address),
+                    dba.LocalizedAddress(delta.edge_address), delta.edge_type);
+                dba.wal().Emplace(delta);
+                break;
+              case database::StateDelta::Type::ADD_IN_EDGE:
+                reinterpret_cast<Vertex &>(updated).in_.emplace(
+                    dba.LocalizedAddress(delta.vertex_from_address),
+                    dba.LocalizedAddress(delta.edge_address), delta.edge_type);
+                dba.wal().Emplace(delta);
+                break;
+            }
           } catch (const mvcc::SerializationError &) {
             return RemoteUpdateResult::SERIALIZATION_ERROR;
           } catch (const RecordDeletedError &) {

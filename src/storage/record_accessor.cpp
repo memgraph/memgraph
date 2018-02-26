@@ -27,52 +27,52 @@ template <>
 void RecordAccessor<Vertex>::PropsSet(storage::Property key,
                                       PropertyValue value) {
   auto &dba = db_accessor();
-  ProcessDelta(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
-                                          dba.PropertyName(key), value));
+  auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
+                                          dba.PropertyName(key), value);
+  update().properties_.set(key, value);
   if (is_local()) {
     dba.UpdatePropertyIndex(key, *this, &update());
   }
+  ProcessDelta(delta);
 }
 
 template <>
 void RecordAccessor<Edge>::PropsSet(storage::Property key,
                                     PropertyValue value) {
   auto &dba = db_accessor();
-  ProcessDelta(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
-                                        dba.PropertyName(key), value));
+  auto delta = StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
+                                        dba.PropertyName(key), value);
+
+  update().properties_.set(key, value);
+  ProcessDelta(delta);
 }
 
 template <>
 void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
-  ProcessDelta(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
-                                          dba.PropertyName(key),
-                                          PropertyValue::Null));
+  auto delta =
+      StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
+                                 dba.PropertyName(key), PropertyValue::Null);
+  update().properties_.set(key, PropertyValue::Null);
+  ProcessDelta(delta);
 }
 
 template <>
 void RecordAccessor<Edge>::PropsErase(storage::Property key) {
   auto &dba = db_accessor();
-  ProcessDelta(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
-                                        dba.PropertyName(key),
-                                        PropertyValue::Null));
+  auto delta =
+      StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
+                               dba.PropertyName(key), PropertyValue::Null);
+  update().properties_.set(key, PropertyValue::Null);
+  ProcessDelta(delta);
 }
 
 template <typename TRecord>
 void RecordAccessor<TRecord>::PropsClear() {
-  auto &dba = db_accessor();
   std::vector<storage::Property> to_remove;
   for (const auto &kv : update().properties_) to_remove.emplace_back(kv.first);
   for (const auto &prop : to_remove) {
-    if (std::is_same<TRecord, Vertex>::value) {
-      ProcessDelta(StateDelta::PropsSetVertex(dba.transaction_id(), gid(), prop,
-                                              dba.PropertyName(prop),
-                                              PropertyValue::Null));
-    } else {
-      ProcessDelta(StateDelta::PropsSetEdge(dba.transaction_id(), gid(), prop,
-                                            dba.PropertyName(prop),
-                                            PropertyValue::Null));
-    }
+    PropsErase(prop);
   }
 }
 
@@ -197,68 +197,32 @@ const TRecord &RecordAccessor<TRecord>::current() const {
 }
 
 template <typename TRecord>
+void RecordAccessor<TRecord>::SendDelta(
+    const database::StateDelta &delta) const {
+  DCHECK(!is_local())
+      << "Only a delta created on a remote accessor should be sent";
+
+  auto result = db_accessor().db().remote_updates_clients().RemoteUpdate(
+      address().worker_id(), delta);
+  switch (result) {
+    case distributed::RemoteUpdateResult::DONE:
+      break;
+    case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
+      throw mvcc::SerializationError();
+    case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:
+      throw RecordDeletedError();
+    case distributed::RemoteUpdateResult::LOCK_TIMEOUT_ERROR:
+      throw LockTimeoutException("Lock timeout on remote worker");
+  }
+}
+
+template <typename TRecord>
 void RecordAccessor<TRecord>::ProcessDelta(
     const database::StateDelta &delta) const {
-  auto &dba = db_accessor();
-  // We need to reconstruct the record as in the meantime some local update
-  // have updated it.
-  Reconstruct();
-  // Apply the delta both on local and remote data. We need to see the changes
-  // we make to remote data, even if it's not applied immediately.
-  auto &updated = update();
-  switch (delta.type) {
-    case StateDelta::Type::TRANSACTION_BEGIN:
-    case StateDelta::Type::TRANSACTION_COMMIT:
-    case StateDelta::Type::TRANSACTION_ABORT:
-    case StateDelta::Type::CREATE_VERTEX:
-    case StateDelta::Type::CREATE_EDGE:
-    case StateDelta::Type::REMOVE_VERTEX:
-    case StateDelta::Type::REMOVE_EDGE:
-    case StateDelta::Type::BUILD_INDEX:
-      LOG(FATAL)
-          << "Can only apply record update deltas for remote graph element";
-    case StateDelta::Type::SET_PROPERTY_VERTEX:
-    case StateDelta::Type::SET_PROPERTY_EDGE:
-      updated.properties_.set(delta.property, delta.value);
-      break;
-    case StateDelta::Type::ADD_LABEL:
-      // It is only possible that ADD_LABEL gets calld on a VertexAccessor.
-      reinterpret_cast<Vertex &>(updated).labels_.emplace_back(delta.label);
-      break;
-    case StateDelta::Type::REMOVE_LABEL: {
-      // It is only possible that REMOVE_LABEL gets calld on a VertexAccessor.
-      auto &labels = reinterpret_cast<Vertex &>(updated).labels_;
-      auto found = std::find(labels.begin(), labels.end(), delta.label);
-      std::swap(*found, labels.back());
-      labels.pop_back();
-    } break;
-    case StateDelta::Type::ADD_OUT_EDGE:
-      reinterpret_cast<Vertex &>(updated).out_.emplace(
-          dba.LocalizedAddress(delta.vertex_to_address),
-          dba.LocalizedAddress(delta.edge_address), delta.edge_type);
-      break;
-    case StateDelta::Type::ADD_IN_EDGE:
-      reinterpret_cast<Vertex &>(updated).in_.emplace(
-          dba.LocalizedAddress(delta.vertex_from_address),
-          dba.LocalizedAddress(delta.edge_address), delta.edge_type);
-      break;
-  }
-
   if (is_local()) {
-    dba.wal().Emplace(delta);
+    db_accessor().wal().Emplace(delta);
   } else {
-    auto result = dba.db().remote_updates_clients().RemoteUpdate(
-        address().worker_id(), delta);
-    switch (result) {
-      case distributed::RemoteUpdateResult::DONE:
-        break;
-      case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
-        throw mvcc::SerializationError();
-      case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:
-        throw RecordDeletedError();
-      case distributed::RemoteUpdateResult::LOCK_TIMEOUT_ERROR:
-        throw LockTimeoutException("Lock timeout on remote worker");
-    }
+    SendDelta(delta);
   }
 }
 

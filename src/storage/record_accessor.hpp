@@ -13,7 +13,7 @@
 namespace database {
 class GraphDbAccessor;
 struct StateDelta;
-};
+};  // namespace database
 
 /**
  * An accessor to a database record (an Edge or a Vertex).
@@ -146,15 +146,17 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
            (current_state && new_ && !new_->is_expired_by(t));
   }
 
+ protected:
   /**
-   * Processes the delta that's a consequence of changes in this accessor. If
-   * the accessor is local that means writing the delta to the write-ahead log.
-   * If it's remote, then the delta needs to be sent to it's owner for
-   * processing.
+   * Sends delta for remote processing.
+   */
+  void SendDelta(const database::StateDelta &delta) const;
+
+  /**
+   * Processes delta by either adding it to WAL, or by sending it remotely.
    */
   void ProcessDelta(const database::StateDelta &delta) const;
 
- protected:
   /**
    * Pointer to the version (either old_ or new_) that READ operations
    * in the accessor should take data from. Note that WRITE operations

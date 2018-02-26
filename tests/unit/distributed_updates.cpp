@@ -157,6 +157,45 @@ TEST_F(DistributedGraphDbTest, UpdateVertexRemoteAndLocal) {
   }
 }
 
+TEST_F(DistributedGraphDbTest, AddSameLabelRemoteAndLocal) {
+  auto v_address = InsertVertex(worker(1));
+  {
+    database::GraphDbAccessor dba0{master()};
+    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+    auto v_local = dba1.FindVertexChecked(v_address.gid(), false);
+    auto v_remote = VertexAccessor(v_address, dba0);
+    auto l1 = dba1.Label("label");
+    v_remote.add_label(l1);
+    v_local.add_label(l1);
+    worker(1).remote_updates_server().Apply(dba0.transaction_id());
+    dba0.Commit();
+  }
+  {
+    database::GraphDbAccessor dba0{master()};
+    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+    auto v = dba1.FindVertexChecked(v_address.gid(), false);
+    EXPECT_EQ(v.labels().size(), 1);
+  }
+}
+
+TEST_F(DistributedGraphDbTest, IndexGetsUpdatedRemotely) {
+  storage::VertexAddress v_remote = InsertVertex(worker(1));
+  storage::Label label;
+  {
+    database::GraphDbAccessor dba0{master()};
+    label = dba0.Label("label");
+    VertexAccessor va(v_remote, dba0);
+    va.add_label(label);
+    worker(1).remote_updates_server().Apply(dba0.transaction_id());
+    dba0.Commit();
+  }
+  {
+    database::GraphDbAccessor dba1{worker(1)};
+    auto vertices = dba1.Vertices(label, false);
+    EXPECT_EQ(std::distance(vertices.begin(), vertices.end()), 1);
+  }
+}
+
 class DistributedEdgeCreateTest : public DistributedGraphDbTest {
  protected:
   storage::VertexAddress w1_a;

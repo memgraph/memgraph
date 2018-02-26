@@ -10,29 +10,39 @@ size_t VertexAccessor::out_degree() const { return current().out_.size(); }
 
 size_t VertexAccessor::in_degree() const { return current().in_.size(); }
 
-bool VertexAccessor::add_label(storage::Label label) {
-  auto &updated = update();
-  if (utils::Contains(updated.labels_, label)) return false;
-
-  // not a duplicate label, add it
+void VertexAccessor::add_label(storage::Label label) {
   auto &dba = db_accessor();
-  ProcessDelta(database::StateDelta::AddLabel(dba.transaction_id(), gid(),
-                                              label, dba.LabelName(label)));
+  auto delta = database::StateDelta::AddLabel(dba.transaction_id(), gid(),
+                                              label, dba.LabelName(label));
   Vertex &vertex = update();
-
-  if (is_local()) {
-    dba.UpdateLabelIndices(label, *this, &vertex);
+  // not a duplicate label, add it
+  if (!utils::Contains(vertex.labels_, label)) {
+    vertex.labels_.emplace_back(label);
+    if (is_local()) {
+      dba.wal().Emplace(delta);
+      dba.UpdateLabelIndices(label, *this, &vertex);
+    }
   }
-  return true;
+
+  if (!is_local()) SendDelta(delta);
 }
 
-size_t VertexAccessor::remove_label(storage::Label label) {
-  if (!utils::Contains(update().labels_, label)) return 0;
-
+void VertexAccessor::remove_label(storage::Label label) {
   auto &dba = db_accessor();
-  ProcessDelta(database::StateDelta::RemoveLabel(dba.transaction_id(), gid(),
-                                                 label, dba.LabelName(label)));
-  return 1;
+  auto delta = database::StateDelta::RemoveLabel(dba.transaction_id(), gid(),
+                                                 label, dba.LabelName(label));
+  Vertex &vertex = update();
+  if (utils::Contains(vertex.labels_, label)) {
+    auto &labels = vertex.labels_;
+    auto found = std::find(labels.begin(), labels.end(), delta.label);
+    std::swap(*found, labels.back());
+    labels.pop_back();
+    if (is_local()) {
+      dba.wal().Emplace(delta);
+    }
+  }
+
+  if (!is_local()) SendDelta(delta);
 }
 
 bool VertexAccessor::has_label(storage::Label label) const {
@@ -50,9 +60,10 @@ std::ostream &operator<<(std::ostream &os, const VertexAccessor &va) {
     stream << va.db_accessor().LabelName(label);
   });
   os << " {";
-  utils::PrintIterable(os, va.Properties(), ", ", [&](auto &stream,
-                                                      const auto &pair) {
-    stream << va.db_accessor().PropertyName(pair.first) << ": " << pair.second;
-  });
+  utils::PrintIterable(os, va.Properties(), ", ",
+                       [&](auto &stream, const auto &pair) {
+                         stream << va.db_accessor().PropertyName(pair.first)
+                                << ": " << pair.second;
+                       });
   return os << "})";
 }

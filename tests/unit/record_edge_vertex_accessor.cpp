@@ -156,31 +156,31 @@ TEST(RecordAccessor, VertexLabels) {
 
   // adding labels
   EXPECT_FALSE(v1.has_label(l1));
-  EXPECT_TRUE(v1.add_label(l1));
+  v1.add_label(l1);
   EXPECT_TRUE(v1.has_label(l1));
 
   EXPECT_EQ(v1.labels().size(), 1);
   EXPECT_EQ(labels.size(), 1);
-  EXPECT_FALSE(v1.add_label(l1));
+  v1.add_label(l1);
   EXPECT_EQ(v1.labels().size(), 1);
   EXPECT_EQ(labels.size(), 1);
 
   EXPECT_FALSE(v1.has_label(l2));
-  EXPECT_TRUE(v1.add_label(l2));
+  v1.add_label(l2);
   EXPECT_TRUE(v1.has_label(l2));
   EXPECT_EQ(v1.labels().size(), 2);
   EXPECT_EQ(labels.size(), 2);
 
   // removing labels
   storage::Label l3 = dba.Label("label3");
-  EXPECT_EQ(v1.remove_label(l3), 0);
+  v1.remove_label(l3);
   EXPECT_EQ(labels.size(), 2);
 
-  EXPECT_EQ(v1.remove_label(l1), 1);
+  v1.remove_label(l1);
   EXPECT_FALSE(v1.has_label(l1));
   EXPECT_EQ(v1.labels().size(), 1);
 
-  EXPECT_EQ(v1.remove_label(l1), 0);
+  v1.remove_label(l1);
   EXPECT_TRUE(v1.has_label(l2));
 }
 

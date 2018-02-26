@@ -62,12 +62,10 @@ class VertexAccessor : public RecordAccessor<Vertex> {
 
   /** Adds a label to the Vertex. If the Vertex already has that label the call
    * has no effect. */
-  // TODO revise return value, is it necessary?
-  bool add_label(storage::Label label);
+  void add_label(storage::Label label);
 
-  /** Removes a label from the Vertex. Return number of removed (0, 1). */
-  // TODO reves return value, is it necessary?
-  size_t remove_label(storage::Label label);
+  /** Removes a label from the Vertex. */
+  void remove_label(storage::Label label);
 
   /** Indicates if the Vertex has the given label. */
   bool has_label(storage::Label label) const;
