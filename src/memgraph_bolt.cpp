@@ -95,7 +95,7 @@ void MasterMain() {
   database::Master db;
   SessionData session_data{db};
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, false, "Bolt", FLAGS_num_workers);
+                 session_data, true, "Bolt", FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {
@@ -121,7 +121,7 @@ void SingleNodeMain() {
   database::SingleNode db;
   SessionData session_data{db};
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, false, "Bolt", FLAGS_num_workers);
+                 session_data, true, "Bolt", FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {

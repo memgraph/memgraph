@@ -161,11 +161,9 @@ class Session {
    */
   bool TimedOut() {
     std::unique_lock<SpinLock> guard(lock_);
-    return db_accessor_
-               ? db_accessor_->should_abort()
-               : last_event_time_ + std::chrono::seconds(
-                                        FLAGS_session_inactivity_timeout) <
-                     std::chrono::steady_clock::now();
+    return last_event_time_ +
+               std::chrono::seconds(FLAGS_session_inactivity_timeout) <
+           std::chrono::steady_clock::now();
   }
 
   /**

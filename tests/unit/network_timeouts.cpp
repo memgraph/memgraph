@@ -47,7 +47,6 @@ class TestClient : public ClientT {
 };
 
 TEST(NetworkTimeouts, InactiveSession) {
-  FLAGS_query_execution_time_sec = 60;
   FLAGS_session_inactivity_timeout = 2;
   RunningServer rs;
 
@@ -69,26 +68,6 @@ TEST(NetworkTimeouts, InactiveSession) {
 
   // After sleep, session should have timed out.
   std::this_thread::sleep_for(3500ms);
-  EXPECT_THROW(client.Execute("RETURN 1", {}), ClientException);
-}
-
-TEST(NetworkTimeouts, TimeoutInMultiCommandTransaction) {
-  FLAGS_query_execution_time_sec = 2;
-  FLAGS_session_inactivity_timeout = 60;
-  RunningServer rs;
-
-  TestClient client(rs.server_.endpoint());
-
-  // Start explicit multicommand transaction.
-  client.Execute("BEGIN", {});
-  client.Execute("RETURN 1", {});
-
-  // Session should still be alive.
-  std::this_thread::sleep_for(500ms);
-  client.Execute("RETURN 1", {});
-
-  // Session shouldn't be alive anymore.
-  std::this_thread::sleep_for(4s);
   EXPECT_THROW(client.Execute("RETURN 1", {}), ClientException);
 }
 
