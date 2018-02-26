@@ -771,9 +771,9 @@ DistributedPlan MakeDistributedPlan(const LogicalOperator &original_plan,
           worker_plan, pull_id,
           worker_plan->OutputSymbols(distributed_plan.symbol_table));
     }
-  } else if (distributed_plan.worker_plans.empty() &&
-             planner.NeedsSynchronize()) {
-    // If the plan performs writes, we still need to Synchronize.
+  } else if (planner.NeedsSynchronize()) {
+    // If the plan performs writes on master, we still need to Synchronize, even
+    // though we don't split the plan.
     distributed_plan.master_plan = std::make_unique<Synchronize>(
         std::move(distributed_plan.master_plan), nullptr, false);
   }
