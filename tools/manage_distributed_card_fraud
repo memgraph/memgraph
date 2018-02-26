@@ -18,6 +18,8 @@ Script provides helper actions for strata card fraud demo:
     4) Stop memgraph cluster
     5) Clean memgraph directories
     6) Clean durability directories
+    7) Collect memgraph logs
+    8) Start and stop tcpdump
 
 Cluster config should be provided in separate json file.
 
@@ -34,6 +36,7 @@ Example json config:
       "address" : "10.1.13.5",
       "port" : 10000,
       "num_workers" : 4,
+      "rpc_num_workers" : 4,
       "ssh_port" : 60022
     },
     {
@@ -42,6 +45,7 @@ Example json config:
       "address" : "10.1.13.6",
       "port" : 10001,
       "num_workers" : 2,
+      "rpc_num_workers" : 2,
       "ssh_port" : 60022
     },
     {
@@ -50,6 +54,7 @@ Example json config:
       "address" : "10.1.13.7",
       "port" : 10002,
       "num_workers" : 2,
+      "rpc_num_workers" : 2,
       "ssh_port" : 60022
     }
   ],
@@ -91,12 +96,15 @@ def parse_args():
 
 
 class Machine(namedtuple('Machine', ['host', 'type', 'address',
-                                     'port', 'num_workers', 'ssh_port'])):
+                                     'port', 'num_workers',
+                                     'rpc_num_workers', 'ssh_port'])):
     __slots__ = ()  # prevent creation of instance dictionaries
 
     def __init__(self, **kwargs):
         assert isinstance(self.port, int), "port must be an integer"
         assert isinstance(self.num_workers, int), "num_workers must be \
+                                                   an integer"
+        assert isinstance(self.rpc_num_workers, int), "rpc_num_workers must be \
                                                    an integer"
         assert isinstance(self.ssh_port, int), "ssh_port must be an integer"
 
@@ -290,6 +298,7 @@ class RemoteRunner:
                             self._config.durability_remote_dir),
                         "--db-recover-on-startup=true",
                         "--num-workers", str(machine.num_workers),
+                        "--rpc-num-workers", str(machine.rpc_num_workers),
                         "--log-file",
                         os.path.join(self._config.logs_remote_dir,
                                      "log_worker_0"),
@@ -320,6 +329,7 @@ class RemoteRunner:
                             self._config.durability_remote_dir),
                         "--db-recover-on-startup=true",
                         "--num-workers", str(machine.num_workers),
+                        "--rpc-num-workers", str(machine.rpc_num_workers),
                         "--statsd-address", str(self._config.statsd_address),
                         "--statsd-port", str(self._config.statsd_port),
                         "--log-file",
@@ -352,6 +362,7 @@ class RemoteRunner:
                             self._config.durability_remote_dir),
                       "--db-recover-on-startup=true",
                       "--num-workers", str(machine.num_workers),
+                      "--rpc-num-workers", str(machine.rpc_num_workers),
                       "--statsd-address", str(self._config.statsd_address),
                       "--statsd-port", str(self._config.statsd_port),
                       "--log-file",
