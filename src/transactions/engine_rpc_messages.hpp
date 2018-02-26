@@ -57,9 +57,4 @@ RPC_NO_MEMBER_MESSAGE(ActiveTransactionsReq)
 using ActiveTransactionsRpc =
     communication::rpc::RequestResponse<ActiveTransactionsReq, SnapshotRes>;
 
-RPC_SINGLE_MEMBER_MESSAGE(IsActiveReq, transaction_id_t)
-RPC_SINGLE_MEMBER_MESSAGE(IsActiveRes, bool)
-using IsActiveRpc =
-    communication::rpc::RequestResponse<IsActiveReq, IsActiveRes>;
-
 }  // namespace tx

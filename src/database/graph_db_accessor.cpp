@@ -190,7 +190,7 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
         db_.storage().index_build_tx_in_progress_.access();
     for (auto id : wait_transactions) {
       if (active_index_creation_transactions.contains(id)) continue;
-      while (transaction_.engine_.GlobalIsActive(id)) {
+      while (transaction_.engine_.Info(id).is_active()) {
         // Active index creation set could only now start containing that id,
         // since that thread could have not written to the set set and to avoid
         // dead-lock we need to make sure we keep track of that

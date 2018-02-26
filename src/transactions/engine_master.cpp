@@ -57,9 +57,5 @@ MasterEngine::MasterEngine(communication::rpc::Server &server,
       [this](const communication::rpc::Message &) {
         return std::make_unique<SnapshotRes>(GlobalActiveTransactions());
       });
-
-  rpc_server_.Register<IsActiveRpc>([this](const IsActiveReq &req) {
-    return std::make_unique<IsActiveRes>(GlobalIsActive(req.member));
-  });
 }
 }  // namespace tx

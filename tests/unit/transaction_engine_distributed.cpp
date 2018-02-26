@@ -100,19 +100,6 @@ TEST_F(WorkerEngineTest, GlobalActiveTransactions) {
   EXPECT_EQ(worker_.GlobalActiveTransactions(), tx::Snapshot({2, 4}));
 }
 
-TEST_F(WorkerEngineTest, GlobalIsActive) {
-  auto *tx_1 = master_.Begin();
-  master_.Begin();
-  auto *tx_3 = master_.Begin();
-  master_.Begin();
-  master_.Commit(*tx_1);
-  master_.Abort(*tx_3);
-  EXPECT_FALSE(worker_.GlobalIsActive(1));
-  EXPECT_TRUE(worker_.GlobalIsActive(2));
-  EXPECT_FALSE(worker_.GlobalIsActive(3));
-  EXPECT_TRUE(worker_.GlobalIsActive(4));
-}
-
 TEST_F(WorkerEngineTest, LocalLast) {
   master_.Begin();
   EXPECT_EQ(worker_.LocalLast(), 0);
@@ -143,9 +130,10 @@ TEST_F(WorkerEngineTest, LocalForEachActiveTransaction) {
 TEST_F(WorkerEngineTest, TxEndListener) {
   std::atomic<int> has_expired{0};
   TxEndListener worker_end_listner{
-      worker_, [&has_expired](transaction_id_t tid) { 
+      worker_, [&has_expired](transaction_id_t tid) {
         std::cout << "asdasdadas: " << tid << std::endl;
-        ++has_expired; }};
+        ++has_expired;
+      }};
 
   auto sleep_period =
       WorkerEngine::kCacheReleasePeriod + std::chrono::milliseconds(200);

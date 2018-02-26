@@ -71,9 +71,6 @@ class Engine {
   /** Returns active transactions. */
   virtual Snapshot GlobalActiveTransactions() = 0;
 
-  /** Returns true if the transaction with the given ID is currently active. */
-  virtual bool GlobalIsActive(transaction_id_t tx) const = 0;
-
   /** Returns the ID of last locally known transaction. */
   virtual tx::transaction_id_t LocalLast() const = 0;
 

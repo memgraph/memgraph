@@ -37,7 +37,6 @@ class SingleNodeEngine : public Engine {
   CommitLog::Info Info(transaction_id_t tx) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
-  bool GlobalIsActive(transaction_id_t tx) const override;
   tx::transaction_id_t LocalLast() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;

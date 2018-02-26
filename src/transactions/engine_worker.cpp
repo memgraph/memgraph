@@ -107,10 +107,6 @@ Snapshot WorkerEngine::GlobalActiveTransactions() {
   return std::move(rpc_client_pool_.Call<ActiveTransactionsRpc>()->member);
 }
 
-bool WorkerEngine::GlobalIsActive(transaction_id_t tid) const {
-  return rpc_client_pool_.Call<IsActiveRpc>(tid)->member;
-}
-
 transaction_id_t WorkerEngine::LocalLast() const { return local_last_; }
 
 void WorkerEngine::LocalForEachActiveTransaction(

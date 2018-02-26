@@ -103,10 +103,6 @@ Snapshot SingleNodeEngine::GlobalActiveTransactions() {
   return active_transactions;
 }
 
-bool SingleNodeEngine::GlobalIsActive(transaction_id_t tx) const {
-  return clog_.is_active(tx);
-}
-
 tx::transaction_id_t SingleNodeEngine::LocalLast() const {
   return counter_.load();
 }
