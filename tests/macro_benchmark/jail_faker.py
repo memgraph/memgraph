@@ -1,6 +1,6 @@
 #!/usr/bin/python3
-
 import atexit
+import copy
 import json
 import os
 import resource
@@ -11,10 +11,6 @@ import threading
 import time
 import uuid
 from signal import *
-
-
-SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-STORAGE_DIR = os.path.join(SCRIPT_DIR, ".storage")
 
 
 class ProcessException(Exception):
@@ -63,14 +59,14 @@ class Process:
     def run_and_wait(self, *args, **kwargs):
         check = kwargs.pop("check", True)
         self.run(*args, **kwargs)
-        return self.wait()
+        return self.wait(check)
 
     def wait(self, check = True):
         if self._proc == None:
             raise ProcessException
         self._proc.wait()
         if check and self._proc.returncode != 0:
-            raise ProcessException
+            raise ProcessException("Command returned non-zero!")
         return self._proc.returncode
 
     def get_status(self):
@@ -87,7 +83,7 @@ class Process:
     def get_usage(self):
         if self._proc == None:
             raise ProcessException
-        return self._usage
+        return copy.deepcopy(self._usage)
 
     # this is implemented only in the real API
     def set_cpus(self, cpus, hyper=True):
@@ -136,9 +132,11 @@ class Process:
         except:
             return
         # for a description of these fields see: man proc; man times
-        cpu_time = sum(map(lambda x: int(x) / self._ticks_per_sec,
-                           data_stat[13:17]))
-        self._set_usage(cpu_time, "cpu", only_value = True)
+        utime, stime, cutime, cstime = map(
+                lambda x: int(x) / self._ticks_per_sec, data_stat[13:17])
+        self._set_usage(utime + stime + cutime + cstime, "cpu", only_value=True)
+        self._set_usage(utime + cutime, "cpu_user", only_value=True)
+        self._set_usage(stime + cstime, "cpu_sys", only_value=True)
         self._set_usage(int(data_stat[19]), "threads")
         mem_vm, mem_res, mem_shr = map(
                 lambda x: int(x) * self._page_size // 1024, data_statm[:3])
@@ -161,7 +159,6 @@ class Process:
 PROCESSES_NUM = 8
 _processes = [Process(i) for i in range(1, PROCESSES_NUM + 1)]
 _last_process = 0
-_thread_run = True
 
 def _usage_updater():
     while True:
@@ -172,20 +169,12 @@ def _usage_updater():
 _thread = threading.Thread(target=_usage_updater, daemon=True)
 _thread.start()
 
-if not os.path.exists(STORAGE_DIR):
-    os.mkdir(STORAGE_DIR)
-
-_storage_name = os.path.join(
-        STORAGE_DIR, time.strftime("%Y%m%d%H%M%S") + ".json")
-_storage_file = open(_storage_name, "w")
-
 @atexit.register
 def cleanup():
     for proc in _processes:
         if proc._proc == None: continue
         proc.send_signal(SIGKILL)
         proc.get_status()
-    _storage_file.close()
 
 # end of private methods ------------------------------------------------------
 
@@ -230,11 +219,25 @@ def get_host_info():
     return {"cpus": cpus, "memory": memory, "hyperthreading": hyper,
             "threads": threads}
 
+# placeholder function that stores a label in the real API
+def store_label(label):
+    if type(label) != str:
+        raise Exception("Label must be a string!")
+
+# this function is deprecated
 def store_data(data):
-    if not type(data) == dict:
-        raise StorageException("Data must be a dictionary!")
-    for i in ["unit", "type", "value"]:
-        if not i in data:
-            raise StorageException("Field '{}' missing in data!".format(i))
-    data["timestamp"] = time.time()
-    _storage_file.write(json.dumps(data) + "\n")
+    pass
+
+# placeholder function that returns real data in the real API
+def get_network_usage():
+    usage = {
+        "lo": {
+            "bytes": {"rx": 0, "tx": 0},
+            "packets": {"rx": 0, "tx": 0}
+        },
+        "eth0": {
+            "bytes": {"rx": 0, "tx": 0},
+            "packets": {"rx": 0, "tx": 0}
+        }
+    }
+    return usage

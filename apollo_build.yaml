@@ -24,7 +24,7 @@
 
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=release ..
-    TIMEOUT=1000 make -j$THREADS memgraph memgraph__macro_benchmark memgraph__stress
+    TIMEOUT=1000 make -j$THREADS memgraph memgraph__macro_benchmark memgraph__stress memgraph__manual__card_fraud_generate_snapshot
 
     cd ../../parent
 
@@ -39,6 +39,10 @@
     # Install tools, because they may be needed to run some benchmarks and tests.
     cd ../../memgraph/tools
     TIMEOUT=300 ./setup
+
+    # Generate distributed card fraud dataset
+    cd ../tests/distributed/card_fraud
+    ./generate_dataset.sh
 
 
 - name: Debug build

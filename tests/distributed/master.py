@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import atexit
 import importlib
 import logging
 import os
@@ -35,6 +36,7 @@ def main(args):
     workers = {}
     machine_ids = []
     machines_num = int(args.machines_num)
+
     # initialize workers
     for i in range(machines_num):
         id = i + 1
@@ -53,6 +55,15 @@ def main(args):
             wait_for_server(machine_interface, str(machine_port))
 
         workers[machine_id] = worker
+
+    # cleanup at exit
+    @atexit.register
+    def cleanup():
+        for machine_id in machine_ids[1:]:
+            try:
+                workers[machine_id].shutdown()
+            except ConnectionRefusedError:
+                pass
 
     # run test
     test = importlib.import_module(

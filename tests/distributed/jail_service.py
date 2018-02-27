@@ -38,6 +38,12 @@ class JailService:
         self._generated_filenames = []
         self.tempdir = tempfile.TemporaryDirectory()
 
+    def _get_proc(self, tid):
+        if tid not in self.processes:
+            raise Exception(
+                "Binary with tid {tid} does not exist".format(tid=tid))
+        return self.processes[tid]
+
     def start(self, tid, binary_name, binary_args=None):
         self.log.info("Starting Binary: {binary}".format(binary=binary_name))
         self.log.info("With args: {args}".format(args=binary_args))
@@ -50,7 +56,7 @@ class JailService:
             binary = get_absolute_path(binary_name, "build_release")
 
         # fetch process
-        proc = self.processes[tid]
+        proc = self._get_proc(tid)
 
         # start binary
         proc.run(binary, args=binary_args, timeout=600)
@@ -59,13 +65,29 @@ class JailService:
             binary=binary_name, tid=proc._tid)
         self.log.info(msg)
 
+    def check_status(self, tid):
+        proc = self._get_proc(tid)
+        status = proc.get_status()
+        if status is None: return True
+        assert status == 0, "The binary exited with a non-zero status!"
+        return False
+
+    def get_usage(self, tid):
+        usage = self._get_proc(tid).get_usage()
+        usage.update({"network": jail.get_network_usage()})
+        return usage
+
+    def wait(self, tid):
+        proc = self._get_proc(tid)
+        proc.wait()
+
     def stop(self, tid):
         self.log.info("Stopping binary with tid {tid}".format(tid=tid))
-        if tid not in self.processes:
-            raise Exception(
-                "Binary with tid {tid} does not exist".format(tid=tid))
-        proc = self.processes[tid]
-        proc.send_signal(jail.SIGTERM)
+        proc = self._get_proc(tid)
+        try:
+            proc.send_signal(jail.SIGTERM)
+        except Exception:
+            pass
         proc.wait()
         self.log.info("Binary with tid {tid} stopped".format(tid=tid))
 
@@ -87,6 +109,13 @@ class JailService:
         proc = jail.get_process()
         self.processes[proc._tid] = proc
         return proc._tid
+
+    def store_label(self, label):
+        jail.store_label(label)
+
+    def shutdown(self):
+        self.log.info("Stopping Jail Service")
+        os._exit(0)
 
 
 def main():
