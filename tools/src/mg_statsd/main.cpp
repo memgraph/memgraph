@@ -13,14 +13,20 @@ DEFINE_VALIDATED_int32(port, 2500, "Communication port on which to listen.",
 
 DEFINE_string(graphite_address, "", "Graphite address.");
 DEFINE_int32(graphite_port, 0, "Graphite port.");
+DEFINE_string(prefix, "", "Prefix for all collected stats");
 
 std::string GraphiteFormat(const stats::StatsReq &req) {
   std::stringstream sstr;
-  sstr << req.metric_path;
+  if (!FLAGS_prefix.empty()) {
+    sstr << FLAGS_prefix << "." << req.metric_path;
+  } else {
+    sstr << req.metric_path;
+  }
   for (const auto &tag : req.tags) {
     sstr << ";" << tag.first << "=" << tag.second;
   }
   sstr << " " << req.value << " " << req.timestamp << "\n";
+  LOG(INFO) << sstr.str();
   return sstr.str();
 }
 
