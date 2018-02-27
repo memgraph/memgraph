@@ -26,7 +26,6 @@ std::string GraphiteFormat(const stats::StatsReq &req) {
     sstr << ";" << tag.first << "=" << tag.second;
   }
   sstr << " " << req.value << " " << req.timestamp << "\n";
-  LOG(INFO) << sstr.str();
   return sstr.str();
 }
 
