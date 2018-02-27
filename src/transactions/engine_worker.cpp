@@ -134,8 +134,10 @@ void WorkerEngine::ClearTransactionalCache(
   auto access = active_.access();
   for (auto kv : access) {
     if (kv.first < oldest_active) {
-      delete kv.second;
-      access.remove(kv.first);
+      auto transaction_ptr = kv.second;
+      if (access.remove(kv.first)) {
+        delete transaction_ptr;
+      }
     }
   }
 }
@@ -144,8 +146,10 @@ void WorkerEngine::ClearSingleTransaction(transaction_id_t tx_id) const {
   auto access = active_.access();
   auto found = access.find(tx_id);
   if (found != access.end()) {
-    delete found->second;
-    access.remove(found->first);
+    auto transaction_ptr = found->second;
+    if (access.remove(found->first)) {
+      delete transaction_ptr;
+    }
   }
 }
 
