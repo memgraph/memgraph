@@ -21,8 +21,7 @@ class RemotePullRpcClients {
   using ClientPool = communication::rpc::ClientPool;
 
  public:
-  RemotePullRpcClients(Coordination &coordination)
-      : clients_(coordination) {}
+  RemotePullRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
 
   /// Calls a remote pull asynchroniously. IMPORTANT: take care not to call this
   /// function for the same (tx_id, worker_id, plan_id) before the previous call
@@ -95,6 +94,6 @@ class RemotePullRpcClients {
   }
 
  private:
-  RpcWorkerClients clients_;
+  RpcWorkerClients &clients_;
 };
 }  // namespace distributed

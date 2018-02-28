@@ -7,7 +7,6 @@
 #include "database/counters.hpp"
 #include "database/storage.hpp"
 #include "database/storage_gc.hpp"
-#include "distributed/rpc_worker_clients.hpp"
 #include "durability/wal.hpp"
 #include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
@@ -25,6 +24,7 @@ class RemoteProduceRpcServer;
 class RemoteUpdatesRpcServer;
 class RemoteUpdatesRpcClients;
 class RemoteDataManager;
+class IndexRpcClients;
 }
 
 namespace database {
@@ -104,7 +104,7 @@ class GraphDb {
   // Supported only in distributed master.
   virtual distributed::RemotePullRpcClients &remote_pull_clients() = 0;
   virtual distributed::PlanDispatcher &plan_dispatcher() = 0;
-  virtual distributed::RpcWorkerClients &index_rpc_clients() = 0;
+  virtual distributed::IndexRpcClients &index_rpc_clients() = 0;
 
   // Supported only in distributed worker.
   // TODO remove once end2end testing is possible.
@@ -141,7 +141,7 @@ class PublicBase : public GraphDb {
   distributed::RemoteDataRpcServer &remote_data_server() override;
   distributed::RemoteDataRpcClients &remote_data_clients() override;
   distributed::PlanDispatcher &plan_dispatcher() override;
-  distributed::RpcWorkerClients &index_rpc_clients() override;
+  distributed::IndexRpcClients &index_rpc_clients() override;
   distributed::PlanConsumer &plan_consumer() override;
   distributed::RemotePullRpcClients &remote_pull_clients() override;
   distributed::RemoteProduceRpcServer &remote_produce_server() override;

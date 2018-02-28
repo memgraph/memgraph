@@ -54,13 +54,13 @@ class MasterCounters : public SingleNodeCounters {
 /** Implementation for distributed worker. */
 class WorkerCounters : public Counters {
  public:
-  WorkerCounters(const io::network::Endpoint &master_endpoint);
+  WorkerCounters(communication::rpc::ClientPool &master_client_pool);
 
   int64_t Get(const std::string &name) override;
   void Set(const std::string &name, int64_t value) override;
 
  private:
-  communication::rpc::ClientPool rpc_client_pool_;
+  communication::rpc::ClientPool &master_client_pool_;
 };
 
 }  // namespace database

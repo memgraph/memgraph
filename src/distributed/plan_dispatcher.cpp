@@ -2,8 +2,7 @@
 
 namespace distributed {
 
-PlanDispatcher::PlanDispatcher(Coordination &coordination)
-    : clients_(coordination) {}
+PlanDispatcher::PlanDispatcher(RpcWorkerClients &clients) : clients_(clients) {}
 
 void PlanDispatcher::DispatchPlan(
     int64_t plan_id, std::shared_ptr<query::plan::LogicalOperator> plan,

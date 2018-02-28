@@ -13,7 +13,7 @@ namespace distributed {
  */
 class PlanDispatcher {
  public:
-  explicit PlanDispatcher(Coordination &coordination);
+  explicit PlanDispatcher(RpcWorkerClients &clients);
 
   /**
    * Synchronously dispatch a plan to all workers and wait for their
@@ -24,7 +24,7 @@ class PlanDispatcher {
                     const SymbolTable &symbol_table);
 
  private:
-  RpcWorkerClients clients_;
+  RpcWorkerClients &clients_;
 };
 
 }  // namespace distributed

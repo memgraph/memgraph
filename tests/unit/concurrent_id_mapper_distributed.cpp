@@ -13,18 +13,22 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
 
  protected:
   communication::rpc::Server master_server_{{kLocal, 0}};
+  std::experimental::optional<communication::rpc::ClientPool>
+      master_client_pool_;
   std::experimental::optional<storage::MasterConcurrentIdMapper<TId>>
       master_mapper_;
   std::experimental::optional<storage::WorkerConcurrentIdMapper<TId>>
       worker_mapper_;
 
   void SetUp() override {
+    master_client_pool_.emplace(master_server_.endpoint());
     master_mapper_.emplace(master_server_);
-    worker_mapper_.emplace(master_server_.endpoint());
+    worker_mapper_.emplace(master_client_pool_.value());
   }
   void TearDown() override {
     worker_mapper_ = std::experimental::nullopt;
     master_mapper_ = std::experimental::nullopt;
+    master_client_pool_ = std::experimental::nullopt;
   }
 };
 

@@ -4,7 +4,6 @@
 #include <vector>
 
 #include "database/state_delta.hpp"
-#include "distributed/coordination.hpp"
 #include "distributed/remote_updates_rpc_messages.hpp"
 #include "distributed/rpc_worker_clients.hpp"
 #include "query/exceptions.hpp"
@@ -21,8 +20,8 @@ namespace distributed {
 /// apply the accumulated deferred updates, or discard them.
 class RemoteUpdatesRpcClients {
  public:
-  explicit RemoteUpdatesRpcClients(distributed::Coordination &coordination)
-      : worker_clients_(coordination) {}
+  explicit RemoteUpdatesRpcClients(RpcWorkerClients &clients)
+      : worker_clients_(clients) {}
 
   /// Sends an update delta to the given worker.
   RemoteUpdateResult RemoteUpdate(int worker_id,
@@ -143,7 +142,7 @@ class RemoteUpdatesRpcClients {
   }
 
  private:
-  RpcWorkerClients worker_clients_;
+  RpcWorkerClients &worker_clients_;
 
   void RaiseIfRemoteError(RemoteUpdateResult result) {
     switch (result) {

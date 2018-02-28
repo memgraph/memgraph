@@ -5,9 +5,9 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
-#include "distributed/index_rpc_messages.hpp"
 #include "distributed/remote_data_manager.hpp"
 #include "distributed/remote_updates_rpc_clients.hpp"
+#include "distributed/rpc_worker_clients.hpp"
 #include "storage/address_types.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
@@ -183,15 +183,8 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   // Notify all workers to start building an index if we are the master since
   // they don't have to wait anymore
   if (db_.type() == GraphDb::Type::DISTRIBUTED_MASTER) {
-    index_rpc_completions.emplace(
-        db_.index_rpc_clients().ExecuteOnWorkers<bool>(
-            this->db_.WorkerId(),
-            [label, property,
-             this](communication::rpc::ClientPool &client_pool) {
-              return client_pool.Call<distributed::BuildIndexRpc>(
-                         distributed::IndexLabelPropertyTx{
-                             label, property, transaction_id()}) != nullptr;
-            }));
+    index_rpc_completions.emplace(db_.index_rpc_clients().GetBuildIndexFutures(
+        label, property, transaction_id(), this->db_.WorkerId()));
   }
 
   // Add transaction to the build_tx_in_progress as this transaction doesn't

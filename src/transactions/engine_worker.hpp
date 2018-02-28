@@ -20,7 +20,7 @@ class WorkerEngine : public Engine {
   /// expired on the master.
   static constexpr std::chrono::seconds kCacheReleasePeriod{1};
 
-  WorkerEngine(const io::network::Endpoint &endpoint);
+  WorkerEngine(communication::rpc::ClientPool &master_client_pool);
   ~WorkerEngine();
 
   Transaction *Begin() override;
@@ -53,7 +53,7 @@ class WorkerEngine : public Engine {
   mutable CommitLog clog_;
 
   // Communication to the transactional master.
-  mutable communication::rpc::ClientPool rpc_client_pool_;
+  communication::rpc::ClientPool &master_client_pool_;
 
   // Used for clearing of caches of transactions that have expired.
   // Initialize the oldest_active_ with 1 because there's never a tx with id=0

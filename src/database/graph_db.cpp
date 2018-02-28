@@ -54,7 +54,7 @@ class PrivateBase : public GraphDb {
   distributed::PlanDispatcher &plan_dispatcher() override {
     LOG(FATAL) << "Plan dispatcher only available in distributed master.";
   }
-  distributed::RpcWorkerClients &index_rpc_clients() override {
+  distributed::IndexRpcClients &index_rpc_clients() override {
     LOG(FATAL) << "Index RPC clients only available in distributed master.";
   }
 
@@ -162,7 +162,7 @@ class Master : public PrivateBase {
   distributed::RemotePullRpcClients &remote_pull_clients() override {
     return remote_pull_clients_;
   }
-  distributed::RpcWorkerClients &index_rpc_clients() override {
+  distributed::IndexRpcClients &index_rpc_clients() override {
     return index_rpc_clients_;
   }
 
@@ -178,15 +178,17 @@ class Master : public PrivateBase {
   tx::MasterEngine tx_engine_{server_, &wal_};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   distributed::MasterCoordination coordination_{server_};
+  distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{server_};
   distributed::RemoteDataRpcServer remote_data_server_{*this, server_};
-  distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
-  distributed::PlanDispatcher plan_dispatcher_{coordination_};
-  distributed::RemotePullRpcClients remote_pull_clients_{coordination_};
-  distributed::RpcWorkerClients index_rpc_clients_{coordination_};
+  distributed::RemoteDataRpcClients remote_data_clients_{rpc_worker_clients_};
+  distributed::PlanDispatcher plan_dispatcher_{rpc_worker_clients_};
+  distributed::RemotePullRpcClients remote_pull_clients_{rpc_worker_clients_};
+  distributed::IndexRpcClients index_rpc_clients_{rpc_worker_clients_};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
-  distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
+  distributed::RemoteUpdatesRpcClients remote_updates_clients_{
+      rpc_worker_clients_};
   distributed::RemoteDataManager remote_data_manager_{storage_,
                                                       remote_data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
@@ -223,18 +225,21 @@ class Worker : public PrivateBase {
       config_.worker_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   distributed::WorkerCoordination coordination_{server_,
                                                 config_.master_endpoint};
-  tx::WorkerEngine tx_engine_{config_.master_endpoint};
+  distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
+  tx::WorkerEngine tx_engine_{rpc_worker_clients_.GetClientPool(0)};
   StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
-  TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{config_.master_endpoint};
-  database::WorkerCounters counters_{config_.master_endpoint};
+  TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{
+      rpc_worker_clients_.GetClientPool(0)};
+  database::WorkerCounters counters_{rpc_worker_clients_.GetClientPool(0)};
   distributed::RemoteDataRpcServer remote_data_server_{*this, server_};
-  distributed::RemoteDataRpcClients remote_data_clients_{coordination_};
+  distributed::RemoteDataRpcClients remote_data_clients_{rpc_worker_clients_};
   distributed::PlanConsumer plan_consumer_{server_};
   distributed::RemoteProduceRpcServer remote_produce_server_{
       *this, tx_engine_, server_, plan_consumer_};
   distributed::IndexRpcServer index_rpc_server_{*this, server_};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
-  distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
+  distributed::RemoteUpdatesRpcClients remote_updates_clients_{
+      rpc_worker_clients_};
   distributed::RemoteDataManager remote_data_manager_{storage_,
                                                       remote_data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
@@ -291,7 +296,7 @@ distributed::RemoteDataRpcClients &PublicBase::remote_data_clients() {
 distributed::PlanDispatcher &PublicBase::plan_dispatcher() {
   return impl_->plan_dispatcher();
 }
-distributed::RpcWorkerClients &PublicBase::index_rpc_clients() {
+distributed::IndexRpcClients &PublicBase::index_rpc_clients() {
   return impl_->index_rpc_clients();
 }
 distributed::PlanConsumer &PublicBase::plan_consumer() {

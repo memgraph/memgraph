@@ -20,8 +20,9 @@ class WorkerEngineTest : public testing::Test {
 
   Server master_server_{{local, 0}};
   MasterEngine master_{master_server_};
+  ClientPool master_client_pool{master_server_.endpoint()};
 
-  WorkerEngine worker_{master_server_.endpoint()};
+  WorkerEngine worker_{master_client_pool};
 };
 
 TEST_F(WorkerEngineTest, BeginOnWorker) {

@@ -7,6 +7,9 @@
 
 #include "communication/rpc/client_pool.hpp"
 #include "distributed/coordination.hpp"
+#include "distributed/index_rpc_messages.hpp"
+#include "storage/types.hpp"
+#include "transactions/transaction.hpp"
 
 namespace distributed {
 
@@ -66,6 +69,29 @@ class RpcWorkerClients {
   Coordination &coordination_;
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   std::mutex lock_;
+};
+
+/** Wrapper class around a RPC call to build indices.
+ */
+class IndexRpcClients {
+ public:
+  IndexRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
+
+  auto GetBuildIndexFutures(const storage::Label &label,
+                            const storage::Property &property,
+                            tx::transaction_id_t transaction_id,
+                            int worker_id) {
+    return clients_.ExecuteOnWorkers<bool>(
+        worker_id, [label, property, transaction_id](
+                       communication::rpc::ClientPool &client_pool) {
+          return client_pool.Call<BuildIndexRpc>(
+                     distributed::IndexLabelPropertyTx{
+                         label, property, transaction_id}) != nullptr;
+        });
+  }
+
+ private:
+  RpcWorkerClients &clients_;
 };
 
 }  // namespace distributed

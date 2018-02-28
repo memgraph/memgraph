@@ -8,8 +8,8 @@
 
 namespace tx {
 
-WorkerEngine::WorkerEngine(const io::network::Endpoint &endpoint)
-    : rpc_client_pool_(endpoint) {}
+WorkerEngine::WorkerEngine(communication::rpc::ClientPool &master_client_pool)
+    : master_client_pool_(master_client_pool) {}
 
 WorkerEngine::~WorkerEngine() {
   for (auto &kv : active_.access()) {
@@ -18,7 +18,7 @@ WorkerEngine::~WorkerEngine() {
 }
 
 Transaction *WorkerEngine::Begin() {
-  auto data = rpc_client_pool_.Call<BeginRpc>()->member;
+  auto data = master_client_pool_.Call<BeginRpc>()->member;
   UpdateOldestActive(data.snapshot, data.tx_id);
   Transaction *tx = new Transaction(data.tx_id, data.snapshot, *this);
   auto insertion = active_.access().insert(data.tx_id, tx);
@@ -27,7 +27,7 @@ Transaction *WorkerEngine::Begin() {
 }
 
 command_id_t WorkerEngine::Advance(transaction_id_t tx_id) {
-  auto res = rpc_client_pool_.Call<AdvanceRpc>(tx_id);
+  auto res = master_client_pool_.Call<AdvanceRpc>(tx_id);
   auto access = active_.access();
   auto found = access.find(tx_id);
   CHECK(found != access.end())
@@ -37,7 +37,7 @@ command_id_t WorkerEngine::Advance(transaction_id_t tx_id) {
 }
 
 command_id_t WorkerEngine::UpdateCommand(transaction_id_t tx_id) {
-  command_id_t cmd_id = rpc_client_pool_.Call<CommandRpc>(tx_id)->member;
+  command_id_t cmd_id = master_client_pool_.Call<CommandRpc>(tx_id)->member;
 
   // Assume there is no concurrent work being done on this worker in the given
   // transaction. This assumption is sound because command advancing needs to be
@@ -55,12 +55,12 @@ command_id_t WorkerEngine::UpdateCommand(transaction_id_t tx_id) {
 }
 
 void WorkerEngine::Commit(const Transaction &t) {
-  auto res = rpc_client_pool_.Call<CommitRpc>(t.id_);
+  auto res = master_client_pool_.Call<CommitRpc>(t.id_);
   ClearSingleTransaction(t.id_);
 }
 
 void WorkerEngine::Abort(const Transaction &t) {
-  auto res = rpc_client_pool_.Call<AbortRpc>(t.id_);
+  auto res = master_client_pool_.Call<AbortRpc>(t.id_);
   ClearSingleTransaction(t.id_);
 }
 
@@ -71,7 +71,7 @@ CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
   if (!(info.is_aborted() || info.is_committed())) {
     // @review: this version of Call is just used because Info has no
     // default constructor.
-    info = rpc_client_pool_.Call<ClogInfoRpc>(tid)->member;
+    info = master_client_pool_.Call<ClogInfoRpc>(tid)->member;
     if (!info.is_active()) {
       if (info.is_committed()) clog_.set_committed(tid);
       if (info.is_aborted()) clog_.set_aborted(tid);
@@ -83,14 +83,14 @@ CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
 }
 
 Snapshot WorkerEngine::GlobalGcSnapshot() {
-  auto snapshot = std::move(rpc_client_pool_.Call<GcSnapshotRpc>()->member);
+  auto snapshot = std::move(master_client_pool_.Call<GcSnapshotRpc>()->member);
   UpdateOldestActive(snapshot, local_last_.load());
   return snapshot;
 }
 
 Snapshot WorkerEngine::GlobalActiveTransactions() {
   auto snapshot =
-      std::move(rpc_client_pool_.Call<ActiveTransactionsRpc>()->member);
+      std::move(master_client_pool_.Call<ActiveTransactionsRpc>()->member);
   UpdateOldestActive(snapshot, local_last_.load());
   return snapshot;
 }
@@ -111,7 +111,8 @@ Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id) {
   auto found = accessor.find(tx_id);
   if (found != accessor.end()) return found->second;
 
-  auto snapshot = std::move(rpc_client_pool_.Call<SnapshotRpc>(tx_id)->member);
+  auto snapshot =
+      std::move(master_client_pool_.Call<SnapshotRpc>(tx_id)->member);
   UpdateOldestActive(snapshot, local_last_.load());
   return RunningTransaction(tx_id, snapshot);
 }
