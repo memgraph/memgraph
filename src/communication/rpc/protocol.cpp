@@ -24,15 +24,18 @@ void Session::Execute() {
   buffer_.Resize(request_size);
   if (buffer_.size() < request_size) return;
 
-  std::unique_ptr<Message> request;
-  {
+  // Read the request message.
+  std::unique_ptr<Message> request([this, request_len]() {
+    Message *req_ptr = nullptr;
     std::stringstream stream(std::ios_base::in | std::ios_base::binary);
     stream.str(std::string(
         reinterpret_cast<char *>(buffer_.data() + sizeof(MessageSize)),
         request_len));
     boost::archive::binary_iarchive archive(stream);
-    archive >> request;
-  }
+    // Sent from client.cpp
+    archive >> req_ptr;
+    return req_ptr;
+  }());
   buffer_.Shift(sizeof(MessageSize) + request_len);
 
   auto callbacks_accessor = server_.callbacks_.access();

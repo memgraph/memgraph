@@ -19,7 +19,7 @@ namespace communication::rpc {
 
 Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
 
-std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
+std::unique_ptr<Message> Client::Call(const Message &request) {
   std::lock_guard<std::mutex> guard(mutex_);
 
   if (FLAGS_rpc_random_latency) {
@@ -50,7 +50,9 @@ std::unique_ptr<Message> Client::Call(std::unique_ptr<Message> request) {
   std::stringstream request_stream(std::ios_base::out | std::ios_base::binary);
   {
     boost::archive::binary_oarchive request_archive(request_stream);
-    request_archive << request;
+    // Serialize reference as pointer (to serialize the derived class). The
+    // request is read in protocol.cpp.
+    request_archive << &request;
     // Archive destructor ensures everything is written.
   }
 

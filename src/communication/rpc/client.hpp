@@ -36,8 +36,7 @@ class Client {
                     utils::Demangle(typeid(Req).name()).value_or("unknown"));
     std::unique_ptr<Message> response = nullptr;
     stats::Stopwatch(request_name, [&] {
-      response = Call(std::unique_ptr<Message>(
-          std::make_unique<Req>(std::forward<Args>(args)...)));
+      response = Call(Req(std::forward<Args>(args)...));
     });
     auto *real_response = dynamic_cast<Res *>(response.get());
     if (!real_response && response) {
@@ -55,7 +54,7 @@ class Client {
   void Abort();
 
  private:
-  std::unique_ptr<Message> Call(std::unique_ptr<Message> request);
+  std::unique_ptr<Message> Call(const Message &request);
 
   io::network::Endpoint endpoint_;
   std::experimental::optional<io::network::Socket> socket_;
