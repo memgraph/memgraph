@@ -302,14 +302,14 @@ class GraphDbAccessor {
    * edge both arguments should be `true`. `false` is only used when
    * detach-deleting a vertex.
    *
-   * @param edge_accessor  The accessor to an edge.
-   * @param remove_from_from If the edge should be removed from the its origin
+   * @param edge  The accessor to an edge.
+   * @param remove_out_edge If the edge should be removed from the its origin
    * side.
-   * @param remove_from_to If the edge should be removed from the its
+   * @param remove_in_edge If the edge should be removed from the its
    * destination side.
    */
-  void RemoveEdge(EdgeAccessor &edge_accessor, bool remove_from = true,
-                  bool remove_to = true);
+  void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
+                  bool remove_in_edge = true);
 
   /**
    * Obtains the edge for the given ID. If there is no edge for the given
@@ -562,22 +562,6 @@ class GraphDbAccessor {
 
   /* Returns a list of index names present in the database. */
   std::vector<std::string> IndexInfo() const;
-
-  /// Gets the local address for the given gid. Fails if not present.
-  mvcc::VersionList<Vertex> *LocalVertexAddress(gid::Gid gid) const;
-
-  /// Gets the local edge address for the given gid. Fails if not present.
-  mvcc::VersionList<Edge> *LocalEdgeAddress(gid::Gid gid) const;
-
-  /// Converts an address to local, if possible. Returns the same address if
-  /// not.
-  template <typename TAddress>
-  TAddress LocalizedAddress(TAddress address) const;
-
-  /// Converts local address to remote, returns remote as they are.
-  /// not.
-  template <typename TAddress>
-  TAddress GlobalizedAddress(TAddress address) const;
 
  private:
   GraphDb &db_;

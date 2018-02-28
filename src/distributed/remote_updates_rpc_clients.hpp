@@ -95,6 +95,34 @@ class RemoteUpdatesRpcClients {
     RaiseIfRemoteError(res->member);
   }
 
+  /// Removes an edge on another worker. This also handles the `from` vertex
+  /// outgoing edge, as that vertex is on the same worker as the edge. If the
+  /// `to` vertex is on the same worker, then that side is handled too by the
+  /// single RPC call, otherwise a separate call has to be made to
+  /// RemoteRemoveInEdge.
+  void RemoteRemoveEdge(tx::transaction_id_t tx_id, int worker_id,
+                        gid::Gid edge_gid, gid::Gid vertex_from_id,
+                        storage::VertexAddress vertex_to_addr) {
+    auto res =
+        worker_clients_.GetClientPool(worker_id).Call<RemoteRemoveEdgeRpc>(
+            RemoteRemoveEdgeData{tx_id, edge_gid, vertex_from_id,
+                                 vertex_to_addr});
+    CHECK(res) << "RemoteRemoveEdge RPC failed";
+    RaiseIfRemoteError(res->member);
+  }
+
+  void RemoteRemoveInEdge(tx::transaction_id_t tx_id, int worker_id,
+                          gid::Gid vertex_id,
+                          storage::EdgeAddress edge_address) {
+    CHECK(edge_address.is_remote())
+        << "RemoteRemoveInEdge edge_address is local.";
+    auto res =
+        worker_clients_.GetClientPool(worker_id).Call<RemoteRemoveInEdgeRpc>(
+            RemoteRemoveInEdgeData{tx_id, vertex_id, edge_address});
+    CHECK(res) << "RemoteRemoveInEdge RPC failed";
+    RaiseIfRemoteError(res->member);
+  }
+
   /// Calls for the worker with the given ID to apply remote updates. Returns
   /// the results of that operation.
   RemoteUpdateResult RemoteUpdateApply(int worker_id,

@@ -130,6 +130,8 @@ class Edges {
   auto begin() const { return Iterator(storage_.begin()); }
   auto end() const { return Iterator(storage_.end()); }
 
+  auto &storage() { return storage_; }
+
   /**
    * Creates a beginning iterator that will skip edges whose destination
    * vertex is not equal to the given vertex.

@@ -15,7 +15,8 @@ template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(AddressT address,
                                         database::GraphDbAccessor &db_accessor)
     : db_accessor_(&db_accessor),
-      address_(db_accessor.LocalizedAddress(address)) {}
+      address_(db_accessor.db().storage().LocalizedAddressIfPossible(address)) {
+}
 
 template <typename TRecord>
 const PropertyValue &RecordAccessor<TRecord>::PropsAt(

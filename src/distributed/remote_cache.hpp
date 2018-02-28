@@ -5,8 +5,11 @@
 
 #include "glog/logging.h"
 
+#include "database/storage.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
+#include "storage/edge.hpp"
 #include "storage/gid.hpp"
+#include "storage/vertex.hpp"
 #include "transactions/transaction.hpp"
 
 namespace distributed {
@@ -25,8 +28,9 @@ class RemoteCache {
   using rec_uptr = std::unique_ptr<TRecord>;
 
  public:
-  RemoteCache(distributed::RemoteDataRpcClients &remote_data_clients)
-      : remote_data_clients_(remote_data_clients) {}
+  RemoteCache(database::Storage &storage,
+              distributed::RemoteDataRpcClients &remote_data_clients)
+      : storage_(storage), remote_data_clients_(remote_data_clients) {}
 
   /// Returns the new data for the given ID. Creates it (as copy of old) if
   /// necessary.
@@ -62,6 +66,7 @@ class RemoteCache {
 
     auto remote =
         remote_data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
+    LocalizeAddresses(*remote);
 
     // This logic is a bit strange because we need to make sure that someone
     // else didn't get a response and updated the cache before we did and we
@@ -76,19 +81,11 @@ class RemoteCache {
     new_record = it_pair.first->second.second.get();
   }
 
-  void AdvanceCommand() {
-    // TODO implement.
-    // The effect of this should be that the next call to FindSetOldNew will
-    // do an RPC and not use the cached stuff.
-    //
-    // Not sure if it's OK to just flush the cache? I *think* that after a
-    // global advance-command, all the existing RecordAccessors will be
-    // calling Reconstruct, so perhaps just flushing is the correct sollution,
-    // even though we'll have pointers to nothing.
-  }
-
   /** Sets the given records as (new, old) data for the given gid. */
   void emplace(gid::Gid gid, rec_uptr old_record, rec_uptr new_record) {
+    if (old_record) LocalizeAddresses(*old_record);
+    if (new_record) LocalizeAddresses(*new_record);
+
     std::lock_guard<std::mutex> guard{lock_};
     // We can't replace existing data because some accessors might be using
     // it.
@@ -111,10 +108,34 @@ class RemoteCache {
   }
 
  private:
+  database::Storage &storage_;
+
   std::mutex lock_;
   distributed::RemoteDataRpcClients &remote_data_clients_;
   // TODO it'd be better if we had VertexData and EdgeData in here, as opposed
   // to Vertex and Edge.
   std::unordered_map<gid::Gid, std::pair<rec_uptr, rec_uptr>> cache_;
+
+  // Localizes all the addresses in the record.
+  void LocalizeAddresses(TRecord &record);
 };
+
+template <>
+inline void RemoteCache<Vertex>::LocalizeAddresses(Vertex &vertex) {
+  auto localize_edges = [this](auto &edges) {
+    for (auto &element : edges) {
+      element.vertex = storage_.LocalizedAddressIfPossible(element.vertex);
+      element.edge = storage_.LocalizedAddressIfPossible(element.edge);
+    }
+  };
+
+  localize_edges(vertex.in_.storage());
+  localize_edges(vertex.out_.storage());
+}
+
+template <>
+inline void RemoteCache<Edge>::LocalizeAddresses(Edge &edge) {
+  edge.from_ = storage_.LocalizedAddressIfPossible(edge.from_);
+  edge.to_ = storage_.LocalizedAddressIfPossible(edge.to_);
+}
 }  // namespace distributed

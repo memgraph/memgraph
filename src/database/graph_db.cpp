@@ -187,7 +187,8 @@ class Master : public PrivateBase {
   distributed::RpcWorkerClients index_rpc_clients_{coordination_};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
-  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
+  distributed::RemoteDataManager remote_data_manager_{storage_,
+                                                      remote_data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
 };
 
@@ -234,7 +235,8 @@ class Worker : public PrivateBase {
   distributed::IndexRpcServer index_rpc_server_{*this, server_};
   distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
   distributed::RemoteUpdatesRpcClients remote_updates_clients_{coordination_};
-  distributed::RemoteDataManager remote_data_manager_{remote_data_clients_};
+  distributed::RemoteDataManager remote_data_manager_{storage_,
+                                                      remote_data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
 };
 

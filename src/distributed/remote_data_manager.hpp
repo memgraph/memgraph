@@ -1,6 +1,7 @@
 #pragma once
 
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "database/storage.hpp"
 #include "distributed/remote_cache.hpp"
 #include "distributed/remote_data_rpc_clients.hpp"
 #include "storage/edge.hpp"
@@ -19,14 +20,16 @@ class RemoteDataManager {
     if (found != access.end()) return found->second;
 
     return access
-        .emplace(tx_id, std::make_tuple(tx_id),
-                 std::make_tuple(std::ref(remote_data_clients_)))
+        .emplace(
+            tx_id, std::make_tuple(tx_id),
+            std::make_tuple(std::ref(storage_), std::ref(remote_data_clients_)))
         .first->second;
   }
 
  public:
-  RemoteDataManager(distributed::RemoteDataRpcClients &remote_data_clients)
-      : remote_data_clients_(remote_data_clients) {}
+  RemoteDataManager(database::Storage &storage,
+                    distributed::RemoteDataRpcClients &remote_data_clients)
+      : storage_(storage), remote_data_clients_(remote_data_clients) {}
 
   /// Gets or creates the remote vertex cache for the given transaction.
   auto &Vertices(tx::transaction_id_t tx_id) {
@@ -66,6 +69,7 @@ class RemoteDataManager {
   }
 
  private:
+  database::Storage &storage_;
   RemoteDataRpcClients &remote_data_clients_;
   ConcurrentMap<tx::transaction_id_t, RemoteCache<Vertex>> vertices_caches_;
   ConcurrentMap<tx::transaction_id_t, RemoteCache<Edge>> edges_caches_;

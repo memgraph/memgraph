@@ -5,6 +5,7 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "distributed/remote_updates_rpc_server.hpp"
 #include "storage/address_types.hpp"
 #include "transactions/engine_master.hpp"
 
@@ -76,43 +77,33 @@ class DistributedGraphDbTest : public ::testing::Test {
   }
 
   /// Inserts an edge (on the 'from' side) and returns it's global address.
-  auto InsertEdge(storage::VertexAddress from, storage::VertexAddress to,
+  auto InsertEdge(storage::VertexAddress from_addr,
+                  storage::VertexAddress to_addr,
                   const std::string &edge_type_name) {
-    CHECK(from.is_remote() && to.is_remote())
+    CHECK(from_addr.is_remote() && to_addr.is_remote())
         << "Distributed test InsertEdge only takes global addresses";
-    auto db_for_vertex = [this](const auto &vertex) -> database::GraphDb & {
-      if (vertex.worker_id()) return worker(vertex.worker_id());
-      return master();
-    };
-    database::GraphDbAccessor dba(db_for_vertex(from));
-    auto from_v = dba.FindVertexChecked(from.gid(), false);
-    auto edge_type = dba.EdgeType(edge_type_name);
-
-    // If 'to' is on the same worker as 'from', create and send local.
-    if (to.worker_id() == from.worker_id()) {
-      auto to_v = dba.FindVertexChecked(to.gid(), false);
-      auto r_val = dba.InsertEdge(from_v, to_v, edge_type).GlobalAddress();
-      dba.Commit();
-      return r_val;
-    }
-
-    // 'to' is not on the same worker as 'from'
-    auto edge_ga = dba.InsertOnlyEdge(from, to, edge_type,
-                                      dba.db().storage().EdgeGenerator().Next())
-                       .GlobalAddress();
-    from_v.update().out_.emplace(to, edge_ga, edge_type);
-    database::GraphDbAccessor dba_to(db_for_vertex(to), dba.transaction_id());
-    auto to_v = dba_to.FindVertexChecked(to.gid(), false);
-    to_v.update().in_.emplace(from, edge_ga, edge_type);
-
+    database::GraphDbAccessor dba{master()};
+    VertexAccessor from{from_addr, dba};
+    VertexAccessor to{to_addr, dba};
+    auto r_val =
+        dba.InsertEdge(from, to, dba.EdgeType(edge_type_name)).GlobalAddress();
+    master().remote_updates_server().Apply(dba.transaction_id());
+    worker(1).remote_updates_server().Apply(dba.transaction_id());
+    worker(2).remote_updates_server().Apply(dba.transaction_id());
     dba.Commit();
-    return edge_ga;
+    return r_val;
   }
 
   auto VertexCount(database::GraphDb &db) {
     database::GraphDbAccessor dba{db};
     auto vertices = dba.Vertices(false);
     return std::distance(vertices.begin(), vertices.end());
+  };
+
+  auto EdgeCount(database::GraphDb &db) {
+    database::GraphDbAccessor dba(db);
+    auto edges = dba.Edges(false);
+    return std::distance(edges.begin(), edges.end());
   };
 
  private:

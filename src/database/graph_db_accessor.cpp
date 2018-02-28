@@ -18,35 +18,6 @@
 
 namespace database {
 
-#define LOCALIZED_ADDRESS_SPECIALIZATION(type)              \
-  template <>                                               \
-  storage::type##Address GraphDbAccessor::LocalizedAddress( \
-      storage::type##Address address) const {               \
-    if (address.is_local()) return address;                 \
-    if (address.worker_id() == db().WorkerId()) {           \
-      return Local##type##Address(address.gid());           \
-    }                                                       \
-    return address;                                         \
-  }
-
-LOCALIZED_ADDRESS_SPECIALIZATION(Vertex)
-LOCALIZED_ADDRESS_SPECIALIZATION(Edge)
-
-#undef LOCALIZED_ADDRESS_SPECIALIZATION
-
-#define GLOBALIZED_ADDRESS_SPECIALIZATION(type)              \
-  template <>                                                \
-  storage::type##Address GraphDbAccessor::GlobalizedAddress( \
-      storage::type##Address address) const {                \
-    if (address.is_remote()) return address;                 \
-    return {address.local()->gid_, db().WorkerId()};         \
-  }
-
-GLOBALIZED_ADDRESS_SPECIALIZATION(Vertex)
-GLOBALIZED_ADDRESS_SPECIALIZATION(Edge)
-
-#undef GLOBALIZED_ADDRESS_SPECIALIZATION
-
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
     : db_(db),
       transaction_(*db.tx_engine().Begin()),
@@ -129,7 +100,8 @@ VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
     gid::Gid gid, bool current_state) {
-  VertexAccessor record_accessor(LocalVertexAddress(gid), *this);
+  VertexAccessor record_accessor(db_.storage().LocalAddress<Vertex>(gid),
+                                 *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -144,7 +116,7 @@ VertexAccessor GraphDbAccessor::FindVertexChecked(gid::Gid gid,
 
 std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
     gid::Gid gid, bool current_state) {
-  EdgeAccessor record_accessor(LocalEdgeAddress(gid), *this);
+  EdgeAccessor record_accessor(db_.storage().LocalAddress<Edge>(gid), *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -467,7 +439,9 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
             edge_address.gid(), nullptr,
             std::make_unique<Edge>(from.address(), to.address(), edge_type));
   }
-  from_updated->out_.emplace(to.address(), edge_address, edge_type);
+  from_updated->out_.emplace(
+      db_.storage().LocalizedAddressIfPossible(to.address()), edge_address,
+      edge_type);
 
   Vertex *to_updated;
   if (to.is_local()) {
@@ -481,13 +455,15 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     if (from.is_local() ||
         from.address().worker_id() != to.address().worker_id()) {
       db().remote_updates_clients().RemoteAddInEdge(
-          transaction_id(), from, GlobalizedAddress(edge_address), to,
-          edge_type);
+          transaction_id(), from,
+          db().storage().GlobalizedAddress(edge_address), to, edge_type);
     }
     to_updated =
         db().remote_data_manager().Vertices(transaction_id()).FindNew(to.gid());
   }
-  to_updated->in_.emplace(from.address(), edge_address, edge_type);
+  to_updated->in_.emplace(
+      db_.storage().LocalizedAddressIfPossible(from.address()), edge_address,
+      edge_type);
 
   return EdgeAccessor(edge_address, *this, from.address(), to.address(),
                       edge_type);
@@ -514,27 +490,38 @@ int64_t GraphDbAccessor::EdgesCount() const {
   return db_.storage().edges_.access().size();
 }
 
-void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge_accessor,
-                                 bool remove_from_from, bool remove_from_to) {
+void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
+                                 bool remove_in_edge) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  if (!edge_accessor.is_local()) {
-    LOG(ERROR) << "Remote edge deletion not implemented";
-    // TODO support distributed
-    // call remote RemoveEdge(gid, true, true). It can either succeed or an
-    // error can occur. See discussion in the RemoveVertex method above.
+  if (edge.is_local()) {
+    // it's possible the edge was removed already in this transaction
+    // due to it getting matched multiple times by some patterns
+    // we can only delete it once, so check if it's already deleted
+    edge.SwitchNew();
+    if (edge.current().is_expired_by(transaction_)) return;
+    if (remove_out_edge) edge.from().RemoveOutEdge(edge.address());
+    if (remove_in_edge) edge.to().RemoveInEdge(edge.address());
+
+    edge.address().local()->remove(edge.current_, transaction_);
+    wal().Emplace(
+        database::StateDelta::RemoveEdge(transaction_.id_, edge.gid()));
+  } else {
+    auto edge_addr = edge.GlobalAddress();
+    auto from_addr = db().storage().GlobalizedAddress(edge.from_addr());
+    CHECK(edge_addr.worker_id() == from_addr.worker_id())
+        << "Edge and it's 'from' vertex not on the same worker";
+    auto to_addr = db().storage().GlobalizedAddress(edge.to_addr());
+    db().remote_updates_clients().RemoteRemoveEdge(
+        transaction_id(), edge_addr.worker_id(), edge_addr.gid(),
+        from_addr.gid(), to_addr);
+
+    // Another RPC is necessary only if the first did not handle vertices on
+    // both sides.
+    if (edge_addr.worker_id() != to_addr.worker_id()) {
+      db().remote_updates_clients().RemoteRemoveInEdge(
+          transaction_id(), to_addr.worker_id(), to_addr.gid(), edge_addr);
+    }
   }
-  // it's possible the edge was removed already in this transaction
-  // due to it getting matched multiple times by some patterns
-  // we can only delete it once, so check if it's already deleted
-  edge_accessor.SwitchNew();
-  if (edge_accessor.current().is_expired_by(transaction_)) return;
-  if (remove_from_from)
-    edge_accessor.from().update().out_.RemoveEdge(edge_accessor.address());
-  if (remove_from_to)
-    edge_accessor.to().update().in_.RemoveEdge(edge_accessor.address());
-  edge_accessor.address().local()->remove(edge_accessor.current_, transaction_);
-  wal().Emplace(
-      database::StateDelta::RemoveEdge(transaction_.id_, edge_accessor.gid()));
 }
 
 storage::Label GraphDbAccessor::Label(const std::string &label_name) {
@@ -589,20 +576,4 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   }
   return info;
 }
-
-mvcc::VersionList<Vertex> *GraphDbAccessor::LocalVertexAddress(
-    gid::Gid gid) const {
-  auto access = db_.storage().vertices_.access();
-  auto found = access.find(gid);
-  CHECK(found != access.end()) << "Failed to find vertex for gid: " << gid;
-  return found->second;
-}
-
-mvcc::VersionList<Edge> *GraphDbAccessor::LocalEdgeAddress(gid::Gid gid) const {
-  auto access = db_.storage().edges_.access();
-  auto found = access.find(gid);
-  CHECK(found != access.end()) << "Failed to find edge for gid: " << gid;
-  return found->second;
-}
-
 }  // namespace database

@@ -123,7 +123,6 @@ class RemoteUpdatesRpcServer {
               case database::StateDelta::Type::TRANSACTION_ABORT:
               case database::StateDelta::Type::CREATE_VERTEX:
               case database::StateDelta::Type::CREATE_EDGE:
-              case database::StateDelta::Type::REMOVE_EDGE:
               case database::StateDelta::Type::BUILD_INDEX:
                 LOG(FATAL) << "Can only apply record update deltas for remote "
                               "graph element";
@@ -138,31 +137,46 @@ class RemoteUpdatesRpcServer {
                 record_accessor.PropsSet(delta.property, delta.value);
                 break;
               case database::StateDelta::Type::ADD_LABEL:
-                // It is only possible that ADD_LABEL gets called on a
-                // VertexAccessor.
                 reinterpret_cast<VertexAccessor &>(record_accessor)
                     .add_label(delta.label);
                 break;
-              case database::StateDelta::Type::REMOVE_LABEL: {
-                // It is only possible that REMOVE_LABEL gets called on a
-                // VertexAccessor.
+              case database::StateDelta::Type::REMOVE_LABEL:
                 reinterpret_cast<VertexAccessor &>(record_accessor)
                     .remove_label(delta.label);
-              } break;
+                break;
               case database::StateDelta::Type::ADD_OUT_EDGE:
                 reinterpret_cast<Vertex &>(record_accessor.update())
-                    .out_.emplace(dba.LocalizedAddress(delta.vertex_to_address),
-                                  dba.LocalizedAddress(delta.edge_address),
+                    .out_.emplace(dba.db().storage().LocalizedAddressIfPossible(
+                                      delta.vertex_to_address),
+                                  dba.db().storage().LocalizedAddressIfPossible(
+                                      delta.edge_address),
                                   delta.edge_type);
                 dba.wal().Emplace(delta);
                 break;
               case database::StateDelta::Type::ADD_IN_EDGE:
                 reinterpret_cast<Vertex &>(record_accessor.update())
-                    .in_.emplace(
-                        dba.LocalizedAddress(delta.vertex_from_address),
-                        dba.LocalizedAddress(delta.edge_address),
-                        delta.edge_type);
+                    .in_.emplace(dba.db().storage().LocalizedAddressIfPossible(
+                                     delta.vertex_from_address),
+                                 dba.db().storage().LocalizedAddressIfPossible(
+                                     delta.edge_address),
+                                 delta.edge_type);
                 dba.wal().Emplace(delta);
+                break;
+              case database::StateDelta::Type::REMOVE_EDGE:
+                // We only remove the edge as a result of this StateDelta,
+                // because the removal of edge from vertex in/out is performed
+                // in REMOVE_[IN/OUT]_EDGE deltas.
+                db_accessor_.RemoveEdge(
+                    reinterpret_cast<EdgeAccessor &>(record_accessor), false,
+                    false);
+                break;
+              case database::StateDelta::Type::REMOVE_OUT_EDGE:
+                reinterpret_cast<VertexAccessor &>(record_accessor)
+                    .RemoveOutEdge(delta.edge_address);
+                break;
+              case database::StateDelta::Type::REMOVE_IN_EDGE:
+                reinterpret_cast<VertexAccessor &>(record_accessor)
+                    .RemoveInEdge(delta.edge_address);
                 break;
             }
           } catch (const mvcc::SerializationError &) {
@@ -202,6 +216,8 @@ class RemoteUpdatesRpcServer {
         case DeltaType::SET_PROPERTY_VERTEX:
         case DeltaType::ADD_LABEL:
         case DeltaType::REMOVE_LABEL:
+        case database::StateDelta::Type::REMOVE_OUT_EDGE:
+        case database::StateDelta::Type::REMOVE_IN_EDGE:
           return std::make_unique<RemoteUpdateRes>(
               GetUpdates(vertex_updates_, delta.transaction_id).Emplace(delta));
         case DeltaType::SET_PROPERTY_EDGE:
@@ -260,6 +276,20 @@ class RemoteUpdatesRpcServer {
           auto result =
               GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
           return std::make_unique<RemoteRemoveVertexRes>(result);
+        });
+
+    server.Register<RemoteRemoveEdgeRpc>(
+        [this](const RemoteRemoveEdgeReq &req) {
+          return std::make_unique<RemoteRemoveEdgeRes>(RemoveEdge(req.member));
+        });
+
+    server.Register<RemoteRemoveInEdgeRpc>(
+        [this](const RemoteRemoveInEdgeReq &req) {
+          auto data = req.member;
+          return std::make_unique<RemoteRemoveInEdgeRes>(
+              GetUpdates(vertex_updates_, data.tx_id)
+                  .Emplace(database::StateDelta::RemoveInEdge(
+                      data.tx_id, data.vertex, data.edge_address)));
         });
   }
 
@@ -324,15 +354,42 @@ class RemoteUpdatesRpcServer {
   RemoteCreateResult CreateEdge(const RemoteCreateEdgeReqData &req) {
     auto &dba = GetUpdates(edge_updates_, req.tx_id).db_accessor();
 
-    auto edge = dba.InsertOnlyEdge({req.from, db_.WorkerId()},
-                                   dba.LocalizedAddress(req.to), req.edge_type);
+    auto edge = dba.InsertOnlyEdge(
+        {req.from, db_.WorkerId()},
+        dba.db().storage().LocalizedAddressIfPossible(req.to), req.edge_type);
 
     auto from_delta = database::StateDelta::AddOutEdge(
-        req.tx_id, req.from, req.to, dba.GlobalizedAddress(edge.address()),
-        req.edge_type);
+        req.tx_id, req.from, req.to,
+        dba.db().storage().GlobalizedAddress(edge.address()), req.edge_type);
 
     auto result = GetUpdates(vertex_updates_, req.tx_id).Emplace(from_delta);
     return {result, edge.gid()};
+  }
+
+  RemoteUpdateResult RemoveEdge(const RemoteRemoveEdgeData &data) {
+    // Edge removal.
+    auto deletion_delta =
+        database::StateDelta::RemoveEdge(data.tx_id, data.edge_id);
+    auto result = GetUpdates(edge_updates_, data.tx_id).Emplace(deletion_delta);
+
+    // Out-edge removal, for sure is local.
+    if (result == RemoteUpdateResult::DONE) {
+      auto remove_out_delta = database::StateDelta::RemoveOutEdge(
+          data.tx_id, data.vertex_from_id, {data.edge_id, db_.WorkerId()});
+      result =
+          GetUpdates(vertex_updates_, data.tx_id).Emplace(remove_out_delta);
+    }
+
+    // In-edge removal, might not be local.
+    if (result == RemoteUpdateResult::DONE &&
+        data.vertex_to_address.worker_id() == db_.WorkerId()) {
+      auto remove_in_delta = database::StateDelta::RemoveInEdge(
+          data.tx_id, data.vertex_to_address.gid(),
+          {data.edge_id, db_.WorkerId()});
+      result = GetUpdates(vertex_updates_, data.tx_id).Emplace(remove_in_delta);
+    }
+
+    return result;
   }
 };
 

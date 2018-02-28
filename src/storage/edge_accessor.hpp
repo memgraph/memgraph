@@ -54,12 +54,18 @@ class EdgeAccessor : public RecordAccessor<Edge> {
   /** Returns an accessor to the originating Vertex of this edge. */
   VertexAccessor from() const;
 
+  /** Returns the address of the originating Vertex of this edge. */
+  auto from_addr() const { return from_; }
+
   /** Checks if the given vertex is the source of this edge, without
    * creating an additional accessor to perform the check. */
   bool from_is(const VertexAccessor &v) const;
 
   /** Returns an accessor to the destination Vertex of this edge. */
   VertexAccessor to() const;
+
+  /** Returns the address of the destination Vertex of this edge. */
+  auto to_addr() const { return to_; }
 
   /** Checks if the given vertex is the destination of this edge, without
    * creating an additional accessor to perform the check. */

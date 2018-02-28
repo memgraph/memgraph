@@ -29,11 +29,13 @@ struct StateDelta {
     TRANSACTION_BEGIN,
     TRANSACTION_COMMIT,
     TRANSACTION_ABORT,
-    CREATE_VERTEX,  // vertex_id
-    CREATE_EDGE,    // edge_id, from_vertex_id, to_vertex_id, edge_type,
-                    // edge_type_name
-    ADD_OUT_EDGE,   // vertex_id, edge_address, vertex_to_address, edge_type
-    ADD_IN_EDGE,    // vertex_id, edge_address, vertex_from_address, edge_type
+    CREATE_VERTEX,    // vertex_id
+    CREATE_EDGE,      // edge_id, from_vertex_id, to_vertex_id, edge_type,
+                      // edge_type_name
+    ADD_OUT_EDGE,     // vertex_id, edge_address, vertex_to_address, edge_type
+    REMOVE_OUT_EDGE,  // vertex_id, edge_address
+    ADD_IN_EDGE,      // vertex_id, edge_address, vertex_from_address, edge_type
+    REMOVE_IN_EDGE,   // vertex_id, edge_address
     SET_PROPERTY_VERTEX,  // vertex_id, property, property_name, property_value
     SET_PROPERTY_EDGE,    // edge_id, property, property_name, property_value
     // remove property is done by setting a PropertyValue::Null
@@ -73,10 +75,15 @@ struct StateDelta {
                                storage::VertexAddress vertex_to_address,
                                storage::EdgeAddress edge_address,
                                storage::EdgeType edge_type);
+  static StateDelta RemoveOutEdge(tx::transaction_id_t tx_id,
+                                  gid::Gid vertex_id,
+                                  storage::EdgeAddress edge_address);
   static StateDelta AddInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
                               storage::VertexAddress vertex_from_address,
                               storage::EdgeAddress edge_address,
                               storage::EdgeType edge_type);
+  static StateDelta RemoveInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+                                 storage::EdgeAddress edge_address);
   static StateDelta PropsSetVertex(tx::transaction_id_t tx_id,
                                    gid::Gid vertex_id,
                                    storage::Property property,

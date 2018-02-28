@@ -158,4 +158,51 @@ RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveVertexRes, RemoteUpdateResult);
 using RemoteRemoveVertexRpc =
     communication::rpc::RequestResponse<RemoteRemoveVertexReq,
                                         RemoteRemoveVertexRes>;
+
+struct RemoteRemoveEdgeData {
+  tx::transaction_id_t tx_id;
+  gid::Gid edge_id;
+  gid::Gid vertex_from_id;
+  storage::VertexAddress vertex_to_address;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &tx_id;
+    ar &edge_id;
+    ar &vertex_from_id;
+    ar &vertex_to_address;
+  }
+};
+
+RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveEdgeReq, RemoteRemoveEdgeData);
+RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveEdgeRes, RemoteUpdateResult);
+using RemoteRemoveEdgeRpc =
+    communication::rpc::RequestResponse<RemoteRemoveEdgeReq,
+                                        RemoteRemoveEdgeRes>;
+
+struct RemoteRemoveInEdgeData {
+  tx::transaction_id_t tx_id;
+  gid::Gid vertex;
+  storage::EdgeAddress edge_address;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &tx_id;
+    ar &vertex;
+    ar &edge_address;
+  }
+};
+
+RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveInEdgeReq, RemoteRemoveInEdgeData);
+RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveInEdgeRes, RemoteUpdateResult);
+using RemoteRemoveInEdgeRpc =
+    communication::rpc::RequestResponse<RemoteRemoveInEdgeReq,
+                                        RemoteRemoveInEdgeRes>;
+
 }  // namespace distributed

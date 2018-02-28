@@ -143,22 +143,24 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     }
   }
 
-  auto vertex_transform_to_local_if_possible = [&db, &dba](
-      storage::VertexAddress &address) {
-    if (address.is_local()) return;
-    // If the worker id matches it should be a local apperance
-    if (address.worker_id() == db.WorkerId()) {
-      address = storage::VertexAddress(dba.LocalVertexAddress(address.gid()));
-      CHECK(address.is_local()) << "Address should be local but isn't";
-    }
-  };
+  auto vertex_transform_to_local_if_possible =
+      [&db, &dba](storage::VertexAddress &address) {
+        if (address.is_local()) return;
+        // If the worker id matches it should be a local apperance
+        if (address.worker_id() == db.WorkerId()) {
+          address = storage::VertexAddress(
+              dba.db().storage().LocalAddress<Vertex>(address.gid()));
+          CHECK(address.is_local()) << "Address should be local but isn't";
+        }
+      };
 
   auto edge_transform_to_local_if_possible =
       [&db, &dba](storage::EdgeAddress &address) {
         if (address.is_local()) return;
         // If the worker id matches it should be a local apperance
         if (address.worker_id() == db.WorkerId()) {
-          address = storage::EdgeAddress(dba.LocalEdgeAddress(address.gid()));
+          address = storage::EdgeAddress(
+              dba.db().storage().LocalAddress<Edge>(address.gid()));
           CHECK(address.is_local()) << "Address should be local but isn't";
         }
       };

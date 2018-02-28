@@ -137,6 +137,16 @@ class VertexAccessor : public RecordAccessor<Vertex> {
                                 current().out_.end(), true, address(),
                                 db_accessor());
   }
+
+  /** Removes the given edge from the outgoing edges of this vertex. Note that
+   * this operation should always be accompanied by the removal of the edge from
+   * the incoming edges on the other side and edge deletion. */
+  void RemoveOutEdge(storage::EdgeAddress edge);
+
+  /** Removes the given edge from the incoming edges of this vertex. Note that
+   * this operation should always be accompanied by the removal of the edge from
+   * the outgoing edges on the other side and edge deletion. */
+  void RemoveInEdge(storage::EdgeAddress edge);
 };
 
 std::ostream &operator<<(std::ostream &, const VertexAccessor &);

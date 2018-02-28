@@ -281,12 +281,6 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
     dba.Commit();
   }
 
-  int EdgeCount(database::GraphDb &db) {
-    database::GraphDbAccessor dba(db);
-    auto edges = dba.Edges(false);
-    return std::distance(edges.begin(), edges.end());
-  };
-
   void CheckCounts(int master_count, int worker1_count, int worker2_count) {
     EXPECT_EQ(EdgeCount(master()), master_count);
     EXPECT_EQ(EdgeCount(worker(1)), worker1_count);
@@ -342,8 +336,6 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
     CheckState(worker(1), edge_worker == 1, from_addr, to_addr);
     CheckState(worker(2), edge_worker == 2, from_addr, to_addr);
   }
-
-  void TearDown() override { DistributedGraphDbTest::TearDown(); }
 };
 
 TEST_F(DistributedEdgeCreateTest, LocalRemote) {
@@ -369,4 +361,93 @@ TEST_F(DistributedEdgeCreateTest, RemoteRemoteSameWorkers) {
 TEST_F(DistributedEdgeCreateTest, RemoteRemoteCycle) {
   CreateEdge(master(), w1_a, w1_a);
   CheckAll(w1_a, w1_a);
+}
+
+class DistributedEdgeRemoveTest : public DistributedGraphDbTest {
+ protected:
+  storage::VertexAddress from_addr;
+  storage::VertexAddress to_addr;
+  storage::EdgeAddress edge_addr;
+
+  void Create(database::GraphDb &from_db, database::GraphDb &to_db) {
+    from_addr = InsertVertex(from_db);
+    to_addr = InsertVertex(to_db);
+    edge_addr = InsertEdge(from_addr, to_addr, "edge_type");
+  }
+
+  void Delete(database::GraphDb &db) {
+    database::GraphDbAccessor dba{db};
+    EdgeAccessor edge{edge_addr, dba};
+    dba.RemoveEdge(edge);
+    master().remote_updates_server().Apply(dba.transaction_id());
+    worker(1).remote_updates_server().Apply(dba.transaction_id());
+    worker(2).remote_updates_server().Apply(dba.transaction_id());
+    dba.Commit();
+  }
+
+  template <typename TIterable>
+  auto Size(TIterable iterable) {
+    return std::distance(iterable.begin(), iterable.end());
+  };
+
+  void CheckCreation() {
+    auto wid = from_addr.worker_id();
+    ASSERT_TRUE(wid >= 0 && wid < 3);
+    ASSERT_EQ(EdgeCount(master()), wid == 0);
+    ASSERT_EQ(EdgeCount(worker(1)), wid == 1);
+    ASSERT_EQ(EdgeCount(worker(2)), wid == 2);
+
+    database::GraphDbAccessor dba{master()};
+    VertexAccessor from{from_addr, dba};
+    EXPECT_EQ(Size(from.out()), 1);
+    EXPECT_EQ(Size(from.in()), 0);
+
+    VertexAccessor to{to_addr, dba};
+    EXPECT_EQ(Size(to.out()), 0);
+    EXPECT_EQ(Size(to.in()), 1);
+  }
+
+  void CheckDeletion() {
+    EXPECT_EQ(EdgeCount(master()), 0);
+    EXPECT_EQ(EdgeCount(worker(1)), 0);
+    EXPECT_EQ(EdgeCount(worker(2)), 0);
+
+    database::GraphDbAccessor dba{master()};
+
+    VertexAccessor from{from_addr, dba};
+    EXPECT_EQ(Size(from.out()), 0);
+    EXPECT_EQ(Size(from.in()), 0);
+
+    VertexAccessor to{to_addr, dba};
+    EXPECT_EQ(Size(to.out()), 0);
+    EXPECT_EQ(Size(to.in()), 0);
+  }
+};
+
+TEST_F(DistributedEdgeRemoveTest, DifferentVertexOwnersRemoteDelete) {
+  Create(worker(1), worker(2));
+  CheckCreation();
+  Delete(master());
+  CheckDeletion();
+}
+
+TEST_F(DistributedEdgeRemoveTest, DifferentVertexOwnersFromDelete) {
+  Create(worker(1), worker(2));
+  CheckCreation();
+  Delete(worker(1));
+  CheckDeletion();
+}
+
+TEST_F(DistributedEdgeRemoveTest, DifferentVertexOwnersToDelete) {
+  Create(worker(1), worker(2));
+  CheckCreation();
+  Delete(worker(2));
+  CheckDeletion();
+}
+
+TEST_F(DistributedEdgeRemoveTest, SameVertexOwnersRemoteDelete) {
+  Create(worker(1), worker(1));
+  CheckCreation();
+  Delete(worker(2));
+  CheckDeletion();
 }
