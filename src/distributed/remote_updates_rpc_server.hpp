@@ -253,7 +253,7 @@ class RemoteUpdatesRpcServer {
       return std::make_unique<RemoteAddInEdgeRes>(result);
     });
 
-    server_.Register<RemoteRemoveVertexRpc>(
+    server.Register<RemoteRemoveVertexRpc>(
         [this](const RemoteRemoveVertexReq &req) {
           auto to_delta = database::StateDelta::RemoveVertex(req.member.tx_id,
                                                              req.member.gid);
