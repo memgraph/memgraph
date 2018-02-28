@@ -27,8 +27,8 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 
-DEFINE_HIDDEN_int32(remote_pull_sleep, 1,
-                    "Sleep between remote result pulling in milliseconds");
+DEFINE_HIDDEN_int32(remote_pull_sleep_micros, 10,
+                    "Sleep between remote result pulling in microseconds");
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator
@@ -647,7 +647,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
       // We are still waiting for future edges, so sleep and fallthrough to
       // continue the loop.
       std::this_thread::sleep_for(
-          std::chrono::milliseconds(FLAGS_remote_pull_sleep));
+          std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
     }
 
     // we have re-initialized the edges, continue with the loop
@@ -3181,7 +3181,7 @@ class PullRemoteCursor : public Cursor {
 
         // If there aren't any local/remote results available, sleep.
         std::this_thread::sleep_for(
-            std::chrono::milliseconds(FLAGS_remote_pull_sleep));
+            std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
       }
     }
 
@@ -3490,7 +3490,7 @@ class PullRemoteOrderByCursor : public Cursor {
       if (!has_all_result) {
         // If we don't have results from all workers, sleep before continuing.
         std::this_thread::sleep_for(
-            std::chrono::milliseconds(FLAGS_remote_pull_sleep));
+            std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
         continue;
       }
 
