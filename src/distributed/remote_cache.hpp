@@ -50,36 +50,48 @@ class RemoteCache {
    */
   void FindSetOldNew(tx::transaction_id_t tx_id, int worker_id, gid::Gid gid,
                      TRecord *&old_record, TRecord *&new_record) {
-    std::lock_guard<std::mutex> guard{lock_};
-    auto found = cache_.find(gid);
-    if (found != cache_.end()) {
-      old_record = found->second.first.get();
-      new_record = found->second.second.get();
-    } else {
-      auto remote =
-          remote_data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
-      old_record = remote.get();
-      new_record = nullptr;
-      cache_[gid] =
-          std::make_pair<rec_uptr, rec_uptr>(std::move(remote), nullptr);
+    {
+      std::lock_guard<std::mutex> guard(lock_);
+      auto found = cache_.find(gid);
+      if (found != cache_.end()) {
+        old_record = found->second.first.get();
+        new_record = found->second.second.get();
+        return;
+      }
     }
+
+    auto remote =
+        remote_data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
+
+    // This logic is a bit strange because we need to make sure that someone
+    // else didn't get a response and updated the cache before we did and we
+    // need a lock for that, but we also need to check if we can now return
+    // that result - otherwise we could get incosistent results for remote
+    // FindSetOldNew
+    std::lock_guard<std::mutex> guard(lock_);
+    auto it_pair = cache_.emplace(
+        gid, std::make_pair<rec_uptr, rec_uptr>(std::move(remote), nullptr));
+
+    old_record = it_pair.first->second.first.get();
+    new_record = it_pair.first->second.second.get();
   }
 
   void AdvanceCommand() {
     // TODO implement.
-    // The effect of this should be that the next call to FindSetOldNew will do
-    // an RPC and not use the cached stuff.
+    // The effect of this should be that the next call to FindSetOldNew will
+    // do an RPC and not use the cached stuff.
     //
     // Not sure if it's OK to just flush the cache? I *think* that after a
-    // global advance-command, all the existing RecordAccessors will be calling
-    // Reconstruct, so perhaps just flushing is the correct sollution, even
-    // though we'll have pointers to nothing.
+    // global advance-command, all the existing RecordAccessors will be
+    // calling Reconstruct, so perhaps just flushing is the correct sollution,
+    // even though we'll have pointers to nothing.
   }
 
   /** Sets the given records as (new, old) data for the given gid. */
   void emplace(gid::Gid gid, rec_uptr old_record, rec_uptr new_record) {
     std::lock_guard<std::mutex> guard{lock_};
-    // We can't replace existing data because some accessors might be using it.
+    // We can't replace existing data because some accessors might be using
+    // it.
     // TODO - consider if it's necessary and OK to copy just the data content.
     auto found = cache_.find(gid);
     if (found != cache_.end())
@@ -91,8 +103,8 @@ class RemoteCache {
 
   /// Removes all the cached data. All the pointers to that data still held by
   /// RecordAccessors will become invalid and must never be dereferenced after
-  /// this call. To make a RecordAccessor valid again Reconstruct must be called
-  /// on it. This is typically done after the command advanced.
+  /// this call. To make a RecordAccessor valid again Reconstruct must be
+  /// called on it. This is typically done after the command advanced.
   void ClearCache() {
     std::lock_guard<std::mutex> guard{lock_};
     cache_.clear();
