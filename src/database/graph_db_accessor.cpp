@@ -378,6 +378,9 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
     // can occur. See discussion in the RemoveVertex method above.
   }
   vertex_accessor.SwitchNew();
+  // Note that when we call RemoveEdge we must take care not to delete from the
+  // collection we are iterating over. This invalidates the iterator in a subtle
+  // way that does not fail in tests, but is NOT correct.
   for (auto edge_accessor : vertex_accessor.in())
     RemoveEdge(edge_accessor, true, false);
   vertex_accessor.SwitchNew();
