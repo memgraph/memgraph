@@ -100,3 +100,7 @@ BOOST_CLASS_EXPORT(distributed::RemoteCreateEdgeRes);
 BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeReqData);
 BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeReq);
 BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeRes);
+
+// Remote removes
+BOOST_CLASS_EXPORT(distributed::RemoteRemoveVertexReq);
+BOOST_CLASS_EXPORT(distributed::RemoteRemoveVertexRes);

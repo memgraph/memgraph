@@ -1227,8 +1227,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                   self_.graph_view_);
     // For the given (vertex, edge, vertex) tuple checks if they satisfy the
     // "where" condition. if so, places them in the priority queue.
-    auto expand_pair = [this, &evaluator, &frame](
-        VertexAccessor from, EdgeAccessor edge, VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame](VertexAccessor from,
+                                                  EdgeAccessor edge,
+                                                  VertexAccessor vertex) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -1648,9 +1649,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, Context &context) {
         if (self_.detach_)
           db_.DetachRemoveVertex(va);
         else if (!db_.RemoveVertex(va))
-          throw QueryRuntimeException(
-              "Failed to remove vertex because of it's existing "
-              "connections. Consider using DETACH DELETE.");
+          throw RemoveAttachedVertexException();
         break;
       }
 
@@ -3325,6 +3324,8 @@ class SynchronizeCursor : public Cursor {
         case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
               "Failed to apply deferred updates due to SerializationError");
+        case distributed::RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
+          throw RemoveAttachedVertexException();
         case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
               "Failed to apply deferred updates due to RecordDeletedError");

@@ -18,7 +18,8 @@ enum class RemoteUpdateResult {
   DONE,
   SERIALIZATION_ERROR,
   LOCK_TIMEOUT_ERROR,
-  UPDATE_DELETED_ERROR
+  UPDATE_DELETED_ERROR,
+  UNABLE_TO_DELETE_VERTEX_ERROR
 };
 
 RPC_SINGLE_MEMBER_MESSAGE(RemoteUpdateReq, database::StateDelta);
@@ -137,4 +138,24 @@ RPC_SINGLE_MEMBER_MESSAGE(RemoteAddInEdgeReq, RemoteAddInEdgeReqData);
 RPC_SINGLE_MEMBER_MESSAGE(RemoteAddInEdgeRes, RemoteUpdateResult);
 using RemoteAddInEdgeRpc =
     communication::rpc::RequestResponse<RemoteAddInEdgeReq, RemoteAddInEdgeRes>;
+
+struct RemoteRemoveVertexReqData {
+  gid::Gid gid;
+  tx::transaction_id_t tx_id;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &gid;
+    ar &tx_id;
+  }
+};
+
+RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveVertexReq, RemoteRemoveVertexReqData);
+RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveVertexRes, RemoteUpdateResult);
+using RemoteRemoveVertexRpc =
+    communication::rpc::RequestResponse<RemoteRemoveVertexReq,
+                                        RemoteRemoveVertexRes>;
 }  // namespace distributed

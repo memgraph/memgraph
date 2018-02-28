@@ -207,6 +207,8 @@ void RecordAccessor<TRecord>::SendDelta(
   switch (result) {
     case distributed::RemoteUpdateResult::DONE:
       break;
+    case distributed::RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
+      throw query::RemoveAttachedVertexException();
     case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
       throw mvcc::SerializationError();
     case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:

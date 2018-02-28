@@ -375,13 +375,12 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   if (!vertex_accessor.is_local()) {
-    LOG(ERROR) << "Remote vertex deletion not implemented";
-    // TODO support distributed
-    // call remote RemoveVertex(gid), return it's result. The result can be
-    // (true, false), or an error can occur (serialization, timeout). In case
-    // of error the remote worker will be asking for a transaction abort,
-    // not sure what to do here.
-    return false;
+    auto address = vertex_accessor.address();
+    db().remote_updates_clients().RemoteRemoveVertex(
+        address.worker_id(), transaction_id(), address.gid());
+    // We can't know if we are going to be able to remove vertex until deferred
+    // updates on a remote worker are executed
+    return true;
   }
   vertex_accessor.SwitchNew();
   // it's possible the vertex was removed already in this transaction

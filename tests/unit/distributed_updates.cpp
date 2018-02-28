@@ -196,6 +196,62 @@ TEST_F(DistributedGraphDbTest, IndexGetsUpdatedRemotely) {
   }
 }
 
+TEST_F(DistributedGraphDbTest, DeleteVertexRemoteCommit) {
+  auto v_address = InsertVertex(worker(1));
+  database::GraphDbAccessor dba0{master()};
+  database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+  auto v_remote = VertexAccessor(v_address, dba0);
+  dba0.RemoveVertex(v_remote);
+  EXPECT_TRUE(dba1.FindVertex(v_address.gid(), true));
+  EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
+            distributed::RemoteUpdateResult::DONE);
+  EXPECT_FALSE(dba1.FindVertex(v_address.gid(), true));
+}
+
+TEST_F(DistributedGraphDbTest, DeleteVertexRemoteBothDelete) {
+  auto v_address = InsertVertex(worker(1));
+  {
+    database::GraphDbAccessor dba0{master()};
+    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+    auto v_local = dba1.FindVertexChecked(v_address.gid(), false);
+    auto v_remote = VertexAccessor(v_address, dba0);
+    EXPECT_TRUE(dba1.RemoveVertex(v_local));
+    EXPECT_TRUE(dba0.RemoveVertex(v_remote));
+    EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
+              distributed::RemoteUpdateResult::DONE);
+    EXPECT_FALSE(dba1.FindVertex(v_address.gid(), true));
+  }
+}
+
+TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
+  auto v_address = InsertVertex(worker(1));
+  auto e_address = InsertEdge(v_address, v_address, "edge");
+
+  {
+    database::GraphDbAccessor dba0{master()};
+    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+    auto v_remote = VertexAccessor(v_address, dba0);
+    dba0.RemoveVertex(v_remote);
+    EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
+              distributed::RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR);
+    EXPECT_TRUE(dba1.FindVertex(v_address.gid(), true));
+  }
+  {
+    database::GraphDbAccessor dba0{master()};
+    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+    auto e_local = dba1.FindEdgeChecked(e_address.gid(), false);
+    auto v_local = dba1.FindVertexChecked(v_address.gid(), false);
+    auto v_remote = VertexAccessor(v_address, dba0);
+
+    dba1.RemoveEdge(e_local);
+    dba0.RemoveVertex(v_remote);
+
+    EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
+              distributed::RemoteUpdateResult::DONE);
+    EXPECT_FALSE(dba1.FindVertex(v_address.gid(), true));
+  }
+}
+
 class DistributedEdgeCreateTest : public DistributedGraphDbTest {
  protected:
   storage::VertexAddress w1_a;

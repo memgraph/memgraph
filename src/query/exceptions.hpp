@@ -107,4 +107,12 @@ class ReconstructionException : public QueryException {
             "preceeding DELETE.") {}
 };
 
+class RemoveAttachedVertexException : public QueryRuntimeException {
+ public:
+  RemoveAttachedVertexException()
+      : QueryRuntimeException(
+            "Failed to remove vertex because of it's existing "
+            "connections. Consider using DETACH DELETE.") {}
+};
+
 }  // namespace query

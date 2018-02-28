@@ -7,6 +7,7 @@
 #include "distributed/coordination.hpp"
 #include "distributed/remote_updates_rpc_messages.hpp"
 #include "distributed/rpc_worker_clients.hpp"
+#include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "storage/gid.hpp"
@@ -85,6 +86,15 @@ class RemoteUpdatesRpcClients {
     RaiseIfRemoteError(res->member);
   }
 
+  void RemoteRemoveVertex(int worker_id, tx::transaction_id_t tx_id,
+                          gid::Gid gid) {
+    auto res =
+        worker_clients_.GetClientPool(worker_id).Call<RemoteRemoveVertexRpc>(
+            RemoteRemoveVertexReqData{gid, tx_id});
+    CHECK(res) << "RemoteRemoveVertex RPC failed";
+    RaiseIfRemoteError(res->member);
+  }
+
   /// Calls for the worker with the given ID to apply remote updates. Returns
   /// the results of that operation.
   RemoteUpdateResult RemoteUpdateApply(int worker_id,
@@ -109,13 +119,15 @@ class RemoteUpdatesRpcClients {
 
   void RaiseIfRemoteError(RemoteUpdateResult result) {
     switch (result) {
+      case RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
+        throw query::RemoveAttachedVertexException();
       case RemoteUpdateResult::SERIALIZATION_ERROR:
-        throw new mvcc::SerializationError();
+        throw mvcc::SerializationError();
       case RemoteUpdateResult::LOCK_TIMEOUT_ERROR:
-        throw new LockTimeoutException(
+        throw LockTimeoutException(
             "Remote LockTimeoutError during edge creation");
       case RemoteUpdateResult::UPDATE_DELETED_ERROR:
-        throw new RecordDeletedError();
+        throw RecordDeletedError();
       case RemoteUpdateResult::DONE:
         break;
     }
