@@ -408,10 +408,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      return std::experimental::make_optional(utils::Bound<PropertyValue>(
-          bound.value().value()->Accept(evaluator), bound.value().type()));
-    };
+          if (!bound) return std::experimental::nullopt;
+          return std::experimental::make_optional(utils::Bound<PropertyValue>(
+              bound.value().value()->Accept(evaluator), bound.value().type()));
+        };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -1227,9 +1227,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                   self_.graph_view_);
     // For the given (vertex, edge, vertex) tuple checks if they satisfy the
     // "where" condition. if so, places them in the priority queue.
-    auto expand_pair = [this, &evaluator, &frame](VertexAccessor from,
-                                                  EdgeAccessor edge,
-                                                  VertexAccessor vertex) {
+    auto expand_pair = [this, &evaluator, &frame](
+        VertexAccessor from, EdgeAccessor edge, VertexAccessor vertex) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -3147,10 +3146,12 @@ class PullRemoteCursor : public Cursor {
         remote_puller_(RemotePuller(db, self.symbols(), self.plan_id())) {}
 
   bool Pull(Frame &frame, Context &context) override {
+    if (context.db_accessor_.should_abort()) throw HintedAbortError();
     remote_puller_.Initialize(context);
 
     bool have_remote_results = false;
     while (!have_remote_results && remote_puller_.WorkerCount() > 0) {
+      if (context.db_accessor_.should_abort()) throw HintedAbortError();
       remote_puller_.Update(context);
 
       // Get locally stored results from workers in a round-robin fasion.
@@ -3430,13 +3431,13 @@ class PullRemoteOrderByCursor : public Cursor {
   PullRemoteOrderByCursor(const PullRemoteOrderBy &self,
                           database::GraphDbAccessor &db)
       : self_(self),
-        db_(db),
         input_(self.input()->MakeCursor(db)),
         remote_puller_(RemotePuller(db, self.symbols(), self.plan_id())) {}
 
   bool Pull(Frame &frame, Context &context) {
+    if (context.db_accessor_.should_abort()) throw HintedAbortError();
     ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db_);
+                                  context.symbol_table_, context.db_accessor_);
 
     auto evaluate_result = [this, &evaluator]() {
       std::vector<TypedValue> order_by;
@@ -3476,6 +3477,7 @@ class PullRemoteOrderByCursor : public Cursor {
     }
 
     while (!missing_results_from_.empty()) {
+      if (context.db_accessor_.should_abort()) throw HintedAbortError();
       remote_puller_.Update(context);
 
       bool has_all_result = true;
@@ -3538,7 +3540,6 @@ class PullRemoteOrderByCursor : public Cursor {
   };
 
   const PullRemoteOrderBy &self_;
-  database::GraphDbAccessor &db_;
   std::unique_ptr<Cursor> input_;
   RemotePuller remote_puller_;
   std::vector<MergeResultItem> merge_;
