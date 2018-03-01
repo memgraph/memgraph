@@ -7,6 +7,11 @@ import signal
 import subprocess
 import time
 import xmlrpc.client
+
+# workaround for xmlrpc max/min integer size
+xmlrpc.client.MAXINT = 2**100
+xmlrpc.client.MININT = -2**100
+
 from argparse import ArgumentParser
 from jail_service import JailService
 

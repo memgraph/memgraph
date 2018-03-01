@@ -8,6 +8,11 @@ import tempfile
 import traceback
 import uuid
 import xmlrpc.client
+
+# workaround for xmlrpc max/min integer size
+xmlrpc.client.MAXINT = 2**100
+xmlrpc.client.MININT = -2**100
+
 from common import get_absolute_path
 from xmlrpc.server import SimpleXMLRPCServer
 
