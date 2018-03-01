@@ -32,7 +32,8 @@ TEST(StateDelta, RemoveVertex) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto delta = database::StateDelta::RemoveVertex(dba.transaction_id(), gid0);
+    auto delta =
+        database::StateDelta::RemoveVertex(dba.transaction_id(), gid0, true);
     delta.Apply(dba);
     dba.Commit();
   }

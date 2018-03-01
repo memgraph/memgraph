@@ -41,7 +41,7 @@ struct StateDelta {
     // remove property is done by setting a PropertyValue::Null
     ADD_LABEL,      // vertex_id, label, label_name
     REMOVE_LABEL,   // vertex_id, label, label_name
-    REMOVE_VERTEX,  // vertex_id
+    REMOVE_VERTEX,  // vertex_id, check_empty
     REMOVE_EDGE,    // edge_id
     BUILD_INDEX     // label, label_name, property, property_name
   };
@@ -99,8 +99,8 @@ struct StateDelta {
   static StateDelta RemoveLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
                                 storage::Label label,
                                 const std::string &label_name);
-  static StateDelta RemoveVertex(tx::transaction_id_t tx_id,
-                                 gid::Gid vertex_id);
+  static StateDelta RemoveVertex(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+                                 bool check_empty);
   static StateDelta RemoveEdge(tx::transaction_id_t tx_id, gid::Gid edge_id);
   static StateDelta BuildIndex(tx::transaction_id_t tx_id, storage::Label label,
                                const std::string &label_name,
@@ -131,6 +131,7 @@ struct StateDelta {
   PropertyValue value = PropertyValue::Null;
   storage::Label label;
   std::string label_name;
+  bool check_empty;
 
  private:
   friend class boost::serialization::access;
@@ -153,6 +154,7 @@ struct StateDelta {
     utils::SaveTypedValue(ar, value);
     ar &label;
     ar &label_name;
+    ar &check_empty;
   }
 
   template <class TArchive>
@@ -175,6 +177,7 @@ struct StateDelta {
     value = tv;
     ar &label;
     ar &label_name;
+    ar &check_empty;
   }
 };
 }  // namespace database

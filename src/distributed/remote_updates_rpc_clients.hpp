@@ -86,10 +86,10 @@ class RemoteUpdatesRpcClients {
   }
 
   void RemoteRemoveVertex(int worker_id, tx::transaction_id_t tx_id,
-                          gid::Gid gid) {
+                          gid::Gid gid, bool check_empty) {
     auto res =
         worker_clients_.GetClientPool(worker_id).Call<RemoteRemoveVertexRpc>(
-            RemoteRemoveVertexReqData{gid, tx_id});
+            RemoteRemoveVertexReqData{gid, tx_id, check_empty});
     CHECK(res) << "RemoteRemoveVertex RPC failed";
     RaiseIfRemoteError(res->member);
   }

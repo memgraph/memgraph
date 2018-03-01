@@ -94,9 +94,11 @@ class GraphDbAccessor {
    * this function will not do anything and will return true.
    *
    * @param vertex_accessor Accessor to vertex.
+   * @param check_empty If the vertex should be checked for existing edges
+   * before deletion.
    * @return  If or not the vertex was deleted.
    */
-  bool RemoveVertex(VertexAccessor &vertex_accessor);
+  bool RemoveVertex(VertexAccessor &vertex_accessor, bool check_empty = true);
 
   /**
    * Removes the vertex of the given accessor along with all it's outgoing

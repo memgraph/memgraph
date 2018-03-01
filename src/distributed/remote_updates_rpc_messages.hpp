@@ -142,6 +142,7 @@ using RemoteAddInEdgeRpc =
 struct RemoteRemoveVertexReqData {
   gid::Gid gid;
   tx::transaction_id_t tx_id;
+  bool check_empty;
 
  private:
   friend class boost::serialization::access;
@@ -150,6 +151,7 @@ struct RemoteRemoveVertexReqData {
   void serialize(TArchive &ar, unsigned int) {
     ar &gid;
     ar &tx_id;
+    ar &check_empty;
   }
 };
 

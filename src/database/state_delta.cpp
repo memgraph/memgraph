@@ -135,9 +135,10 @@ StateDelta StateDelta::RemoveLabel(tx::transaction_id_t tx_id,
 }
 
 StateDelta StateDelta::RemoveVertex(tx::transaction_id_t tx_id,
-                                    gid::Gid vertex_id) {
+                                    gid::Gid vertex_id, bool check_empty) {
   StateDelta op(StateDelta::Type::REMOVE_VERTEX, tx_id);
   op.vertex_id = vertex_id;
+  op.check_empty = check_empty;
   return op;
 }
 

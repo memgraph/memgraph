@@ -128,7 +128,8 @@ class RemoteUpdatesRpcServer {
                               "graph element";
               case database::StateDelta::Type::REMOVE_VERTEX:
                 if (!db_accessor().RemoveVertex(
-                        reinterpret_cast<VertexAccessor &>(record_accessor))) {
+                        reinterpret_cast<VertexAccessor &>(record_accessor),
+                        delta.check_empty)) {
                   return RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR;
                 }
                 break;
@@ -271,8 +272,8 @@ class RemoteUpdatesRpcServer {
 
     server.Register<RemoteRemoveVertexRpc>(
         [this](const RemoteRemoveVertexReq &req) {
-          auto to_delta = database::StateDelta::RemoveVertex(req.member.tx_id,
-                                                             req.member.gid);
+          auto to_delta = database::StateDelta::RemoveVertex(
+              req.member.tx_id, req.member.gid, req.member.check_empty);
           auto result =
               GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
           return std::make_unique<RemoteRemoveVertexRes>(result);

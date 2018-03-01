@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 
+#include <functional>
+
 #include "database/graph_db_accessor.hpp"
 #include "distributed/remote_updates_rpc_clients.hpp"
 #include "distributed/remote_updates_rpc_server.hpp"
@@ -250,6 +252,100 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
               distributed::RemoteUpdateResult::DONE);
     EXPECT_FALSE(dba1.FindVertex(v_address.gid(), true));
   }
+}
+
+class DistributedDetachDeleteTest : public DistributedGraphDbTest {
+ protected:
+  storage::VertexAddress w1_a;
+  storage::VertexAddress w1_b;
+  storage::VertexAddress w2_a;
+
+  void SetUp() override {
+    DistributedGraphDbTest::SetUp();
+    w1_a = InsertVertex(worker(1));
+    w1_b = InsertVertex(worker(1));
+    w2_a = InsertVertex(worker(2));
+  }
+
+  template <typename TF>
+  void Run(storage::VertexAddress v_address, TF check_func) {
+    for (int i : {0, 1, 2}) {
+      database::GraphDbAccessor dba0{master()};
+      database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
+      database::GraphDbAccessor dba2{worker(2), dba0.transaction_id()};
+
+      std::vector<std::reference_wrapper<database::GraphDbAccessor>> dba;
+      dba.emplace_back(dba0);
+      dba.emplace_back(dba1);
+      dba.emplace_back(dba2);
+
+      auto &accessor = dba[i].get();
+      auto v_accessor = VertexAccessor(v_address, accessor);
+      accessor.DetachRemoveVertex(v_accessor);
+
+      for (auto db_accessor : dba) {
+        ASSERT_EQ(db_accessor.get().db().remote_updates_server().Apply(
+                      dba[0].get().transaction_id()),
+                  distributed::RemoteUpdateResult::DONE);
+      }
+
+      check_func(dba);
+    }
+  }
+};
+
+TEST_F(DistributedDetachDeleteTest, VertexCycle) {
+  auto e_address = InsertEdge(w1_a, w1_a, "edge");
+  Run(w1_a,
+      [this, e_address](
+          std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
+        EXPECT_FALSE(dba[1].get().FindVertex(w1_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+      });
+}
+
+TEST_F(DistributedDetachDeleteTest, TwoVerticesDifferentWorkers) {
+  auto e_address = InsertEdge(w1_a, w2_a, "edge");
+
+  // Delete from
+  Run(w1_a,
+      [this, e_address](
+          std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
+        EXPECT_FALSE(dba[1].get().FindVertex(w1_a.gid(), true));
+        EXPECT_TRUE(dba[2].get().FindVertex(w2_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+      });
+
+  // Delete to
+  Run(w2_a,
+      [this, e_address](
+          std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
+        EXPECT_TRUE(dba[1].get().FindVertex(w1_a.gid(), true));
+        EXPECT_FALSE(dba[2].get().FindVertex(w2_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+      });
+}
+
+TEST_F(DistributedDetachDeleteTest, TwoVerticesSameWorkers) {
+  auto e_address = InsertEdge(w1_a, w1_b, "edge");
+
+  // Delete from
+  Run(w1_a,
+      [this, e_address](
+          std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
+        EXPECT_FALSE(dba[1].get().FindVertex(w1_a.gid(), true));
+        EXPECT_TRUE(dba[1].get().FindVertex(w1_b.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+      });
+
+  // Delete to
+  Run(w1_b,
+      [this, e_address](
+          std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
+        EXPECT_TRUE(dba[1].get().FindVertex(w1_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindVertex(w1_b.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+      });
 }
 
 class DistributedEdgeCreateTest : public DistributedGraphDbTest {

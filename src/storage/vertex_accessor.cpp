@@ -58,6 +58,10 @@ void VertexAccessor::RemoveOutEdge(storage::EdgeAddress edge) {
   auto &dba = db_accessor();
   auto delta = database::StateDelta::RemoveOutEdge(
       dba.transaction_id(), gid(), dba.db().storage().GlobalizedAddress(edge));
+
+  SwitchNew();
+  if (current().is_expired_by(dba.transaction())) return;
+
   update().out_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
   ProcessDelta(delta);
 }
@@ -66,6 +70,10 @@ void VertexAccessor::RemoveInEdge(storage::EdgeAddress edge) {
   auto &dba = db_accessor();
   auto delta = database::StateDelta::RemoveInEdge(
       dba.transaction_id(), gid(), dba.db().storage().GlobalizedAddress(edge));
+
+  SwitchNew();
+  if (current().is_expired_by(dba.transaction())) return;
+
   update().in_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
   ProcessDelta(delta);
 }
@@ -76,9 +84,10 @@ std::ostream &operator<<(std::ostream &os, const VertexAccessor &va) {
     stream << va.db_accessor().LabelName(label);
   });
   os << " {";
-  utils::PrintIterable(os, va.Properties(), ", ", [&](auto &stream,
-                                                      const auto &pair) {
-    stream << va.db_accessor().PropertyName(pair.first) << ": " << pair.second;
-  });
+  utils::PrintIterable(os, va.Properties(), ", ",
+                       [&](auto &stream, const auto &pair) {
+                         stream << va.db_accessor().PropertyName(pair.first)
+                                << ": " << pair.second;
+                       });
   return os << "})";
 }

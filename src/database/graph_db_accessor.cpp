@@ -336,13 +336,14 @@ int64_t GraphDbAccessor::VerticesCount(
   }
 }
 
-bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
+bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
+                                   bool check_empty) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   if (!vertex_accessor.is_local()) {
     auto address = vertex_accessor.address();
     db().remote_updates_clients().RemoteRemoveVertex(
-        address.worker_id(), transaction_id(), address.gid());
+        address.worker_id(), transaction_id(), address.gid(), check_empty);
     // We can't know if we are going to be able to remove vertex until deferred
     // updates on a remote worker are executed
     return true;
@@ -352,25 +353,22 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor) {
   // due to it getting matched multiple times by some patterns
   // we can only delete it once, so check if it's already deleted
   if (vertex_accessor.current().is_expired_by(transaction_)) return true;
-  if (vertex_accessor.out_degree() > 0 || vertex_accessor.in_degree() > 0)
+  if (check_empty &&
+      vertex_accessor.out_degree() + vertex_accessor.in_degree() > 0)
     return false;
 
   auto *vlist_ptr = vertex_accessor.address().local();
-  wal().Emplace(
-      database::StateDelta::RemoveVertex(transaction_.id_, vlist_ptr->gid_));
+  wal().Emplace(database::StateDelta::RemoveVertex(
+      transaction_.id_, vlist_ptr->gid_, check_empty));
   vlist_ptr->remove(vertex_accessor.current_, transaction_);
   return true;
 }
 
 void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  if (!vertex_accessor.is_local()) {
-    LOG(ERROR) << "Remote vertex deletion not implemented";
-    // TODO support distributed
-    // call remote DetachRemoveVertex(gid). It can either succeed or an error
-    // can occur. See discussion in the RemoveVertex method above.
-  }
+
   vertex_accessor.SwitchNew();
+
   // Note that when we call RemoveEdge we must take care not to delete from the
   // collection we are iterating over. This invalidates the iterator in a subtle
   // way that does not fail in tests, but is NOT correct.
@@ -380,13 +378,7 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
   for (auto edge_accessor : vertex_accessor.out())
     RemoveEdge(edge_accessor, false, true);
 
-  vertex_accessor.SwitchNew();
-  // it's possible the vertex was removed already in this transaction
-  // due to it getting matched multiple times by some patterns
-  // we can only delete it once, so check if it's already deleted
-  if (!vertex_accessor.current().is_expired_by(transaction_))
-    vertex_accessor.address().local()->remove(vertex_accessor.current_,
-                                              transaction_);
+  RemoveVertex(vertex_accessor, false);
 }
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
