@@ -149,6 +149,8 @@ class PublicBase : public GraphDb {
   distributed::RemoteUpdatesRpcClients &remote_updates_clients() override;
   distributed::RemoteDataManager &remote_data_manager() override;
 
+  bool is_accepting_transactions() const { return is_accepting_transactions_; }
+
  protected:
   explicit PublicBase(std::unique_ptr<PrivateBase> impl);
   ~PublicBase();
@@ -158,21 +160,17 @@ class PublicBase : public GraphDb {
  private:
   std::unique_ptr<Scheduler> snapshot_creator_;
 
+  /** When this is false, no new transactions should be created. */
+  std::atomic<bool> is_accepting_transactions_{true};
+  Scheduler transaction_killer_;
+
   void MakeSnapshot();
 };
 }  // namespace impl
 
 class MasterBase : public impl::PublicBase {
  public:
-  explicit MasterBase(std::unique_ptr<impl::PrivateBase> impl);
-  bool is_accepting_transactions() const { return is_accepting_transactions_; }
-
-  ~MasterBase();
-
- private:
-  /** When this is false, no new transactions should be created. */
-  std::atomic<bool> is_accepting_transactions_{true};
-  Scheduler transaction_killer_;
+  using PublicBase::PublicBase;
 };
 
 class SingleNode : public MasterBase {

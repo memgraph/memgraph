@@ -26,6 +26,8 @@
 #include "query_plan_common.hpp"
 #include "transactions/engine_master.hpp"
 
+DECLARE_int32(query_execution_time_sec);
+
 using namespace distributed;
 using namespace database;
 
@@ -319,4 +321,47 @@ TEST_F(DistributedGraphDbTest, PullRemoteOrderBy) {
   for (int j = 0; j < 300; ++j) {
     EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], j));
   }
+}
+
+class DistributedTransactionTimeout : public DistributedGraphDbTest {
+ protected:
+  void SetUp() override {
+    FLAGS_query_execution_time_sec = 1;
+    DistributedGraphDbTest::SetUp();
+  }
+};
+
+TEST_F(DistributedTransactionTimeout, Timeout) {
+  InsertVertex(worker(1));
+  InsertVertex(worker(1));
+
+  GraphDbAccessor dba{master()};
+  Context ctx{dba};
+  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  AstTreeStorage storage;
+
+  // Make distributed plan for MATCH (n) RETURN n
+  auto scan_all = MakeScanAll(storage, ctx.symbol_table_, "n");
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all.op_, output);
+  ctx.symbol_table_[*output->expression_] = scan_all.sym_;
+  ctx.symbol_table_[*output] =
+      ctx.symbol_table_.CreateSymbol("named_expression_1", true);
+
+  const int plan_id = 42;
+  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
+
+  Parameters params;
+  std::vector<query::Symbol> symbols{ctx.symbol_table_[*output]};
+  auto remote_pull = [this, &params, &symbols, &dba]() {
+    return master()
+        .remote_pull_clients()
+        .RemotePull(dba, 1, plan_id, params, symbols, false, 1)
+        .get()
+        .pull_state;
+  };
+  ASSERT_EQ(remote_pull(), distributed::RemotePullState::CURSOR_IN_PROGRESS);
+  // Sleep here so the remote gets a hinted error.
+  std::this_thread::sleep_for(2s);
+  EXPECT_EQ(remote_pull(), distributed::RemotePullState::HINTED_ABORT_ERROR);
 }

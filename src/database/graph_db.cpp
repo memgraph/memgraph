@@ -252,6 +252,7 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
   if (impl_->config_.durability_enabled)
     durability::CheckDurabilityDir(impl_->config_.durability_directory);
 
+  // Recovery on startup.
   if (impl_->config_.db_recover_on_startup)
     durability::Recover(impl_->config_.durability_directory, *impl_);
   if (impl_->config_.durability_enabled) {
@@ -261,9 +262,32 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
         "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
         [this] { MakeSnapshot(); });
   }
+
+  // Start transaction killer.
+  if (impl_->config_.query_execution_time_sec != -1) {
+    transaction_killer_.Run(
+        "TX killer",
+        std::chrono::seconds(std::max(
+            1, std::min(5, impl_->config_.query_execution_time_sec / 4))),
+        [this]() {
+          impl_->tx_engine().LocalForEachActiveTransaction(
+              [this](tx::Transaction &t) {
+                if (t.creation_time() +
+                        std::chrono::seconds(
+                            impl_->config_.query_execution_time_sec) <
+                    std::chrono::steady_clock::now()) {
+                  t.set_should_abort();
+                };
+              });
+        });
+  }
 }
 
 PublicBase::~PublicBase() {
+  is_accepting_transactions_ = false;
+  tx_engine().LocalForEachActiveTransaction(
+      [](auto &t) { t.set_should_abort(); });
+
   snapshot_creator_.release();
   if (impl_->config_.snapshot_on_exit) MakeSnapshot();
 }
@@ -329,33 +353,6 @@ void PublicBase::MakeSnapshot() {
   }
 }
 }  // namespace impl
-
-MasterBase::MasterBase(std::unique_ptr<impl::PrivateBase> impl)
-    : PublicBase(std::move(impl)) {
-  if (impl_->config_.query_execution_time_sec != -1) {
-    transaction_killer_.Run(
-        "TX killer",
-        std::chrono::seconds(std::max(
-            1, std::min(5, impl_->config_.query_execution_time_sec / 4))),
-        [this]() {
-          impl_->tx_engine().LocalForEachActiveTransaction(
-              [this](tx::Transaction &t) {
-                if (t.creation_time() +
-                        std::chrono::seconds(
-                            impl_->config_.query_execution_time_sec) <
-                    std::chrono::steady_clock::now()) {
-                  t.set_should_abort();
-                };
-              });
-        });
-  }
-}
-
-MasterBase::~MasterBase() {
-  is_accepting_transactions_ = false;
-  tx_engine().LocalForEachActiveTransaction(
-      [](auto &t) { t.set_should_abort(); });
-}
 
 SingleNode::SingleNode(Config config)
     : MasterBase(std::make_unique<impl::SingleNode>(config)) {}

@@ -122,8 +122,12 @@ class RemoteProduceRpcServer {
         cursor_state_ = RemotePullState::UPDATE_DELETED_ERROR;
       } catch (const query::ReconstructionException &) {
         cursor_state_ = RemotePullState::RECONSTRUCTION_ERROR;
+      } catch (const query::RemoveAttachedVertexException &) {
+        cursor_state_ = RemotePullState::UNABLE_TO_DELETE_VERTEX_ERROR;
       } catch (const query::QueryRuntimeException &) {
         cursor_state_ = RemotePullState::QUERY_ERROR;
+      } catch (const query::HintedAbortError &) {
+        cursor_state_ = RemotePullState::HINTED_ABORT_ERROR;
       }
       return std::make_pair(std::move(results), cursor_state_);
     }

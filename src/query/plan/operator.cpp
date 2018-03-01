@@ -3081,6 +3081,10 @@ class RemotePuller {
               "RecordDeleted error ocured during PullRemote !");
         case distributed::RemotePullState::RECONSTRUCTION_ERROR:
           throw query::ReconstructionException();
+        case distributed::RemotePullState::UNABLE_TO_DELETE_VERTEX_ERROR:
+          throw RemoveAttachedVertexException();
+        case distributed::RemotePullState::HINTED_ABORT_ERROR:
+          throw HintedAbortError();
         case distributed::RemotePullState::QUERY_ERROR:
           throw QueryRuntimeException(
               "Query runtime error occurred duing PullRemote !");
@@ -3305,6 +3309,10 @@ class SynchronizeCursor : public Cursor {
         case distributed::RemotePullState::RECONSTRUCTION_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to ReconstructionError");
+        case distributed::RemotePullState::UNABLE_TO_DELETE_VERTEX_ERROR:
+          throw RemoveAttachedVertexException();
+        case distributed::RemotePullState::HINTED_ABORT_ERROR:
+          throw HintedAbortError();
         case distributed::RemotePullState::QUERY_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to Query runtime error");
