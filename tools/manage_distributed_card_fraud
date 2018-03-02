@@ -238,15 +238,19 @@ class RemoteRunner:
                                itertools.repeat(memgraph_binary))
         for _ in fs: pass # noqa
 
+    def _memgraph_clean_machine(self, machine):
+        log.info("memgraph-clean on {}".format(machine.host))
+        ret = self._run_cmd(["rm", "-rf",
+                            self._config.memgraph_remote_dir],
+                            user=self._config.remote_user,
+                            host=machine.host, ssh_port=machine.ssh_port)
+        log.info(ret)
+
     def memgraph_clean(self):
         log.info("memgraph-clean")
-        for machine in self._config.workload_machines:
-            log.info("memgraph-clean on {}".format(machine.host))
-            ret = self._run_cmd(["rm", "-rf",
-                                self._config.memgraph_remote_dir],
-                                user=self._config.remote_user,
-                                host=machine.host, ssh_port=machine.ssh_port)
-            log.info(ret)
+        fs = self.executor.map(self._memgraph_clean_machine,
+                               self._config.workload_machines)
+        for _ in fs: pass # noqa
 
     def _durability_copy_machine(self, machine, i):
         log.info("durability-copy on {}".format(machine.host))
@@ -268,15 +272,19 @@ class RemoteRunner:
                                itertools.count(0))
         for _ in fs: pass # noqa
 
+    def _durability_clean_machine(self, machine):
+        log.info("durability-clean on {}".format(machine.host))
+        ret = self._run_cmd(["rm", "-rf",
+                            self._config.durability_remote_dir],
+                            user=self._config.remote_user,
+                            host=machine.host, ssh_port=machine.ssh_port)
+        log.info(ret)
+
     def durability_clean(self):
         log.info("durability-clean")
-        for machine in self._config.workload_machines:
-            log.info("durability-clean on {}".format(machine.host))
-            ret = self._run_cmd(["rm", "-rf",
-                                self._config.durability_remote_dir],
-                                user=self._config.remote_user,
-                                host=machine.host, ssh_port=machine.ssh_port)
-            log.info(ret)
+        fs = self.executor.map(self._durability_clean_machine,
+                               self._config.workload_machines)
+        for _ in fs: pass # noqa
 
     def _is_process_running(self, process_name, machine):
         ret = self._run_cmd(["pgrep", process_name],
@@ -390,8 +398,8 @@ class RemoteRunner:
                                itertools.count(1))
         for _ in fs: pass # noqa
 
-    def _kill_process(self, process, signal, machine):
-        ret = self._run_cmd(["sudo", "kill", str(signal),
+    def _kill_process(self, machine, process, signal):
+        ret = self._run_cmd(["sudo", "kill", "-" + str(signal),
                              "$(pgrep {})".format(process)],
                             user=self._config.remote_user,
                             host=machine.host, ssh_port=machine.ssh_port)
@@ -401,13 +409,15 @@ class RemoteRunner:
         log.info("memgraph-terminate")
         # only kill master - master stops workers
         machine = self._config.master()
-        self._kill_process("memgraph", 15, machine)
+        self._kill_process(machine, "memgraph", 15)
 
     def memgraph_kill(self):
         log.info("memgraph-kill")
-        # only kill master - master stops workers
-        machine = self._config.master()
-        self._kill_process("memgraph", 9, machine)
+        fs = self.executor.map(self._kill_process,
+                               self._config.workload_machines,
+                               itertools.repeat("memgraph"),
+                               itertools.repeat(9))
+        for _ in fs: pass # noqa
 
     def _collect_log(self, machine, i):
         log.info("collect-log from {}".format(machine.host))
