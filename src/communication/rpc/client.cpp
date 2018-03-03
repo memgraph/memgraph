@@ -38,7 +38,7 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
     socket_.emplace();
     buffer_.Clear();
     if (!socket_->Connect(endpoint_)) {
-      LOG(ERROR) << "Couldn't connect to remote address: " << endpoint_;
+      LOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
       socket_ = std::experimental::nullopt;
       return nullptr;
     }
@@ -65,13 +65,13 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
   MessageSize request_data_size = request_buffer.size();
   if (!socket_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
                       sizeof(MessageSize), true)) {
-    LOG(ERROR) << "Couldn't send request size!";
+    LOG(ERROR) << "Couldn't send request size to " << socket_->endpoint();
     socket_ = std::experimental::nullopt;
     return nullptr;
   }
 
   if (!socket_->Write(request_buffer)) {
-    LOG(INFO) << "Couldn't send request data!";
+    LOG(ERROR) << "Couldn't send request data to " << socket_->endpoint();
     socket_ = std::experimental::nullopt;
     return nullptr;
   }
@@ -81,6 +81,7 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
     auto buff = buffer_.Allocate();
     auto received = socket_->Read(buff.data, buff.len);
     if (received <= 0) {
+      LOG(ERROR) << "Couldn't get response from " << socket_->endpoint();
       socket_ = std::experimental::nullopt;
       return nullptr;
     }
