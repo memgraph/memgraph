@@ -70,6 +70,10 @@ bool Socket::Connect(const Endpoint &endpoint) {
       socket_ = sfd;
       endpoint_ = endpoint;
       break;
+    } else {
+      // If the connect failed close the file descriptor to prevent file
+      // descriptors being leaked
+      close(sfd);
     }
   }
 
@@ -88,12 +92,20 @@ bool Socket::Bind(const Endpoint &endpoint) {
     if (sfd == -1) continue;
 
     int on = 1;
-    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0)
+    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0) {
+      // If the setsockopt failed close the file descriptor to prevent file
+      // descriptors being leaked
+      close(sfd);
       continue;
+    }
 
     if (bind(sfd, it->ai_addr, it->ai_addrlen) == 0) {
       socket_ = sfd;
       break;
+    } else {
+      // If the bind failed close the file descriptor to prevent file
+      // descriptors being leaked
+      close(sfd);
     }
   }
 
@@ -103,6 +115,10 @@ bool Socket::Bind(const Endpoint &endpoint) {
   struct sockaddr_in6 portdata;
   socklen_t portdatalen = sizeof(portdata);
   if (getsockname(socket_, (struct sockaddr *)&portdata, &portdatalen) < 0) {
+    // If the getsockname failed close the file descriptor to prevent file
+    // descriptors being leaked
+    close(socket_);
+    socket_ = -1;
     return false;
   }
 
