@@ -2,6 +2,8 @@
 #include <iostream>
 #include <limits>
 
+#include "glog/logging.h"
+
 namespace utils {
 
 /**
@@ -22,6 +24,7 @@ inline auto AvailableMem() {
     }
     meminfo.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
   }
+  LOG(ERROR) << "Failed to read amount of available memory from /proc/meminfo";
   return 0UL;
 }
 }  // namespace utils
