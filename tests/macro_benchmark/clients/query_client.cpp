@@ -80,8 +80,8 @@ void ExecuteQueries(const std::vector<std::string> &queries, int num_workers,
           str = queries[pos];
         }
         try {
-          metadata[pos] =
-              ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES).metadata;
+          metadata[pos] = ExecuteNTimesTillSuccess(client, str, {}, MAX_RETRIES)
+                              .first.metadata;
         } catch (const utils::BasicException &e) {
           LOG(FATAL) << "Could not execute query '" << str << "' "
                      << MAX_RETRIES << " times! Error message: " << e.what();

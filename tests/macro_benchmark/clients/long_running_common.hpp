@@ -24,6 +24,7 @@ DEFINE_string(group, "unknown", "Test group name");
 DEFINE_string(scenario, "unknown", "Test scenario name");
 
 auto &executed_queries = stats::GetCounter("executed_queries");
+auto &serialization_errors = stats::GetCounter("serialization_errors");
 
 class TestClient {
  public:
@@ -55,12 +56,21 @@ class TestClient {
  protected:
   virtual void Step() = 0;
 
-  communication::bolt::QueryData Execute(
+  std::experimental::optional<communication::bolt::QueryData> Execute(
       const std::string &query,
       const std::map<std::string, DecodedValue> &params,
       const std::string &query_name = "") {
+    communication::bolt::QueryData result;
+    int retries;
     utils::Timer timer;
-    auto result = ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
+    try {
+      std::tie(result, retries) =
+          ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
+    } catch (const utils::BasicException &e) {
+      LOG(WARNING) << e.what();
+      serialization_errors.Bump(MAX_RETRIES);
+      return std::experimental::nullopt;
+    }
     auto wall_time = timer.Elapsed();
     auto metadata = result.metadata;
     metadata["wall_time"] = wall_time.count();
@@ -73,6 +83,7 @@ class TestClient {
       }
     }
     executed_queries.Bump();
+    serialization_errors.Bump(retries);
     return result;
   }
 
@@ -128,7 +139,10 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
     // little bit chaotic. Think about refactoring this part to only use json
     // and write DecodedValue to json converter.
     const std::vector<std::string> fields = {
-        "wall_time", "parsing_time", "planning_time", "plan_execution_time",
+        "wall_time",
+        "parsing_time",
+        "planning_time",
+        "plan_execution_time",
     };
     for (const auto &query_stats : stats) {
       std::map<std::string, double> new_aggregated_query_stats;
@@ -149,21 +163,21 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
       for (const auto &stat : new_aggregated_query_stats) {
         auto it = aggregated_query_stats.insert({stat.first, DecodedValue(0.0)})
                       .first;
-        it->second =
-            (it->second.ValueDouble() * old_count + stat.second) /
-            (old_count + new_count);
+        it->second = (it->second.ValueDouble() * old_count + stat.second) /
+                     (old_count + new_count);
       }
     }
 
     out << "{\"num_executed_queries\": " << executed_queries.Value() << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
-    utils::PrintIterable(out, aggregated_stats, ", ", [](auto &stream,
-                                                         const auto &x) {
-      stream << "{\"query\": " << nlohmann::json(x.first) << ", \"stats\": ";
-      PrintJsonDecodedValue(stream, DecodedValue(x.second));
-      stream << "}";
-    });
+    utils::PrintIterable(
+        out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
+          stream << "{\"query\": " << nlohmann::json(x.first)
+                 << ", \"stats\": ";
+          PrintJsonDecodedValue(stream, DecodedValue(x.second));
+          stream << "}";
+        });
     out << "]}" << std::endl;
     out.flush();
     std::this_thread::sleep_for(1s);

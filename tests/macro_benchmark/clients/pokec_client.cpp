@@ -128,21 +128,21 @@ class PokecClient : public TestClient {
     auto ret = Execute(os.str(), {},
                        "MATCH (n :label {id: ...}) MATCH (m :label {id: ...}) "
                        "CREATE (n)-[:type ...]-(m)");
-    CHECK(ret.records.size() == 1U)
+    CHECK(ret->records.size() == 1U)
         << "from_id: " << from_id << " "
         << "to_id: " << to_id << " "
-        << "ret.records.size(): " << ret.records.size();
+        << "ret.records.size(): " << ret->records.size();
     return ret;
   }
 
   VertexAndEdges RetrieveAndDeleteVertex(const std::string &label, int64_t id) {
-    auto vertex_record = MatchVertex(label, id).records;
+    auto vertex_record = MatchVertex(label, id)->records;
 
     CHECK(vertex_record.size() == 1U)
         << "id: " << id << " "
         << "vertex_record.size(): " << vertex_record.size();
 
-    auto records = MatchNeighbours(label, id).records;
+    auto records = MatchNeighbours(label, id)->records;
 
     DetachDeleteVertex(label, id);
 
@@ -175,7 +175,7 @@ class PokecClient : public TestClient {
               vertex_and_edges.vertex.properties.at("id").ValueInt(), label,
               vertex_and_edges.vertices[i].properties.at("id").ValueInt(),
               vertex_and_edges.edges[i])
-              .records;
+              ->records;
       CHECK(records.size() == 1U)
           << "Graph in invalid state "
           << vertex_and_edges.vertex.properties.at("id");
@@ -227,7 +227,7 @@ int64_t NumNodes(BoltClient &client, const std::string &label) {
   auto result = ExecuteNTimesTillSuccess(
       client, "MATCH (n :" + label + ") RETURN COUNT(n) as cnt", {},
       MAX_RETRIES);
-  return result.records[0][0].ValueInt();
+  return result.first.records[0][0].ValueInt();
 }
 
 std::vector<int64_t> Neighbours(BoltClient &client, const std::string &label,
@@ -238,7 +238,7 @@ std::vector<int64_t> Neighbours(BoltClient &client, const std::string &label,
                                              "})-[e]-(m) RETURN m.id",
                                          {}, MAX_RETRIES);
   std::vector<int64_t> ret;
-  for (const auto &record : result.records) {
+  for (const auto &record : result.first.records) {
     ret.push_back(record[0].ValueInt());
   }
   return ret;
@@ -306,6 +306,6 @@ int main(int argc, char **argv) {
   }
 
   RunMultithreadedTest(clients);
- 
+
   return 0;
 }

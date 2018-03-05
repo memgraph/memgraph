@@ -56,7 +56,7 @@ void PrintJsonDecodedValue(std::ostream &os,
 }
 
 template <typename TClient>
-communication::bolt::QueryData ExecuteNTimesTillSuccess(
+std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
     TClient &client, const std::string &query,
     const std::map<std::string, communication::bolt::DecodedValue> &params,
     int times) {
@@ -66,7 +66,7 @@ communication::bolt::QueryData ExecuteNTimesTillSuccess(
   for (int i = 0; i < times; ++i) {
     try {
       auto ret = client.Execute(query, params);
-      return ret;
+      return {ret, i};
     } catch (const utils::BasicException &e) {
       last_exception = e;
       utils::Timer t;
@@ -79,4 +79,4 @@ communication::bolt::QueryData ExecuteNTimesTillSuccess(
   LOG(WARNING) << query << " failed " << times << "times";
   throw last_exception.value();
 }
-}
+}  // namespace

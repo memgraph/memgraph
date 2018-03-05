@@ -6,7 +6,7 @@ import time
 NUM_MACHINES = 3
 
 # test setup
-SCENARIOS = ["point_lookup", "create_tx_without_edge"]
+SCENARIOS = ["point_lookup", "create_tx"]
 DURATION = 300
 WORKERS = 6
 
