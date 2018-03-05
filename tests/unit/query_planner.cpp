@@ -2206,7 +2206,7 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianCreate) {
-  // Test MATCH (a), (b) CREATE (a)-[e:r]->(b)
+  // Test MATCH (a), (b) CREATE (a)-[e:r]->(b) RETURN e
   AstTreeStorage storage;
   database::Master db;
   database::GraphDbAccessor dba(db);
@@ -2216,7 +2216,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreate) {
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b)),
       CREATE(PATTERN(NODE("a"), EDGE("e", Direction::OUT, {relationship}),
-                     NODE("b")))));
+                     NODE("b"))),
+      RETURN("e")));
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto left_cart =
       MakeCheckers(ExpectScanAll(),
@@ -2226,7 +2227,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreate) {
                    ExpectPullRemote({symbol_table.at(*node_b->identifier_)}));
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectCreateExpand(), ExpectSynchronize(false)),
+                   ExpectCreateExpand(), ExpectSynchronize(false),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);

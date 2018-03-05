@@ -572,7 +572,8 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     }
     auto sync = std::make_unique<Synchronize>(acc.input(), pull_remote,
                                               acc.advance_command());
-    SplitOnPrevious(std::move(sync));
+    SetOnPrevious(std::move(sync));
+    on_master_ = true;
     needs_synchronize_ = false;
     return true;
   }
@@ -721,15 +722,22 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
   void SplitOnPrevious(std::unique_ptr<LogicalOperator> merge_op) {
     if (on_master_) throw utils::NotYetImplemented("distributed planning");
+    on_master_ = true;
     if (prev_ops_.empty()) {
       distributed_plan_.master_plan = std::move(merge_op);
-      on_master_ = true;
       return;
     }
-    auto *master_op = prev_ops_.back();
-    if (!master_op->HasSingleInput())
+    SetOnPrevious(std::move(merge_op));
+  }
+
+  void SetOnPrevious(std::unique_ptr<LogicalOperator> input_op) {
+    auto *prev_op = prev_ops_.back();
+    DCHECK(prev_op)
+        << "SetOnPrevious should only be called when there is a previously "
+           "visited operation";
+    if (!prev_op->HasSingleInput())
       throw utils::NotYetImplemented("distributed planning");
-    Split(*master_op, std::move(merge_op));
+    prev_op->set_input(std::move(input_op));
   }
 
   int64_t AddWorkerPlan(const std::shared_ptr<LogicalOperator> &worker_plan) {
