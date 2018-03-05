@@ -9,8 +9,6 @@
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/protocol.hpp"
 #include "communication/rpc/server.hpp"
-#include "stats/metrics.hpp"
-#include "utils/demangle.hpp"
 
 namespace communication::rpc {
 
@@ -46,13 +44,7 @@ void Session::Execute() {
         "Session trying to execute an unregistered RPC call!");
   }
 
-  auto request_name = fmt::format(
-      "rpc.server.{}",
-      utils::Demangle(request->type_index().name()).value_or("unknown"));
-  std::unique_ptr<Message> response = nullptr;
-
-  stats::Stopwatch(request_name,
-                   [&] { response = it->second(*(request.get())); });
+  std::unique_ptr<Message> response = it->second(*(request.get()));
 
   if (!response) {
     throw SessionException("Trying to send nullptr instead of message");

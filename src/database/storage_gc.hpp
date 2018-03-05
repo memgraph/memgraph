@@ -16,12 +16,6 @@
 
 namespace database {
 
-namespace {
-
-stats::Gauge &gc_running = stats::GetGauge("storage.garbage_collection", 0);
-
-}  // namespace
-
 /** Garbage collection capabilities for database::Storage. Extracted into a
  * separate class for better code organization, and because the GC requires a
  * tx::Engine, while the Storage itself can exist without it. Even though, a
@@ -78,10 +72,8 @@ class StorageGc {
       // This can be run concurrently
       utils::Timer x;
 
-      gc_running.Set(1);
       vertices_.gc_.Run(snapshot, tx_engine_);
       edges_.gc_.Run(snapshot, tx_engine_);
-      gc_running.Set(0);
 
       VLOG(1) << "Garbage collector mvcc phase time: " << x.Elapsed().count();
     }
