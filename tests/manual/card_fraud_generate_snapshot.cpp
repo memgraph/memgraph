@@ -244,6 +244,7 @@ class ValueGenerator {
     props.emplace("id", DecodedValue(Counter("Pos.id")));
     props.emplace("worker_id", DecodedValue(worker_id));
     props.emplace("compromised", DecodedValue(compromised));
+    props.emplace("connected_frauds", DecodedValue(0));
     return props;
   }
 
