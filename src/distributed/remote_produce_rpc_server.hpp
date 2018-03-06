@@ -175,7 +175,8 @@ class RemoteProduceRpcServer {
 
   auto &GetOngoingProduce(const RemotePullReq &req) {
     auto access = ongoing_produces_.access();
-    auto found = access.find({req.tx_id, req.plan_id});
+    auto key_pair = std::make_pair(req.tx_id, req.plan_id);
+    auto found = access.find(key_pair);
     if (found != access.end()) {
       return found->second;
     }
@@ -185,9 +186,8 @@ class RemoteProduceRpcServer {
           .RunningTransaction(req.tx_id, req.tx_snapshot);
     }
     auto &plan_pack = plan_consumer_.PlanForId(req.plan_id);
-    auto key_par = std::make_pair(req.tx_id, req.tx_id);
     return access
-        .emplace(key_par, std::forward_as_tuple(key_par),
+        .emplace(key_pair, std::forward_as_tuple(key_pair),
                  std::forward_as_tuple(db_, req.tx_id, plan_pack.plan,
                                        plan_pack.symbol_table, req.params,
                                        req.symbols))
