@@ -124,3 +124,47 @@ TEST_F(DistributedInterpretationTest, RemoteExpandTest2) {
   }
   ASSERT_THAT(got, testing::UnorderedElementsAreArray(expected));
 }
+
+TEST_F(DistributedInterpretationTest, Cartesian) {
+  // Create some data on the master and both workers.
+  storage::Property prop;
+  {
+    GraphDbAccessor dba{master()};
+    auto tx_id = dba.transaction_id();
+    GraphDbAccessor dba1{worker(1), tx_id};
+    GraphDbAccessor dba2{worker(2), tx_id};
+    prop = dba.Property("prop");
+    auto add_data = [prop](GraphDbAccessor &dba, int value) {
+      dba.InsertVertex().PropsSet(prop, value);
+    };
+
+    for (int i = 0; i < 10; ++i) add_data(dba, i);
+    for (int i = 10; i < 20; ++i) add_data(dba1, i);
+    for (int i = 20; i < 30; ++i) add_data(dba2, i);
+
+    dba.Commit();
+  }
+
+  std::vector<std::vector<int64_t>> expected;
+  for (int64_t i = 0; i < 30; ++i)
+    for (int64_t j = 0; j < 30; ++j) expected.push_back({i, j});
+
+  auto results = Run("MATCH (n), (m) RETURN n.prop, m.prop;");
+
+  size_t expected_result_size = 30 * 30;
+  ASSERT_EQ(expected.size(), expected_result_size);
+  ASSERT_EQ(results.size(), expected_result_size);
+
+  std::vector<std::vector<int64_t>> got;
+  got.reserve(results.size());
+  for (const auto &res : results) {
+    std::vector<int64_t> row;
+    row.reserve(res.size());
+    for (const auto &col : res) {
+      row.push_back(col.Value<int64_t>());
+    }
+    got.push_back(row);
+  }
+
+  ASSERT_THAT(got, testing::UnorderedElementsAreArray(expected));
+}
