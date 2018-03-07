@@ -249,9 +249,9 @@ class ValueGenerator {
   }
 
   std::unordered_map<std::string, DecodedValue> MakeTxProperties(
-      bool fraud_reported, int worker_id) {
+      bool fraud_reported, int worker_id, int id) {
     std::unordered_map<std::string, DecodedValue> props;
-    props.emplace("id", DecodedValue(Counter("Transaction.id")));
+    props.emplace("id", DecodedValue(id));
     props.emplace("worker_id", DecodedValue(worker_id));
     props.emplace("fraud_reported", DecodedValue(fraud_reported));
     return props;
@@ -443,7 +443,9 @@ int main(int argc, char **argv) {
                        state.in_edges[worker_id][pos_id]);
     }
     // Write Transactions to snapshot.
+    int transaction_id = 0;
     for (auto &tx_id : state.worker_nodes[worker_id][kLabelTransaction]) {
+      transaction_id++;
       const auto &edges = state.edges;
       const auto &out_edges = state.out_edges[worker_id][tx_id];
       DCHECK(out_edges.size() == 2);
@@ -455,7 +457,8 @@ int main(int argc, char **argv) {
                                   edges[out_edges[0]].to.gid())) {
         fraud_reported = value_generator.Bernoulli(fraud_reported_probability);
       }
-      auto props = value_generator.MakeTxProperties(fraud_reported, worker_id);
+      auto props = value_generator.MakeTxProperties(
+          fraud_reported, worker_id, transaction_id * num_workers + worker_id);
       writer.WriteNode(tx_id, kLabelTransaction, props, state.edges,
                        state.out_edges[worker_id][tx_id],
                        state.in_edges[worker_id][tx_id]);
