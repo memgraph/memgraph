@@ -445,7 +445,6 @@ int main(int argc, char **argv) {
     // Write Transactions to snapshot.
     int transaction_id = 0;
     for (auto &tx_id : state.worker_nodes[worker_id][kLabelTransaction]) {
-      transaction_id++;
       const auto &edges = state.edges;
       const auto &out_edges = state.out_edges[worker_id][tx_id];
       DCHECK(out_edges.size() == 2);
@@ -462,6 +461,7 @@ int main(int argc, char **argv) {
       writer.WriteNode(tx_id, kLabelTransaction, props, state.edges,
                        state.out_edges[worker_id][tx_id],
                        state.in_edges[worker_id][tx_id]);
+      transaction_id++;
     }
     // Write edges to snapshot.
     int edge_count{0};
