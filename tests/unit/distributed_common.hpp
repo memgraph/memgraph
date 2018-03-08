@@ -28,11 +28,14 @@ class DistributedGraphDbTest : public ::testing::Test {
   };
 
  protected:
+  virtual int QueryExecutionTimeSec(int) { return 180; }
+
   void SetUp() override {
     const auto kInitTime = 200ms;
 
     database::Config master_config;
     master_config.master_endpoint = {kLocal, 0};
+    master_config.query_execution_time_sec = QueryExecutionTimeSec(0);
     master_ = std::make_unique<database::Master>(master_config);
     std::this_thread::sleep_for(kInitTime);
 
@@ -41,6 +44,7 @@ class DistributedGraphDbTest : public ::testing::Test {
       config.worker_id = worker_id;
       config.master_endpoint = master_->endpoint();
       config.worker_endpoint = {kLocal, 0};
+      config.query_execution_time_sec = QueryExecutionTimeSec(worker_id);
       return config;
     };
 

@@ -177,7 +177,7 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   // CreateIndex.
   GraphDbAccessor dba(db_);
 
-  std::experimental::optional<std::vector<std::future<bool>>>
+  std::experimental::optional<std::vector<utils::Future<bool>>>
       index_rpc_completions;
 
   // Notify all workers to start building an index if we are the master since

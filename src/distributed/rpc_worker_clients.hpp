@@ -1,7 +1,6 @@
 #pragma once
 
 #include <functional>
-#include <future>
 #include <type_traits>
 #include <unordered_map>
 
@@ -10,6 +9,7 @@
 #include "distributed/index_rpc_messages.hpp"
 #include "storage/types.hpp"
 #include "transactions/transaction.hpp"
+#include "utils/future.hpp"
 
 namespace distributed {
 
@@ -37,16 +37,17 @@ class RpcWorkerClients {
   auto GetWorkerIds() { return coordination_.GetWorkerIds(); }
 
   /** Asynchroniously executes the given function on the rpc client for the
-   * given worker id. Returns an `std::future` of the given `execute` function's
+   * given worker id. Returns an `utils::Future` of the given `execute`
+   * function's
    * return type. */
   template <typename TResult>
   auto ExecuteOnWorker(
       int worker_id,
       std::function<TResult(communication::rpc::ClientPool &)> execute) {
     auto &client_pool = GetClientPool(worker_id);
-    return std::async(std::launch::async, [execute, &client_pool]() {
-      return execute(client_pool);
-    });
+    return utils::make_future(
+        std::async(std::launch::async,
+                   [execute, &client_pool]() { return execute(client_pool); }));
   }
 
   /** Asynchroniously executes the `execute` function on all worker rpc clients
@@ -56,7 +57,7 @@ class RpcWorkerClients {
   auto ExecuteOnWorkers(
       int skip_worker_id,
       std::function<TResult(communication::rpc::ClientPool &)> execute) {
-    std::vector<std::future<TResult>> futures;
+    std::vector<utils::Future<TResult>> futures;
     for (auto &worker_id : coordination_.GetWorkerIds()) {
       if (worker_id == skip_worker_id) continue;
       futures.emplace_back(std::move(ExecuteOnWorker(worker_id, execute)));
@@ -93,5 +94,4 @@ class IndexRpcClients {
  private:
   RpcWorkerClients &clients_;
 };
-
 }  // namespace distributed

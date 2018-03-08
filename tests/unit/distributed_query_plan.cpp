@@ -325,10 +325,7 @@ TEST_F(DistributedGraphDbTest, PullRemoteOrderBy) {
 
 class DistributedTransactionTimeout : public DistributedGraphDbTest {
  protected:
-  void SetUp() override {
-    FLAGS_query_execution_time_sec = 1;
-    DistributedGraphDbTest::SetUp();
-  }
+  int QueryExecutionTimeSec(int) override { return 1; }
 };
 
 TEST_F(DistributedTransactionTimeout, Timeout) {

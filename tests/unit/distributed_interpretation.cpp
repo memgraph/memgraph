@@ -6,6 +6,7 @@
 #include "query/interpreter.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
+#include "utils/timer.hpp"
 
 using namespace distributed;
 using namespace database;
@@ -167,4 +168,54 @@ TEST_F(DistributedInterpretationTest, Cartesian) {
   }
 
   ASSERT_THAT(got, testing::UnorderedElementsAreArray(expected));
+}
+
+class TestQueryWaitsOnFutures : public DistributedInterpretationTest {
+ protected:
+  int QueryExecutionTimeSec(int worker_id) override {
+    return worker_id == 2 ? 3 : 1;
+  }
+};
+
+TEST_F(TestQueryWaitsOnFutures, Test) {
+  const int kVertexCount = 10;
+  auto make_fully_connected = [this](database::GraphDb &db) {
+    database::GraphDbAccessor dba(db);
+    std::vector<VertexAccessor> vertices;
+    for (int i = 0; i < kVertexCount; ++i)
+      vertices.emplace_back(dba.InsertVertex());
+    auto et = dba.EdgeType("et");
+    for (auto &from : vertices)
+      for (auto &to : vertices) dba.InsertEdge(from, to, et);
+    dba.Commit();
+  };
+
+  make_fully_connected(worker(1));
+  ASSERT_EQ(VertexCount(worker(1)), kVertexCount);
+  ASSERT_EQ(EdgeCount(worker(1)), kVertexCount * kVertexCount);
+
+  {
+    utils::Timer timer;
+    try {
+      Run("MATCH ()--()--()--()--()--()--() RETURN count(1)");
+    } catch (...) {
+    }
+    double seconds = timer.Elapsed().count();
+    EXPECT_GT(seconds, 1);
+    EXPECT_LT(seconds, 2);
+  }
+
+  make_fully_connected(worker(2));
+  ASSERT_EQ(VertexCount(worker(2)), kVertexCount);
+  ASSERT_EQ(EdgeCount(worker(2)), kVertexCount * kVertexCount);
+
+  {
+    utils::Timer timer;
+    try {
+      Run("MATCH ()--()--()--()--()--()--() RETURN count(1)");
+    } catch (...) {
+    }
+    double seconds = timer.Elapsed().count();
+    EXPECT_GT(seconds, 3);
+  }
 }

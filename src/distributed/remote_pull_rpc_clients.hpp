@@ -10,6 +10,7 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
 #include "transactions/type.hpp"
+#include "utils/future.hpp"
 
 namespace distributed {
 
@@ -30,7 +31,7 @@ class RemotePullRpcClients {
   /// @todo: it might be cleaner to split RemotePull into {InitRemoteCursor,
   /// RemotePull, RemoteAccumulate}, but that's a lot of refactoring and more
   /// RPC calls.
-  std::future<RemotePullData> RemotePull(
+  utils::Future<RemotePullData> RemotePull(
       database::GraphDbAccessor &dba, int worker_id, int64_t plan_id,
       const Parameters &params, const std::vector<query::Symbol> &symbols,
       bool accumulate, int batch_size = kDefaultBatchSize) {
@@ -86,7 +87,7 @@ class RemotePullRpcClients {
 
   auto GetWorkerIds() { return clients_.GetWorkerIds(); }
 
-  std::vector<std::future<void>> NotifyAllTransactionCommandAdvanced(
+  std::vector<utils::Future<void>> NotifyAllTransactionCommandAdvanced(
       tx::transaction_id_t tx_id) {
     return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {
       client.template Call<TransactionCommandAdvancedRpc>(tx_id);

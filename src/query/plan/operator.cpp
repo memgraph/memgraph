@@ -26,6 +26,7 @@
 #include "query/path.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/future.hpp"
 
 DEFINE_HIDDEN_int32(remote_pull_sleep_micros, 10,
                     "Sleep between remote result pulling in microseconds");
@@ -408,10 +409,10 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                   context.symbol_table_, db, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
-          if (!bound) return std::experimental::nullopt;
-          return std::experimental::make_optional(utils::Bound<PropertyValue>(
-              bound.value().value()->Accept(evaluator), bound.value().type()));
-        };
+      if (!bound) return std::experimental::nullopt;
+      return std::experimental::make_optional(utils::Bound<PropertyValue>(
+          bound.value().value()->Accept(evaluator), bound.value().type()));
+    };
     return db.Vertices(label_, property_, convert(lower_bound()),
                        convert(upper_bound()), graph_view_ == GraphView::NEW);
   };
@@ -3058,7 +3059,7 @@ class RemotePuller {
       if (found_it == remote_pulls_.end()) continue;
 
       auto &remote_pull = found_it->second;
-      if (!utils::IsFutureReady(remote_pull)) continue;
+      if (!remote_pull.IsReady()) continue;
 
       auto remote_results = remote_pull.get();
       switch (remote_results.pull_state) {
@@ -3129,7 +3130,7 @@ class RemotePuller {
   database::GraphDbAccessor &db_;
   std::vector<Symbol> symbols_;
   int64_t plan_id_;
-  std::unordered_map<int, std::future<distributed::RemotePullData>>
+  std::unordered_map<int, utils::Future<distributed::RemotePullData>>
       remote_pulls_;
   std::unordered_map<int, std::vector<std::vector<query::TypedValue>>>
       remote_results_;
@@ -3268,7 +3269,8 @@ class SynchronizeCursor : public Cursor {
     auto &db = context.db_accessor_.db();
 
     // Tell all workers to accumulate, only if there is a remote pull.
-    std::vector<std::future<distributed::RemotePullData>> worker_accumulations;
+    std::vector<utils::Future<distributed::RemotePullData>>
+        worker_accumulations;
     if (pull_remote_cursor_) {
       for (auto worker_id : db.remote_pull_clients().GetWorkerIds()) {
         if (worker_id == db.WorkerId()) continue;

@@ -12,6 +12,7 @@
 #include "storage/gid.hpp"
 #include "storage/types.hpp"
 #include "transactions/type.hpp"
+#include "utils/future.hpp"
 
 namespace distributed {
 
@@ -133,7 +134,7 @@ class RemoteUpdatesRpcClients {
 
   /// Calls for all the workers (except the given one) to apply their updates
   /// and returns the future results.
-  std::vector<std::future<RemoteUpdateResult>> RemoteUpdateApplyAll(
+  std::vector<utils::Future<RemoteUpdateResult>> RemoteUpdateApplyAll(
       int skip_worker_id, tx::transaction_id_t tx_id) {
     return worker_clients_.ExecuteOnWorkers<RemoteUpdateResult>(
         skip_worker_id, [tx_id](auto &client) {
