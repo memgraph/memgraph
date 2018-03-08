@@ -34,7 +34,7 @@ DEFINE_string(load_mock_db_file, "",
 DECLARE_int32(min_log_level);
 
 #ifdef HAS_READLINE
-// TODO: This is copied from src/query/console.cpp
+// TODO: This is copied from src/query/repl.cpp
 // It should probably be moved to some utils file.
 
 #include "readline/history.h"

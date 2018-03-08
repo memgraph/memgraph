@@ -7,7 +7,7 @@
 #include <glog/logging.h>
 
 #include "database/graph_db.hpp"
-#include "query/console.hpp"
+#include "query/repl.hpp"
 #include "query/interpreter.hpp"
 #include "utils/flag_validation.hpp"
 

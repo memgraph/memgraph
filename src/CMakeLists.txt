@@ -26,7 +26,7 @@ set(memgraph_src_files
     io/network/endpoint.cpp
     io/network/socket.cpp
     query/common.cpp
-    query/console.cpp
+    query/repl.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/semantic/symbol_generator.cpp

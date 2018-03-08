@@ -1,4 +1,4 @@
-#include "console.hpp"
+#include "repl.hpp"
 
 #include <algorithm>
 #include <iostream>
@@ -49,6 +49,8 @@ std::string ReadLine(const char *prompt) {
 #endif  // HAS_READLINE
 
 void query::Repl(database::GraphDb &db) {
+  query::Interpreter interpeter;
+
   std::cout
       << "Welcome to *Awesome* Memgraph Read Evaluate Print Loop (AM-REPL)"
       << std::endl;
@@ -58,8 +60,6 @@ void query::Repl(database::GraphDb &db) {
 
     // special commands
     if (command == "quit") break;
-
-    query::Interpreter interpeter;
 
     // regular cypher queries
     try {
