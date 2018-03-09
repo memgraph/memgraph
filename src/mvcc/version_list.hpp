@@ -99,6 +99,7 @@ class VersionList {
     T *current = head;
     T *oldest_visible_record = nullptr;
     while (current) {
+      current->populate_hints(engine);
       if (!current->is_not_visible_from(snapshot, engine))
         oldest_visible_record = current;
       current = current->next();

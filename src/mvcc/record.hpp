@@ -35,24 +35,25 @@ class Record : public Version<T> {
     tx::command_id_t cmd_exp;
     std::tie(tx_exp, cmd_exp) = fetch_exp();
 
-    return (
-        (tx_.cre == t.id_ &&      // inserted by the current transaction
-         cmd_.cre < t.cid() &&    // before this command, and
-         (tx_exp == 0 ||          // the row has not been deleted, or
-          (tx_exp == t.id_ &&     // it was deleted by the current
-                                  // transaction
-           cmd_exp >= t.cid())))  // but not before this command,
-        ||                        // or
-        (committed(Hints::kCre, tx_.cre, t) &&  // the record was inserted by a
-                                                // committed transaction, and
-         (tx_exp == 0 ||           // the record has not been deleted, or
-          (tx_exp == t.id_ &&      // the row is being deleted by this
-                                   // transaction
-           cmd_exp >= t.cid()) ||  // but it's not deleted "yet", or
-          (tx_exp != t.id_ &&      // the row was deleted by another
-                                   // transaction
-           !committed(Hints::kExp, tx_exp, t)  // that has not been committed
-           ))));
+    return ((tx_.cre == t.id_ &&      // inserted by the current transaction
+             cmd_.cre < t.cid() &&    // before this command, and
+             (tx_exp == 0 ||          // the row has not been deleted, or
+              (tx_exp == t.id_ &&     // it was deleted by the current
+                                      // transaction
+               cmd_exp >= t.cid())))  // but not before this command,
+            ||                        // or
+            (visible_from(Hints::kCre, tx_.cre,
+                          t) &&        // the record was inserted by a
+                                       // committed transaction, and
+             (tx_exp == 0 ||           // the record has not been deleted, or
+              (tx_exp == t.id_ &&      // the row is being deleted by this
+                                       // transaction
+               cmd_exp >= t.cid()) ||  // but it's not deleted "yet", or
+              (tx_exp != t.id_ &&      // the row was deleted by another
+                                       // transaction
+               !visible_from(Hints::kExp, tx_exp,
+                             t)  // that has not been committed
+               ))));
   }
 
   void mark_created(const tx::Transaction &t) {
@@ -62,13 +63,12 @@ class Record : public Version<T> {
   }
 
   void mark_expired(const tx::Transaction &t) {
-    if (tx_.exp != 0) hints_.Clear(Hints::kExp);
     tx_.exp = t.id_;
     cmd_.exp = t.cid();
   }
 
   bool exp_committed(tx::Engine &engine) {
-    return committed(Hints::kExp, tx_.exp, engine);
+    return committed(Hints::kExp, engine);
   }
 
   /**
@@ -97,8 +97,7 @@ class Record : public Version<T> {
     //       snapshot (consequently also not in the snapshots of
     //       newer transactions)
     return (exp_id != 0 && exp_id < snapshot.back() &&
-            committed(Hints::kExp, exp_id, engine) &&
-            !snapshot.contains(exp_id)) ||
+            committed(Hints::kExp, engine) && !snapshot.contains(exp_id)) ||
            cre_aborted(engine);
   }
 
@@ -135,11 +134,42 @@ class Record : public Version<T> {
    * of the given transaction.
    */
   bool is_expired_by(const tx::Transaction &t) const {
-    return tx_.exp == t.id_ && cmd_.exp == t.cid();
+    return std::make_pair(t.id_, t.cid()) == fetch_exp();
   }
 
   const auto &tx() const { return tx_; }
   const auto &cmd() const { return cmd_; }
+
+  /**
+   * Makes sure that create and expiry are in sync with hints if they are
+   * committed or aborted.
+   */
+  void populate_hints(const tx::Engine &engine) {
+    populate_hint_if_possible(engine, Hints::kCre);
+    if (!populate_hint_if_possible(engine, Hints::kExp)) {
+      // Exp is aborted and we can't set the hint, this way we don't have to set
+      // the hint because an aborted transaction which expires a record is the
+      // same thing as a non-expired record
+      tx::transaction_id_t expected;
+      do {
+        expected = tx_.exp;
+        // If the transaction expiry is no longer aborted we don't need to
+        // update it anymore, and hints can't be set since it's obviously an
+        // active transaction - there might be a case where this transaction
+        // gets finished and committed in the meantime and hints could be set,
+        // but since we are not going to delete info for this transaction from
+        // the commit log since it wasn't older than the oldest active
+        // transaction at the time, or before the invocation of this method;
+        // we are in the clear
+        if (!engine.Info(expected).is_aborted()) break;
+      } while (!tx_.exp.compare_exchange_weak(expected, 0));
+      // Ideally we should set the command id as well, but by setting it we
+      // can't guarantee that some new update won't change the transaction id
+      // and command id before we had a chance to set it, and just leaving it
+      // unchanged and relying on all methods to operate on [tx_id: 0, cmd_id:
+      // some cmd] as a non-transaction doesn't seem too crazy
+    }
+  }
 
  private:
   /**
@@ -155,7 +185,7 @@ class Record : public Version<T> {
     static constexpr uint8_t kCmt = 0b0101;
     static constexpr uint8_t kAbt = 0b1010;
 
-    /** Retruns true if any bit under the given mask is set. */
+    /** Returns true if any bit under the given mask is set. */
     bool Get(uint8_t mask) const { return bits_ & mask; }
 
     /** Sets all the bits under the given mask. */
@@ -191,7 +221,7 @@ class Record : public Version<T> {
    * because they can be concurrently modified by multiple transactions.
    * Do it in a loop to ensure that command is consistent with transaction.
    */
-  auto fetch_exp() {
+  auto fetch_exp() const {
     tx::transaction_id_t tx_exp;
     tx::command_id_t cmd_exp;
     do {
@@ -202,8 +232,39 @@ class Record : public Version<T> {
   }
 
   /**
-   * @brief - Check if the transaction with the given `id`
-   * is commited from the perspective of transaction `t`.
+   * Populates hint if it is not set for the given create/expiry mask.
+   * Note that it doesn't set hint bits for expiry transactions which
+   * abort because it's too expensive to maintain correctness of those hints
+   * with regards to race conditions
+   * @returns - true if hints are now equal to transaction status
+   * (committed/aborted), will only be false if we are trying to set hint for
+   * aborted transaction which is this records expiry
+   */
+  bool populate_hint_if_possible(const tx::Engine &engine,
+                                 const uint8_t mask) const {
+    DCHECK(mask == Hints::kCre || mask == Hints::kExp)
+        << "Mask should be either for creation or expiration";
+    if (hints_.Get(mask)) return true;
+    auto id = mask == Hints::kCre ? tx_.cre.load() : tx_.exp.load();
+    // Nothing to do here
+    if (!id) return true;
+    auto info = engine.Info(id);
+    if (info.is_committed()) {
+      hints_.Set(mask & Hints::kCmt);
+    } else if (info.is_aborted()) {
+      // Abort hints can only be updated for creation hints because only one
+      // transaction can be creating a single record, so there is no races
+      if (mask == Hints::kCre)
+        hints_.Set(mask & Hints::kAbt);
+      else
+        return false;
+    }
+    return true;
+  }
+
+  /**
+   * @brief - Check if the transaciton `id` has comitted before `t` started
+   * (that means that edits done by transaction `id` are visible in `t`)
    *
    * Evaluates to true if that transaction has committed,
    * it started before `t` and it's not in it's snapshot.
@@ -213,10 +274,8 @@ class Record : public Version<T> {
    * @param id - id to check if it's commited and visible
    * @return true if the id is commited and visible for the transaction t.
    */
-  // TODO: Rename this function. Its semantics is different than of function
-  // below, but it has a same name.
-  bool committed(uint8_t mask, tx::transaction_id_t id,
-                 const tx::Transaction &t) {
+  bool visible_from(uint8_t mask, tx::transaction_id_t id,
+                    const tx::Transaction &t) {
     DCHECK(mask == Hints::kCre || mask == Hints::kExp)
         << "Mask must be either kCre or kExp";
     // Dominik Gleich says 4 april 2017: the tests in this routine are correct;
@@ -231,7 +290,7 @@ class Record : public Version<T> {
     // The creating transaction is still in progress (examine snapshot)
     if (t.snapshot().contains(id)) return false;
 
-    return committed(mask, id, t.engine_);
+    return committed(mask, t.engine_);
   }
 
   /**
@@ -239,34 +298,15 @@ class Record : public Version<T> {
    *
    * @param mask - Hint bits mask (either Hints::kCre or Hints::kExp).
    * @param id - id to check if commited
-   * @param engine - engine instance with information about transaction
+
    * statuses
    * @return true if it's commited, false otherwise
    */
-  bool committed(uint8_t mask, tx::transaction_id_t id,
-                 const tx::Engine &engine) const {
+  bool committed(uint8_t mask, const tx::Engine &engine) const {
     DCHECK(mask == Hints::kCre || mask == Hints::kExp)
         << "Mask must be either kCre or kExp";
-    // If hints are set, return if id is committed.
-    if (hints_.Get(mask)) return hints_.Get(Hints::kCmt & mask);
-
-    // If hints are not set consult the commit log.
-    auto info = engine.Info(id);
-    if (info.is_committed()) {
-      hints_.Set(Hints::kCmt & mask);
-      return true;
-    }
-    if (info.is_aborted() && mask == Hints::kCre) {
-      // We can't set hints for aborted if mask is kExp because of a
-      // race-condition that can occurr when tx.exp gets changed by some
-      // transaction.
-      //
-      // This is not a problem with hints.cre.X because only one transaction
-      // ever creates a record
-      hints_.Set(Hints::kAbt & mask);
-    }
-
-    return false;
+    populate_hint_if_possible(engine, mask);
+    return hints_.Get(Hints::kCmt & mask);
   }
 
   /**
@@ -280,19 +320,10 @@ class Record : public Version<T> {
    * @return true if it's aborted, false otherwise
    */
   bool cre_aborted(const tx::Engine &engine) const {
-    // If hints are set, return if id is committed.
-    if (hints_.Get(Hints::kCre)) return hints_.Get(Hints::kAbt & Hints::kCre);
-
-    // If hints are not set consult the commit log.
-    auto info = engine.Info(tx_.cre);
-    if (info.is_aborted()) {
-      hints_.Set(Hints::kAbt & Hints::kCre);
-      return true;
-    }
-    if (info.is_committed()) {
-      hints_.Set(Hints::kCmt & Hints::kCre);
-    }
-    return false;
+    // Populate hints if not set and return result from hints
+    DCHECK(populate_hint_if_possible(engine, Hints::kCre))
+        << "Hints not populated";
+    return hints_.Get(Hints::kAbt & Hints::kCre);
   }
 };
 }  // namespace mvcc
