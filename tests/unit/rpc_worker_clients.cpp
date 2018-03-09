@@ -1,5 +1,3 @@
-#include <future>
-
 #include "boost/archive/binary_iarchive.hpp"
 #include "boost/archive/binary_oarchive.hpp"
 #include "boost/serialization/export.hpp"

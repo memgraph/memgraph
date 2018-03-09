@@ -9,6 +9,8 @@
 #include "distributed/index_rpc_messages.hpp"
 #include "storage/types.hpp"
 #include "transactions/transaction.hpp"
+
+#include "threading/thread_pool.hpp"
 #include "utils/future.hpp"
 
 namespace distributed {
@@ -17,7 +19,9 @@ namespace distributed {
  * Thread safe. */
 class RpcWorkerClients {
  public:
-  RpcWorkerClients(Coordination &coordination) : coordination_(coordination) {}
+  RpcWorkerClients(Coordination &coordination)
+      : coordination_(coordination),
+        thread_pool_(std::thread::hardware_concurrency()) {}
 
   RpcWorkerClients(const RpcWorkerClients &) = delete;
   RpcWorkerClients(RpcWorkerClients &&) = delete;
@@ -45,9 +49,7 @@ class RpcWorkerClients {
       int worker_id,
       std::function<TResult(communication::rpc::ClientPool &)> execute) {
     auto &client_pool = GetClientPool(worker_id);
-    return utils::make_future(
-        std::async(std::launch::async,
-                   [execute, &client_pool]() { return execute(client_pool); }));
+    return thread_pool_.Run(execute, std::ref(client_pool));
   }
 
   /** Asynchroniously executes the `execute` function on all worker rpc clients
@@ -70,6 +72,7 @@ class RpcWorkerClients {
   Coordination &coordination_;
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   std::mutex lock_;
+  threading::ThreadPool thread_pool_;
 };
 
 /** Wrapper class around a RPC call to build indices.
@@ -94,4 +97,5 @@ class IndexRpcClients {
  private:
   RpcWorkerClients &clients_;
 };
+
 }  // namespace distributed
