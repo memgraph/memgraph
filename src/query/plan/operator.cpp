@@ -312,17 +312,14 @@ class ScanAllCursor : public Cursor {
 
   bool Pull(Frame &frame, Context &context) override {
     if (db_.should_abort()) throw HintedAbortError();
-    if (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
+
+    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
       if (!input_cursor_->Pull(frame, context)) return false;
       // We need a getter function, because in case of exhausting a lazy
       // iterable, we cannot simply reset it by calling begin().
       vertices_.emplace(get_vertices_(frame, context));
       vertices_it_.emplace(vertices_.value().begin());
     }
-
-    // if vertices_ is empty then we are done even though we have just
-    // reinitialized vertices_it_
-    if (vertices_it_.value() == vertices_.value().end()) return false;
 
     frame[output_symbol_] = *vertices_it_.value()++;
     return true;
@@ -441,13 +438,15 @@ class ScanAllByLabelPropertyValueCursor : public Cursor {
 
   bool Pull(Frame &frame, Context &context) override {
     if (db_.should_abort()) throw HintedAbortError();
-    if (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
-      if (!input_cursor_->Pull(frame, context)) return false;
+    while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
+      if (!input_cursor_->Pull(frame, context)) {
+        return false;
+      }
       ExpressionEvaluator evaluator(frame, context.parameters_,
                                     context.symbol_table_, db_,
                                     self_.graph_view());
       TypedValue value = self_.expression()->Accept(evaluator);
-      if (value.IsNull()) return Pull(frame, context);
+      if (value.IsNull()) continue;
       try {
         vertices_.emplace(db_.Vertices(self_.label(), self_.property(), value,
                                        self_.graph_view() == GraphView::NEW));
@@ -457,10 +456,6 @@ class ScanAllByLabelPropertyValueCursor : public Cursor {
       }
       vertices_it_.emplace(vertices_.value().begin());
     }
-
-    // if vertices_ is empty then we are done even though we have just
-    // reinitialized vertices_it_
-    if (vertices_it_.value() == vertices_.value().end()) return false;
 
     frame[self_.output_symbol()] = *vertices_it_.value()++;
     return true;

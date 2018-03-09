@@ -1981,6 +1981,38 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   EXPECT_EQ(results.size(), 0);
 }
 
+TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
+  database::SingleNode db;
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto prop = database::GraphDbAccessor(db).Property("prop");
+  {
+    database::GraphDbAccessor dba(db);
+    auto v = dba.InsertVertex();
+    v.add_label(label);
+    v.PropsSet(prop, 2);
+    dba.Commit();
+    database::GraphDbAccessor(db).BuildIndex(label, prop);
+  }
+  database::GraphDbAccessor dba(db);
+  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+
+  // UNWIND [1, 2, 3] as x
+  auto input_expr = LIST(LITERAL(1), LITERAL(2), LITERAL(3));
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
+  auto x_expr = IDENT("x");
+  symbol_table[*x_expr] = x;
+
+  // MATCH (n :label {prop: x})
+  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n",
+                                                  label, prop, x_expr, unwind);
+
+  EXPECT_EQ(PullAll(scan_all.op_, dba, symbol_table), 1);
+}
+
 int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
