@@ -179,7 +179,7 @@ class TestQueryWaitsOnFutures : public DistributedInterpretationTest {
 
 TEST_F(TestQueryWaitsOnFutures, Test) {
   const int kVertexCount = 10;
-  auto make_fully_connected = [this](database::GraphDb &db) {
+  auto make_fully_connected = [](database::GraphDb &db) {
     database::GraphDbAccessor dba(db);
     std::vector<VertexAccessor> vertices;
     for (int i = 0; i < kVertexCount; ++i)

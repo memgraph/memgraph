@@ -1947,10 +1947,87 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   EXPECT_TRUE(eq(value, 42));
 }
 
+TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
+  database::SingleNode db;
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto prop = database::GraphDbAccessor(db).Property("prop");
+  {
+    database::GraphDbAccessor dba(db);
+    for (int i = 0; i < 2; ++i) {
+      auto vertex = dba.InsertVertex();
+      vertex.add_label(label);
+      vertex.PropsSet(prop, i);
+    }
+    dba.Commit();
+  }
+  database::GraphDbAccessor(db).BuildIndex(label, prop);
+  database::GraphDbAccessor dba(db);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  // MATCH (m), (n :label {prop: m})
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAll(storage, symbol_table, "m");
+  auto *ident_m = IDENT("m");
+  symbol_table[*ident_m] = scan_all.sym_;
+  auto scan_index = MakeScanAllByLabelPropertyValue(
+      storage, symbol_table, "n", label, prop, ident_m, scan_all.op_);
+  EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+               QueryRuntimeException);
+}
+
+TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
+  database::SingleNode db;
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto prop = database::GraphDbAccessor(db).Property("prop");
+  {
+    database::GraphDbAccessor dba(db);
+    for (int i = 0; i < 2; ++i) {
+      auto vertex = dba.InsertVertex();
+      vertex.add_label(label);
+      vertex.PropsSet(prop, i);
+    }
+    dba.Commit();
+  }
+  database::GraphDbAccessor(db).BuildIndex(label, prop);
+  database::GraphDbAccessor dba(db);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  // MATCH (m), (n :label {prop: m})
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAll(storage, symbol_table, "m");
+  auto *ident_m = IDENT("m");
+  symbol_table[*ident_m] = scan_all.sym_;
+  {
+    // Lower bound isn't property value
+    auto scan_index = MakeScanAllByLabelPropertyRange(
+        storage, symbol_table, "n", label, prop,
+        Bound{ident_m, Bound::Type::INCLUSIVE}, std::experimental::nullopt,
+        scan_all.op_);
+    EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+                 QueryRuntimeException);
+  }
+  {
+    // Upper bound isn't property value
+    auto scan_index = MakeScanAllByLabelPropertyRange(
+        storage, symbol_table, "n", label, prop, std::experimental::nullopt,
+        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
+    EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+                 QueryRuntimeException);
+  }
+  {
+    // Both bounds aren't property value
+    auto scan_index = MakeScanAllByLabelPropertyRange(
+        storage, symbol_table, "n", label, prop,
+        Bound{ident_m, Bound::Type::INCLUSIVE},
+        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
+    EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+                 QueryRuntimeException);
+  }
+}
+
 TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   database::SingleNode db;
-  // Add 2 vertices with the same label, but one has a property value while
-  // the
+  // Add 2 vertices with the same label, but one has a property value while the
   // other does not. Checking if the value is equal to null, should yield no
   // results.
   auto label = database::GraphDbAccessor(db).Label("label");
@@ -1972,6 +2049,41 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyValue(
       storage, symbol_table, "n", label, prop, LITERAL(TypedValue::Null));
+  // RETURN n
+  auto output = NEXPR("n", IDENT("n"));
+  auto produce = MakeProduce(scan_all.op_, output);
+  symbol_table[*output->expression_] = scan_all.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
+  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  EXPECT_EQ(results.size(), 0);
+}
+
+TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
+  database::SingleNode db;
+  // Add 2 vertices with the same label, but one has a property value while the
+  // other does not. Checking if the value is between nulls, should yield no
+  // results.
+  auto label = database::GraphDbAccessor(db).Label("label");
+  auto prop = database::GraphDbAccessor(db).Property("prop");
+  {
+    database::GraphDbAccessor dba(db);
+    auto vertex = dba.InsertVertex();
+    vertex.add_label(label);
+    auto vertex_with_prop = dba.InsertVertex();
+    vertex_with_prop.add_label(label);
+    vertex_with_prop.PropsSet(prop, 42);
+    dba.Commit();
+    database::GraphDbAccessor(db).BuildIndex(label, prop);
+  }
+  database::GraphDbAccessor dba(db);
+  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  // MATCH (n :label) WHERE null <= n.prop < null
+  AstTreeStorage storage;
+  SymbolTable symbol_table;
+  auto scan_all = MakeScanAllByLabelPropertyRange(
+      storage, symbol_table, "n", label, prop,
+      Bound{LITERAL(TypedValue::Null), Bound::Type::INCLUSIVE},
+      Bound{LITERAL(TypedValue::Null), Bound::Type::EXCLUSIVE});
   // RETURN n
   auto output = NEXPR("n", IDENT("n"));
   auto produce = MakeProduce(scan_all.op_, output);

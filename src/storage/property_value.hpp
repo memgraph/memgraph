@@ -60,13 +60,15 @@ class PropertyValue {
         new std::map<std::string, PropertyValue>(value));
   }
 
-  // assignment op
   PropertyValue &operator=(const PropertyValue &other);
 
   PropertyValue(const PropertyValue &other);
   ~PropertyValue();
 
   Type type() const { return type_; }
+
+  bool IsNull() const { return type_ == Type::Null; }
+
   /**
    * Returns the value of the property as given type T.
    * The behavior of this function is undefined if
