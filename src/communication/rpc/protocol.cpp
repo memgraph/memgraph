@@ -9,6 +9,7 @@
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/protocol.hpp"
 #include "communication/rpc/server.hpp"
+#include "utils/demangle.hpp"
 
 namespace communication::rpc {
 
@@ -44,6 +45,11 @@ void Session::Execute() {
         "Session trying to execute an unregistered RPC call!");
   }
 
+  if (VLOG_IS_ON(12)) {
+    auto req_type = utils::Demangle(request->type_index().name());
+    LOG(INFO) << "[RpcServer] received " << (req_type ? req_type.value() : "");
+  }
+
   std::unique_ptr<Message> response = it->second(*(request.get()));
 
   if (!response) {
@@ -72,6 +78,11 @@ void Session::Execute() {
   }
   if (!socket_.Write(buffer)) {
     throw SessionException("Couldn't send response data!");
+  }
+
+  if (VLOG_IS_ON(12)) {
+    auto res_type = utils::Demangle(response->type_index().name());
+    LOG(INFO) << "[RpcServer] sent " << (res_type ? res_type.value() : "");
   }
 }
 

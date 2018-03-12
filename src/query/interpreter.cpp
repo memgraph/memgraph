@@ -140,6 +140,8 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
       database::GraphDb::Type::DISTRIBUTED_MASTER) {
     auto distributed_plan = MakeDistributedPlan(
         *tmp_logical_plan, ctx.symbol_table_, next_plan_id_);
+    VLOG(10) << "[Interpreter] Created plan for distributed execution "
+             << next_plan_id_ - 1;
     return std::make_shared<CachedPlan>(std::move(distributed_plan),
                                         query_plan_cost_estimation,
                                         plan_dispatcher_);

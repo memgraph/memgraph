@@ -59,8 +59,8 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
   const std::string &request_buffer = request_stream.str();
   CHECK(request_buffer.size() <= std::numeric_limits<MessageSize>::max())
       << fmt::format(
-             "Trying to send message of size {}, max message size is {}",
-             request_buffer.size(), std::numeric_limits<MessageSize>::max());
+          "Trying to send message of size {}, max message size is {}",
+          request_buffer.size(), std::numeric_limits<MessageSize>::max());
 
   MessageSize request_data_size = request_buffer.size();
   if (!socket_->Write(reinterpret_cast<uint8_t *>(&request_data_size),

@@ -33,7 +33,7 @@ class Decoder {
   bool ReadValue(DecodedValue *data) {
     uint8_t value;
 
-    VLOG(1) << "[ReadValue] Start";
+    VLOG(20) << "[ReadValue] Start";
 
     if (!buffer_.Read(&value, 1)) {
       DLOG(WARNING) << "[ReadValue] Marker data missing!";
@@ -148,7 +148,7 @@ class Decoder {
   bool ReadMessageHeader(Signature *signature, Marker *marker) {
     uint8_t values[2];
 
-    VLOG(1) << "[ReadMessageHeader] Start";
+    VLOG(20) << "[ReadMessageHeader] Start";
 
     if (!buffer_.Read(values, 2)) {
       DLOG(WARNING) << "[ReadMessageHeader] Marker data missing!";
@@ -166,15 +166,15 @@ class Decoder {
 
  private:
   bool ReadNull(const Marker &marker, DecodedValue *data) {
-    VLOG(1) << "[ReadNull] Start";
+    VLOG(20) << "[ReadNull] Start";
     DCHECK(marker == Marker::Null) << "Received invalid marker!";
     *data = DecodedValue();
-    VLOG(1) << "[ReadNull] Success";
+    VLOG(20) << "[ReadNull] Success";
     return true;
   }
 
   bool ReadBool(const Marker &marker, DecodedValue *data) {
-    VLOG(1) << "[ReadBool] Start";
+    VLOG(20) << "[ReadBool] Start";
     DCHECK(marker == Marker::False || marker == Marker::True)
         << "Received invalid marker!";
     if (marker == Marker::False) {
@@ -182,20 +182,20 @@ class Decoder {
     } else {
       *data = DecodedValue(true);
     }
-    VLOG(1) << "[ReadBool] Success";
+    VLOG(20) << "[ReadBool] Success";
     return true;
   }
 
   bool ReadInt(const Marker &marker, DecodedValue *data) {
     uint8_t value = underlying_cast(marker);
     int64_t ret;
-    VLOG(1) << "[ReadInt] Start";
+    VLOG(20) << "[ReadInt] Start";
     if (value >= 240 || value <= 127) {
-      VLOG(1) << "[ReadInt] Found a TinyInt";
+      VLOG(20) << "[ReadInt] Found a TinyInt";
       ret = value;
       if (value >= 240) ret -= 256;
     } else if (marker == Marker::Int8) {
-      VLOG(1) << "[ReadInt] Found an Int8";
+      VLOG(20) << "[ReadInt] Found an Int8";
       int8_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         DLOG(WARNING) << "[ReadInt] Int8 missing data!";
@@ -203,7 +203,7 @@ class Decoder {
       }
       ret = tmp;
     } else if (marker == Marker::Int16) {
-      VLOG(1) << "[ReadInt] Found an Int16";
+      VLOG(20) << "[ReadInt] Found an Int16";
       int16_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         DLOG(WARNING) << "[ReadInt] Int16 missing data!";
@@ -211,7 +211,7 @@ class Decoder {
       }
       ret = bswap(tmp);
     } else if (marker == Marker::Int32) {
-      VLOG(1) << "[ReadInt] Found an Int32";
+      VLOG(20) << "[ReadInt] Found an Int32";
       int32_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         DLOG(WARNING) << "[ReadInt] Int32 missing data!";
@@ -219,7 +219,7 @@ class Decoder {
       }
       ret = bswap(tmp);
     } else if (marker == Marker::Int64) {
-      VLOG(1) << "[ReadInt] Found an Int64";
+      VLOG(20) << "[ReadInt] Found an Int64";
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&ret), sizeof(ret))) {
         DLOG(WARNING) << "[ReadInt] Int64 missing data!";
         return false;
@@ -231,14 +231,14 @@ class Decoder {
       return false;
     }
     *data = DecodedValue(ret);
-    VLOG(1) << "[ReadInt] Success";
+    VLOG(20) << "[ReadInt] Success";
     return true;
   }
 
   bool ReadDouble(const Marker marker, DecodedValue *data) {
     uint64_t value;
     double ret;
-    VLOG(1) << "[ReadDouble] Start";
+    VLOG(20) << "[ReadDouble] Start";
     DCHECK(marker == Marker::Float64) << "Received invalid marker!";
     if (!buffer_.Read(reinterpret_cast<uint8_t *>(&value), sizeof(value))) {
       DLOG(WARNING) << "[ReadDouble] Missing data!";
@@ -248,17 +248,17 @@ class Decoder {
     // cppcheck-suppress invalidPointerCast
     ret = *reinterpret_cast<double *>(&value);
     *data = DecodedValue(ret);
-    VLOG(1) << "[ReadDouble] Success";
+    VLOG(20) << "[ReadDouble] Success";
     return true;
   }
 
   int64_t ReadTypeSize(const Marker &marker, const uint8_t type) {
     uint8_t value = underlying_cast(marker);
     if ((value & 0xF0) == underlying_cast(MarkerTiny[type])) {
-      VLOG(1) << "[ReadTypeSize] Found a TinyType";
+      VLOG(20) << "[ReadTypeSize] Found a TinyType";
       return value & 0x0F;
     } else if (marker == Marker8[type]) {
-      VLOG(1) << "[ReadTypeSize] Found a Type8";
+      VLOG(20) << "[ReadTypeSize] Found a Type8";
       uint8_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         DLOG(WARNING) << "[ReadTypeSize] Type8 missing data!";
@@ -266,7 +266,7 @@ class Decoder {
       }
       return tmp;
     } else if (marker == Marker16[type]) {
-      VLOG(1) << "[ReadTypeSize] Found a Type16";
+      VLOG(20) << "[ReadTypeSize] Found a Type16";
       uint16_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         DLOG(WARNING) << "[ReadTypeSize] Type16 missing data!";
@@ -275,7 +275,7 @@ class Decoder {
       tmp = bswap(tmp);
       return tmp;
     } else if (marker == Marker32[type]) {
-      VLOG(1) << "[ReadTypeSize] Found a Type32";
+      VLOG(20) << "[ReadTypeSize] Found a Type32";
       uint32_t tmp;
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&tmp), sizeof(tmp))) {
         DLOG(WARNING) << "[ReadTypeSize] Type32 missing data!";
@@ -291,7 +291,7 @@ class Decoder {
   }
 
   bool ReadString(const Marker &marker, DecodedValue *data) {
-    VLOG(1) << "[ReadString] Start";
+    VLOG(20) << "[ReadString] Start";
     auto size = ReadTypeSize(marker, MarkerString);
     if (size == -1) {
       DLOG(WARNING) << "[ReadString] Couldn't get size!";
@@ -304,12 +304,12 @@ class Decoder {
     }
     *data =
         DecodedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
-    VLOG(1) << "[ReadString] Success";
+    VLOG(20) << "[ReadString] Success";
     return true;
   }
 
   bool ReadList(const Marker &marker, DecodedValue *data) {
-    VLOG(1) << "[ReadList] Start";
+    VLOG(20) << "[ReadList] Start";
     auto size = ReadTypeSize(marker, MarkerList);
     if (size == -1) {
       DLOG(WARNING) << "[ReadList] Couldn't get size!";
@@ -323,12 +323,12 @@ class Decoder {
       }
     }
     *data = DecodedValue(ret);
-    VLOG(1) << "[ReadList] Success";
+    VLOG(20) << "[ReadList] Success";
     return true;
   }
 
   bool ReadMap(const Marker &marker, DecodedValue *data) {
-    VLOG(1) << "[ReadMap] Start";
+    VLOG(20) << "[ReadMap] Start";
     auto size = ReadTypeSize(marker, MarkerMap);
     if (size == -1) {
       DLOG(WARNING) << "[ReadMap] Couldn't get size!";
@@ -362,7 +362,7 @@ class Decoder {
     }
 
     *data = DecodedValue(ret);
-    VLOG(1) << "[ReadMap] Success";
+    VLOG(20) << "[ReadMap] Success";
     return true;
   }
 
@@ -370,7 +370,7 @@ class Decoder {
     DecodedValue dv;
     DecodedVertex vertex;
 
-    VLOG(1) << "[ReadVertex] Start";
+    VLOG(20) << "[ReadVertex] Start";
 
     // read ID
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
@@ -403,7 +403,7 @@ class Decoder {
 
     *data = DecodedValue(vertex);
 
-    VLOG(1) << "[ReadVertex] Success";
+    VLOG(20) << "[ReadVertex] Success";
 
     return true;
   }
@@ -413,7 +413,7 @@ class Decoder {
     DecodedValue dv;
     DecodedEdge edge;
 
-    VLOG(1) << "[ReadEdge] Start";
+    VLOG(20) << "[ReadEdge] Start";
 
     if (!buffer_.Read(&value, 1)) {
       DLOG(WARNING) << "[ReadEdge] Missing marker and/or signature data!";
@@ -468,7 +468,7 @@ class Decoder {
 
     *data = DecodedValue(edge);
 
-    VLOG(1) << "[ReadEdge] Success";
+    VLOG(20) << "[ReadEdge] Success";
 
     return true;
   }
@@ -477,7 +477,7 @@ class Decoder {
     DecodedValue dv;
     DecodedUnboundedEdge edge;
 
-    VLOG(1) << "[ReadUnboundedEdge] Start";
+    VLOG(20) << "[ReadUnboundedEdge] Start";
 
     // read ID
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
@@ -502,7 +502,7 @@ class Decoder {
 
     *data = DecodedValue(edge);
 
-    VLOG(1) << "[ReadUnboundedEdge] Success";
+    VLOG(20) << "[ReadUnboundedEdge] Success";
 
     return true;
   }
@@ -511,7 +511,7 @@ class Decoder {
     DecodedValue dv;
     DecodedPath path;
 
-    VLOG(1) << "[ReadPath] Start";
+    VLOG(20) << "[ReadPath] Start";
 
     // vertices
     if (!ReadValue(&dv, DecodedValue::Type::List)) {
@@ -557,7 +557,7 @@ class Decoder {
 
     *data = DecodedValue(path);
 
-    VLOG(1) << "[ReadPath] Success";
+    VLOG(20) << "[ReadPath] Success";
 
     return true;
   }

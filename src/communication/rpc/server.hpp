@@ -10,6 +10,7 @@
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/queue.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/demangle.hpp"
 
 namespace communication::rpc {
 
@@ -47,6 +48,14 @@ class Server {
           return callback(message);
         });
     CHECK(got.second) << "Callback for that message type already registered";
+    if (VLOG_IS_ON(12)) {
+      auto req_type =
+          utils::Demangle(typeid(typename TRequestResponse::Request).name());
+      auto res_type =
+          utils::Demangle(typeid(typename TRequestResponse::Response).name());
+      LOG(INFO) << "[RpcServer] register " << (req_type ? req_type.value() : "")
+                << " -> " << (res_type ? res_type.value() : "");
+    }
   }
 
  private:

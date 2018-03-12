@@ -25,6 +25,7 @@ Transaction *WorkerEngine::Begin() {
   Transaction *tx = new Transaction(data.tx_id, data.snapshot, *this);
   auto insertion = active_.access().insert(data.tx_id, tx);
   CHECK(insertion.second) << "Failed to start creation from worker";
+  VLOG(11) << "[Tx] Starting worker transaction " << data.tx_id;
   return tx;
 }
 
@@ -63,12 +64,14 @@ void WorkerEngine::Commit(const Transaction &t) {
   auto res = master_client_pool_.Call<CommitRpc>(t.id_);
   CHECK(res) << "CommitRpc failed";
   ClearSingleTransaction(t.id_);
+  VLOG(11) << "[Tx] Commiting worker transaction " << t.id_;
 }
 
 void WorkerEngine::Abort(const Transaction &t) {
   auto res = master_client_pool_.Call<AbortRpc>(t.id_);
   CHECK(res) << "AbortRpc failed";
   ClearSingleTransaction(t.id_);
+  VLOG(11) << "[Tx] Aborting worker transaction " << t.id_;
 }
 
 CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {

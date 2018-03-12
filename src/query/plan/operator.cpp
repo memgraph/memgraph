@@ -3021,6 +3021,8 @@ class RemotePuller {
 
   void Initialize(Context &context) {
     if (!remote_pulls_initialized_) {
+      VLOG(10) << "[RemotePuller] [" << context.db_accessor_.transaction_id()
+               << "] [" << plan_id_ << "] initialized";
       for (auto &worker_id : worker_ids_) {
         UpdatePullForWorker(worker_id, context);
       }
@@ -3032,7 +3034,9 @@ class RemotePuller {
     // If we don't have results for a worker, check if his remote pull
     // finished and save results locally.
 
-    auto move_frames = [this](int worker_id, auto remote_results) {
+    auto move_frames = [this, &context](int worker_id, auto remote_results) {
+      VLOG(10) << "[RemotePuller] [" << context.db_accessor_.transaction_id()
+               << "] [" << plan_id_ << "] received results from " << worker_id;
       remote_results_[worker_id] = std::move(remote_results.frames);
       // Since we return and remove results from the back of the vector,
       // reverse the results so the first to return is on the end of the
@@ -3053,10 +3057,16 @@ class RemotePuller {
       auto remote_results = remote_pull.get();
       switch (remote_results.pull_state) {
         case distributed::PullState::CURSOR_EXHAUSTED:
+          VLOG(10) << "[RemotePuller] ["
+                   << context.db_accessor_.transaction_id() << "] [" << plan_id_
+                   << "] cursor exhausted from " << worker_id;
           move_frames(worker_id, remote_results);
           remote_pulls_.erase(found_it);
           break;
         case distributed::PullState::CURSOR_IN_PROGRESS:
+          VLOG(10) << "[RemotePuller] ["
+                   << context.db_accessor_.transaction_id() << "] [" << plan_id_
+                   << "] cursor in progress from " << worker_id;
           move_frames(worker_id, remote_results);
           UpdatePullForWorker(worker_id, context);
           break;
@@ -3170,9 +3180,15 @@ class PullRemoteCursor : public Cursor {
         // If there are no remote results available, try to pull and return
         // local results.
         if (input_cursor_ && input_cursor_->Pull(frame, context)) {
+          VLOG(10) << "[PullRemoteCursor] ["
+                   << context.db_accessor_.transaction_id() << "] ["
+                   << self_.plan_id() << "] producing local results ";
           return true;
         }
 
+        VLOG(10) << "[PullRemoteCursor] ["
+                 << context.db_accessor_.transaction_id() << "] ["
+                 << self_.plan_id() << "] no results available, sleeping ";
         // If there aren't any local/remote results available, sleep.
         std::this_thread::sleep_for(
             std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
@@ -3182,6 +3198,9 @@ class PullRemoteCursor : public Cursor {
     // No more remote results, make sure local results get exhausted.
     if (!have_remote_results) {
       if (input_cursor_ && input_cursor_->Pull(frame, context)) {
+        VLOG(10) << "[PullRemoteCursor] ["
+                 << context.db_accessor_.transaction_id() << "] ["
+                 << self_.plan_id() << "] producing local results ";
         return true;
       }
       return false;
@@ -3189,6 +3208,10 @@ class PullRemoteCursor : public Cursor {
 
     {
       int worker_id = remote_puller_.GetWorkerId(last_pulled_worker_id_index_);
+      VLOG(10) << "[PullRemoteCursor] ["
+               << context.db_accessor_.transaction_id() << "] ["
+               << self_.plan_id() << "] producing results from worker "
+               << worker_id;
       auto result = remote_puller_.PopResultFromWorker(worker_id);
       for (size_t i = 0; i < self_.symbols().size(); ++i) {
         frame[self_.symbols()[i]] = std::move(result[i]);
@@ -3224,6 +3247,9 @@ class SynchronizeCursor : public Cursor {
     }
     // Yield local stuff while available.
     if (!local_frames_.empty()) {
+      VLOG(10) << "[SynchronizeCursor] ["
+               << context.db_accessor_.transaction_id()
+               << "] producing local results";
       auto &result = local_frames_.back();
       for (size_t i = 0; i < frame.elems().size(); ++i) {
         if (self_.advance_command()) {
@@ -3236,8 +3262,12 @@ class SynchronizeCursor : public Cursor {
     }
 
     // We're out of local stuff, yield from pull_remote if available.
-    if (pull_remote_cursor_ && pull_remote_cursor_->Pull(frame, context))
+    if (pull_remote_cursor_ && pull_remote_cursor_->Pull(frame, context)) {
+      VLOG(10) << "[SynchronizeCursor] ["
+               << context.db_accessor_.transaction_id()
+               << "] producing remote results";
       return true;
+    }
 
     return false;
   }
@@ -3254,6 +3284,8 @@ class SynchronizeCursor : public Cursor {
   std::vector<std::vector<TypedValue>> local_frames_;
 
   void InitialPull(Frame &frame, Context &context) {
+    VLOG(10) << "[SynchronizeCursor] [" << context.db_accessor_.transaction_id()
+             << "] initial pull";
     auto &db = context.db_accessor_.db();
 
     // Tell all workers to accumulate, only if there is a remote pull.
@@ -3453,6 +3485,9 @@ class PullRemoteOrderByCursor : public Cursor {
     };
 
     if (!merge_initialized_) {
+      VLOG(10) << "[PullRemoteOrderBy] ["
+               << context.db_accessor_.transaction_id() << "] ["
+               << self_.plan_id() << "] initialize";
       remote_puller_.Initialize(context);
       missing_results_from_ = remote_puller_.Workers();
       missing_master_result_ = true;
@@ -3487,6 +3522,9 @@ class PullRemoteOrderByCursor : public Cursor {
       }
 
       if (!has_all_result) {
+        VLOG(10) << "[PullRemoteOrderByCursor] ["
+                 << context.db_accessor_.transaction_id() << "] ["
+                 << self_.plan_id() << "] missing results, sleep";
         // If we don't have results from all workers, sleep before continuing.
         std::this_thread::sleep_for(
             std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
@@ -3516,8 +3554,15 @@ class PullRemoteOrderByCursor : public Cursor {
     restore_frame(result_it->remote_result);
 
     if (result_it->worker_id) {
+      VLOG(10) << "[PullRemoteOrderByCursor] ["
+               << context.db_accessor_.transaction_id() << "] ["
+               << self_.plan_id() << "] producing results from worker "
+               << result_it->worker_id.value();
       missing_results_from_.push_back(result_it->worker_id.value());
     } else {
+      VLOG(10) << "[PullRemoteOrderByCursor] ["
+               << context.db_accessor_.transaction_id() << "] ["
+               << self_.plan_id() << "] producing local results";
       missing_master_result_ = true;
     }
 

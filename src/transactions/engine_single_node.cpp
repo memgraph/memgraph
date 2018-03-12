@@ -13,6 +13,7 @@ SingleNodeEngine::SingleNodeEngine(durability::WriteAheadLog *wal)
     : wal_(wal) {}
 
 Transaction *SingleNodeEngine::Begin() {
+  VLOG(11) << "[Tx] Starting transaction " << counter_ + 1;
   std::lock_guard<SpinLock> guard(lock_);
 
   transaction_id_t id{++counter_};
@@ -50,6 +51,7 @@ command_id_t SingleNodeEngine::UpdateCommand(transaction_id_t id) {
 }
 
 void SingleNodeEngine::Commit(const Transaction &t) {
+  VLOG(11) << "[Tx] Commiting transaction " << t.id_;
   std::lock_guard<SpinLock> guard(lock_);
   clog_.set_committed(t.id_);
   active_.remove(t.id_);
@@ -60,6 +62,7 @@ void SingleNodeEngine::Commit(const Transaction &t) {
 }
 
 void SingleNodeEngine::Abort(const Transaction &t) {
+  VLOG(11) << "[Tx] Aborting transaction " << t.id_;
   std::lock_guard<SpinLock> guard(lock_);
   clog_.set_aborted(t.id_);
   active_.remove(t.id_);

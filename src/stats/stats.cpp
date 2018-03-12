@@ -74,7 +74,7 @@ void StatsDispatchMain(const io::network::Endpoint &endpoint) {
       flush_batch();
     }
 
-    VLOG(10) << fmt::format("Sent {} out of {} events from queue.", sent,
+    VLOG(30) << fmt::format("Sent {} out of {} events from queue.", sent,
                             total);
     last.delete_tail();
     std::this_thread::sleep_for(

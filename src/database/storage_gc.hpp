@@ -75,7 +75,7 @@ class StorageGc {
       vertices_.gc_.Run(snapshot, tx_engine_);
       edges_.gc_.Run(snapshot, tx_engine_);
 
-      VLOG(1) << "Garbage collector mvcc phase time: " << x.Elapsed().count();
+      VLOG(21) << "Garbage collector mvcc phase time: " << x.Elapsed().count();
     }
     // This has to be run sequentially after gc because gc modifies
     // version_lists and changes the oldest visible record, on which Refresh
@@ -85,7 +85,7 @@ class StorageGc {
       utils::Timer x;
       storage_.labels_index_.Refresh(snapshot, tx_engine_);
       storage_.label_property_index_.Refresh(snapshot, tx_engine_);
-      VLOG(1) << "Garbage collector index phase time: " << x.Elapsed().count();
+      VLOG(21) << "Garbage collector index phase time: " << x.Elapsed().count();
     }
     {
       // We free expired objects with snapshot.back(), which is
@@ -100,21 +100,21 @@ class StorageGc {
       vertices_.record_deleter_.FreeExpiredObjects(snapshot.back());
       edges_.version_list_deleter_.FreeExpiredObjects(snapshot.back());
       vertices_.version_list_deleter_.FreeExpiredObjects(snapshot.back());
-      VLOG(1) << "Garbage collector deferred deletion phase time: "
-              << x.Elapsed().count();
+      VLOG(21) << "Garbage collector deferred deletion phase time: "
+               << x.Elapsed().count();
     }
 
     LOG(INFO) << "Garbage collector finished";
-    VLOG(2) << "gc snapshot: " << snapshot;
-    VLOG(2) << "edge_record_deleter_ size: " << edges_.record_deleter_.Count();
-    VLOG(2) << "vertex record deleter_ size: "
-            << vertices_.record_deleter_.Count();
-    VLOG(2) << "edge_version_list_deleter_ size: "
-            << edges_.version_list_deleter_.Count();
-    VLOG(2) << "vertex_version_list_deleter_ size: "
-            << vertices_.version_list_deleter_.Count();
-    VLOG(2) << "vertices_ size: " << storage_.vertices_.access().size();
-    VLOG(2) << "edges_ size: " << storage_.edges_.access().size();
+    VLOG(21) << "gc snapshot: " << snapshot;
+    VLOG(21) << "edge_record_deleter_ size: " << edges_.record_deleter_.Count();
+    VLOG(21) << "vertex record deleter_ size: "
+             << vertices_.record_deleter_.Count();
+    VLOG(21) << "edge_version_list_deleter_ size: "
+             << edges_.version_list_deleter_.Count();
+    VLOG(21) << "vertex_version_list_deleter_ size: "
+             << vertices_.version_list_deleter_.Count();
+    VLOG(21) << "vertices_ size: " << storage_.vertices_.access().size();
+    VLOG(21) << "edges_ size: " << storage_.edges_.access().size();
   }
 
  private:

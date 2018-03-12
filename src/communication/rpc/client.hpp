@@ -11,6 +11,7 @@
 #include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
+#include "utils/demangle.hpp"
 
 namespace communication::rpc {
 
@@ -29,7 +30,14 @@ class Client {
                   "TRequestResponse::Request must be derived from Message");
     static_assert(std::is_base_of<Message, Res>::value,
                   "TRequestResponse::Response must be derived from Message");
-    std::unique_ptr<Message> response = Call(Req(std::forward<Args>(args)...));
+    auto request = Req(std::forward<Args>(args)...);
+
+    if (VLOG_IS_ON(12)) {
+      auto req_type = utils::Demangle(request.type_index().name());
+      LOG(INFO) << "[RpcClient] sent " << (req_type ? req_type.value() : "");
+    }
+
+    std::unique_ptr<Message> response = Call(request);
     auto *real_response = dynamic_cast<Res *>(response.get());
     if (!real_response && response) {
       // Since message_id was checked in private Call function, this means
@@ -38,6 +46,13 @@ class Client {
       socket_ = std::experimental::nullopt;
       return nullptr;
     }
+
+    if (VLOG_IS_ON(12)) {
+      auto res_type = utils::Demangle(response->type_index().name());
+      LOG(INFO) << "[RpcClient] received "
+                << (res_type ? res_type.value() : "");
+    }
+
     response.release();
     return std::unique_ptr<Res>(real_response);
   }

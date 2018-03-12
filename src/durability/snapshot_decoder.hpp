@@ -52,7 +52,7 @@ class SnapshotDecoder : public Decoder<Buffer> {
       vertex.out.emplace_back(*edge);
     }
 
-    VLOG(1) << "[ReadSnapshotVertex] Success";
+    VLOG(20) << "[ReadSnapshotVertex] Success";
     return vertex;
   }
 
@@ -61,7 +61,7 @@ class SnapshotDecoder : public Decoder<Buffer> {
     DecodedValue dv;
     DecodedInlinedVertexEdge edge;
 
-    VLOG(1) << "[ReadSnapshotEdge] Start";
+    VLOG(20) << "[ReadSnapshotEdge] Start";
 
     // read ID
     if (!Decoder<Buffer>::ReadValue(&dv, DecodedValue::Type::Int)) {
@@ -84,7 +84,7 @@ class SnapshotDecoder : public Decoder<Buffer> {
     }
     edge.type = dv.ValueString();
 
-    VLOG(1) << "[ReadSnapshotEdge] Success";
+    VLOG(20) << "[ReadSnapshotEdge] Success";
 
     return edge;
   }
