@@ -47,14 +47,14 @@ WorkerCounters::WorkerCounters(
 
 int64_t WorkerCounters::Get(const std::string &name) {
   auto response = master_client_pool_.Call<CountersGetRpc>(name);
-  CHECK(response) << "CountersGetRpc - failed to get response from master";
+  CHECK(response) << "CountersGetRpc failed";
   return response->member;
 }
 
 void WorkerCounters::Set(const std::string &name, int64_t value) {
   auto response =
       master_client_pool_.Call<CountersSetRpc>(CountersSetReqData{name, value});
-  CHECK(response) << "CountersSetRpc - failed to get response from master";
+  CHECK(response) << "CountersSetRpc failed";
 }
 
 }  // namespace database

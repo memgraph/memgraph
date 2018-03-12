@@ -6,20 +6,20 @@
 
 namespace storage {
 
-#define ID_VALUE_RPC_CALLS(type)                                         \
-  template <>                                                            \
-  type WorkerConcurrentIdMapper<type>::RpcValueToId(                     \
-      const std::string &value) {                                        \
-    auto response = master_client_pool_.Call<type##IdRpc>(value);        \
-    CHECK(response) << ("Failed to obtain " #type " from master");       \
-    return response->member;                                             \
-  }                                                                      \
-                                                                         \
-  template <>                                                            \
-  std::string WorkerConcurrentIdMapper<type>::RpcIdToValue(type id) {    \
-    auto response = master_client_pool_.Call<Id##type##Rpc>(id);         \
-    CHECK(response) << ("Failed to obtain " #type " value from master"); \
-    return response->member;                                             \
+#define ID_VALUE_RPC_CALLS(type)                                      \
+  template <>                                                         \
+  type WorkerConcurrentIdMapper<type>::RpcValueToId(                  \
+      const std::string &value) {                                     \
+    auto response = master_client_pool_.Call<type##IdRpc>(value);     \
+    CHECK(response) << (#type "IdRpc failed");                        \
+    return response->member;                                          \
+  }                                                                   \
+                                                                      \
+  template <>                                                         \
+  std::string WorkerConcurrentIdMapper<type>::RpcIdToValue(type id) { \
+    auto response = master_client_pool_.Call<Id##type##Rpc>(id);      \
+    CHECK(response) << ("Id" #type "Rpc failed");                     \
+    return response->member;                                          \
   }
 
 using namespace storage;

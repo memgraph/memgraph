@@ -27,9 +27,10 @@ class RemoteUpdatesRpcClients {
   /// Sends an update delta to the given worker.
   RemoteUpdateResult RemoteUpdate(int worker_id,
                                   const database::StateDelta &delta) {
-    return worker_clients_.GetClientPool(worker_id)
-        .Call<RemoteUpdateRpc>(delta)
-        ->member;
+    auto res =
+        worker_clients_.GetClientPool(worker_id).Call<RemoteUpdateRpc>(delta);
+    CHECK(res) << "RemoteUpdateRpc failed on worker: " << worker_id;
+    return res->member;
   }
 
   /// Creates a vertex on the given worker and returns it's id.
@@ -38,14 +39,13 @@ class RemoteUpdatesRpcClients {
       const std::vector<storage::Label> &labels,
       const std::unordered_map<storage::Property, query::TypedValue>
           &properties) {
-    auto result =
+    auto res =
         worker_clients_.GetClientPool(worker_id).Call<RemoteCreateVertexRpc>(
             RemoteCreateVertexReqData{tx_id, labels, properties});
-    CHECK(result) << "Failed to remote-create a vertex on worker: "
-                  << worker_id;
-    CHECK(result->member.result == RemoteUpdateResult::DONE)
-        << "Vertex creation can not result in an error";
-    return result->member.gid;
+    CHECK(res) << "RemoteCreateVertexRpc failed on worker: " << worker_id;
+    CHECK(res->member.result == RemoteUpdateResult::DONE)
+        << "Remote Vertex creation result not RemoteUpdateResult::DONE";
+    return res->member.gid;
   }
 
   /// Creates an edge on the given worker and returns it's address. If the `to`
@@ -64,7 +64,7 @@ class RemoteUpdatesRpcClients {
     auto res = worker_clients_.GetClientPool(from_worker)
                    .Call<RemoteCreateEdgeRpc>(RemoteCreateEdgeReqData{
                        from.gid(), to.GlobalAddress(), edge_type, tx_id});
-    CHECK(res) << "RemoteCreateEdge RPC failed";
+    CHECK(res) << "RemoteCreateEdge RPC failed on worker: " << from_worker;
     RaiseIfRemoteError(res->member.result);
     return {res->member.gid, from_worker};
   }
@@ -78,11 +78,12 @@ class RemoteUpdatesRpcClients {
           (from.GlobalAddress().worker_id() != to.address().worker_id()))
         << "RemoteAddInEdge should only be called when `to` is remote and "
            "`from` is not on the same worker as `to`.";
-    auto res = worker_clients_.GetClientPool(to.GlobalAddress().worker_id())
-                   .Call<RemoteAddInEdgeRpc>(RemoteAddInEdgeReqData{
-                       from.GlobalAddress(), edge_address, to.gid(), edge_type,
-                       tx_id});
-    CHECK(res) << "RemoteAddInEdge RPC failed";
+    auto worker_id = to.GlobalAddress().worker_id();
+    auto res =
+        worker_clients_.GetClientPool(worker_id).Call<RemoteAddInEdgeRpc>(
+            RemoteAddInEdgeReqData{from.GlobalAddress(), edge_address, to.gid(),
+                                   edge_type, tx_id});
+    CHECK(res) << "RemoteAddInEdge RPC failed on worker: " << worker_id;
     RaiseIfRemoteError(res->member);
   }
 
@@ -91,7 +92,7 @@ class RemoteUpdatesRpcClients {
     auto res =
         worker_clients_.GetClientPool(worker_id).Call<RemoteRemoveVertexRpc>(
             RemoteRemoveVertexReqData{gid, tx_id, check_empty});
-    CHECK(res) << "RemoteRemoveVertex RPC failed";
+    CHECK(res) << "RemoteRemoveVertex RPC failed on worker: " << worker_id;
     RaiseIfRemoteError(res->member);
   }
 
@@ -107,7 +108,7 @@ class RemoteUpdatesRpcClients {
         worker_clients_.GetClientPool(worker_id).Call<RemoteRemoveEdgeRpc>(
             RemoteRemoveEdgeData{tx_id, edge_gid, vertex_from_id,
                                  vertex_to_addr});
-    CHECK(res) << "RemoteRemoveEdge RPC failed";
+    CHECK(res) << "RemoteRemoveEdge RPC failed on worker: " << worker_id;
     RaiseIfRemoteError(res->member);
   }
 
@@ -119,17 +120,8 @@ class RemoteUpdatesRpcClients {
     auto res =
         worker_clients_.GetClientPool(worker_id).Call<RemoteRemoveInEdgeRpc>(
             RemoteRemoveInEdgeData{tx_id, vertex_id, edge_address});
-    CHECK(res) << "RemoteRemoveInEdge RPC failed";
+    CHECK(res) << "RemoteRemoveInEdge RPC failed on worker: " << worker_id;
     RaiseIfRemoteError(res->member);
-  }
-
-  /// Calls for the worker with the given ID to apply remote updates. Returns
-  /// the results of that operation.
-  RemoteUpdateResult RemoteUpdateApply(int worker_id,
-                                       tx::transaction_id_t tx_id) {
-    return worker_clients_.GetClientPool(worker_id)
-        .Call<RemoteUpdateApplyRpc>(tx_id)
-        ->member;
   }
 
   /// Calls for all the workers (except the given one) to apply their updates
@@ -138,7 +130,9 @@ class RemoteUpdatesRpcClients {
       int skip_worker_id, tx::transaction_id_t tx_id) {
     return worker_clients_.ExecuteOnWorkers<RemoteUpdateResult>(
         skip_worker_id, [tx_id](auto &client) {
-          return client.template Call<RemoteUpdateApplyRpc>(tx_id)->member;
+          auto res = client.template Call<RemoteUpdateApplyRpc>(tx_id);
+          CHECK(res) << "RemoteUpdateApplyRpc failed";
+          return res->member;
         });
   }
 

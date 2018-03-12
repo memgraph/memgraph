@@ -86,8 +86,7 @@ TEST_F(RpcWorkerClientsTest, GetClientPool) {
 
 TEST_F(RpcWorkerClientsTest, ExecuteOnWorker) {
   auto execute = [](auto &client) -> void {
-    ASSERT_NE(client.template Call<distributed::IncrementCounterRpc>(),
-              nullptr);
+    ASSERT_TRUE(client.template Call<distributed::IncrementCounterRpc>());
   };
 
   rpc_workers_.ExecuteOnWorker<void>(1, execute).get();
@@ -98,8 +97,7 @@ TEST_F(RpcWorkerClientsTest, ExecuteOnWorker) {
 
 TEST_F(RpcWorkerClientsTest, ExecuteOnWorkers) {
   auto execute = [](auto &client) -> void {
-    ASSERT_NE(client.template Call<distributed::IncrementCounterRpc>(),
-              nullptr);
+    ASSERT_TRUE(client.template Call<distributed::IncrementCounterRpc>());
   };
 
   // Skip master

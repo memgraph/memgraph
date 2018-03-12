@@ -90,7 +90,8 @@ class RemotePullRpcClients {
   std::vector<utils::Future<void>> NotifyAllTransactionCommandAdvanced(
       tx::transaction_id_t tx_id) {
     return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {
-      client.template Call<TransactionCommandAdvancedRpc>(tx_id);
+      auto res = client.template Call<TransactionCommandAdvancedRpc>(tx_id);
+      CHECK(res) << "TransactionCommandAdvanceRpc failed";
     });
   }
 

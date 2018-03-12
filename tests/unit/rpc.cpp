@@ -81,6 +81,7 @@ TEST(Rpc, Call) {
 
   Client client(server.endpoint());
   auto sum = client.Call<Sum>(10, 20);
+  ASSERT_TRUE(sum);
   EXPECT_EQ(sum->sum, 30);
 }
 
@@ -102,7 +103,7 @@ TEST(Rpc, Abort) {
 
   utils::Timer timer;
   auto sum = client.Call<Sum>(10, 20);
-  EXPECT_EQ(sum, nullptr);
+  EXPECT_FALSE(sum);
   EXPECT_LT(timer.Elapsed(), 200ms);
 
   thread.join();
@@ -116,14 +117,13 @@ TEST(Rpc, ClientPool) {
   });
   std::this_thread::sleep_for(100ms);
 
-
   Client client(server.endpoint());
 
   /* these calls should take more than 400ms because we're using a regular
    * client */
   auto get_sum_client = [&client](int x, int y) {
     auto sum = client.Call<Sum>(x, y);
-    ASSERT_TRUE(sum != nullptr);
+    ASSERT_TRUE(sum);
     EXPECT_EQ(sum->sum, x + y);
   };
 
@@ -145,7 +145,7 @@ TEST(Rpc, ClientPool) {
    * parallel */
   auto get_sum = [&pool](int x, int y) {
     auto sum = pool.Call<Sum>(x, y);
-    ASSERT_TRUE(sum != nullptr);
+    ASSERT_TRUE(sum);
     EXPECT_EQ(sum->sum, x + y);
   };
 
@@ -170,5 +170,6 @@ TEST(Rpc, LargeMessage) {
 
   Client client(server.endpoint());
   auto echo = client.Call<Echo>(testdata);
+  ASSERT_TRUE(echo);
   EXPECT_EQ(echo->data, testdata);
 }

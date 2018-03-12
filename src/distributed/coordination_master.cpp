@@ -45,7 +45,7 @@ MasterCoordination::~MasterCoordination() {
     if (kv.first == 0) continue;
     communication::rpc::Client client(kv.second);
     auto result = client.Call<StopWorkerRpc>();
-    CHECK(result) << "Failed to shut down worker: " << kv.first;
+    CHECK(result) << "StopWorkerRpc failed work worker: " << kv.first;
   }
 }
 

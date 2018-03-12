@@ -24,6 +24,7 @@ class RemoteDataRpcClients {
                                        gid::Gid gid) {
     auto response = clients_.GetClientPool(worker_id).Call<RemoteVertexRpc>(
         TxGidPair{tx_id, gid});
+    CHECK(response) << "RemoteVertexRpc failed";
     return std::move(response->name_output_);
   }
 
@@ -34,6 +35,7 @@ class RemoteDataRpcClients {
                                    gid::Gid gid) {
     auto response = clients_.GetClientPool(worker_id).Call<RemoteEdgeRpc>(
         TxGidPair{tx_id, gid});
+    CHECK(response) << "RemoteEdgeRpc failed";
     return std::move(response->name_output_);
   }
 

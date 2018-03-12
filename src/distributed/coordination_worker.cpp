@@ -16,7 +16,7 @@ WorkerCoordination::WorkerCoordination(communication::rpc::Server &server,
 int WorkerCoordination::RegisterWorker(int desired_worker_id) {
   auto result = client_pool_.Call<RegisterWorkerRpc>(desired_worker_id,
                                                      server_.endpoint());
-  CHECK(result) << "Failed to RegisterWorker with the master";
+  CHECK(result) << "RegisterWorkerRpc failed";
   return result->member;
 }
 
@@ -25,7 +25,7 @@ Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
   auto found = accessor.find(worker_id);
   if (found != accessor.end()) return found->second;
   auto result = client_pool_.Call<GetEndpointRpc>(worker_id);
-  CHECK(result) << "Failed to GetEndpoint from the master";
+  CHECK(result) << "GetEndpointRpc failed";
   accessor.insert(worker_id, result->member);
   return result->member;
 }

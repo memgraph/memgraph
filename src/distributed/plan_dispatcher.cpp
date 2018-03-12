@@ -12,7 +12,7 @@ void PlanDispatcher::DispatchPlan(
           symbol_table](communication::rpc::ClientPool &client_pool) {
         auto result =
             client_pool.Call<DistributedPlanRpc>(plan_id, plan, symbol_table);
-        CHECK(result) << "Failed to dispatch plan to worker";
+        CHECK(result) << "DistributedPlanRpc failed";
       });
 
   for (auto &future : futures) {

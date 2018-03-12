@@ -56,7 +56,7 @@ void StatsDispatchMain(const io::network::Endpoint &endpoint) {
     size_t sent = 0, total = 0;
 
     auto flush_batch = [&] {
-      if (auto rep = client.Call<BatchStatsRpc>(batch_request)) {
+      if (client.Call<BatchStatsRpc>(batch_request)) {
         sent += batch_request.requests.size();
       }
       total += batch_request.requests.size();
