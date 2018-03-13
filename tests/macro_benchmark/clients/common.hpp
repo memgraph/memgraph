@@ -59,17 +59,20 @@ template <typename TClient>
 std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
     TClient &client, const std::string &query,
     const std::map<std::string, communication::bolt::DecodedValue> &params,
-    int times) {
-  std::experimental::optional<utils::BasicException> last_exception;
+    int max_attempts) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_int_distribution<> rand_dist_{10, 50};
-  for (int i = 0; i < times; ++i) {
+  int failed_attempts{0};
+  while (true) {
     try {
       auto ret = client.Execute(query, params);
-      return {ret, i};
+      return {ret, failed_attempts};
     } catch (const utils::BasicException &e) {
       VLOG(0) << "Error: " << e.what();
-      last_exception = e;
+      if (++failed_attempts == max_attempts) {
+        LOG(WARNING) << query << " failed " << failed_attempts << "times";
+        throw;
+      }
       utils::Timer t;
       std::chrono::microseconds to_sleep(rand_dist_(pseudo_rand_gen_));
       while (t.Elapsed() < to_sleep) {
@@ -77,7 +80,6 @@ std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
       }
     }
   }
-  LOG(WARNING) << query << " failed " << times << "times";
-  throw last_exception.value();
 }
+
 }  // namespace
