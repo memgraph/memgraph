@@ -10,7 +10,7 @@ DECLARE_int32(query_execution_time_sec);
 TEST(TransactionTimeout, TransactionTimeout) {
   FLAGS_query_execution_time_sec = 3;
   database::SingleNode db;
-  query::Interpreter interpreter;
+  query::Interpreter interpreter{db};
   auto interpret = [&](auto &dba, const std::string &query) {
     ResultStreamFaker stream;
     interpreter(query, dba, {}, false).PullAll(stream);

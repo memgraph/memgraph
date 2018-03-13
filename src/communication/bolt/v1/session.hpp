@@ -31,7 +31,7 @@ namespace communication::bolt {
  * and worker to the session. */
 struct SessionData {
   database::MasterBase &db;
-  query::Interpreter interpreter;
+  query::Interpreter interpreter{db};
 };
 
 /**

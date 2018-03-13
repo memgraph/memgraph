@@ -40,7 +40,7 @@ class QueryExecution : public testing::Test {
    * Does NOT commit the transaction */
   auto Execute(const std::string &query) {
     ResultStreamFaker results;
-    query::Interpreter()(query, *dba_, {}, false).PullAll(results);
+    query::Interpreter{*db_}(query, *dba_, {}, false).PullAll(results);
     return results.GetResults();
   }
 };

@@ -31,6 +31,7 @@ class Cluster {
     database::Config masterconfig;
     masterconfig.master_endpoint = {kLocal, 0};
     master_ = std::make_unique<database::Master>(masterconfig);
+    interpreter_ = std::make_unique<query::Interpreter>(*master_);
     std::this_thread::sleep_for(kInitTime);
 
     auto worker_config = [this](int worker_id) {
@@ -49,6 +50,7 @@ class Cluster {
   }
 
   void Stop() {
+    interpreter_ = nullptr;
     master_ = nullptr;
     workers_.clear();
   }
@@ -61,7 +63,7 @@ class Cluster {
                std::map<std::string, query::TypedValue> params = {}) {
     database::GraphDbAccessor dba(*master_);
     ResultStreamFaker result;
-    interpreter_(query, dba, params, false).PullAll(result);
+    interpreter_->operator()(query, dba, params, false).PullAll(result);
     dba.Commit();
     return result.GetResults();
   };
@@ -69,7 +71,7 @@ class Cluster {
  private:
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;
-  query::Interpreter interpreter_;
+  std::unique_ptr<query::Interpreter> interpreter_;
 };
 
 void CheckResults(

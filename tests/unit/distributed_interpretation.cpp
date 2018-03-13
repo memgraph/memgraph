@@ -1,7 +1,11 @@
+#include <chrono>
+#include <experimental/optional>
+
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "database/graph_db.hpp"
+#include "distributed/plan_consumer.hpp"
 #include "distributed_common.hpp"
 #include "query/interpreter.hpp"
 #include "query_common.hpp"
@@ -13,15 +17,27 @@ using namespace database;
 
 class DistributedInterpretationTest : public DistributedGraphDbTest {
  protected:
+  void SetUp() override {
+    DistributedGraphDbTest::SetUp();
+    interpreter_.emplace(master());
+  }
+
+  void TearDown() override {
+    interpreter_ = std::experimental::nullopt;
+    DistributedGraphDbTest::TearDown();
+  }
+
   auto Run(const std::string &query) {
     std::map<std::string, query::TypedValue> params = {};
     GraphDbAccessor dba(master());
     ResultStreamFaker result;
-    query::Interpreter interpreter_;
-    interpreter_(query, dba, params, false).PullAll(result);
+    interpreter_.value()(query, dba, params, false).PullAll(result);
     dba.Commit();
     return result.GetResults();
   }
+
+ private:
+  std::experimental::optional<query::Interpreter> interpreter_;
 };
 
 TEST_F(DistributedInterpretationTest, RemotePullTest) {
@@ -218,4 +234,16 @@ TEST_F(TestQueryWaitsOnFutures, Test) {
     double seconds = timer.Elapsed().count();
     EXPECT_GT(seconds, 3);
   }
+}
+
+TEST_F(DistributedInterpretationTest, PlanExpiration) {
+  FLAGS_query_plan_cache_ttl = 1;
+  Run("MATCH (n) RETURN n");
+  auto ids1 = worker(1).plan_consumer().CachedPlanIds();
+  ASSERT_EQ(ids1.size(), 1);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+  Run("MATCH (n) RETURN n");
+  auto ids2 = worker(1).plan_consumer().CachedPlanIds();
+  ASSERT_EQ(ids2.size(), 1);
+  EXPECT_NE(ids1, ids2);
 }

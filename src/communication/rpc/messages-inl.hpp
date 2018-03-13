@@ -63,7 +63,9 @@ BOOST_CLASS_EXPORT(distributed::TxGidPair);
 
 // Distributed plan exchange.
 BOOST_CLASS_EXPORT(distributed::DispatchPlanReq);
-BOOST_CLASS_EXPORT(distributed::ConsumePlanRes);
+BOOST_CLASS_EXPORT(distributed::DispatchPlanRes);
+BOOST_CLASS_EXPORT(distributed::RemovePlanReq);
+BOOST_CLASS_EXPORT(distributed::RemovePlanRes);
 
 // Remote pull.
 BOOST_CLASS_EXPORT(distributed::RemotePullReq);

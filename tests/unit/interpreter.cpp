@@ -14,8 +14,8 @@
 
 class InterpreterTest : public ::testing::Test {
  protected:
-  query::Interpreter interpreter_;
   database::SingleNode db_;
+  query::Interpreter interpreter_{db_};
 
   ResultStreamFaker Interpret(
       const std::string &query,
@@ -86,8 +86,6 @@ TEST_F(InterpreterTest, AstCache) {
 
 // Run query with same ast multiple times with different parameters.
 TEST_F(InterpreterTest, Parameters) {
-  query::Interpreter interpreter;
-  database::SingleNode db;
   {
     auto stream = Interpret("RETURN $2 + $`a b`", {{"2", 10}, {"a b", 15}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);

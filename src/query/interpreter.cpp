@@ -1,25 +1,87 @@
 #include "query/interpreter.hpp"
 
 #include <glog/logging.h>
+#include <limits>
 
 #include "distributed/plan_dispatcher.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
-#include "query/plan/distributed.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
 DEFINE_HIDDEN_bool(query_cost_planner, true,
                    "Use the cost-estimating query planner.");
-DEFINE_bool(query_plan_cache, true, "Cache generated query plans");
 DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
                        "Time to live for cached query plans, in seconds.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace query {
+
+std::shared_ptr<Interpreter::CachedPlan> Interpreter::PlanCache::Find(
+    HashType hash) {
+  auto accessor = cache_.access();
+  auto it = accessor.find(hash);
+  if (it == accessor.end()) return nullptr;
+  if (!it->second->IsExpired()) return it->second;
+  Remove(hash);
+  return nullptr;
+}
+
+std::shared_ptr<Interpreter::CachedPlan> Interpreter::PlanCache::Insert(
+    HashType hash, std::shared_ptr<CachedPlan> plan) {
+  // Dispatch plans to workers (if we have any for them).
+  if (plan_dispatcher_) {
+    for (const auto &plan_pair : plan->distributed_plan().worker_plans) {
+      const auto &plan_id = plan_pair.first;
+      const auto &worker_plan = plan_pair.second;
+      plan_dispatcher_->DispatchPlan(plan_id, worker_plan,
+                                     plan->symbol_table());
+    }
+  }
+
+  auto access = cache_.access();
+  auto insertion = access.insert(hash, plan);
+
+  // If the same plan was already cached, invalidate the above dispatched
+  // plans on the workers.
+  if (!insertion.second && plan_dispatcher_) {
+    RemoveFromWorkers(*plan);
+  }
+
+  return insertion.first->second;
+}
+
+void Interpreter::PlanCache::Remove(HashType hash) {
+  auto access = cache_.access();
+  auto found = access.find(hash);
+  if (found == access.end()) return;
+
+  RemoveFromWorkers(*found->second);
+  cache_.access().remove(hash);
+}
+
+void Interpreter::PlanCache::Clear() {
+  auto access = cache_.access();
+  for (auto &kv : access) {
+    RemoveFromWorkers(*kv.second);
+    access.remove(kv.first);
+  }
+}
+
+void Interpreter::PlanCache::RemoveFromWorkers(const CachedPlan &plan) {
+  for (const auto &plan_pair : plan.distributed_plan().worker_plans) {
+    const auto &plan_id = plan_pair.first;
+    plan_dispatcher_->RemovePlan(plan_id);
+  }
+}
+
+Interpreter::Interpreter(database::GraphDb &db)
+    : plan_cache_(db.type() == database::GraphDb::Type::DISTRIBUTED_MASTER
+                      ? &db.plan_dispatcher()
+                      : nullptr) {}
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query, database::GraphDbAccessor &db_accessor,
@@ -43,70 +105,19 @@ Interpreter::Results Interpreter::operator()(
     }
     ctx.parameters_.Add(param_pair.first, param_it->second);
   }
-
-  // Check if we have a cached logical plan ready, so that we can skip the
-  // whole query -> AST -> logical_plan process. Note that this local shared_ptr
-  // might be the only owner of the CachedPlan (if caching is turned off).
-  // Ensure it lives during the whole interpretation.
-  std::shared_ptr<CachedPlan> plan(nullptr);
-  {
-    auto plan_cache_accessor = plan_cache_.access();
-    auto plan_cache_it = plan_cache_accessor.find(stripped.hash());
-    if (plan_cache_it != plan_cache_accessor.end()) {
-      if (plan_cache_it->second->IsExpired()) {
-        plan_cache_accessor.remove(stripped.hash());
-      } else {
-        plan = plan_cache_it->second;
-      }
-    }
-  }
-
   auto frontend_time = frontend_timer.Elapsed();
 
+  // Try to get a cached plan. Note that this local shared_ptr might be the only
+  // owner of the CachedPlan, so ensure it lives during the whole
+  // interpretation.
+  std::shared_ptr<CachedPlan> plan = plan_cache_.Find(stripped.hash());
   utils::Timer planning_timer;
-
   if (!plan) {
-    AstTreeStorage ast_storage = QueryToAst(stripped, ctx);
-    SymbolGenerator symbol_generator(ctx.symbol_table_);
-    ast_storage.query()->Accept(symbol_generator);
-
-    std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
-    double query_plan_cost_estimation = 0.0;
-    std::tie(tmp_logical_plan, query_plan_cost_estimation) =
-        MakeLogicalPlan(ast_storage, db_accessor, ctx);
-
-    DCHECK(db_accessor.db().type() !=
-           database::GraphDb::Type::DISTRIBUTED_WORKER);
-    if (db_accessor.db().type() ==
-        database::GraphDb::Type::DISTRIBUTED_MASTER) {
-      auto distributed_plan = MakeDistributedPlan(
-          *tmp_logical_plan, ctx.symbol_table_, next_plan_id_);
-      plan = std::make_shared<CachedPlan>(std::move(distributed_plan),
-                                          query_plan_cost_estimation);
-    } else {
-      plan = std::make_shared<CachedPlan>(
-          std::move(tmp_logical_plan), query_plan_cost_estimation,
-          ctx.symbol_table_, std::move(ast_storage));
-    }
-
-    // Dispatch plans to workers (if we have any for them).
-    for (const auto &plan_pair : plan->distributed_plan().worker_plans) {
-      const auto &plan_id = plan_pair.first;
-      const auto &worker_plan = plan_pair.second;
-      auto &dispatcher = db_accessor.db().plan_dispatcher();
-      dispatcher.DispatchPlan(plan_id, worker_plan, plan->symbol_table());
-    }
-
-    if (FLAGS_query_plan_cache) {
-      // TODO: If the same plan was already cached, invalidate the dispatched
-      // plans (above) from workers.
-      plan = plan_cache_.access().insert(stripped.hash(), plan).first->second;
-    }
+    plan = plan_cache_.Insert(stripped.hash(), QueryToPlan(stripped, ctx));
   }
+  auto planning_time = planning_timer.Elapsed();
 
   ctx.symbol_table_ = plan->symbol_table();
-
-  auto planning_time = planning_timer.Elapsed();
 
   std::map<std::string, TypedValue> summary;
   summary["parsing_time"] = frontend_time.count();
@@ -134,6 +145,32 @@ Interpreter::Results Interpreter::operator()(
 
   return Results(std::move(ctx), plan, std::move(cursor), output_symbols,
                  header, summary, plan_cache_);
+}
+
+std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
+    const StrippedQuery &stripped, Context &ctx) {
+  AstTreeStorage ast_storage = QueryToAst(stripped, ctx);
+  SymbolGenerator symbol_generator(ctx.symbol_table_);
+  ast_storage.query()->Accept(symbol_generator);
+
+  std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
+  double query_plan_cost_estimation = 0.0;
+  std::tie(tmp_logical_plan, query_plan_cost_estimation) =
+      MakeLogicalPlan(ast_storage, ctx);
+
+  DCHECK(ctx.db_accessor_.db().type() !=
+         database::GraphDb::Type::DISTRIBUTED_WORKER);
+  if (ctx.db_accessor_.db().type() ==
+      database::GraphDb::Type::DISTRIBUTED_MASTER) {
+    auto distributed_plan = MakeDistributedPlan(
+        *tmp_logical_plan, ctx.symbol_table_, next_plan_id_);
+    return std::make_shared<CachedPlan>(std::move(distributed_plan),
+                                        query_plan_cost_estimation);
+  } else {
+    return std::make_shared<CachedPlan>(
+        std::move(tmp_logical_plan), query_plan_cost_estimation,
+        ctx.symbol_table_, std::move(ast_storage));
+  }
 }
 
 AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
@@ -187,11 +224,9 @@ AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
 }
 
 std::pair<std::unique_ptr<plan::LogicalOperator>, double>
-Interpreter::MakeLogicalPlan(AstTreeStorage &ast_storage,
-                             const database::GraphDbAccessor &db_accessor,
-                             Context &context) {
+Interpreter::MakeLogicalPlan(AstTreeStorage &ast_storage, Context &context) {
   std::unique_ptr<plan::LogicalOperator> logical_plan;
-  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
+  auto vertex_counts = plan::MakeVertexCountCache(context.db_accessor_);
   auto planning_context = plan::MakePlanningContext(
       ast_storage, context.symbol_table_, vertex_counts);
   return plan::MakeLogicalPlan(planning_context, context.parameters_,

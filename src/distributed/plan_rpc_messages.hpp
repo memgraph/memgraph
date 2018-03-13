@@ -50,9 +50,14 @@ struct DispatchPlanReq : public Message {
   }
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(ConsumePlanRes, bool);
+RPC_NO_MEMBER_MESSAGE(DispatchPlanRes);
 
 using DistributedPlanRpc =
-    communication::rpc::RequestResponse<DispatchPlanReq, ConsumePlanRes>;
+    communication::rpc::RequestResponse<DispatchPlanReq, DispatchPlanRes>;
+
+RPC_SINGLE_MEMBER_MESSAGE(RemovePlanReq, int64_t);
+RPC_NO_MEMBER_MESSAGE(RemovePlanRes);
+using RemovePlanRpc =
+    communication::rpc::RequestResponse<RemovePlanReq, RemovePlanRes>;
 
 }  // namespace distributed

@@ -10,7 +10,12 @@ PlanConsumer::PlanConsumer(communication::rpc::Server &server)
         std::make_unique<PlanPack>(
             req.plan_, req.symbol_table_,
             std::move(const_cast<DispatchPlanReq &>(req).storage_)));
-    return std::make_unique<ConsumePlanRes>(true);
+    return std::make_unique<DispatchPlanRes>();
+  });
+
+  server_.Register<RemovePlanRpc>([this](const RemovePlanReq &req) {
+    plan_cache_.access().remove(req.member);
+    return std::make_unique<RemovePlanRes>();
   });
 }
 
@@ -20,6 +25,15 @@ PlanConsumer::PlanPack &PlanConsumer::PlanForId(int64_t plan_id) const {
   CHECK(found != accessor.end())
       << "Missing plan and symbol table for plan id!";
   return *found->second;
+}
+
+std::vector<int64_t> PlanConsumer::CachedPlanIds() const {
+  std::vector<int64_t> plan_ids;
+  auto access = plan_cache_.access();
+  plan_ids.reserve(access.size());
+  for (auto &kv : access) plan_ids.emplace_back(kv.first);
+
+  return plan_ids;
 }
 
 }  // namespace distributed

@@ -117,6 +117,10 @@ TEST_F(DistributedGraphDbTest, DispatchPlan) {
   };
   check_for_worker(worker(1));
   check_for_worker(worker(2));
+
+  master().plan_dispatcher().RemovePlan(plan_id);
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+  EXPECT_DEATH(check_for_worker(worker(1)), "Missing plan*");
 }
 
 TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {

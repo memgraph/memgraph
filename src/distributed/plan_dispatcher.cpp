@@ -20,4 +20,16 @@ void PlanDispatcher::DispatchPlan(
   }
 }
 
+void PlanDispatcher::RemovePlan(int64_t plan_id) {
+  auto futures = clients_.ExecuteOnWorkers<void>(
+      0, [plan_id](communication::rpc::ClientPool &client_pool) {
+        auto result = client_pool.Call<RemovePlanRpc>(plan_id);
+        CHECK(result) << "Failed to remove plan from worker";
+      });
+
+  for (auto &future : futures) {
+    future.wait();
+  }
+}
+
 }  // namespace distributed

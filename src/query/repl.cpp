@@ -49,7 +49,7 @@ std::string ReadLine(const char *prompt) {
 #endif  // HAS_READLINE
 
 void query::Repl(database::GraphDb &db) {
-  query::Interpreter interpeter;
+  query::Interpreter interpeter{db};
 
   std::cout
       << "Welcome to *Awesome* Memgraph Read Evaluate Print Loop (AM-REPL)"

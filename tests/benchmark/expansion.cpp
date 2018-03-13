@@ -13,10 +13,11 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   // GraphDb shouldn't be global constructed/destructed. See
   // documentation in database/graph_db.hpp for details.
   std::experimental::optional<database::SingleNode> db_;
-  query::Interpreter interpeter_;
+  std::experimental::optional<query::Interpreter> interpreter_;
 
   void SetUp(const benchmark::State &state) override {
     db_.emplace();
+    interpreter_.emplace(db_.value());
     database::GraphDbAccessor dba(*db_);
     for (int i = 0; i < state.range(0); i++) dba.InsertVertex();
 
@@ -35,8 +36,11 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     database::GraphDbAccessor dba(*db_);
     for (auto vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
     dba.Commit();
+    interpreter_ = std::experimental::nullopt;
     db_ = std::experimental::nullopt;
   }
+
+  auto &interpreter() { return *interpreter_; }
 };
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
@@ -44,7 +48,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpeter_(query, dba, {}, false).PullAll(results);
+    interpreter()(query, dba, {}, false).PullAll(results);
   }
 }
 
@@ -58,7 +62,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
-    interpeter_(query, dba, {}, false).PullAll(results);
+    interpreter()(query, dba, {}, false).PullAll(results);
   }
 }
 

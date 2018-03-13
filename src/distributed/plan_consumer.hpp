@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/plan_rpc_messages.hpp"
@@ -28,6 +30,9 @@ class PlanConsumer {
 
   /** Return cached plan and symbol table for a given plan id. */
   PlanPack &PlanForId(int64_t plan_id) const;
+
+  /** Return the ids of all the cached plans. For testing. */
+  std::vector<int64_t> CachedPlanIds() const;
 
  private:
   communication::rpc::Server &server_;
