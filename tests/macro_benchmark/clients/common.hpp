@@ -68,6 +68,7 @@ std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
       auto ret = client.Execute(query, params);
       return {ret, i};
     } catch (const utils::BasicException &e) {
+      VLOG(0) << "Error: " << e.what();
       last_exception = e;
       utils::Timer t;
       std::chrono::microseconds to_sleep(rand_dist_(pseudo_rand_gen_));

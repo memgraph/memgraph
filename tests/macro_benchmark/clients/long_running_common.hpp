@@ -67,7 +67,6 @@ class TestClient {
       std::tie(result, retries) =
           ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
     } catch (const utils::BasicException &e) {
-      LOG(WARNING) << e.what();
       serialization_errors.Bump(MAX_RETRIES);
       return std::experimental::nullopt;
     }
@@ -165,7 +164,12 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
                       .first;
         it->second = (it->second.ValueDouble() * old_count + stat.second) /
                      (old_count + new_count);
+        stats::LogStat(
+            fmt::format("queries.{}.{}", query_stats.first, stat.first),
+            (stat.second / new_count));
       }
+      stats::LogStat(fmt::format("queries.{}.count", query_stats.first),
+                     new_count);
     }
 
     out << "{\"num_executed_queries\": " << executed_queries.Value() << ", "
