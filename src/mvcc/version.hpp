@@ -10,7 +10,17 @@ class Version {
   Version() = default;
   explicit Version(T *older) : older_(older) {}
 
-  ~Version() { delete older_.load(std::memory_order_seq_cst); }
+  // this must also destroy all the older versions
+  virtual ~Version() {
+    auto curr = next();
+    while (curr != nullptr) {
+      auto next = curr->next();
+      // remove link to older version to avoid recursion
+      curr->older_.store(nullptr);
+      delete curr;
+      curr = next;
+    }
+  }
 
   // return a pointer to an older version stored in this record
   T *next(std::memory_order order = std::memory_order_seq_cst) {
