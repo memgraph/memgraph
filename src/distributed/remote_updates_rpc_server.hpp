@@ -92,7 +92,7 @@ class RemoteUpdatesRpcServer {
     }
 
     /// Creates a new vertex and returns it's gid.
-    RemoteCreateResult CreateVertex(
+    gid::Gid CreateVertex(
         const std::vector<storage::Label> &labels,
         const std::unordered_map<storage::Property, query::TypedValue>
             &properties) {
@@ -103,7 +103,22 @@ class RemoteUpdatesRpcServer {
       deltas_.emplace(
           result.gid(),
           std::make_pair(result, std::vector<database::StateDelta>{}));
-      return {RemoteUpdateResult::DONE, result.gid()};
+      return result.gid();
+    }
+
+    /// Creates a new edge and returns it's gid. Does not update vertices at the
+    /// end of the edge.
+    gid::Gid CreateEdge(gid::Gid from, storage::VertexAddress to,
+                        storage::EdgeType edge_type) {
+      auto &db = db_accessor_.db();
+      auto edge = db_accessor_.InsertOnlyEdge(
+          {from, db.WorkerId()}, db.storage().LocalizedAddressIfPossible(to),
+          edge_type);
+      std::lock_guard<SpinLock> guard{lock_};
+      deltas_.emplace(
+          edge.gid(),
+          std::make_pair(edge, std::vector<database::StateDelta>{}));
+      return edge.gid();
     }
 
     /// Applies all the deltas on the record.
@@ -237,9 +252,11 @@ class RemoteUpdatesRpcServer {
 
     server.Register<RemoteCreateVertexRpc>(
         [this](const RemoteCreateVertexReq &req) {
-          return std::make_unique<RemoteCreateVertexRes>(
+          gid::Gid gid =
               GetUpdates(vertex_updates_, req.member.tx_id)
-                  .CreateVertex(req.member.labels, req.member.properties));
+                  .CreateVertex(req.member.labels, req.member.properties);
+          return std::make_unique<RemoteCreateVertexRes>(
+              RemoteCreateResult{RemoteUpdateResult::DONE, gid});
         });
 
     server.Register<RemoteCreateEdgeRpc>(
@@ -353,18 +370,14 @@ class RemoteUpdatesRpcServer {
   }
 
   RemoteCreateResult CreateEdge(const RemoteCreateEdgeReqData &req) {
-    auto &dba = GetUpdates(edge_updates_, req.tx_id).db_accessor();
-
-    auto edge = dba.InsertOnlyEdge(
-        {req.from, db_.WorkerId()},
-        dba.db().storage().LocalizedAddressIfPossible(req.to), req.edge_type);
+    auto gid = GetUpdates(edge_updates_, req.tx_id)
+                   .CreateEdge(req.from, req.to, req.edge_type);
 
     auto from_delta = database::StateDelta::AddOutEdge(
-        req.tx_id, req.from, req.to,
-        dba.db().storage().GlobalizedAddress(edge.address()), req.edge_type);
+        req.tx_id, req.from, req.to, {gid, db_.WorkerId()}, req.edge_type);
 
     auto result = GetUpdates(vertex_updates_, req.tx_id).Emplace(from_delta);
-    return {result, edge.gid()};
+    return {result, gid};
   }
 
   RemoteUpdateResult RemoveEdge(const RemoteRemoveEdgeData &data) {

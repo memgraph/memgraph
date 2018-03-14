@@ -1,10 +1,13 @@
-#include <gtest/gtest.h>
-
 #include <functional>
+#include <unordered_map>
+
+#include <gtest/gtest.h>
 
 #include "database/graph_db_accessor.hpp"
 #include "distributed/remote_updates_rpc_clients.hpp"
 #include "distributed/remote_updates_rpc_server.hpp"
+#include "query/typed_value.hpp"
+#include "storage/property_value.hpp"
 
 #include "distributed_common.hpp"
 
@@ -353,6 +356,8 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
   storage::VertexAddress w1_a;
   storage::VertexAddress w1_b;
   storage::VertexAddress w2_a;
+  std::unordered_map<std::string, PropertyValue> props{{"p1", 42},
+                                                       {"p2", true}};
   storage::EdgeAddress e_ga;
 
   void SetUp() override {
@@ -370,17 +375,15 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
     auto edge_type = dba.EdgeType("et");
     VertexAccessor v1{from_addr, dba};
     VertexAccessor v2{to_addr, dba};
-    e_ga = dba.InsertEdge(v1, v2, edge_type).GlobalAddress();
+    auto edge = dba.InsertEdge(v1, v2, edge_type);
+    e_ga = edge.GlobalAddress();
+
+    for (auto &kv : props) edge.PropsSet(dba.Property(kv.first), kv.second);
+
     master().remote_updates_server().Apply(dba.transaction_id());
     worker(1).remote_updates_server().Apply(dba.transaction_id());
     worker(2).remote_updates_server().Apply(dba.transaction_id());
     dba.Commit();
-  }
-
-  void CheckCounts(int master_count, int worker1_count, int worker2_count) {
-    EXPECT_EQ(EdgeCount(master()), master_count);
-    EXPECT_EQ(EdgeCount(worker(1)), worker1_count);
-    EXPECT_EQ(EdgeCount(worker(2)), worker2_count);
   }
 
   void CheckState(database::GraphDb &db, bool edge_is_local,
@@ -397,6 +400,13 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
       EXPECT_EQ(from.GlobalAddress(), from_addr);
       auto to = edge.to();
       EXPECT_EQ(to.GlobalAddress(), to_addr);
+
+      EXPECT_EQ(edge.Properties().size(), props.size());
+      for (auto &kv : props) {
+        auto equality = edge.PropsAt(dba.Property(kv.first)) ==
+                        query::TypedValue(kv.second);
+        EXPECT_TRUE(equality.IsBool() && equality.ValueBool());
+      }
     }
 
     auto edges = [](auto iterable) {
@@ -427,7 +437,9 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
   void CheckAll(storage::VertexAddress from_addr,
                 storage::VertexAddress to_addr) {
     int edge_worker = from_addr.worker_id();
-    CheckCounts(edge_worker == 0, edge_worker == 1, edge_worker == 2);
+    EXPECT_EQ(EdgeCount(master()), edge_worker == 0);
+    EXPECT_EQ(EdgeCount(worker(1)), edge_worker == 1);
+    EXPECT_EQ(EdgeCount(worker(2)), edge_worker == 2);
     CheckState(master(), edge_worker == 0, from_addr, to_addr);
     CheckState(worker(1), edge_worker == 1, from_addr, to_addr);
     CheckState(worker(2), edge_worker == 2, from_addr, to_addr);
