@@ -23,7 +23,7 @@ PlanConsumer::PlanPack &PlanConsumer::PlanForId(int64_t plan_id) const {
   auto accessor = plan_cache_.access();
   auto found = accessor.find(plan_id);
   CHECK(found != accessor.end())
-      << "Missing plan and symbol table for plan id!";
+      << "Missing plan and symbol table for plan id: " << plan_id;
   return *found->second;
 }
 

@@ -15,13 +15,6 @@ int main(int argc, char *argv[]) {
 
   Cluster cluster(5);
 
-  // static thread_local std::mt19937 rand_dev{std::random_device{}()};
-  // static thread_local std::uniform_int_distribution<> int_dist;
-
-  // auto rint = [&rand_dev, &int_dist](int upper) {
-  //   return int_dist(rand_dev) % upper;
-  // };
-
   cluster.Execute("CREATE INDEX ON :Card(id)");
   cluster.Execute("CREATE INDEX ON :Transaction(id)");
   cluster.Execute("CREATE INDEX ON :Pos(id)");
@@ -64,7 +57,7 @@ int main(int argc, char *argv[]) {
         --i;
       }
       if (i > 0 && i % 200 == 0)
-        LOG(INFO) << "Created " << i << " transacitons";
+        LOG(INFO) << "Created " << i << " transactions";
     }
   };
 

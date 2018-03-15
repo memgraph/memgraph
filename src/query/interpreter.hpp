@@ -24,19 +24,16 @@ namespace query {
 
 class Interpreter {
  private:
+  /// Encapsulates a plan for caching. Takes care of remote (worker) cache
+  /// updating in distributed memgraph.
   class CachedPlan {
    public:
-    explicit CachedPlan(plan::DistributedPlan distributed_plan, double cost)
-        : distributed_plan_(std::move(distributed_plan)), cost_(cost) {}
+    /// Creates a cached plan and sends it to all the workers.
+    CachedPlan(plan::DistributedPlan distributed_plan, double cost,
+               distributed::PlanDispatcher *plan_dispatcher);
 
-    CachedPlan(std::unique_ptr<plan::LogicalOperator> plan, double cost,
-               SymbolTable symbol_table, AstTreeStorage storage)
-        : distributed_plan_{0,
-                            std::move(plan),
-                            {},
-                            std::move(storage),
-                            symbol_table},
-          cost_(cost) {}
+    /// Removes the cached plan from all the workers.
+    ~CachedPlan();
 
     const auto &plan() const { return *distributed_plan_.master_plan; }
     const auto &distributed_plan() const { return distributed_plan_; }
@@ -52,44 +49,12 @@ class Interpreter {
     plan::DistributedPlan distributed_plan_;
     double cost_;
     utils::Timer cache_timer_;
-  };
 
-  /** Contains a thread-safe cache of plans and means of caching and
-   * invalidating them in a distributed MG. */
-  class PlanCache {
-   public:
-    explicit PlanCache(distributed::PlanDispatcher *plan_dispatcher)
-        : plan_dispatcher_(plan_dispatcher) {}
-    /** Finds the CachedPlan for the given hash. If the plan is not found,
-     * nullptr is retured. If the plan is found, but has expired, it is
-     * invalidated and nullptr is returned. Otherwise the cached plan is
-     * returned as a shared ptr. */
-    std::shared_ptr<CachedPlan> Find(HashType hash);
-
-    /** Removes the plan with the given hash from local and remote caches. */
-    void Remove(HashType hash);
-
-    /** Clears all the cached plans. */
-    void Clear();
-
-    /** Inserts the given plan for the given hash into the local and remote
-     * caches. Returns the cached plan, which might NOT be the same as the given
-     * `plan` because a concurrent insertion might have happened, only one can
-     * succeed, but both query executions MUST us the one that has succeeded
-     * (only for that plan is it guaranteed that workers have the appropriate
-     * subplans). */
-    std::shared_ptr<CachedPlan> Insert(HashType hash,
-                                       std::shared_ptr<CachedPlan> plan);
-
-   private:
-    ConcurrentMap<HashType, std::shared_ptr<CachedPlan>> cache_;
     // Optional, only available in a distributed master.
     distributed::PlanDispatcher *plan_dispatcher_{nullptr};
-
-    // Notifies all the workers that they should clear the cache of all the
-    // worker parts of the given distributed plan.
-    void RemoveFromWorkers(const CachedPlan &plan);
   };
+
+  using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
 
  public:
   /**
@@ -101,7 +66,7 @@ class Interpreter {
     Results(Context ctx, std::shared_ptr<CachedPlan> plan,
             std::unique_ptr<query::plan::Cursor> cursor,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
-            std::map<std::string, TypedValue> summary, PlanCache &plan_cache)
+            std::map<std::string, TypedValue> summary, PlanCacheT &plan_cache)
         : ctx_(std::move(ctx)),
           plan_(plan),
           cursor_(std::move(cursor)),
@@ -151,7 +116,10 @@ class Interpreter {
         stream.Summary(summary_);
 
         if (ctx_.is_index_created_) {
-          plan_cache_.Clear();
+          auto access = plan_cache_.access();
+          for (auto &kv : access) {
+            access.remove(kv.first);
+          }
         }
       }
 
@@ -177,7 +145,7 @@ class Interpreter {
 
     utils::Timer execution_timer_;
     // Gets invalidated after if an index has been built.
-    Interpreter::PlanCache &plan_cache_;
+    PlanCacheT &plan_cache_;
   };
 
   explicit Interpreter(database::GraphDb &db);
@@ -196,6 +164,20 @@ class Interpreter {
                      bool in_explicit_transaction);
 
  private:
+  ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
+  PlanCacheT plan_cache_;
+  std::atomic<int64_t> next_plan_id_{0};
+  // Antlr has singleton instance that is shared between threads. It is
+  // protected by locks inside of antlr. Unfortunately, they are not protected
+  // in a very good way. Once we have antlr version without race conditions we
+  // can remove this lock. This will probably never happen since antlr
+  // developers introduce more bugs in each version. Fortunately, we have cache
+  // so this lock probably won't impact performance much...
+  SpinLock antlr_lock_;
+
+  // Optional, not null only in a distributed master.
+  distributed::PlanDispatcher *plan_dispatcher_{nullptr};
+
   // stripped query -> CachedPlan
   std::shared_ptr<CachedPlan> QueryToPlan(const StrippedQuery &stripped,
                                           Context &ctx);
@@ -206,17 +188,6 @@ class Interpreter {
   // AstTreeStorage and SymbolTable may be modified during planning.
   std::pair<std::unique_ptr<plan::LogicalOperator>, double> MakeLogicalPlan(
       AstTreeStorage &, Context &);
-
-  ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
-  PlanCache plan_cache_;
-  std::atomic<int64_t> next_plan_id_{0};
-  // Antlr has singleton instance that is shared between threads. It is
-  // protected by locks inside of antlr. Unfortunately, they are not protected
-  // in a very good way. Once we have antlr version without race conditions we
-  // can remove this lock. This will probably never happen since antlr
-  // developers introduce more bugs in each version. Fortunately, we have cache
-  // so this lock probably won't impact performance much...
-  SpinLock antlr_lock_;
 };
 
 }  // namespace query

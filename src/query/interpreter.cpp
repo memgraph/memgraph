@@ -20,68 +20,35 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
 
 namespace query {
 
-std::shared_ptr<Interpreter::CachedPlan> Interpreter::PlanCache::Find(
-    HashType hash) {
-  auto accessor = cache_.access();
-  auto it = accessor.find(hash);
-  if (it == accessor.end()) return nullptr;
-  if (!it->second->IsExpired()) return it->second;
-  Remove(hash);
-  return nullptr;
-}
-
-std::shared_ptr<Interpreter::CachedPlan> Interpreter::PlanCache::Insert(
-    HashType hash, std::shared_ptr<CachedPlan> plan) {
-  // Dispatch plans to workers (if we have any for them).
+Interpreter::CachedPlan::CachedPlan(
+    plan::DistributedPlan distributed_plan, double cost,
+    distributed::PlanDispatcher *plan_dispatcher)
+    : distributed_plan_(std::move(distributed_plan)),
+      cost_(cost),
+      plan_dispatcher_(plan_dispatcher) {
   if (plan_dispatcher_) {
-    for (const auto &plan_pair : plan->distributed_plan().worker_plans) {
+    for (const auto &plan_pair : distributed_plan_.worker_plans) {
       const auto &plan_id = plan_pair.first;
       const auto &worker_plan = plan_pair.second;
       plan_dispatcher_->DispatchPlan(plan_id, worker_plan,
-                                     plan->symbol_table());
+                                     distributed_plan_.symbol_table);
     }
   }
-
-  auto access = cache_.access();
-  auto insertion = access.insert(hash, plan);
-
-  // If the same plan was already cached, invalidate the above dispatched
-  // plans on the workers.
-  if (!insertion.second && plan_dispatcher_) {
-    RemoveFromWorkers(*plan);
-  }
-
-  return insertion.first->second;
 }
 
-void Interpreter::PlanCache::Remove(HashType hash) {
-  auto access = cache_.access();
-  auto found = access.find(hash);
-  if (found == access.end()) return;
-
-  RemoveFromWorkers(*found->second);
-  cache_.access().remove(hash);
-}
-
-void Interpreter::PlanCache::Clear() {
-  auto access = cache_.access();
-  for (auto &kv : access) {
-    RemoveFromWorkers(*kv.second);
-    access.remove(kv.first);
-  }
-}
-
-void Interpreter::PlanCache::RemoveFromWorkers(const CachedPlan &plan) {
-  for (const auto &plan_pair : plan.distributed_plan().worker_plans) {
-    const auto &plan_id = plan_pair.first;
-    plan_dispatcher_->RemovePlan(plan_id);
+Interpreter::CachedPlan::~CachedPlan() {
+  if (plan_dispatcher_) {
+    for (const auto &plan_pair : distributed_plan_.worker_plans) {
+      const auto &plan_id = plan_pair.first;
+      plan_dispatcher_->RemovePlan(plan_id);
+    }
   }
 }
 
 Interpreter::Interpreter(database::GraphDb &db)
-    : plan_cache_(db.type() == database::GraphDb::Type::DISTRIBUTED_MASTER
-                      ? &db.plan_dispatcher()
-                      : nullptr) {}
+    : plan_dispatcher_(db.type() == database::GraphDb::Type::DISTRIBUTED_MASTER
+                           ? &db.plan_dispatcher()
+                           : nullptr) {}
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query, database::GraphDbAccessor &db_accessor,
@@ -110,10 +77,19 @@ Interpreter::Results Interpreter::operator()(
   // Try to get a cached plan. Note that this local shared_ptr might be the only
   // owner of the CachedPlan, so ensure it lives during the whole
   // interpretation.
-  std::shared_ptr<CachedPlan> plan = plan_cache_.Find(stripped.hash());
+  std::shared_ptr<CachedPlan> plan{nullptr};
+  auto plan_cache_access = plan_cache_.access();
+  auto it = plan_cache_access.find(stripped.hash());
+  if (it != plan_cache_access.end()) {
+    if (it->second->IsExpired())
+      plan_cache_access.remove(stripped.hash());
+    else
+      plan = it->second;
+  }
   utils::Timer planning_timer;
   if (!plan) {
-    plan = plan_cache_.Insert(stripped.hash(), QueryToPlan(stripped, ctx));
+    plan = plan_cache_access.insert(stripped.hash(), QueryToPlan(stripped, ctx))
+               .first->second;
   }
   auto planning_time = planning_timer.Elapsed();
 
@@ -165,11 +141,16 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
     auto distributed_plan = MakeDistributedPlan(
         *tmp_logical_plan, ctx.symbol_table_, next_plan_id_);
     return std::make_shared<CachedPlan>(std::move(distributed_plan),
-                                        query_plan_cost_estimation);
+                                        query_plan_cost_estimation,
+                                        plan_dispatcher_);
   } else {
     return std::make_shared<CachedPlan>(
-        std::move(tmp_logical_plan), query_plan_cost_estimation,
-        ctx.symbol_table_, std::move(ast_storage));
+        plan::DistributedPlan{0,
+                              std::move(tmp_logical_plan),
+                              {},
+                              std::move(ast_storage),
+                              ctx.symbol_table_},
+        query_plan_cost_estimation, plan_dispatcher_);
   }
 }
 

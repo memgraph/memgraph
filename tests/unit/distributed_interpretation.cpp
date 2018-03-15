@@ -12,6 +12,10 @@
 #include "query_plan_common.hpp"
 #include "utils/timer.hpp"
 
+// We use this to ensure a cached plan is removed from the concurrent map and
+// properly destructed.
+DECLARE_int32(skiplist_gc_interval);
+
 using namespace distributed;
 using namespace database;
 
@@ -241,9 +245,35 @@ TEST_F(DistributedInterpretationTest, PlanExpiration) {
   Run("MATCH (n) RETURN n");
   auto ids1 = worker(1).plan_consumer().CachedPlanIds();
   ASSERT_EQ(ids1.size(), 1);
+  // Sleep so the cached plan becomes invalid.
   std::this_thread::sleep_for(std::chrono::milliseconds(1100));
   Run("MATCH (n) RETURN n");
+  // Sleep so the invalidated plan (removed from cache which is a concurrent
+  // map) gets destructed and thus remote caches cleared.
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
   auto ids2 = worker(1).plan_consumer().CachedPlanIds();
   ASSERT_EQ(ids2.size(), 1);
   EXPECT_NE(ids1, ids2);
+}
+
+TEST_F(DistributedInterpretationTest, ConcurrentPlanExpiration) {
+  FLAGS_query_plan_cache_ttl = 1;
+  auto count_vertices = [this]() {
+    utils::Timer timer;
+    while (timer.Elapsed() < 3s) {
+      Run("MATCH () RETURN count(1)");
+    }
+  };
+  std::vector<std::thread> counters;
+  for (size_t i = 0; i < std::thread::hardware_concurrency(); ++i)
+    counters.emplace_back(count_vertices);
+  for (auto &t : counters) t.join();
+}
+
+int main(int argc, char **argv) {
+  google::InitGoogleLogging(argv[0]);
+  ::testing::InitGoogleTest(&argc, argv);
+  gflags::ParseCommandLineFlags(&argc, &argv, true);
+  FLAGS_skiplist_gc_interval = 1;
+  return RUN_ALL_TESTS();
 }
