@@ -13,8 +13,7 @@ namespace threading {
 /// though there is a thread waiting for an exclusive (write) lock, which can
 /// lead to writer starvation. If the priority is set to `WRITE`, readers will
 /// be blocked from obtaining new shared locks while there are writers waiting,
-/// which can lead to reader starvation. However, if there is an exclusive lock
-/// held, writers will always be preferred upon it's release.
+/// which can lead to reader starvation.
 enum RWLockPriority { READ, WRITE };
 
 /// A wrapper around `pthread_rwlock_t`, useful because it is not possible to

@@ -52,53 +52,6 @@ TEST(RWLock, SingleWriter) {
   EXPECT_GE(timer.Elapsed(), 290ms);
 }
 
-/* Next two tests demonstrate that writers are always preferred when an unique
- * lock is released. */
-
-TEST(RWLock, WritersPreferred_1) {
-  RWLock rwlock(RWLockPriority::READ);
-  rwlock.lock();
-  bool first = true;
-
-  std::thread t1([&rwlock, &first] {
-    std::shared_lock<RWLock> lock(rwlock);
-    EXPECT_FALSE(first);
-  });
-
-  std::thread t2([&rwlock, &first] {
-    std::unique_lock<RWLock> lock(rwlock);
-    EXPECT_TRUE(first);
-    first = false;
-  });
-
-  std::this_thread::sleep_for(100ms);
-  rwlock.unlock();
-  t1.join();
-  t2.join();
-}
-
-TEST(RWLock, WritersPreferred_2) {
-  RWLock rwlock(RWLockPriority::WRITE);
-  rwlock.lock();
-  bool first = true;
-
-  std::thread t1([&rwlock, &first] {
-    std::shared_lock<RWLock> lock(rwlock);
-    EXPECT_FALSE(first);
-  });
-
-  std::thread t2([&rwlock, &first] {
-    std::unique_lock<RWLock> lock(rwlock);
-    EXPECT_TRUE(first);
-    first = false;
-  });
-
-  std::this_thread::sleep_for(100ms);
-  rwlock.unlock();
-  t1.join();
-  t2.join();
-}
-
 TEST(RWLock, ReadPriority) {
   /*
    * - Main thread is holding a shared lock until T = 100ms.
