@@ -1,11 +1,12 @@
-#include "storage/property_value.hpp"
-
-#include <fmt/format.h>
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <utility>
 
+#include "fmt/format.h"
 #include "glog/logging.h"
+
+#include "storage/property_value.hpp"
 
 // Value extraction template instantiations
 template <>
@@ -68,7 +69,8 @@ PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
       return;
 
     case PropertyValue::Type::String:
-      new (&string_v) std::shared_ptr<std::string>(other.string_v);
+      new (&string_v)
+          std::unique_ptr<std::string>(new std::string(*other.string_v));
       return;
 
     case Type::Int:
@@ -80,12 +82,48 @@ PropertyValue::PropertyValue(const PropertyValue &other) : type_(other.type_) {
       return;
 
     case Type::List:
-      new (&list_v) std::shared_ptr<std::vector<PropertyValue>>(other.list_v);
+      new (&list_v) std::unique_ptr<std::vector<PropertyValue>>(
+          new std::vector<PropertyValue>(*other.list_v));
       return;
 
     case Type::Map:
-      new (&map_v)
-          std::shared_ptr<std::map<std::string, PropertyValue>>(other.map_v);
+      new (&map_v) std::unique_ptr<std::map<std::string, PropertyValue>>(
+          new std::map<std::string, PropertyValue>(*other.map_v));
+      return;
+  }
+
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
+}
+
+PropertyValue::PropertyValue(PropertyValue &&other) : type_(other.type_) {
+  switch (other.type_) {
+    case PropertyValue::Type::Null:
+      return;
+
+    case PropertyValue::Type::Bool:
+      this->bool_v = other.bool_v;
+      return;
+
+    case PropertyValue::Type::String:
+      new (&string_v) std::unique_ptr<std::string>(std::move(other.string_v));
+      return;
+
+    case Type::Int:
+      this->int_v = other.int_v;
+      return;
+
+    case Type::Double:
+      this->double_v = other.double_v;
+      return;
+
+    case Type::List:
+      new (&list_v)
+          std::unique_ptr<std::vector<PropertyValue>>(std::move(other.list_v));
+      return;
+
+    case Type::Map:
+      new (&map_v) std::unique_ptr<std::map<std::string, PropertyValue>>(
+          std::move(other.map_v));
       return;
   }
 
@@ -152,7 +190,8 @@ PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
         this->bool_v = other.bool_v;
         return *this;
       case PropertyValue::Type::String:
-        new (&string_v) std::shared_ptr<std::string>(other.string_v);
+        new (&string_v)
+            std::unique_ptr<std::string>(new std::string(*other.string_v));
         return *this;
       case PropertyValue::Type::Int:
         this->int_v = other.int_v;
@@ -161,11 +200,44 @@ PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
         this->double_v = other.double_v;
         return *this;
       case PropertyValue::Type::List:
-        new (&list_v) std::shared_ptr<std::vector<PropertyValue>>(other.list_v);
+        new (&list_v) std::unique_ptr<std::vector<PropertyValue>>(
+            new std::vector<PropertyValue>(*other.list_v));
         return *this;
       case PropertyValue::Type::Map:
-        new (&map_v)
-            std::shared_ptr<std::map<std::string, PropertyValue>>(other.map_v);
+        new (&map_v) std::unique_ptr<std::map<std::string, PropertyValue>>(
+            new std::map<std::string, PropertyValue>(*other.map_v));
+        return *this;
+    }
+  }
+  LOG(FATAL) << "Unsupported PropertyValue::Type";
+}
+
+PropertyValue &PropertyValue::operator=(PropertyValue &&other) {
+  this->~PropertyValue();
+  type_ = other.type_;
+
+  if (this != &other) {
+    switch (other.type_) {
+      case PropertyValue::Type::Null:
+      case PropertyValue::Type::Bool:
+        this->bool_v = other.bool_v;
+        return *this;
+      case PropertyValue::Type::String:
+        new (&string_v) std::unique_ptr<std::string>(std::move(other.string_v));
+        return *this;
+      case PropertyValue::Type::Int:
+        this->int_v = other.int_v;
+        return *this;
+      case PropertyValue::Type::Double:
+        this->double_v = other.double_v;
+        return *this;
+      case PropertyValue::Type::List:
+        new (&list_v) std::unique_ptr<std::vector<PropertyValue>>(
+            std::move(other.list_v));
+        return *this;
+      case PropertyValue::Type::Map:
+        new (&map_v) std::unique_ptr<std::map<std::string, PropertyValue>>(
+            std::move(other.map_v));
         return *this;
     }
   }
@@ -185,13 +257,13 @@ PropertyValue::~PropertyValue() {
 
     // destructor for shared pointer must release
     case Type::String:
-      string_v.~shared_ptr<std::string>();
+      string_v.~unique_ptr<std::string>();
       return;
     case Type::List:
-      list_v.~shared_ptr<std::vector<PropertyValue>>();
+      list_v.~unique_ptr<std::vector<PropertyValue>>();
       return;
     case Type::Map:
-      map_v.~shared_ptr<std::map<std::string, PropertyValue>>();
+      map_v.~unique_ptr<std::map<std::string, PropertyValue>>();
       return;
   }
   LOG(FATAL) << "Unsupported PropertyValue::Type";

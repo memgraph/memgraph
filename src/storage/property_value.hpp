@@ -45,24 +45,26 @@ class PropertyValue {
 
   /// constructors for non-primitive types (shared pointers)
   PropertyValue(const std::string &value) : type_(Type::String) {
-    new (&string_v) std::shared_ptr<std::string>(new std::string(value));
+    new (&string_v) std::unique_ptr<std::string>(new std::string(value));
   }
   PropertyValue(const char *value) : type_(Type::String) {
-    new (&string_v) std::shared_ptr<std::string>(new std::string(value));
+    new (&string_v) std::unique_ptr<std::string>(new std::string(value));
   }
   PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
-    new (&list_v) std::shared_ptr<std::vector<PropertyValue>>(
+    new (&list_v) std::unique_ptr<std::vector<PropertyValue>>(
         new std::vector<PropertyValue>(value));
   }
   PropertyValue(const std::map<std::string, PropertyValue> &value)
       : type_(Type::Map) {
-    new (&map_v) std::shared_ptr<std::map<std::string, PropertyValue>>(
+    new (&map_v) std::unique_ptr<std::map<std::string, PropertyValue>>(
         new std::map<std::string, PropertyValue>(value));
   }
 
   PropertyValue &operator=(const PropertyValue &other);
+  PropertyValue &operator=(PropertyValue &&other);
 
   PropertyValue(const PropertyValue &other);
+  PropertyValue(PropertyValue &&other);
   ~PropertyValue();
 
   Type type() const { return type_; }
@@ -89,11 +91,11 @@ class PropertyValue {
     bool bool_v;
     int64_t int_v;
     double double_v;
-    std::shared_ptr<std::string> string_v;
+    std::unique_ptr<std::string> string_v;
     // We support lists of values of different types, neo4j supports lists of
     // values of the same type.
-    std::shared_ptr<std::vector<PropertyValue>> list_v;
-    std::shared_ptr<std::map<std::string, PropertyValue>> map_v;
+    std::unique_ptr<std::vector<PropertyValue>> list_v;
+    std::unique_ptr<std::map<std::string, PropertyValue>> map_v;
   };
 
   /**
