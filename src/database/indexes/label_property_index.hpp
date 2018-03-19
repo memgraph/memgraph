@@ -3,7 +3,7 @@
 #include <experimental/optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/graph_db.hpp"
+#include "data_structures/concurrent/concurrent_set.hpp"
 #include "database/indexes/index_common.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
@@ -259,9 +259,10 @@ class LabelPropertyIndex {
     auto access = GetKeyStorage(key)->access();
 
     // create the iterator startpoint based on the lower bound
-    auto start_iter = lower ? access.find_or_larger(make_index_bound(
-                                  lower, lower.value().IsInclusive()))
-                            : access.begin();
+    auto start_iter = lower
+                          ? access.find_or_larger(make_index_bound(
+                                lower, lower.value().IsInclusive()))
+                          : access.begin();
 
     // a function that defines if an entry staisfies the filtering predicate.
     // since we already handled the lower bound, we only need to deal with the

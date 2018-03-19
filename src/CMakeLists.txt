@@ -16,8 +16,17 @@ set(memgraph_src_files
     database/state_delta.cpp
     distributed/coordination_master.cpp
     distributed/coordination_worker.cpp
+    distributed/index_rpc_server.cpp
     distributed/plan_consumer.cpp
     distributed/plan_dispatcher.cpp
+    distributed/remote_cache.cpp
+    distributed/remote_data_manager.cpp
+    distributed/remote_data_rpc_clients.cpp
+    distributed/remote_data_rpc_server.cpp
+    distributed/remote_produce_rpc_server.cpp
+    distributed/remote_pull_rpc_clients.cpp
+    distributed/remote_updates_rpc_clients.cpp
+    distributed/remote_updates_rpc_server.cpp
     durability/paths.cpp
     durability/recovery.cpp
     durability/snapshooter.cpp

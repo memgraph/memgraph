@@ -93,7 +93,7 @@ VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
   for (auto &kv : properties) vertex->properties_.set(kv.first, kv.second);
 
   db().remote_data_manager()
-      .Vertices(transaction_id())
+      .Elements<Vertex>(transaction_id())
       .emplace(gid, nullptr, std::move(vertex));
   return VertexAccessor({gid, worker_id}, *this);
 }
@@ -417,12 +417,12 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
         transaction_id(), from, to, edge_type);
 
     from_updated = db().remote_data_manager()
-                       .Vertices(transaction_id())
+                       .Elements<Vertex>(transaction_id())
                        .FindNew(from.gid());
 
     // Create an Edge and insert it into the RemoteCache so we see it locally.
     db().remote_data_manager()
-        .Edges(transaction_id())
+        .Elements<Edge>(transaction_id())
         .emplace(
             edge_address.gid(), nullptr,
             std::make_unique<Edge>(from.address(), to.address(), edge_type));
@@ -446,8 +446,9 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
           transaction_id(), from,
           db().storage().GlobalizedAddress(edge_address), to, edge_type);
     }
-    to_updated =
-        db().remote_data_manager().Vertices(transaction_id()).FindNew(to.gid());
+    to_updated = db().remote_data_manager()
+                     .Elements<Vertex>(transaction_id())
+                     .FindNew(to.gid());
   }
   to_updated->in_.emplace(
       db_.storage().LocalizedAddressIfPossible(from.address()), edge_address,

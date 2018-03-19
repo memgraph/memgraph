@@ -4,6 +4,7 @@
 #include "database/state_delta.hpp"
 #include "distributed/remote_data_manager.hpp"
 #include "distributed/remote_updates_rpc_clients.hpp"
+#include "query/exceptions.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"

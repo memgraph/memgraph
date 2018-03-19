@@ -3,7 +3,6 @@
 #include "glog/logging.h"
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/graph_db.hpp"
 #include "database/indexes/index_common.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
