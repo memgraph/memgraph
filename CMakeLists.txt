@@ -72,6 +72,14 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z -Wall -Werror=switch -Werror=
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
+# Statically link libgcc and libstdc++, the GCC allows this according to:
+# https://www.gnu.org/licenses/gcc-exception-faq.html
+# Last checked for gcc-7.3, we are using gcc-6.3 on build machines (license is
+# valid there also).
+# ** If we change versions, recheck this! **
+# ** Static linking is allowed only for executables! **
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+
 # Use gold linker to speedup build
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=gold")
 
