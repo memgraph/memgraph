@@ -76,7 +76,7 @@ TEST_F(DistributedGraphDbTest, CreateVertex) {
   }
   {
     database::GraphDbAccessor dba{worker(2)};
-    auto v = dba.FindVertex(gid, false);
+    auto v = dba.FindVertexOptional(gid, false);
     ASSERT_TRUE(v);
   }
 }
@@ -95,7 +95,7 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithUpdate) {
   }
   {
     database::GraphDbAccessor dba{worker(2)};
-    auto v = dba.FindVertex(gid, false);
+    auto v = dba.FindVertexOptional(gid, false);
     ASSERT_TRUE(v);
     EXPECT_EQ(v->PropsAt(prop).Value<int64_t>(), 42);
   }
@@ -124,7 +124,7 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithData) {
   }
   {
     database::GraphDbAccessor dba{worker(2)};
-    auto v = dba.FindVertex(gid, false);
+    auto v = dba.FindVertexOptional(gid, false);
     ASSERT_TRUE(v);
     // Check remote data after commit.
     EXPECT_TRUE(v->has_label(l1));
@@ -150,7 +150,7 @@ TEST_F(DistributedGraphDbTest, UpdateVertexRemoteAndLocal) {
   {
     database::GraphDbAccessor dba0{master()};
     database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v_local = dba1.FindVertexChecked(gid, false);
+    auto v_local = dba1.FindVertex(gid, false);
     auto v_remote = VertexAccessor(storage::VertexAddress(gid, 1), dba0);
 
     v_remote.add_label(l2);
@@ -167,7 +167,7 @@ TEST_F(DistributedGraphDbTest, AddSameLabelRemoteAndLocal) {
   {
     database::GraphDbAccessor dba0{master()};
     database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v_local = dba1.FindVertexChecked(v_address.gid(), false);
+    auto v_local = dba1.FindVertex(v_address.gid(), false);
     auto v_remote = VertexAccessor(v_address, dba0);
     auto l1 = dba1.Label("label");
     v_remote.add_label(l1);
@@ -178,7 +178,7 @@ TEST_F(DistributedGraphDbTest, AddSameLabelRemoteAndLocal) {
   {
     database::GraphDbAccessor dba0{master()};
     database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v = dba1.FindVertexChecked(v_address.gid(), false);
+    auto v = dba1.FindVertex(v_address.gid(), false);
     EXPECT_EQ(v.labels().size(), 1);
   }
 }
@@ -207,10 +207,10 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteCommit) {
   database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
   auto v_remote = VertexAccessor(v_address, dba0);
   dba0.RemoveVertex(v_remote);
-  EXPECT_TRUE(dba1.FindVertex(v_address.gid(), true));
+  EXPECT_TRUE(dba1.FindVertexOptional(v_address.gid(), true));
   EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
             distributed::RemoteUpdateResult::DONE);
-  EXPECT_FALSE(dba1.FindVertex(v_address.gid(), true));
+  EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
 }
 
 TEST_F(DistributedGraphDbTest, DeleteVertexRemoteBothDelete) {
@@ -218,13 +218,13 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteBothDelete) {
   {
     database::GraphDbAccessor dba0{master()};
     database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v_local = dba1.FindVertexChecked(v_address.gid(), false);
+    auto v_local = dba1.FindVertex(v_address.gid(), false);
     auto v_remote = VertexAccessor(v_address, dba0);
     EXPECT_TRUE(dba1.RemoveVertex(v_local));
     EXPECT_TRUE(dba0.RemoveVertex(v_remote));
     EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
               distributed::RemoteUpdateResult::DONE);
-    EXPECT_FALSE(dba1.FindVertex(v_address.gid(), true));
+    EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
   }
 }
 
@@ -239,13 +239,13 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
     dba0.RemoveVertex(v_remote);
     EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
               distributed::RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR);
-    EXPECT_TRUE(dba1.FindVertex(v_address.gid(), true));
+    EXPECT_TRUE(dba1.FindVertexOptional(v_address.gid(), true));
   }
   {
     database::GraphDbAccessor dba0{master()};
     database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto e_local = dba1.FindEdgeChecked(e_address.gid(), false);
-    auto v_local = dba1.FindVertexChecked(v_address.gid(), false);
+    auto e_local = dba1.FindEdge(e_address.gid(), false);
+    auto v_local = dba1.FindVertex(v_address.gid(), false);
     auto v_remote = VertexAccessor(v_address, dba0);
 
     dba1.RemoveEdge(e_local);
@@ -253,7 +253,7 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
 
     EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
               distributed::RemoteUpdateResult::DONE);
-    EXPECT_FALSE(dba1.FindVertex(v_address.gid(), true));
+    EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
   }
 }
 
@@ -302,8 +302,8 @@ TEST_F(DistributedDetachDeleteTest, VertexCycle) {
   Run(w1_a,
       [this, e_address](
           std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
-        EXPECT_FALSE(dba[1].get().FindVertex(w1_a.gid(), true));
-        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindVertexOptional(w1_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdgeOptional(e_address.gid(), true));
       });
 }
 
@@ -314,18 +314,18 @@ TEST_F(DistributedDetachDeleteTest, TwoVerticesDifferentWorkers) {
   Run(w1_a,
       [this, e_address](
           std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
-        EXPECT_FALSE(dba[1].get().FindVertex(w1_a.gid(), true));
-        EXPECT_TRUE(dba[2].get().FindVertex(w2_a.gid(), true));
-        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindVertexOptional(w1_a.gid(), true));
+        EXPECT_TRUE(dba[2].get().FindVertexOptional(w2_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdgeOptional(e_address.gid(), true));
       });
 
   // Delete to
   Run(w2_a,
       [this, e_address](
           std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
-        EXPECT_TRUE(dba[1].get().FindVertex(w1_a.gid(), true));
-        EXPECT_FALSE(dba[2].get().FindVertex(w2_a.gid(), true));
-        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+        EXPECT_TRUE(dba[1].get().FindVertexOptional(w1_a.gid(), true));
+        EXPECT_FALSE(dba[2].get().FindVertexOptional(w2_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdgeOptional(e_address.gid(), true));
       });
 }
 
@@ -336,18 +336,18 @@ TEST_F(DistributedDetachDeleteTest, TwoVerticesSameWorkers) {
   Run(w1_a,
       [this, e_address](
           std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
-        EXPECT_FALSE(dba[1].get().FindVertex(w1_a.gid(), true));
-        EXPECT_TRUE(dba[1].get().FindVertex(w1_b.gid(), true));
-        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindVertexOptional(w1_a.gid(), true));
+        EXPECT_TRUE(dba[1].get().FindVertexOptional(w1_b.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdgeOptional(e_address.gid(), true));
       });
 
   // Delete to
   Run(w1_b,
       [this, e_address](
           std::vector<std::reference_wrapper<database::GraphDbAccessor>> &dba) {
-        EXPECT_TRUE(dba[1].get().FindVertex(w1_a.gid(), true));
-        EXPECT_FALSE(dba[1].get().FindVertex(w1_b.gid(), true));
-        EXPECT_FALSE(dba[1].get().FindEdge(e_address.gid(), true));
+        EXPECT_TRUE(dba[1].get().FindVertexOptional(w1_a.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindVertexOptional(w1_b.gid(), true));
+        EXPECT_FALSE(dba[1].get().FindEdgeOptional(e_address.gid(), true));
       });
 }
 

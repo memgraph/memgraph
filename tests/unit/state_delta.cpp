@@ -16,7 +16,7 @@ TEST(StateDelta, CreateVertex) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto vertex = dba.FindVertex(gid0, false);
+    auto vertex = dba.FindVertexOptional(gid0, false);
     EXPECT_TRUE(vertex);
   }
 }
@@ -39,7 +39,7 @@ TEST(StateDelta, RemoveVertex) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto vertex = dba.FindVertex(gid0, false);
+    auto vertex = dba.FindVertexOptional(gid0, false);
     EXPECT_FALSE(vertex);
   }
 }
@@ -65,7 +65,7 @@ TEST(StateDelta, CreateEdge) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto edge = dba.FindEdge(gid2, false);
+    auto edge = dba.FindEdgeOptional(gid2, false);
     EXPECT_TRUE(edge);
   }
 }
@@ -91,7 +91,7 @@ TEST(StateDelta, RemoveEdge) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto edge = dba.FindEdge(gid2, false);
+    auto edge = dba.FindEdgeOptional(gid2, false);
     EXPECT_FALSE(edge);
   }
 }
@@ -114,7 +114,7 @@ TEST(StateDelta, AddLabel) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto vertex = dba.FindVertex(gid0, false);
+    auto vertex = dba.FindVertexOptional(gid0, false);
     EXPECT_TRUE(vertex);
     auto labels = vertex->labels();
     EXPECT_EQ(labels.size(), 1);
@@ -141,7 +141,7 @@ TEST(StateDelta, RemoveLabel) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto vertex = dba.FindVertex(gid0, false);
+    auto vertex = dba.FindVertexOptional(gid0, false);
     EXPECT_TRUE(vertex);
     auto labels = vertex->labels();
     EXPECT_EQ(labels.size(), 0);
@@ -167,7 +167,7 @@ TEST(StateDelta, SetPropertyVertex) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto vertex = dba.FindVertex(gid0, false);
+    auto vertex = dba.FindVertexOptional(gid0, false);
     EXPECT_TRUE(vertex);
     auto prop = vertex->PropsAt(dba.Property("property"));
     EXPECT_EQ(prop.Value<int64_t>(), 2212);
@@ -197,7 +197,7 @@ TEST(StateDelta, SetPropertyEdge) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto edge = dba.FindEdge(gid2, false);
+    auto edge = dba.FindEdgeOptional(gid2, false);
     EXPECT_TRUE(edge);
     auto prop = edge->PropsAt(dba.Property("property"));
     EXPECT_EQ(prop.Value<int64_t>(), 2212);

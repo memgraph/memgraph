@@ -46,11 +46,11 @@ class DbGenerator {
   }
 
   EdgeAccessor RandomEdge(bool remove_from_ids = false) {
-    return *dba_.FindEdge(RandomElement(edge_ids_, remove_from_ids), true);
+    return dba_.FindEdge(RandomElement(edge_ids_, remove_from_ids), true);
   }
 
   VertexAccessor RandomVertex(bool remove_from_ids = false) {
-    return *dba_.FindVertex(RandomElement(vertex_ids_, remove_from_ids), true);
+    return dba_.FindVertex(RandomElement(vertex_ids_, remove_from_ids), true);
   }
 
   VertexAccessor InsertVertex() {
@@ -197,7 +197,7 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
     int vertices_a_count = 0;
     for (auto v_a : dba_a.Vertices(false)) {
       vertices_a_count++;
-      auto v_b = dba_b.FindVertex(v_a.gid(), false);
+      auto v_b = dba_b.FindVertexOptional(v_a.gid(), false);
       ASSERT_TRUE(v_b) << "Vertex not found, id: " << v_a.gid();
       ASSERT_EQ(v_a.labels().size(), v_b->labels().size());
       std::vector<std::string> v_a_labels;
@@ -216,7 +216,7 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
     int edges_a_count = 0;
     for (auto e_a : dba_a.Edges(false)) {
       edges_a_count++;
-      auto e_b = dba_b.FindEdge(e_a.gid(), false);
+      auto e_b = dba_b.FindEdgeOptional(e_a.gid(), false);
       ASSERT_TRUE(e_b);
       ASSERT_TRUE(e_b) << "Edge not found, id: " << e_a.gid();
       EXPECT_EQ(dba_a.EdgeTypeName(e_a.EdgeType()),

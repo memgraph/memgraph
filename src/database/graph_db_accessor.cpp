@@ -98,7 +98,7 @@ VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
   return VertexAccessor({gid, worker_id}, *this);
 }
 
-std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
+std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
     gid::Gid gid, bool current_state) {
   VertexAccessor record_accessor(db_.storage().LocalAddress<Vertex>(gid),
                                  *this);
@@ -107,14 +107,13 @@ std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertex(
   return record_accessor;
 }
 
-VertexAccessor GraphDbAccessor::FindVertexChecked(gid::Gid gid,
-                                                  bool current_state) {
-  auto found = FindVertex(gid, current_state);
+VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
+  auto found = FindVertexOptional(gid, current_state);
   CHECK(found) << "Unable to find vertex for id: " << gid;
   return *found;
 }
 
-std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
+std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
     gid::Gid gid, bool current_state) {
   EdgeAccessor record_accessor(db_.storage().LocalAddress<Edge>(gid), *this);
   if (!record_accessor.Visible(transaction(), current_state))
@@ -122,9 +121,8 @@ std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdge(
   return record_accessor;
 }
 
-EdgeAccessor GraphDbAccessor::FindEdgeChecked(gid::Gid gid,
-                                              bool current_state) {
-  auto found = FindEdge(gid, current_state);
+EdgeAccessor GraphDbAccessor::FindEdge(gid::Gid gid, bool current_state) {
+  auto found = FindEdgeOptional(gid, current_state);
   CHECK(found) << "Unable to find edge for id: " << gid;
   return *found;
 }

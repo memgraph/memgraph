@@ -11,7 +11,7 @@ RemoteDataRpcServer::RemoteDataRpcServer(database::GraphDb &db,
     : db_(db), rpc_server_(server) {
   rpc_server_.Register<RemoteVertexRpc>([this](const RemoteVertexReq &req) {
     database::GraphDbAccessor dba(db_, req.member.tx_id);
-    auto vertex = dba.FindVertexChecked(req.member.gid, false);
+    auto vertex = dba.FindVertex(req.member.gid, false);
     CHECK(vertex.GetOld())
         << "Old record must exist when sending vertex by RPC";
     return std::make_unique<RemoteVertexRes>(vertex.GetOld(), db_.WorkerId());
@@ -19,7 +19,7 @@ RemoteDataRpcServer::RemoteDataRpcServer(database::GraphDb &db,
 
   rpc_server_.Register<RemoteEdgeRpc>([this](const RemoteEdgeReq &req) {
     database::GraphDbAccessor dba(db_, req.member.tx_id);
-    auto edge = dba.FindEdgeChecked(req.member.gid, false);
+    auto edge = dba.FindEdge(req.member.gid, false);
     CHECK(edge.GetOld()) << "Old record must exist when sending edge by RPC";
     return std::make_unique<RemoteEdgeRes>(edge.GetOld(), db_.WorkerId());
   });

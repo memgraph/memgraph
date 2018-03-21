@@ -349,14 +349,14 @@ template <>
 VertexAccessor
 RemoteUpdatesRpcServer::TransactionUpdates<VertexAccessor>::FindAccessor(
     gid::Gid gid) {
-  return db_accessor_.FindVertexChecked(gid, false);
+  return db_accessor_.FindVertex(gid, false);
 }
 
 template <>
 EdgeAccessor
 RemoteUpdatesRpcServer::TransactionUpdates<EdgeAccessor>::FindAccessor(
     gid::Gid gid) {
-  return db_accessor_.FindEdgeChecked(gid, false);
+  return db_accessor_.FindEdge(gid, false);
 }
 
 }  // namespace distributed

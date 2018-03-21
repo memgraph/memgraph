@@ -119,11 +119,21 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::experimental::optional<VertexAccessor> FindVertex(gid::Gid gid,
-                                                         bool current_state);
+  std::experimental::optional<VertexAccessor> FindVertexOptional(
+      gid::Gid gid, bool current_state);
 
-  /** Like `FindVertex`, but performs a CHECK that the result is found. */
-  VertexAccessor FindVertexChecked(gid::Gid gid, bool current_state);
+  /**
+   * Obtains the vertex for the given ID. If there is no vertex for the given
+   * ID, or it's not visible to this accessor's transaction, MG is crashed
+   * using a CHECK.
+   *
+   * @param gid - The GID of the sought vertex.
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   */
+  VertexAccessor FindVertex(gid::Gid gid, bool current_state);
 
   /**
    * Returns iterable over accessors to all the vertices in the graph
@@ -324,11 +334,21 @@ class GraphDbAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  std::experimental::optional<EdgeAccessor> FindEdge(gid::Gid gid,
-                                                     bool current_state);
+  std::experimental::optional<EdgeAccessor> FindEdgeOptional(
+      gid::Gid gid, bool current_state);
 
-  /** Like `FindEdge`, but performs a CHECK that the result is found. */
-  EdgeAccessor FindEdgeChecked(gid::Gid gid, bool current_state);
+  /**
+   * Obtains the edge for the given ID. If there is no edge for the given
+   * ID, or it's not visible to this accessor's transaction, MG is crashed
+   * using a CHECK.
+   *
+   * @param gid - The GID of the sought edge.
+   * @param current_state If true then the graph state for the
+   *    current transaction+command is returned (insertions, updates and
+   *    deletions performed in the current transaction+command are not
+   *    ignored).
+   */
+  EdgeAccessor FindEdge(gid::Gid gid, bool current_state);
 
   /**
    * Returns iterable over accessors to all the edges in the graph

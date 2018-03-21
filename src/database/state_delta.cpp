@@ -359,9 +359,7 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
     case Type::CREATE_EDGE: {
       auto from = dba.FindVertex(vertex_from_id, true);
       auto to = dba.FindVertex(vertex_to_id, true);
-      DCHECK(from) << "Failed to find vertex.";
-      DCHECK(to) << "Failed to find vertex.";
-      dba.InsertEdge(*from, *to, dba.EdgeType(edge_type_name), edge_id);
+      dba.InsertEdge(from, to, dba.EdgeType(edge_type_name), edge_id);
       break;
     }
     case Type::ADD_OUT_EDGE:
@@ -371,38 +369,32 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       LOG(FATAL) << "Partial edge creation/deletion not yet supported in Apply";
     case Type::SET_PROPERTY_VERTEX: {
       auto vertex = dba.FindVertex(vertex_id, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      vertex->PropsSet(dba.Property(property_name), value);
+      vertex.PropsSet(dba.Property(property_name), value);
       break;
     }
     case Type::SET_PROPERTY_EDGE: {
       auto edge = dba.FindEdge(edge_id, true);
-      DCHECK(edge) << "Failed to find edge.";
-      edge->PropsSet(dba.Property(property_name), value);
+      edge.PropsSet(dba.Property(property_name), value);
       break;
     }
     case Type::ADD_LABEL: {
       auto vertex = dba.FindVertex(vertex_id, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      vertex->add_label(dba.Label(label_name));
+      vertex.add_label(dba.Label(label_name));
       break;
     }
     case Type::REMOVE_LABEL: {
       auto vertex = dba.FindVertex(vertex_id, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      vertex->remove_label(dba.Label(label_name));
+      vertex.remove_label(dba.Label(label_name));
       break;
     }
     case Type::REMOVE_VERTEX: {
       auto vertex = dba.FindVertex(vertex_id, true);
-      DCHECK(vertex) << "Failed to find vertex.";
-      dba.DetachRemoveVertex(*vertex);
+      dba.DetachRemoveVertex(vertex);
       break;
     }
     case Type::REMOVE_EDGE: {
       auto edge = dba.FindEdge(edge_id, true);
-      DCHECK(edge) << "Failed to find edge.";
-      dba.RemoveEdge(*edge);
+      dba.RemoveEdge(edge);
       break;
     }
     case Type::BUILD_INDEX: {
