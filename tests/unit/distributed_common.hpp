@@ -58,8 +58,9 @@ class DistributedGraphDbTest : public ::testing::Test {
   void TearDown() override {
     // Kill master first because it will expect a shutdown response from the
     // workers.
-    master_ = nullptr;
+    auto t = std::thread([this]() { master_ = nullptr; });
     for (int i = kWorkerCount - 1; i >= 0; --i) workers_[i] = nullptr;
+    if (t.joinable()) t.join();
   }
 
   database::Master &master() { return *master_; }

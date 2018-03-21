@@ -142,10 +142,7 @@ class SingleNode : public PrivateBase {
 
 class Master : public PrivateBase {
  public:
-  explicit Master(const Config &config) : PrivateBase(config) {
-    cache_cleaner_.Register(updates_server_);
-    cache_cleaner_.Register(data_manager_);
-  }
+  explicit Master(const Config &config) : PrivateBase(config) {}
 
   GraphDb::Type type() const override {
     return GraphDb::Type::DISTRIBUTED_MASTER;
@@ -162,10 +159,10 @@ class Master : public PrivateBase {
 
   communication::rpc::Server server_{
       config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
-  tx::MasterEngine tx_engine_{server_, &wal_};
-  StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
+  tx::MasterEngine tx_engine_{server_, rpc_worker_clients_, &wal_};
   distributed::MasterCoordination coordination_{server_};
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
+  StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{server_};
   distributed::DataRpcServer data_server_{*this, server_};
@@ -176,17 +173,14 @@ class Master : public PrivateBase {
   distributed::UpdatesRpcServer updates_server_{*this, server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
   distributed::DataManager data_manager_{storage_, data_clients_};
-  distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
+  distributed::TransactionalCacheCleaner cache_cleaner_{
+      tx_engine_, updates_server_, data_manager_};
 };
 
 class Worker : public PrivateBase {
  public:
   explicit Worker(const Config &config) : PrivateBase(config) {
     coordination_.RegisterWorker(config.worker_id);
-    cache_cleaner_.Register(tx_engine_);
-    cache_cleaner_.Register(produce_server_);
-    cache_cleaner_.Register(updates_server_);
-    cache_cleaner_.Register(data_manager_);
   }
 
   GraphDb::Type type() const override {
@@ -225,7 +219,8 @@ class Worker : public PrivateBase {
   distributed::UpdatesRpcServer updates_server_{*this, server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
   distributed::DataManager data_manager_{storage_, data_clients_};
-  distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
+  distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
+      tx_engine_, server_, produce_server_, updates_server_, data_manager_};
 };
 
 #undef IMPL_GETTERS

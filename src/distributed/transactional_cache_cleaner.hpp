@@ -3,27 +3,33 @@
 #include <functional>
 #include <vector>
 
+#include "communication/rpc/server.hpp"
+#include "distributed/produce_rpc_server.hpp"
+#include "distributed/transactional_cache_cleaner_rpc_messages.hpp"
 #include "transactions/engine.hpp"
+#include "transactions/engine_worker.hpp"
 #include "utils/scheduler.hpp"
 
 namespace distributed {
 
-/// Periodically calls `ClearCache(oldest_transaction)` on all registered
-/// functions.
+/// Periodically calls `ClearTransactionalCache(oldest_transaction)` on all
+/// registered objects.
 class TransactionalCacheCleaner {
   /// The wait time between two releases of local transaction objects that have
   /// expired on the master.
   static constexpr std::chrono::seconds kCacheReleasePeriod{1};
 
  public:
-  TransactionalCacheCleaner(tx::Engine &tx_engine) : tx_engine_(tx_engine) {
+  template <typename... T>
+  TransactionalCacheCleaner(tx::Engine &tx_engine, T &... caches)
+      : tx_engine_(tx_engine) {
+    Register(caches...);
     cache_clearing_scheduler_.Run(
-        "DistrTxCacheGc", kCacheReleasePeriod, [this]() {
-          auto oldest_active = tx_engine_.LocalOldestActive();
-          for (auto &f : functions_) f(oldest_active);
-        });
+        "DistrTxCacheGc", kCacheReleasePeriod,
+        [this]() { this->Clear(tx_engine_.GlobalGcSnapshot().back()); });
   }
 
+ protected:
   /// Registers the given object for transactional cleaning. The object will
   /// periodically get it's `ClearCache(tx::transaction_id_t)` method called
   /// with the oldest active transaction id. Note that the ONLY guarantee for
@@ -37,9 +43,46 @@ class TransactionalCacheCleaner {
   }
 
  private:
+  template <typename TCache, typename... T>
+  void Register(TCache &cache, T &... caches) {
+    Register(cache);
+    Register(caches...);
+  }
+
+  void Clear(tx::transaction_id_t oldest_active) {
+    for (auto &f : functions_) f(oldest_active);
+  }
+
   tx::Engine &tx_engine_;
   std::vector<std::function<void(tx::transaction_id_t &oldest_active)>>
       functions_;
   Scheduler cache_clearing_scheduler_;
 };
+
+/// Registers a RPC server that listens for `WaitOnTransactionEnd` requests
+/// that require all ongoing produces to finish. It also periodically calls
+/// `ClearTransactionalCache` on all registered objects.
+class WorkerTransactionalCacheCleaner : public TransactionalCacheCleaner {
+ public:
+  template <class... T>
+  WorkerTransactionalCacheCleaner(tx::WorkerEngine &tx_engine,
+                                  communication::rpc::Server &server,
+                                  ProduceRpcServer &produce_server,
+                                  T &... caches)
+      : TransactionalCacheCleaner(tx_engine, caches...),
+        rpc_server_(server),
+        produce_server_(produce_server) {
+    Register(tx_engine);
+    rpc_server_.Register<WaitOnTransactionEndRpc>(
+        [this](const WaitOnTransactionEndReq &req) {
+          produce_server_.FinishAndClearOngoingProducePlans(req.member);
+          return std::make_unique<WaitOnTransactionEndRes>();
+        });
+  }
+
+ private:
+  communication::rpc::Server &rpc_server_;
+  ProduceRpcServer &produce_server_;
+};
+
 }  // namespace distributed

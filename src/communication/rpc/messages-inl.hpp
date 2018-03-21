@@ -10,6 +10,7 @@
 #include "distributed/index_rpc_messages.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
+#include "distributed/transactional_cache_cleaner_rpc_messages.hpp"
 #include "distributed/updates_rpc_messages.hpp"
 #include "stats/stats_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
@@ -115,3 +116,7 @@ BOOST_CLASS_EXPORT(distributed::RemoveEdgeRes);
 BOOST_CLASS_EXPORT(distributed::RemoveInEdgeData);
 BOOST_CLASS_EXPORT(distributed::RemoveInEdgeReq);
 BOOST_CLASS_EXPORT(distributed::RemoveInEdgeRes);
+
+// Transactional Cache Cleaner.
+BOOST_CLASS_EXPORT(distributed::WaitOnTransactionEndReq);
+BOOST_CLASS_EXPORT(distributed::WaitOnTransactionEndRes);

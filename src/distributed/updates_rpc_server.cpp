@@ -335,9 +335,8 @@ UpdateResult UpdatesRpcServer::RemoveEdge(const RemoveEdgeData &data) {
 }
 
 template <>
-VertexAccessor
-UpdatesRpcServer::TransactionUpdates<VertexAccessor>::FindAccessor(
-    gid::Gid gid) {
+VertexAccessor UpdatesRpcServer::TransactionUpdates<
+    VertexAccessor>::FindAccessor(gid::Gid gid) {
   return db_accessor_.FindVertex(gid, false);
 }
 

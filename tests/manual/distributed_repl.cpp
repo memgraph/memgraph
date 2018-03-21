@@ -7,8 +7,8 @@
 #include <glog/logging.h>
 
 #include "database/graph_db.hpp"
-#include "query/repl.hpp"
 #include "query/interpreter.hpp"
+#include "query/repl.hpp"
 #include "utils/flag_validation.hpp"
 
 DEFINE_VALIDATED_int32(worker_count, 1,
@@ -56,6 +56,6 @@ int main(int argc, char *argv[]) {
   // Start the REPL
   query::Repl(*master);
 
-  master.release();
+  master = nullptr;
   return 0;
 }

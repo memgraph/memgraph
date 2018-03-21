@@ -1,11 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <mutex>
 #include <utility>
 #include <vector>
 
 #include "communication/rpc/server.hpp"
-#include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/plan_consumer.hpp"
@@ -47,12 +48,12 @@ class ProduceRpcServer {
 
    private:
     database::GraphDbAccessor dba_;
-    std::unique_ptr<query::plan::Cursor> cursor_;
     query::Context context_;
     std::vector<query::Symbol> pull_symbols_;
     query::Frame frame_;
     PullState cursor_state_{PullState::CURSOR_IN_PROGRESS};
     std::vector<std::vector<query::TypedValue>> accumulation_;
+    std::unique_ptr<query::plan::Cursor> cursor_;
 
     /// Pulls and returns a single result from the cursor.
     std::pair<std::vector<query::TypedValue>, PullState> PullOneFromCursor();
@@ -63,16 +64,18 @@ class ProduceRpcServer {
                    communication::rpc::Server &server,
                    const distributed::PlanConsumer &plan_consumer);
 
-  /// Clears the cache of local transactions that have expired. The signature of
-  /// this method is dictated by `distributed::TransactionalCacheCleaner`.
-  void ClearTransactionalCache(tx::transaction_id_t oldest_active);
+  /// Finish and clear ongoing produces for all plans that are tied to a
+  /// transaction with tx_id.
+  void FinishAndClearOngoingProducePlans(tx::transaction_id_t tx_id);
 
  private:
+  std::mutex ongoing_produces_lock_;
+  /// Mapping of (tx id, plan id) to OngoingProduce.
+  std::map<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>
+      ongoing_produces_;
   database::GraphDb &db_;
   communication::rpc::Server &produce_rpc_server_;
   const distributed::PlanConsumer &plan_consumer_;
-  ConcurrentMap<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>
-      ongoing_produces_;
   tx::Engine &tx_engine_;
 
   /// Gets an ongoing produce for the given pull request. Creates a new one if

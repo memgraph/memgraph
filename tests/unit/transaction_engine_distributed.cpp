@@ -6,6 +6,7 @@
 #include "gtest/gtest.h"
 
 #include "communication/rpc/server.hpp"
+#include "distributed/coordination_master.hpp"
 #include "io/network/endpoint.hpp"
 #include "transactions/engine_master.hpp"
 #include "transactions/engine_rpc_messages.hpp"
@@ -13,13 +14,17 @@
 
 using namespace tx;
 using namespace communication::rpc;
+using namespace distributed;
 
 class WorkerEngineTest : public testing::Test {
  protected:
   const std::string local{"127.0.0.1"};
 
   Server master_server_{{local, 0}};
-  MasterEngine master_{master_server_};
+  MasterCoordination master_coordination_{master_server_};
+  RpcWorkerClients rpc_worker_clients_{master_coordination_};
+
+  MasterEngine master_{master_server_, rpc_worker_clients_};
   ClientPool master_client_pool{master_server_.endpoint()};
 
   WorkerEngine worker_{master_client_pool};
@@ -140,4 +145,3 @@ TEST_F(WorkerEngineTest, GlobalNext) {
   EXPECT_EQ(master_.LocalLast(), worker_.GlobalLast());
   EXPECT_EQ(worker_.GlobalLast(), tx->id_);
 }
-

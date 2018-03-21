@@ -36,7 +36,7 @@ class DataManager {
   void ClearCacheForSingleTransaction(tx::transaction_id_t tx_id);
 
   /// Clears the cache of local transactions that have expired. The signature of
-  /// this method is dictated by `distributed::CacheCleaner`.
+  /// this method is dictated by `distributed::TransactionalCacheCleaner`.
   void ClearTransactionalCache(tx::transaction_id_t oldest_active);
 
  private:

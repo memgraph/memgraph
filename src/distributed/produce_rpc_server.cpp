@@ -13,10 +13,10 @@ ProduceRpcServer::OngoingProduce::OngoingProduce(
     query::SymbolTable symbol_table, Parameters parameters,
     std::vector<query::Symbol> pull_symbols)
     : dba_{db, tx_id},
-      cursor_(op->MakeCursor(dba_)),
       context_(dba_),
       pull_symbols_(std::move(pull_symbols)),
-      frame_(symbol_table.max_position()) {
+      frame_(symbol_table.max_position()),
+      cursor_(op->MakeCursor(dba_)) {
   context_.symbol_table_ = std::move(symbol_table);
   context_.parameters_ = std::move(parameters);
 }
@@ -108,22 +108,24 @@ ProduceRpcServer::ProduceRpcServer(
       });
 }
 
-void ProduceRpcServer::ClearTransactionalCache(
-    tx::transaction_id_t oldest_active) {
-  auto access = ongoing_produces_.access();
-  for (auto &kv : access) {
-    if (kv.first.first < oldest_active) {
-      access.remove(kv.first);
+void ProduceRpcServer::FinishAndClearOngoingProducePlans(
+    tx::transaction_id_t tx_id) {
+  std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
+  for (auto it = ongoing_produces_.begin(); it != ongoing_produces_.end();) {
+    if (it->first.first == tx_id) {
+      it = ongoing_produces_.erase(it);
+    } else {
+      ++it;
     }
   }
 }
 
 ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
     const PullReq &req) {
-  auto access = ongoing_produces_.access();
   auto key_pair = std::make_pair(req.tx_id, req.plan_id);
-  auto found = access.find(key_pair);
-  if (found != access.end()) {
+  std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
+  auto found = ongoing_produces_.find(key_pair);
+  if (found != ongoing_produces_.end()) {
     return found->second;
   }
   if (db_.type() == database::GraphDb::Type::DISTRIBUTED_WORKER) {
@@ -132,8 +134,8 @@ ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
         .RunningTransaction(req.tx_id, req.tx_snapshot);
   }
   auto &plan_pack = plan_consumer_.PlanForId(req.plan_id);
-  return access
-      .emplace(key_pair, std::forward_as_tuple(key_pair),
+  return ongoing_produces_
+      .emplace(std::piecewise_construct, std::forward_as_tuple(key_pair),
                std::forward_as_tuple(db_, req.tx_id, plan_pack.plan,
                                      plan_pack.symbol_table, req.params,
                                      req.symbols))

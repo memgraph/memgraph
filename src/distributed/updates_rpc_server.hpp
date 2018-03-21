@@ -76,8 +76,8 @@ class UpdatesRpcServer {
   /// after applying them, regardless of the result.
   UpdateResult Apply(tx::transaction_id_t tx_id);
 
-  /// Clears the cache of local transactions that have expired. The signature of
-  /// this method is dictated by `distributed::CacheCleaner`.
+  /// Clears the cache of local transactions that are completed. The signature
+  /// of this method is dictated by `distributed::TransactionalCacheCleaner`.
   void ClearTransactionalCache(tx::transaction_id_t oldest_active);
 
  private:

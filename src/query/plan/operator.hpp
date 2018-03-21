@@ -843,11 +843,13 @@ class Expand : public LogicalOperator, public ExpandCommon {
     std::experimental::optional<InEdgeIteratorT> in_edges_it_;
     std::experimental::optional<OutEdgeT> out_edges_;
     std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
-    // Edges which are being asynchronously fetched from a remote worker.
-    std::vector<FutureExpand> future_expands_;
     // Stores the last frame before we yield the frame for future edge. It needs
     // to be restored afterward.
     std::vector<TypedValue> last_frame_;
+    // Edges which are being asynchronously fetched from a remote worker.
+    // NOTE: This should be destructed first to ensure that no invalid
+    // references or pointers exists to other objects of this class.
+    std::vector<FutureExpand> future_expands_;
 
     bool InitEdges(Frame &, Context &);
   };
