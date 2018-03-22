@@ -15,6 +15,10 @@ namespace fs = std::experimental::filesystem;
 
 namespace durability {
 
+// Snapshot layout is described in durability/version.hpp
+static_assert(durability::kVersion == 5,
+              "Wrong snapshot version, please update!");
+
 namespace {
 bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
             database::GraphDbAccessor &dba) {
@@ -80,7 +84,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
   return true;
 }
 
-// Removes snaposhot files so that only `max_retained` latest ones are kept. If
+// Removes snapshot files so that only `max_retained` latest ones are kept. If
 // `max_retained == -1`, all the snapshots are retained.
 void RemoveOldSnapshots(const fs::path &snapshot_dir, int max_retained) {
   if (max_retained == -1) return;
