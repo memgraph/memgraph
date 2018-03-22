@@ -1,6 +1,5 @@
 #pragma once
 
-#include <atomic>
 #include <experimental/optional>
 #include <unordered_map>
 
@@ -37,14 +36,15 @@ class SingleNodeEngine : public Engine {
   CommitLog::Info Info(transaction_id_t tx) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
-  tx::transaction_id_t LocalLast() const override;
+  transaction_id_t LocalLast() const override;
   transaction_id_t LocalOldestActive() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
-  tx::Transaction *RunningTransaction(tx::transaction_id_t tx_id) override;
+  Transaction *RunningTransaction(transaction_id_t tx_id) override;
+  void EnsureNextIdGreater(transaction_id_t tx_id) override;
 
  private:
-  std::atomic<transaction_id_t> counter_{0};
+  transaction_id_t counter_{0};
   CommitLog clog_;
   std::unordered_map<transaction_id_t, std::unique_ptr<Transaction>> store_;
   Snapshot active_;

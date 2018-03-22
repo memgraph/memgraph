@@ -20,7 +20,7 @@ class WorkerEngine : public Engine {
   /// expired on the master.
   static constexpr std::chrono::seconds kCacheReleasePeriod{1};
 
-  WorkerEngine(communication::rpc::ClientPool &master_client_pool);
+  explicit WorkerEngine(communication::rpc::ClientPool &master_client_pool);
   ~WorkerEngine();
 
   Transaction *Begin() override;
@@ -40,6 +40,8 @@ class WorkerEngine : public Engine {
   // Caches the transaction for the given info an returs a ptr to it.
   Transaction *RunningTransaction(transaction_id_t tx_id,
                                   const Snapshot &snapshot);
+
+  void EnsureNextIdGreater(transaction_id_t tx_id) override;
 
   /// Clears the cache of local transactions that have expired. The signature of
   /// this method is dictated by `distributed::TransactionalCacheCleaner`.

@@ -226,6 +226,14 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     vertex->out_ = iterate_and_transform(vertex->out_);
   }
 
+  // Ensure that the next transaction ID in the recovered DB will be greater
+  // than the latest one we have recovered. Do this to make sure that
+  // subsequently created snapshots and WAL files will have transactional info
+  // that does not interfere with that found in previous snapshots and WAL.
+  tx::transaction_id_t max_id = recovery_data.snapshooter_tx_id;
+  auto &snap = recovery_data.snapshooter_tx_snapshot;
+  if (!snap.empty()) max_id = *std::max_element(snap.begin(), snap.end());
+  dba.db().tx_engine().EnsureNextIdGreater(max_id);
   dba.Commit();
   return true;
 }
@@ -259,15 +267,21 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
       [&accessors](tx::transaction_id_t tx_id) -> database::GraphDbAccessor & {
     auto found = accessors.find(tx_id);
     CHECK(found != accessors.end())
-        << "Accessor does not exist for transaction";
+        << "Accessor does not exist for transaction: " << tx_id;
     return found->second;
   };
+
+  // Ensure that the next transaction ID in the recovered DB will be greater
+  // then the latest one we have recovered. Do this to make sure that
+  // subsequently created snapshots and WAL files will have transactional info
+  // that does not interfere with that found in previous snapshots and WAL.
+  tx::transaction_id_t max_observed_tx_id{0};
 
   // Read all the WAL files whose max_tx_id is not smaller than
   // min_tx_to_recover.
   for (auto &wal_file : wal_files) {
-    auto wal_file_tx_id = TransactionIdFromWalFilename(wal_file.filename());
-    if (!wal_file_tx_id || *wal_file_tx_id < first_to_recover) continue;
+    auto wal_file_max_tx_id = TransactionIdFromWalFilename(wal_file.filename());
+    if (!wal_file_max_tx_id || *wal_file_max_tx_id < first_to_recover) continue;
 
     HashedFileReader wal_reader;
     if (!wal_reader.Open(wal_file)) return false;
@@ -275,6 +289,7 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
     while (true) {
       auto delta = database::StateDelta::Decode(wal_reader, decoder);
       if (!delta) break;
+      max_observed_tx_id = std::max(max_observed_tx_id, delta->transaction_id);
       if (should_skip(delta->transaction_id)) continue;
       switch (delta->type) {
         case database::StateDelta::Type::TRANSACTION_BEGIN:
@@ -305,6 +320,8 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
   // - WAL fully recovered
   // - WAL partially recovered
   // - WAL recovery error
+
+  db.tx_engine().EnsureNextIdGreater(max_observed_tx_id);
   return true;
 }
 }  // anonymous namespace

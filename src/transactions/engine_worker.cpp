@@ -175,4 +175,8 @@ void WorkerEngine::UpdateOldestActive(const Snapshot &snapshot,
     oldest_active_.store(snapshot.front());
   }
 }
+
+void WorkerEngine::EnsureNextIdGreater(transaction_id_t tx_id) {
+  master_client_pool_.Call<EnsureNextIdGreaterRpc>(tx_id);
+}
 }  // namespace tx

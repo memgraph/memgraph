@@ -126,3 +126,10 @@ TEST_F(WorkerEngineTest, LocalForEachActiveTransaction) {
       [&local](Transaction &t) { local.insert(t.id_); });
   EXPECT_EQ(local, std::unordered_set<tx::transaction_id_t>({1, 4}));
 }
+
+TEST_F(WorkerEngineTest, EnsureTxIdGreater) {
+  ASSERT_LE(master_.Begin()->id_, 40);
+  worker_.EnsureNextIdGreater(42);
+  EXPECT_EQ(master_.Begin()->id_, 43);
+  EXPECT_EQ(worker_.Begin()->id_, 44);
+}

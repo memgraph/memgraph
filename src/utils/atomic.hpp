@@ -17,7 +17,7 @@ void EnsureAtomicGe(std::atomic<TValue> &atomic, TValue value) {
   while (true) {
     auto current = atomic.load();
     if (current >= value) break;
-    if (atomic.compare_exchange_strong(current, value)) break;
+    if (atomic.compare_exchange_weak(current, value)) break;
   }
 }
 }  // namespace utils

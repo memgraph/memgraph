@@ -83,6 +83,10 @@ class Engine {
   /** Gets a transaction object for a running transaction. */
   virtual tx::Transaction *RunningTransaction(transaction_id_t tx_id) = 0;
 
+  /** Ensures the next transaction that starts will have the ID greater than
+   * the given id. */
+  virtual void EnsureNextIdGreater(transaction_id_t tx_id) = 0;
+
   auto &local_lock_graph() { return local_lock_graph_; }
   const auto &local_lock_graph() const { return local_lock_graph_; }
 

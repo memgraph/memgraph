@@ -57,4 +57,10 @@ RPC_NO_MEMBER_MESSAGE(ActiveTransactionsReq)
 using ActiveTransactionsRpc =
     communication::rpc::RequestResponse<ActiveTransactionsReq, SnapshotRes>;
 
+RPC_SINGLE_MEMBER_MESSAGE(EnsureNextIdGreaterReq, transaction_id_t);
+RPC_NO_MEMBER_MESSAGE(EnsureNextIdGreaterRes);
+using EnsureNextIdGreaterRpc =
+    communication::rpc::RequestResponse<EnsureNextIdGreaterReq,
+                                        EnsureNextIdGreaterRes>;
+
 }  // namespace tx

@@ -74,3 +74,10 @@ TEST(Engine, RunningTransaction) {
   EXPECT_NE(t1, engine.RunningTransaction(t0->id_));
   EXPECT_EQ(t1, engine.RunningTransaction(t1->id_));
 }
+
+TEST(Engine, EnsureTxIdGreater) {
+  SingleNodeEngine engine;
+  ASSERT_LE(engine.Begin()->id_, 40);
+  engine.EnsureNextIdGreater(42);
+  EXPECT_EQ(engine.Begin()->id_, 43);
+}

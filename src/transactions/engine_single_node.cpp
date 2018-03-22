@@ -95,7 +95,10 @@ Snapshot SingleNodeEngine::GlobalActiveTransactions() {
   return active_transactions;
 }
 
-transaction_id_t SingleNodeEngine::LocalLast() const { return counter_.load(); }
+transaction_id_t SingleNodeEngine::LocalLast() const {
+  std::lock_guard<SpinLock> guard(lock_);
+  return counter_;
+}
 
 transaction_id_t SingleNodeEngine::LocalOldestActive() const {
   std::lock_guard<SpinLock> guard(lock_);
@@ -117,4 +120,10 @@ Transaction *SingleNodeEngine::RunningTransaction(transaction_id_t tx_id) {
       << "Can't return snapshot for an inactive transaction";
   return found->second.get();
 }
+
+void SingleNodeEngine::EnsureNextIdGreater(transaction_id_t tx_id) {
+  std::lock_guard<SpinLock> guard(lock_);
+  counter_ = std::max(tx_id, counter_);
+}
+
 }  // namespace tx

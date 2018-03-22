@@ -2,8 +2,10 @@
 #include <experimental/optional>
 #include <functional>
 #include <random>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "gflags/gflags.h"
 #include "glog/logging.h"
@@ -778,5 +780,87 @@ TEST_F(Durability, WorkerIdRecovery) {
     database::GraphDbAccessor dba(recovered);
     EXPECT_EQ(dba.VerticesCount(), 0);
     EXPECT_EQ(dba.EdgesCount(), 0);
+  }
+}
+
+TEST_F(Durability, SequentialRecovery) {
+  const int kNumWorkers = 6;
+  const int kNumVertices = 1000;
+
+  auto random_int = [](int upper_exclusive) {
+    static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
+    static thread_local std::uniform_int_distribution<int> rand_dist;
+    return rand_dist(pseudo_rand_gen) % upper_exclusive;
+  };
+
+  auto init_db = [](database::GraphDb &db) {
+    database::GraphDbAccessor dba{db};
+    for (int i = 0; i < kNumVertices; ++i) dba.InsertVertex(i);
+    dba.Commit();
+  };
+
+  auto run_updates = [&random_int](database::GraphDb &db,
+                                   std::atomic<bool> &keep_running) {
+    std::vector<std::thread> threads;
+    for (int i = 0; i < kNumWorkers; ++i) {
+      threads.emplace_back([&random_int, &db, &keep_running]() {
+        while (keep_running) {
+          database::GraphDbAccessor dba{db};
+          auto v = dba.FindVertex(random_int(kNumVertices), false);
+          try {
+            v.PropsSet(dba.Property("prop"), random_int(100));
+          } catch (LockTimeoutException &) {
+          } catch (mvcc::SerializationError &) {
+          }
+          dba.InsertVertex();
+          dba.Commit();
+        }
+      });
+    }
+    return threads;
+  };
+
+  auto make_updates = [&run_updates, this](
+      database::GraphDb &db, bool snapshot_during, bool snapshot_after) {
+    std::atomic<bool> keep_running{true};
+    auto update_theads = run_updates(db, keep_running);
+    std::this_thread::sleep_for(25ms);
+    if (snapshot_during) {
+      MakeSnapshot(db);
+    }
+    std::this_thread::sleep_for(25ms);
+    keep_running = false;
+    for (auto &t : update_theads) t.join();
+    if (snapshot_after) {
+      MakeSnapshot(db);
+    }
+
+    // Sleep to ensure the WAL gets flushed.
+    std::this_thread::sleep_for(std::chrono::milliseconds(25ms));
+  };
+
+  const std::vector<std::pair<bool, bool>> combinations{{0, 0}, {1, 0}, {0, 1}};
+  for (auto &combo : combinations) {
+    CleanDurability();
+    auto config = DbConfig();
+    config.durability_enabled = true;
+    database::SingleNode db{config};
+    init_db(db);
+    make_updates(db, combo.first, combo.second);
+
+    {
+      auto recovered_config = DbConfig();
+      recovered_config.db_recover_on_startup = true;
+      recovered_config.durability_enabled = true;
+      database::SingleNode recovered{recovered_config};
+      CompareDbs(db, recovered);
+      {
+        for (auto &combo2 : combinations) {
+          make_updates(recovered, combo2.first, combo2.second);
+          database::SingleNode recovered_2{recovered_config};
+          CompareDbs(recovered, recovered_2);
+        }
+      }
+    }
   }
 }
