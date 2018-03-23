@@ -31,6 +31,7 @@ class WorkerEngine : public Engine {
   CommitLog::Info Info(transaction_id_t tid) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
+  transaction_id_t GlobalLast() const override;
   transaction_id_t LocalLast() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;

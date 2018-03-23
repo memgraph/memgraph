@@ -100,6 +100,8 @@ transaction_id_t SingleNodeEngine::LocalLast() const {
   return counter_;
 }
 
+transaction_id_t SingleNodeEngine::GlobalLast() const { return LocalLast(); }
+
 transaction_id_t SingleNodeEngine::LocalOldestActive() const {
   std::lock_guard<SpinLock> guard(lock_);
   return active_.empty() ? counter_ + 1 : active_.front();

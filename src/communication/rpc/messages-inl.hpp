@@ -47,6 +47,8 @@ BOOST_CLASS_EXPORT(tx::ClogInfoRes);
 BOOST_CLASS_EXPORT(tx::ActiveTransactionsReq);
 BOOST_CLASS_EXPORT(tx::EnsureNextIdGreaterReq);
 BOOST_CLASS_EXPORT(tx::EnsureNextIdGreaterRes);
+BOOST_CLASS_EXPORT(tx::GlobalLastReq);
+BOOST_CLASS_EXPORT(tx::GlobalLastRes);
 
 // Distributed coordination.
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerReq);

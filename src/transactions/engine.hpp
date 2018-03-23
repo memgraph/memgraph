@@ -68,6 +68,9 @@ class Engine {
   /** Returns active transactions. */
   virtual Snapshot GlobalActiveTransactions() = 0;
 
+  /** Returns the ID the last globally known transaction. */
+  virtual tx::transaction_id_t GlobalLast() const = 0;
+
   /** Returns the ID of last locally known transaction. */
   virtual tx::transaction_id_t LocalLast() const = 0;
 

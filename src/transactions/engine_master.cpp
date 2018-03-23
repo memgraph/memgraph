@@ -63,5 +63,9 @@ MasterEngine::MasterEngine(communication::rpc::Server &server,
         EnsureNextIdGreater(req.member);
         return std::make_unique<EnsureNextIdGreaterRes>();
       });
+
+  rpc_server_.Register<GlobalLastRpc>([this](const GlobalLastReq &req) {
+    return std::make_unique<GlobalLastRes>(GlobalLast());
+  });
 }
 }  // namespace tx

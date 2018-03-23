@@ -63,4 +63,8 @@ using EnsureNextIdGreaterRpc =
     communication::rpc::RequestResponse<EnsureNextIdGreaterReq,
                                         EnsureNextIdGreaterRes>;
 
+RPC_NO_MEMBER_MESSAGE(GlobalLastReq);
+RPC_SINGLE_MEMBER_MESSAGE(GlobalLastRes, transaction_id_t);
+using GlobalLastRpc =
+    communication::rpc::RequestResponse<GlobalLastReq, GlobalLastRes>;
 }  // namespace tx

@@ -133,3 +133,11 @@ TEST_F(WorkerEngineTest, EnsureTxIdGreater) {
   EXPECT_EQ(master_.Begin()->id_, 43);
   EXPECT_EQ(worker_.Begin()->id_, 44);
 }
+
+TEST_F(WorkerEngineTest, GlobalNext) {
+  auto tx = master_.Begin();
+  EXPECT_NE(worker_.LocalLast(), worker_.GlobalLast());
+  EXPECT_EQ(master_.LocalLast(), worker_.GlobalLast());
+  EXPECT_EQ(worker_.GlobalLast(), tx->id_);
+}
+

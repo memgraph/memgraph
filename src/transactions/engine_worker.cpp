@@ -108,6 +108,11 @@ Snapshot WorkerEngine::GlobalActiveTransactions() {
 }
 
 transaction_id_t WorkerEngine::LocalLast() const { return local_last_; }
+transaction_id_t WorkerEngine::GlobalLast() const {
+  auto res = master_client_pool_.Call<GlobalLastRpc>();
+  CHECK(res) << "GlobalLastRpc failed";
+  return res->member;
+}
 
 void WorkerEngine::LocalForEachActiveTransaction(
     std::function<void(Transaction &)> f) {
