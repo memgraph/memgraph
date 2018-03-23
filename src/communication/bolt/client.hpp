@@ -263,8 +263,8 @@ class Client {
 
   // decoder objects
   Buffer<> buffer_;
-  ChunkedDecoderBuffer decoder_buffer_{buffer_};
-  Decoder<ChunkedDecoderBuffer> decoder_{decoder_buffer_};
+  ChunkedDecoderBuffer<Buffer<>> decoder_buffer_{buffer_};
+  Decoder<ChunkedDecoderBuffer<Buffer<>>> decoder_{decoder_buffer_};
 
   // encoder objects
   ChunkedEncoderBuffer<Socket> encoder_buffer_{socket_};

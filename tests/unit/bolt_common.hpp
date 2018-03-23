@@ -12,18 +12,39 @@
 /**
  * TODO (mferencevic): document
  */
-class TestSocket {
+class TestInputStream {
  public:
-  explicit TestSocket(int socket) : socket_(socket) {}
-  TestSocket(const TestSocket &) = default;
-  TestSocket &operator=(const TestSocket &) = default;
-  TestSocket(TestSocket &&) = default;
-  TestSocket &operator=(TestSocket &&) = default;
+  uint8_t *data() { return data_.data(); }
 
-  int id() const { return socket_; }
+  size_t size() { return data_.size(); }
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false,
-             const std::function<bool()> & = [] { return false; }) {
+  void Clear() { data_.clear(); }
+
+  void Write(const uint8_t *data, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+      data_.push_back(data[i]);
+    }
+  }
+
+  void Write(const char *data, size_t len) {
+    Write(reinterpret_cast<const uint8_t *>(data), len);
+  }
+
+  void Shift(size_t count) {
+    CHECK(count <= data_.size());
+    data_.erase(data_.begin(), data_.begin() + count);
+  }
+
+ private:
+  std::vector<uint8_t> data_;
+};
+
+/**
+ * TODO (mferencevic): document
+ */
+class TestOutputStream {
+ public:
+  bool Write(const uint8_t *data, size_t len, bool have_more = false) {
     if (!write_success_) return false;
     for (size_t i = 0; i < len; ++i) output.push_back(data[i]);
     return true;
@@ -34,7 +55,6 @@ class TestSocket {
   std::vector<uint8_t> output;
 
  protected:
-  int socket_;
   bool write_success_{true};
 };
 
@@ -43,14 +63,14 @@ class TestSocket {
  */
 class TestBuffer {
  public:
-  TestBuffer(TestSocket &socket) : socket_(socket) {}
+  TestBuffer(TestOutputStream &output_stream) : output_stream_(output_stream) {}
 
-  void Write(const uint8_t *data, size_t n) { socket_.Write(data, n); }
+  void Write(const uint8_t *data, size_t n) { output_stream_.Write(data, n); }
   void Chunk() {}
   bool Flush() { return true; }
 
  private:
-  TestSocket &socket_;
+  TestOutputStream &output_stream_;
 };
 
 /**

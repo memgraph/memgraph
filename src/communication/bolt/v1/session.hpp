@@ -14,16 +14,12 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
+#include "communication/buffer.hpp"
 #include "database/graph_db.hpp"
-#include "io/network/epoll.hpp"
-#include "io/network/socket.hpp"
-#include "io/network/stream_buffer.hpp"
 #include "query/interpreter.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/exceptions.hpp"
-
-DECLARE_int32(session_inactivity_timeout);
 
 namespace communication::bolt {
 
@@ -49,18 +45,21 @@ class SessionException : public utils::BasicException {
  *
  * This class is responsible for handling a single client connection.
  *
- * @tparam TSocket type of socket (could be a network socket or test socket)
+ * @tparam TInputStream type of input stream that will be used
+ * @tparam TOutputStream type of output stream that will be used
  */
-template <typename TSocket>
+template <typename TInputStream, typename TOutputStream>
 class Session {
  public:
-  using ResultStreamT = ResultStream<Encoder<ChunkedEncoderBuffer<TSocket>>>;
-  using StreamBuffer = io::network::StreamBuffer;
+  using ResultStreamT =
+      ResultStream<Encoder<ChunkedEncoderBuffer<TOutputStream>>>;
 
-  Session(TSocket &&socket, SessionData &data)
-      : socket_(std::move(socket)),
-        db_(data.db),
-        interpreter_(data.interpreter) {}
+  Session(SessionData &data, TInputStream &input_stream,
+          TOutputStream &output_stream)
+      : db_(data.db),
+        interpreter_(data.interpreter),
+        input_stream_(input_stream),
+        output_stream_(output_stream) {}
 
   ~Session() {
     if (db_accessor_) {
@@ -69,23 +68,18 @@ class Session {
   }
 
   /**
-   * @return the socket id
-   */
-  int Id() const { return socket_.fd(); }
-
-  /**
    * Executes the session after data has been read into the buffer.
    * Goes through the bolt states in order to execute commands from the client.
    */
   void Execute() {
     if (UNLIKELY(!handshake_done_)) {
-      if (buffer_.size() < HANDSHAKE_SIZE) {
+      if (input_stream_.size() < HANDSHAKE_SIZE) {
         DLOG(WARNING) << fmt::format("Received partial handshake of size {}",
-                                     buffer_.size());
+                                     input_stream_.size());
         return;
       }
       DLOG(WARNING) << fmt::format("Decoding handshake of size {}",
-                                   buffer_.size());
+                                   input_stream_.size());
       state_ = StateHandshakeRun(*this);
       if (UNLIKELY(state_ == State::Close)) {
         ClientFailureInvalidData();
@@ -129,41 +123,10 @@ class Session {
         return;
       }
 
-      DLOG(INFO) << fmt::format("Buffer size: {}", buffer_.size());
+      DLOG(INFO) << fmt::format("Input stream size: {}", input_stream_.size());
       DLOG(INFO) << fmt::format("Decoder buffer size: {}",
                                 decoder_buffer_.Size());
     }
-  }
-
-  /**
-   * Allocates data from the internal buffer.
-   * Used in the underlying network stack to asynchronously read data
-   * from the client.
-   * @returns a StreamBuffer to the allocated internal data buffer
-   */
-  StreamBuffer Allocate() { return buffer_.Allocate(); }
-
-  /**
-   * Notifies the internal buffer of written data.
-   * Used in the underlying network stack to notify the internal buffer
-   * how many bytes of data have been written.
-   * @param len how many data was written to the buffer
-   */
-  void Written(size_t len) { buffer_.Written(len); }
-
-  /**
-   * Returns true if session has timed out. Session times out if there was no
-   * activity in FLAGS_sessions_inactivity_timeout seconds or if there is a
-   * active transaction with shoul_abort flag set to true.
-   * This function must be thread safe because this function and
-   * `RefreshLastEventTime` are called from different threads in the
-   * network stack.
-   */
-  bool TimedOut() {
-    std::unique_lock<SpinLock> guard(lock_);
-    return last_event_time_ +
-               std::chrono::seconds(FLAGS_session_inactivity_timeout) <
-           std::chrono::steady_clock::now();
   }
 
   /**
@@ -184,45 +147,25 @@ class Session {
     db_accessor_ = nullptr;
   }
 
-  TSocket &socket() { return socket_; }
-
-  /**
-   * Function that is called by the network stack to set the last event time.
-   * It is used to determine whether the session has timed out.
-   * This function must be thread safe because this function and
-   * `TimedOut` are called from different threads in the network stack.
-   */
-  void RefreshLastEventTime(
-      const std::chrono::time_point<std::chrono::steady_clock>
-          &last_event_time) {
-    std::unique_lock<SpinLock> guard(lock_);
-    last_event_time_ = last_event_time;
-  }
-
   // TODO: Rethink if there is a way to hide some members. At the momement all
   // of them are public.
-  TSocket socket_;
   database::MasterBase &db_;
   query::Interpreter &interpreter_;
+  TInputStream &input_stream_;
+  TOutputStream &output_stream_;
 
-  ChunkedEncoderBuffer<TSocket> encoder_buffer_{socket_};
-  Encoder<ChunkedEncoderBuffer<TSocket>> encoder_{encoder_buffer_};
-  ResultStreamT output_stream_{encoder_};
+  ChunkedEncoderBuffer<TOutputStream> encoder_buffer_{output_stream_};
+  Encoder<ChunkedEncoderBuffer<TOutputStream>> encoder_{encoder_buffer_};
+  ResultStreamT result_stream_{encoder_};
 
-  Buffer<> buffer_;
-  ChunkedDecoderBuffer decoder_buffer_{buffer_};
-  Decoder<ChunkedDecoderBuffer> decoder_{decoder_buffer_};
+  ChunkedDecoderBuffer<TInputStream> decoder_buffer_{input_stream_};
+  Decoder<ChunkedDecoderBuffer<TInputStream>> decoder_{decoder_buffer_};
 
   bool handshake_done_{false};
   State state_{State::Handshake};
   // GraphDbAccessor of active transaction in the session, can be null if
   // there is no associated transaction.
   std::unique_ptr<database::GraphDbAccessor> db_accessor_;
-
-  // Time of the last event and associated lock.
-  std::chrono::time_point<std::chrono::steady_clock> last_event_time_ =
-      std::chrono::steady_clock::now();
-  SpinLock lock_;
 
  private:
   void ClientFailureInvalidData() {
@@ -237,11 +180,7 @@ class Session {
                               "Check the server logs for more details."}});
     // Throw an exception to indicate that something went wrong with execution
     // of the session to trigger session cleanup and socket close.
-    if (TimedOut()) {
-      throw SessionException("The session has timed out!");
-    } else {
-      throw SessionException("The client has sent invalid data!");
-    }
+    throw SessionException("Something went wrong during session execution!");
   }
 };
 }  // namespace communication::bolt

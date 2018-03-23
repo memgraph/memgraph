@@ -2,12 +2,11 @@
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 
 // aliases
-using SocketT = TestSocket;
-using BufferT = communication::bolt::ChunkedEncoderBuffer<SocketT>;
+using BufferT = communication::bolt::ChunkedEncoderBuffer<TestOutputStream>;
 
 // constants
-using communication::bolt::CHUNK_HEADER_SIZE;
 using communication::bolt::CHUNK_END_MARKER_SIZE;
+using communication::bolt::CHUNK_HEADER_SIZE;
 using communication::bolt::MAX_CHUNK_SIZE;
 using communication::bolt::WHOLE_CHUNK_SIZE;
 
@@ -53,8 +52,8 @@ TEST(BoltChunkedEncoderBuffer, OneSmallChunk) {
   int size = 100;
 
   // initialize tested buffer
-  SocketT socket(10);
-  BufferT buffer(socket);
+  TestOutputStream output_stream;
+  BufferT buffer(output_stream);
 
   // write into buffer
   buffer.Write(test_data, size);
@@ -62,7 +61,7 @@ TEST(BoltChunkedEncoderBuffer, OneSmallChunk) {
 
   // check the output array
   // the array should look like: [0, 100, first 100 bytes of test data, 0, 0]
-  VerifyChunkOfTestData(socket.output.data(), size);
+  VerifyChunkOfTestData(output_stream.output.data(), size);
 }
 
 TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
@@ -70,8 +69,8 @@ TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
   int size2 = 200;
 
   // initialize tested buffer
-  SocketT socket(10);
-  BufferT buffer(socket);
+  TestOutputStream output_stream;
+  BufferT buffer(output_stream);
 
   // write into buffer
   buffer.Write(test_data, size1);
@@ -83,7 +82,7 @@ TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
   // the output array should look like this:
   // [0, 100, first 100 bytes of test data, 0, 0] +
   // [0, 100, second 100 bytes of test data, 0, 0]
-  auto data = socket.output.data();
+  auto data = output_stream.output.data();
   VerifyChunkOfTestData(data, size1);
   VerifyChunkOfTestData(
       data + CHUNK_HEADER_SIZE + size1 + CHUNK_END_MARKER_SIZE, size2, size1);
@@ -91,8 +90,8 @@ TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
 
 TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   // initialize tested buffer
-  SocketT socket(10);
-  BufferT buffer(socket);
+  TestOutputStream output_stream;
+  BufferT buffer(output_stream);
 
   // write into buffer
   buffer.Write(test_data, TEST_DATA_SIZE);
@@ -102,7 +101,7 @@ TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   // the output array should look like this:
   // [0xFF, 0xFF, first 65535 bytes of test data,
   //  0x86, 0xA1, 34465 bytes of test data after the first 65535 bytes, 0, 0]
-  auto output = socket.output.data();
+  auto output = output_stream.output.data();
   VerifyChunkOfTestData(output, MAX_CHUNK_SIZE, 0, false);
   VerifyChunkOfTestData(output + WHOLE_CHUNK_SIZE,
                         TEST_DATA_SIZE - MAX_CHUNK_SIZE, MAX_CHUNK_SIZE);

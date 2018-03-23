@@ -10,11 +10,8 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "io/network/epoll.hpp"
-#include "io/network/socket.hpp"
 
 static constexpr const int SIZE = 60000;
 static constexpr const int REPLY = 10;
@@ -26,44 +23,27 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(Socket &&socket, TestData &) : socket_(std::move(socket)) {
-    event_.data.ptr = this;
-  }
-
-  bool TimedOut() const { return false; }
-
-  int Id() const { return socket_.fd(); }
+  TestSession(TestData &, communication::InputStream &input_stream,
+              communication::OutputStream &output_stream)
+      : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
-    if (buffer_.size() < 2) return;
-    const uint8_t *data = buffer_.data();
+    if (input_stream_.size() < 2) return;
+    const uint8_t *data = input_stream_.data();
     size_t size = data[0];
     size <<= 8;
     size += data[1];
-    if (buffer_.size() < size + 2) return;
+    input_stream_.Resize(size + 2);
+    if (input_stream_.size() < size + 2) return;
 
     for (int i = 0; i < REPLY; ++i)
-      ASSERT_TRUE(this->socket_.Write(data + 2, size));
+      ASSERT_TRUE(output_stream_.Write(data + 2, size));
 
-    buffer_.Shift(size + 2);
+    input_stream_.Shift(size + 2);
   }
 
-  io::network::StreamBuffer Allocate() { return buffer_.Allocate(); }
-
-  void Written(size_t len) { buffer_.Written(len); }
-
-  Socket &socket() { return socket_; }
-
-  void RefreshLastEventTime(
-      const std::chrono::time_point<std::chrono::steady_clock>
-          &last_event_time) {
-    last_event_time_ = last_event_time;
-  }
-
-  communication::bolt::Buffer<SIZE * 2> buffer_;
-  Socket socket_;
-  io::network::Epoll::Event event_;
-  std::chrono::time_point<std::chrono::steady_clock> last_event_time_;
+  communication::InputStream input_stream_;
+  communication::OutputStream output_stream_;
 };
 
 using ServerT = communication::Server<TestSession, TestData>;

@@ -10,6 +10,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "communication/session.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 #include "threading/sync/spinlock.hpp"
@@ -35,11 +36,16 @@ class Listener {
   // can take a long time.
   static const int kMaxEvents = 1;
 
+  using SessionHandler = Session<TSession, TSessionData>;
+
  public:
-  Listener(TSessionData &data, bool check_for_timeouts,
+  Listener(TSessionData &data, int inactivity_timeout_sec,
            const std::string &service_name)
-      : data_(data), alive_(true) {
-    if (check_for_timeouts) {
+      : data_(data),
+        alive_(true),
+        inactivity_timeout_sec_(inactivity_timeout_sec),
+        service_name_(service_name) {
+    if (inactivity_timeout_sec_ > 0) {
       thread_ = std::thread([this, service_name]() {
         utils::ThreadSetName(fmt::format("{} timeout", service_name));
         while (alive_) {
@@ -47,7 +53,7 @@ class Listener {
             std::unique_lock<SpinLock> guard(lock_);
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
-                LOG(WARNING) << "Session associated with "
+                LOG(WARNING) << service_name << " session associated with "
                              << session->socket().endpoint() << " timed out.";
                 // Here we shutdown the socket to terminate any leftover
                 // blocking `Write` calls and to signal an event that the
@@ -94,8 +100,8 @@ class Listener {
     int fd = connection.fd();
 
     // Create a new Session for the connection.
-    sessions_.push_back(
-        std::make_unique<TSession>(std::move(connection), data_));
+    sessions_.push_back(std::make_unique<SessionHandler>(
+        std::move(connection), data_, inactivity_timeout_sec_));
 
     // Register the connection in Epoll.
     // We want to listen to an incoming event which is edge triggered and
@@ -130,7 +136,8 @@ class Listener {
     // dereference it here. It is safe to dereference the pointer because
     // this design guarantees that there will never be an event that has
     // a stale Session pointer.
-    TSession &session = *reinterpret_cast<TSession *>(event.data.ptr);
+    SessionHandler &session =
+        *reinterpret_cast<SessionHandler *>(event.data.ptr);
 
     // Process epoll events. We use epoll in edge-triggered mode so we process
     // all events here. Only one of the `if` statements must be executed
@@ -139,82 +146,56 @@ class Listener {
     // segfault.
     if (event.events & EPOLLIN) {
       // Read and process all incoming data.
-      while (ReadAndProcessSession(session))
+      while (ExecuteSession(session))
         ;
     } else if (event.events & EPOLLRDHUP) {
       // The client closed the connection.
-      LOG(INFO) << "Client " << session.socket().endpoint()
+      LOG(INFO) << service_name_ << " client " << session.socket().endpoint()
                 << " closed the connection.";
       CloseSession(session);
     } else if (!(event.events & EPOLLIN) ||
                event.events & (EPOLLHUP | EPOLLERR)) {
       // There was an error on the server side.
-      LOG(ERROR) << "Error occured in session associated with "
-                 << session.socket().endpoint();
+      LOG(ERROR) << "Error occured in " << service_name_
+                 << " session associated with " << session.socket().endpoint();
       CloseSession(session);
     } else {
       // Unhandled epoll event.
-      LOG(ERROR) << "Unhandled event occured in session associated with "
-                 << session.socket().endpoint() << " events: " << event.events;
+      LOG(ERROR) << "Unhandled event occured in " << service_name_
+                 << " session associated with " << session.socket().endpoint()
+                 << " events: " << event.events;
       CloseSession(session);
     }
   }
 
  private:
-  bool ReadAndProcessSession(TSession &session) {
-    // Refresh the last event time in the session.
-    // This function must be implemented thread safe.
-    session.RefreshLastEventTime(std::chrono::steady_clock::now());
-
-    // Allocate the buffer to fill the data.
-    auto buf = session.Allocate();
-    // Read from the buffer at most buf.len bytes in a non-blocking fashion.
-    int len = session.socket().Read(buf.data, buf.len, true);
-
-    // Check for read errors.
-    if (len == -1) {
-      // This means read would block or read was interrupted by signal, we
-      // return `false` to stop reading of data.
-      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
-        // Rearm epoll to send events from this socket.
+  bool ExecuteSession(SessionHandler &session) {
+    try {
+      if (session.Execute()) {
+        // Session execution done, rearm epoll to send events for this
+        // socket.
         epoll_.Modify(session.socket().fd(),
                       EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLONESHOT, &session);
         return false;
       }
-      // Some other error occurred, close the session.
-      CloseSession(session);
-      return false;
-    }
-
-    // The client has closed the connection.
-    if (len == 0) {
-      LOG(INFO) << "Client " << session.socket().endpoint()
+    } catch (const SessionClosedException &e) {
+      LOG(INFO) << service_name_ << " client " << session.socket().endpoint()
                 << " closed the connection.";
       CloseSession(session);
       return false;
-    }
-
-    // Notify the session that it has new data.
-    session.Written(len);
-
-    // Execute the session.
-    try {
-      session.Execute();
-      session.RefreshLastEventTime(std::chrono::steady_clock::now());
     } catch (const std::exception &e) {
       // Catch all exceptions.
-      LOG(ERROR) << "Exception was thrown while processing event in session "
-                    "associated with "
+      LOG(ERROR) << "Exception was thrown while processing event in "
+                 << service_name_ << " session associated with "
                  << session.socket().endpoint()
                  << " with message: " << e.what();
       CloseSession(session);
       return false;
     }
-
     return true;
   }
 
-  void CloseSession(TSession &session) {
+  void CloseSession(SessionHandler &session) {
     // Deregister the Session's socket from epoll to disable further events. For
     // a detailed description why this is necessary before destroying (closing)
     // the socket, see:
@@ -222,9 +203,8 @@ class Listener {
     epoll_.Delete(session.socket().fd());
 
     std::unique_lock<SpinLock> guard(lock_);
-    auto it =
-        std::find_if(sessions_.begin(), sessions_.end(),
-                     [&](const auto &l) { return l->Id() == session.Id(); });
+    auto it = std::find_if(sessions_.begin(), sessions_.end(),
+                           [&](const auto &l) { return l.get() == &session; });
 
     CHECK(it != sessions_.end())
         << "Trying to remove session that is not found in sessions!";
@@ -241,9 +221,11 @@ class Listener {
   TSessionData &data_;
 
   SpinLock lock_;
-  std::vector<std::unique_ptr<TSession>> sessions_;
+  std::vector<std::unique_ptr<SessionHandler>> sessions_;
 
   std::thread thread_;
   std::atomic<bool> alive_;
+  const int inactivity_timeout_sec_;
+  const std::string service_name_;
 };
 }  // namespace communication

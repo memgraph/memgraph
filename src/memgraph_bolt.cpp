@@ -28,7 +28,8 @@ namespace fs = std::experimental::filesystem;
 using communication::bolt::SessionData;
 using io::network::Endpoint;
 using io::network::Socket;
-using SessionT = communication::bolt::Session<Socket>;
+using SessionT = communication::bolt::Session<communication::InputStream,
+                                              communication::OutputStream>;
 using ServerT = communication::Server<SessionT, SessionData>;
 
 // General purpose flags.
@@ -39,6 +40,10 @@ DEFINE_VALIDATED_int32(port, 7687, "Communication port on which to listen.",
 DEFINE_VALIDATED_int32(num_workers,
                        std::max(std::thread::hardware_concurrency(), 1U),
                        "Number of workers (Bolt)", FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
+                       "Time in seconds after which inactive sessions will be "
+                       "closed.",
+                       FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 DEFINE_HIDDEN_string(
     log_link_basename, "",
@@ -95,7 +100,8 @@ void MasterMain() {
   database::Master db;
   SessionData session_data{db};
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, true, "Bolt", FLAGS_num_workers);
+                 session_data, FLAGS_session_inactivity_timeout, "Bolt",
+                 FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {
@@ -121,7 +127,8 @@ void SingleNodeMain() {
   database::SingleNode db;
   SessionData session_data{db};
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, true, "Bolt", FLAGS_num_workers);
+                 session_data, FLAGS_session_inactivity_timeout, "Bolt",
+                 FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {

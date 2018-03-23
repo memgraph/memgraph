@@ -13,29 +13,33 @@
 
 namespace communication::rpc {
 
-Session::Session(Socket &&socket, Server &server)
-    : socket_(std::move(socket)), server_(server) {}
+Session::Session(Server &server, communication::InputStream &input_stream,
+                 communication::OutputStream &output_stream)
+    : server_(server),
+      input_stream_(input_stream),
+      output_stream_(output_stream) {}
 
 void Session::Execute() {
-  if (buffer_.size() < sizeof(MessageSize)) return;
-  MessageSize request_len = *reinterpret_cast<MessageSize *>(buffer_.data());
+  if (input_stream_.size() < sizeof(MessageSize)) return;
+  MessageSize request_len =
+      *reinterpret_cast<MessageSize *>(input_stream_.data());
   uint64_t request_size = sizeof(MessageSize) + request_len;
-  buffer_.Resize(request_size);
-  if (buffer_.size() < request_size) return;
+  input_stream_.Resize(request_size);
+  if (input_stream_.size() < request_size) return;
 
   // Read the request message.
   std::unique_ptr<Message> request([this, request_len]() {
     Message *req_ptr = nullptr;
     std::stringstream stream(std::ios_base::in | std::ios_base::binary);
     stream.str(std::string(
-        reinterpret_cast<char *>(buffer_.data() + sizeof(MessageSize)),
+        reinterpret_cast<char *>(input_stream_.data() + sizeof(MessageSize)),
         request_len));
     boost::archive::binary_iarchive archive(stream);
     // Sent from client.cpp
     archive >> req_ptr;
     return req_ptr;
   }());
-  buffer_.Shift(sizeof(MessageSize) + request_len);
+  input_stream_.Shift(sizeof(MessageSize) + request_len);
 
   auto callbacks_accessor = server_.callbacks_.access();
   auto it = callbacks_accessor.find(request->type_index());
@@ -71,12 +75,12 @@ void Session::Execute() {
         buffer.size(), std::numeric_limits<MessageSize>::max()));
   }
 
-  MessageSize buffer_size = buffer.size();
-  if (!socket_.Write(reinterpret_cast<uint8_t *>(&buffer_size),
-                     sizeof(MessageSize), true)) {
+  MessageSize input_stream_size = buffer.size();
+  if (!output_stream_.Write(reinterpret_cast<uint8_t *>(&input_stream_size),
+                            sizeof(MessageSize), true)) {
     throw SessionException("Couldn't send response size!");
   }
-  if (!socket_.Write(buffer)) {
+  if (!output_stream_.Write(buffer)) {
     throw SessionException("Couldn't send response data!");
   }
 
@@ -85,8 +89,4 @@ void Session::Execute() {
     LOG(INFO) << "[RpcServer] sent " << (res_type ? res_type.value() : "");
   }
 }
-
-StreamBuffer Session::Allocate() { return buffer_.Allocate(); }
-
-void Session::Written(size_t len) { buffer_.Written(len); }
 }  // namespace communication::rpc

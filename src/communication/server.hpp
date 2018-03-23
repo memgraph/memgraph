@@ -43,9 +43,10 @@ class Server {
    * invokes workers_count workers
    */
   Server(const io::network::Endpoint &endpoint, TSessionData &session_data,
-         bool check_for_timeouts, const std::string &service_name,
+         int inactivity_timeout_sec, const std::string &service_name,
          size_t workers_count = std::thread::hardware_concurrency())
-      : listener_(session_data, check_for_timeouts, service_name) {
+      : listener_(session_data, inactivity_timeout_sec, service_name),
+        service_name_(service_name) {
     // Without server we can't continue with application so we can just
     // terminate here.
     if (!socket_.Bind(endpoint)) {
@@ -120,7 +121,8 @@ class Server {
       // Connection is not available anymore or configuration failed.
       return;
     }
-    LOG(INFO) << "Accepted a connection from " << s->endpoint();
+    LOG(INFO) << "Accepted a " << service_name_ << " connection from "
+              << s->endpoint();
     listener_.AddConnection(std::move(*s));
   }
 
@@ -130,6 +132,8 @@ class Server {
 
   Socket socket_;
   Listener<TSession, TSessionData> listener_;
+
+  const std::string service_name_;
 };
 
 }  // namespace communication

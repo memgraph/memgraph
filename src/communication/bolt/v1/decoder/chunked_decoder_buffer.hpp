@@ -9,7 +9,6 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/constants.hpp"
-#include "communication/bolt/v1/decoder/buffer.hpp"
 
 namespace communication::bolt {
 
@@ -39,12 +38,10 @@ enum class ChunkState : uint8_t {
  * chunk for validity and then copies only data from the chunk. The headers
  * aren't copied so that the decoder can read only the raw encoded data.
  */
+template <typename TBuffer>
 class ChunkedDecoderBuffer {
- private:
-  using StreamBufferT = io::network::StreamBuffer;
-
  public:
-  ChunkedDecoderBuffer(Buffer<> &buffer) : buffer_(buffer) {
+  ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) {
     data_.reserve(MAX_CHUNK_SIZE);
   }
 
@@ -130,8 +127,8 @@ class ChunkedDecoderBuffer {
   size_t Size() { return data_.size() - pos_; }
 
  private:
-  Buffer<> &buffer_;
+  TBuffer &buffer_;
   std::vector<uint8_t> data_;
   size_t pos_{0};
 };
-}
+}  // namespace communication::bolt

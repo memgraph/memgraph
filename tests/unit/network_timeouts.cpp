@@ -1,74 +1,77 @@
 #include <chrono>
-#include <experimental/filesystem>
 #include <iostream>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 #include "gtest/gtest.h"
 
-#include "communication/bolt/client.hpp"
-#include "communication/bolt/v1/session.hpp"
 #include "communication/server.hpp"
-#include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 
-DECLARE_int32(query_execution_time_sec);
-DECLARE_int32(session_inactivity_timeout);
-
 using namespace std::chrono_literals;
-class TestClientSocket;
-using communication::bolt::ClientException;
-using communication::bolt::SessionData;
-using io::network::Endpoint;
-using io::network::Socket;
-using SessionT = communication::bolt::Session<Socket>;
-using ResultStreamT = SessionT::ResultStreamT;
-using ServerT = communication::Server<SessionT, SessionData>;
-using ClientT = communication::bolt::Client<Socket>;
 
-class RunningServer {
+class TestData {};
+
+class TestSession {
  public:
-  database::SingleNode db_;
-  SessionData session_data_{db_};
-  Endpoint endpoint_{"127.0.0.1", 0};
-  ServerT server_{endpoint_, session_data_, true, "Test", 1};
+  TestSession(TestData &, communication::InputStream &input_stream,
+              communication::OutputStream &output_stream)
+      : input_stream_(input_stream), output_stream_(output_stream) {}
+
+  void Execute() {
+    LOG(INFO) << "Received data: '"
+              << std::string(
+                     reinterpret_cast<const char *>(input_stream_.data()),
+                     input_stream_.size())
+              << "'";
+    output_stream_.Write(input_stream_.data(), input_stream_.size());
+    input_stream_.Shift(input_stream_.size());
+  }
+
+ private:
+  communication::InputStream &input_stream_;
+  communication::OutputStream &output_stream_;
 };
 
-class TestClient : public ClientT {
- public:
-  TestClient(Endpoint endpoint)
-      : ClientT(
-            [&] {
-              Socket socket;
-              socket.Connect(endpoint);
-              return socket;
-            }(),
-            "", "") {}
-};
+const std::string query("timeout test");
+
+bool QueryServer(io::network::Socket &socket) {
+  if (!socket.Write(query)) return false;
+  char response[105];
+  int len = 0;
+  while (len < query.size()) {
+    int got = socket.Read(response + len, query.size() - len);
+    if (got <= 0) return false;
+    len += got;
+  }
+  if (std::string(response, strlen(response)) != query) return false;
+  return true;
+}
 
 TEST(NetworkTimeouts, InactiveSession) {
-  FLAGS_session_inactivity_timeout = 2;
-  RunningServer rs;
+  // Instantiate the server and set the session timeout to 2 seconds.
+  TestData test_data;
+  communication::Server<TestSession, TestData> server{
+      {"127.0.0.1", 0}, test_data, 2, "Test", 1};
 
-  TestClient client(rs.server_.endpoint());
-  // Check that we can execute first query.
-  client.Execute("RETURN 1", {});
+  // Create the client and connect to the server.
+  io::network::Socket client;
+  ASSERT_TRUE(client.Connect(server.endpoint()));
 
-  // After sleep, session should still be alive.
-  std::this_thread::sleep_for(500ms);
-  client.Execute("RETURN 1", {});
+  // Send some data to the server.
+  ASSERT_TRUE(QueryServer(client));
 
-  // After sleep, session should still be alive.
-  std::this_thread::sleep_for(500ms);
-  client.Execute("RETURN 1", {});
+  for (int i = 0; i < 3; ++i) {
+    // After this sleep the session should still be alive.
+    std::this_thread::sleep_for(500ms);
 
-  // After sleep, session should still be alive.
-  std::this_thread::sleep_for(500ms);
-  client.Execute("RETURN 1", {});
+    // Send some data to the server.
+    ASSERT_TRUE(QueryServer(client));
+  }
 
-  // After sleep, session should have timed out.
+  // After this sleep the session should have timed out.
   std::this_thread::sleep_for(3500ms);
-  EXPECT_THROW(client.Execute("RETURN 1", {}), ClientException);
+  ASSERT_FALSE(QueryServer(client));
 }
 
 int main(int argc, char **argv) {

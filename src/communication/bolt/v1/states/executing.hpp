@@ -128,7 +128,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
     session
         .interpreter_(query.ValueString(), *session.db_accessor_, params_tv,
                       in_explicit_transaction)
-        .PullAll(session.output_stream_);
+        .PullAll(session.result_stream_);
 
     if (!in_explicit_transaction) {
       session.Commit();

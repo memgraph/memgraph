@@ -8,17 +8,19 @@
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
-#define INIT_VARS                                    \
-  TestSocket socket(10);                             \
-  database::SingleNode db;                           \
-  SessionData session_data{db};                      \
-  SessionT session(std::move(socket), session_data); \
-  std::vector<uint8_t> &output = session.socket().output;
+#define INIT_VARS                                              \
+  TestInputStream input_stream;                                \
+  TestOutputStream output_stream;                              \
+  database::SingleNode db;                                     \
+  SessionData session_data{db};                                \
+  SessionT session(session_data, input_stream, output_stream); \
+  std::vector<uint8_t> &output = output_stream.output;
 
 using communication::bolt::SessionData;
 using communication::bolt::SessionException;
 using communication::bolt::State;
-using SessionT = communication::bolt::Session<TestSocket>;
+using SessionT =
+    communication::bolt::Session<TestInputStream, TestOutputStream>;
 using ResultStreamT = SessionT::ResultStreamT;
 
 // Sample testdata that has correct inputs and outputs.
@@ -43,15 +45,15 @@ const uint8_t success_resp[] = {0x00, 0x03, 0xb1, 0x70, 0xa0, 0x00, 0x00};
 const uint8_t ignored_resp[] = {0x00, 0x02, 0xb0, 0x7e, 0x00, 0x00};
 
 // Write bolt chunk header (length)
-void WriteChunkHeader(SessionT &session, uint16_t len) {
+void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
   len = bswap(len);
-  auto buff = session.Allocate();
-  memcpy(buff.data, reinterpret_cast<uint8_t *>(&len), sizeof(len));
-  session.Written(sizeof(len));
+  input_stream.Write(reinterpret_cast<uint8_t *>(&len), sizeof(len));
 }
 
 // Write bolt chunk tail (two zeros)
-void WriteChunkTail(SessionT &session) { WriteChunkHeader(session, 0); }
+void WriteChunkTail(TestInputStream &input_stream) {
+  WriteChunkHeader(input_stream, 0);
+}
 
 // Check that the server responded with a failure message.
 void CheckFailureMessage(std::vector<uint8_t> &output) {
@@ -83,71 +85,60 @@ void CheckIgnoreMessage(std::vector<uint8_t> &output) {
 }
 
 // Execute and check a correct handshake
-void ExecuteHandshake(SessionT &session, std::vector<uint8_t> &output) {
-  auto buff = session.Allocate();
-  memcpy(buff.data, handshake_req, 20);
-  session.Written(20);
+void ExecuteHandshake(TestInputStream &input_stream, SessionT &session,
+                      std::vector<uint8_t> &output) {
+  input_stream.Write(handshake_req, 20);
   session.Execute();
-
   ASSERT_EQ(session.state_, State::Init);
   PrintOutput(output);
   CheckOutput(output, handshake_resp, 4);
 }
 
 // Write bolt chunk and execute command
-void ExecuteCommand(SessionT &session, const uint8_t *data, size_t len,
-                    bool chunk = true) {
-  if (chunk) WriteChunkHeader(session, len);
-  auto buff = session.Allocate();
-  memcpy(buff.data, data, len);
-  session.Written(len);
-  if (chunk) WriteChunkTail(session);
+void ExecuteCommand(TestInputStream &input_stream, SessionT &session,
+                    const uint8_t *data, size_t len, bool chunk = true) {
+  if (chunk) WriteChunkHeader(input_stream, len);
+  input_stream.Write(data, len);
+  if (chunk) WriteChunkTail(input_stream);
   session.Execute();
 }
 
 // Execute and check a correct init
-void ExecuteInit(SessionT &session, std::vector<uint8_t> &output) {
-  ExecuteCommand(session, init_req, sizeof(init_req));
+void ExecuteInit(TestInputStream &input_stream, SessionT &session,
+                 std::vector<uint8_t> &output) {
+  ExecuteCommand(input_stream, session, init_req, sizeof(init_req));
   ASSERT_EQ(session.state_, State::Idle);
   PrintOutput(output);
   CheckOutput(output, init_resp, 7);
 }
 
 // Write bolt encoded run request
-void WriteRunRequest(SessionT &session, const char *str) {
+void WriteRunRequest(TestInputStream &input_stream, const char *str) {
   // write chunk header
   auto len = strlen(str);
-  WriteChunkHeader(session, 3 + 2 + len + 1);
+  WriteChunkHeader(input_stream, 3 + 2 + len + 1);
 
   // write string header
-  auto buff = session.Allocate();
-  memcpy(buff.data, run_req_header, 3);
-  session.Written(3);
+  input_stream.Write(run_req_header, 3);
 
   // write string length
-  WriteChunkHeader(session, len);
+  WriteChunkHeader(input_stream, len);
 
   // write string
-  buff = session.Allocate();
-  memcpy(buff.data, str, len);
-  session.Written(len);
+  input_stream.Write(str, len);
 
   // write empty map for parameters
-  buff = session.Allocate();
-  buff.data[0] = 0xA0;  // TinyMap0
-  session.Written(1);
+  input_stream.Write("\xA0", 1);  // TinyMap0
 
   // write chunk tail
-  WriteChunkTail(session);
+  WriteChunkTail(input_stream);
 }
 
 TEST(BoltSession, HandshakeWrongPreamble) {
   INIT_VARS;
 
-  auto buff = session.Allocate();
-  // copy 0x00000001 four times
-  for (int i = 0; i < 4; ++i) memcpy(buff.data + i * 4, handshake_req + 4, 4);
-  session.Written(20);
+  // write 0x00000001 five times
+  for (int i = 0; i < 5; ++i) input_stream.Write(handshake_req + 4, 4);
   ASSERT_THROW(session.Execute(), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
@@ -158,15 +149,12 @@ TEST(BoltSession, HandshakeWrongPreamble) {
 TEST(BoltSession, HandshakeInTwoPackets) {
   INIT_VARS;
 
-  auto buff = session.Allocate();
-  memcpy(buff.data, handshake_req, 10);
-  session.Written(10);
+  input_stream.Write(handshake_req, 10);
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Handshake);
 
-  memcpy(buff.data + 10, handshake_req + 10, 10);
-  session.Written(10);
+  input_stream.Write(handshake_req + 10, 10);
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Init);
@@ -176,10 +164,10 @@ TEST(BoltSession, HandshakeInTwoPackets) {
 
 TEST(BoltSession, HandshakeWriteFail) {
   INIT_VARS;
-  session.socket().SetWriteSuccess(false);
-  ASSERT_THROW(
-      ExecuteCommand(session, handshake_req, sizeof(handshake_req), false),
-      SessionException);
+  output_stream.SetWriteSuccess(false);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, handshake_req,
+                              sizeof(handshake_req), false),
+               SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   ASSERT_EQ(output.size(), 0);
@@ -187,13 +175,14 @@ TEST(BoltSession, HandshakeWriteFail) {
 
 TEST(BoltSession, HandshakeOK) {
   INIT_VARS;
-  ExecuteHandshake(session, output);
+  ExecuteHandshake(input_stream, session, output);
 }
 
 TEST(BoltSession, InitWrongSignature) {
   INIT_VARS;
-  ExecuteHandshake(session, output);
-  ASSERT_THROW(ExecuteCommand(session, run_req_header, sizeof(run_req_header)),
+  ExecuteHandshake(input_stream, session, output);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_header,
+                              sizeof(run_req_header)),
                SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
@@ -202,11 +191,12 @@ TEST(BoltSession, InitWrongSignature) {
 
 TEST(BoltSession, InitWrongMarker) {
   INIT_VARS;
-  ExecuteHandshake(session, output);
+  ExecuteHandshake(input_stream, session, output);
 
   // wrong marker, good signature
   uint8_t data[2] = {0x00, init_req[1]};
-  ASSERT_THROW(ExecuteCommand(session, data, 2), SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, 2),
+               SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -219,8 +209,9 @@ TEST(BoltSession, InitMissingData) {
 
   for (int i = 0; i < 3; ++i) {
     INIT_VARS;
-    ExecuteHandshake(session, output);
-    ASSERT_THROW(ExecuteCommand(session, init_req, len[i]), SessionException);
+    ExecuteHandshake(input_stream, session, output);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, init_req, len[i]),
+                 SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     CheckFailureMessage(output);
@@ -229,10 +220,11 @@ TEST(BoltSession, InitMissingData) {
 
 TEST(BoltSession, InitWriteFail) {
   INIT_VARS;
-  ExecuteHandshake(session, output);
-  session.socket().SetWriteSuccess(false);
-  ASSERT_THROW(ExecuteCommand(session, init_req, sizeof(init_req)),
-               SessionException);
+  ExecuteHandshake(input_stream, session, output);
+  output_stream.SetWriteSuccess(false);
+  ASSERT_THROW(
+      ExecuteCommand(input_stream, session, init_req, sizeof(init_req)),
+      SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   ASSERT_EQ(output.size(), 0);
@@ -240,19 +232,20 @@ TEST(BoltSession, InitWriteFail) {
 
 TEST(BoltSession, InitOK) {
   INIT_VARS;
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 }
 
 TEST(BoltSession, ExecuteRunWrongMarker) {
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
   // wrong marker, good signature
   uint8_t data[2] = {0x00, run_req_header[1]};
-  ASSERT_THROW(ExecuteCommand(session, data, sizeof(data)), SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
+               SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -265,9 +258,9 @@ TEST(BoltSession, ExecuteRunMissingData) {
 
   for (int i = 0; i < 3; ++i) {
     INIT_VARS;
-    ExecuteHandshake(session, output);
-    ExecuteInit(session, output);
-    ASSERT_THROW(ExecuteCommand(session, run_req_header, len[i]),
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, run_req_header, len[i]),
                  SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
@@ -280,11 +273,11 @@ TEST(BoltSession, ExecuteRunBasicException) {
   for (int i = 0; i < 2; ++i) {
     INIT_VARS;
 
-    ExecuteHandshake(session, output);
-    ExecuteInit(session, output);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
 
-    session.socket().SetWriteSuccess(i == 0);
-    WriteRunRequest(session, "MATCH (omnom");
+    output_stream.SetWriteSuccess(i == 0);
+    WriteRunRequest(input_stream, "MATCH (omnom");
     if (i == 0) {
       session.Execute();
     } else {
@@ -304,10 +297,10 @@ TEST(BoltSession, ExecuteRunBasicException) {
 TEST(BoltSession, ExecuteRunWithoutPullAll) {
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(session, "RETURN 2");
+  WriteRunRequest(input_stream, "RETURN 2");
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Result);
@@ -321,12 +314,13 @@ TEST(BoltSession, ExecutePullAllDiscardAllResetWrongMarker) {
   for (int i = 0; i < 3; ++i) {
     INIT_VARS;
 
-    ExecuteHandshake(session, output);
-    ExecuteInit(session, output);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
 
     // wrong marker, good signature
     uint8_t data[2] = {0x00, dataset[i][1]};
-    ASSERT_THROW(ExecuteCommand(session, data, sizeof(data)), SessionException);
+    ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
+                 SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     CheckFailureMessage(output);
@@ -338,12 +332,13 @@ TEST(BoltSession, ExecutePullAllBufferEmpty) {
   for (int i = 0; i < 2; ++i) {
     INIT_VARS;
 
-    ExecuteHandshake(session, output);
-    ExecuteInit(session, output);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
 
-    session.socket().SetWriteSuccess(i == 0);
-    ASSERT_THROW(ExecuteCommand(session, pullall_req, sizeof(pullall_req)),
-                 SessionException);
+    output_stream.SetWriteSuccess(i == 0);
+    ASSERT_THROW(
+        ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req)),
+        SessionException);
 
     ASSERT_EQ(session.state_, State::Close);
     if (i == 0) {
@@ -364,18 +359,19 @@ TEST(BoltSession, ExecutePullAllDiscardAllReset) {
     for (int j = 0; j < 2; ++j) {
       INIT_VARS;
 
-      ExecuteHandshake(session, output);
-      ExecuteInit(session, output);
-      WriteRunRequest(session, "CREATE (n) RETURN n");
+      ExecuteHandshake(input_stream, session, output);
+      ExecuteInit(input_stream, session, output);
+      WriteRunRequest(input_stream, "CREATE (n) RETURN n");
       session.Execute();
 
       if (j == 1) output.clear();
 
-      session.socket().SetWriteSuccess(j == 0);
+      output_stream.SetWriteSuccess(j == 0);
       if (j == 0) {
-        ExecuteCommand(session, dataset[i], 2);
+        ExecuteCommand(input_stream, session, dataset[i], 2);
       } else {
-        ASSERT_THROW(ExecuteCommand(session, dataset[i], 2), SessionException);
+        ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
+                     SessionException);
       }
 
       if (j == 0) {
@@ -393,10 +389,11 @@ TEST(BoltSession, ExecutePullAllDiscardAllReset) {
 TEST(BoltSession, ExecuteInvalidMessage) {
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
-  ASSERT_THROW(ExecuteCommand(session, init_req, sizeof(init_req)),
-               SessionException);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
+  ASSERT_THROW(
+      ExecuteCommand(input_stream, session, init_req, sizeof(init_req)),
+      SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -407,20 +404,21 @@ TEST(BoltSession, ErrorIgnoreMessage) {
   for (int i = 0; i < 2; ++i) {
     INIT_VARS;
 
-    ExecuteHandshake(session, output);
-    ExecuteInit(session, output);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
 
-    WriteRunRequest(session, "MATCH (omnom");
+    WriteRunRequest(input_stream, "MATCH (omnom");
     session.Execute();
 
     output.clear();
 
-    session.socket().SetWriteSuccess(i == 0);
+    output_stream.SetWriteSuccess(i == 0);
     if (i == 0) {
-      ExecuteCommand(session, init_req, sizeof(init_req));
+      ExecuteCommand(input_stream, session, init_req, sizeof(init_req));
     } else {
-      ASSERT_THROW(ExecuteCommand(session, init_req, sizeof(init_req)),
-                   SessionException);
+      ASSERT_THROW(
+          ExecuteCommand(input_stream, session, init_req, sizeof(init_req)),
+          SessionException);
     }
 
     // assert that all data from the init message was cleaned up
@@ -440,21 +438,21 @@ TEST(BoltSession, ErrorRunAfterRun) {
   // first test with socket write success, then with socket write fail
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(session, "MATCH (n) RETURN n");
+  WriteRunRequest(input_stream, "MATCH (n) RETURN n");
   session.Execute();
 
   output.clear();
 
-  session.socket().SetWriteSuccess(true);
+  output_stream.SetWriteSuccess(true);
 
   // Session holds results of last run.
   ASSERT_EQ(session.state_, State::Result);
 
   // New run request.
-  WriteRunRequest(session, "MATCH (n) RETURN n");
+  WriteRunRequest(input_stream, "MATCH (n) RETURN n");
   ASSERT_THROW(session.Execute(), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
@@ -463,17 +461,18 @@ TEST(BoltSession, ErrorRunAfterRun) {
 TEST(BoltSession, ErrorCantCleanup) {
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(session, "MATCH (omnom");
+  WriteRunRequest(input_stream, "MATCH (omnom");
   session.Execute();
 
   output.clear();
 
   // there is data missing in the request, cleanup should fail
-  ASSERT_THROW(ExecuteCommand(session, init_req, sizeof(init_req) - 10),
-               SessionException);
+  ASSERT_THROW(
+      ExecuteCommand(input_stream, session, init_req, sizeof(init_req) - 10),
+      SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -482,17 +481,18 @@ TEST(BoltSession, ErrorCantCleanup) {
 TEST(BoltSession, ErrorWrongMarker) {
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(session, "MATCH (omnom");
+  WriteRunRequest(input_stream, "MATCH (omnom");
   session.Execute();
 
   output.clear();
 
   // wrong marker, good signature
   uint8_t data[2] = {0x00, init_req[1]};
-  ASSERT_THROW(ExecuteCommand(session, data, sizeof(data)), SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
+               SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -507,19 +507,20 @@ TEST(BoltSession, ErrorOK) {
     for (int j = 0; j < 2; ++j) {
       INIT_VARS;
 
-      ExecuteHandshake(session, output);
-      ExecuteInit(session, output);
+      ExecuteHandshake(input_stream, session, output);
+      ExecuteInit(input_stream, session, output);
 
-      WriteRunRequest(session, "MATCH (omnom");
+      WriteRunRequest(input_stream, "MATCH (omnom");
       session.Execute();
 
       output.clear();
 
-      session.socket().SetWriteSuccess(j == 0);
+      output_stream.SetWriteSuccess(j == 0);
       if (j == 0) {
-        ExecuteCommand(session, dataset[i], 2);
+        ExecuteCommand(input_stream, session, dataset[i], 2);
       } else {
-        ASSERT_THROW(ExecuteCommand(session, dataset[i], 2), SessionException);
+        ASSERT_THROW(ExecuteCommand(input_stream, session, dataset[i], 2),
+                     SessionException);
       }
 
       // assert that all data from the init message was cleaned up
@@ -539,17 +540,18 @@ TEST(BoltSession, ErrorOK) {
 TEST(BoltSession, ErrorMissingData) {
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(session, "MATCH (omnom");
+  WriteRunRequest(input_stream, "MATCH (omnom");
   session.Execute();
 
   output.clear();
 
   // some marker, missing signature
   uint8_t data[1] = {0x00};
-  ASSERT_THROW(ExecuteCommand(session, data, sizeof(data)), SessionException);
+  ASSERT_THROW(ExecuteCommand(input_stream, session, data, sizeof(data)),
+               SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
   CheckFailureMessage(output);
@@ -558,11 +560,11 @@ TEST(BoltSession, ErrorMissingData) {
 TEST(BoltSession, MultipleChunksInOneExecute) {
   INIT_VARS;
 
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(session, "CREATE (n) RETURN n");
-  ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+  WriteRunRequest(input_stream, "CREATE (n) RETURN n");
+  ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
 
   ASSERT_EQ(session.state_, State::Idle);
   PrintOutput(output);
@@ -584,13 +586,11 @@ TEST(BoltSession, MultipleChunksInOneExecute) {
 
 TEST(BoltSession, PartialChunk) {
   INIT_VARS;
-  ExecuteHandshake(session, output);
-  ExecuteInit(session, output);
+  ExecuteHandshake(input_stream, session, output);
+  ExecuteInit(input_stream, session, output);
 
-  WriteChunkHeader(session, sizeof(discardall_req));
-  auto buff = session.Allocate();
-  memcpy(buff.data, discardall_req, sizeof(discardall_req));
-  session.Written(2);
+  WriteChunkHeader(input_stream, sizeof(discardall_req));
+  input_stream.Write(discardall_req, sizeof(discardall_req));
 
   // missing chunk tail
   session.Execute();
@@ -598,7 +598,7 @@ TEST(BoltSession, PartialChunk) {
   ASSERT_EQ(session.state_, State::Idle);
   ASSERT_EQ(output.size(), 0);
 
-  WriteChunkTail(session);
+  WriteChunkTail(input_stream);
 
   ASSERT_THROW(session.Execute(), SessionException);
 
@@ -615,40 +615,40 @@ TEST(BoltSession, ExplicitTransactionValidQueries) {
   for (const auto &transaction_end : transaction_ends) {
     INIT_VARS;
 
-    ExecuteHandshake(session, output);
-    ExecuteInit(session, output);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
 
-    WriteRunRequest(session, "BEGIN");
+    WriteRunRequest(input_stream, "BEGIN");
     session.Execute();
     ASSERT_EQ(session.state_, State::Result);
     ASSERT_TRUE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
     session.Execute();
     ASSERT_EQ(session.state_, State::Idle);
     ASSERT_TRUE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    WriteRunRequest(session, "MATCH (n) RETURN n");
+    WriteRunRequest(input_stream, "MATCH (n) RETURN n");
     session.Execute();
     ASSERT_EQ(session.state_, State::Result);
     ASSERT_TRUE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
     session.Execute();
     ASSERT_EQ(session.state_, State::Idle);
     ASSERT_TRUE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    WriteRunRequest(session, transaction_end.c_str());
+    WriteRunRequest(input_stream, transaction_end.c_str());
     session.Execute();
     ASSERT_FALSE(session.db_accessor_);
     CheckSuccessMessage(output);
     ASSERT_EQ(session.state_, State::Result);
 
-    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
     session.Execute();
     ASSERT_EQ(session.state_, State::Idle);
     ASSERT_FALSE(session.db_accessor_);
@@ -662,40 +662,41 @@ TEST(BoltSession, ExplicitTransactionInvalidQuery) {
   for (const auto &transaction_end : transaction_ends) {
     INIT_VARS;
 
-    ExecuteHandshake(session, output);
-    ExecuteInit(session, output);
+    ExecuteHandshake(input_stream, session, output);
+    ExecuteInit(input_stream, session, output);
 
-    WriteRunRequest(session, "BEGIN");
+    WriteRunRequest(input_stream, "BEGIN");
     session.Execute();
     ASSERT_EQ(session.state_, State::Result);
     ASSERT_TRUE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
     session.Execute();
     ASSERT_EQ(session.state_, State::Idle);
     ASSERT_TRUE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    WriteRunRequest(session, "MATCH (");
+    WriteRunRequest(input_stream, "MATCH (");
     session.Execute();
     ASSERT_EQ(session.state_, State::ErrorWaitForRollback);
     ASSERT_TRUE(session.db_accessor_);
     CheckFailureMessage(output);
 
-    ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
     session.Execute();
     ASSERT_EQ(session.state_, State::ErrorWaitForRollback);
     ASSERT_TRUE(session.db_accessor_);
     CheckIgnoreMessage(output);
 
-    ExecuteCommand(session, ackfailure_req, sizeof(ackfailure_req));
+    ExecuteCommand(input_stream, session, ackfailure_req,
+                   sizeof(ackfailure_req));
     session.Execute();
     ASSERT_EQ(session.state_, State::WaitForRollback);
     ASSERT_TRUE(session.db_accessor_);
     CheckSuccessMessage(output);
 
-    WriteRunRequest(session, transaction_end.c_str());
+    WriteRunRequest(input_stream, transaction_end.c_str());
 
     if (transaction_end == "ROLLBACK") {
       session.Execute();
@@ -703,7 +704,7 @@ TEST(BoltSession, ExplicitTransactionInvalidQuery) {
       ASSERT_FALSE(session.db_accessor_);
       CheckSuccessMessage(output);
 
-      ExecuteCommand(session, pullall_req, sizeof(pullall_req));
+      ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
       session.Execute();
       ASSERT_EQ(session.state_, State::Idle);
       ASSERT_FALSE(session.db_accessor_);

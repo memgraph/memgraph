@@ -12,11 +12,8 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/server.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "io/network/epoll.hpp"
-#include "io/network/socket.hpp"
 
 static constexpr const char interface[] = "127.0.0.1";
 
@@ -27,32 +24,16 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(Socket &&socket, TestData &) : socket_(std::move(socket)) {
-    event_.data.ptr = this;
+  TestSession(TestData &, communication::InputStream &input_stream,
+              communication::OutputStream &output_stream)
+      : input_stream_(input_stream), output_stream_(output_stream) {}
+
+  void Execute() {
+    output_stream_.Write(input_stream_.data(), input_stream_.size());
   }
 
-  bool TimedOut() const { return false; }
-
-  int Id() const { return socket_.fd(); }
-
-  void Execute() { this->socket_.Write(buffer_.data(), buffer_.size()); }
-
-  io::network::StreamBuffer Allocate() { return buffer_.Allocate(); }
-
-  void Written(size_t len) { buffer_.Written(len); }
-
-  Socket &socket() { return socket_; }
-
-  void RefreshLastEventTime(
-      const std::chrono::time_point<std::chrono::steady_clock>
-          &last_event_time) {
-    last_event_time_ = last_event_time;
-  }
-
-  Socket socket_;
-  communication::bolt::Buffer<> buffer_;
-  io::network::Epoll::Event event_;
-  std::chrono::time_point<std::chrono::steady_clock> last_event_time_;
+  communication::InputStream input_stream_;
+  communication::OutputStream output_stream_;
 };
 
 std::atomic<bool> run{true};
@@ -82,7 +63,8 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   TestData data;
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   int Nc = N * 3;
-  communication::Server<TestSession, TestData> server(endpoint, data, false, "Test", N);
+  communication::Server<TestSession, TestData> server(endpoint, data, -1,
+                                                      "Test", N);
 
   const auto &ep = server.endpoint();
   // start clients

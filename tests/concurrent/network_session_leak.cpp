@@ -22,7 +22,7 @@ TEST(Network, SessionLeak) {
 
   // initialize server
   TestData session_data;
-  ServerT server(endpoint, session_data, false, "Test", 2);
+  ServerT server(endpoint, session_data, -1, "Test", 2);
 
   // start clients
   int N = 50;

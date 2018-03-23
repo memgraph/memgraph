@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <memory>
 
-#include "communication/rpc/buffer.hpp"
 #include "communication/rpc/messages.hpp"
+#include "communication/session.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
@@ -43,50 +43,20 @@ class SessionException : public utils::BasicException {
  */
 class Session {
  public:
-  Session(Socket &&socket, Server &server);
-
-  int Id() const { return socket_.fd(); }
+  Session(Server &server, communication::InputStream &input_stream,
+          communication::OutputStream &output_stream);
 
   /**
-   * Executes the protocol after data has been read into the buffer.
+   * Executes the protocol after data has been read into the stream.
    * Goes through the protocol states in order to execute commands from the
    * client.
    */
   void Execute();
 
-  /**
-   * Allocates data from the internal buffer.
-   * Used in the underlying network stack to asynchronously read data
-   * from the client.
-   * @returns a StreamBuffer to the allocated internal data buffer
-   */
-  StreamBuffer Allocate();
-
-  /**
-   * Notifies the internal buffer of written data.
-   * Used in the underlying network stack to notify the internal buffer
-   * how many bytes of data have been written.
-   * @param len how many data was written to the buffer
-   */
-  void Written(size_t len);
-
-  bool TimedOut() { return false; }
-
-  Socket &socket() { return socket_; }
-
-  void RefreshLastEventTime(
-      const std::chrono::time_point<std::chrono::steady_clock>
-          &last_event_time) {
-    last_event_time_ = last_event_time;
-  }
-
  private:
-  Socket socket_;
-  std::chrono::time_point<std::chrono::steady_clock> last_event_time_ =
-      std::chrono::steady_clock::now();
   Server &server_;
-
-  Buffer buffer_;
+  communication::InputStream &input_stream_;
+  communication::OutputStream &output_stream_;
 };
 
 }  // namespace communication::rpc

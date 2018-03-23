@@ -7,7 +7,7 @@
 
 using query::TypedValue;
 
-using BufferT = communication::bolt::ChunkedEncoderBuffer<TestSocket>;
+using BufferT = communication::bolt::ChunkedEncoderBuffer<TestOutputStream>;
 using EncoderT = communication::bolt::Encoder<BufferT>;
 using ResultStreamT = communication::bolt::ResultStream<EncoderT>;
 
@@ -21,11 +21,11 @@ const uint8_t summary_output[] =
     "\x00\x0C\xB1\x70\xA1\x87\x63\x68\x61\x6E\x67\x65\x64\x0A\x00\x00";
 
 TEST(Bolt, ResultStream) {
-  TestSocket socket(10);
-  BufferT buffer(socket);
+  TestOutputStream output_stream;
+  BufferT buffer(output_stream);
   EncoderT encoder(buffer);
   ResultStreamT result_stream(encoder);
-  std::vector<uint8_t> &output = socket.output;
+  std::vector<uint8_t> &output = output_stream.output;
 
   std::vector<std::string> headers;
   for (int i = 0; i < 10; ++i)

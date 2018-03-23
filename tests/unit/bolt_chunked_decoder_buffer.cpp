@@ -7,7 +7,7 @@ uint8_t data[SIZE];
 
 using BufferT = communication::bolt::Buffer<>;
 using StreamBufferT = io::network::StreamBuffer;
-using DecoderBufferT = communication::bolt::ChunkedDecoderBuffer;
+using DecoderBufferT = communication::bolt::ChunkedDecoderBuffer<BufferT>;
 using ChunkStateT = communication::bolt::ChunkState;
 
 TEST(BoltBuffer, CorrectChunk) {
