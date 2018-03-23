@@ -9,7 +9,7 @@
 #include "glog/logging.h"
 
 #include "database/graph_db.hpp"
-#include "distributed/remote_cache.hpp"
+#include "distributed/cache.hpp"
 #include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "storage/edge_accessor.hpp"

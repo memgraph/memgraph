@@ -4,17 +4,17 @@
 #include "database/graph_db.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
+#include "distributed/data_manager.hpp"
+#include "distributed/data_rpc_clients.hpp"
+#include "distributed/data_rpc_server.hpp"
 #include "distributed/index_rpc_server.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
-#include "distributed/remote_data_manager.hpp"
-#include "distributed/remote_data_rpc_clients.hpp"
-#include "distributed/remote_data_rpc_server.hpp"
-#include "distributed/remote_produce_rpc_server.hpp"
-#include "distributed/remote_pull_rpc_clients.hpp"
-#include "distributed/remote_updates_rpc_clients.hpp"
-#include "distributed/remote_updates_rpc_server.hpp"
+#include "distributed/produce_rpc_server.hpp"
+#include "distributed/pull_rpc_clients.hpp"
 #include "distributed/transactional_cache_cleaner.hpp"
+#include "distributed/updates_rpc_clients.hpp"
+#include "distributed/updates_rpc_server.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
@@ -42,10 +42,10 @@ class PrivateBase : public GraphDb {
   durability::WriteAheadLog &wal() override { return wal_; }
   int WorkerId() const override { return config_.worker_id; }
 
-  distributed::RemotePullRpcClients &remote_pull_clients() override {
+  distributed::PullRpcClients &pull_clients() override {
     LOG(FATAL) << "Remote pull clients only available in master.";
   }
-  distributed::RemoteProduceRpcServer &remote_produce_server() override {
+  distributed::ProduceRpcServer &produce_server() override {
     LOG(FATAL) << "Remote produce server only available in worker.";
   }
   distributed::PlanConsumer &plan_consumer() override {
@@ -101,10 +101,10 @@ class SingleNode : public PrivateBase {
   TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_;
   database::SingleNodeCounters counters_;
   std::vector<int> GetWorkerIds() const override { return {0}; }
-  distributed::RemoteDataRpcServer &remote_data_server() override {
+  distributed::DataRpcServer &data_server() override {
     LOG(FATAL) << "Remote data server not available in single-node.";
   }
-  distributed::RemoteDataRpcClients &remote_data_clients() override {
+  distributed::DataRpcClients &data_clients() override {
     LOG(FATAL) << "Remote data clients not available in single-node.";
   }
   distributed::PlanDispatcher &plan_dispatcher() override {
@@ -113,42 +113,38 @@ class SingleNode : public PrivateBase {
   distributed::PlanConsumer &plan_consumer() override {
     LOG(FATAL) << "Plan Consumer not available in single-node.";
   }
-  distributed::RemoteUpdatesRpcServer &remote_updates_server() override {
+  distributed::UpdatesRpcServer &updates_server() override {
     LOG(FATAL) << "Remote updates server not available in single-node.";
   }
-  distributed::RemoteUpdatesRpcClients &remote_updates_clients() override {
+  distributed::UpdatesRpcClients &updates_clients() override {
     LOG(FATAL) << "Remote updates clients not available in single-node.";
   }
-  distributed::RemoteDataManager &remote_data_manager() override {
+  distributed::DataManager &data_manager() override {
     LOG(FATAL) << "Remote data manager not available in single-node.";
   }
 };
 
-#define IMPL_DISTRIBUTED_GETTERS                                            \
-  std::vector<int> GetWorkerIds() const override {                          \
-    return coordination_.GetWorkerIds();                                    \
-  }                                                                         \
-  distributed::RemoteDataRpcServer &remote_data_server() override {         \
-    return remote_data_server_;                                             \
-  }                                                                         \
-  distributed::RemoteDataRpcClients &remote_data_clients() override {       \
-    return remote_data_clients_;                                            \
-  }                                                                         \
-  distributed::RemoteUpdatesRpcServer &remote_updates_server() override {   \
-    return remote_updates_server_;                                          \
-  }                                                                         \
-  distributed::RemoteUpdatesRpcClients &remote_updates_clients() override { \
-    return remote_updates_clients_;                                         \
-  }                                                                         \
-  distributed::RemoteDataManager &remote_data_manager() override {          \
-    return remote_data_manager_;                                            \
-  }
+#define IMPL_DISTRIBUTED_GETTERS                                              \
+  std::vector<int> GetWorkerIds() const override {                            \
+    return coordination_.GetWorkerIds();                                      \
+  }                                                                           \
+  distributed::DataRpcServer &data_server() override { return data_server_; } \
+  distributed::DataRpcClients &data_clients() override {                      \
+    return data_clients_;                                                     \
+  }                                                                           \
+  distributed::UpdatesRpcServer &updates_server() override {                  \
+    return updates_server_;                                                   \
+  }                                                                           \
+  distributed::UpdatesRpcClients &updates_clients() override {                \
+    return updates_clients_;                                                  \
+  }                                                                           \
+  distributed::DataManager &data_manager() override { return data_manager_; }
 
 class Master : public PrivateBase {
  public:
   explicit Master(const Config &config) : PrivateBase(config) {
-    cache_cleaner_.Register(remote_updates_server_);
-    cache_cleaner_.Register(remote_data_manager_);
+    cache_cleaner_.Register(updates_server_);
+    cache_cleaner_.Register(data_manager_);
   }
 
   GraphDb::Type type() const override {
@@ -159,9 +155,7 @@ class Master : public PrivateBase {
   distributed::PlanDispatcher &plan_dispatcher() override {
     return plan_dispatcher_;
   }
-  distributed::RemotePullRpcClients &remote_pull_clients() override {
-    return remote_pull_clients_;
-  }
+  distributed::PullRpcClients &pull_clients() override { return pull_clients_; }
   distributed::IndexRpcClients &index_rpc_clients() override {
     return index_rpc_clients_;
   }
@@ -181,16 +175,14 @@ class Master : public PrivateBase {
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{server_};
-  distributed::RemoteDataRpcServer remote_data_server_{*this, server_};
-  distributed::RemoteDataRpcClients remote_data_clients_{rpc_worker_clients_};
+  distributed::DataRpcServer data_server_{*this, server_};
+  distributed::DataRpcClients data_clients_{rpc_worker_clients_};
   distributed::PlanDispatcher plan_dispatcher_{rpc_worker_clients_};
-  distributed::RemotePullRpcClients remote_pull_clients_{rpc_worker_clients_};
+  distributed::PullRpcClients pull_clients_{rpc_worker_clients_};
   distributed::IndexRpcClients index_rpc_clients_{rpc_worker_clients_};
-  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
-  distributed::RemoteUpdatesRpcClients remote_updates_clients_{
-      rpc_worker_clients_};
-  distributed::RemoteDataManager remote_data_manager_{storage_,
-                                                      remote_data_clients_};
+  distributed::UpdatesRpcServer updates_server_{*this, server_};
+  distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
+  distributed::DataManager data_manager_{storage_, data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
 };
 
@@ -199,9 +191,9 @@ class Worker : public PrivateBase {
   explicit Worker(const Config &config) : PrivateBase(config) {
     coordination_.RegisterWorker(config.worker_id);
     cache_cleaner_.Register(tx_engine_);
-    cache_cleaner_.Register(remote_produce_server_);
-    cache_cleaner_.Register(remote_updates_server_);
-    cache_cleaner_.Register(remote_data_manager_);
+    cache_cleaner_.Register(produce_server_);
+    cache_cleaner_.Register(updates_server_);
+    cache_cleaner_.Register(data_manager_);
   }
 
   GraphDb::Type type() const override {
@@ -210,8 +202,8 @@ class Worker : public PrivateBase {
   IMPL_GETTERS
   IMPL_DISTRIBUTED_GETTERS
   distributed::PlanConsumer &plan_consumer() override { return plan_consumer_; }
-  distributed::RemoteProduceRpcServer &remote_produce_server() override {
-    return remote_produce_server_;
+  distributed::ProduceRpcServer &produce_server() override {
+    return produce_server_;
   }
 
   ~Worker() {
@@ -231,17 +223,15 @@ class Worker : public PrivateBase {
   TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{
       rpc_worker_clients_.GetClientPool(0)};
   database::WorkerCounters counters_{rpc_worker_clients_.GetClientPool(0)};
-  distributed::RemoteDataRpcServer remote_data_server_{*this, server_};
-  distributed::RemoteDataRpcClients remote_data_clients_{rpc_worker_clients_};
+  distributed::DataRpcServer data_server_{*this, server_};
+  distributed::DataRpcClients data_clients_{rpc_worker_clients_};
   distributed::PlanConsumer plan_consumer_{server_};
-  distributed::RemoteProduceRpcServer remote_produce_server_{
-      *this, tx_engine_, server_, plan_consumer_};
+  distributed::ProduceRpcServer produce_server_{*this, tx_engine_, server_,
+                                                plan_consumer_};
   distributed::IndexRpcServer index_rpc_server_{*this, server_};
-  distributed::RemoteUpdatesRpcServer remote_updates_server_{*this, server_};
-  distributed::RemoteUpdatesRpcClients remote_updates_clients_{
-      rpc_worker_clients_};
-  distributed::RemoteDataManager remote_data_manager_{storage_,
-                                                      remote_data_clients_};
+  distributed::UpdatesRpcServer updates_server_{*this, server_};
+  distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
+  distributed::DataManager data_manager_{storage_, data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{tx_engine_};
 };
 
@@ -311,11 +301,11 @@ int PublicBase::WorkerId() const { return impl_->WorkerId(); }
 std::vector<int> PublicBase::GetWorkerIds() const {
   return impl_->GetWorkerIds();
 }
-distributed::RemoteDataRpcServer &PublicBase::remote_data_server() {
-  return impl_->remote_data_server();
+distributed::DataRpcServer &PublicBase::data_server() {
+  return impl_->data_server();
 }
-distributed::RemoteDataRpcClients &PublicBase::remote_data_clients() {
-  return impl_->remote_data_clients();
+distributed::DataRpcClients &PublicBase::data_clients() {
+  return impl_->data_clients();
 }
 distributed::PlanDispatcher &PublicBase::plan_dispatcher() {
   return impl_->plan_dispatcher();
@@ -326,20 +316,20 @@ distributed::IndexRpcClients &PublicBase::index_rpc_clients() {
 distributed::PlanConsumer &PublicBase::plan_consumer() {
   return impl_->plan_consumer();
 }
-distributed::RemotePullRpcClients &PublicBase::remote_pull_clients() {
-  return impl_->remote_pull_clients();
+distributed::PullRpcClients &PublicBase::pull_clients() {
+  return impl_->pull_clients();
 }
-distributed::RemoteProduceRpcServer &PublicBase::remote_produce_server() {
-  return impl_->remote_produce_server();
+distributed::ProduceRpcServer &PublicBase::produce_server() {
+  return impl_->produce_server();
 }
-distributed::RemoteUpdatesRpcServer &PublicBase::remote_updates_server() {
-  return impl_->remote_updates_server();
+distributed::UpdatesRpcServer &PublicBase::updates_server() {
+  return impl_->updates_server();
 }
-distributed::RemoteUpdatesRpcClients &PublicBase::remote_updates_clients() {
-  return impl_->remote_updates_clients();
+distributed::UpdatesRpcClients &PublicBase::updates_clients() {
+  return impl_->updates_clients();
 }
-distributed::RemoteDataManager &PublicBase::remote_data_manager() {
-  return impl_->remote_data_manager();
+distributed::DataManager &PublicBase::data_manager() {
+  return impl_->data_manager();
 }
 
 void PublicBase::MakeSnapshot() {

@@ -23,7 +23,7 @@ constexpr int kDefaultBatchSize = 20;
 
 /// Returnd along with a batch of results in the remote-pull RPC. Indicates the
 /// state of execution on the worker.
-enum class RemotePullState {
+enum class PullState {
   CURSOR_EXHAUSTED,
   CURSOR_IN_PROGRESS,
   SERIALIZATION_ERROR,
@@ -35,12 +35,11 @@ enum class RemotePullState {
   QUERY_ERROR
 };
 
-struct RemotePullReq : public communication::rpc::Message {
-  RemotePullReq() {}
-  RemotePullReq(tx::transaction_id_t tx_id, tx::Snapshot tx_snapshot,
-                int64_t plan_id, const Parameters &params,
-                std::vector<query::Symbol> symbols, bool accumulate,
-                int batch_size, bool send_old, bool send_new)
+struct PullReq : public communication::rpc::Message {
+  PullReq() {}
+  PullReq(tx::transaction_id_t tx_id, tx::Snapshot tx_snapshot, int64_t plan_id,
+          const Parameters &params, std::vector<query::Symbol> symbols,
+          bool accumulate, int batch_size, bool send_old, bool send_new)
       : tx_id(tx_id),
         tx_snapshot(tx_snapshot),
         plan_id(plan_id),
@@ -109,10 +108,10 @@ struct RemotePullReq : public communication::rpc::Message {
   BOOST_SERIALIZATION_SPLIT_MEMBER()
 };
 
-/// The data returned to the end consumer (the RemotePull operator). Contains
+/// The data returned to the end consumer (the Pull operator). Contains
 /// only the relevant parts of the response, ready for use.
-struct RemotePullData {
-  RemotePullState pull_state;
+struct PullData {
+  PullState pull_state;
   std::vector<std::vector<query::TypedValue>> frames;
 };
 
@@ -121,17 +120,17 @@ struct RemotePullData {
 /// (possibly encapsulated in lists/maps) to their proper values. This requires
 /// a GraphDbAccessor and therefore can't be done as part of deserialization.
 ///
-/// TODO - make it possible to inject a &GraphDbAcessor from the RemotePull
+/// TODO - make it possible to inject a &GraphDbAcessor from the Pull
 /// layer
 /// all the way into RPC data deserialization to remove the requirement for
 /// post-processing. The current approach of holding references to parts of the
 /// frame (potentially embedded in lists/maps) is too error-prone.
-struct RemotePullResData {
+struct PullResData {
  private:
   // Temp cache for deserialized vertices and edges. These objects are created
   // during deserialization. They are used immediatelly after during
   // post-processing. The vertex/edge data ownership gets transfered to the
-  // RemoteCache, and the `element_in_frame` reference is used to set the
+  // Cache, and the `element_in_frame` reference is used to set the
   // appropriate accessor to the appropriate value. Not used on side that
   // generates the response.
   template <typename TRecord>
@@ -164,16 +163,16 @@ struct RemotePullResData {
   };
 
  public:
-  RemotePullResData() {}  // Default constructor required for serialization.
-  RemotePullResData(int worker_id, bool send_old, bool send_new)
+  PullResData() {}  // Default constructor required for serialization.
+  PullResData(int worker_id, bool send_old, bool send_new)
       : worker_id(worker_id), send_old(send_old), send_new(send_new) {}
 
-  RemotePullResData(const RemotePullResData &) = delete;
-  RemotePullResData &operator=(const RemotePullResData &) = delete;
-  RemotePullResData(RemotePullResData &&) = default;
-  RemotePullResData &operator=(RemotePullResData &&) = default;
+  PullResData(const PullResData &) = delete;
+  PullResData &operator=(const PullResData &) = delete;
+  PullResData(PullResData &&) = default;
+  PullResData &operator=(PullResData &&) = default;
 
-  RemotePullData state_and_frames;
+  PullData state_and_frames;
   // Id of the worker on which the response is created, used for serializing
   // vertices (converting local to global addresses).
   int worker_id;
@@ -182,7 +181,7 @@ struct RemotePullResData {
   bool send_new;
 
   // Temporary caches used between deserialization and post-processing
-  // (transfering the ownership of this data to a RemoteCache).
+  // (transfering the ownership of this data to a Cache).
   std::vector<GraphElementData<Vertex>> vertices;
   std::vector<GraphElementData<Edge>> edges;
   std::vector<PathData> paths;
@@ -306,12 +305,12 @@ struct RemotePullResData {
   }
 };
 
-class RemotePullRes : public communication::rpc::Message {
+class PullRes : public communication::rpc::Message {
  public:
-  RemotePullRes() {}
-  RemotePullRes(RemotePullResData data) : data(std::move(data)) {}
+  PullRes() {}
+  PullRes(PullResData data) : data(std::move(data)) {}
 
-  RemotePullResData data;
+  PullResData data;
 
  private:
   friend class boost::serialization::access;
@@ -362,11 +361,10 @@ class RemotePullRes : public communication::rpc::Message {
   BOOST_SERIALIZATION_SPLIT_MEMBER()
 };
 
-using RemotePullRpc =
-    communication::rpc::RequestResponse<RemotePullReq, RemotePullRes>;
+using PullRpc = communication::rpc::RequestResponse<PullReq, PullRes>;
 
 // TODO make a separate RPC for the continuation of an existing pull, as an
-// optimization not to have to send the full RemotePullReqData pack every
+// optimization not to have to send the full PullReqData pack every
 // time.
 
 RPC_SINGLE_MEMBER_MESSAGE(TransactionCommandAdvancedReq, tx::transaction_id_t);

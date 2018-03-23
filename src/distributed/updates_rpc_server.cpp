@@ -2,14 +2,13 @@
 
 #include "glog/logging.h"
 
-#include "distributed/remote_updates_rpc_server.hpp"
+#include "distributed/updates_rpc_server.hpp"
 #include "threading/sync/lock_timeout_exception.hpp"
 
 namespace distributed {
 
 template <typename TRecordAccessor>
-RemoteUpdateResult
-RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
+UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
     const database::StateDelta &delta) {
   auto gid = std::is_same<TRecordAccessor, VertexAccessor>::value
                  ? delta.vertex_id
@@ -50,18 +49,17 @@ RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
   // try {
   //   found->second.first.update();
   // } catch (const mvcc::SerializationError &) {
-  //   return RemoteUpdateResult::SERIALIZATION_ERROR;
+  //   return UpdateResult::SERIALIZATION_ERROR;
   // } catch (const RecordDeletedError &) {
-  //   return RemoteUpdateResult::UPDATE_DELETED_ERROR;
+  //   return UpdateResult::UPDATE_DELETED_ERROR;
   // } catch (const LockTimeoutException &) {
-  //   return RemoteUpdateResult::LOCK_TIMEOUT_ERROR;
+  //   return UpdateResult::LOCK_TIMEOUT_ERROR;
   // }
-  return RemoteUpdateResult::DONE;
+  return UpdateResult::DONE;
 }
 
 template <typename TRecordAccessor>
-gid::Gid
-RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
+gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
     const std::vector<storage::Label> &labels,
     const std::unordered_map<storage::Property, query::TypedValue>
         &properties) {
@@ -75,8 +73,7 @@ RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
 }
 
 template <typename TRecordAccessor>
-gid::Gid
-RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
+gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
     gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type) {
   auto &db = db_accessor_.db();
   auto edge = db_accessor_.InsertOnlyEdge(
@@ -89,8 +86,7 @@ RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
 }
 
 template <typename TRecordAccessor>
-RemoteUpdateResult
-RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
+UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
   std::lock_guard<SpinLock> guard{lock_};
   for (auto &kv : deltas_) {
     auto &record_accessor = kv.second.first;
@@ -113,7 +109,7 @@ RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
             if (!db_accessor().RemoveVertex(
                     reinterpret_cast<VertexAccessor &>(record_accessor),
                     delta.check_empty)) {
-              return RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR;
+              return UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR;
             }
             break;
           case database::StateDelta::Type::SET_PROPERTY_VERTEX:
@@ -164,21 +160,21 @@ RemoteUpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
             break;
         }
       } catch (const mvcc::SerializationError &) {
-        return RemoteUpdateResult::SERIALIZATION_ERROR;
+        return UpdateResult::SERIALIZATION_ERROR;
       } catch (const RecordDeletedError &) {
-        return RemoteUpdateResult::UPDATE_DELETED_ERROR;
+        return UpdateResult::UPDATE_DELETED_ERROR;
       } catch (const LockTimeoutException &) {
-        return RemoteUpdateResult::LOCK_TIMEOUT_ERROR;
+        return UpdateResult::LOCK_TIMEOUT_ERROR;
       }
     }
   }
-  return RemoteUpdateResult::DONE;
+  return UpdateResult::DONE;
 }
 
-RemoteUpdatesRpcServer::RemoteUpdatesRpcServer(
-    database::GraphDb &db, communication::rpc::Server &server)
+UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
+                                   communication::rpc::Server &server)
     : db_(db) {
-  server.Register<RemoteUpdateRpc>([this](const RemoteUpdateReq &req) {
+  server.Register<UpdateRpc>([this](const UpdateReq &req) {
     using DeltaType = database::StateDelta::Type;
     auto &delta = req.member;
     switch (delta.type) {
@@ -187,10 +183,10 @@ RemoteUpdatesRpcServer::RemoteUpdatesRpcServer(
       case DeltaType::REMOVE_LABEL:
       case database::StateDelta::Type::REMOVE_OUT_EDGE:
       case database::StateDelta::Type::REMOVE_IN_EDGE:
-        return std::make_unique<RemoteUpdateRes>(
+        return std::make_unique<UpdateRes>(
             GetUpdates(vertex_updates_, delta.transaction_id).Emplace(delta));
       case DeltaType::SET_PROPERTY_EDGE:
-        return std::make_unique<RemoteUpdateRes>(
+        return std::make_unique<UpdateRes>(
             GetUpdates(edge_updates_, delta.transaction_id).Emplace(delta));
       default:
         LOG(FATAL) << "Can't perform a remote update with delta type: "
@@ -198,26 +194,24 @@ RemoteUpdatesRpcServer::RemoteUpdatesRpcServer(
     }
   });
 
-  server.Register<RemoteUpdateApplyRpc>(
-      [this](const RemoteUpdateApplyReq &req) {
-        return std::make_unique<RemoteUpdateApplyRes>(Apply(req.member));
-      });
-
-  server.Register<RemoteCreateVertexRpc>([this](
-      const RemoteCreateVertexReq &req) {
-    gid::Gid gid = GetUpdates(vertex_updates_, req.member.tx_id)
-                       .CreateVertex(req.member.labels, req.member.properties);
-    return std::make_unique<RemoteCreateVertexRes>(
-        RemoteCreateResult{RemoteUpdateResult::DONE, gid});
+  server.Register<UpdateApplyRpc>([this](const UpdateApplyReq &req) {
+    return std::make_unique<UpdateApplyRes>(Apply(req.member));
   });
 
-  server.Register<RemoteCreateEdgeRpc>([this](const RemoteCreateEdgeReq &req) {
+  server.Register<CreateVertexRpc>([this](const CreateVertexReq &req) {
+    gid::Gid gid = GetUpdates(vertex_updates_, req.member.tx_id)
+                       .CreateVertex(req.member.labels, req.member.properties);
+    return std::make_unique<CreateVertexRes>(
+        CreateResult{UpdateResult::DONE, gid});
+  });
+
+  server.Register<CreateEdgeRpc>([this](const CreateEdgeReq &req) {
     auto data = req.member;
     auto creation_result = CreateEdge(data);
 
     // If `from` and `to` are both on this worker, we handle it in this
     // RPC call. Do it only if CreateEdge succeeded.
-    if (creation_result.result == RemoteUpdateResult::DONE &&
+    if (creation_result.result == UpdateResult::DONE &&
         data.to.worker_id() == db_.WorkerId()) {
       auto to_delta = database::StateDelta::AddInEdge(
           data.tx_id, data.to.gid(), {data.from, db_.WorkerId()},
@@ -226,47 +220,45 @@ RemoteUpdatesRpcServer::RemoteUpdatesRpcServer(
           GetUpdates(vertex_updates_, data.tx_id).Emplace(to_delta);
     }
 
-    return std::make_unique<RemoteCreateEdgeRes>(creation_result);
+    return std::make_unique<CreateEdgeRes>(creation_result);
   });
 
-  server.Register<RemoteAddInEdgeRpc>([this](const RemoteAddInEdgeReq &req) {
+  server.Register<AddInEdgeRpc>([this](const AddInEdgeReq &req) {
     auto to_delta = database::StateDelta::AddInEdge(
         req.member.tx_id, req.member.to, req.member.from,
         req.member.edge_address, req.member.edge_type);
     auto result =
         GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
-    return std::make_unique<RemoteAddInEdgeRes>(result);
+    return std::make_unique<AddInEdgeRes>(result);
   });
 
-  server.Register<RemoteRemoveVertexRpc>(
-      [this](const RemoteRemoveVertexReq &req) {
-        auto to_delta = database::StateDelta::RemoveVertex(
-            req.member.tx_id, req.member.gid, req.member.check_empty);
-        auto result =
-            GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
-        return std::make_unique<RemoteRemoveVertexRes>(result);
-      });
-
-  server.Register<RemoteRemoveEdgeRpc>([this](const RemoteRemoveEdgeReq &req) {
-    return std::make_unique<RemoteRemoveEdgeRes>(RemoveEdge(req.member));
+  server.Register<RemoveVertexRpc>([this](const RemoveVertexReq &req) {
+    auto to_delta = database::StateDelta::RemoveVertex(
+        req.member.tx_id, req.member.gid, req.member.check_empty);
+    auto result =
+        GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
+    return std::make_unique<RemoveVertexRes>(result);
   });
 
-  server.Register<RemoteRemoveInEdgeRpc>(
-      [this](const RemoteRemoveInEdgeReq &req) {
-        auto data = req.member;
-        return std::make_unique<RemoteRemoveInEdgeRes>(
-            GetUpdates(vertex_updates_, data.tx_id)
-                .Emplace(database::StateDelta::RemoveInEdge(
-                    data.tx_id, data.vertex, data.edge_address)));
-      });
+  server.Register<RemoveEdgeRpc>([this](const RemoveEdgeReq &req) {
+    return std::make_unique<RemoveEdgeRes>(RemoveEdge(req.member));
+  });
+
+  server.Register<RemoveInEdgeRpc>([this](const RemoveInEdgeReq &req) {
+    auto data = req.member;
+    return std::make_unique<RemoveInEdgeRes>(
+        GetUpdates(vertex_updates_, data.tx_id)
+            .Emplace(database::StateDelta::RemoveInEdge(data.tx_id, data.vertex,
+                                                        data.edge_address)));
+  });
 }
 
-RemoteUpdateResult RemoteUpdatesRpcServer::Apply(tx::transaction_id_t tx_id) {
+UpdateResult UpdatesRpcServer::Apply(tx::transaction_id_t tx_id) {
   auto apply = [tx_id](auto &collection) {
     auto access = collection.access();
     auto found = access.find(tx_id);
     if (found == access.end()) {
-      return RemoteUpdateResult::DONE;
+      return UpdateResult::DONE;
     }
     auto result = found->second.Apply();
     access.remove(tx_id);
@@ -275,12 +267,12 @@ RemoteUpdateResult RemoteUpdatesRpcServer::Apply(tx::transaction_id_t tx_id) {
 
   auto vertex_result = apply(vertex_updates_);
   auto edge_result = apply(edge_updates_);
-  if (vertex_result != RemoteUpdateResult::DONE) return vertex_result;
-  if (edge_result != RemoteUpdateResult::DONE) return edge_result;
-  return RemoteUpdateResult::DONE;
+  if (vertex_result != UpdateResult::DONE) return vertex_result;
+  if (edge_result != UpdateResult::DONE) return edge_result;
+  return UpdateResult::DONE;
 }
 
-void RemoteUpdatesRpcServer::ClearTransactionalCache(
+void UpdatesRpcServer::ClearTransactionalCache(
     tx::transaction_id_t oldest_active) {
   auto vertex_access = vertex_updates_.access();
   for (auto &kv : vertex_access) {
@@ -298,17 +290,15 @@ void RemoteUpdatesRpcServer::ClearTransactionalCache(
 
 // Gets/creates the TransactionUpdates for the given transaction.
 template <typename TAccessor>
-RemoteUpdatesRpcServer::TransactionUpdates<TAccessor>
-    &RemoteUpdatesRpcServer::GetUpdates(MapT<TAccessor> &updates,
-                                        tx::transaction_id_t tx_id) {
+UpdatesRpcServer::TransactionUpdates<TAccessor> &UpdatesRpcServer::GetUpdates(
+    MapT<TAccessor> &updates, tx::transaction_id_t tx_id) {
   return updates.access()
       .emplace(tx_id, std::make_tuple(tx_id),
                std::make_tuple(std::ref(db_), tx_id))
       .first->second;
 }
 
-RemoteCreateResult RemoteUpdatesRpcServer::CreateEdge(
-    const RemoteCreateEdgeReqData &req) {
+CreateResult UpdatesRpcServer::CreateEdge(const CreateEdgeReqData &req) {
   auto gid = GetUpdates(edge_updates_, req.tx_id)
                  .CreateEdge(req.from, req.to, req.edge_type);
 
@@ -319,22 +309,21 @@ RemoteCreateResult RemoteUpdatesRpcServer::CreateEdge(
   return {result, gid};
 }
 
-RemoteUpdateResult RemoteUpdatesRpcServer::RemoveEdge(
-    const RemoteRemoveEdgeData &data) {
+UpdateResult UpdatesRpcServer::RemoveEdge(const RemoveEdgeData &data) {
   // Edge removal.
   auto deletion_delta =
       database::StateDelta::RemoveEdge(data.tx_id, data.edge_id);
   auto result = GetUpdates(edge_updates_, data.tx_id).Emplace(deletion_delta);
 
   // Out-edge removal, for sure is local.
-  if (result == RemoteUpdateResult::DONE) {
+  if (result == UpdateResult::DONE) {
     auto remove_out_delta = database::StateDelta::RemoveOutEdge(
         data.tx_id, data.vertex_from_id, {data.edge_id, db_.WorkerId()});
     result = GetUpdates(vertex_updates_, data.tx_id).Emplace(remove_out_delta);
   }
 
   // In-edge removal, might not be local.
-  if (result == RemoteUpdateResult::DONE &&
+  if (result == UpdateResult::DONE &&
       data.vertex_to_address.worker_id() == db_.WorkerId()) {
     auto remove_in_delta = database::StateDelta::RemoveInEdge(
         data.tx_id, data.vertex_to_address.gid(),
@@ -347,14 +336,13 @@ RemoteUpdateResult RemoteUpdatesRpcServer::RemoveEdge(
 
 template <>
 VertexAccessor
-RemoteUpdatesRpcServer::TransactionUpdates<VertexAccessor>::FindAccessor(
+UpdatesRpcServer::TransactionUpdates<VertexAccessor>::FindAccessor(
     gid::Gid gid) {
   return db_accessor_.FindVertex(gid, false);
 }
 
 template <>
-EdgeAccessor
-RemoteUpdatesRpcServer::TransactionUpdates<EdgeAccessor>::FindAccessor(
+EdgeAccessor UpdatesRpcServer::TransactionUpdates<EdgeAccessor>::FindAccessor(
     gid::Gid gid) {
   return db_accessor_.FindEdge(gid, false);
 }

@@ -6,10 +6,9 @@
 namespace distributed {
 
 /// Serves this worker's data to others.
-class RemoteDataRpcServer {
+class DataRpcServer {
  public:
-  RemoteDataRpcServer(database::GraphDb &db,
-                      communication::rpc::Server &server);
+  DataRpcServer(database::GraphDb &db, communication::rpc::Server &server);
 
  private:
   database::GraphDb &db_;

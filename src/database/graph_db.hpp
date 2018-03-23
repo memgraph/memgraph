@@ -15,15 +15,15 @@
 #include "utils/scheduler.hpp"
 
 namespace distributed {
-class RemoteDataRpcServer;
-class RemoteDataRpcClients;
+class DataRpcServer;
+class DataRpcClients;
 class PlanDispatcher;
 class PlanConsumer;
-class RemotePullRpcClients;
-class RemoteProduceRpcServer;
-class RemoteUpdatesRpcServer;
-class RemoteUpdatesRpcClients;
-class RemoteDataManager;
+class PullRpcClients;
+class ProduceRpcServer;
+class UpdatesRpcServer;
+class UpdatesRpcClients;
+class DataManager;
 class IndexRpcClients;
 }
 
@@ -95,20 +95,20 @@ class GraphDb {
   virtual std::vector<int> GetWorkerIds() const = 0;
 
   // Supported only in distributed master and worker, not in single-node.
-  virtual distributed::RemoteDataRpcServer &remote_data_server() = 0;
-  virtual distributed::RemoteDataRpcClients &remote_data_clients() = 0;
-  virtual distributed::RemoteUpdatesRpcServer &remote_updates_server() = 0;
-  virtual distributed::RemoteUpdatesRpcClients &remote_updates_clients() = 0;
-  virtual distributed::RemoteDataManager &remote_data_manager() = 0;
+  virtual distributed::DataRpcServer &data_server() = 0;
+  virtual distributed::DataRpcClients &data_clients() = 0;
+  virtual distributed::UpdatesRpcServer &updates_server() = 0;
+  virtual distributed::UpdatesRpcClients &updates_clients() = 0;
+  virtual distributed::DataManager &data_manager() = 0;
 
   // Supported only in distributed master.
-  virtual distributed::RemotePullRpcClients &remote_pull_clients() = 0;
+  virtual distributed::PullRpcClients &pull_clients() = 0;
   virtual distributed::PlanDispatcher &plan_dispatcher() = 0;
   virtual distributed::IndexRpcClients &index_rpc_clients() = 0;
 
   // Supported only in distributed worker.
   // TODO remove once end2end testing is possible.
-  virtual distributed::RemoteProduceRpcServer &remote_produce_server() = 0;
+  virtual distributed::ProduceRpcServer &produce_server() = 0;
   virtual distributed::PlanConsumer &plan_consumer() = 0;
 
   GraphDb(const GraphDb &) = delete;
@@ -138,16 +138,16 @@ class PublicBase : public GraphDb {
   void CollectGarbage() override;
   int WorkerId() const override;
   std::vector<int> GetWorkerIds() const override;
-  distributed::RemoteDataRpcServer &remote_data_server() override;
-  distributed::RemoteDataRpcClients &remote_data_clients() override;
+  distributed::DataRpcServer &data_server() override;
+  distributed::DataRpcClients &data_clients() override;
   distributed::PlanDispatcher &plan_dispatcher() override;
   distributed::IndexRpcClients &index_rpc_clients() override;
   distributed::PlanConsumer &plan_consumer() override;
-  distributed::RemotePullRpcClients &remote_pull_clients() override;
-  distributed::RemoteProduceRpcServer &remote_produce_server() override;
-  distributed::RemoteUpdatesRpcServer &remote_updates_server() override;
-  distributed::RemoteUpdatesRpcClients &remote_updates_clients() override;
-  distributed::RemoteDataManager &remote_data_manager() override;
+  distributed::PullRpcClients &pull_clients() override;
+  distributed::ProduceRpcServer &produce_server() override;
+  distributed::UpdatesRpcServer &updates_server() override;
+  distributed::UpdatesRpcClients &updates_clients() override;
+  distributed::DataManager &data_manager() override;
 
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
 

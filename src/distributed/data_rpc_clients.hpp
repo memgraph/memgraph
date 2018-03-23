@@ -10,9 +10,9 @@
 namespace distributed {
 
 /// Provides access to other worker's data.
-class RemoteDataRpcClients {
+class DataRpcClients {
  public:
-  RemoteDataRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
+  DataRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
   /// Returns a remote worker's record (vertex/edge) data for the given params.
   /// That worker must own the vertex/edge for the given id, and that vertex
   /// must be visible in given transaction.

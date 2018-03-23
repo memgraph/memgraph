@@ -24,7 +24,7 @@ namespace distributed {
 /// master. Assumes that (tx_id, plan_id) uniquely identifies an execution, and
 /// that there will never be parallel requests for the same execution thus
 /// identified.
-class RemoteProduceRpcServer {
+class ProduceRpcServer {
   /// Encapsulates a Cursor execution in progress. Can be used for pulling a
   /// single result from the execution, or pulling all and accumulating the
   /// results. Accumulations are used for synchronizing updates in distributed
@@ -39,11 +39,11 @@ class RemoteProduceRpcServer {
     /// Returns a vector of typed values (one for each `pull_symbol`), and an
     /// indication of the pull result. The result data is valid only if the
     /// returned state is CURSOR_IN_PROGRESS.
-    std::pair<std::vector<query::TypedValue>, RemotePullState> Pull();
+    std::pair<std::vector<query::TypedValue>, PullState> Pull();
 
     /// Accumulates all the frames pulled from the cursor and returns
     /// CURSOR_EXHAUSTED. If an error occurs, an appropriate value is returned.
-    RemotePullState Accumulate();
+    PullState Accumulate();
 
    private:
     database::GraphDbAccessor dba_;
@@ -51,18 +51,17 @@ class RemoteProduceRpcServer {
     query::Context context_;
     std::vector<query::Symbol> pull_symbols_;
     query::Frame frame_;
-    RemotePullState cursor_state_{RemotePullState::CURSOR_IN_PROGRESS};
+    PullState cursor_state_{PullState::CURSOR_IN_PROGRESS};
     std::vector<std::vector<query::TypedValue>> accumulation_;
 
     /// Pulls and returns a single result from the cursor.
-    std::pair<std::vector<query::TypedValue>, RemotePullState>
-    PullOneFromCursor();
+    std::pair<std::vector<query::TypedValue>, PullState> PullOneFromCursor();
   };
 
  public:
-  RemoteProduceRpcServer(database::GraphDb &db, tx::Engine &tx_engine,
-                         communication::rpc::Server &server,
-                         const distributed::PlanConsumer &plan_consumer);
+  ProduceRpcServer(database::GraphDb &db, tx::Engine &tx_engine,
+                   communication::rpc::Server &server,
+                   const distributed::PlanConsumer &plan_consumer);
 
   /// Clears the cache of local transactions that have expired. The signature of
   /// this method is dictated by `distributed::TransactionalCacheCleaner`.
@@ -70,7 +69,7 @@ class RemoteProduceRpcServer {
 
  private:
   database::GraphDb &db_;
-  communication::rpc::Server &remote_produce_rpc_server_;
+  communication::rpc::Server &produce_rpc_server_;
   const distributed::PlanConsumer &plan_consumer_;
   ConcurrentMap<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>
       ongoing_produces_;
@@ -78,10 +77,10 @@ class RemoteProduceRpcServer {
 
   /// Gets an ongoing produce for the given pull request. Creates a new one if
   /// there is none currently existing.
-  OngoingProduce &GetOngoingProduce(const RemotePullReq &req);
+  OngoingProduce &GetOngoingProduce(const PullReq &req);
 
   /// Performs a single remote pull for the given request.
-  RemotePullResData RemotePull(const RemotePullReq &req);
+  PullResData Pull(const PullReq &req);
 };
 
 }  // namespace distributed

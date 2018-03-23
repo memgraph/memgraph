@@ -5,9 +5,9 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
-#include "distributed/remote_data_manager.hpp"
-#include "distributed/remote_updates_rpc_clients.hpp"
+#include "distributed/data_manager.hpp"
 #include "distributed/rpc_worker_clients.hpp"
+#include "distributed/updates_rpc_clients.hpp"
 #include "storage/address_types.hpp"
 #include "storage/edge.hpp"
 #include "storage/edge_accessor.hpp"
@@ -85,14 +85,14 @@ VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
   CHECK(worker_id != db().WorkerId())
       << "Not allowed to call InsertVertexIntoRemote for local worker";
 
-  gid::Gid gid = db().remote_updates_clients().RemoteCreateVertex(
+  gid::Gid gid = db().updates_clients().CreateVertex(
       worker_id, transaction_id(), labels, properties);
 
   auto vertex = std::make_unique<Vertex>();
   vertex->labels_ = labels;
   for (auto &kv : properties) vertex->properties_.set(kv.first, kv.second);
 
-  db().remote_data_manager()
+  db().data_manager()
       .Elements<Vertex>(transaction_id())
       .emplace(gid, nullptr, std::move(vertex));
   return VertexAccessor({gid, worker_id}, *this);
@@ -340,8 +340,8 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
 
   if (!vertex_accessor.is_local()) {
     auto address = vertex_accessor.address();
-    db().remote_updates_clients().RemoteRemoveVertex(
-        address.worker_id(), transaction_id(), address.gid(), check_empty);
+    db().updates_clients().RemoveVertex(address.worker_id(), transaction_id(),
+                                        address.gid(), check_empty);
     // We can't know if we are going to be able to remove vertex until deferred
     // updates on a remote worker are executed
     return true;
@@ -411,15 +411,15 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
         EdgeTypeName(edge_type)));
 
   } else {
-    edge_address = db().remote_updates_clients().RemoteCreateEdge(
-        transaction_id(), from, to, edge_type);
+    edge_address = db().updates_clients().CreateEdge(transaction_id(), from, to,
+                                                     edge_type);
 
-    from_updated = db().remote_data_manager()
+    from_updated = db().data_manager()
                        .Elements<Vertex>(transaction_id())
                        .FindNew(from.gid());
 
-    // Create an Edge and insert it into the RemoteCache so we see it locally.
-    db().remote_data_manager()
+    // Create an Edge and insert it into the Cache so we see it locally.
+    db().data_manager()
         .Elements<Edge>(transaction_id())
         .emplace(
             edge_address.gid(), nullptr,
@@ -440,11 +440,11 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     // The RPC call for the `to` side is already handled if `from` is not local.
     if (from.is_local() ||
         from.address().worker_id() != to.address().worker_id()) {
-      db().remote_updates_clients().RemoteAddInEdge(
+      db().updates_clients().AddInEdge(
           transaction_id(), from,
           db().storage().GlobalizedAddress(edge_address), to, edge_type);
     }
-    to_updated = db().remote_data_manager()
+    to_updated = db().data_manager()
                      .Elements<Vertex>(transaction_id())
                      .FindNew(to.gid());
   }
@@ -498,15 +498,15 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
     CHECK(edge_addr.worker_id() == from_addr.worker_id())
         << "Edge and it's 'from' vertex not on the same worker";
     auto to_addr = db().storage().GlobalizedAddress(edge.to_addr());
-    db().remote_updates_clients().RemoteRemoveEdge(
-        transaction_id(), edge_addr.worker_id(), edge_addr.gid(),
-        from_addr.gid(), to_addr);
+    db().updates_clients().RemoveEdge(transaction_id(), edge_addr.worker_id(),
+                                      edge_addr.gid(), from_addr.gid(),
+                                      to_addr);
 
     // Another RPC is necessary only if the first did not handle vertices on
     // both sides.
     if (edge_addr.worker_id() != to_addr.worker_id()) {
-      db().remote_updates_clients().RemoteRemoveInEdge(
-          transaction_id(), to_addr.worker_id(), to_addr.gid(), edge_addr);
+      db().updates_clients().RemoveInEdge(transaction_id(), to_addr.worker_id(),
+                                          to_addr.gid(), edge_addr);
     }
   }
 }

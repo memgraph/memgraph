@@ -15,9 +15,9 @@
 #include "glog/logging.h"
 
 #include "database/graph_db_accessor.hpp"
-#include "distributed/remote_pull_rpc_clients.hpp"
-#include "distributed/remote_updates_rpc_clients.hpp"
-#include "distributed/remote_updates_rpc_server.hpp"
+#include "distributed/pull_rpc_clients.hpp"
+#include "distributed/updates_rpc_clients.hpp"
+#include "distributed/updates_rpc_server.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -3014,7 +3014,7 @@ class RemotePuller {
   RemotePuller(database::GraphDbAccessor &db,
                const std::vector<Symbol> &symbols, int64_t plan_id)
       : db_(db), symbols_(symbols), plan_id_(plan_id) {
-    worker_ids_ = db_.db().remote_pull_clients().GetWorkerIds();
+    worker_ids_ = db_.db().pull_clients().GetWorkerIds();
     // Remove master from the worker ids list.
     worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
   }
@@ -3022,7 +3022,7 @@ class RemotePuller {
   void Initialize(Context &context) {
     if (!remote_pulls_initialized_) {
       for (auto &worker_id : worker_ids_) {
-        UpdateRemotePullForWorker(worker_id, context);
+        UpdatePullForWorker(worker_id, context);
       }
       remote_pulls_initialized_ = true;
     }
@@ -3052,30 +3052,30 @@ class RemotePuller {
 
       auto remote_results = remote_pull.get();
       switch (remote_results.pull_state) {
-        case distributed::RemotePullState::CURSOR_EXHAUSTED:
+        case distributed::PullState::CURSOR_EXHAUSTED:
           move_frames(worker_id, remote_results);
           remote_pulls_.erase(found_it);
           break;
-        case distributed::RemotePullState::CURSOR_IN_PROGRESS:
+        case distributed::PullState::CURSOR_IN_PROGRESS:
           move_frames(worker_id, remote_results);
-          UpdateRemotePullForWorker(worker_id, context);
+          UpdatePullForWorker(worker_id, context);
           break;
-        case distributed::RemotePullState::SERIALIZATION_ERROR:
+        case distributed::PullState::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
               "Serialization error occured during PullRemote !");
-        case distributed::RemotePullState::LOCK_TIMEOUT_ERROR:
+        case distributed::PullState::LOCK_TIMEOUT_ERROR:
           throw LockTimeoutException(
               "LockTimeout error occured during PullRemote !");
-        case distributed::RemotePullState::UPDATE_DELETED_ERROR:
+        case distributed::PullState::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
               "RecordDeleted error ocured during PullRemote !");
-        case distributed::RemotePullState::RECONSTRUCTION_ERROR:
+        case distributed::PullState::RECONSTRUCTION_ERROR:
           throw query::ReconstructionException();
-        case distributed::RemotePullState::UNABLE_TO_DELETE_VERTEX_ERROR:
+        case distributed::PullState::UNABLE_TO_DELETE_VERTEX_ERROR:
           throw RemoveAttachedVertexException();
-        case distributed::RemotePullState::HINTED_ABORT_ERROR:
+        case distributed::PullState::HINTED_ABORT_ERROR:
           throw HintedAbortError();
-        case distributed::RemotePullState::QUERY_ERROR:
+        case distributed::PullState::QUERY_ERROR:
           throw QueryRuntimeException(
               "Query runtime error occurred duing PullRemote !");
       }
@@ -3119,15 +3119,14 @@ class RemotePuller {
   database::GraphDbAccessor &db_;
   std::vector<Symbol> symbols_;
   int64_t plan_id_;
-  std::unordered_map<int, utils::Future<distributed::RemotePullData>>
-      remote_pulls_;
+  std::unordered_map<int, utils::Future<distributed::PullData>> remote_pulls_;
   std::unordered_map<int, std::vector<std::vector<query::TypedValue>>>
       remote_results_;
   std::vector<int> worker_ids_;
   bool remote_pulls_initialized_ = false;
 
-  void UpdateRemotePullForWorker(int worker_id, Context &context) {
-    remote_pulls_[worker_id] = db_.db().remote_pull_clients().RemotePull(
+  void UpdatePullForWorker(int worker_id, Context &context) {
+    remote_pulls_[worker_id] = db_.db().pull_clients().Pull(
         db_, worker_id, plan_id_, context.parameters_, symbols_, false);
   }
 };
@@ -3258,12 +3257,11 @@ class SynchronizeCursor : public Cursor {
     auto &db = context.db_accessor_.db();
 
     // Tell all workers to accumulate, only if there is a remote pull.
-    std::vector<utils::Future<distributed::RemotePullData>>
-        worker_accumulations;
+    std::vector<utils::Future<distributed::PullData>> worker_accumulations;
     if (pull_remote_cursor_) {
-      for (auto worker_id : db.remote_pull_clients().GetWorkerIds()) {
+      for (auto worker_id : db.pull_clients().GetWorkerIds()) {
         if (worker_id == db.WorkerId()) continue;
-        worker_accumulations.emplace_back(db.remote_pull_clients().RemotePull(
+        worker_accumulations.emplace_back(db.pull_clients().Pull(
             context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
             context.parameters_, self_.pull_remote()->symbols(), true, 0));
       }
@@ -3282,29 +3280,29 @@ class SynchronizeCursor : public Cursor {
     // Wait for all workers to finish accumulation (first sync point).
     for (auto &accu : worker_accumulations) {
       switch (accu.get().pull_state) {
-        case distributed::RemotePullState::CURSOR_EXHAUSTED:
+        case distributed::PullState::CURSOR_EXHAUSTED:
           continue;
-        case distributed::RemotePullState::CURSOR_IN_PROGRESS:
+        case distributed::PullState::CURSOR_IN_PROGRESS:
           throw QueryRuntimeException(
               "Expected exhausted cursor after remote pull accumulate");
-        case distributed::RemotePullState::SERIALIZATION_ERROR:
+        case distributed::PullState::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
               "Failed to perform remote accumulate due to SerializationError");
-        case distributed::RemotePullState::UPDATE_DELETED_ERROR:
+        case distributed::PullState::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to RecordDeletedError");
-        case distributed::RemotePullState::LOCK_TIMEOUT_ERROR:
+        case distributed::PullState::LOCK_TIMEOUT_ERROR:
           throw LockTimeoutException(
               "Failed to perform remote accumulate due to "
               "LockTimeoutException");
-        case distributed::RemotePullState::RECONSTRUCTION_ERROR:
+        case distributed::PullState::RECONSTRUCTION_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to ReconstructionError");
-        case distributed::RemotePullState::UNABLE_TO_DELETE_VERTEX_ERROR:
+        case distributed::PullState::UNABLE_TO_DELETE_VERTEX_ERROR:
           throw RemoveAttachedVertexException();
-        case distributed::RemotePullState::HINTED_ABORT_ERROR:
+        case distributed::PullState::HINTED_ABORT_ERROR:
           throw HintedAbortError();
-        case distributed::RemotePullState::QUERY_ERROR:
+        case distributed::PullState::QUERY_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to Query runtime error");
       }
@@ -3317,22 +3315,22 @@ class SynchronizeCursor : public Cursor {
     // Make all the workers apply their deltas.
     auto tx_id = context.db_accessor_.transaction_id();
     auto apply_futures =
-        db.remote_updates_clients().RemoteUpdateApplyAll(db.WorkerId(), tx_id);
-    db.remote_updates_server().Apply(tx_id);
+        db.updates_clients().UpdateApplyAll(db.WorkerId(), tx_id);
+    db.updates_server().Apply(tx_id);
     for (auto &future : apply_futures) {
       switch (future.get()) {
-        case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
+        case distributed::UpdateResult::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
               "Failed to apply deferred updates due to SerializationError");
-        case distributed::RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
+        case distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
           throw RemoveAttachedVertexException();
-        case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:
+        case distributed::UpdateResult::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
               "Failed to apply deferred updates due to RecordDeletedError");
-        case distributed::RemoteUpdateResult::LOCK_TIMEOUT_ERROR:
+        case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
           throw LockTimeoutException(
               "Failed to apply deferred update due to LockTimeoutException");
-        case distributed::RemoteUpdateResult::DONE:
+        case distributed::UpdateResult::DONE:
           break;
       }
     }
@@ -3340,7 +3338,7 @@ class SynchronizeCursor : public Cursor {
     // If the command advanced, let the workers know.
     if (self_.advance_command()) {
       auto futures =
-          db.remote_pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
+          db.pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
       for (auto &future : futures) future.wait();
     }
   }

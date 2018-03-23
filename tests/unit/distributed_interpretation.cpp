@@ -44,7 +44,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
   std::experimental::optional<query::Interpreter> interpreter_;
 };
 
-TEST_F(DistributedInterpretationTest, RemotePullTest) {
+TEST_F(DistributedInterpretationTest, PullTest) {
   auto results = Run("OPTIONAL MATCH(n) UNWIND(RANGE(0, 20)) AS X RETURN 1");
   ASSERT_EQ(results.size(), 3 * 21);
 
@@ -54,7 +54,7 @@ TEST_F(DistributedInterpretationTest, RemotePullTest) {
   }
 }
 
-TEST_F(DistributedInterpretationTest, RemotePullNoResultsTest) {
+TEST_F(DistributedInterpretationTest, PullNoResultsTest) {
   auto results = Run("MATCH (n) RETURN n");
   ASSERT_EQ(results.size(), 0U);
 }

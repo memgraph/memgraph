@@ -4,8 +4,8 @@
 #include <gtest/gtest.h>
 
 #include "database/graph_db_accessor.hpp"
-#include "distributed/remote_updates_rpc_clients.hpp"
-#include "distributed/remote_updates_rpc_server.hpp"
+#include "distributed/updates_rpc_clients.hpp"
+#include "distributed/updates_rpc_server.hpp"
 #include "query/typed_value.hpp"
 #include "storage/property_value.hpp"
 
@@ -53,14 +53,14 @@ class DistributedUpdateTest : public DistributedGraphDbTest {
     EXPECT_EQ(var->has_label(label), new_result); \
   }
 
-TEST_F(DistributedUpdateTest, RemoteUpdateLocalOnly) {
+TEST_F(DistributedUpdateTest, UpdateLocalOnly) {
   EXPECT_LABEL(v1_dba2, false, true);
   EXPECT_LABEL(v1_dba1, false, false);
 }
 
-TEST_F(DistributedUpdateTest, RemoteUpdateApply) {
+TEST_F(DistributedUpdateTest, UpdateApply) {
   EXPECT_LABEL(v1_dba1, false, false);
-  worker(1).remote_updates_server().Apply(dba1->transaction_id());
+  worker(1).updates_server().Apply(dba1->transaction_id());
   EXPECT_LABEL(v1_dba1, false, true);
 }
 
@@ -90,7 +90,7 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithUpdate) {
     gid = v.gid();
     prop = dba.Property("prop");
     v.PropsSet(prop, 42);
-    worker(2).remote_updates_server().Apply(dba.transaction_id());
+    worker(2).updates_server().Apply(dba.transaction_id());
     dba.Commit();
   }
   {
@@ -119,7 +119,7 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithData) {
     EXPECT_TRUE(v.has_label(l2));
     EXPECT_EQ(v.PropsAt(prop).Value<int64_t>(), 42);
 
-    worker(2).remote_updates_server().Apply(dba.transaction_id());
+    worker(2).updates_server().Apply(dba.transaction_id());
     dba.Commit();
   }
   {
@@ -156,9 +156,8 @@ TEST_F(DistributedGraphDbTest, UpdateVertexRemoteAndLocal) {
     v_remote.add_label(l2);
     v_local.add_label(l1);
 
-    auto result =
-        worker(1).remote_updates_server().Apply(dba0.transaction_id());
-    EXPECT_EQ(result, distributed::RemoteUpdateResult::DONE);
+    auto result = worker(1).updates_server().Apply(dba0.transaction_id());
+    EXPECT_EQ(result, distributed::UpdateResult::DONE);
   }
 }
 
@@ -172,7 +171,7 @@ TEST_F(DistributedGraphDbTest, AddSameLabelRemoteAndLocal) {
     auto l1 = dba1.Label("label");
     v_remote.add_label(l1);
     v_local.add_label(l1);
-    worker(1).remote_updates_server().Apply(dba0.transaction_id());
+    worker(1).updates_server().Apply(dba0.transaction_id());
     dba0.Commit();
   }
   {
@@ -191,7 +190,7 @@ TEST_F(DistributedGraphDbTest, IndexGetsUpdatedRemotely) {
     label = dba0.Label("label");
     VertexAccessor va(v_remote, dba0);
     va.add_label(label);
-    worker(1).remote_updates_server().Apply(dba0.transaction_id());
+    worker(1).updates_server().Apply(dba0.transaction_id());
     dba0.Commit();
   }
   {
@@ -208,8 +207,8 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteCommit) {
   auto v_remote = VertexAccessor(v_address, dba0);
   dba0.RemoveVertex(v_remote);
   EXPECT_TRUE(dba1.FindVertexOptional(v_address.gid(), true));
-  EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
-            distributed::RemoteUpdateResult::DONE);
+  EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+            distributed::UpdateResult::DONE);
   EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
 }
 
@@ -222,8 +221,8 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteBothDelete) {
     auto v_remote = VertexAccessor(v_address, dba0);
     EXPECT_TRUE(dba1.RemoveVertex(v_local));
     EXPECT_TRUE(dba0.RemoveVertex(v_remote));
-    EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
-              distributed::RemoteUpdateResult::DONE);
+    EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+              distributed::UpdateResult::DONE);
     EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
   }
 }
@@ -237,8 +236,8 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
     database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
     auto v_remote = VertexAccessor(v_address, dba0);
     dba0.RemoveVertex(v_remote);
-    EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
-              distributed::RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR);
+    EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+              distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR);
     EXPECT_TRUE(dba1.FindVertexOptional(v_address.gid(), true));
   }
   {
@@ -251,8 +250,8 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
     dba1.RemoveEdge(e_local);
     dba0.RemoveVertex(v_remote);
 
-    EXPECT_EQ(worker(1).remote_updates_server().Apply(dba0.transaction_id()),
-              distributed::RemoteUpdateResult::DONE);
+    EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+              distributed::UpdateResult::DONE);
     EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
   }
 }
@@ -287,9 +286,9 @@ class DistributedDetachDeleteTest : public DistributedGraphDbTest {
       accessor.DetachRemoveVertex(v_accessor);
 
       for (auto db_accessor : dba) {
-        ASSERT_EQ(db_accessor.get().db().remote_updates_server().Apply(
+        ASSERT_EQ(db_accessor.get().db().updates_server().Apply(
                       dba[0].get().transaction_id()),
-                  distributed::RemoteUpdateResult::DONE);
+                  distributed::UpdateResult::DONE);
       }
 
       check_func(dba);
@@ -380,9 +379,9 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
 
     for (auto &kv : props) edge.PropsSet(dba.Property(kv.first), kv.second);
 
-    master().remote_updates_server().Apply(dba.transaction_id());
-    worker(1).remote_updates_server().Apply(dba.transaction_id());
-    worker(2).remote_updates_server().Apply(dba.transaction_id());
+    master().updates_server().Apply(dba.transaction_id());
+    worker(1).updates_server().Apply(dba.transaction_id());
+    worker(2).updates_server().Apply(dba.transaction_id());
     dba.Commit();
   }
 
@@ -487,9 +486,9 @@ class DistributedEdgeRemoveTest : public DistributedGraphDbTest {
     database::GraphDbAccessor dba{db};
     EdgeAccessor edge{edge_addr, dba};
     dba.RemoveEdge(edge);
-    master().remote_updates_server().Apply(dba.transaction_id());
-    worker(1).remote_updates_server().Apply(dba.transaction_id());
-    worker(2).remote_updates_server().Apply(dba.transaction_id());
+    master().updates_server().Apply(dba.transaction_id());
+    worker(1).updates_server().Apply(dba.transaction_id());
+    worker(2).updates_server().Apply(dba.transaction_id());
     dba.Commit();
   }
 

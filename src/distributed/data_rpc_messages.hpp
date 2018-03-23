@@ -27,10 +27,10 @@ struct TxGidPair {
 };
 
 #define MAKE_RESPONSE(type, name)                                           \
-  class Remote##type##Res : public communication::rpc::Message {            \
+  class type##Res : public communication::rpc::Message {                    \
    public:                                                                  \
-    Remote##type##Res() {}                                                  \
-    Remote##type##Res(const type *name, int worker_id)                      \
+    type##Res() {}                                                          \
+    type##Res(const type *name, int worker_id)                              \
         : name_input_(name), worker_id_(worker_id) {}                       \
                                                                             \
     template <class TArchive>                                               \
@@ -59,12 +59,10 @@ MAKE_RESPONSE(Edge, edge)
 
 #undef MAKE_RESPONSE
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteVertexReq, TxGidPair);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteEdgeReq, TxGidPair);
+RPC_SINGLE_MEMBER_MESSAGE(VertexReq, TxGidPair);
+RPC_SINGLE_MEMBER_MESSAGE(EdgeReq, TxGidPair);
 
-using RemoteVertexRpc =
-    communication::rpc::RequestResponse<RemoteVertexReq, RemoteVertexRes>;
-using RemoteEdgeRpc =
-    communication::rpc::RequestResponse<RemoteEdgeReq, RemoteEdgeRes>;
+using VertexRpc = communication::rpc::RequestResponse<VertexReq, VertexRes>;
+using EdgeRpc = communication::rpc::RequestResponse<EdgeReq, EdgeRes>;
 
 }  // namespace distributed

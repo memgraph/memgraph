@@ -2,14 +2,14 @@
 #include "glog/logging.h"
 
 #include "database/storage.hpp"
-#include "distributed/remote_cache.hpp"
+#include "distributed/cache.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 
 namespace distributed {
 
 template <typename TRecord>
-TRecord *RemoteCache<TRecord>::FindNew(gid::Gid gid) {
+TRecord *Cache<TRecord>::FindNew(gid::Gid gid) {
   std::lock_guard<std::mutex> guard{lock_};
   auto found = cache_.find(gid);
   DCHECK(found != cache_.end())
@@ -22,10 +22,9 @@ TRecord *RemoteCache<TRecord>::FindNew(gid::Gid gid) {
 }
 
 template <typename TRecord>
-void RemoteCache<TRecord>::FindSetOldNew(tx::transaction_id_t tx_id,
-                                         int worker_id, gid::Gid gid,
-                                         TRecord *&old_record,
-                                         TRecord *&new_record) {
+void Cache<TRecord>::FindSetOldNew(tx::transaction_id_t tx_id, int worker_id,
+                                   gid::Gid gid, TRecord *&old_record,
+                                   TRecord *&new_record) {
   {
     std::lock_guard<std::mutex> guard(lock_);
     auto found = cache_.find(gid);
@@ -36,8 +35,7 @@ void RemoteCache<TRecord>::FindSetOldNew(tx::transaction_id_t tx_id,
     }
   }
 
-  auto remote =
-      remote_data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
+  auto remote = data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
   LocalizeAddresses(*remote);
 
   // This logic is a bit strange because we need to make sure that someone
@@ -54,8 +52,8 @@ void RemoteCache<TRecord>::FindSetOldNew(tx::transaction_id_t tx_id,
 }
 
 template <typename TRecord>
-void RemoteCache<TRecord>::emplace(gid::Gid gid, rec_uptr old_record,
-                                   rec_uptr new_record) {
+void Cache<TRecord>::emplace(gid::Gid gid, rec_uptr old_record,
+                             rec_uptr new_record) {
   if (old_record) LocalizeAddresses(*old_record);
   if (new_record) LocalizeAddresses(*new_record);
 
@@ -71,13 +69,13 @@ void RemoteCache<TRecord>::emplace(gid::Gid gid, rec_uptr old_record,
 }
 
 template <typename TRecord>
-void RemoteCache<TRecord>::ClearCache() {
+void Cache<TRecord>::ClearCache() {
   std::lock_guard<std::mutex> guard{lock_};
   cache_.clear();
 }
 
 template <>
-void RemoteCache<Vertex>::LocalizeAddresses(Vertex &vertex) {
+void Cache<Vertex>::LocalizeAddresses(Vertex &vertex) {
   auto localize_edges = [this](auto &edges) {
     for (auto &element : edges) {
       element.vertex = storage_.LocalizedAddressIfPossible(element.vertex);
@@ -90,12 +88,12 @@ void RemoteCache<Vertex>::LocalizeAddresses(Vertex &vertex) {
 }
 
 template <>
-void RemoteCache<Edge>::LocalizeAddresses(Edge &edge) {
+void Cache<Edge>::LocalizeAddresses(Edge &edge) {
   edge.from_ = storage_.LocalizedAddressIfPossible(edge.from_);
   edge.to_ = storage_.LocalizedAddressIfPossible(edge.to_);
 }
 
-template class RemoteCache<Vertex>;
-template class RemoteCache<Edge>;
+template class Cache<Vertex>;
+template class Cache<Edge>;
 
 }  // namespace distributed

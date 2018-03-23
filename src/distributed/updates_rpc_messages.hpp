@@ -14,7 +14,7 @@
 namespace distributed {
 
 /// The result of sending or applying a deferred update to a worker.
-enum class RemoteUpdateResult {
+enum class UpdateResult {
   DONE,
   SERIALIZATION_ERROR,
   LOCK_TIMEOUT_ERROR,
@@ -22,19 +22,17 @@ enum class RemoteUpdateResult {
   UNABLE_TO_DELETE_VERTEX_ERROR
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteUpdateReq, database::StateDelta);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteUpdateRes, RemoteUpdateResult);
-using RemoteUpdateRpc =
-    communication::rpc::RequestResponse<RemoteUpdateReq, RemoteUpdateRes>;
+RPC_SINGLE_MEMBER_MESSAGE(UpdateReq, database::StateDelta);
+RPC_SINGLE_MEMBER_MESSAGE(UpdateRes, UpdateResult);
+using UpdateRpc = communication::rpc::RequestResponse<UpdateReq, UpdateRes>;
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteUpdateApplyReq, tx::transaction_id_t);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteUpdateApplyRes, RemoteUpdateResult);
-using RemoteUpdateApplyRpc =
-    communication::rpc::RequestResponse<RemoteUpdateApplyReq,
-                                        RemoteUpdateApplyRes>;
+RPC_SINGLE_MEMBER_MESSAGE(UpdateApplyReq, tx::transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(UpdateApplyRes, UpdateResult);
+using UpdateApplyRpc =
+    communication::rpc::RequestResponse<UpdateApplyReq, UpdateApplyRes>;
 
-struct RemoteCreateResult {
-  RemoteUpdateResult result;
+struct CreateResult {
+  UpdateResult result;
   // Only valid if creation was successful.
   gid::Gid gid;
 
@@ -48,7 +46,7 @@ struct RemoteCreateResult {
   }
 };
 
-struct RemoteCreateVertexReqData {
+struct CreateVertexReqData {
   tx::transaction_id_t tx_id;
   std::vector<storage::Label> labels;
   std::unordered_map<storage::Property, query::TypedValue> properties;
@@ -84,13 +82,12 @@ struct RemoteCreateVertexReqData {
   BOOST_SERIALIZATION_SPLIT_MEMBER()
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteCreateVertexReq, RemoteCreateVertexReqData);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteCreateVertexRes, RemoteCreateResult);
-using RemoteCreateVertexRpc =
-    communication::rpc::RequestResponse<RemoteCreateVertexReq,
-                                        RemoteCreateVertexRes>;
+RPC_SINGLE_MEMBER_MESSAGE(CreateVertexReq, CreateVertexReqData);
+RPC_SINGLE_MEMBER_MESSAGE(CreateVertexRes, CreateResult);
+using CreateVertexRpc =
+    communication::rpc::RequestResponse<CreateVertexReq, CreateVertexRes>;
 
-struct RemoteCreateEdgeReqData {
+struct CreateEdgeReqData {
   gid::Gid from;
   storage::VertexAddress to;
   storage::EdgeType edge_type;
@@ -108,13 +105,12 @@ struct RemoteCreateEdgeReqData {
   }
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteCreateEdgeReq, RemoteCreateEdgeReqData);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteCreateEdgeRes, RemoteCreateResult);
-using RemoteCreateEdgeRpc =
-    communication::rpc::RequestResponse<RemoteCreateEdgeReq,
-                                        RemoteCreateEdgeRes>;
+RPC_SINGLE_MEMBER_MESSAGE(CreateEdgeReq, CreateEdgeReqData);
+RPC_SINGLE_MEMBER_MESSAGE(CreateEdgeRes, CreateResult);
+using CreateEdgeRpc =
+    communication::rpc::RequestResponse<CreateEdgeReq, CreateEdgeRes>;
 
-struct RemoteAddInEdgeReqData {
+struct AddInEdgeReqData {
   storage::VertexAddress from;
   storage::EdgeAddress edge_address;
   gid::Gid to;
@@ -134,12 +130,12 @@ struct RemoteAddInEdgeReqData {
   }
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteAddInEdgeReq, RemoteAddInEdgeReqData);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteAddInEdgeRes, RemoteUpdateResult);
-using RemoteAddInEdgeRpc =
-    communication::rpc::RequestResponse<RemoteAddInEdgeReq, RemoteAddInEdgeRes>;
+RPC_SINGLE_MEMBER_MESSAGE(AddInEdgeReq, AddInEdgeReqData);
+RPC_SINGLE_MEMBER_MESSAGE(AddInEdgeRes, UpdateResult);
+using AddInEdgeRpc =
+    communication::rpc::RequestResponse<AddInEdgeReq, AddInEdgeRes>;
 
-struct RemoteRemoveVertexReqData {
+struct RemoveVertexReqData {
   gid::Gid gid;
   tx::transaction_id_t tx_id;
   bool check_empty;
@@ -155,13 +151,12 @@ struct RemoteRemoveVertexReqData {
   }
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveVertexReq, RemoteRemoveVertexReqData);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveVertexRes, RemoteUpdateResult);
-using RemoteRemoveVertexRpc =
-    communication::rpc::RequestResponse<RemoteRemoveVertexReq,
-                                        RemoteRemoveVertexRes>;
+RPC_SINGLE_MEMBER_MESSAGE(RemoveVertexReq, RemoveVertexReqData);
+RPC_SINGLE_MEMBER_MESSAGE(RemoveVertexRes, UpdateResult);
+using RemoveVertexRpc =
+    communication::rpc::RequestResponse<RemoveVertexReq, RemoveVertexRes>;
 
-struct RemoteRemoveEdgeData {
+struct RemoveEdgeData {
   tx::transaction_id_t tx_id;
   gid::Gid edge_id;
   gid::Gid vertex_from_id;
@@ -179,13 +174,12 @@ struct RemoteRemoveEdgeData {
   }
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveEdgeReq, RemoteRemoveEdgeData);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveEdgeRes, RemoteUpdateResult);
-using RemoteRemoveEdgeRpc =
-    communication::rpc::RequestResponse<RemoteRemoveEdgeReq,
-                                        RemoteRemoveEdgeRes>;
+RPC_SINGLE_MEMBER_MESSAGE(RemoveEdgeReq, RemoveEdgeData);
+RPC_SINGLE_MEMBER_MESSAGE(RemoveEdgeRes, UpdateResult);
+using RemoveEdgeRpc =
+    communication::rpc::RequestResponse<RemoveEdgeReq, RemoveEdgeRes>;
 
-struct RemoteRemoveInEdgeData {
+struct RemoveInEdgeData {
   tx::transaction_id_t tx_id;
   gid::Gid vertex;
   storage::EdgeAddress edge_address;
@@ -201,10 +195,9 @@ struct RemoteRemoveInEdgeData {
   }
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveInEdgeReq, RemoteRemoveInEdgeData);
-RPC_SINGLE_MEMBER_MESSAGE(RemoteRemoveInEdgeRes, RemoteUpdateResult);
-using RemoteRemoveInEdgeRpc =
-    communication::rpc::RequestResponse<RemoteRemoveInEdgeReq,
-                                        RemoteRemoveInEdgeRes>;
+RPC_SINGLE_MEMBER_MESSAGE(RemoveInEdgeReq, RemoveInEdgeData);
+RPC_SINGLE_MEMBER_MESSAGE(RemoveInEdgeRes, UpdateResult);
+using RemoveInEdgeRpc =
+    communication::rpc::RequestResponse<RemoveInEdgeReq, RemoveInEdgeRes>;
 
 }  // namespace distributed

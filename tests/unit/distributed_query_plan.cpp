@@ -8,11 +8,11 @@
 #include "distributed/coordination.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
+#include "distributed/data_rpc_clients.hpp"
+#include "distributed/data_rpc_server.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
-#include "distributed/remote_data_rpc_clients.hpp"
-#include "distributed/remote_data_rpc_server.hpp"
-#include "distributed/remote_pull_rpc_clients.hpp"
+#include "distributed/pull_rpc_clients.hpp"
 #include "distributed_common.hpp"
 #include "io/network/endpoint.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -31,7 +31,7 @@ DECLARE_int32(query_execution_time_sec);
 using namespace distributed;
 using namespace database;
 
-TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
+TEST_F(DistributedGraphDbTest, PullProduceRpc) {
   GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
@@ -60,12 +60,11 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
   auto remote_pull = [this, &params, &symbols](GraphDbAccessor &dba,
                                                int worker_id) {
-    return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
-                                                     params, symbols, false, 3);
+    return master().pull_clients().Pull(dba, worker_id, plan_id, params,
+                                        symbols, false, 3);
   };
   auto expect_first_batch = [](auto &batch) {
-    EXPECT_EQ(batch.pull_state,
-              distributed::RemotePullState::CURSOR_IN_PROGRESS);
+    EXPECT_EQ(batch.pull_state, distributed::PullState::CURSOR_IN_PROGRESS);
     ASSERT_EQ(batch.frames.size(), 3);
     ASSERT_EQ(batch.frames[0].size(), 1);
     EXPECT_EQ(batch.frames[0][0].ValueInt(), 42);
@@ -73,7 +72,7 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
     EXPECT_EQ(batch.frames[2][0].ValueString(), "bla");
   };
   auto expect_second_batch = [](auto &batch) {
-    EXPECT_EQ(batch.pull_state, distributed::RemotePullState::CURSOR_EXHAUSTED);
+    EXPECT_EQ(batch.pull_state, distributed::PullState::CURSOR_EXHAUSTED);
     ASSERT_EQ(batch.frames.size(), 2);
     ASSERT_EQ(batch.frames[0].size(), 1);
     EXPECT_EQ(batch.frames[0][0].ValueInt(), 1);
@@ -95,7 +94,7 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpc) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
+TEST_F(DistributedGraphDbTest, PullProduceRpcWithGraphElements) {
   // Create some data on the master and both workers. Eeach edge (3 of them) and
   // vertex (6 of them) will be uniquely identified with their worker id and
   // sequence ID, so we can check we retrieved all.
@@ -180,8 +179,8 @@ TEST_F(DistributedGraphDbTest, RemotePullProduceRpcWithGraphElements) {
                                      ctx.symbol_table_[*return_m], p_sym};
   auto remote_pull = [this, &params, &symbols](GraphDbAccessor &dba,
                                                int worker_id) {
-    return master().remote_pull_clients().RemotePull(dba, worker_id, plan_id,
-                                                     params, symbols, false, 3);
+    return master().pull_clients().Pull(dba, worker_id, plan_id, params,
+                                        symbols, false, 3);
   };
   auto future_w1_results = remote_pull(dba, 1);
   auto future_w2_results = remote_pull(dba, 2);
@@ -352,13 +351,13 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*output]};
   auto remote_pull = [this, &params, &symbols, &dba]() {
     return master()
-        .remote_pull_clients()
-        .RemotePull(dba, 1, plan_id, params, symbols, false, 1)
+        .pull_clients()
+        .Pull(dba, 1, plan_id, params, symbols, false, 1)
         .get()
         .pull_state;
   };
-  ASSERT_EQ(remote_pull(), distributed::RemotePullState::CURSOR_IN_PROGRESS);
+  ASSERT_EQ(remote_pull(), distributed::PullState::CURSOR_IN_PROGRESS);
   // Sleep here so the remote gets a hinted error.
   std::this_thread::sleep_for(2s);
-  EXPECT_EQ(remote_pull(), distributed::RemotePullState::HINTED_ABORT_ERROR);
+  EXPECT_EQ(remote_pull(), distributed::PullState::HINTED_ABORT_ERROR);
 }

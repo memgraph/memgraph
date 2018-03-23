@@ -2,8 +2,8 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
-#include "distributed/remote_data_manager.hpp"
-#include "distributed/remote_updates_rpc_clients.hpp"
+#include "distributed/data_manager.hpp"
+#include "distributed/updates_rpc_clients.hpp"
 #include "query/exceptions.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
@@ -148,13 +148,12 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
     // It's not possible that we have a global address for a graph element
     // that's local, because that is resolved in the constructor.
     // TODO in write queries it's possible the command has been advanced and
-    // we need to invalidate the RemoteCache and really get the latest stuff.
+    // we need to invalidate the Cache and really get the latest stuff.
     // But only do that after the command has been advanced.
-    auto &remote_cache =
-        dba.db().remote_data_manager().template Elements<TRecord>(
-            dba.transaction_id());
-    remote_cache.FindSetOldNew(dba.transaction().id_, address_.worker_id(),
-                               address_.gid(), old_, new_);
+    auto &cache = dba.db().data_manager().template Elements<TRecord>(
+        dba.transaction_id());
+    cache.FindSetOldNew(dba.transaction().id_, address_.worker_id(),
+                        address_.gid(), old_, new_);
   }
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
@@ -180,10 +179,9 @@ TRecord &RecordAccessor<TRecord>::update() const {
   if (is_local()) {
     new_ = address_.local()->update(t);
   } else {
-    auto &remote_cache =
-        dba.db().remote_data_manager().template Elements<TRecord>(
-            dba.transaction_id());
-    new_ = remote_cache.FindNew(address_.gid());
+    auto &cache = dba.db().data_manager().template Elements<TRecord>(
+        dba.transaction_id());
+    new_ = cache.FindNew(address_.gid());
   }
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
@@ -204,18 +202,18 @@ void RecordAccessor<TRecord>::SendDelta(
   DCHECK(!is_local())
       << "Only a delta created on a remote accessor should be sent";
 
-  auto result = db_accessor().db().remote_updates_clients().RemoteUpdate(
-      address().worker_id(), delta);
+  auto result =
+      db_accessor().db().updates_clients().Update(address().worker_id(), delta);
   switch (result) {
-    case distributed::RemoteUpdateResult::DONE:
+    case distributed::UpdateResult::DONE:
       break;
-    case distributed::RemoteUpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
+    case distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
       throw query::RemoveAttachedVertexException();
-    case distributed::RemoteUpdateResult::SERIALIZATION_ERROR:
+    case distributed::UpdateResult::SERIALIZATION_ERROR:
       throw mvcc::SerializationError();
-    case distributed::RemoteUpdateResult::UPDATE_DELETED_ERROR:
+    case distributed::UpdateResult::UPDATE_DELETED_ERROR:
       throw RecordDeletedError();
-    case distributed::RemoteUpdateResult::LOCK_TIMEOUT_ERROR:
+    case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
       throw LockTimeoutException("Lock timeout on remote worker");
   }
 }

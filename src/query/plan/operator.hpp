@@ -17,7 +17,7 @@
 #include "boost/serialization/shared_ptr.hpp"
 #include "boost/serialization/unique_ptr.hpp"
 
-#include "distributed/remote_pull_produce_rpc_messages.hpp"
+#include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -2463,7 +2463,7 @@ class Union : public LogicalOperator {
 /**
  * An operator in distributed Memgraph that yields both local and remote (from
  * other workers) frames. Obtaining remote frames is done through RPC calls to
- * `distributed::RemoteProduceRpcServer`s running on all the workers.
+ * `distributed::ProduceRpcServer`s running on all the workers.
  *
  * This operator aims to yield results as fast as possible and lose minimal
  * time on data transfer. It gives no guarantees on result order.
@@ -2514,7 +2514,7 @@ class PullRemote : public LogicalOperator {
  *
  * Logic of the synchronize operator is:
  *
- * 1. If there is a RemotePull, tell all the workers to pull on that plan and
+ * 1. If there is a Pull, tell all the workers to pull on that plan and
  *    accumulate results without sending them to the master. This is async.
  * 2. Accumulate local results, in parallel with 1. getting executed on workers.
  * 3. Wait till the master and all the workers are done accumulating.
@@ -2522,7 +2522,7 @@ class PullRemote : public LogicalOperator {
  * 5. Tell all the workers to apply their updates. This is async.
  * 6. Apply local updates, in parallel with 5. on the workers.
  * 7. Notify workers that the command has advanced, if necessary.
- * 8. Yield all the results, first local, then from RemotePull if available.
+ * 8. Yield all the results, first local, then from Pull if available.
  */
 class Synchronize : public LogicalOperator {
  public:

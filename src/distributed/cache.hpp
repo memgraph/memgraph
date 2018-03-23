@@ -3,7 +3,7 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "distributed/remote_data_rpc_clients.hpp"
+#include "distributed/data_rpc_clients.hpp"
 #include "storage/gid.hpp"
 
 namespace database {
@@ -16,19 +16,18 @@ namespace distributed {
  * Used for caching Vertices and Edges that are stored on another worker in a
  * distributed system. Maps global IDs to (old, new) Vertex/Edge pointer
  * pairs.  It is possible that either "old" or "new" are nullptrs, but at
- * least one must be not-null. The RemoteCache is the owner of TRecord
+ * least one must be not-null. The Cache is the owner of TRecord
  * objects it points to.
  *
  * @tparam TRecord - Edge or Vertex
  */
 template <typename TRecord>
-class RemoteCache {
+class Cache {
   using rec_uptr = std::unique_ptr<TRecord>;
 
  public:
-  RemoteCache(database::Storage &storage,
-              distributed::RemoteDataRpcClients &remote_data_clients)
-      : storage_(storage), remote_data_clients_(remote_data_clients) {}
+  Cache(database::Storage &storage, distributed::DataRpcClients &data_clients)
+      : storage_(storage), data_clients_(data_clients) {}
 
   /// Returns the new data for the given ID. Creates it (as copy of old) if
   /// necessary.
@@ -51,7 +50,7 @@ class RemoteCache {
   database::Storage &storage_;
 
   std::mutex lock_;
-  distributed::RemoteDataRpcClients &remote_data_clients_;
+  distributed::DataRpcClients &data_clients_;
   // TODO it'd be better if we had VertexData and EdgeData in here, as opposed
   // to Vertex and Edge.
   std::unordered_map<gid::Gid, std::pair<rec_uptr, rec_uptr>> cache_;

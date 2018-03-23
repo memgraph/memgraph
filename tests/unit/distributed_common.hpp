@@ -5,7 +5,7 @@
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "distributed/remote_updates_rpc_server.hpp"
+#include "distributed/updates_rpc_server.hpp"
 #include "storage/address_types.hpp"
 #include "transactions/engine_master.hpp"
 
@@ -91,9 +91,9 @@ class DistributedGraphDbTest : public ::testing::Test {
     VertexAccessor to{to_addr, dba};
     auto r_val =
         dba.InsertEdge(from, to, dba.EdgeType(edge_type_name)).GlobalAddress();
-    master().remote_updates_server().Apply(dba.transaction_id());
-    worker(1).remote_updates_server().Apply(dba.transaction_id());
-    worker(2).remote_updates_server().Apply(dba.transaction_id());
+    master().updates_server().Apply(dba.transaction_id());
+    worker(1).updates_server().Apply(dba.transaction_id());
+    worker(2).updates_server().Apply(dba.transaction_id());
     dba.Commit();
     return r_val;
   }

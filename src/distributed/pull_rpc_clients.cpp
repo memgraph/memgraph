@@ -1,26 +1,26 @@
 #include <functional>
 
-#include "distributed/remote_data_manager.hpp"
-#include "distributed/remote_pull_rpc_clients.hpp"
+#include "distributed/data_manager.hpp"
+#include "distributed/pull_rpc_clients.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 
 namespace distributed {
 
-utils::Future<RemotePullData> RemotePullRpcClients::RemotePull(
+utils::Future<PullData> PullRpcClients::Pull(
     database::GraphDbAccessor &dba, int worker_id, int64_t plan_id,
     const Parameters &params, const std::vector<query::Symbol> &symbols,
     bool accumulate, int batch_size) {
-  return clients_.ExecuteOnWorker<RemotePullData>(
+  return clients_.ExecuteOnWorker<PullData>(
       worker_id, [&dba, plan_id, params, symbols, accumulate,
                   batch_size](ClientPool &client_pool) {
-        auto result = client_pool.Call<RemotePullRpc>(
+        auto result = client_pool.Call<PullRpc>(
             dba.transaction_id(), dba.transaction().snapshot(), plan_id, params,
             symbols, accumulate, batch_size, true, true);
 
         auto handle_vertex = [&dba](auto &v) {
           dba.db()
-              .remote_data_manager()
+              .data_manager()
               .Elements<Vertex>(dba.transaction_id())
               .emplace(v.global_address.gid(), std::move(v.old_record),
                        std::move(v.new_record));
@@ -31,7 +31,7 @@ utils::Future<RemotePullData> RemotePullRpcClients::RemotePull(
         };
         auto handle_edge = [&dba](auto &e) {
           dba.db()
-              .remote_data_manager()
+              .data_manager()
               .Elements<Edge>(dba.transaction_id())
               .emplace(e.global_address.gid(), std::move(e.old_record),
                        std::move(e.new_record));
@@ -61,7 +61,7 @@ utils::Future<RemotePullData> RemotePullRpcClients::RemotePull(
 }
 
 std::vector<utils::Future<void>>
-RemotePullRpcClients::NotifyAllTransactionCommandAdvanced(
+PullRpcClients::NotifyAllTransactionCommandAdvanced(
     tx::transaction_id_t tx_id) {
   return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {
     auto res = client.template Call<TransactionCommandAdvancedRpc>(tx_id);

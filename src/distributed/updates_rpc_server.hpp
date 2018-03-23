@@ -10,7 +10,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
-#include "distributed/remote_updates_rpc_messages.hpp"
+#include "distributed/updates_rpc_messages.hpp"
 #include "query/typed_value.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/gid.hpp"
@@ -27,7 +27,7 @@ namespace distributed {
 ///
 /// Attempts to get serialization and update-after-delete errors to happen as
 /// soon as possible during query execution (fail fast).
-class RemoteUpdatesRpcServer {
+class UpdatesRpcServer {
   // Remote updates for one transaction.
   template <typename TRecordAccessor>
   class TransactionUpdates {
@@ -38,7 +38,7 @@ class RemoteUpdatesRpcServer {
     /// Adds a delta and returns the result. Does not modify the state (data) of
     /// the graph element the update is for, but calls the `update` method to
     /// fail-fast on serialization and update-after-delete errors.
-    RemoteUpdateResult Emplace(const database::StateDelta &delta);
+    UpdateResult Emplace(const database::StateDelta &delta);
 
     /// Creates a new vertex and returns it's gid.
     gid::Gid CreateVertex(
@@ -52,7 +52,7 @@ class RemoteUpdatesRpcServer {
                         storage::EdgeType edge_type);
 
     /// Applies all the deltas on the record.
-    RemoteUpdateResult Apply();
+    UpdateResult Apply();
 
     auto &db_accessor() { return db_accessor_; }
 
@@ -69,13 +69,12 @@ class RemoteUpdatesRpcServer {
   };
 
  public:
-  RemoteUpdatesRpcServer(database::GraphDb &db,
-                         communication::rpc::Server &server);
+  UpdatesRpcServer(database::GraphDb &db, communication::rpc::Server &server);
 
   /// Applies all existsing updates for the given transaction ID. If there are
   /// no updates for that transaction, nothing happens. Clears the updates cache
   /// after applying them, regardless of the result.
-  RemoteUpdateResult Apply(tx::transaction_id_t tx_id);
+  UpdateResult Apply(tx::transaction_id_t tx_id);
 
   /// Clears the cache of local transactions that have expired. The signature of
   /// this method is dictated by `distributed::CacheCleaner`.
@@ -96,10 +95,10 @@ class RemoteUpdatesRpcServer {
                                             tx::transaction_id_t tx_id);
 
   // Performs edge creation for the given request.
-  RemoteCreateResult CreateEdge(const RemoteCreateEdgeReqData &req);
+  CreateResult CreateEdge(const CreateEdgeReqData &req);
 
   // Performs edge removal for the given request.
-  RemoteUpdateResult RemoveEdge(const RemoteRemoveEdgeData &data);
+  UpdateResult RemoveEdge(const RemoveEdgeData &data);
 };
 
 }  // namespace distributed

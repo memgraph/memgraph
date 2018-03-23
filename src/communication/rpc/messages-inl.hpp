@@ -6,11 +6,11 @@
 
 #include "database/state_delta.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
+#include "distributed/data_rpc_messages.hpp"
 #include "distributed/index_rpc_messages.hpp"
 #include "distributed/plan_rpc_messages.hpp"
-#include "distributed/remote_data_rpc_messages.hpp"
-#include "distributed/remote_pull_produce_rpc_messages.hpp"
-#include "distributed/remote_updates_rpc_messages.hpp"
+#include "distributed/pull_produce_rpc_messages.hpp"
+#include "distributed/updates_rpc_messages.hpp"
 #include "stats/stats_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
@@ -59,10 +59,10 @@ BOOST_CLASS_EXPORT(distributed::StopWorkerReq);
 BOOST_CLASS_EXPORT(distributed::StopWorkerRes);
 
 // Distributed data exchange.
-BOOST_CLASS_EXPORT(distributed::RemoteEdgeReq);
-BOOST_CLASS_EXPORT(distributed::RemoteEdgeRes);
-BOOST_CLASS_EXPORT(distributed::RemoteVertexReq);
-BOOST_CLASS_EXPORT(distributed::RemoteVertexRes);
+BOOST_CLASS_EXPORT(distributed::EdgeReq);
+BOOST_CLASS_EXPORT(distributed::EdgeRes);
+BOOST_CLASS_EXPORT(distributed::VertexReq);
+BOOST_CLASS_EXPORT(distributed::VertexRes);
 BOOST_CLASS_EXPORT(distributed::TxGidPair);
 
 // Distributed plan exchange.
@@ -71,9 +71,9 @@ BOOST_CLASS_EXPORT(distributed::DispatchPlanRes);
 BOOST_CLASS_EXPORT(distributed::RemovePlanReq);
 BOOST_CLASS_EXPORT(distributed::RemovePlanRes);
 
-// Remote pull.
-BOOST_CLASS_EXPORT(distributed::RemotePullReq);
-BOOST_CLASS_EXPORT(distributed::RemotePullRes);
+// Pull.
+BOOST_CLASS_EXPORT(distributed::PullReq);
+BOOST_CLASS_EXPORT(distributed::PullRes);
 BOOST_CLASS_EXPORT(distributed::TransactionCommandAdvancedReq);
 BOOST_CLASS_EXPORT(distributed::TransactionCommandAdvancedRes);
 
@@ -88,30 +88,30 @@ BOOST_CLASS_EXPORT(stats::StatsRes);
 BOOST_CLASS_EXPORT(stats::BatchStatsReq);
 BOOST_CLASS_EXPORT(stats::BatchStatsRes);
 
-// Remote updates.
+// Updates.
 BOOST_CLASS_EXPORT(database::StateDelta);
-BOOST_CLASS_EXPORT(distributed::RemoteUpdateReq);
-BOOST_CLASS_EXPORT(distributed::RemoteUpdateRes);
-BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyReq);
-BOOST_CLASS_EXPORT(distributed::RemoteUpdateApplyRes);
+BOOST_CLASS_EXPORT(distributed::UpdateReq);
+BOOST_CLASS_EXPORT(distributed::UpdateRes);
+BOOST_CLASS_EXPORT(distributed::UpdateApplyReq);
+BOOST_CLASS_EXPORT(distributed::UpdateApplyRes);
 
-// Remote creates.
-BOOST_CLASS_EXPORT(distributed::RemoteCreateResult);
-BOOST_CLASS_EXPORT(distributed::RemoteCreateVertexReq);
-BOOST_CLASS_EXPORT(distributed::RemoteCreateVertexReqData);
-BOOST_CLASS_EXPORT(distributed::RemoteCreateVertexRes);
-BOOST_CLASS_EXPORT(distributed::RemoteCreateEdgeReqData);
-BOOST_CLASS_EXPORT(distributed::RemoteCreateEdgeReq);
-BOOST_CLASS_EXPORT(distributed::RemoteCreateEdgeRes);
-BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeReqData);
-BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeReq);
-BOOST_CLASS_EXPORT(distributed::RemoteAddInEdgeRes);
+// Creates.
+BOOST_CLASS_EXPORT(distributed::CreateResult);
+BOOST_CLASS_EXPORT(distributed::CreateVertexReq);
+BOOST_CLASS_EXPORT(distributed::CreateVertexReqData);
+BOOST_CLASS_EXPORT(distributed::CreateVertexRes);
+BOOST_CLASS_EXPORT(distributed::CreateEdgeReqData);
+BOOST_CLASS_EXPORT(distributed::CreateEdgeReq);
+BOOST_CLASS_EXPORT(distributed::CreateEdgeRes);
+BOOST_CLASS_EXPORT(distributed::AddInEdgeReqData);
+BOOST_CLASS_EXPORT(distributed::AddInEdgeReq);
+BOOST_CLASS_EXPORT(distributed::AddInEdgeRes);
 
-// Remote removal.
-BOOST_CLASS_EXPORT(distributed::RemoteRemoveVertexReq);
-BOOST_CLASS_EXPORT(distributed::RemoteRemoveVertexRes);
-BOOST_CLASS_EXPORT(distributed::RemoteRemoveEdgeReq);
-BOOST_CLASS_EXPORT(distributed::RemoteRemoveEdgeRes);
-BOOST_CLASS_EXPORT(distributed::RemoteRemoveInEdgeData);
-BOOST_CLASS_EXPORT(distributed::RemoteRemoveInEdgeReq);
-BOOST_CLASS_EXPORT(distributed::RemoteRemoveInEdgeRes);
+// Removes.
+BOOST_CLASS_EXPORT(distributed::RemoveVertexReq);
+BOOST_CLASS_EXPORT(distributed::RemoveVertexRes);
+BOOST_CLASS_EXPORT(distributed::RemoveEdgeReq);
+BOOST_CLASS_EXPORT(distributed::RemoveEdgeRes);
+BOOST_CLASS_EXPORT(distributed::RemoveInEdgeData);
+BOOST_CLASS_EXPORT(distributed::RemoveInEdgeReq);
+BOOST_CLASS_EXPORT(distributed::RemoveInEdgeRes);
