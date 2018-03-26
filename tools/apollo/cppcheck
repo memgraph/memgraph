@@ -12,7 +12,7 @@ if echo "$PROJECT" | grep "release" >/dev/null 2>/dev/null; then
 fi
 
 if [ "$mode" == diff ]; then
-    files=$( git diff --name-only HEAD~1 HEAD | egrep '^(src|tests|poc)' | egrep '.(hpp|h|cpp)$' )
+    files=$( git diff --name-only HEAD~1 HEAD | egrep '^(src|tests|poc)' | egrep '\.(hpp|h|cpp)$' )
     flags=""
 else
     files=src/

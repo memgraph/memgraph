@@ -47,14 +47,15 @@ fi
 # save the path where this script is
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 memgraph_src_dir=${script_dir}/../..
+
 memgraph_build_dir=${memgraph_src_dir}/build
+if [ ! -d ${memgraph_build_dir} ]; then
+    memgraph_build_dir=${memgraph_src_dir}/build_debug
+fi
+memgraph_binary=${memgraph_build_dir}/memgraph
 
 # activate virtualenv
 source $script_dir/ve3/bin/activate
-
-cd ${memgraph_build_dir}
-# binary is available after the build
-binary_name=memgraph
 
 # get full path to memgraph config for interpreted queries
 config_path="${memgraph_src_dir}/config/testing.conf"
@@ -73,7 +74,7 @@ fi
 set +e
 
 # run memgraph
-MEMGRAPH_CONFIG="$config_path" "$memgraph_build_dir/$binary_name" --min-log-level=$loglevel 1>&2 &
+MEMGRAPH_CONFIG="$config_path" "$memgraph_binary" --min-log-level=$loglevel 1>&2 &
 background_pid=$!
 
 function cleanup_and_exit {

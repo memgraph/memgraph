@@ -26,7 +26,12 @@ do
 
   # run memgraph with durability_directory pointing
   # to examples snapshots_dir
-  cd ../../build/
+  cd ../..
+  if [ ! -d build ]; then
+    cd build_release
+  else
+    cd build
+  fi
   ./memgraph --durability-directory "$script_dir/$snapshots_dir/" \
              --snapshot-on-exit > /dev/null 2>&1 &
   memgraph_pid=$!

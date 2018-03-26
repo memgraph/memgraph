@@ -181,11 +181,11 @@ target_link_libraries(antlr_opencypher_parser_lib antlr4)
 # -----------------------------------------------------------------------------
 
 # Optional subproject configuration -------------------------------------------
-option(POC "Build proof of concept binaries" ON)
+option(POC "Build proof of concept binaries" OFF)
 option(EXPERIMENTAL "Build experimental binaries" OFF)
-option(CUSTOMERS "Build customer binaries" ON)
+option(CUSTOMERS "Build customer binaries" OFF)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
-option(TOOLS "Build tools binaries" OFF)
+option(TOOLS "Build tools binaries" ON)
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)

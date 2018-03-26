@@ -11,4 +11,8 @@ fi
 
 NUM_MACHINES="$( cat card_fraud.py | grep -m1 "NUM_MACHINES" | tail -c 2 )"
 
- ../../../build_release/tests/manual/card_fraud_generate_snapshot --config config.json --num-workers $NUM_MACHINES --dir $output_dir
+build_dir=../../../build_release
+if [ ! -d $build_dir ]; then
+    build_dir=../../../build
+fi
+$build_dir/tests/manual/card_fraud_generate_snapshot --config config.json --num-workers $NUM_MACHINES --dir $output_dir

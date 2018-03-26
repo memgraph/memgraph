@@ -6,7 +6,7 @@ import subprocess
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-TESTS_DIR_REL = os.path.join("..", "..", "build", "tools", "tests")
+TESTS_DIR_REL = os.path.join("..", "..", "build_debug", "tools", "tests")
 TESTS_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, TESTS_DIR_REL))
 
 # ctest tests

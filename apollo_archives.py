@@ -7,7 +7,7 @@ import sys
 
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-BUILD_OUTPUT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "build", "output"))
+BUILD_OUTPUT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "build_release", "output"))
 
 # helpers
 def run_cmd(cmd, cwd):

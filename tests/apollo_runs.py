@@ -7,7 +7,7 @@ import subprocess
 # paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 WORKSPACE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
-TESTS_DIR_REL = os.path.join("..", "build", "tests")
+TESTS_DIR_REL = os.path.join("..", "build_debug", "tests")
 TESTS_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, TESTS_DIR_REL))
 
 # generation mode
@@ -50,11 +50,13 @@ for test in tests:
         prefix = "TIMEOUT=600 "
 
     outfile_paths = []
-    if name.startswith("unit") and mode == "diff":
-        dirname = dirname.replace("/build/", "/build_coverage/")
+    if name.startswith("unit"):
+        dirname = dirname.replace("/build_debug/", "/build_coverage/")
         curdir_abs = os.path.normpath(os.path.join(SCRIPT_DIR, dirname))
         curdir_rel = os.path.relpath(curdir_abs, WORKSPACE_DIR)
         outfile_paths.append("\./" + curdir_rel.replace(".", "\\.") + "/.+")
+    elif name.startswith("benchmark"):
+        dirname = dirname.replace("/build_debug/", "/build_release/")
 
     runs.append({
         "name": name,

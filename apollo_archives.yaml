@@ -1,8 +1,11 @@
-- name: Binary
+- name: Binaries
   archive:
-    - build/memgraph
+    - build_debug/memgraph
+    - build_release/memgraph
+    - build_release/tools/src/mg_import_csv
+    - build_release/tools/src/mg_statsd
     - config
-  filename: binary.tar.gz
+  filename: binaries.tar.gz
 
 - name: Doxygen documentation
   cd: docs/doxygen/html
@@ -11,11 +14,7 @@
   filename: documentation.tar.gz
   host: true
 
-- name: Release (tarball)
-  project: release
-  archive: build/output/memgraph*.tar.gz
-
-# - name: Release (user docs)
-#   project: release
-#   archive: docs/user_technical/docs.tar.gz
-#   filename: release_user_docs.tar.gz
+- name: Release (user docs)
+  project: ^NEVER$ # TODO (mferencevic): replace with 'release' once user documentation creation is fixed (couscous -> pandoc)
+  archive: docs/user_technical/docs.tar.gz
+  filename: release_user_docs.tar.gz

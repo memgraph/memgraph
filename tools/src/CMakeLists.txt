@@ -17,4 +17,4 @@ endif()
 install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
 
 # Target for building all the tool executables.
-add_custom_target(tools DEPENDS mg_import_csv)
+add_custom_target(tools DEPENDS mg_import_csv mg_statsd)

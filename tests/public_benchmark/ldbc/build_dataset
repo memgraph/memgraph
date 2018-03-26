@@ -12,6 +12,10 @@ function print_help () {
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 base_dir="${script_dir}/../../.."
 neo4j_dir="${base_dir}/libs/neo4j"
+build_dir="${base_dir}/build"
+if [ ! -d "${build_dir}" ]; then
+    build_dir="${base_dir}/build_release"
+fi
 
 # Add Maven to PATH
 export PATH=$PATH:${script_dir}/maven/bin
@@ -131,6 +135,6 @@ memgraph_snapshot_dir=${dataset_dir}/memgraph/snapshots
 mkdir -p ${memgraph_snapshot_dir}
 cd ${memgraph_snapshot_dir}
 echo "Converting CSV dataset to '${memgraph_snapshot_dir}/snapshot'"
-${base_dir}/tools/mg_import_csv --out snapshot ${csv_dataset} --csv-delimiter "|" --array-delimiter ";"
+${build_dir}/tools/src/mg_import_csv --out snapshot ${csv_dataset} --csv-delimiter "|" --array-delimiter ";"
 
 echo "Done!"
