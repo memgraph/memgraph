@@ -1,5 +1,4 @@
 #include <functional>
-#include <future>
 
 #include "glog/logging.h"
 

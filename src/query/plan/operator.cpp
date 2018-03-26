@@ -1,7 +1,6 @@
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
-#include <future>
 #include <limits>
 #include <queue>
 #include <random>
@@ -26,7 +25,6 @@
 #include "query/path.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/future.hpp"
 
 DEFINE_HIDDEN_int32(remote_pull_sleep_micros, 10,
                     "Sleep between remote result pulling in microseconds");
@@ -553,10 +551,9 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
   };
 
   auto find_ready_future = [this]() {
-    return std::find_if(future_expands_.begin(), future_expands_.end(),
-                        [](const auto &future) {
-                          return utils::IsFutureReady(future.edge_to);
-                        });
+    return std::find_if(
+        future_expands_.begin(), future_expands_.end(),
+        [](const auto &future) { return future.edge_to.IsReady(); });
   };
 
   auto put_future_edge_on_frame = [this, &frame](auto &future) {

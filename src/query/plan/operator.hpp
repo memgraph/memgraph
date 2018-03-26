@@ -3,7 +3,6 @@
 #pragma once
 
 #include <experimental/optional>
-#include <future>
 #include <memory>
 #include <unordered_map>
 #include <unordered_set>
@@ -24,6 +23,7 @@
 #include "query/typed_value.hpp"
 #include "storage/types.hpp"
 #include "utils/bound.hpp"
+#include "utils/future.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
 
@@ -828,7 +828,7 @@ class Expand : public LogicalOperator, public ExpandCommon {
 
    private:
     struct FutureExpand {
-      std::future<std::pair<EdgeAccessor, VertexAccessor>> edge_to;
+      utils::Future<std::pair<EdgeAccessor, VertexAccessor>> edge_to;
       std::vector<TypedValue> frame_elems;
     };
 
