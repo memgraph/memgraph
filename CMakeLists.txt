@@ -222,6 +222,7 @@ set(CPACK_PACKAGE_VERSION_MINOR ${memgraph_VERSION_MINOR})
 set(CPACK_PACKAGE_VERSION_PATCH ${memgraph_VERSION_PATCH})
 set(CPACK_PACKAGE_VERSION_TWEAK ${memgraph_VERSION_TWEAK})
 set(CPACK_PACKAGE_FILE_NAME ${CPACK_PACKAGE_NAME}-${memgraph_VERSION}-${COMMIT_HASH}${CPACK_SYSTEM_NAME})
+
 # DEB specific
 # Instead of using "name <email>" format, we use "email (name)" to prevent
 # errors due to full stop, '.' at the end of "Ltd". (See: RFC 822)
@@ -240,6 +241,20 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  Contains Memgraph, the graph database. It aims to deliver developers the
  speed, simplicity and scale required to build the next generation of
  applications driver by real-time connected data.")
+
+# RPM specific
+set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION /var /var/lib /var/log /etc/logrotate.d /lib /lib/systemd /lib/systemd/system)
+set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils,systemd")
+# set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_SOURCE_DIR}/release/rpm/memgraph.spec.in")
+set(CPACK_RPM_PRE_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/release/rpm/preinst")
+set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/release/rpm/postinst")
+set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/release/rpm/prerm")
+# Description formatting is important, no line must be greater than 80 characters.
+set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
+            : It aims to deliver developers the speed, simplicity and scale
+            : required to build the next generation of applications driver by
+            : real-time connected data.")
+
 # All variables must be set before including.
 include(CPack)
 # ---- End Setup CPack ----
