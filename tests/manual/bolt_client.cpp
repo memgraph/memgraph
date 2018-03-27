@@ -3,13 +3,8 @@
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
-#include "io/network/socket.hpp"
 #include "utils/network.hpp"
 #include "utils/timer.hpp"
-
-using SocketT = io::network::Socket;
-using EndpointT = io::network::Endpoint;
-using ClientT = communication::bolt::Client<SocketT>;
 
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
@@ -21,12 +16,11 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   // TODO: handle endpoint exception
-  EndpointT endpoint(utils::ResolveHostname(FLAGS_address), FLAGS_port);
-  SocketT socket;
+  io::network::Endpoint endpoint(utils::ResolveHostname(FLAGS_address),
+                                 FLAGS_port);
+  communication::bolt::Client client;
 
-  if (!socket.Connect(endpoint)) return 1;
-
-  ClientT client(std::move(socket), FLAGS_username, FLAGS_password);
+  if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) return 1;
 
   std::cout << "Memgraph bolt client is connected and running." << std::endl;
 
@@ -63,8 +57,6 @@ int main(int argc, char **argv) {
       std::cout << "Client received exception: " << e.what() << std::endl;
     }
   }
-
-  client.Close();
 
   return 0;
 }

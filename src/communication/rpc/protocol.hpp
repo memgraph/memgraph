@@ -6,9 +6,6 @@
 
 #include "communication/rpc/messages.hpp"
 #include "communication/session.hpp"
-#include "io/network/endpoint.hpp"
-#include "io/network/socket.hpp"
-#include "io/network/stream_buffer.hpp"
 
 /**
  * @brief Protocol
@@ -20,10 +17,6 @@
  *                 message_size bytes serialized_message
  */
 namespace communication::rpc {
-
-using Endpoint = io::network::Endpoint;
-using Socket = io::network::Socket;
-using StreamBuffer = io::network::StreamBuffer;
 
 // Forward declaration of class Server
 class Server;

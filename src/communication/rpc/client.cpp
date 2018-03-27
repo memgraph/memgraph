@@ -29,21 +29,18 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
 
   // Check if the connection is broken (if we haven't used the client for a
   // long time the server could have died).
-  if (socket_ && socket_->ErrorStatus()) {
-    socket_ = std::experimental::nullopt;
+  if (client_ && client_->ErrorStatus()) {
+    client_ = std::experimental::nullopt;
   }
 
   // Connect to the remote server.
-  if (!socket_) {
-    socket_.emplace();
-    buffer_.Clear();
-    if (!socket_->Connect(endpoint_)) {
+  if (!client_) {
+    client_.emplace();
+    if (!client_->Connect(endpoint_)) {
       LOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
-      socket_ = std::experimental::nullopt;
+      client_ = std::experimental::nullopt;
       return nullptr;
     }
-
-    socket_->SetKeepAlive();
   }
 
   // Serialize and send request.
@@ -59,64 +56,61 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
   const std::string &request_buffer = request_stream.str();
   CHECK(request_buffer.size() <= std::numeric_limits<MessageSize>::max())
       << fmt::format(
-          "Trying to send message of size {}, max message size is {}",
-          request_buffer.size(), std::numeric_limits<MessageSize>::max());
+             "Trying to send message of size {}, max message size is {}",
+             request_buffer.size(), std::numeric_limits<MessageSize>::max());
 
   MessageSize request_data_size = request_buffer.size();
-  if (!socket_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
+  if (!client_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
                       sizeof(MessageSize), true)) {
-    LOG(ERROR) << "Couldn't send request size to " << socket_->endpoint();
-    socket_ = std::experimental::nullopt;
+    LOG(ERROR) << "Couldn't send request size to " << client_->endpoint();
+    client_ = std::experimental::nullopt;
     return nullptr;
   }
 
-  if (!socket_->Write(request_buffer)) {
-    LOG(ERROR) << "Couldn't send request data to " << socket_->endpoint();
-    socket_ = std::experimental::nullopt;
+  if (!client_->Write(request_buffer)) {
+    LOG(ERROR) << "Couldn't send request data to " << client_->endpoint();
+    client_ = std::experimental::nullopt;
     return nullptr;
   }
 
-  // Receive response.
-  while (true) {
-    auto buff = buffer_.Allocate();
-    auto received = socket_->Read(buff.data, buff.len);
-    if (received <= 0) {
-      LOG(ERROR) << "Couldn't get response from " << socket_->endpoint();
-      socket_ = std::experimental::nullopt;
-      return nullptr;
-    }
-    buffer_.Written(received);
-
-    if (buffer_.size() < sizeof(MessageSize)) continue;
-    MessageSize response_data_size =
-        *reinterpret_cast<MessageSize *>(buffer_.data());
-    size_t response_size = sizeof(MessageSize) + response_data_size;
-    buffer_.Resize(response_size);
-    if (buffer_.size() < response_size) continue;
-
-    std::unique_ptr<Message> response;
-    {
-      std::stringstream response_stream(std::ios_base::in |
-                                        std::ios_base::binary);
-      response_stream.str(std::string(
-          reinterpret_cast<char *>(buffer_.data() + sizeof(MessageSize)),
-          response_data_size));
-      boost::archive::binary_iarchive response_archive(response_stream);
-      response_archive >> response;
-    }
-
-    buffer_.Shift(response_size);
-
-    return response;
+  // Receive response data size.
+  if (!client_->Read(sizeof(MessageSize))) {
+    LOG(ERROR) << "Couldn't get response from " << client_->endpoint();
+    client_ = std::experimental::nullopt;
+    return nullptr;
   }
+  MessageSize response_data_size =
+      *reinterpret_cast<MessageSize *>(client_->GetData());
+  client_->ShiftData(sizeof(MessageSize));
+
+  // Receive response data.
+  if (!client_->Read(response_data_size)) {
+    LOG(ERROR) << "Couldn't get response from " << client_->endpoint();
+    client_ = std::experimental::nullopt;
+    return nullptr;
+  }
+
+  std::unique_ptr<Message> response;
+  {
+    std::stringstream response_stream(std::ios_base::in |
+                                      std::ios_base::binary);
+    response_stream.str(std::string(reinterpret_cast<char *>(client_->GetData()),
+                                    response_data_size));
+    boost::archive::binary_iarchive response_archive(response_stream);
+    response_archive >> response;
+  }
+
+  client_->ShiftData(response_data_size);
+
+  return response;
 }
 
 void Client::Abort() {
-  if (!socket_) return;
-  // We need to call Shutdown on the socket to abort any pending read or
+  if (!client_) return;
+  // We need to call Shutdown on the client to abort any pending read or
   // write operations.
-  socket_->Shutdown();
-  socket_ = std::experimental::nullopt;
+  client_->Shutdown();
+  client_ = std::experimental::nullopt;
 }
 
 }  // namespace communication::rpc

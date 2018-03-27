@@ -7,10 +7,9 @@
 
 #include <glog/logging.h>
 
-#include "communication/rpc/buffer.hpp"
+#include "communication/client.hpp"
 #include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
-#include "io/network/socket.hpp"
 #include "utils/demangle.hpp"
 
 namespace communication::rpc {
@@ -43,7 +42,7 @@ class Client {
       // Since message_id was checked in private Call function, this means
       // something is very wrong (probably on the server side).
       LOG(ERROR) << "Message response was of unexpected type";
-      socket_ = std::experimental::nullopt;
+      client_ = std::experimental::nullopt;
       return nullptr;
     }
 
@@ -64,9 +63,7 @@ class Client {
   std::unique_ptr<Message> Call(const Message &request);
 
   io::network::Endpoint endpoint_;
-  std::experimental::optional<io::network::Socket> socket_;
-
-  Buffer buffer_;
+  std::experimental::optional<communication::Client> client_;
 
   std::mutex mutex_;
 

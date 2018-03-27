@@ -25,7 +25,7 @@ class Encoder : private BaseEncoder<Buffer> {
 
   /**
    * Writes a Record message. This method only stores data in the Buffer.
-   * It doesn't send the values out to the Socket (Chunk is called at the
+   * It doesn't send the values out to the Buffer (Chunk is called at the
    * end of this method). To send the values Flush method has to be called
    * after this method.
    *
@@ -137,4 +137,4 @@ class Encoder : private BaseEncoder<Buffer> {
     return buffer_.Flush();
   }
 };
-}
+}  // namespace communication::bolt

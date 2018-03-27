@@ -22,8 +22,8 @@ namespace communication::bolt {
  * Has methods for writing and flushing data into the message buffer.
  *
  * Writing data stores data in the internal buffer and flushing data sends
- * the currently stored data to the Socket. Chunking prepends data length and
- * appends chunk end marker (0x00 0x00).
+ * the currently stored data to the OutputStream. Chunking prepends data length
+ * and appends chunk end marker (0x00 0x00).
  *
  * | chunk header | --- chunk --- | another chunk | -- end marker -- |
  * | ------- whole chunk -------- |  whole chunk  | chunk of size 0  |
@@ -34,12 +34,13 @@ namespace communication::bolt {
  * The current implementation stores the whole message into a single buffer
  * which is std::vector.
  *
- * @tparam Socket the output socket that should be used
+ * @tparam TOutputStream the output stream that should be used
  */
-template <class Socket>
+template <class TOutputStream>
 class ChunkedEncoderBuffer {
  public:
-  ChunkedEncoderBuffer(Socket &socket) : socket_(socket) {}
+  ChunkedEncoderBuffer(TOutputStream &output_stream)
+      : output_stream_(output_stream) {}
 
   /**
    * Writes n values into the buffer. If n is bigger than whole chunk size
@@ -123,7 +124,8 @@ class ChunkedEncoderBuffer {
     if (size_ == 0) return true;
 
     // Flush the whole buffer.
-    if (!socket_.Write(buffer_.data() + offset_, size_ - offset_)) return false;
+    if (!output_stream_.Write(buffer_.data() + offset_, size_ - offset_))
+      return false;
     DLOG(INFO) << "Flushed << " << size_ << " bytes.";
 
     // Cleanup.
@@ -147,7 +149,7 @@ class ChunkedEncoderBuffer {
     if (first_chunk_size_ == -1) return false;
 
     // Flush the first chunk
-    if (!socket_.Write(buffer_.data(), first_chunk_size_)) return false;
+    if (!output_stream_.Write(buffer_.data(), first_chunk_size_)) return false;
     DLOG(INFO) << "Flushed << " << first_chunk_size_ << " bytes.";
 
     // Cleanup.
@@ -180,9 +182,9 @@ class ChunkedEncoderBuffer {
 
  private:
   /**
-   * A client socket.
+   * The output stream used.
    */
-  Socket &socket_;
+  TOutputStream &output_stream_;
 
   /**
    * Buffer for a single chunk.
@@ -214,4 +216,4 @@ class ChunkedEncoderBuffer {
    */
   size_t pos_{CHUNK_HEADER_SIZE};
 };
-}
+}  // namespace communication::bolt

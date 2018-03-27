@@ -12,8 +12,6 @@
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "io/network/endpoint.hpp"
-#include "io/network/network_error.hpp"
-#include "io/network/socket.hpp"
 #include "stats/stats.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -26,8 +24,6 @@
 
 namespace fs = std::experimental::filesystem;
 using communication::bolt::SessionData;
-using io::network::Endpoint;
-using io::network::Socket;
 using SessionT = communication::bolt::Session<communication::InputStream,
                                               communication::OutputStream>;
 using ServerT = communication::Server<SessionT, SessionData>;

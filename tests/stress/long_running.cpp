@@ -4,13 +4,11 @@
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
-#include "io/network/socket.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/timer.hpp"
 
-using SocketT = io::network::Socket;
 using EndpointT = io::network::Endpoint;
-using ClientT = communication::bolt::Client<SocketT>;
+using ClientT = communication::bolt::Client;
 using DecodedValueT = communication::bolt::DecodedValue;
 using QueryDataT = communication::bolt::QueryData;
 using ExceptionT = communication::bolt::ClientQueryException;
@@ -53,14 +51,11 @@ class GraphSession {
     }
 
     EndpointT endpoint(FLAGS_address, FLAGS_port);
-    SocketT socket;
+    client_ = std::make_unique<ClientT>();
 
-    if (!socket.Connect(endpoint)) {
+    if (!client_->Connect(endpoint, FLAGS_username, FLAGS_password)) {
       throw utils::BasicException("Couldn't connect to server!");
     }
-
-    client_ = std::make_unique<ClientT>(std::move(socket), FLAGS_username,
-                                        FLAGS_password);
   }
 
  private:
@@ -374,11 +369,10 @@ int main(int argc, char **argv) {
 
   // create client
   EndpointT endpoint(FLAGS_address, FLAGS_port);
-  SocketT socket;
-  if (!socket.Connect(endpoint)) {
+  ClientT client;
+  if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
     throw utils::BasicException("Couldn't connect to server!");
   }
-  ClientT client(std::move(socket), FLAGS_username, FLAGS_password);
 
   // cleanup and create indexes
   client.Execute("MATCH (n) DETACH DELETE n", {});

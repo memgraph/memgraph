@@ -2,7 +2,6 @@
 
 #include <glog/logging.h>
 
-#include "communication/bolt/v1/decoder/buffer.hpp"
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
@@ -13,28 +12,18 @@
 
 namespace communication::bolt {
 
-class ClientException : public utils::BasicException {
+class ClientFatalException : public utils::BasicException {
+ public:
   using utils::BasicException::BasicException;
+  ClientFatalException()
+      : utils::BasicException(
+            "Something went wrong while communicating with the server!") {}
 };
 
-class ClientSocketException : public ClientException {
+class ClientQueryException : public utils::BasicException {
  public:
-  using ClientException::ClientException;
-  ClientSocketException()
-      : ClientException("Couldn't write/read data to/from the socket!") {}
-};
-
-class ClientInvalidDataException : public ClientException {
- public:
-  using ClientException::ClientException;
-  ClientInvalidDataException()
-      : ClientException("The server sent invalid data!") {}
-};
-
-class ClientQueryException : public ClientException {
- public:
-  using ClientException::ClientException;
-  ClientQueryException() : ClientException("Couldn't execute query!") {}
+  using utils::BasicException::BasicException;
+  ClientQueryException() : utils::BasicException("Couldn't execute query!") {}
 };
 
 struct QueryData {
@@ -43,55 +32,66 @@ struct QueryData {
   std::map<std::string, DecodedValue> metadata;
 };
 
-template <typename Socket>
 class Client {
  public:
-  Client(Socket &&socket, const std::string &username,
-         const std::string &password,
-         const std::string &client_name = "memgraph-bolt/0.0.1")
-      : socket_(std::move(socket)) {
-    DLOG(INFO) << "Sending handshake";
-    if (!socket_.Write(kPreamble, sizeof(kPreamble), true)) {
-      throw ClientSocketException();
-    }
-    for (int i = 0; i < 4; ++i) {
-      if (!socket_.Write(kProtocol, sizeof(kProtocol), i != 3)) {
-        throw ClientSocketException();
-      }
-    }
-
-    DLOG(INFO) << "Reading handshake response";
-    if (!GetDataByLen(4)) {
-      throw ClientSocketException();
-    }
-    if (memcmp(kProtocol, buffer_.data(), sizeof(kProtocol)) != 0) {
-      throw ClientException("Server negotiated unsupported protocol version!");
-    }
-    buffer_.Shift(sizeof(kProtocol));
-
-    DLOG(INFO) << "Sending init message";
-    if (!encoder_.MessageInit(client_name, {{"scheme", "basic"},
-                                            {"principal", username},
-                                            {"credentials", password}})) {
-      throw ClientSocketException();
-    }
-
-    DLOG(INFO) << "Reading init message response";
-    Signature signature;
-    DecodedValue metadata;
-    if (!ReadMessage(&signature, &metadata)) {
-      throw ClientException("Couldn't read init message response!");
-    }
-    if (signature != Signature::Success) {
-      throw ClientInvalidDataException();
-    }
-    DLOG(INFO) << "Metadata of init message response: " << metadata;
-  }
+  Client() {}
 
   Client(const Client &) = delete;
   Client(Client &&) = delete;
   Client &operator=(const Client &) = delete;
   Client &operator=(Client &&) = delete;
+
+  bool Connect(const io::network::Endpoint &endpoint,
+               const std::string &username, const std::string &password,
+               const std::string &client_name = "memgraph-bolt/0.0.1") {
+    if (!client_.Connect(endpoint)) {
+      LOG(ERROR) << "Couldn't connect to " << endpoint;
+      return false;
+    }
+
+    if (!client_.Write(kPreamble, sizeof(kPreamble), true)) {
+      LOG(ERROR) << "Couldn't send preamble!";
+      return false;
+    }
+    for (int i = 0; i < 4; ++i) {
+      if (!client_.Write(kProtocol, sizeof(kProtocol), i != 3)) {
+        LOG(ERROR) << "Couldn't send protocol version!";
+        return false;
+      }
+    }
+
+    if (!client_.Read(sizeof(kProtocol))) {
+      LOG(ERROR) << "Couldn't get negotiated protocol version!";
+      return false;
+    }
+    if (memcmp(kProtocol, client_.GetData(), sizeof(kProtocol)) != 0) {
+      LOG(ERROR) << "Server negotiated unsupported protocol version!";
+      return false;
+    }
+    client_.ShiftData(sizeof(kProtocol));
+
+    if (!encoder_.MessageInit(client_name, {{"scheme", "basic"},
+                                            {"principal", username},
+                                            {"credentials", password}})) {
+      LOG(ERROR) << "Couldn't send init message!";
+      return false;
+    }
+
+    Signature signature;
+    DecodedValue metadata;
+    if (!ReadMessage(&signature, &metadata)) {
+      LOG(ERROR) << "Couldn't read init message response!";
+      return false;
+    }
+    if (signature != Signature::Success) {
+      LOG(ERROR) << "Handshake failed!";
+      return false;
+    }
+
+    DLOG(INFO) << "Metadata of init message response: " << metadata;
+
+    return true;
+  }
 
   QueryData Execute(const std::string &query,
                     const std::map<std::string, DecodedValue> &parameters) {
@@ -107,10 +107,10 @@ class Client {
     Signature signature;
     DecodedValue fields;
     if (!ReadMessage(&signature, &fields)) {
-      throw ClientInvalidDataException();
+      throw ClientFatalException();
     }
     if (fields.type() != DecodedValue::Type::Map) {
-      throw ClientInvalidDataException();
+      throw ClientFatalException();
     }
 
     if (signature == Signature::Failure) {
@@ -122,7 +122,7 @@ class Client {
       }
       throw ClientQueryException();
     } else if (signature != Signature::Success) {
-      throw ClientInvalidDataException();
+      throw ClientFatalException();
     }
 
     DLOG(INFO) << "Reading pull_all message response";
@@ -130,27 +130,27 @@ class Client {
     DecodedValue metadata;
     std::vector<std::vector<DecodedValue>> records;
     while (true) {
-      if (!GetDataByChunk()) {
-        throw ClientSocketException();
+      if (!GetMessage()) {
+        throw ClientFatalException();
       }
       if (!decoder_.ReadMessageHeader(&signature, &marker)) {
-        throw ClientInvalidDataException();
+        throw ClientFatalException();
       }
       if (signature == Signature::Record) {
         DecodedValue record;
         if (!decoder_.ReadValue(&record, DecodedValue::Type::List)) {
-          throw ClientInvalidDataException();
+          throw ClientFatalException();
         }
         records.push_back(record.ValueList());
       } else if (signature == Signature::Success) {
         if (!decoder_.ReadValue(&metadata)) {
-          throw ClientInvalidDataException();
+          throw ClientFatalException();
         }
         break;
       } else if (signature == Signature::Failure) {
         DecodedValue data;
         if (!decoder_.ReadValue(&data)) {
-          throw ClientInvalidDataException();
+          throw ClientFatalException();
         }
         HandleFailure();
         auto &tmp = data.ValueMap();
@@ -160,28 +160,28 @@ class Client {
         }
         throw ClientQueryException();
       } else {
-        throw ClientInvalidDataException();
+        throw ClientFatalException();
       }
     }
 
     if (metadata.type() != DecodedValue::Type::Map) {
-      throw ClientInvalidDataException();
+      throw ClientFatalException();
     }
 
     QueryData ret{{}, records, metadata.ValueMap()};
 
     auto &header = fields.ValueMap();
     if (header.find("fields") == header.end()) {
-      throw ClientInvalidDataException();
+      throw ClientFatalException();
     }
     if (header["fields"].type() != DecodedValue::Type::List) {
-      throw ClientInvalidDataException();
+      throw ClientFatalException();
     }
     auto &field_vector = header["fields"].ValueList();
 
     for (auto &field_item : field_vector) {
       if (field_item.type() != DecodedValue::Type::String) {
-        throw ClientInvalidDataException();
+        throw ClientFatalException();
       }
       ret.fields.push_back(field_item.ValueString());
     }
@@ -189,44 +189,30 @@ class Client {
     return ret;
   }
 
-  void Close() { socket_.Close(); };
-
-  ~Client() { Close(); }
+  void Close() { client_.Close(); };
 
  private:
-  bool GetDataByLen(uint64_t len) {
-    while (buffer_.size() < len) {
-      auto buff = buffer_.Allocate();
-      int ret = socket_.Read(buff.data, buff.len);
-      if (ret <= 0) return false;
-      buffer_.Written(ret);
-    }
-    return true;
-  }
+  bool GetMessage() {
+    client_.ClearData();
+    while (true) {
+      if (!client_.Read(CHUNK_HEADER_SIZE)) return false;
 
-  bool GetDataByChunk() {
-    ChunkState state;
-    while ((state = decoder_buffer_.GetChunk()) != ChunkState::Done) {
-      if (state == ChunkState::Whole) {
-        // The chunk is whole, no need to read more data.
-        continue;
-      }
-      auto buff = buffer_.Allocate();
-      int ret = socket_.Read(buff.data, buff.len);
-      if (ret <= 0) return false;
-      buffer_.Written(ret);
+      size_t chunk_size = client_.GetData()[0];
+      chunk_size <<= 8;
+      chunk_size += client_.GetData()[1];
+      if (chunk_size == 0) return true;
+
+      if (!client_.Read(chunk_size)) return false;
+      if (decoder_buffer_.GetChunk() != ChunkState::Whole) return false;
+      client_.ClearData();
     }
     return true;
   }
 
   bool ReadMessage(Signature *signature, DecodedValue *ret) {
     Marker marker;
-    if (!GetDataByChunk()) {
-      return false;
-    }
-    if (!decoder_.ReadMessageHeader(signature, &marker)) {
-      return false;
-    }
+    if (!GetMessage()) return false;
+    if (!decoder_.ReadMessageHeader(signature, &marker)) return false;
     return ReadMessageData(marker, ret);
   }
 
@@ -242,32 +228,37 @@ class Client {
 
   void HandleFailure() {
     if (!encoder_.MessageAckFailure()) {
-      throw ClientSocketException();
+      throw ClientFatalException();
     }
     while (true) {
       Signature signature;
       DecodedValue data;
       if (!ReadMessage(&signature, &data)) {
-        throw ClientInvalidDataException();
+        throw ClientFatalException();
       }
       if (signature == Signature::Success) {
         break;
       } else if (signature != Signature::Ignored) {
-        throw ClientInvalidDataException();
+        throw ClientFatalException();
       }
     }
   }
 
-  // socket
-  Socket socket_;
+  // client
+  communication::Client client_;
+  communication::ClientInputStream input_stream_{client_};
+  communication::ClientOutputStream output_stream_{client_};
 
   // decoder objects
-  Buffer<> buffer_;
-  ChunkedDecoderBuffer<Buffer<>> decoder_buffer_{buffer_};
-  Decoder<ChunkedDecoderBuffer<Buffer<>>> decoder_{decoder_buffer_};
+  ChunkedDecoderBuffer<communication::ClientInputStream> decoder_buffer_{
+      input_stream_};
+  Decoder<ChunkedDecoderBuffer<communication::ClientInputStream>> decoder_{
+      decoder_buffer_};
 
   // encoder objects
-  ChunkedEncoderBuffer<Socket> encoder_buffer_{socket_};
-  ClientEncoder<ChunkedEncoderBuffer<Socket>> encoder_{encoder_buffer_};
+  ChunkedEncoderBuffer<communication::ClientOutputStream> encoder_buffer_{
+      output_stream_};
+  ClientEncoder<ChunkedEncoderBuffer<communication::ClientOutputStream>>
+      encoder_{encoder_buffer_};
 };
-}
+}  // namespace communication::bolt
