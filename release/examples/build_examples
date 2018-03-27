@@ -1,5 +1,26 @@
 #!/bin/bash -e
 
+function print_help () {
+    echo "Usage: $0 MEMGRAPH_BUILD_DIR"
+    echo "Build example snapshots using the compiled memgraph."
+}
+
+if [[ $# -ne 1 ]]; then
+  print_help
+  exit 1
+fi
+
+memgraph_exe="$1/memgraph"
+if [[ ! -x ${memgraph_exe} ]]; then
+  echo "Expected memgraph executable at '${memgraph_exe}'"
+  exit 1
+fi
+bolt_client_exe="$1/tests/manual/bolt_client"
+if [[ ! -x ${bolt_client_exe} ]]; then
+  echo "Expected bolt_client executable at '${bolt_client_exe}'"
+  exit 1
+fi
+
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 build_dir="build"
 query="populate.cyp"
@@ -11,7 +32,6 @@ if [ -d "$build_dir" ]; then
 fi
 
 mkdir "$build_dir"
-
 
 for dir in queries/*/
 do
@@ -26,20 +46,13 @@ do
 
   # run memgraph with durability_directory pointing
   # to examples snapshots_dir
-  cd ../..
-  if [ ! -d build ]; then
-    cd build_release
-  else
-    cd build
-  fi
-  ./memgraph --durability-directory "$script_dir/$snapshots_dir/" \
-             --snapshot-on-exit > /dev/null 2>&1 &
+  ${memgraph_exe} --durability-directory "$script_dir/$snapshots_dir/" \
+                  --snapshot-on-exit > /dev/null 2>&1 &
   memgraph_pid=$!
   sleep 2 # wait for memgraph to start
 
-  cd tests/manual
   # create data using bolt-client
-  ./bolt_client < "$script_dir/$dir/$query" > /dev/null 2>&1 || exit 1
+  ${bolt_client_exe} < "$script_dir/$dir/$query" > /dev/null 2>&1 || exit 1
 
   # kill memgraph
   kill $memgraph_pid
