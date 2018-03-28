@@ -98,13 +98,6 @@ rm -rf neo4j
 mv neo4j-community-3.2.3 neo4j
 rm neo4j.tar.gz
 
-# postgresql
-wget -nv http://deps.memgraph.io/postgresql-9.6.5-1-linux-x64-binaries.tar.gz -O postgres.tar.gz
-tar -xzf postgres.tar.gz
-rm -rf postgresql
-mv pgsql postgresql
-rm postgres.tar.gz
-
 # nlohmann json
 # We wget header instead of cloning repo since repo is huge (lots of test data).
 # We use head on Sep 1, 2017 instead of last release since it was long time ago.

@@ -5,10 +5,11 @@
 
 #include "gflags/gflags.h"
 
-#include "long_running_common.hpp"
 #include "stats/stats.hpp"
 #include "stats/stats_rpc_messages.hpp"
 #include "threading/sync/rwlock.hpp"
+
+#include "long_running_common.hpp"
 
 // TODO(mtomic): this sucks but I don't know a different way to make it work
 #include "boost/archive/binary_iarchive.hpp"
@@ -38,19 +39,19 @@ void UpdateStats() {
   num_edges.Set(2 * num_transactions);
 }
 
-int64_t NumNodesWithLabel(BoltClient &client, std::string label) {
+int64_t NumNodesWithLabel(Client &client, std::string label) {
   std::string query = fmt::format("MATCH (u :{}) RETURN count(u)", label);
   auto result = ExecuteNTimesTillSuccess(client, query, {}, MAX_RETRIES);
   return result.first.records[0][0].ValueInt();
 }
 
-int64_t MaxIdForLabel(BoltClient &client, std::string label) {
+int64_t MaxIdForLabel(Client &client, std::string label) {
   std::string query = fmt::format("MATCH (u :{}) RETURN max(u.id)", label);
   auto result = ExecuteNTimesTillSuccess(client, query, {}, MAX_RETRIES);
   return result.first.records[0][0].ValueInt();
 }
 
-void CreateIndex(BoltClient &client, const std::string &label,
+void CreateIndex(Client &client, const std::string &label,
                  const std::string &property) {
   LOG(INFO) << fmt::format("Creating indexes for :{}({})...", label, property);
   ExecuteNTimesTillSuccess(
@@ -342,7 +343,11 @@ int main(int argc, char **argv) {
   stats::InitStatsLogging(
       fmt::format("client.long_running.{}.{}", FLAGS_group, FLAGS_scenario));
 
-  BoltClient client(FLAGS_address, FLAGS_port, FLAGS_username, FLAGS_password);
+  Endpoint endpoint(FLAGS_address, FLAGS_port);
+  Client client;
+  if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
+    LOG(FATAL) << "Couldn't connect to " << endpoint;
+  }
 
   num_pos.store(NumNodesWithLabel(client, "Pos"));
   num_cards.store(NumNodesWithLabel(client, "Card"));

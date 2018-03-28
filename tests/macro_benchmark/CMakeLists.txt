@@ -5,10 +5,6 @@ get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
 file(GLOB_RECURSE test_type_cpps *.cpp)
 message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
 
-add_library(postgres SHARED IMPORTED)
-set_property(TARGET postgres PROPERTY INTERFACE_INCLUDE_DIRECTORIES ${libs_dir}/postgresql/include)
-set_property(TARGET postgres PROPERTY IMPORTED_LOCATION ${libs_dir}/postgresql/lib/libpq.so)
-
 # add target that depends on all other targets
 set(all_targets_target memgraph__${test_type})
 add_custom_target(${all_targets_target})
@@ -30,7 +26,7 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    target_link_libraries(${target_name} memgraph_lib postgres)
+    target_link_libraries(${target_name} memgraph_lib)
 
     # add target to dependencies
     add_dependencies(${all_targets_target} ${target_name})

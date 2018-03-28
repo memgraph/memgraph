@@ -34,7 +34,6 @@ for i in range(NUM_MACHINES):
             "jail_service.py",
             "card_fraud/card_fraud.py",
             "card_fraud/snapshots/worker_" + str(i),
-            "../../libs/postgresql/lib",
         ] + additional,
         "outfile_paths": outfile_paths,
         "parallel_run": "distributed__card_fraud",

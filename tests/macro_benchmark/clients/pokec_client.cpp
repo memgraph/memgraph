@@ -13,17 +13,12 @@
 #include <glog/logging.h>
 #include <json/json.hpp>
 
-#include "bolt_client.hpp"
-#include "common.hpp"
-#include "communication/bolt/client.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
-#include "io/network/endpoint.hpp"
-#include "io/network/socket.hpp"
-#include "long_running_common.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/network.hpp"
 #include "utils/timer.hpp"
+
+#include "long_running_common.hpp"
 
 using communication::bolt::DecodedEdge;
 using communication::bolt::DecodedValue;
@@ -223,14 +218,14 @@ class PokecClient : public TestClient {
   }
 };
 
-int64_t NumNodes(BoltClient &client, const std::string &label) {
+int64_t NumNodes(Client &client, const std::string &label) {
   auto result = ExecuteNTimesTillSuccess(
       client, "MATCH (n :" + label + ") RETURN COUNT(n) as cnt", {},
       MAX_RETRIES);
   return result.first.records[0][0].ValueInt();
 }
 
-std::vector<int64_t> Neighbours(BoltClient &client, const std::string &label,
+std::vector<int64_t> Neighbours(Client &client, const std::string &label,
                                 int64_t id) {
   auto result = ExecuteNTimesTillSuccess(client,
                                          "MATCH (n :" + label +
@@ -244,8 +239,7 @@ std::vector<int64_t> Neighbours(BoltClient &client, const std::string &label,
   return ret;
 }
 
-std::vector<int64_t> IndependentSet(BoltClient &client,
-                                    const std::string &label) {
+std::vector<int64_t> IndependentSet(Client &client, const std::string &label) {
   const int64_t num_nodes = NumNodes(client, label);
   std::vector<int64_t> independent_nodes_ids;
   std::vector<int64_t> ids;
@@ -282,8 +276,11 @@ int main(int argc, char **argv) {
   std::cin >> config;
 
   auto independent_nodes_ids = [&] {
-    BoltClient client(utils::ResolveHostname(FLAGS_address), FLAGS_port,
-                      FLAGS_username, FLAGS_password);
+    Endpoint endpoint(utils::ResolveHostname(FLAGS_address), FLAGS_port);
+    Client client;
+    if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
+      LOG(FATAL) << "Couldn't connect to " << endpoint;
+    }
     return IndependentSet(client, INDEPENDENT_LABEL);
   }();
 

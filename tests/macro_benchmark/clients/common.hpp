@@ -11,11 +11,11 @@
 #include "utils/exceptions.hpp"
 #include "utils/timer.hpp"
 
-namespace {
+using communication::bolt::Client;
+using communication::bolt::DecodedValue;
+using io::network::Endpoint;
 
-void PrintJsonDecodedValue(std::ostream &os,
-                           const communication::bolt::DecodedValue &value) {
-  using communication::bolt::DecodedValue;
+void PrintJsonDecodedValue(std::ostream &os, const DecodedValue &value) {
   switch (value.type()) {
     case DecodedValue::Type::Null:
       os << "null";
@@ -55,9 +55,8 @@ void PrintJsonDecodedValue(std::ostream &os,
   }
 }
 
-template <typename TClient>
 std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
-    TClient &client, const std::string &query,
+    Client &client, const std::string &query,
     const std::map<std::string, communication::bolt::DecodedValue> &params,
     int max_attempts) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
@@ -81,5 +80,3 @@ std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
     }
   }
 }
-
-}  // namespace

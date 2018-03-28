@@ -9,7 +9,6 @@
     - ../../build_release/memgraph # memgraph release binary
     - ../../config # directory with config files
     - ../../build_release/tests/macro_benchmark # macro benchmark client binaries
-    - ../../libs/postgresql/lib # postgresql libs dir (for client binaries)
   outfile_paths: &MACRO_BENCHMARK_OUTFILE_PATHS
     - \./memgraph/tests/macro_benchmark/\.harness_summary
 

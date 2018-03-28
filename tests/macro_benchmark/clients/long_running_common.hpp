@@ -2,13 +2,12 @@
 
 #include "json/json.hpp"
 
-#include "bolt_client.hpp"
-#include "common.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "stats/metrics.hpp"
 #include "stats/stats.hpp"
 #include "utils/network.hpp"
 #include "utils/timer.hpp"
+
+#include "common.hpp"
 
 const int MAX_RETRIES = 30;
 
@@ -28,8 +27,12 @@ auto &serialization_errors = stats::GetCounter("serialization_errors");
 
 class TestClient {
  public:
-  TestClient()
-      : client_(FLAGS_address, FLAGS_port, FLAGS_username, FLAGS_password) {}
+  TestClient() {
+    Endpoint endpoint(FLAGS_address, FLAGS_port);
+    if (!client_.Connect(endpoint, FLAGS_username, FLAGS_password)) {
+      LOG(FATAL) << "Couldn't connect to " << endpoint;
+    }
+  }
 
   virtual ~TestClient() {}
 
@@ -95,7 +98,7 @@ class TestClient {
   std::thread runner_thread_;
 
  private:
-  BoltClient client_;
+  Client client_;
 };
 
 void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {

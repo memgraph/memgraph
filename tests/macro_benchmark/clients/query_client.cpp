@@ -4,27 +4,21 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "communication/bolt/client.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
-#include "bolt_client.hpp"
 #include "common.hpp"
-//#include "postgres_client.hpp"
 
-DEFINE_string(protocol, "bolt", "Protocol to use (available: bolt, postgres)");
 DEFINE_int32(num_workers, 1, "Number of workers");
 DEFINE_string(input, "", "Input file");
 DEFINE_string(output, "", "Output file");
 
 DEFINE_string(address, "127.0.0.1", "Server address");
-DEFINE_int32(port, 0, "Server port");
+DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
-DEFINE_string(database, "", "Database for the database");
 
 using communication::bolt::DecodedValue;
 
@@ -49,11 +43,8 @@ void PrintSummary(
   os << "}\n";
 }
 
-template <typename ClientT>
-void ExecuteQueries(const std::vector<std::string> &queries, int num_workers,
-                    std::ostream &ostream, std::string &address, uint16_t port,
-                    std::string &username, std::string &password,
-                    std::string &database) {
+void ExecuteQueries(const std::vector<std::string> &queries,
+                    std::ostream &ostream) {
   std::vector<std::thread> threads;
 
   SpinLock spinlock;
@@ -64,9 +55,13 @@ void ExecuteQueries(const std::vector<std::string> &queries, int num_workers,
 
   utils::Timer timer;
 
-  for (int i = 0; i < num_workers; ++i) {
+  for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads.push_back(std::thread([&]() {
-      ClientT client(address, port, username, password, database);
+      Endpoint endpoint(FLAGS_address, FLAGS_port);
+      Client client;
+      if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
+        LOG(FATAL) << "Couldn't connect to " << endpoint;
+      }
 
       std::string str;
       while (true) {
@@ -91,7 +86,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, int num_workers,
     }));
   }
 
-  for (int i = 0; i < num_workers; ++i) {
+  for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads[i].join();
   }
 
@@ -121,13 +116,6 @@ int main(int argc, char **argv) {
     ostream = &ofile;
   }
 
-  uint16_t port = FLAGS_port;
-  if (FLAGS_protocol == "bolt") {
-    if (port == 0) port = 7687;
-  } else if (FLAGS_protocol == "postgres") {
-    if (port == 0) port = 5432;
-  }
-
   while (!istream->eof()) {
     std::vector<std::string> queries;
     std::string query;
@@ -135,27 +123,7 @@ int main(int argc, char **argv) {
            utils::Trim(query) != ";") {
       queries.push_back(query);
     }
-
-    if (FLAGS_protocol == "bolt") {
-      ExecuteQueries<BoltClient>(queries, FLAGS_num_workers, *ostream,
-                                 FLAGS_address, port, FLAGS_username,
-                                 FLAGS_password, FLAGS_database);
-    } else if (FLAGS_protocol == "postgres") {
-      LOG(FATAL) << "Postgres not yet supported";
-      // TODO: Currently libpq is linked dynamically so it is a pain to move
-      // harness_client executable to other machines without libpq.
-      //    CHECK(FLAGS_username != "") << "Username can't be empty for
-      //    postgres!";
-      //    CHECK(FLAGS_database != "") << "Database can't be empty for
-      //    postgres!";
-      //    if (port == "") port = "5432";
-      //
-      //    using PostgresClientT = postgres::Client;
-      //    using PostgresExceptionT = postgres::ClientQueryException;
-      //    ExecuteQueries<PostgresClientT, PostgresExceptionT>(
-      //        *istream, FLAGS_num_workers, *ostream, FLAGS_address, port,
-      //        FLAGS_username, FLAGS_password, FLAGS_database);
-    }
+    ExecuteQueries(queries, *ostream);
   }
 
   return 0;
