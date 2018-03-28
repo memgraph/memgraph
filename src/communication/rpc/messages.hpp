@@ -54,7 +54,7 @@ struct RequestResponse {
       ar &boost::serialization::base_object<communication::rpc::Message>( \
           *this);                                                         \
     }                                                                     \
-  };
+  }
 
 #define RPC_SINGLE_MEMBER_MESSAGE(name, type)                             \
   struct name : public communication::rpc::Message {                      \
@@ -71,4 +71,4 @@ struct RequestResponse {
           *this);                                                         \
       ar &member;                                                         \
     }                                                                     \
-  };
+  }

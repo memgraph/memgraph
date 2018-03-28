@@ -7,7 +7,7 @@
 
 namespace tx {
 
-RPC_NO_MEMBER_MESSAGE(BeginReq)
+RPC_NO_MEMBER_MESSAGE(BeginReq);
 struct TxAndSnapshot {
   transaction_id_t tx_id;
   Snapshot snapshot;
@@ -35,25 +35,25 @@ RPC_SINGLE_MEMBER_MESSAGE(AbortReq, transaction_id_t);
 RPC_NO_MEMBER_MESSAGE(AbortRes);
 using AbortRpc = communication::rpc::RequestResponse<AbortReq, AbortRes>;
 
-RPC_SINGLE_MEMBER_MESSAGE(SnapshotReq, transaction_id_t)
-RPC_SINGLE_MEMBER_MESSAGE(SnapshotRes, Snapshot)
+RPC_SINGLE_MEMBER_MESSAGE(SnapshotReq, transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(SnapshotRes, Snapshot);
 using SnapshotRpc =
     communication::rpc::RequestResponse<SnapshotReq, SnapshotRes>;
 
-RPC_SINGLE_MEMBER_MESSAGE(CommandReq, transaction_id_t)
-RPC_SINGLE_MEMBER_MESSAGE(CommandRes, command_id_t)
+RPC_SINGLE_MEMBER_MESSAGE(CommandReq, transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(CommandRes, command_id_t);
 using CommandRpc = communication::rpc::RequestResponse<CommandReq, CommandRes>;
 
-RPC_NO_MEMBER_MESSAGE(GcSnapshotReq)
+RPC_NO_MEMBER_MESSAGE(GcSnapshotReq);
 using GcSnapshotRpc =
     communication::rpc::RequestResponse<GcSnapshotReq, SnapshotRes>;
 
-RPC_SINGLE_MEMBER_MESSAGE(ClogInfoReq, transaction_id_t)
-RPC_SINGLE_MEMBER_MESSAGE(ClogInfoRes, CommitLog::Info)
+RPC_SINGLE_MEMBER_MESSAGE(ClogInfoReq, transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(ClogInfoRes, CommitLog::Info);
 using ClogInfoRpc =
     communication::rpc::RequestResponse<ClogInfoReq, ClogInfoRes>;
 
-RPC_NO_MEMBER_MESSAGE(ActiveTransactionsReq)
+RPC_NO_MEMBER_MESSAGE(ActiveTransactionsReq);
 using ActiveTransactionsRpc =
     communication::rpc::RequestResponse<ActiveTransactionsReq, SnapshotRes>;
 
