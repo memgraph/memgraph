@@ -42,6 +42,7 @@ bool QueryServer(io::network::Socket &socket) {
   while (len < query.size()) {
     int got = socket.Read(response + len, query.size() - len);
     if (got <= 0) return false;
+    response[got] = 0;
     len += got;
   }
   if (std::string(response, strlen(response)) != query) return false;
