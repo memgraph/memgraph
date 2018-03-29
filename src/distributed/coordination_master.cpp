@@ -47,6 +47,9 @@ MasterCoordination::~MasterCoordination() {
     auto result = client.Call<StopWorkerRpc>();
     CHECK(result) << "StopWorkerRpc failed work worker: " << kv.first;
   }
+
+  // Make sure all StopWorkerRpc request/response are exchanged.
+  std::this_thread::sleep_for(2s);
 }
 
 Endpoint MasterCoordination::GetEndpoint(int worker_id) {

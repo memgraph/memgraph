@@ -160,13 +160,6 @@ class Master : public PrivateBase {
     return index_rpc_clients_;
   }
 
-  ~Master() {
-    // The server is stopped explicitly here to disable RPC calls during the
-    // destruction of this object. This works because this destructor is called
-    // before the destructors of all objects.
-    server_.StopProcessingCalls();
-  }
-
   communication::rpc::Server server_{
       config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   tx::MasterEngine tx_engine_{server_, &wal_};

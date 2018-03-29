@@ -46,7 +46,7 @@ class Client {
       return nullptr;
     }
 
-    if (VLOG_IS_ON(12)) {
+    if (VLOG_IS_ON(12) && response) {
       auto res_type = utils::Demangle(response->type_index().name());
       LOG(INFO) << "[RpcClient] received "
                 << (res_type ? res_type.value() : "");
