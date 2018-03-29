@@ -1,9 +1,31 @@
 # Change Log
 
-## Next Release
+## v0.10.0
+
+### Breaking Changes
 
 * Snapshot format changed (not backward compatible).
-* `reduce` function added.
+
+### Major Features and Improvements
+
+* [Enterprise Ed.] Distributed storage and execution
+* `reduce` and `single` functions added to openCypher.
+* `wShortest` edge expansion added to openCypher.
+* Support packaging RPM on CentOS 7.
+
+### Bug Fixes and Other Changes
+
+* Report an error if updating a deleted element.
+* Log an error if reading info on available memory fails.
+* Fix a bug when `MATCH` would stop matching if a result was empty, but later
+  results still contain data to be matched. The simplest case of this was the
+  query: `UNWIND [1,2,3] AS x MATCH (n :Label {prop: x}) RETURN n`. If there
+  was no node `(:Label {prop: 1})`, then the `MATCH` wouldn't even try to find
+  for `x` being 2 or 3.
+* Report an error if trying to compare a property value with something that
+  cannot be stored in a property.
+* Fix crashes in some obscure cases.
+* Add minor performance improvements.
 
 ## v0.9.0
 
