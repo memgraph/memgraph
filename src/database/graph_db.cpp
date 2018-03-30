@@ -271,7 +271,7 @@ PublicBase::~PublicBase() {
   tx_engine().LocalForEachActiveTransaction(
       [](auto &t) { t.set_should_abort(); });
 
-  snapshot_creator_.release();
+  snapshot_creator_ = nullptr;
   if (impl_->config_.snapshot_on_exit) MakeSnapshot();
 }
 
