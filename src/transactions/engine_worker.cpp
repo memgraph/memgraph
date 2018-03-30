@@ -63,15 +63,15 @@ command_id_t WorkerEngine::UpdateCommand(transaction_id_t tx_id) {
 void WorkerEngine::Commit(const Transaction &t) {
   auto res = master_client_pool_.Call<CommitRpc>(t.id_);
   CHECK(res) << "CommitRpc failed";
-  ClearSingleTransaction(t.id_);
   VLOG(11) << "[Tx] Commiting worker transaction " << t.id_;
+  ClearSingleTransaction(t.id_);
 }
 
 void WorkerEngine::Abort(const Transaction &t) {
   auto res = master_client_pool_.Call<AbortRpc>(t.id_);
   CHECK(res) << "AbortRpc failed";
-  ClearSingleTransaction(t.id_);
   VLOG(11) << "[Tx] Aborting worker transaction " << t.id_;
+  ClearSingleTransaction(t.id_);
 }
 
 CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
