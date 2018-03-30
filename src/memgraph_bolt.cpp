@@ -16,7 +16,7 @@
 #include "utils/flag_validation.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/scheduler.hpp"
-#include "utils/signals/handler.hpp"
+#include "utils/signals.hpp"
 #include "utils/stacktrace.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
@@ -76,16 +76,16 @@ void InitSignalHandlers(const std::function<void()> &shutdown) {
   sigaddset(&block_shutdown_signals, SIGTERM);
   sigaddset(&block_shutdown_signals, SIGINT);
 
-  CHECK(SignalHandler::RegisterHandler(Signal::Terminate, shutdown,
-                                       block_shutdown_signals))
+  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Terminate,
+                                              shutdown, block_shutdown_signals))
       << "Unable to register SIGTERM handler!";
-  CHECK(SignalHandler::RegisterHandler(Signal::Interupt, shutdown,
-                                       block_shutdown_signals))
+  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Interupt, shutdown,
+                                              block_shutdown_signals))
       << "Unable to register SIGINT handler!";
 
   // Setup SIGUSR1 to be used for reopening log files, when e.g. logrotate
   // rotates our logs.
-  CHECK(SignalHandler::RegisterHandler(Signal::User1, []() {
+  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::User1, []() {
     google::CloseLogDestination(google::INFO);
   })) << "Unable to register SIGUSR1 handler!";
 }

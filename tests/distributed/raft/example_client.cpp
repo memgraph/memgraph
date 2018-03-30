@@ -10,8 +10,6 @@
 #include "io/network/endpoint.hpp"
 #include "messages.hpp"
 #include "utils/network.hpp"
-#include "utils/signals/handler.hpp"
-#include "utils/terminate_handler.hpp"
 
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
@@ -19,8 +17,6 @@ using namespace std::literals::chrono_literals;
 DEFINE_string(server_interface, "127.0.0.1",
               "Server interface on which to communicate.");
 DEFINE_int32(server_port, 8010, "Server port on which to communicate.");
-
-volatile sig_atomic_t is_shutting_down = 0;
 
 int main(int argc, char **argv) {
   google::SetUsageMessage("Raft RPC Client");

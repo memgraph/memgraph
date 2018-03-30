@@ -7,7 +7,7 @@
 
 #include "communication/rpc/server.hpp"
 #include "messages.hpp"
-#include "utils/signals/handler.hpp"
+#include "utils/signals.hpp"
 #include "utils/terminate_handler.hpp"
 
 using namespace communication::rpc;
@@ -48,11 +48,11 @@ int main(int argc, char **argv) {
   sigaddset(&block_shutdown_signals, SIGTERM);
   sigaddset(&block_shutdown_signals, SIGINT);
 
-  CHECK(SignalHandler::RegisterHandler(Signal::Terminate, shutdown,
-                                       block_shutdown_signals))
+  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Terminate,
+                                              shutdown, block_shutdown_signals))
       << "Unable to register SIGTERM handler!";
-  CHECK(SignalHandler::RegisterHandler(Signal::Interupt, shutdown,
-                                       block_shutdown_signals))
+  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Interupt, shutdown,
+                                              block_shutdown_signals))
       << "Unable to register SIGINT handler!";
 
   // Example callback.
