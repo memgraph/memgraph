@@ -65,6 +65,7 @@ set(memgraph_src_files
     utils/demangle.cpp
     utils/file.cpp
     utils/network.cpp
+    utils/signals.cpp
     utils/watchdog.cpp
 )
 # -----------------------------------------------------------------------------

@@ -23,51 +23,26 @@ enum class Signal : int {
   User1 = SIGUSR1,
 };
 
-bool SignalIgnore(const Signal signal) {
-  int signal_number = static_cast<int>(signal);
-  struct sigaction action;
-  // `sa_sigaction` must be cleared before `sa_handler` is set because on some
-  // platforms the two are a union.
-  action.sa_sigaction = nullptr;
-  action.sa_handler = SIG_IGN;
-  sigemptyset(&action.sa_mask);
-  action.sa_flags = 0;
-  if (sigaction(signal_number, &action, NULL) == -1) return false;
-  return true;
-}
+/**
+ * This function ignores a signal for the whole process. That means that a
+ * signal that is ignored from any thread will be ignored in all threads.
+ */
+bool SignalIgnore(const Signal signal);
 
 class SignalHandler {
  private:
   static std::map<int, std::function<void()>> handlers_;
 
-  static void Handle(int signal) { handlers_[signal](); }
+  static void Handle(int signal);
 
  public:
   /// Install a signal handler.
-  static bool RegisterHandler(Signal signal, std::function<void()> func) {
-    sigset_t signal_mask;
-    sigemptyset(&signal_mask);
-    return RegisterHandler(signal, func, signal_mask);
-  }
+  static bool RegisterHandler(Signal signal, std::function<void()> func);
 
   /// Like RegisterHandler, but takes a `signal_mask` argument for blocking
   /// signals during execution of the handler. `signal_mask` should be created
   /// using `sigemptyset` and `sigaddset` functions from `<signal.h>`.
   static bool RegisterHandler(Signal signal, std::function<void()> func,
-                              sigset_t signal_mask) {
-    int signal_number = static_cast<int>(signal);
-    handlers_[signal_number] = func;
-    struct sigaction action;
-    // `sa_sigaction` must be cleared before `sa_handler` is set because on some
-    // platforms the two are a union.
-    action.sa_sigaction = nullptr;
-    action.sa_handler = SignalHandler::Handle;
-    action.sa_mask = signal_mask;
-    action.sa_flags = SA_RESTART;
-    if (sigaction(signal_number, &action, NULL) == -1) return false;
-    return true;
-  }
+                              sigset_t signal_mask);
 };
-
-std::map<int, std::function<void()>> SignalHandler::handlers_ = {};
 }  // namespace utils
