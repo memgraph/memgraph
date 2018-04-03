@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <experimental/optional>
 #include <unordered_map>
 
@@ -43,6 +44,7 @@ class SingleNodeEngine : public Engine {
       std::function<void(Transaction &)> f) override;
   Transaction *RunningTransaction(transaction_id_t tx_id) override;
   void EnsureNextIdGreater(transaction_id_t tx_id) override;
+  void GarbageCollectCommitLog(transaction_id_t tx_id) override;
 
  private:
   transaction_id_t counter_{0};

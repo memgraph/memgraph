@@ -187,4 +187,8 @@ void WorkerEngine::UpdateOldestActive(const Snapshot &snapshot,
 void WorkerEngine::EnsureNextIdGreater(transaction_id_t tx_id) {
   master_client_pool_.Call<EnsureNextIdGreaterRpc>(tx_id);
 }
+
+void WorkerEngine::GarbageCollectCommitLog(transaction_id_t tx_id) {
+  clog_.garbage_collect_older(tx_id);
+}
 }  // namespace tx

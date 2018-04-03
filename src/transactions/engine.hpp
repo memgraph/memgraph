@@ -90,6 +90,9 @@ class Engine {
    * the given id. */
   virtual void EnsureNextIdGreater(transaction_id_t tx_id) = 0;
 
+  /** Garbage collects transactions older than tx_id from commit log. */
+  virtual void GarbageCollectCommitLog(transaction_id_t tx_id) = 0;
+
   auto &local_lock_graph() { return local_lock_graph_; }
   const auto &local_lock_graph() const { return local_lock_graph_; }
 

@@ -87,4 +87,45 @@ TEST(DynamicBitset, ConstBitset) {
   dbs.set(17);
   const_accepting(dbs);
 }
+
+TEST(DynamicBitSet, PrefixDeleteDontDeleteHead) {
+  DynamicBitset<uint8_t, 8> dbs;
+  dbs.set(7, 1);
+  dbs.delete_prefix(8);
+  EXPECT_EQ(dbs.at(7), 1);
 }
+
+// Checks that the block is not deleted when off by one error in interval
+// endpoint
+TEST(DynamicBitSet, PrefixDeleteDeleteOneBlockOffByOne) {
+  DynamicBitset<uint8_t, 8> dbs;
+  dbs.set(7, 1);
+  // Extends number of blocks
+  dbs.set(10, 1);
+  dbs.delete_prefix(7);
+  EXPECT_EQ(dbs.at(7), 1);
+}
+
+TEST(DynamicBitSet, DeletePrefixDeleteOneBlock) {
+  DynamicBitset<uint8_t, 8> dbs;
+  dbs.set(7, 1);
+  // Extends number of blocks
+  dbs.set(10, 1);
+  dbs.delete_prefix(8);
+  EXPECT_DEATH(dbs.at(7), "chunk is nullptr");
+  EXPECT_EQ(dbs.at(10), 1);
+}
+
+TEST(DynamicBitSet, DeletePrefixDeleteMultipleBlocks) {
+  DynamicBitset<uint8_t, 8> dbs;
+  dbs.set(7, 1);
+  dbs.set(15, 1);
+  dbs.set(23, 1);
+  dbs.set(31, 1);
+  dbs.delete_prefix(30);
+  EXPECT_DEATH(dbs.at(7), "chunk is nullptr");
+  EXPECT_DEATH(dbs.at(15), "chunk is nullptr");
+  EXPECT_DEATH(dbs.at(23), "chunk is nullptr");
+  EXPECT_EQ(dbs.at(31), 1);
+}
+}  // namespace

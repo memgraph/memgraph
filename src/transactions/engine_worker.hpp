@@ -43,6 +43,7 @@ class WorkerEngine : public Engine {
                                   const Snapshot &snapshot);
 
   void EnsureNextIdGreater(transaction_id_t tx_id) override;
+  void GarbageCollectCommitLog(tx::transaction_id_t tx_id) override;
 
   /// Clears the cache of local transactions that have expired. The signature of
   /// this method is dictated by `distributed::TransactionalCacheCleaner`.

@@ -148,6 +148,36 @@ class DynamicBitset {
     return chunk.clear(k, n);
   }
 
+  /**
+   * Deletes all blocks which contain all positions lower than pos, assumes that
+   * there doesn't exist a pointer to those blocks, i.e. it's safe to delete
+   * them
+   */
+  void delete_prefix(size_t pos) {
+    // Never delete head as that might invalidate the whole structure which
+    // depends on head being available
+    Chunk *last = head_.load();
+    Chunk *chunk = last->next_;
+
+    // High is exclusive endpoint of interval
+    while (chunk != nullptr && chunk->high() > pos) {
+      last = chunk;
+      chunk = chunk->next_;
+    }
+
+    if (chunk != nullptr) {
+      // Unlink from last
+      last->next_ = nullptr;
+      // Deletes chunks
+      Chunk *next;
+      while (chunk) {
+        next = chunk->next_;
+        delete chunk;
+        chunk = next;
+      }
+    }
+  }
+
  private:
   // Finds the chunk to which k-th bit belongs fails if k is out of bounds.
   const Chunk &FindChunk(size_t &k) const {

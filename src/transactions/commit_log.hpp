@@ -11,6 +11,7 @@ namespace tx {
 // this class and this class doesn't acquire any lock on method calls.
 class CommitLog {
  public:
+  static constexpr int kBitsetBlockSize = 32768;
   CommitLog() = default;
   CommitLog(const CommitLog &) = delete;
   CommitLog(CommitLog &&) = delete;
@@ -32,6 +33,10 @@ class CommitLog {
   }
 
   void set_aborted(transaction_id_t id) { log.set(2 * id + 1); }
+
+  // Clears the commit log from bits associated with transactions with an id
+  // lower than `id`.
+  void garbage_collect_older(transaction_id_t id) { log.delete_prefix(2 * id); }
 
   class Info {
    public:
@@ -66,7 +71,7 @@ class CommitLog {
   Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }
 
  private:
-  DynamicBitset<uint8_t, 32768> log;
+  DynamicBitset<uint8_t, kBitsetBlockSize> log;
 };
 
 }  // namespace tx

@@ -2,6 +2,9 @@
 
 #include "communication/rpc/server.hpp"
 #include "database/graph_db.hpp"
+#include "database/storage_gc_master.hpp"
+#include "database/storage_gc_single_node.hpp"
+#include "database/storage_gc_worker.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "distributed/data_manager.hpp"
@@ -97,7 +100,7 @@ class SingleNode : public PrivateBase {
   IMPL_GETTERS
 
   tx::SingleNodeEngine tx_engine_{&wal_};
-  StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
+  StorageGcSingleNode storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_;
   database::SingleNodeCounters counters_;
   std::vector<int> GetWorkerIds() const override { return {0}; }
@@ -161,8 +164,9 @@ class Master : public PrivateBase {
       config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   tx::MasterEngine tx_engine_{server_, rpc_worker_clients_, &wal_};
   distributed::MasterCoordination coordination_{server_};
+  StorageGcMaster storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec,
+                              server_, coordination_};
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
-  StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{server_};
   distributed::DataRpcServer data_server_{*this, server_};
@@ -206,7 +210,9 @@ class Worker : public PrivateBase {
                                                 config_.master_endpoint};
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   tx::WorkerEngine tx_engine_{rpc_worker_clients_.GetClientPool(0)};
-  StorageGc storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
+  StorageGcWorker storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec,
+                              rpc_worker_clients_.GetClientPool(0),
+                              config_.worker_id};
   TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{
       rpc_worker_clients_.GetClientPool(0)};
   database::WorkerCounters counters_{rpc_worker_clients_.GetClientPool(0)};

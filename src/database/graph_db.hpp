@@ -25,7 +25,7 @@ class UpdatesRpcServer;
 class UpdatesRpcClients;
 class DataManager;
 class IndexRpcClients;
-}
+}  // namespace distributed
 
 namespace database {
 

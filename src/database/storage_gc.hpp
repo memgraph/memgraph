@@ -1,6 +1,7 @@
 #pragma once
 
 #include <chrono>
+#include <queue>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/storage.hpp"
@@ -39,8 +40,8 @@ class StorageGc {
    * tx::Engine. If `pause_sec` is greater then zero, then GC gets triggered
    * periodically. */
   StorageGc(Storage &storage, tx::Engine &tx_engine, int pause_sec)
-      : storage_(storage),
-        tx_engine_(tx_engine),
+      : tx_engine_(tx_engine),
+        storage_(storage),
         vertices_(storage.vertices_),
         edges_(storage.edges_) {
     if (pause_sec > 0)
@@ -63,17 +64,19 @@ class StorageGc {
   StorageGc &operator=(const StorageGc &) = delete;
   StorageGc &operator=(StorageGc &&) = delete;
 
+  virtual void CollectCommitLogGarbage(tx::transaction_id_t oldest_active) = 0;
+
   void CollectGarbage() {
     // main garbage collection logic
     // see wiki documentation for logic explanation
     LOG(INFO) << "Garbage collector started";
-    const auto snapshot = tx_engine_.GlobalGcSnapshot();
+    const auto snapshot_gc = tx_engine_.GlobalGcSnapshot();
     {
       // This can be run concurrently
       utils::Timer x;
 
-      vertices_.gc_.Run(snapshot, tx_engine_);
-      edges_.gc_.Run(snapshot, tx_engine_);
+      vertices_.gc_.Run(snapshot_gc, tx_engine_);
+      edges_.gc_.Run(snapshot_gc, tx_engine_);
 
       VLOG(21) << "Garbage collector mvcc phase time: " << x.Elapsed().count();
     }
@@ -83,8 +86,8 @@ class StorageGc {
     {
       // This can be run concurrently
       utils::Timer x;
-      storage_.labels_index_.Refresh(snapshot, tx_engine_);
-      storage_.label_property_index_.Refresh(snapshot, tx_engine_);
+      storage_.labels_index_.Refresh(snapshot_gc, tx_engine_);
+      storage_.label_property_index_.Refresh(snapshot_gc, tx_engine_);
       VLOG(21) << "Garbage collector index phase time: " << x.Elapsed().count();
     }
     {
@@ -95,17 +98,19 @@ class StorageGc {
       // to those records. New snapshot can be used, different than one used for
       // first two phases of gc.
       utils::Timer x;
-      const auto snapshot = tx_engine_.GlobalGcSnapshot();
-      edges_.record_deleter_.FreeExpiredObjects(snapshot.back());
-      vertices_.record_deleter_.FreeExpiredObjects(snapshot.back());
-      edges_.version_list_deleter_.FreeExpiredObjects(snapshot.back());
-      vertices_.version_list_deleter_.FreeExpiredObjects(snapshot.back());
+      const auto snapshot_gc = tx_engine_.GlobalGcSnapshot();
+      edges_.record_deleter_.FreeExpiredObjects(snapshot_gc.back());
+      vertices_.record_deleter_.FreeExpiredObjects(snapshot_gc.back());
+      edges_.version_list_deleter_.FreeExpiredObjects(snapshot_gc.back());
+      vertices_.version_list_deleter_.FreeExpiredObjects(snapshot_gc.back());
       VLOG(21) << "Garbage collector deferred deletion phase time: "
                << x.Elapsed().count();
     }
 
-    LOG(INFO) << "Garbage collector finished";
-    VLOG(21) << "gc snapshot: " << snapshot;
+    CollectCommitLogGarbage(snapshot_gc.back());
+    gc_txid_ranges_.emplace(snapshot_gc.back(), tx_engine_.GlobalLast());
+
+    VLOG(21) << "gc snapshot: " << snapshot_gc;
     VLOG(21) << "edge_record_deleter_ size: " << edges_.record_deleter_.Count();
     VLOG(21) << "vertex record deleter_ size: "
              << vertices_.record_deleter_.Count();
@@ -115,13 +120,37 @@ class StorageGc {
              << vertices_.version_list_deleter_.Count();
     VLOG(21) << "vertices_ size: " << storage_.vertices_.access().size();
     VLOG(21) << "edges_ size: " << storage_.edges_.access().size();
+    LOG(INFO) << "Garbage collector finished.";
   }
+
+ protected:
+  // Find the largest transaction from which everything older is safe to
+  // delete, ones for which the hints have been set in the gc phase, and no
+  // alive transaction from the time before the hints were set is still alive
+  // (otherwise that transaction could still be waiting for a resolution of
+  // the query to the commit log about some old transaction)
+  std::experimental::optional<tx::transaction_id_t> GetClogSafeTransaction(
+      tx::transaction_id_t oldest_active) {
+    std::experimental::optional<tx::transaction_id_t> safe_to_delete;
+    while (!gc_txid_ranges_.empty() &&
+           gc_txid_ranges_.front().second < oldest_active) {
+      safe_to_delete = gc_txid_ranges_.front().first;
+      gc_txid_ranges_.pop();
+    }
+    return safe_to_delete;
+  }
+
+  tx::Engine &tx_engine_;
 
  private:
   Storage &storage_;
-  tx::Engine &tx_engine_;
   MvccDeleter<Vertex> vertices_;
   MvccDeleter<Edge> edges_;
   Scheduler scheduler_;
+
+  // History of <oldest active transaction, next transaction to be ran> ranges
+  // that gc operated on at some previous time - used to clear commit log
+  std::queue<std::pair<tx::transaction_id_t, tx::transaction_id_t>>
+      gc_txid_ranges_;
 };
 }  // namespace database

@@ -110,6 +110,10 @@ transaction_id_t SingleNodeEngine::LocalOldestActive() const {
   return active_.empty() ? counter_ + 1 : active_.front();
 }
 
+void SingleNodeEngine::GarbageCollectCommitLog(transaction_id_t tx_id) {
+  clog_.garbage_collect_older(tx_id);
+}
+
 void SingleNodeEngine::LocalForEachActiveTransaction(
     std::function<void(Transaction &)> f) {
   std::lock_guard<SpinLock> guard(lock_);
