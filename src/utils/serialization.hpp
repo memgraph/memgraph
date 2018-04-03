@@ -8,6 +8,8 @@
 #include "storage/vertex.hpp"
 #include "utils/exceptions.hpp"
 
+#include "typed_value.capnp.h"
+
 namespace boost::serialization {
 
 namespace {
@@ -59,6 +61,67 @@ void load(TArchive &ar, std::experimental::optional<T> &opt, unsigned int) {
 }  // namespace boost::serialization
 
 namespace utils {
+
+inline void SaveCapnpTypedValue(const query::TypedValue &value,
+                                query::capnp::TypedValue::Builder &builder) {
+  switch (value.type()) {
+    case query::TypedValue::Type::Null:
+      builder.setNullType();
+      return;
+    case query::TypedValue::Type::Bool:
+      builder.setBool(value.Value<bool>());
+      return;
+    case query::TypedValue::Type::Int:
+      builder.setInteger(value.Value<int64_t>());
+      return;
+    case query::TypedValue::Type::Double:
+      builder.setDouble(value.Value<double>());
+      return;
+    case query::TypedValue::Type::String:
+      builder.setString(value.Value<std::string>());
+      return;
+    case query::TypedValue::Type::List:
+    case query::TypedValue::Type::Map:
+    case query::TypedValue::Type::Vertex:
+    case query::TypedValue::Type::Edge:
+    case query::TypedValue::Type::Path:
+      throw utils::NotYetImplemented("Capnp serialize typed value");
+  }
+}
+
+inline void LoadCapnpTypedValue(query::TypedValue &value,
+                                query::capnp::TypedValue::Reader &reader) {
+  switch (reader.which()) {
+    case query::capnp::TypedValue::BOOL:
+      value = reader.getBool();
+      return;
+    case query::capnp::TypedValue::DOUBLE:
+      value = reader.getDouble();
+      return;
+    // case query::capnp::TypedValue::EDGE:
+    //   // TODO
+    //   return;
+    case query::capnp::TypedValue::INTEGER:
+      value = reader.getInteger();
+      return;
+    case query::capnp::TypedValue::LIST:
+      throw utils::NotYetImplemented("Capnp deserialize typed value");
+    case query::capnp::TypedValue::MAP:
+      throw utils::NotYetImplemented("Capnp deserialize typed value");
+    case query::capnp::TypedValue::NULL_TYPE:
+      value = query::TypedValue::Null;
+      return;
+    // case query::capnp::TypedValue::PATH:
+    //   // TODO
+    //   return;
+    case query::capnp::TypedValue::STRING:
+      value = reader.getString().cStr();
+      return;
+      // case query::capnp::TypedValue::VERTEX:
+      //   // TODO
+      //   return;
+  }
+}
 
 /**
  * Saves the given value into the given Boost archive. The optional

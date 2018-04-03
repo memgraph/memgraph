@@ -103,7 +103,7 @@ function(add_capnp capnp_src_file)
   set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.c++)
   set(h_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.h)
   add_custom_command(OUTPUT ${cpp_file} ${h_file}
-    COMMAND ${CAPNP_EXE} compile -o${CAPNP_CXX_EXE} ${capnp_src_file}
+    COMMAND ${CAPNP_EXE} compile -o${CAPNP_CXX_EXE} ${capnp_src_file} -I ${CMAKE_CURRENT_SOURCE_DIR}
     DEPENDS ${capnp_src_file} capnproto-proj
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   # Update *global* generated_capnp_files
@@ -113,6 +113,9 @@ function(add_capnp capnp_src_file)
 endfunction(add_capnp)
 
 add_capnp(query/frontend/semantic/symbol.capnp)
+add_capnp(query/frontend/ast/ast.capnp)
+add_capnp(utils/typed_value.capnp)
+add_capnp(storage/types.capnp)
 
 add_custom_target(generate_capnp DEPENDS ${generated_capnp_files})
 # -----------------------------------------------------------------------------

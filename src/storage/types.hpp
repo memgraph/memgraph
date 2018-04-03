@@ -4,6 +4,7 @@
 #include <functional>
 
 #include "boost/serialization/base_object.hpp"
+#include "types.capnp.h"
 
 #include "utils/total_ordering.hpp"
 
@@ -32,6 +33,14 @@ class Common : public utils::TotalOrdering<TSpecificType> {
     size_t operator()(const TSpecificType &t) const { return hash(t.storage_); }
   };
 
+  virtual void Save(capnp::Common::Builder &builder) const {
+    builder.setStorage(storage_);
+  }
+
+  virtual void Load(capnp::Common::Reader &reader) {
+    storage_ = reader.getStorage();
+  }
+
  private:
   friend class boost::serialization::access;
 
@@ -46,6 +55,7 @@ class Common : public utils::TotalOrdering<TSpecificType> {
 class Label : public Common<Label> {
   using Common::Common;
 
+ private:
   friend class boost::serialization::access;
 
   template <class TArchive>
@@ -57,6 +67,7 @@ class Label : public Common<Label> {
 class EdgeType : public Common<EdgeType> {
   using Common::Common;
 
+ private:
   friend class boost::serialization::access;
 
   template <class TArchive>
@@ -68,8 +79,8 @@ class EdgeType : public Common<EdgeType> {
 class Property : public Common<Property> {
   using Common::Common;
 
+ private:
   friend class boost::serialization::access;
-
   template <class TArchive>
   void serialize(TArchive &ar, const unsigned int) {
     ar &boost::serialization::base_object<Common<Property>>(*this);

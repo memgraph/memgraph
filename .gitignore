@@ -34,6 +34,6 @@ TAGS
 *.fas
 *.fasl
 
-# Cap'n Proto geenrated files
+# Cap'n Proto generated files
 *.capnp.c++
 *.capnp.h

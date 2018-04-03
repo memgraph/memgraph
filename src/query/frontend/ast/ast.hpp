@@ -17,6 +17,8 @@
 #include "storage/types.hpp"
 #include "utils/serialization.hpp"
 
+#include "ast.capnp.h"
+
 // Hash function for the key in pattern atom property maps.
 namespace std {
 template <>
@@ -101,6 +103,8 @@ class AstTreeStorage {
     Load(ar, *query());
   }
 
+  Tree *Load(capnp::Tree::Reader &tree);
+
  private:
   int next_uid_ = 0;
   std::vector<std::unique_ptr<Tree>> storage_;
@@ -165,9 +169,12 @@ class Tree : public ::utils::Visitable<HierarchicalTreeVisitor>,
   int uid() const { return uid_; }
 
   virtual Tree *Clone(AstTreeStorage &storage) const = 0;
+  virtual void Save(capnp::Tree::Builder &builder);
 
  protected:
   explicit Tree(int uid) : uid_(uid) {}
+
+  virtual void Load(capnp::Tree::Reader &reader, AstTreeStorage &storage);
 
  private:
   int uid_;
@@ -187,9 +194,15 @@ class Expression : public Tree {
 
  public:
   Expression *Clone(AstTreeStorage &storage) const override = 0;
+  static Expression *Construct(capnp::Expression::Reader &reader,
+                               AstTreeStorage &storage);
+
+  void Save(capnp::Tree::Builder &builder) override;
 
  protected:
   explicit Expression(int uid) : Tree(uid) {}
+
+  virtual void Save(capnp::Expression::Builder &) {}
 
  private:
   friend class boost::serialization::access;
@@ -212,11 +225,18 @@ class Where : public Tree {
     return storage.Create<Where>(expression_->Clone(storage));
   }
 
+  static Where *Construct(capnp::Where::Reader &reader,
+                          AstTreeStorage &storage);
+
+  void Save(capnp::Tree::Builder &builder) override;
+
   Expression *expression_ = nullptr;
 
  protected:
   explicit Where(int uid) : Tree(uid) {}
   Where(int uid, Expression *expression) : Tree(uid), expression_(expression) {}
+
+  virtual void Save(capnp::Where::Builder &);
 
  private:
   friend class boost::serialization::access;
@@ -248,11 +268,18 @@ class BinaryOperator : public Expression {
   Expression *expression2_ = nullptr;
 
   BinaryOperator *Clone(AstTreeStorage &storage) const override = 0;
+  static BinaryOperator *Construct(capnp::BinaryOperator::Reader &reader,
+                                   AstTreeStorage &storage);
 
  protected:
   explicit BinaryOperator(int uid) : Expression(uid) {}
   BinaryOperator(int uid, Expression *expression1, Expression *expression2)
       : Expression(uid), expression1_(expression1), expression2_(expression2) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  using Expression::Save;
+  virtual void Save(capnp::BinaryOperator::Builder &builder);
+  void Load(capnp::Tree::Reader &reader, AstTreeStorage &storage) override;
 
  private:
   friend class boost::serialization::access;
@@ -281,11 +308,18 @@ class UnaryOperator : public Expression {
   Expression *expression_ = nullptr;
 
   UnaryOperator *Clone(AstTreeStorage &storage) const override = 0;
+  static UnaryOperator *Construct(capnp::UnaryOperator::Reader &reader,
+                                  AstTreeStorage &storage);
 
  protected:
   explicit UnaryOperator(int uid) : Expression(uid) {}
   UnaryOperator(int uid, Expression *expression)
       : Expression(uid), expression_(expression) {}
+
+  void Save(capnp::Expression::Builder &) override;
+  using Expression::Save;
+  virtual void Save(capnp::UnaryOperator::Builder &builder);
+  void Load(capnp::Tree::Reader &reader, AstTreeStorage &storage) override;
 
  private:
   friend class boost::serialization::access;
@@ -318,8 +352,12 @@ class OrOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
 
+  static OrOperator *Construct(capnp::OrOperator::Reader &reader,
+                               AstTreeStorage &storage);
+
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -342,9 +380,12 @@ class XorOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static XorOperator *Construct(capnp::XorOperator::Reader &reader,
+                                AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -367,9 +408,12 @@ class AndOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static AndOperator *Construct(capnp::AndOperator::Reader &reader,
+                                AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -392,9 +436,12 @@ class AdditionOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static AdditionOperator *Construct(capnp::AdditionOperator::Reader &reader,
+                                     AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -417,9 +464,12 @@ class SubtractionOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static SubtractionOperator *Construct(
+      capnp::SubtractionOperator::Reader &reader, AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -442,9 +492,12 @@ class MultiplicationOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static MultiplicationOperator *Construct(
+      capnp::MultiplicationOperator::Reader &reader, AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -466,9 +519,12 @@ class DivisionOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static DivisionOperator *Construct(capnp::DivisionOperator::Reader &reader,
+                                     AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -491,9 +547,12 @@ class ModOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static ModOperator *Construct(capnp::ModOperator::Reader &reader,
+                                AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -516,9 +575,12 @@ class NotEqualOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static NotEqualOperator *Construct(capnp::NotEqualOperator::Reader &reader,
+                                     AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -541,9 +603,12 @@ class EqualOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static EqualOperator *Construct(capnp::EqualOperator::Reader &reader,
+                                  AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -566,9 +631,12 @@ class LessOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static LessOperator *Construct(capnp::LessOperator::Reader &reader,
+                                 AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -591,9 +659,12 @@ class GreaterOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static GreaterOperator *Construct(capnp::GreaterOperator::Reader &reader,
+                                    AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -616,9 +687,12 @@ class LessEqualOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static LessEqualOperator *Construct(capnp::LessEqualOperator::Reader &reader,
+                                      AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -641,9 +715,12 @@ class GreaterEqualOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static GreaterEqualOperator *Construct(
+      capnp::GreaterEqualOperator::Reader &reader, AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -666,9 +743,12 @@ class InListOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static InListOperator *Construct(capnp::InListOperator::Reader &reader,
+                                   AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -691,9 +771,12 @@ class ListMapIndexingOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
+  static ListMapIndexingOperator *Construct(
+      capnp::ListMapIndexingOperator::Reader &reader, AstTreeStorage &storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -728,6 +811,9 @@ class ListSlicingOperator : public Expression {
         upper_bound_ ? upper_bound_->Clone(storage) : nullptr);
   }
 
+  static ListSlicingOperator *Construct(
+      capnp::ListSlicingOperator::Reader &reader, AstTreeStorage &storage);
+
   Expression *list_ = nullptr;
   Expression *lower_bound_ = nullptr;
   Expression *upper_bound_ = nullptr;
@@ -739,6 +825,10 @@ class ListSlicingOperator : public Expression {
         list_(list),
         lower_bound_(lower_bound),
         upper_bound_(upper_bound) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  using Expression::Save;
+  virtual void Save(capnp::ListSlicingOperator::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -786,6 +876,8 @@ class IfOperator : public Expression {
                                       else_expression_->Clone(storage));
   }
 
+  static IfOperator *Construct(capnp::IfOperator::Reader &reader,
+                               AstTreeStorage &storage);
   // None of the expressions should be nullptrs. If there is no else_expression
   // you probably want to make it NULL PrimitiveLiteral.
   Expression *condition_;
@@ -799,6 +891,10 @@ class IfOperator : public Expression {
         condition_(condition),
         then_expression_(then_expression),
         else_expression_(else_expression) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  using Expression::Save;
+  virtual void Save(capnp::IfOperator::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -839,9 +935,12 @@ class NotOperator : public UnaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_UNARY_EXPRESSION;
+  static NotOperator *Construct(capnp::NotOperator::Reader &reader,
+                                AstTreeStorage &storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
+  void Save(capnp::UnaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -864,9 +963,12 @@ class UnaryPlusOperator : public UnaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_UNARY_EXPRESSION;
+  static UnaryPlusOperator *Construct(capnp::UnaryPlusOperator::Reader &reader,
+                                      AstTreeStorage &storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
+  void Save(capnp::UnaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -889,9 +991,12 @@ class UnaryMinusOperator : public UnaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_UNARY_EXPRESSION;
+  static UnaryMinusOperator *Construct(
+      capnp::UnaryMinusOperator::Reader &reader, AstTreeStorage &storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
+  void Save(capnp::UnaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -914,9 +1019,12 @@ class IsNullOperator : public UnaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_UNARY_EXPRESSION;
+  static IsNullOperator *Construct(capnp::IsNullOperator::Reader &reader,
+                                   AstTreeStorage &storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
+  void Save(capnp::UnaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -932,9 +1040,15 @@ class BaseLiteral : public Expression {
 
  public:
   BaseLiteral *Clone(AstTreeStorage &storage) const override = 0;
+  static BaseLiteral *Construct(capnp::BaseLiteral::Reader &reader,
+                                AstTreeStorage &storage);
 
  protected:
   explicit BaseLiteral(int uid) : Expression(uid) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  using Expression::Save;
+  virtual void Save(capnp::BaseLiteral::Builder &) {}
 
  private:
   friend class boost::serialization::access;
@@ -952,6 +1066,9 @@ class PrimitiveLiteral : public BaseLiteral {
     return storage.Create<PrimitiveLiteral>(value_, token_position_);
   }
 
+  static PrimitiveLiteral *Construct(capnp::PrimitiveLiteral::Reader &reader,
+                                     AstTreeStorage &storage);
+
   TypedValue value_;
   // This field contains token position of literal used to create
   // PrimitiveLiteral object. If PrimitiveLiteral object is not created from
@@ -965,6 +1082,8 @@ class PrimitiveLiteral : public BaseLiteral {
   template <typename T>
   PrimitiveLiteral(int uid, T value, int token_position)
       : BaseLiteral(uid), value_(value), token_position_(token_position) {}
+
+  void Save(capnp::BaseLiteral::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -1012,12 +1131,17 @@ class ListLiteral : public BaseLiteral {
     return list;
   }
 
+  static ListLiteral *Construct(capnp::ListLiteral::Reader &reader,
+                                AstTreeStorage &storage);
+
   std::vector<Expression *> elements_;
 
  protected:
   explicit ListLiteral(int uid) : BaseLiteral(uid) {}
   ListLiteral(int uid, const std::vector<Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
+
+  void Save(capnp::BaseLiteral::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -1062,6 +1186,9 @@ class MapLiteral : public BaseLiteral {
     return map;
   }
 
+  static MapLiteral *Construct(capnp::MapLiteral::Reader &reader,
+                               AstTreeStorage &storage);
+
   // maps (property_name, property) to expressions
   std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
       elements_;
@@ -1072,6 +1199,8 @@ class MapLiteral : public BaseLiteral {
              const std::unordered_map<std::pair<std::string, storage::Property>,
                                       Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
+
+  void Save(capnp::BaseLiteral::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -1123,6 +1252,10 @@ class Identifier : public Expression {
     return storage.Create<Identifier>(name_, user_declared_);
   }
 
+  static Identifier *Construct(capnp::Identifier::Reader &reader,
+                               AstTreeStorage &storage);
+  using Expression::Save;
+
   std::string name_;
   bool user_declared_ = true;
 
@@ -1130,6 +1263,9 @@ class Identifier : public Expression {
   Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
   Identifier(int uid, const std::string &name, bool user_declared)
       : Expression(uid), name_(name), user_declared_(user_declared) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  virtual void Save(capnp::Identifier::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1164,6 +1300,10 @@ class PropertyLookup : public Expression {
                                           property_name_, property_);
   }
 
+  static PropertyLookup *Construct(capnp::PropertyLookup::Reader &reader,
+                                   AstTreeStorage &storage);
+  using Expression::Save;
+
   Expression *expression_ = nullptr;
   std::string property_name_;
   storage::Property property_;
@@ -1181,6 +1321,9 @@ class PropertyLookup : public Expression {
         expression_(expression),
         property_name_(property.first),
         property_(property.second) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  virtual void Save(capnp::PropertyLookup::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1225,6 +1368,10 @@ class LabelsTest : public Expression {
     return storage.Create<LabelsTest>(expression_->Clone(storage), labels_);
   }
 
+  static LabelsTest *Construct(capnp::LabelsTest::Reader &reader,
+                               AstTreeStorage &storage);
+  using Expression::Save;
+
   Expression *expression_ = nullptr;
   std::vector<storage::Label> labels_;
 
@@ -1232,6 +1379,9 @@ class LabelsTest : public Expression {
   LabelsTest(int uid, Expression *expression,
              const std::vector<storage::Label> &labels)
       : Expression(uid), expression_(expression), labels_(labels) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  virtual void Save(capnp::LabelsTest::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1280,6 +1430,9 @@ class Function : public Expression {
     return storage.Create<Function>(function_name_, arguments);
   }
 
+  static Function *Construct(capnp::Function::Reader &reader,
+                             AstTreeStorage &storage);
+
   const auto &function() const { return function_; }
   const auto &function_name() const { return function_name_; }
   std::vector<Expression *> arguments_;
@@ -1295,6 +1448,9 @@ class Function : public Expression {
         function_(NameToFunction(function_name_)) {
     DCHECK(function_) << "Unexpected missing function: " << function_name_;
   }
+  void Save(capnp::Expression::Builder &builder) override;
+  using Expression::Save;
+  virtual void Save(capnp::Function::Builder &builder);
 
  private:
   std::string function_name_;
@@ -1361,8 +1517,13 @@ class Aggregation : public BinaryOperator {
   }
 
   Op op_;
+  static Aggregation *Construct(capnp::Aggregation::Reader &,
+                                AstTreeStorage &storage);
 
  protected:
+  // Use only for serialization.
+  Aggregation(int uid, Op op) : BinaryOperator(uid), op_(op) {}
+
   /// Aggregation's first expression is the value being aggregated. The second
   /// expression is the key used only in COLLECT_MAP.
   Aggregation(int uid, Expression *expression1, Expression *expression2, Op op)
@@ -1374,6 +1535,8 @@ class Aggregation : public BinaryOperator {
         << "The second expression is obligatory in COLLECT_MAP and "
            "invalid otherwise";
   }
+
+  void Save(capnp::BinaryOperator::Builder &builder) override;
 
  private:
   friend class boost::serialization::access;
@@ -1410,6 +1573,11 @@ class Reduce : public Expression {
         identifier_->Clone(storage), list_->Clone(storage),
         expression_->Clone(storage));
   }
+
+  static Reduce *Construct(capnp::Reduce::Reader &reader,
+                           AstTreeStorage &storage);
+  using Expression::Save;
+
   // None of these should be nullptr after construction.
 
   /// Identifier for the accumulating variable
@@ -1433,6 +1601,9 @@ class Reduce : public Expression {
         identifier_(identifier),
         list_(list),
         expression_(expression) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  virtual void Save(capnp::Reduce::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1484,6 +1655,8 @@ class All : public Expression {
                                where_->Clone(storage));
   }
 
+  static All *Construct(capnp::All::Reader &reader, AstTreeStorage &storage);
+
   // None of these should be nullptr after construction.
   Identifier *identifier_ = nullptr;
   Expression *list_expression_ = nullptr;
@@ -1496,6 +1669,10 @@ class All : public Expression {
         identifier_(identifier),
         list_expression_(list_expression),
         where_(where) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  using Expression::Save;
+  virtual void Save(capnp::All::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1523,9 +1700,9 @@ class All : public Expression {
                                                         const unsigned int);
 };
 
-// TODO: This is pretty much copy pasted from All. Consider merging Reduce, All,
-// Any and Single into something like a higher-order function call which takes a
-// list argument and a function which is applied on list elements.
+// TODO: This is pretty much copy pasted from All. Consider merging Reduce,
+// All, Any and Single into something like a higher-order function call which
+// takes a list argument and a function which is applied on list elements.
 class Single : public Expression {
   friend class AstTreeStorage;
 
@@ -1545,6 +1722,10 @@ class Single : public Expression {
                                   where_->Clone(storage));
   }
 
+  static Single *Construct(capnp::Single::Reader &reader,
+                           AstTreeStorage &storage);
+  using Expression::Save;
+
   // None of these should be nullptr after construction.
   Identifier *identifier_ = nullptr;
   Expression *list_expression_ = nullptr;
@@ -1557,6 +1738,9 @@ class Single : public Expression {
         identifier_(identifier),
         list_expression_(list_expression),
         where_(where) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  virtual void Save(capnp::Single::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1595,6 +1779,10 @@ class ParameterLookup : public Expression {
     return storage.Create<ParameterLookup>(token_position_);
   }
 
+  static ParameterLookup *Construct(capnp::ParameterLookup::Reader &reader,
+                                    AstTreeStorage &storage);
+  using Expression::Save;
+
   // This field contains token position of *literal* used to create
   // ParameterLookup object. If ParameterLookup object is not created from
   // a literal leave this value at -1.
@@ -1604,6 +1792,9 @@ class ParameterLookup : public Expression {
   explicit ParameterLookup(int uid) : Expression(uid) {}
   ParameterLookup(int uid, int token_position)
       : Expression(uid), token_position_(token_position) {}
+
+  void Save(capnp::Expression::Builder &builder) override;
+  virtual void Save(capnp::ParameterLookup::Builder &builder);
 
   friend class boost::serialization::access;
 
@@ -1636,6 +1827,10 @@ class NamedExpression : public Tree {
                                            token_position_);
   }
 
+  static NamedExpression *Construct(capnp::NamedExpression::Reader &reader,
+                                    AstTreeStorage &storage);
+  void Save(capnp::Tree::Builder &builder) override;
+
   std::string name_;
   Expression *expression_ = nullptr;
   // This field contains token position of first token in named expression
@@ -1654,6 +1849,8 @@ class NamedExpression : public Tree {
         name_(name),
         expression_(expression),
         token_position_(token_position) {}
+
+  virtual void Save(capnp::NamedExpression::Builder &);
 
  private:
   friend class boost::serialization::access;
@@ -1692,10 +1889,17 @@ class PatternAtom : public Tree {
 
   PatternAtom *Clone(AstTreeStorage &storage) const override = 0;
 
+  static PatternAtom *Construct(capnp::PatternAtom::Reader &reader,
+                                AstTreeStorage &storage);
+  void Save(capnp::Tree::Builder &builder) override;
+
  protected:
   explicit PatternAtom(int uid) : Tree(uid) {}
   PatternAtom(int uid, Identifier *identifier)
       : Tree(uid), identifier_(identifier) {}
+
+  virtual void Save(capnp::PatternAtom::Builder &);
+  void Load(capnp::Tree::Reader &reader, AstTreeStorage &storage) override;
 
  private:
   friend class boost::serialization::access;
@@ -1741,6 +1945,10 @@ class NodeAtom : public PatternAtom {
     return node_atom;
   }
 
+  static NodeAtom *Construct(capnp::NodeAtom::Reader &reader,
+                             AstTreeStorage &storage);
+  using PatternAtom::Save;
+
   std::vector<storage::Label> labels_;
   // maps (property_name, property) to an expression
   std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
@@ -1748,6 +1956,9 @@ class NodeAtom : public PatternAtom {
 
  protected:
   using PatternAtom::PatternAtom;
+
+  void Save(capnp::PatternAtom::Builder &builder) override;
+  virtual void Save(capnp::NodeAtom::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1870,6 +2081,10 @@ class EdgeAtom : public PatternAtom {
     }
   }
 
+  static EdgeAtom *Construct(capnp::EdgeAtom::Reader &reader,
+                             AstTreeStorage &storage);
+  using PatternAtom::Save;
+
   Type type_ = Type::SINGLE;
   Direction direction_ = Direction::BOTH;
   std::vector<storage::EdgeType> edge_types_;
@@ -1887,8 +2102,8 @@ class EdgeAtom : public PatternAtom {
   /// optimization pass may inline other expressions into this lambda.
   Lambda filter_lambda_;
   /// Used in weighted shortest path.
-  /// It must have valid expressions and identifiers. In all other expand types,
-  /// it is empty.
+  /// It must have valid expressions and identifiers. In all other expand
+  /// types, it is empty.
   Lambda weight_lambda_;
   /// Variable where the total weight for weighted shortest path will be stored.
   Identifier *total_weight_ = nullptr;
@@ -1905,6 +2120,9 @@ class EdgeAtom : public PatternAtom {
         type_(type),
         direction_(direction),
         edge_types_(edge_types) {}
+
+  void Save(capnp::PatternAtom::Builder &builder) override;
+  virtual void Save(capnp::EdgeAtom::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -1996,11 +2214,17 @@ class Pattern : public Tree {
     return pattern;
   }
 
+  static Pattern *Construct(capnp::Pattern::Reader &reader,
+                            AstTreeStorage &storage);
+  void Save(capnp::Tree::Builder &builder) override;
+
   Identifier *identifier_ = nullptr;
   std::vector<PatternAtom *> atoms_;
 
  protected:
   explicit Pattern(int uid) : Tree(uid) {}
+
+  virtual void Save(capnp::Pattern::Builder &);
 
  private:
   friend class boost::serialization::access;
@@ -2036,6 +2260,14 @@ class Clause : public Tree {
 
   Clause *Clone(AstTreeStorage &storage) const override = 0;
 
+  static Clause *Construct(capnp::Clause::Reader &reader,
+                           AstTreeStorage &storage);
+
+  void Save(capnp::Tree::Builder &builder) override;
+
+ protected:
+  virtual void Save(capnp::Clause::Builder &) {}
+
  private:
   friend class boost::serialization::access;
   SERIALIZE_USING_BASE(Tree);
@@ -2065,10 +2297,17 @@ class SingleQuery : public Tree {
     return single_query;
   }
 
+  static SingleQuery *Construct(capnp::SingleQuery::Reader &reader,
+                                AstTreeStorage &storage);
+
+  void Save(capnp::Tree::Builder &builder) override;
+
   std::vector<Clause *> clauses_;
 
  protected:
   explicit SingleQuery(int uid) : Tree(uid) {}
+
+  virtual void Save(capnp::SingleQuery::Builder &);
 
  private:
   friend class boost::serialization::access;
@@ -2114,6 +2353,10 @@ class CypherUnion : public Tree {
     return cypher_union;
   }
 
+  static CypherUnion *Construct(capnp::CypherUnion::Reader &reader,
+                                AstTreeStorage &storage);
+  void Save(capnp::Tree::Builder &builder) override;
+
   SingleQuery *single_query_ = nullptr;
   bool distinct_ = false;
   /// Holds symbols that are created during symbol generation phase.
@@ -2123,6 +2366,14 @@ class CypherUnion : public Tree {
  protected:
   explicit CypherUnion(int uid) : Tree(uid) {}
   CypherUnion(int uid, bool distinct) : Tree(uid), distinct_(distinct) {}
+  CypherUnion(int uid, bool distinct, SingleQuery *single_query,
+              std::vector<Symbol> union_symbols)
+      : Tree(uid),
+        single_query_(single_query),
+        distinct_(distinct),
+        union_symbols_(union_symbols) {}
+
+  virtual void Save(capnp::CypherUnion::Builder &);
 
  private:
   friend class boost::serialization::access;
@@ -2180,11 +2431,17 @@ class Query : public Tree {
     return query;
   }
 
+  static Query *Construct(capnp::Query::Reader &reader,
+                          AstTreeStorage &storage);
+  void Save(capnp::Tree::Builder &builder) override;
+
   SingleQuery *single_query_ = nullptr;
   std::vector<CypherUnion *> cypher_unions_;
 
  protected:
   explicit Query(int uid) : Tree(uid) {}
+
+  virtual void Save(capnp::Query::Builder &);
 
  private:
   friend class boost::serialization::access;
@@ -2234,10 +2491,19 @@ class Create : public Clause {
     return create;
   }
 
+  static Create *Construct(capnp::Create::Reader &reader,
+                           AstTreeStorage &storage);
+  using Clause::Save;
+
   std::vector<Pattern *> patterns_;
 
  protected:
   explicit Create(int uid) : Clause(uid) {}
+  Create(int uid, std::vector<Pattern *> patterns)
+      : Clause(uid), patterns_(patterns) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::Create::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2291,6 +2557,10 @@ class Match : public Clause {
     return match;
   }
 
+  using Clause::Save;
+  static Match *Construct(capnp::Match::Reader &reader,
+                          AstTreeStorage &storage);
+
   std::vector<Pattern *> patterns_;
   Where *where_ = nullptr;
   bool optional_ = false;
@@ -2298,6 +2568,11 @@ class Match : public Clause {
  protected:
   explicit Match(int uid) : Clause(uid) {}
   Match(int uid, bool optional) : Clause(uid), optional_(optional) {}
+  Match(int uid, bool optional, Where *where, std::vector<Pattern *> patterns)
+      : Clause(uid), patterns_(patterns), where_(where), optional_(optional) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::Match::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2421,10 +2696,18 @@ class Return : public Clause {
     return ret;
   }
 
+  using Clause::Save;
+  static Return *Construct(capnp::Return::Reader &reader,
+                           AstTreeStorage &storage);
+
   ReturnBody body_;
 
  protected:
   explicit Return(int uid) : Clause(uid) {}
+  Return(int uid, ReturnBody &body) : Clause(uid), body_(body) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::Return::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2476,11 +2759,19 @@ class With : public Clause {
     return with;
   }
 
+  using Clause::Save;
+  static With *Construct(capnp::With::Reader &reader, AstTreeStorage &storage);
+
   ReturnBody body_;
   Where *where_ = nullptr;
 
  protected:
   explicit With(int uid) : Clause(uid) {}
+  With(int uid, ReturnBody &body, Where *where)
+      : Clause(uid), body_(body), where_(where) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::With::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2529,11 +2820,21 @@ class Delete : public Clause {
     return del;
   }
 
+  using Clause::Save;
+  static Delete *Construct(capnp::Delete::Reader &reader,
+                           AstTreeStorage &storage);
+
   std::vector<Expression *> expressions_;
+
   bool detach_ = false;
 
  protected:
   explicit Delete(int uid) : Clause(uid) {}
+  Delete(int uid, bool detach, std::vector<Expression *> expressions)
+      : Clause(uid), expressions_(expressions), detach_(detach) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::Delete::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2576,6 +2877,10 @@ class SetProperty : public Clause {
                                        expression_->Clone(storage));
   }
 
+  using Clause::Save;
+  static SetProperty *Construct(capnp::SetProperty::Reader &reader,
+                                AstTreeStorage &storage);
+
   PropertyLookup *property_lookup_ = nullptr;
   Expression *expression_ = nullptr;
 
@@ -2585,6 +2890,9 @@ class SetProperty : public Clause {
       : Clause(uid),
         property_lookup_(property_lookup),
         expression_(expression) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::SetProperty::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2628,6 +2936,10 @@ class SetProperties : public Clause {
                                          expression_->Clone(storage), update_);
   }
 
+  using Clause::Save;
+  static SetProperties *Construct(capnp::SetProperties::Reader &reader,
+                                  AstTreeStorage &storage);
+
   Identifier *identifier_ = nullptr;
   Expression *expression_ = nullptr;
   bool update_ = false;
@@ -2640,6 +2952,9 @@ class SetProperties : public Clause {
         identifier_(identifier),
         expression_(expression),
         update_(update) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::SetProperties::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2684,6 +2999,10 @@ class SetLabels : public Clause {
     return storage.Create<SetLabels>(identifier_->Clone(storage), labels_);
   }
 
+  using Clause::Save;
+  static SetLabels *Construct(capnp::SetLabels::Reader &reader,
+                              AstTreeStorage &storage);
+
   Identifier *identifier_ = nullptr;
   std::vector<storage::Label> labels_;
 
@@ -2692,6 +3011,9 @@ class SetLabels : public Clause {
   SetLabels(int uid, Identifier *identifier,
             const std::vector<storage::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::SetLabels::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2733,12 +3055,19 @@ class RemoveProperty : public Clause {
     return storage.Create<RemoveProperty>(property_lookup_->Clone(storage));
   }
 
+  using Clause::Save;
+  static RemoveProperty *Construct(capnp::RemoveProperty::Reader &reader,
+                                   AstTreeStorage &storage);
+
   PropertyLookup *property_lookup_ = nullptr;
 
  protected:
   explicit RemoveProperty(int uid) : Clause(uid) {}
   RemoveProperty(int uid, PropertyLookup *property_lookup)
       : Clause(uid), property_lookup_(property_lookup) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::RemoveProperty::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2779,6 +3108,10 @@ class RemoveLabels : public Clause {
     return storage.Create<RemoveLabels>(identifier_->Clone(storage), labels_);
   }
 
+  using Clause::Save;
+  static RemoveLabels *Construct(capnp::RemoveLabels::Reader &reader,
+                                 AstTreeStorage &storage);
+
   Identifier *identifier_ = nullptr;
   std::vector<storage::Label> labels_;
 
@@ -2787,6 +3120,9 @@ class RemoveLabels : public Clause {
   RemoveLabels(int uid, Identifier *identifier,
                const std::vector<storage::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::RemoveLabels::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2853,12 +3189,25 @@ class Merge : public Clause {
     return merge;
   }
 
+  using Clause::Save;
+  static Merge *Construct(capnp::Merge::Reader &reader,
+                          AstTreeStorage &storage);
+
   Pattern *pattern_ = nullptr;
   std::vector<Clause *> on_match_;
   std::vector<Clause *> on_create_;
 
  protected:
   explicit Merge(int uid) : Clause(uid) {}
+  Merge(int uid, Pattern *pattern, std::vector<Clause *> on_match,
+        std::vector<Clause *> on_create)
+      : Clause(uid),
+        pattern_(pattern),
+        on_match_(on_match),
+        on_create_(on_create) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::Merge::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2902,6 +3251,10 @@ class Unwind : public Clause {
     return storage.Create<Unwind>(named_expression_->Clone(storage));
   }
 
+  using Clause::Save;
+  static Unwind *Construct(capnp::Unwind::Reader &reader,
+                           AstTreeStorage &storage);
+
   NamedExpression *named_expression_ = nullptr;
 
  protected:
@@ -2912,6 +3265,9 @@ class Unwind : public Clause {
     DCHECK(named_expression)
         << "Unwind cannot take nullptr for named_expression";
   }
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::Unwind::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2946,6 +3302,10 @@ class CreateIndex : public Clause {
     return storage.Create<CreateIndex>(label_, property_);
   }
 
+  static CreateIndex *Construct(capnp::CreateIndex::Reader &reader,
+                                AstTreeStorage &storage);
+  using Clause::Save;
+
   storage::Label label_;
   storage::Property property_;
 
@@ -2953,6 +3313,9 @@ class CreateIndex : public Clause {
   explicit CreateIndex(int uid) : Clause(uid) {}
   CreateIndex(int uid, storage::Label label, storage::Property property)
       : Clause(uid), label_(label), property_(property) {}
+
+  void Save(capnp::Clause::Builder &builder) override;
+  virtual void Save(capnp::CreateIndex::Builder &builder);
 
  private:
   friend class boost::serialization::access;
@@ -2975,7 +3338,6 @@ class CreateIndex : public Clause {
 #undef SERIALIZE_USING_BASE
 
 }  // namespace query
-
 // All of the serialization cruft follows
 
 #define LOAD_AND_CONSTRUCT(DerivedClass, ...)             \

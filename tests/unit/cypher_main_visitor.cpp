@@ -18,6 +18,10 @@
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
+#include "capnp/message.h"
+#include "capnp/serialize-packed.h"
+#include "query/frontend/ast/ast.capnp.h"
+
 namespace {
 
 using namespace query;
@@ -137,12 +141,42 @@ class SerializedAstGenerator : public Base {
   Query *query_;
 };
 
+class CapnpAstGenerator : public Base {
+ public:
+  CapnpAstGenerator(const std::string &query)
+      : Base(query),
+        storage_([&]() {
+          ::frontend::opencypher::Parser parser(query);
+          CypherMainVisitor visitor(context_);
+          visitor.visit(parser.tree());
+
+          ::capnp::MallocMessageBuilder message;
+          {
+            query::capnp::Tree::Builder builder =
+                message.initRoot<query::capnp::Tree>();
+            visitor.query()->Save(builder);
+          }
+
+          AstTreeStorage new_ast;
+          {
+            query::capnp::Tree::Reader reader =
+                message.getRoot<query::capnp::Tree>();
+            new_ast.Load(reader);
+          }
+          return new_ast;
+        }()),
+        query_(storage_.query()) {}
+
+  AstTreeStorage storage_;
+  Query *query_;
+};
+
 template <typename T>
 class CypherMainVisitorTest : public ::testing::Test {};
 
 typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
                          ClonedAstGenerator, CachedAstGenerator,
-                         SerializedAstGenerator>
+                         SerializedAstGenerator, CapnpAstGenerator>
     AstGeneratorTypes;
 TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
 
@@ -1724,7 +1758,6 @@ TYPED_TEST(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
   ASSERT_TRUE(shortest->total_weight_);
   EXPECT_FALSE(shortest->total_weight_->user_declared_);
 }
-
 
 TYPED_TEST(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
   ASSERT_THROW(
