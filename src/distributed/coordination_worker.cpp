@@ -1,9 +1,12 @@
-#include "distributed/coordination_worker.hpp"
-
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <thread>
 
 #include "glog/logging.h"
+
+#include "distributed/coordination_rpc_messages.hpp"
+#include "distributed/coordination_worker.hpp"
 
 namespace distributed {
 
@@ -11,26 +14,16 @@ using namespace std::literals::chrono_literals;
 
 WorkerCoordination::WorkerCoordination(communication::rpc::Server &server,
                                        const Endpoint &master_endpoint)
-    : server_(server), client_pool_(master_endpoint) {}
+    : Coordination(master_endpoint), server_(server) {}
 
-int WorkerCoordination::RegisterWorker(int desired_worker_id) {
-  auto result = client_pool_.Call<RegisterWorkerRpc>(desired_worker_id,
-                                                     server_.endpoint());
-  CHECK(result) << "RegisterWorkerRpc failed";
-  return result->member;
-}
-
-Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
-  auto accessor = endpoint_cache_.access();
-  auto found = accessor.find(worker_id);
-  if (found != accessor.end()) return found->second;
-  auto result = client_pool_.Call<GetEndpointRpc>(worker_id);
-  CHECK(result) << "GetEndpointRpc failed";
-  accessor.insert(worker_id, result->member);
-  return result->member;
+int WorkerCoordination::RegisterWorker(int worker_id, Endpoint endpoint) {
+  std::lock_guard<std::mutex> guard(lock_);
+  AddWorker(worker_id, endpoint);
+  return worker_id;
 }
 
 void WorkerCoordination::WaitForShutdown() {
+  using namespace std::chrono_literals;
   std::mutex mutex;
   std::condition_variable cv;
   bool shutdown = false;
@@ -52,7 +45,9 @@ void WorkerCoordination::WaitForShutdown() {
   std::this_thread::sleep_for(100ms);
 };
 
-std::vector<int> WorkerCoordination::GetWorkerIds() const {
-  LOG(FATAL) << "Unimplemented worker ids discovery on worker";
-};
+Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
+  std::lock_guard<std::mutex> guard(lock_);
+  return Coordination::GetEndpoint(worker_id);
+}
+
 }  // namespace distributed

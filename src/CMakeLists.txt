@@ -13,6 +13,9 @@ set(memgraph_src_files
     database/graph_db.cpp
     database/graph_db_accessor.cpp
     database/state_delta.cpp
+    distributed/cluster_discovery_master.cpp
+    distributed/cluster_discovery_worker.cpp
+    distributed/coordination.cpp
     distributed/coordination_master.cpp
     distributed/coordination_worker.cpp
     distributed/durability_rpc_clients.cpp

@@ -5,6 +5,8 @@
 #include "database/storage_gc_master.hpp"
 #include "database/storage_gc_single_node.hpp"
 #include "database/storage_gc_worker.hpp"
+#include "distributed/cluster_discovery_master.hpp"
+#include "distributed/cluster_discovery_worker.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "distributed/data_manager.hpp"
@@ -194,7 +196,7 @@ class Master : public PrivateBase {
   communication::rpc::Server server_{
       config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   tx::MasterEngine tx_engine_{server_, rpc_worker_clients_, &wal_};
-  distributed::MasterCoordination coordination_{server_};
+  distributed::MasterCoordination coordination_{server_.endpoint()};
   StorageGcMaster storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec,
                               server_, coordination_};
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
@@ -212,12 +214,14 @@ class Master : public PrivateBase {
   distributed::DataManager data_manager_{storage_, data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{
       tx_engine_, updates_server_, data_manager_};
+  distributed::ClusterDiscoveryMaster cluster_discovery_{server_, coordination_,
+                                                         rpc_worker_clients_};
 };
 
 class Worker : public PrivateBase {
  public:
   explicit Worker(const Config &config) : PrivateBase(config) {
-    coordination_.RegisterWorker(config.worker_id);
+    cluster_discovery_.RegisterWorker(config.worker_id);
   }
 
   GraphDb::Type type() const override {
@@ -261,6 +265,8 @@ class Worker : public PrivateBase {
   distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
       tx_engine_, server_, produce_server_, updates_server_, data_manager_};
   distributed::DurabilityRpcServer durability_rpc_server_{*this, server_};
+  distributed::ClusterDiscoveryWorker cluster_discovery_{
+      server_, coordination_, rpc_worker_clients_.GetClientPool(0)};
 };
 
 #undef IMPL_GETTERS

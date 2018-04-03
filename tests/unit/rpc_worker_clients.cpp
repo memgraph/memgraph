@@ -6,6 +6,8 @@
 
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/server.hpp"
+#include "distributed/cluster_discovery_master.hpp"
+#include "distributed/cluster_discovery_worker.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "distributed/rpc_worker_clients.hpp"
@@ -38,7 +40,13 @@ class RpcWorkerClientsTest : public ::testing::Test {
           std::make_unique<distributed::WorkerCoordination>(
               *workers_server_.back(), master_server_.endpoint()));
 
-      workers_coord_.back()->RegisterWorker(i);
+      cluster_discovery_.emplace_back(
+          std::make_unique<distributed::ClusterDiscoveryWorker>(
+              *workers_server_.back(), *workers_coord_.back(),
+              rpc_workers_.GetClientPool(0)));
+
+      cluster_discovery_.back()->RegisterWorker(i);
+
       workers_server_.back()->Register<distributed::IncrementCounterRpc>(
           [this, i](const distributed::IncrementCounterReq &) {
             workers_cnt_[i]++;
@@ -61,13 +69,17 @@ class RpcWorkerClientsTest : public ::testing::Test {
 
   std::vector<std::unique_ptr<communication::rpc::Server>> workers_server_;
   std::vector<std::unique_ptr<distributed::WorkerCoordination>> workers_coord_;
+  std::vector<std::unique_ptr<distributed::ClusterDiscoveryWorker>>
+      cluster_discovery_;
   std::unordered_map<int, int> workers_cnt_;
 
   communication::rpc::Server master_server_{kLocalHost};
   std::experimental::optional<distributed::MasterCoordination> master_coord_{
-      master_server_};
+      master_server_.endpoint()};
 
   distributed::RpcWorkerClients rpc_workers_{*master_coord_};
+  distributed::ClusterDiscoveryMaster cluster_disocvery_{
+      master_server_, *master_coord_, rpc_workers_};
 };
 
 TEST_F(RpcWorkerClientsTest, GetWorkerIds) {

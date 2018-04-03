@@ -1,7 +1,10 @@
 #pragma once
 
+#include <unordered_map>
+
 #include "boost/serialization/access.hpp"
 #include "boost/serialization/base_object.hpp"
+#include "boost/serialization/unordered_map.hpp"
 
 #include "communication/rpc/messages.hpp"
 #include "io/network/endpoint.hpp"
@@ -12,7 +15,6 @@ using communication::rpc::Message;
 using Endpoint = io::network::Endpoint;
 
 struct RegisterWorkerReq : public Message {
-  RegisterWorkerReq() {}
   // Set desired_worker_id to -1 to get an automatically assigned ID.
   RegisterWorkerReq(int desired_worker_id, const Endpoint &endpoint)
       : desired_worker_id(desired_worker_id), endpoint(endpoint) {}
@@ -21,6 +23,7 @@ struct RegisterWorkerReq : public Message {
 
  private:
   friend class boost::serialization::access;
+  RegisterWorkerReq() {}
 
   template <class TArchive>
   void serialize(TArchive &ar, unsigned int) {
@@ -30,17 +33,55 @@ struct RegisterWorkerReq : public Message {
   }
 };
 
-RPC_SINGLE_MEMBER_MESSAGE(RegisterWorkerRes, int);
-RPC_SINGLE_MEMBER_MESSAGE(GetEndpointReq, int);
-RPC_SINGLE_MEMBER_MESSAGE(GetEndpointRes, Endpoint);
+struct RegisterWorkerRes : public Message {
+  RegisterWorkerRes(int assigned_worker_id,
+                    std::unordered_map<int, Endpoint> workers)
+      : assigned_worker_id(assigned_worker_id), workers(std::move(workers)) {}
+
+  int assigned_worker_id;
+  std::unordered_map<int, Endpoint> workers;
+
+ private:
+  friend class boost::serialization::access;
+  RegisterWorkerRes() {}
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &assigned_worker_id;
+    ar &workers;
+  }
+};
+
+struct ClusterDiscoveryReq : public Message {
+  ClusterDiscoveryReq(int worker_id, Endpoint endpoint)
+      : worker_id(worker_id), endpoint(endpoint) {}
+
+  int worker_id;
+  Endpoint endpoint;
+
+ private:
+  friend class boost::serialization::access;
+  ClusterDiscoveryReq() {}
+
+  template <class TArchive>
+  void serialize(TArchive &ar, unsigned int) {
+    ar &boost::serialization::base_object<Message>(*this);
+    ar &worker_id;
+    ar &endpoint;
+  }
+};
+
+RPC_NO_MEMBER_MESSAGE(ClusterDiscoveryRes);
 RPC_NO_MEMBER_MESSAGE(StopWorkerReq);
 RPC_NO_MEMBER_MESSAGE(StopWorkerRes);
 
 using RegisterWorkerRpc =
     communication::rpc::RequestResponse<RegisterWorkerReq, RegisterWorkerRes>;
-using GetEndpointRpc =
-    communication::rpc::RequestResponse<GetEndpointReq, GetEndpointRes>;
 using StopWorkerRpc =
     communication::rpc::RequestResponse<StopWorkerReq, StopWorkerRes>;
+using ClusterDiscoveryRpc =
+    communication::rpc::RequestResponse<ClusterDiscoveryReq,
+                                        ClusterDiscoveryRes>;
 
 }  // namespace distributed

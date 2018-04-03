@@ -56,8 +56,8 @@ BOOST_CLASS_EXPORT(tx::GlobalLastRes);
 // Distributed coordination.
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerReq);
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerRes);
-BOOST_CLASS_EXPORT(distributed::GetEndpointReq);
-BOOST_CLASS_EXPORT(distributed::GetEndpointRes);
+BOOST_CLASS_EXPORT(distributed::ClusterDiscoveryReq);
+BOOST_CLASS_EXPORT(distributed::ClusterDiscoveryRes);
 BOOST_CLASS_EXPORT(distributed::StopWorkerReq);
 BOOST_CLASS_EXPORT(distributed::StopWorkerRes);
 

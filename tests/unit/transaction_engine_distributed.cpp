@@ -6,6 +6,7 @@
 #include "gtest/gtest.h"
 
 #include "communication/rpc/server.hpp"
+#include "distributed/cluster_discovery_master.hpp"
 #include "distributed/coordination_master.hpp"
 #include "io/network/endpoint.hpp"
 #include "transactions/engine_master.hpp"
@@ -21,8 +22,10 @@ class WorkerEngineTest : public testing::Test {
   const std::string local{"127.0.0.1"};
 
   Server master_server_{{local, 0}};
-  MasterCoordination master_coordination_{master_server_};
+  MasterCoordination master_coordination_{master_server_.endpoint()};
   RpcWorkerClients rpc_worker_clients_{master_coordination_};
+  ClusterDiscoveryMaster cluster_disocvery_{
+      master_server_, master_coordination_, rpc_worker_clients_};
 
   MasterEngine master_{master_server_, rpc_worker_clients_};
   ClientPool master_client_pool{master_server_.endpoint()};

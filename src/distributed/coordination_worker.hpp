@@ -1,44 +1,33 @@
 #pragma once
 
-#include "communication/rpc/client_pool.hpp"
+#include <mutex>
+#include <unordered_map>
+
 #include "communication/rpc/server.hpp"
-#include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/coordination.hpp"
-#include "distributed/coordination_rpc_messages.hpp"
 
 namespace distributed {
 
 /** Handles worker registration, getting of other workers' endpoints and
  * coordinated shutdown in a distributed memgraph. Worker side. */
-class WorkerCoordination : public Coordination {
+class WorkerCoordination final : public Coordination {
   using Endpoint = io::network::Endpoint;
 
  public:
   WorkerCoordination(communication::rpc::Server &server,
                      const Endpoint &master_endpoint);
 
-  /**
-   * Registers a worker with the master.
-   *
-   * @param worker_id - Desired ID. If -1, or if the desired ID is already
-   * taken, the worker gets the next available ID.
-   */
-  int RegisterWorker(int desired_worker_id = -1);
-
-  /** Gets the endpoint for the given worker ID from the master. */
-  Endpoint GetEndpoint(int worker_id) override;
-
-  /** Shouldn't be called on worker for now!
-   * TODO fix this */
-  std::vector<int> GetWorkerIds() const override;
+  /** Registers the worker with the given endpoint. */
+  int RegisterWorker(int worker_id, Endpoint endpoint);
 
   /** Starts listening for a remote shutdown command (issued by the master).
    * Blocks the calling thread until that has finished. */
   void WaitForShutdown();
 
+  Endpoint GetEndpoint(int worker_id);
+
  private:
   communication::rpc::Server &server_;
-  communication::rpc::ClientPool client_pool_;
-  mutable ConcurrentMap<int, Endpoint> endpoint_cache_;
+  mutable std::mutex lock_;
 };
 }  // namespace distributed
