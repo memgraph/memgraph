@@ -26,9 +26,11 @@ std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
     const std::string &name);
 
 /** Generates a path for a DB snapshot in the given folder in a well-defined
- * sortable format with worker id appended to the file name. */
+ * sortable format with worker id and transaction from which the snapshot is
+ * created appended to the file name. */
 std::experimental::filesystem::path MakeSnapshotPath(
-    const std::experimental::filesystem::path &durability_dir, int worker_id);
+    const std::experimental::filesystem::path &durability_dir, int worker_id,
+    tx::transaction_id_t tx_id);
 
 /// Generates a file path for a write-ahead log file of a specified worker. If
 /// given a transaction ID the file name will contain it. Otherwise the file

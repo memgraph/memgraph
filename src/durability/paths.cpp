@@ -69,11 +69,13 @@ std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
   }
 }
 
-fs::path MakeSnapshotPath(const fs::path &durability_dir, const int worker_id) {
+fs::path MakeSnapshotPath(const fs::path &durability_dir, const int worker_id,
+                          tx::transaction_id_t tx_id) {
   std::string date_str =
       Timestamp(Timestamp::Now())
           .ToString("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
-  auto file_name = date_str + "_worker_" + std::to_string(worker_id);
+  auto file_name = date_str + "_worker_" + std::to_string(worker_id) + "_tx_" +
+                   std::to_string(tx_id);
   return durability_dir / kSnapshotDir / file_name;
 }
 

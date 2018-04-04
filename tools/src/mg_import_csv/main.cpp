@@ -470,7 +470,9 @@ std::string GetOutputPath() {
     LOG(FATAL) << error.what();
   }
   int worker_id = 0;
-  return std::string(durability::MakeSnapshotPath(durability_dir, worker_id));
+  // TODO(dgleich): Remove this transaction id hack
+  return std::string(
+      durability::MakeSnapshotPath(durability_dir, worker_id, 1));
 }
 
 int main(int argc, char *argv[]) {

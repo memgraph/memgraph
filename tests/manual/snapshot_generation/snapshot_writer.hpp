@@ -119,8 +119,10 @@ void WriteToSnapshot(GraphState &state, const std::string &path) {
       LOG(ERROR) << "Unable to create durability directory!";
       exit(0);
     }
+    // Pretend like this is coming from transaction numbered 1 - this is hack
+    // TODO(dgleich): Change this to something more reasonable
     const auto snapshot_file =
-        durability::MakeSnapshotPath(durability_dir, worker_id);
+        durability::MakeSnapshotPath(durability_dir, worker_id, 1);
 
     SnapshotWriter writer(snapshot_file, worker_id,
                           state.NumNodesOnWorker(worker_id),

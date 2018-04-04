@@ -119,10 +119,11 @@ void RemoveOldWals(const fs::path &wal_dir,
 
 bool MakeSnapshot(database::GraphDb &db, const fs::path &durability_dir,
                   const int snapshot_max_retained) {
-  if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
-  const auto snapshot_file = MakeSnapshotPath(durability_dir, db.WorkerId());
-  if (fs::exists(snapshot_file)) return false;
   database::GraphDbAccessor dba(db);
+  if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
+  const auto snapshot_file =
+      MakeSnapshotPath(durability_dir, db.WorkerId(), dba.transaction_id());
+  if (fs::exists(snapshot_file)) return false;
   if (Encode(snapshot_file, db, dba)) {
     RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);
     RemoveOldWals(durability_dir / kWalDir, dba.transaction());
