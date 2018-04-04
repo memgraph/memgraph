@@ -10,6 +10,24 @@
 
 namespace boost::serialization {
 
+namespace {
+
+template <size_t idx, class TArchive, class... Elements>
+void tuple_serialization_helper(TArchive &ar, std::tuple<Elements...> &tup) {
+  if constexpr (idx < sizeof...(Elements)) {
+    ar &std::get<idx>(tup);
+    tuple_serialization_helper<idx + 1, TArchive, Elements...>(ar, tup);
+  }
+}
+
+}  // namespace
+
+template <class TArchive, class... Elements>
+inline void serialize(TArchive &ar, std::tuple<Elements...> &tup,
+                      unsigned int) {
+  tuple_serialization_helper<0, TArchive, Elements...>(ar, tup);
+}
+
 template <class TArchive, class T>
 inline void serialize(TArchive &ar, std::experimental::optional<T> &opt,
                       unsigned int version) {
@@ -38,7 +56,7 @@ void load(TArchive &ar, std::experimental::optional<T> &opt, unsigned int) {
   }
 }
 
-}  // boost::serialization
+}  // namespace boost::serialization
 
 namespace utils {
 
