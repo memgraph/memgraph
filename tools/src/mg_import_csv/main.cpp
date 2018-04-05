@@ -472,7 +472,7 @@ std::string GetOutputPath() {
   int worker_id = 0;
   // TODO(dgleich): Remove this transaction id hack
   return std::string(
-      durability::MakeSnapshotPath(durability_dir, worker_id, 1));
+      durability::MakeSnapshotPath(durability_dir, worker_id, 0));
 }
 
 int main(int argc, char *argv[]) {
