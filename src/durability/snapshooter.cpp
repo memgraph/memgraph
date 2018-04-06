@@ -117,9 +117,9 @@ void RemoveOldWals(const fs::path &wal_dir,
 }
 }  // namespace
 
-bool MakeSnapshot(database::GraphDb &db, const fs::path &durability_dir,
+bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
+                  const fs::path &durability_dir,
                   const int snapshot_max_retained) {
-  database::GraphDbAccessor dba(db);
   if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
   const auto snapshot_file =
       MakeSnapshotPath(durability_dir, db.WorkerId(), dba.transaction_id());
@@ -127,7 +127,6 @@ bool MakeSnapshot(database::GraphDb &db, const fs::path &durability_dir,
   if (Encode(snapshot_file, db, dba)) {
     RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);
     RemoveOldWals(durability_dir / kWalDir, dba.transaction());
-    dba.Commit();
     return true;
   } else {
     std::error_code error_code;  // Just for exception suppression.

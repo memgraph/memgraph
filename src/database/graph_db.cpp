@@ -10,6 +10,9 @@
 #include "distributed/data_manager.hpp"
 #include "distributed/data_rpc_clients.hpp"
 #include "distributed/data_rpc_server.hpp"
+#include "distributed/durability_rpc_clients.hpp"
+#include "distributed/durability_rpc_messages.hpp"
+#include "distributed/durability_rpc_server.hpp"
 #include "distributed/index_rpc_server.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
@@ -44,6 +47,19 @@ class PrivateBase : public GraphDb {
   Storage &storage() override { return storage_; }
   durability::WriteAheadLog &wal() override { return wal_; }
   int WorkerId() const override { return config_.worker_id; }
+
+  // Makes a local snapshot from the visibility of accessor
+  bool MakeSnapshot(GraphDbAccessor &accessor) override {
+    const bool status = durability::MakeSnapshot(
+        *this, accessor, fs::path(config_.durability_directory),
+        config_.snapshot_max_retained);
+    if (status) {
+      LOG(INFO) << "Snapshot created successfully." << std::endl;
+    } else {
+      LOG(ERROR) << "Snapshot creation failed!" << std::endl;
+    }
+    return status;
+  }
 
   distributed::PullRpcClients &pull_clients() override {
     LOG(FATAL) << "Remote pull clients only available in master.";
@@ -150,6 +166,21 @@ class Master : public PrivateBase {
   GraphDb::Type type() const override {
     return GraphDb::Type::DISTRIBUTED_MASTER;
   }
+
+  // Makes a local snapshot and forces the workers to do the same. Snapshot is
+  // written here only if workers sucesfully created their own snapshot
+  bool MakeSnapshot(GraphDbAccessor &accessor) override {
+    auto workers_snapshot =
+        durability_rpc_clients_.MakeSnapshot(accessor.transaction_id());
+    if (!workers_snapshot.get()) return false;
+    // This can be further optimized by creating master snapshot at the same
+    // time as workers snapshots but this forces us to delete the master
+    // snapshot if we succeed in creating it and workers somehow fail. Because
+    // we have an assumption that every snapshot that exists on master with some
+    // tx_id visibility also exists on workers
+    return PrivateBase::MakeSnapshot(accessor);
+  }
+
   IMPL_GETTERS
   IMPL_DISTRIBUTED_GETTERS
   distributed::PlanDispatcher &plan_dispatcher() override {
@@ -169,6 +200,8 @@ class Master : public PrivateBase {
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{server_};
+  distributed::DurabilityRpcClients durability_rpc_clients_{
+      rpc_worker_clients_};
   distributed::DataRpcServer data_server_{*this, server_};
   distributed::DataRpcClients data_clients_{rpc_worker_clients_};
   distributed::PlanDispatcher plan_dispatcher_{rpc_worker_clients_};
@@ -227,6 +260,7 @@ class Worker : public PrivateBase {
   distributed::DataManager data_manager_{storage_, data_clients_};
   distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
       tx_engine_, server_, produce_server_, updates_server_, data_manager_};
+  distributed::DurabilityRpcServer durability_rpc_server_{*this, server_};
 };
 
 #undef IMPL_GETTERS
@@ -241,10 +275,6 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
     durability::Recover(impl_->config_.durability_directory, *impl_);
   if (impl_->config_.durability_enabled) {
     impl_->wal().Enable();
-    snapshot_creator_ = std::make_unique<Scheduler>();
-    snapshot_creator_->Run(
-        "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
-        [this] { MakeSnapshot(); });
   }
 
   // Start transaction killer.
@@ -272,8 +302,13 @@ PublicBase::~PublicBase() {
   tx_engine().LocalForEachActiveTransaction(
       [](auto &t) { t.set_should_abort(); });
 
-  snapshot_creator_ = nullptr;
-  if (impl_->config_.snapshot_on_exit) MakeSnapshot();
+  // If we are not a worker we can do a snapshot on exit if it's enabled. Doing
+  // this on the master forces workers to do the same through rpcs
+  if (impl_->config_.snapshot_on_exit &&
+      impl_->type() != Type::DISTRIBUTED_WORKER) {
+    GraphDbAccessor dba(*this);
+    MakeSnapshot(dba);
+  }
 }
 
 GraphDb::Type PublicBase::type() const { return impl_->type(); }
@@ -326,17 +361,26 @@ distributed::DataManager &PublicBase::data_manager() {
   return impl_->data_manager();
 }
 
-void PublicBase::MakeSnapshot() {
-  const bool status = durability::MakeSnapshot(
-      *impl_, fs::path(impl_->config_.durability_directory),
-      impl_->config_.snapshot_max_retained);
-  if (status) {
-    LOG(INFO) << "Snapshot created successfully." << std::endl;
-  } else {
-    LOG(ERROR) << "Snapshot creation failed!" << std::endl;
-  }
+bool PublicBase::MakeSnapshot(GraphDbAccessor &accessor) {
+  return impl_->MakeSnapshot(accessor);
 }
 }  // namespace impl
+
+MasterBase::MasterBase(std::unique_ptr<impl::PrivateBase> impl)
+    : PublicBase(std::move(impl)) {
+  if (impl_->config_.durability_enabled) {
+    impl_->wal().Enable();
+    snapshot_creator_ = std::make_unique<Scheduler>();
+    snapshot_creator_->Run(
+        "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
+        [this] {
+          GraphDbAccessor dba(*this);
+          impl_->MakeSnapshot(dba);
+        });
+  }
+}
+
+MasterBase::~MasterBase() { snapshot_creator_ = nullptr; }
 
 SingleNode::SingleNode(Config config)
     : MasterBase(std::make_unique<impl::SingleNode>(config)) {}

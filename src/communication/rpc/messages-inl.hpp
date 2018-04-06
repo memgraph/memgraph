@@ -7,6 +7,7 @@
 #include "database/state_delta.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
 #include "distributed/data_rpc_messages.hpp"
+#include "distributed/durability_rpc_messages.hpp"
 #include "distributed/index_rpc_messages.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
@@ -118,6 +119,10 @@ BOOST_CLASS_EXPORT(distributed::RemoveInEdgeData);
 BOOST_CLASS_EXPORT(distributed::RemoveInEdgeReq);
 BOOST_CLASS_EXPORT(distributed::RemoveInEdgeRes);
 
+// Durability
+BOOST_CLASS_EXPORT(distributed::MakeSnapshotReq);
+BOOST_CLASS_EXPORT(distributed::MakeSnapshotRes);
+
 // Storage Gc.
 BOOST_CLASS_EXPORT(distributed::GcClearedStatusReq);
 BOOST_CLASS_EXPORT(distributed::GcClearedStatusRes);
@@ -125,4 +130,3 @@ BOOST_CLASS_EXPORT(distributed::GcClearedStatusRes);
 // Transactional Cache Cleaner.
 BOOST_CLASS_EXPORT(distributed::WaitOnTransactionEndReq);
 BOOST_CLASS_EXPORT(distributed::WaitOnTransactionEndRes);
-

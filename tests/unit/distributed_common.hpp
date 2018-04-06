@@ -1,3 +1,4 @@
+#include <experimental/filesystem>
 #include <memory>
 #include <thread>
 
@@ -8,6 +9,8 @@
 #include "distributed/updates_rpc_server.hpp"
 #include "storage/address_types.hpp"
 #include "transactions/engine_master.hpp"
+
+namespace fs = std::experimental::filesystem;
 
 class DistributedGraphDbTest : public ::testing::Test {
   const std::string kLocal = "127.0.0.1";
@@ -30,37 +33,53 @@ class DistributedGraphDbTest : public ::testing::Test {
  protected:
   virtual int QueryExecutionTimeSec(int) { return 180; }
 
-  void SetUp() override {
+  void Initialize(
+      std::function<database::Config(database::Config config)> modify_config) {
     const auto kInitTime = 200ms;
 
     database::Config master_config;
     master_config.master_endpoint = {kLocal, 0};
     master_config.query_execution_time_sec = QueryExecutionTimeSec(0);
-    master_ = std::make_unique<database::Master>(master_config);
+    master_config.durability_directory = tmp_dir_;
+    master_ = std::make_unique<database::Master>(modify_config(master_config));
     std::this_thread::sleep_for(kInitTime);
 
     auto worker_config = [this](int worker_id) {
       database::Config config;
       config.worker_id = worker_id;
       config.master_endpoint = master_->endpoint();
+      config.durability_directory = tmp_dir_;
       config.worker_endpoint = {kLocal, 0};
       config.query_execution_time_sec = QueryExecutionTimeSec(worker_id);
       return config;
     };
 
     for (int i = 0; i < kWorkerCount; ++i) {
-      workers_.emplace_back(
-          std::make_unique<WorkerInThread>(worker_config(i + 1)));
+      workers_.emplace_back(std::make_unique<WorkerInThread>(
+          modify_config(worker_config(i + 1))));
       std::this_thread::sleep_for(kInitTime);
     }
   }
 
-  void TearDown() override {
+  void SetUp() override {
+    Initialize([](database::Config config) { return config; });
+  }
+
+  void ShutDown() {
     // Kill master first because it will expect a shutdown response from the
     // workers.
     auto t = std::thread([this]() { master_ = nullptr; });
-    for (int i = kWorkerCount - 1; i >= 0; --i) workers_[i] = nullptr;
+    workers_.clear();
     if (t.joinable()) t.join();
+  }
+
+  void CleanDurability() {
+    if (fs::exists(tmp_dir_)) fs::remove_all(tmp_dir_);
+  }
+
+  void TearDown() override {
+    ShutDown();
+    CleanDurability();
   }
 
   database::Master &master() { return *master_; }
@@ -114,4 +133,7 @@ class DistributedGraphDbTest : public ::testing::Test {
  private:
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;
+
+  fs::path tmp_dir_ = fs::temp_directory_path() /
+                      ("MG_test_unit_durability" + std::to_string(getpid()));
 };

@@ -111,6 +111,9 @@ class GraphDb {
   virtual distributed::ProduceRpcServer &produce_server() = 0;
   virtual distributed::PlanConsumer &plan_consumer() = 0;
 
+  // Makes a snapshot from the visibility of the given accessor
+  virtual bool MakeSnapshot(GraphDbAccessor &accessor) = 0;
+
   GraphDb(const GraphDb &) = delete;
   GraphDb(GraphDb &&) = delete;
   GraphDb &operator=(const GraphDb &) = delete;
@@ -150,6 +153,7 @@ class PublicBase : public GraphDb {
   distributed::DataManager &data_manager() override;
 
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
+  bool MakeSnapshot(GraphDbAccessor &accessor) override;
 
  protected:
   explicit PublicBase(std::unique_ptr<PrivateBase> impl);
@@ -158,19 +162,19 @@ class PublicBase : public GraphDb {
   std::unique_ptr<PrivateBase> impl_;
 
  private:
-  std::unique_ptr<Scheduler> snapshot_creator_;
-
   /** When this is false, no new transactions should be created. */
   std::atomic<bool> is_accepting_transactions_{true};
   Scheduler transaction_killer_;
-
-  void MakeSnapshot();
 };
 }  // namespace impl
 
 class MasterBase : public impl::PublicBase {
  public:
-  using PublicBase::PublicBase;
+  MasterBase(std::unique_ptr<impl::PrivateBase> impl);
+  ~MasterBase();
+
+ private:
+  std::unique_ptr<Scheduler> snapshot_creator_;
 };
 
 class SingleNode : public MasterBase {

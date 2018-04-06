@@ -1,0 +1,26 @@
+#include "distributed/durability_rpc_clients.hpp"
+
+#include "distributed/durability_rpc_messages.hpp"
+#include "transactions/transaction.hpp"
+#include "utils/future.hpp"
+
+namespace distributed {
+utils::Future<bool> DurabilityRpcClients::MakeSnapshot(
+    tx::transaction_id_t tx) {
+  return std::async(std::launch::async, [this, tx] {
+    auto futures = clients_.ExecuteOnWorkers<bool>(
+        0, [tx](communication::rpc::ClientPool &client_pool) {
+          auto res = client_pool.Call<MakeSnapshotRpc>(tx);
+          if (res == nullptr) return false;
+          return res->member;
+        });
+
+    bool created = true;
+    for (auto &future : futures) {
+      created &= future.get();
+    }
+
+    return created;
+  });
+}
+}  // namespace distributed

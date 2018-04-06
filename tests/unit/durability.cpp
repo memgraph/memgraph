@@ -300,8 +300,9 @@ class Durability : public ::testing::Test {
   }
 
   void MakeSnapshot(database::GraphDb &db, int snapshot_max_retained = -1) {
-    ASSERT_TRUE(
-        durability::MakeSnapshot(db, durability_dir_, snapshot_max_retained));
+    database::GraphDbAccessor dba(db);
+    ASSERT_TRUE(durability::MakeSnapshot(db, dba, durability_dir_,
+                                         snapshot_max_retained));
   }
 
   void SetUp() override {
@@ -820,8 +821,9 @@ TEST_F(Durability, SequentialRecovery) {
     return threads;
   };
 
-  auto make_updates = [&run_updates, this](
-      database::GraphDb &db, bool snapshot_during, bool snapshot_after) {
+  auto make_updates = [&run_updates, this](database::GraphDb &db,
+                                           bool snapshot_during,
+                                           bool snapshot_after) {
     std::atomic<bool> keep_running{true};
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);
