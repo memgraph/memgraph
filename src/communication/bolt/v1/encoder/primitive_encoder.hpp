@@ -36,35 +36,35 @@ class PrimitiveEncoder {
     WriteRAW(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
   }
 
-  void WriteNull() { WriteRAW(underlying_cast(Marker::Null)); }
+  void WriteNull() { WriteRAW(utils::UnderlyingCast(Marker::Null)); }
 
   void WriteBool(const bool &value) {
     if (value)
-      WriteRAW(underlying_cast(Marker::True));
+      WriteRAW(utils::UnderlyingCast(Marker::True));
     else
-      WriteRAW(underlying_cast(Marker::False));
+      WriteRAW(utils::UnderlyingCast(Marker::False));
   }
 
   void WriteInt(const int64_t &value) {
     if (value >= -16L && value < 128L) {
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -128L && value < -16L) {
-      WriteRAW(underlying_cast(Marker::Int8));
+      WriteRAW(utils::UnderlyingCast(Marker::Int8));
       WriteRAW(static_cast<uint8_t>(value));
     } else if (value >= -32768L && value < 32768L) {
-      WriteRAW(underlying_cast(Marker::Int16));
+      WriteRAW(utils::UnderlyingCast(Marker::Int16));
       WriteValue(static_cast<int16_t>(value));
     } else if (value >= -2147483648L && value < 2147483648L) {
-      WriteRAW(underlying_cast(Marker::Int32));
+      WriteRAW(utils::UnderlyingCast(Marker::Int32));
       WriteValue(static_cast<int32_t>(value));
     } else {
-      WriteRAW(underlying_cast(Marker::Int64));
+      WriteRAW(utils::UnderlyingCast(Marker::Int64));
       WriteValue(value);
     }
   }
 
   void WriteDouble(const double &value) {
-    WriteRAW(underlying_cast(Marker::Float64));
+    WriteRAW(utils::UnderlyingCast(Marker::Float64));
     WriteValue(*reinterpret_cast<const int64_t *>(&value));
   }
 
@@ -72,18 +72,18 @@ class PrimitiveEncoder {
     if (size <= 15) {
       uint8_t len = size;
       len &= 0x0F;
-      WriteRAW(underlying_cast(MarkerTiny[typ]) + len);
+      WriteRAW(utils::UnderlyingCast(MarkerTiny[typ]) + len);
     } else if (size <= 255) {
       uint8_t len = size;
-      WriteRAW(underlying_cast(Marker8[typ]));
+      WriteRAW(utils::UnderlyingCast(Marker8[typ]));
       WriteRAW(len);
     } else if (size <= 65535) {
       uint16_t len = size;
-      WriteRAW(underlying_cast(Marker16[typ]));
+      WriteRAW(utils::UnderlyingCast(Marker16[typ]));
       WriteValue(len);
     } else {
       uint32_t len = size;
-      WriteRAW(underlying_cast(Marker32[typ]));
+      WriteRAW(utils::UnderlyingCast(Marker32[typ]));
       WriteValue(len);
     }
   }

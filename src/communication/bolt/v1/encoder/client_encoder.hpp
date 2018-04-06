@@ -40,8 +40,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    */
   bool MessageInit(const std::string client_name,
                    const std::map<std::string, query::TypedValue> &auth_token) {
-    WriteRAW(underlying_cast(Marker::TinyStruct2));
-    WriteRAW(underlying_cast(Signature::Init));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
+    WriteRAW(utils::UnderlyingCast(Signature::Init));
     WriteString(client_name);
     WriteMap(auth_token);
     return buffer_.Flush();
@@ -64,8 +64,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   bool MessageRun(const std::string statement,
                   const std::map<std::string, query::TypedValue> &parameters,
                   bool flush = true) {
-    WriteRAW(underlying_cast(Marker::TinyStruct2));
-    WriteRAW(underlying_cast(Signature::Run));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
+    WriteRAW(utils::UnderlyingCast(Signature::Run));
     WriteString(statement);
     WriteMap(parameters);
     if (flush) {
@@ -88,8 +88,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageDiscardAll() {
-    WriteRAW(underlying_cast(Marker::TinyStruct));
-    WriteRAW(underlying_cast(Signature::DiscardAll));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
+    WriteRAW(utils::UnderlyingCast(Signature::DiscardAll));
     return buffer_.Flush();
   }
 
@@ -104,8 +104,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessagePullAll() {
-    WriteRAW(underlying_cast(Marker::TinyStruct));
-    WriteRAW(underlying_cast(Signature::PullAll));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
+    WriteRAW(utils::UnderlyingCast(Signature::PullAll));
     return buffer_.Flush();
   }
 
@@ -120,8 +120,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageAckFailure() {
-    WriteRAW(underlying_cast(Marker::TinyStruct));
-    WriteRAW(underlying_cast(Signature::AckFailure));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
+    WriteRAW(utils::UnderlyingCast(Signature::AckFailure));
     return buffer_.Flush();
   }
 
@@ -136,8 +136,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageReset() {
-    WriteRAW(underlying_cast(Marker::TinyStruct));
-    WriteRAW(underlying_cast(Signature::Reset));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
+    WriteRAW(utils::UnderlyingCast(Signature::Reset));
     return buffer_.Flush();
   }
 };

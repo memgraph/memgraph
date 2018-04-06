@@ -102,11 +102,11 @@ class Decoder {
         return ReadEdge(marker, data);
 
       default:
-        if ((value & 0xF0) == underlying_cast(Marker::TinyString)) {
+        if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyString)) {
           return ReadString(marker, data);
-        } else if ((value & 0xF0) == underlying_cast(Marker::TinyList)) {
+        } else if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyList)) {
           return ReadList(marker, data);
-        } else if ((value & 0xF0) == underlying_cast(Marker::TinyMap)) {
+        } else if ((value & 0xF0) == utils::UnderlyingCast(Marker::TinyMap)) {
           return ReadMap(marker, data);
         } else {
           return ReadInt(marker, data);
@@ -187,7 +187,7 @@ class Decoder {
   }
 
   bool ReadInt(const Marker &marker, DecodedValue *data) {
-    uint8_t value = underlying_cast(marker);
+    uint8_t value = utils::UnderlyingCast(marker);
     int64_t ret;
     VLOG(20) << "[ReadInt] Start";
     if (value >= 240 || value <= 127) {
@@ -227,7 +227,7 @@ class Decoder {
       ret = bswap(ret);
     } else {
       DLOG(WARNING) << "[ReadInt] Received invalid marker "
-                    << underlying_cast(marker);
+                    << utils::UnderlyingCast(marker);
       return false;
     }
     *data = DecodedValue(ret);
@@ -253,8 +253,8 @@ class Decoder {
   }
 
   int64_t ReadTypeSize(const Marker &marker, const uint8_t type) {
-    uint8_t value = underlying_cast(marker);
-    if ((value & 0xF0) == underlying_cast(MarkerTiny[type])) {
+    uint8_t value = utils::UnderlyingCast(marker);
+    if ((value & 0xF0) == utils::UnderlyingCast(MarkerTiny[type])) {
       VLOG(20) << "[ReadTypeSize] Found a TinyType";
       return value & 0x0F;
     } else if (marker == Marker8[type]) {
@@ -285,7 +285,7 @@ class Decoder {
       return tmp;
     } else {
       DLOG(WARNING) << "[ReadTypeSize] Received invalid marker "
-                    << underlying_cast(marker);
+                    << utils::UnderlyingCast(marker);
       return -1;
     }
   }
@@ -423,10 +423,10 @@ class Decoder {
     // check header
     if (marker != Marker::TinyStruct5) {
       DLOG(WARNING) << "[ReadEdge] Received invalid marker "
-                    << (uint64_t)underlying_cast(marker);
+                    << (uint64_t)utils::UnderlyingCast(marker);
       return false;
     }
-    if (value != underlying_cast(Signature::Relationship)) {
+    if (value != utils::UnderlyingCast(Signature::Relationship)) {
       DLOG(WARNING) << "[ReadEdge] Received invalid signature " << value;
       return false;
     }

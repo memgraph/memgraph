@@ -37,8 +37,8 @@ class Encoder : private BaseEncoder<Buffer> {
    * @param values the fields list object that should be sent
    */
   void MessageRecord(const std::vector<query::TypedValue> &values) {
-    WriteRAW(underlying_cast(Marker::TinyStruct1));
-    WriteRAW(underlying_cast(Signature::Record));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Record));
     WriteList(values);
     buffer_.Chunk();
   }
@@ -58,8 +58,8 @@ class Encoder : private BaseEncoder<Buffer> {
    */
   bool MessageSuccess(const std::map<std::string, query::TypedValue> &metadata,
                       bool flush = true) {
-    WriteRAW(underlying_cast(Marker::TinyStruct1));
-    WriteRAW(underlying_cast(Signature::Success));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Success));
     WriteMap(metadata);
     if (flush) {
       return buffer_.Flush();
@@ -97,8 +97,8 @@ class Encoder : private BaseEncoder<Buffer> {
    */
   bool MessageFailure(
       const std::map<std::string, query::TypedValue> &metadata) {
-    WriteRAW(underlying_cast(Marker::TinyStruct1));
-    WriteRAW(underlying_cast(Signature::Failure));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Failure));
     WriteMap(metadata);
     return buffer_.Flush();
   }
@@ -117,8 +117,8 @@ class Encoder : private BaseEncoder<Buffer> {
    */
   bool MessageIgnored(
       const std::map<std::string, query::TypedValue> &metadata) {
-    WriteRAW(underlying_cast(Marker::TinyStruct1));
-    WriteRAW(underlying_cast(Signature::Ignored));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
+    WriteRAW(utils::UnderlyingCast(Signature::Ignored));
     WriteMap(metadata);
     return buffer_.Flush();
   }
@@ -132,8 +132,8 @@ class Encoder : private BaseEncoder<Buffer> {
    *          false otherwise
    */
   bool MessageIgnored() {
-    WriteRAW(underlying_cast(Marker::TinyStruct));
-    WriteRAW(underlying_cast(Signature::Ignored));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
+    WriteRAW(utils::UnderlyingCast(Signature::Ignored));
     return buffer_.Flush();
   }
 };

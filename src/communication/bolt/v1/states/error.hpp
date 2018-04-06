@@ -26,7 +26,7 @@ State StateErrorRun(TSession &session, State state) {
   }
 
   DLOG(INFO) << fmt::format("Message signature is: 0x{:02X}",
-                            underlying_cast(signature));
+                            utils::UnderlyingCast(signature));
 
   // Clear the data buffer if it has any leftover data.
   session.encoder_buffer_.Clear();
@@ -58,11 +58,11 @@ State StateErrorRun(TSession &session, State state) {
       LOG(FATAL) << "Shouldn't happen";
     }
   } else {
-    uint8_t value = underlying_cast(marker);
+    uint8_t value = utils::UnderlyingCast(marker);
 
     // All bolt client messages have less than 15 parameters so if we receive
     // anything than a TinyStruct it's an error.
-    if ((value & 0xF0) != underlying_cast(Marker::TinyStruct)) {
+    if ((value & 0xF0) != utils::UnderlyingCast(Marker::TinyStruct)) {
       DLOG(WARNING) << fmt::format(
           "Expected TinyStruct marker, but received 0x{:02X}!", value);
       return State::Close;

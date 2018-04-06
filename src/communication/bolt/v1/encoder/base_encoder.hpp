@@ -38,8 +38,8 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
   }
 
   void WriteVertex(const VertexAccessor &vertex) {
-    this->WriteRAW(underlying_cast(Marker::TinyStruct) + 3);
-    this->WriteRAW(underlying_cast(Signature::Node));
+    this->WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    this->WriteRAW(utils::UnderlyingCast(Signature::Node));
     WriteUInt(vertex.gid());
 
     // write labels
@@ -58,9 +58,10 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
   }
 
   void WriteEdge(const EdgeAccessor &edge, bool unbound = false) {
-    this->WriteRAW(underlying_cast(Marker::TinyStruct) + (unbound ? 3 : 5));
-    this->WriteRAW(underlying_cast(unbound ? Signature::UnboundRelationship
-                                           : Signature::Relationship));
+    this->WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) +
+                   (unbound ? 3 : 5));
+    this->WriteRAW(utils::UnderlyingCast(
+        unbound ? Signature::UnboundRelationship : Signature::Relationship));
 
     WriteUInt(edge.gid());
     if (!unbound) {
@@ -113,8 +114,8 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
     }
 
     // Write data.
-    this->WriteRAW(underlying_cast(Marker::TinyStruct) + 3);
-    this->WriteRAW(underlying_cast(Signature::Path));
+    this->WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    this->WriteRAW(utils::UnderlyingCast(Signature::Path));
     this->WriteTypeSize(vertices.size(), MarkerList);
     for (auto &v : vertices) WriteVertex(v);
     this->WriteTypeSize(edges.size(), MarkerList);

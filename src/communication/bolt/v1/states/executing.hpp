@@ -23,7 +23,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
   if (marker != Marker::TinyStruct2) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct2 marker, but received 0x{:02X}!",
-        underlying_cast(marker));
+        utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -217,7 +217,7 @@ State HandlePullAll(Session &session, State state, Marker marker) {
   if (marker != Marker::TinyStruct) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct marker, but received 0x{:02X}!",
-        underlying_cast(marker));
+        utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -241,7 +241,7 @@ State HandleDiscardAll(Session &session, State state, Marker marker) {
   if (marker != Marker::TinyStruct) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct marker, but received 0x{:02X}!",
-        underlying_cast(marker));
+        utils::UnderlyingCast(marker));
     return State::Close;
   }
 
@@ -273,7 +273,7 @@ State HandleReset(Session &session, State, Marker marker) {
   if (marker != Marker::TinyStruct) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct marker, but received 0x{:02X}!",
-        underlying_cast(marker));
+        utils::UnderlyingCast(marker));
     return State::Close;
   }
   // clear all pending data and send a success message
@@ -313,7 +313,7 @@ State StateExecutingRun(Session &session, State state) {
     return HandleReset(session, state, marker);
   } else {
     DLOG(WARNING) << fmt::format("Unrecognized signature recieved (0x{:02X})!",
-                                 underlying_cast(signature));
+                                 utils::UnderlyingCast(signature));
     return State::Close;
   }
 }

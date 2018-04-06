@@ -59,9 +59,10 @@ class SnapshotWriter {
 
   void WriteNode(const Node &node,
                  const std::unordered_map<gid::Gid, Edge> &edges) {
-    encoder_.WriteRAW(underlying_cast(communication::bolt::Marker::TinyStruct) +
-                      3);
-    encoder_.WriteRAW(underlying_cast(communication::bolt::Signature::Node));
+    encoder_.WriteRAW(
+        utils::UnderlyingCast(communication::bolt::Marker::TinyStruct) + 3);
+    encoder_.WriteRAW(
+        utils::UnderlyingCast(communication::bolt::Signature::Node));
     encoder_.WriteInt(node.gid);
 
     WriteList(node.labels);
@@ -81,10 +82,10 @@ class SnapshotWriter {
   }
 
   void WriteEdge(const Edge &edge) {
-    encoder_.WriteRAW(underlying_cast(communication::bolt::Marker::TinyStruct) +
-                      5);
     encoder_.WriteRAW(
-        underlying_cast(communication::bolt::Signature::Relationship));
+        utils::UnderlyingCast(communication::bolt::Marker::TinyStruct) + 5);
+    encoder_.WriteRAW(
+        utils::UnderlyingCast(communication::bolt::Signature::Relationship));
     encoder_.WriteInt(edge.gid);
     encoder_.WriteInt(edge.from);
     encoder_.WriteInt(edge.to);

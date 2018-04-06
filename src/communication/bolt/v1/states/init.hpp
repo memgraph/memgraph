@@ -32,13 +32,13 @@ State StateInitRun(Session &session) {
   if (UNLIKELY(signature != Signature::Init)) {
     DLOG(WARNING) << fmt::format(
         "Expected Init signature, but received 0x{:02X}!",
-        underlying_cast(signature));
+        utils::UnderlyingCast(signature));
     return State::Close;
   }
   if (UNLIKELY(marker != Marker::TinyStruct2)) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct2 marker, but received 0x{:02X}!",
-        underlying_cast(marker));
+        utils::UnderlyingCast(marker));
     DLOG(WARNING) << "The client sent malformed data, but we are continuing "
                      "because the official Neo4j Java driver sends malformed "
                      "data. D'oh!";

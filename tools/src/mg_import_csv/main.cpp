@@ -162,9 +162,9 @@ std::vector<Field> ReadHeader(std::istream &stream) {
     auto name_and_type = utils::Split(value, ":");
     CHECK(name_and_type.size() == 1U || name_and_type.size() == 2U)
         << fmt::format(
-               "\nExpected a name and optionally a type, got '{}'.\nDid you "
-               "specify a correct CSV delimiter?",
-               value);
+            "\nExpected a name and optionally a type, got '{}'.\nDid you "
+            "specify a correct CSV delimiter?",
+            value);
     auto name = name_and_type[0];
     // When type is missing, default is string.
     std::string type("string");
@@ -390,8 +390,9 @@ void Convert(const std::vector<std::string> &nodes,
       auto &vertex = vertex_pair.second;
       // write node
       encoder.WriteRAW(
-          underlying_cast(communication::bolt::Marker::TinyStruct) + 3);
-      encoder.WriteRAW(underlying_cast(communication::bolt::Signature::Node));
+          utils::UnderlyingCast(communication::bolt::Marker::TinyStruct) + 3);
+      encoder.WriteRAW(
+          utils::UnderlyingCast(communication::bolt::Signature::Node));
 
       encoder.WriteInt(vertex.gid);
       auto &labels = vertex.labels;
@@ -420,9 +421,9 @@ void Convert(const std::vector<std::string> &nodes,
       auto &edge = edge_pair.second;
       // write relationship
       encoder.WriteRAW(
-          underlying_cast(communication::bolt::Marker::TinyStruct) + 5);
+          utils::UnderlyingCast(communication::bolt::Marker::TinyStruct) + 5);
       encoder.WriteRAW(
-          underlying_cast(communication::bolt::Signature::Relationship));
+          utils::UnderlyingCast(communication::bolt::Signature::Relationship));
       encoder.WriteInt(edge.id);
       encoder.WriteInt(edge.from);
       encoder.WriteInt(edge.to);
