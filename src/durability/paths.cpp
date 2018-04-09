@@ -14,9 +14,11 @@ namespace durability {
 namespace fs = std::experimental::filesystem;
 /// Returns true if the given directory path exists or is succesfully created.
 bool EnsureDir(const fs::path &dir) {
-  if (fs::exists(dir)) return true;
   std::error_code error_code;  // Just for exception suppression.
-  return fs::create_directories(dir, error_code);
+  auto result = fs::create_directories(dir, error_code);
+  // The result will be false if the directory already exists. This is why we
+  // also check the error_code value.
+  return result || !error_code.value();
 }
 
 /// Ensures the given durability directory exists and is ready for use. Creates
@@ -24,9 +26,9 @@ bool EnsureDir(const fs::path &dir) {
 void CheckDurabilityDir(const std::string &durability_dir) {
   namespace fs = std::experimental::filesystem;
   if (fs::exists(durability_dir)) {
-    CHECK(fs::is_directory(durability_dir))
-        << "The durability directory path '" << durability_dir
-        << "' is not a directory!";
+    CHECK(fs::is_directory(durability_dir)) << "The durability directory path '"
+                                            << durability_dir
+                                            << "' is not a directory!";
   } else {
     bool success = EnsureDir(durability_dir);
     CHECK(success) << "Failed to create durability directory '"
