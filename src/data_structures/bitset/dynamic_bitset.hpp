@@ -186,7 +186,7 @@ class DynamicBitset {
 
     while (k < chunk->low()) {
       chunk = chunk->next_;
-      DCHECK(chunk != nullptr) << "chunk is nullptr";
+      CHECK(chunk != nullptr) << "chunk is nullptr";
     }
     k -= chunk->low();
     return *chunk;
