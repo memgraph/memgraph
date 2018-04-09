@@ -3,7 +3,7 @@
 #include <experimental/filesystem>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "data_structures/concurrent/concurrent_set.hpp"
+#include "data_structures/concurrent/skiplist.hpp"
 #include "database/indexes/key_index.hpp"
 #include "database/indexes/label_property_index.hpp"
 #include "mvcc/version_list.hpp"
@@ -54,9 +54,7 @@ class Storage {
   template <typename TRecord>
   mvcc::VersionList<TRecord> *LocalAddress(gid::Gid gid) const {
     const auto &map = GetMap<TRecord>();
-    // TODO the access must be explicitly const due to a bug in in
-    // ConcurrentMap::Access::find
-    const auto access = map.access();
+    auto access = map.access();
     auto found = access.find(gid);
     CHECK(found != access.end())
         << "Failed to find "
@@ -107,7 +105,7 @@ class Storage {
   LabelPropertyIndex label_property_index_;
 
   // Set of transactions ids which are building indexes currently
-  ConcurrentSet<tx::transaction_id_t> index_build_tx_in_progress_;
+  SkipList<tx::transaction_id_t> index_build_tx_in_progress_;
 
   /// Gets the Vertex/Edge main storage map.
   template <typename TRecord>

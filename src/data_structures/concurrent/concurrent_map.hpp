@@ -1,80 +1,89 @@
 #pragma once
 
-#include "data_structures/concurrent/common.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
+#include "utils/total_ordering.hpp"
 
-using std::pair;
-
-/**
- * Multi thread safe map based on skiplist.
- *
- * @tparam K is a type of key.
- * @tparam T is a type of data.
- */
-template <typename K, typename T>
+/// Thread-safe map intended for high concurrent throughput.
+///
+/// @tparam TKey is a type of key.
+/// @tparam TValue is a type of data.
+template <typename TKey, typename TValue>
 class ConcurrentMap {
-  typedef Item<K, T> item_t;
-  typedef SkipList<item_t> list;
-  typedef typename SkipList<item_t>::Iterator list_it;
-  typedef typename SkipList<item_t>::ConstIterator list_it_con;
+  /// At item in the concurrent map. A pair of <TKey, TValue> that compares on
+  /// the first value (key). Comparable to another Item, or only to the TKey.
+  class Item : public TotalOrdering<Item>,
+               public TotalOrdering<TKey, Item>,
+               public TotalOrdering<Item, TKey>,
+               public std::pair<const TKey, TValue> {
+   public:
+    using std::pair<const TKey, TValue>::pair;
+
+    friend constexpr bool operator<(const Item &lhs, const Item &rhs) {
+      return lhs.first < rhs.first;
+    }
+
+    friend constexpr bool operator==(const Item &lhs, const Item &rhs) {
+      return lhs.first == rhs.first;
+    }
+
+    friend constexpr bool operator<(const TKey &lhs, const Item &rhs) {
+      return lhs < rhs.first;
+    }
+
+    friend constexpr bool operator==(const TKey &lhs, const Item &rhs) {
+      return lhs == rhs.first;
+    }
+
+    friend constexpr bool operator<(const Item &lhs, const TKey &rhs) {
+      return lhs.first < rhs;
+    }
+
+    friend constexpr bool operator==(const Item &lhs, const TKey &rhs) {
+      return lhs.first == rhs;
+    }
+  };
+
+  using Iterator = typename SkipList<Item>::Iterator;
 
  public:
   ConcurrentMap() {}
 
-  template <bool IsConst = false>
-  class Accessor : public AccessorBase<item_t, IsConst> {
+  template <typename TSkipList>
+  class Accessor : public SkipList<Item>::template Accessor<TSkipList> {
+   public:
     friend class ConcurrentMap;
 
-    using AccessorBase<item_t, IsConst>::AccessorBase;
+    using SkipList<Item>::template Accessor<TSkipList>::Accessor;
 
-   private:
-    using AccessorBase<item_t, IsConst>::accessor;
-
-   public:
-    std::pair<list_it, bool> insert(const K &key, const T &data) {
-      return accessor.insert(item_t(key, data));
+    std::pair<Iterator, bool> insert(const TKey &key, const TValue &data) {
+      return SkipList<Item>::template Accessor<TSkipList>::insert(
+          Item(key, data));
     }
 
-    std::pair<list_it, bool> insert(const K &key, T &&data) {
-      return accessor.insert(item_t(key, std::move(data)));
+    std::pair<Iterator, bool> insert(const TKey &key, TValue &&data) {
+      return SkipList<Item>::template Accessor<TSkipList>::insert(
+          Item(key, std::move(data)));
     }
 
-    std::pair<list_it, bool> insert(K &&key, T &&data) {
-      return accessor.insert(
-          item_t(std::forward<K>(key), std::forward<T>(data)));
+    std::pair<Iterator, bool> insert(TKey &&key, TValue &&data) {
+      return SkipList<Item>::template Accessor<TSkipList>::insert(
+          Item(std::forward<TKey>(key), std::forward<TValue>(data)));
     }
 
     template <class... Args1, class... Args2>
-    std::pair<list_it, bool> emplace(const K &key,
-                                     std::tuple<Args1...> first_args,
-                                     std::tuple<Args2...> second_args) {
-      return accessor.emplace(key, std::piecewise_construct,
-                              std::forward<std::tuple<Args1...>>(first_args),
-                              std::forward<std::tuple<Args2...>>(second_args));
+    std::pair<Iterator, bool> emplace(const TKey &key,
+                                      std::tuple<Args1...> first_args,
+                                      std::tuple<Args2...> second_args) {
+      return SkipList<Item>::template Accessor<TSkipList>::emplace(
+          key, std::piecewise_construct,
+          std::forward<std::tuple<Args1...>>(first_args),
+          std::forward<std::tuple<Args2...>>(second_args));
     }
-
-    list_it_con find(const K &key) const { return accessor.find(key); }
-
-    list_it find(const K &key) { return accessor.find(key); }
-
-    // Returns iterator to item or first larger if it doesn't exist.
-    list_it_con find_or_larger(const T &item) const {
-      return accessor.find_or_larger(item);
-    }
-
-    // Returns iterator to item or first larger if it doesn't exist.
-    list_it find_or_larger(const T &item) {
-      return accessor.find_or_larger(item);
-    }
-
-    bool contains(const K &key) const { return this->find(key) != this->end(); }
-
-    bool remove(const K &key) { return accessor.remove(key); }
   };
 
-  auto access() { return Accessor<false>(&skiplist); }
-  auto access() const { return Accessor<true>(&skiplist); }
+  auto access() { return Accessor<SkipList<Item>>(&skiplist); }
+  auto access() const { return Accessor<const SkipList<Item>>(&skiplist); }
 
  private:
-  list skiplist;
+  SkipList<Item> skiplist;
 };

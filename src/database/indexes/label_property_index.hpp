@@ -3,7 +3,7 @@
 #include <experimental/optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "data_structures/concurrent/concurrent_set.hpp"
+#include "data_structures/concurrent/skiplist.hpp"
 #include "database/indexes/index_common.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/edge.hpp"
@@ -531,6 +531,6 @@ class LabelPropertyIndex {
   }
 
   ConcurrentMap<Key, std::unique_ptr<SkipList<IndexEntry>>> indices_;
-  ConcurrentSet<Key> ready_for_use_;
+  SkipList<Key> ready_for_use_;
 };
 }  // namespace database

@@ -3,7 +3,7 @@
 #include <thread>
 #include <vector>
 
-#include "data_structures/concurrent/concurrent_set.hpp"
+#include "data_structures/concurrent/skiplist.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 
@@ -53,7 +53,7 @@ TEST(Engine, Advance) {
 TEST(Engine, ConcurrentBegin) {
   SingleNodeEngine engine;
   std::vector<std::thread> threads;
-  ConcurrentSet<transaction_id_t> tx_ids;
+  SkipList<transaction_id_t> tx_ids;
   for (int i = 0; i < 10; ++i) {
     threads.emplace_back([&engine, accessor = tx_ids.access() ]() mutable {
       for (int j = 0; j < 100; ++j) {

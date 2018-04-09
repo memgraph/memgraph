@@ -35,7 +35,7 @@ class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId> {
   }
 
   const std::string &id_to_value(const TId &id) override {
-    const auto id_to_value_acc = id_to_value_.access();
+    auto id_to_value_acc = id_to_value_.access();
     auto result = id_to_value_acc.find(id);
     DCHECK(result != id_to_value_acc.end());
     return result->second;

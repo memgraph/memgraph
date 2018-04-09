@@ -53,8 +53,8 @@ int main(int, char **argv) {
   // check size
   {
     auto accessor = skiplist.access();
-    CHECK(accessor.size() == 0)
-        << "Size should be 0, but size is " << accessor.size();
+    CHECK(accessor.size() == 0) << "Size should be 0, but size is "
+                                << accessor.size();
   }
 
   // check count
@@ -70,7 +70,7 @@ int main(int, char **argv) {
 
   {
     auto accessor = skiplist.access();
-    check_order<map_t>(accessor);
+    check_order(accessor);
   }
   return 0;
 }

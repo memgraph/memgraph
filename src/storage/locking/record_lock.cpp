@@ -16,10 +16,9 @@ namespace {
 // Finds lock cycle that start transaction is a part of and returns id of oldest
 // transaction in that cycle. If start transaction is not in a cycle nullopt is
 // returned.
+template <typename TAccessor>
 std::experimental::optional<tx::transaction_id_t> FindOldestTxInLockCycle(
-    tx::transaction_id_t start,
-    ConcurrentMap<tx::transaction_id_t, tx::transaction_id_t>::Accessor<>
-        &graph_accessor) {
+    tx::transaction_id_t start, TAccessor &graph_accessor) {
   std::vector<tx::transaction_id_t> path;
   std::unordered_set<tx::transaction_id_t> visited;
 

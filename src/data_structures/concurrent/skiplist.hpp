@@ -456,6 +456,13 @@ class SkipList : private Lockable<lock_t> {
   class Accessor {
     friend class SkipList;
 
+    // The iterator type that will be return from non-const iterator returning
+    // methods (begin, end, find...). Must be ConstIterator if the SkipList is
+    // const, even if the Accessor is not const.
+    using IteratorT = typename std::conditional<std::is_const<TSkipList>::value,
+                                                ConstIterator, Iterator>::type;
+
+   protected:
     explicit Accessor(TSkipList *skiplist)
         : skiplist(skiplist), status_(skiplist->gc.CreateNewAccessor()) {
       DCHECK(skiplist != nullptr) << "Skiplist is nullptr.";
@@ -476,16 +483,15 @@ class SkipList : private Lockable<lock_t> {
       status_.alive_ = false;
     }
 
-    auto begin() const { return skiplist->begin(); }
-
+    IteratorT begin() { return skiplist->begin(); }
+    ConstIterator begin() const { return skiplist->cbegin(); }
     ConstIterator cbegin() const { return skiplist->cbegin(); }
 
-    auto end() const { return skiplist->end(); }
-
+    IteratorT end() { return skiplist->end(); }
+    ConstIterator end() const { return skiplist->cend(); }
     ConstIterator cend() const { return skiplist->cend(); }
 
     ReverseIterator rbegin() { return skiplist->rbegin(); }
-
     ReverseIterator rend() { return skiplist->rend(); }
 
     std::pair<Iterator, bool> insert(const T &item) {
@@ -502,13 +508,13 @@ class SkipList : private Lockable<lock_t> {
     }
 
     template <class K>
-    ConstIterator find(const K &item) const {
-      return static_cast<const SkipList &>(*skiplist).find(item);
+    IteratorT find(const K &item) {
+      return skiplist->find(item);
     }
 
     template <class K>
-    Iterator find(const K &item) {
-      return skiplist->find(item);
+    ConstIterator find(const K &item) const {
+      return static_cast<const SkipList &>(*skiplist).find(item);
     }
 
     template <class K>
@@ -524,7 +530,7 @@ class SkipList : private Lockable<lock_t> {
      * @tparam TItem item type
      */
     template <class TItem>
-    Iterator find_or_larger(const TItem &item) {
+    IteratorT find_or_larger(const TItem &item) {
       return skiplist->template find_or_larger<Iterator, TItem>(item);
     }
 

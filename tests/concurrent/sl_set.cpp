@@ -10,9 +10,9 @@ constexpr size_t no_insert_for_one_delete = 2;
 // This test checks set.
 // Each thread removes random data. So removes are joint.
 // Calls of remove method are interleaved with insert calls.
-int main(int argc, char **argv) {
+int main(int, char **argv) {
   google::InitGoogleLogging(argv[0]);
-  ConcurrentSet<std::string> skiplist;
+  SkipList<std::string> skiplist;
 
   auto futures =
       run<std::vector<long>>(THREADS_NO, skiplist, [](auto acc, auto index) {

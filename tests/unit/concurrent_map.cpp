@@ -8,9 +8,10 @@
 
 using concurrent_map_t = ConcurrentMap<int, int>;
 
-void print_skiplist(const concurrent_map_t::Accessor<false> &map) {
+template <typename TAccessor>
+void print_skiplist(const TAccessor &access) {
   DLOG(INFO) << "Map now has: ";
-  for (auto &kv : map)
+  for (auto &kv : access)
     DLOG(INFO) << fmt::format("    ({}, {})", kv.first, kv.second);
 }
 
@@ -53,9 +54,18 @@ TEST(ConcurrentMapSkiplist, Mix) {
   print_skiplist(accessor);
 }
 
-int main(int argc, char **argv) {
-  google::InitGoogleLogging(argv[0]);
-
-  ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+TEST(ConcurrentMapSkiplist, ConstFind) {
+  ConcurrentMap<int, int> map;
+  {
+    auto access = map.access();
+    for (int i = 0; i < 10; ++i) access.insert(i, i);
+  }
+  {
+    const auto &const_map = map;
+    auto access = const_map.access();
+    auto it = access.find(4);
+    EXPECT_NE(it, access.end());
+    it = access.find(12);
+    EXPECT_EQ(it, access.end());
+  }
 }

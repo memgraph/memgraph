@@ -8,7 +8,6 @@
 
 #include "data_structures/bitset/dynamic_bitset.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "data_structures/concurrent/concurrent_set.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
 
 // NOTE: this file is highly coupled to data_structures
@@ -20,7 +19,6 @@ constexpr int max_no_threads = 8;
 using std::cout;
 using std::endl;
 using map_t = ConcurrentMap<int, int>;
-using set_t = ConcurrentSet<int>;
 
 using namespace std::chrono_literals;
 
@@ -37,29 +35,29 @@ auto rand_gen_bool(size_t n = 1) {
   return [=]() mutable { return gen() == 0; };
 }
 
-// Checks for all owned keys if there data is data.
-template <typename S>
-void check_present_same(typename S::template Accessor<> &acc, size_t data,
+// Checks for all owned keys if their data is data.
+template <typename TAccessor>
+void check_present_same(TAccessor &acc, size_t data,
                         std::vector<size_t> &owned) {
   for (auto num : owned) {
     CHECK(acc.find(num)->second == data) << "My data is present and my";
   }
 }
 
-// Checks for all owned.second keys if there data is owned.first.
-template <typename S>
-void check_present_same(typename S::template Accessor<> &acc,
+// Checks for all owned.second keys if their data is owned.first.
+template <typename TAccessor>
+void check_present_same(TAccessor &acc,
                         std::pair<size_t, std::vector<size_t>> &owned) {
-  check_present_same<S>(acc, owned.first, owned.second);
+  check_present_same(acc, owned.first, owned.second);
 }
 
 // Checks if reported size and traversed size are equal to given size.
-template <typename S>
-void check_size_list(S &acc, long long size) {
+template <typename TAccessor>
+void check_size_list(TAccessor &acc, long long size) {
   // check size
 
-  CHECK(acc.size() == size)
-      << "Size should be " << size << ", but size is " << acc.size();
+  CHECK(acc.size() == size) << "Size should be " << size << ", but size is "
+                            << acc.size();
 
   // check count
 
@@ -72,12 +70,12 @@ void check_size_list(S &acc, long long size) {
       << "Iterator count should be " << size << ", but size is "
       << iterator_counter;
 }
-template <typename S>
-void check_size(typename S::template Accessor<> &acc, long long size) {
+template <typename TAccessor>
+void check_size(TAccessor &acc, long long size) {
   // check size
 
-  CHECK(acc.size() == size)
-      << "Size should be " << size << ", but size is " << acc.size();
+  CHECK(acc.size() == size) << "Size should be " << size << ", but size is "
+                            << acc.size();
 
   // check count
 
@@ -92,8 +90,8 @@ void check_size(typename S::template Accessor<> &acc, long long size) {
 }
 
 // Checks if order in list is maintened. It expects map
-template <typename S>
-void check_order(typename S::template Accessor<> &acc) {
+template <typename TAccessor>
+void check_order(TAccessor &acc) {
   if (acc.begin() != acc.end()) {
     auto last = acc.begin()->first;
     for (auto elem : acc) {
@@ -119,8 +117,7 @@ void check_set(DynamicBitset<> &db, std::vector<bool> &set) {
 }
 
 // Runs given function in threads_no threads and returns vector of futures for
-// there
-// results.
+// their results.
 template <class R, typename S, class FunT>
 std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
                                                    S &skiplist, FunT f) {
@@ -137,8 +134,7 @@ std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
 }
 
 // Runs given function in threads_no threads and returns vector of futures for
-// there
-// results.
+// their results.
 template <class R>
 std::vector<std::future<std::pair<size_t, R>>> run(size_t threads_no,
                                                    std::function<R(size_t)> f) {
@@ -174,17 +170,4 @@ std::vector<bool> collect_set(
     }
   }
   return set;
-}
-
-// Returns object which tracs in owned which (key,data) where added and
-// downcounts.
-template <class K, class D, class S>
-auto insert_try(typename S::template Accessor<> &acc, long long &downcount,
-                std::vector<K> &owned) {
-  return [&](K key, D data) mutable {
-    if (acc.insert(key, data).second) {
-      downcount--;
-      owned.push_back(key);
-    }
-  };
 }

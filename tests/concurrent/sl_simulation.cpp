@@ -14,7 +14,7 @@ constexpr size_t no_insert_for_one_delete = 1;
 // Each thread makes a series of finds interleaved with method which change.
 // Exact ratio of finds per change and insert per delete can be regulated with
 // no_find_per_change and no_insert_for_one_delete.
-int main(int argc, char **argv) {
+int main(int, char **argv) {
   google::InitGoogleLogging(argv[0]);
   map_t skiplist;
 
@@ -63,6 +63,6 @@ int main(int argc, char **argv) {
     sums -= e.second;
   }
   CHECK(sums == 0) << "Same values aren't present";
-  check_size<map_t>(accessor, counters);
-  check_order<map_t>(accessor);
+  check_size(accessor, counters);
+  check_order(accessor);
 }
