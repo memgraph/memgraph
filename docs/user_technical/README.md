@@ -14,7 +14,7 @@ data structures, multi-version concurrency control and asynchronous IO.
   * [Quick Start](quick-start.md)
   * [Examples](examples.md)
   * [Drivers](drivers.md)
-  * [Storable Data Types](data-types.md)
+  * [Data Storage](storage.md)
   * [openCypher Query Language](open-cypher.md)
   * [Import Tools](import-tools.md)
   * [Upcoming Features](upcoming-features.md)

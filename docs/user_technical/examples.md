@@ -39,9 +39,9 @@ when starting Memgraph using the `--durability-directory` option.
   --durability-enabled=false --snapshot-on-exit=false
 ```
 
-When using Memgraph installed from DEB package, you may need to stop the
-currently running Memgraph server before you can import the example. Use the
-following command:
+When using Memgraph installed from DEB or RPM package, you may need to stop
+the currently running Memgraph server before you can import the example. Use
+the following command:
 
 ```
 systemctl stop memgraph

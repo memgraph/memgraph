@@ -1,3 +1,33 @@
+## Durability and Data Recovery
+
+*Memgraph* uses two mechanisms to ensure the durability of the stored data:
+
+  * write-ahead logging (WAL) and
+  * taking periodic snapshots.
+
+Write-ahead logging works by logging all database modifications to a file.
+This ensures that all operations are done atomically and provides a trace of
+steps needed to reconstruct the database state.
+
+Snapshots are taken periodically during the entire runtime of *Memgraph*. When
+a snapshot is triggered, the whole data storage is written to disk. The
+snapshot file provides a quicker way to restore the database state.
+
+Database recovery is done on startup from the most recently found snapshot
+file. Since the snapshot may be older than the most recent update logged in
+the WAL file, the recovery process will apply the remaining state changes
+found in the said WAL file.
+
+NOTE: Snapshot and WAL files are not (currently) compatible between *Memgraph*
+versions.
+
+Behaviour of the above mechanisms can be tweaked in the configuration file,
+usually found in `/etc/memgraph/memgraph.conf`.
+
+In addition to the above mentioned data durability and recovery, a
+snapshot file may be generated using *Memgraph's* import tools. For more
+information, take a look at **Import Tools** chapter.
+
 ## Storable Data Types
 
 Since *Memgraph* is a *graph* database management system, data is stored in

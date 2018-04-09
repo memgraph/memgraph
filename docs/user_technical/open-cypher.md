@@ -253,7 +253,7 @@ You can still use the `RETURN` clause to produce results after writing, but it
 is not mandatory.
 
 Details on which kind of data can be stored in *Memgraph* can be found in
-**Storable Data Types** chapter.
+**Data Storage** chapter.
 
 #### CREATE
 

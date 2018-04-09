@@ -7,10 +7,15 @@ basic queries against the database.
 
 The Memgraph binary is offered as:
 
-  * Debian package for Debian 9 (Stretch) and
+  * Debian package for Debian 9 (Stretch);
+  * RPM package for CentOS 7 and
   * Docker image.
 
 After downloading the binary, proceed to the corresponding section below.
+
+NOTE: Currently, newer versions of Memgraph are not backward compatible with
+older versions. This is mainly noticeable by unsupported loading of storage
+snapshots between different versions.
 
 #### Docker Installation
 
@@ -92,6 +97,47 @@ systemctl stop memgraph
 Memgraph configuration is available in `/etc/memgraph/memgraph.conf`. After
 changing the configuration, Memgraph needs to be restarted.
 
+#### RPM Package Installation
+
+If you downloaded the RPM package of Memgraph, you can install it by running
+the following command.
+
+```
+rpm -U /path/to/memgraph-<version>.rpm
+```
+
+After the successful installation, Memgraph can be started as a service. To do
+so, type the following command.
+
+```
+systemctl start memgraph
+```
+
+To verify that Memgraph is running, run the following command.
+
+```
+journalctl --unit memgraph
+```
+
+It is expected to see something like the following output.
+
+```
+Nov 23 13:40:13 hostname memgraph[14654]: Starting 8 workers
+Nov 23 13:40:13 hostname memgraph[14654]: Server is fully armed and operational
+Nov 23 13:40:13 hostname memgraph[14654]: Listening on 0.0.0.0 at 7687
+```
+
+Memgraph is now ready to process queries, you may now proceed to
+[querying](#querying). To shutdown Memgraph server, issue the following
+command.
+
+```
+systemctl stop memgraph
+```
+
+Memgraph configuration is available in `/etc/memgraph/memgraph.conf`. After
+changing the configuration, Memgraph needs to be restarted.
+
 ### Querying
 
 Memgraph supports the openCypher query language which has been developed by
@@ -142,7 +188,7 @@ To learn more about the openCypher language, visit **openCypher Query
 Language** chapter in this document. For real-world examples of how to use
 Memgraph visit **Examples** chapter. If you wish to use a programming language
 to execute queries on Memgraph, go to the **Drivers** chapter. Details on what
-can be stored in Memgraph are in **Storable Data Types** chapter.
+can be stored in Memgraph are in **Data Storage** chapter.
 
 We *welcome and encourage* your feedback!
 
