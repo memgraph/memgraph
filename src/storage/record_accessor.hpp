@@ -55,7 +55,7 @@ class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
   RecordAccessor &operator=(RecordAccessor &&other) = default;
 
   /** Gets the property for the given key. */
-  const PropertyValue &PropsAt(storage::Property key) const;
+  PropertyValue PropsAt(storage::Property key) const;
 
   /** Sets a value on the record for the given property. */
   void PropsSet(storage::Property key, PropertyValue value);

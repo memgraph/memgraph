@@ -27,7 +27,7 @@ class PropertyValueStore {
    * @param key The key for which a PropertyValue is sought.
    * @return  See above.
    */
-  const PropertyValue &at(const Property &key) const {
+  PropertyValue at(const Property &key) const {
     for (const auto &kv : props_)
       if (kv.first == key) return kv.second;
 
