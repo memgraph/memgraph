@@ -1,6 +1,0 @@
-# Add the 'memgraph' user and group
-getent group memgraph >/dev/null || groupadd -r memgraph || exit 1
-getent passwd memgraph >/dev/null || \
-  useradd -r -g memgraph -d /var/lib/memgraph -s /bin/bash memgraph || exit 1
-echo "Don't forget to switch to the 'memgraph' user to use Memgraph" || exit 1
-

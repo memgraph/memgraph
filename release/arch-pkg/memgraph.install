@@ -1,11 +1,9 @@
 post_install() {
   # Add the 'memgraph' user and group and set permissions on
   # 'var/*/memgraph' directories.
-  useradd --system memgraph
-  res=$?
-  if [[ "$res" != "0" && "$res" != "9" ]]; then
-    exit 1
-  fi
+  getent group memgraph >/dev/null || groupadd -r memgraph || exit 1
+  getent passwd memgraph >/dev/null || \
+    useradd -r -g memgraph -d /var/lib/memgraph memgraph || exit 1
   chown memgraph:memgraph /var/lib/memgraph || exit 1
   chmod 750 /var/lib/memgraph || exit 1
   chown memgraph:adm /var/log/memgraph || exit 1

@@ -126,6 +126,11 @@ endif()
 # Everything here is under "memgraph" install component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 
+# TODO: Default directory permissions to 755
+# NOTE: This is added in CMake 3.11, so enable it then
+#set(CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
+#    OWNER_READ OWNER_WRITE OWNER_EXECUTE GROUP_READ WORLD_READ)
+
 # Install and rename executable to just 'memgraph' Since we have to rename,
 # we cannot use the recommended `install(TARGETS ...)`.
 install(PROGRAMS $<TARGET_FILE:memgraph>

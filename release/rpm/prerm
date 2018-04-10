@@ -1,2 +1,0 @@
-# Remove optional immutability from examples directory to allow removal
-chattr -i -R /usr/share/memgraph/examples || true

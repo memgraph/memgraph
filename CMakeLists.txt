@@ -253,17 +253,19 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  applications driver by real-time connected data.")
 
 # RPM specific
-set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION /var /var/lib /var/log /etc/logrotate.d /lib /lib/systemd /lib/systemd/system)
-set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils,systemd")
-# set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_SOURCE_DIR}/release/rpm/memgraph.spec.in")
-set(CPACK_RPM_PRE_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/release/rpm/preinst")
-set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/release/rpm/postinst")
-set(CPACK_RPM_PRE_UNINSTALL_SCRIPT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/release/rpm/prerm")
+set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
+set(CPACK_RPM_EXCLUDE_FROM_AUTO_FILELIST_ADDITION
+  /var /var/lib /var/log /etc/logrotate.d
+  /lib /lib/systemd /lib/systemd/system /lib/systemd/system/memgraph.service)
+set(CPACK_RPM_PACKAGE_REQUIRES_PRE "shadow-utils")
+# NOTE: user specfile has a bug in cmake 3.7.2, this needs to be patched
+# manually in: ~/cmake/share/cmake-3.7/Modules/CPackRPM.cmake line 2273
+# Or newer cmake version used
+set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_SOURCE_DIR}/release/rpm/memgraph.spec.in")
 # Description formatting is important, no line must be greater than 80 characters.
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
-            : It aims to deliver developers the speed, simplicity and scale
-            : required to build the next generation of applications driver by
-            : real-time connected data.")
+It aims to deliver developers the speed, simplicity and scale required to build
+the next generation of applications driver by real-time connected data.")
 
 # All variables must be set before including.
 include(CPack)
