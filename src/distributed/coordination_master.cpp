@@ -12,25 +12,21 @@ namespace distributed {
 MasterCoordination::MasterCoordination(const Endpoint &master_endpoint)
     : Coordination(master_endpoint) {}
 
-int MasterCoordination::RegisterWorker(int desired_worker_id,
-                                       Endpoint endpoint) {
+bool MasterCoordination::RegisterWorker(int desired_worker_id,
+                                        Endpoint endpoint) {
   std::lock_guard<std::mutex> guard(lock_);
   auto workers = GetWorkers();
-  // If there is a desired worker ID, try to set it.
-  if (desired_worker_id >= 0) {
-    if (workers.find(desired_worker_id) == workers.end()) {
-      AddWorker(desired_worker_id, endpoint);
-      return desired_worker_id;
-    }
+  // Check if the desired worker id already exists.
+  if (workers.find(desired_worker_id) != workers.end()) {
     LOG(WARNING) << "Unable to assign requested ID (" << desired_worker_id
                  << ") to worker at: " << endpoint;
+    // If the desired worker ID is already assigned, return -1 and don't add
+    // that worker to master coordination.
+    return false;
   }
 
-  // Look for the next ID that's not used.
-  int worker_id = 1;
-  while (workers.find(worker_id) != workers.end()) ++worker_id;
-  AddWorker(worker_id, endpoint);
-  return worker_id;
+  AddWorker(desired_worker_id, endpoint);
+  return true;
 }
 
 Endpoint MasterCoordination::GetEndpoint(int worker_id) {

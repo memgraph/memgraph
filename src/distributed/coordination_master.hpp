@@ -18,17 +18,13 @@ class MasterCoordination final : public Coordination {
   /** Shuts down all the workers and this master server. */
   ~MasterCoordination();
 
-  /**
- * Registers a new worker with this master server. Notifies all the known
- * workers of the new worker.
- *
- * @param desired_worker_id - The ID the worker would like to have. Set to
- * -1 if the worker doesn't care. Does not guarantee that the desired ID will
- * be returned, it is possible it's already occupied. If that's an error (for
- * example in recovery), the worker should handle it as such.
- * @return The assigned ID for the worker asking to become registered.
- */
-  int RegisterWorker(int desired_worker_id, Endpoint endpoint);
+  /** Registers a new worker with this master coordination.
+   *
+   * @param desired_worker_id - The ID the worker would like to have.
+   * @return True if the desired ID for the worker is available, or false
+   * if the desired ID is already taken.
+   */
+  bool RegisterWorker(int desired_worker_id, Endpoint endpoint);
 
   Endpoint GetEndpoint(int worker_id);
 

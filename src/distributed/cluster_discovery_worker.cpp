@@ -14,16 +14,16 @@ ClusterDiscoveryWorker::ClusterDiscoveryWorker(
   });
 }
 
-int ClusterDiscoveryWorker::RegisterWorker(int desired_worker_id) {
-  auto result = client_pool_.Call<RegisterWorkerRpc>(desired_worker_id,
-                                                     server_.endpoint());
+void ClusterDiscoveryWorker::RegisterWorker(int worker_id) {
+  auto result =
+      client_pool_.Call<RegisterWorkerRpc>(worker_id, server_.endpoint());
   CHECK(result) << "RegisterWorkerRpc failed";
+  CHECK(result->registration_successful) << "Unable to assign requested ID ("
+                                         << worker_id << ") to worker!";
 
   for (auto &kv : result->workers) {
     coordination_.RegisterWorker(kv.first, kv.second);
   }
-
-  return result->assigned_worker_id;
 }
 
 }  // namespace distributed

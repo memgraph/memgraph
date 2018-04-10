@@ -28,7 +28,7 @@ const std::string kLocal = "127.0.0.1";
 class WorkerCoordinationInThread {
  public:
   WorkerCoordinationInThread(io::network::Endpoint master_endpoint,
-                             int desired_id = -1) {
+                             int desired_id) {
     std::atomic<bool> init_done{false};
     worker_thread_ =
         std::thread([this, master_endpoint, desired_id, &init_done] {
@@ -36,7 +36,10 @@ class WorkerCoordinationInThread {
           coord_.emplace(*server_, master_endpoint);
           client_pool_.emplace(master_endpoint);
           discovery_.emplace(*server_, *coord_, *client_pool_);
-          worker_id_ = discovery_->RegisterWorker(desired_id);
+          // Try and register the worker with the desired id. If another worker
+          // is already using the desired id it will exit here.
+          discovery_->RegisterWorker(desired_id);
+          worker_id_ = desired_id;
           init_done = true;
           coord_->WaitForShutdown();
         });
@@ -68,9 +71,9 @@ TEST(Distributed, Coordination) {
     ClusterDiscoveryMaster master_discovery_(master_server, master_coord,
                                              rpc_worker_clients);
 
-    for (int i = 0; i < kWorkerCount; ++i)
+    for (int i = 1; i <= kWorkerCount; ++i)
       workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-          master_server.endpoint()));
+          master_server.endpoint(), i));
 
     // Expect that all workers have a different ID.
     std::unordered_set<int> worker_ids;
@@ -99,11 +102,12 @@ TEST(Distributed, DesiredAndUniqueId) {
 
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
         master_server.endpoint(), 42));
-    workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-        master_server.endpoint(), 42));
-
     EXPECT_EQ(workers[0]->worker_id(), 42);
-    EXPECT_NE(workers[1]->worker_id(), 42);
+
+    EXPECT_DEATH(
+        workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
+            master_server.endpoint(), 42)),
+        "");
   }
 
   for (auto &worker : workers) worker->join();
@@ -121,7 +125,7 @@ TEST(Distributed, CoordinationWorkersId) {
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
         master_server.endpoint(), 42));
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-        master_server.endpoint(), 42));
+        master_server.endpoint(), 43));
 
     std::vector<int> ids;
     ids.push_back(0);

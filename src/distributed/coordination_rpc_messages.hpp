@@ -34,11 +34,11 @@ struct RegisterWorkerReq : public Message {
 };
 
 struct RegisterWorkerRes : public Message {
-  RegisterWorkerRes(int assigned_worker_id,
-                    std::unordered_map<int, Endpoint> workers)
-      : assigned_worker_id(assigned_worker_id), workers(std::move(workers)) {}
+  RegisterWorkerRes(bool registration_successful,
+                    const std::unordered_map<int, Endpoint> &workers)
+      : registration_successful(registration_successful), workers(workers) {}
 
-  int assigned_worker_id;
+  bool registration_successful;
   std::unordered_map<int, Endpoint> workers;
 
  private:
@@ -48,7 +48,7 @@ struct RegisterWorkerRes : public Message {
   template <class TArchive>
   void serialize(TArchive &ar, unsigned int) {
     ar &boost::serialization::base_object<Message>(*this);
-    ar &assigned_worker_id;
+    ar &registration_successful;
     ar &workers;
   }
 };

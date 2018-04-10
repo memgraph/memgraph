@@ -12,19 +12,20 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
       coordination_(coordination),
       rpc_worker_clients_(rpc_worker_clients) {
   server_.Register<RegisterWorkerRpc>([this](const RegisterWorkerReq &req) {
-    int assigned_worker_id =
+    bool registration_successful =
         this->coordination_.RegisterWorker(req.desired_worker_id, req.endpoint);
 
-    rpc_worker_clients_.ExecuteOnWorkers<void>(
-        0,
-        [assigned_worker_id, req](communication::rpc::ClientPool &client_pool) {
-          auto result = client_pool.Call<ClusterDiscoveryRpc>(
-              assigned_worker_id, req.endpoint);
-          CHECK(result) << "ClusterDiscoveryRpc failed";
-        });
+    if (registration_successful) {
+      rpc_worker_clients_.ExecuteOnWorkers<void>(
+          0, [req](communication::rpc::ClientPool &client_pool) {
+            auto result = client_pool.Call<ClusterDiscoveryRpc>(
+                req.desired_worker_id, req.endpoint);
+            CHECK(result) << "ClusterDiscoveryRpc failed";
+          });
+    }
 
     return std::make_unique<RegisterWorkerRes>(
-        assigned_worker_id, this->coordination_.GetWorkers());
+        registration_successful, this->coordination_.GetWorkers());
   });
 }
 

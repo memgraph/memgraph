@@ -22,10 +22,10 @@ class ClusterDiscoveryWorker final {
   /**
    * Registers a worker with the master.
    *
-   * @param worker_id - Desired ID. If -1, or if the desired ID is already
-   * taken, the worker gets the next available ID.
+   * @param worker_id - Desired ID. If master can't assign the desired worker
+   * id, worker will exit.
    */
-  int RegisterWorker(int desired_worker_id = -1);
+  void RegisterWorker(int worker_id);
 
  private:
   Server &server_;

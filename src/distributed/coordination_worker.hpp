@@ -18,7 +18,7 @@ class WorkerCoordination final : public Coordination {
                      const Endpoint &master_endpoint);
 
   /** Registers the worker with the given endpoint. */
-  int RegisterWorker(int worker_id, Endpoint endpoint);
+  void RegisterWorker(int worker_id, Endpoint endpoint);
 
   /** Starts listening for a remote shutdown command (issued by the master).
    * Blocks the calling thread until that has finished. */

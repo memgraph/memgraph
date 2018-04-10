@@ -16,10 +16,9 @@ WorkerCoordination::WorkerCoordination(communication::rpc::Server &server,
                                        const Endpoint &master_endpoint)
     : Coordination(master_endpoint), server_(server) {}
 
-int WorkerCoordination::RegisterWorker(int worker_id, Endpoint endpoint) {
+void WorkerCoordination::RegisterWorker(int worker_id, Endpoint endpoint) {
   std::lock_guard<std::mutex> guard(lock_);
   AddWorker(worker_id, endpoint);
-  return worker_id;
 }
 
 void WorkerCoordination::WaitForShutdown() {

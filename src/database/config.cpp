@@ -1,6 +1,7 @@
 #include <limits>
 
 #include "database/graph_db.hpp"
+#include "storage/gid.hpp"
 #include "utils/flag_validation.hpp"
 
 // Durability flags.
@@ -27,9 +28,10 @@ DEFINE_int32(gc_cycle_sec, 30,
              "-1 to turn off.");
 
 // Distributed master/worker flags.
-DEFINE_HIDDEN_int32(worker_id, 0,
-                    "ID of a worker in a distributed system. Igored in "
-                    "single-node and distributed-master.");
+DEFINE_VALIDATED_HIDDEN_int32(worker_id, 0,
+                              "ID of a worker in a distributed system. Igored "
+                              "in single-node.",
+                              FLAG_IN_RANGE(0, 1 << gid::kWorkerIdSize));
 DEFINE_HIDDEN_string(master_host, "0.0.0.0",
                      "For master node indicates the host served on. For worker "
                      "node indicates the master location.");
