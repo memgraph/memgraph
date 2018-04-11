@@ -49,7 +49,7 @@ class StorageGc {
                      [this] { CollectGarbage(); });
   }
 
-  ~StorageGc() {
+  virtual ~StorageGc() {
     scheduler_.Stop();
 
     edges_.record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
@@ -141,12 +141,12 @@ class StorageGc {
   }
 
   tx::Engine &tx_engine_;
+  Scheduler scheduler_;
 
  private:
   Storage &storage_;
   MvccDeleter<Vertex> vertices_;
   MvccDeleter<Edge> edges_;
-  Scheduler scheduler_;
 
   // History of <oldest active transaction, next transaction to be ran> ranges
   // that gc operated on at some previous time - used to clear commit log

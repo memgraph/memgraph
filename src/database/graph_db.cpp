@@ -234,13 +234,6 @@ class Worker : public PrivateBase {
     return produce_server_;
   }
 
-  ~Worker() {
-    // The server is stopped explicitly here to disable RPC calls during the
-    // destruction of this object. This works because this destructor is called
-    // before the destructors of all objects.
-    server_.StopProcessingCalls();
-  }
-
   communication::rpc::Server server_{
       config_.worker_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   distributed::WorkerCoordination coordination_{server_,

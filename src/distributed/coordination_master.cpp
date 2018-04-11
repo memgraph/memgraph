@@ -6,6 +6,7 @@
 #include "communication/rpc/client.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
+#include "utils/network.hpp"
 
 namespace distributed {
 
@@ -46,8 +47,13 @@ MasterCoordination::~MasterCoordination() {
     CHECK(result) << "StopWorkerRpc failed for worker: " << kv.first;
   }
 
-  // Make sure all StopWorkerRpc request/response are exchanged.
-  std::this_thread::sleep_for(2s);
+  // Make sure all workers have died.
+  for (const auto &kv : workers) {
+    // Skip master (self).
+    if (kv.first == 0) continue;
+    while (utils::CanEstablishConnection(kv.second))
+      std::this_thread::sleep_for(0.5s);
+  }
 }
 
 }  // namespace distributed

@@ -24,12 +24,19 @@ class StorageGcMaster : public StorageGc {
         });
   }
 
+  ~StorageGcMaster() {
+    // We have to stop scheduler before destroying this class because otherwise
+    // a task might try to utilize methods in this class which might cause pure
+    // virtual method called since they are not implemented for the base class.
+    scheduler_.Stop();
+  }
+
   void CollectCommitLogGarbage(tx::transaction_id_t oldest_active) final {
     // Workers are sending information when it's safe to delete every
     // transaction older than oldest_active from their perspective i.e. there
     // won't exist another transaction in the future with id larger than or
     // equal to oldest_active that might trigger a query into a commit log about
-    // the state of transactions which we are deleting
+    // the state of transactions which we are deleting.
     auto safe_transaction = GetClogSafeTransaction(oldest_active);
     if (safe_transaction) {
       tx::transaction_id_t min_safe = *safe_transaction;

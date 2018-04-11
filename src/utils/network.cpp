@@ -10,6 +10,8 @@
 
 #include "glog/logging.h"
 
+#include "io/network/socket.hpp"
+
 namespace utils {
 
 /// Resolves hostname to ip, if already an ip, just returns it
@@ -49,6 +51,11 @@ std::experimental::optional<std::string> GetHostname() {
   int result = gethostname(hostname, sizeof(hostname));
   if (result) return std::experimental::nullopt;
   return std::string(hostname);
+}
+
+bool CanEstablishConnection(const io::network::Endpoint &endpoint) {
+  io::network::Socket client;
+  return client.Connect(endpoint);
 }
 
 };  // namespace utils

@@ -57,8 +57,12 @@ class RpcWorkerClientsTest : public ::testing::Test {
 
   void TearDown() override {
     std::vector<std::thread> wait_on_shutdown;
-    for (auto &worker : workers_coord_)
-      wait_on_shutdown.emplace_back([&worker]() { worker->WaitForShutdown(); });
+    for (int i = 0; i < workers_coord_.size(); ++i) {
+      wait_on_shutdown.emplace_back([i, this]() {
+        workers_coord_[i]->WaitForShutdown();
+        workers_server_[i] = nullptr;
+      });
+    }
 
     std::this_thread::sleep_for(300ms);
 

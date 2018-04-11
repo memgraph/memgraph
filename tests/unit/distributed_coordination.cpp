@@ -17,8 +17,8 @@
 #include "distributed/rpc_worker_clients.hpp"
 #include "io/network/endpoint.hpp"
 
-using communication::rpc::Server;
 using communication::rpc::ClientPool;
+using communication::rpc::Server;
 using namespace distributed;
 using namespace std::literals::chrono_literals;
 
@@ -26,40 +26,44 @@ const int kWorkerCount = 5;
 const std::string kLocal = "127.0.0.1";
 
 class WorkerCoordinationInThread {
+  struct Worker {
+    Worker(Endpoint master_endpoint) : master_endpoint(master_endpoint) {}
+    Endpoint master_endpoint;
+    Server server{{kLocal, 0}};
+    WorkerCoordination coord{server, master_endpoint};
+    ClientPool client_pool{master_endpoint};
+    ClusterDiscoveryWorker discovery{server, coord, client_pool};
+    std::atomic<int> worker_id_{0};
+  };
+
  public:
   WorkerCoordinationInThread(io::network::Endpoint master_endpoint,
-                             int desired_id) {
+                             int desired_id = -1) {
     std::atomic<bool> init_done{false};
     worker_thread_ =
         std::thread([this, master_endpoint, desired_id, &init_done] {
-          server_.emplace(Endpoint(kLocal, 0));
-          coord_.emplace(*server_, master_endpoint);
-          client_pool_.emplace(master_endpoint);
-          discovery_.emplace(*server_, *coord_, *client_pool_);
-          // Try and register the worker with the desired id. If another worker
-          // is already using the desired id it will exit here.
-          discovery_->RegisterWorker(desired_id);
-          worker_id_ = desired_id;
+          worker.emplace(master_endpoint);
+          worker->discovery.RegisterWorker(desired_id);
+          worker->worker_id_ = desired_id;
           init_done = true;
-          coord_->WaitForShutdown();
+          worker->coord.WaitForShutdown();
+          worker = std::experimental::nullopt;
         });
 
     while (!init_done) std::this_thread::sleep_for(10ms);
   }
 
-  int worker_id() const { return worker_id_; }
-  auto endpoint() const { return server_->endpoint(); }
-  auto worker_endpoint(int worker_id) { return coord_->GetEndpoint(worker_id); }
-  auto worker_ids() { return coord_->GetWorkerIds(); }
+  int worker_id() const { return worker->worker_id_; }
+  auto endpoint() const { return worker->server.endpoint(); }
+  auto worker_endpoint(int worker_id) {
+    return worker->coord.GetEndpoint(worker_id);
+  }
+  auto worker_ids() { return worker->coord.GetWorkerIds(); }
   void join() { worker_thread_.join(); }
 
  private:
   std::thread worker_thread_;
-  std::experimental::optional<Server> server_;
-  std::experimental::optional<WorkerCoordination> coord_;
-  std::experimental::optional<ClientPool> client_pool_;
-  std::experimental::optional<ClusterDiscoveryWorker> discovery_;
-  std::atomic<int> worker_id_{0};
+  std::experimental::optional<Worker> worker;
 };
 
 TEST(Distributed, Coordination) {
@@ -166,4 +170,10 @@ TEST(Distributed, ClusterDiscovery) {
   }
 
   for (auto &worker : workers) worker->join();
+}
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
+  return RUN_ALL_TESTS();
 }

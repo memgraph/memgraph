@@ -37,12 +37,7 @@ void WorkerCoordination::WaitForShutdown() {
 
   std::unique_lock<std::mutex> lk(mutex);
   cv.wait(lk, [&shutdown] { return shutdown; });
-  // Sleep to allow the server to return the StopWorker response. This is
-  // necessary because Shutdown will most likely be called after this function.
-  // TODO (review): Should we call server_.Shutdown() here? Not the usual
-  // convention, but maybe better...
-  std::this_thread::sleep_for(100ms);
-};
+}
 
 Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
   std::lock_guard<std::mutex> guard(lock_);
