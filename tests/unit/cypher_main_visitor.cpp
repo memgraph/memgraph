@@ -154,14 +154,16 @@ class CapnpAstGenerator : public Base {
           {
             query::capnp::Tree::Builder builder =
                 message.initRoot<query::capnp::Tree>();
-            visitor.query()->Save(builder);
+            std::vector<int> saved_uids;
+            visitor.query()->Save(&builder, &saved_uids);
           }
 
           AstTreeStorage new_ast;
           {
-            query::capnp::Tree::Reader reader =
+            const query::capnp::Tree::Reader reader =
                 message.getRoot<query::capnp::Tree>();
-            new_ast.Load(reader);
+            std::vector<int> loaded_uids;
+            new_ast.Load(reader, &loaded_uids);
           }
           return new_ast;
         }()),
