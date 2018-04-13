@@ -1,12 +1,12 @@
 ## Examples
 
-This chapter shows you how to use Memgraph on real-world data and how to get interesting
-and useful information out of it.
+This chapter shows you how to use Memgraph on real-world data and how to get
+interesting and useful information out of it.
 
 ### TED Talks Example
 
-[TED](https://www.ted.com/) is a nonprofit organization devoted to spreading ideas,
-usually in the form of short, powerful talks.
+[TED](https://www.ted.com/) is a nonprofit organization devoted to spreading
+ideas, usually in the form of short, powerful talks.
 Today, TED talks are influential videos from expert speakers on almost all
 topics &mdash; from science to business to global issues.
 Here we present a small dataset which consists of 97 talks. We'll show you how
@@ -15,24 +15,24 @@ to model this data as a graph and demonstrate a few example queries.
 #### Data Model
 Each TED talk has a main speaker, so we
 identify two types of nodes &mdash; `Talk` and `Speaker`. Also, we will add
-an edge of type `Gave` pointing to a `Talk` from its main `Speaker`. Each speaker has a name
-so we can add property `name` to `Speaker` node. Likewise, we'll add properties
-`name`, `title` and `description` to node `Talk`.
-Furthermore, each talk is given in a specific TED event, so
-we can create node `Event` with property `name` and relationship `InEvent`
-between talk and event.
+an edge of type `Gave` pointing to a `Talk` from its main `Speaker`.
+Each speaker has a name so we can add property `name` to `Speaker` node.
+Likewise, we'll add properties `name`, `title` and `description` to node
+`Talk`. Furthermore, each talk is given in a specific TED event, so we can
+create node `Event` with property `name` and relationship `InEvent` between
+talk and event.
 
 Talks are tagged with keywords to facilitate searching, hence we
 add node `Tag` with property `name` and relationship `HasTag` between talk and
-tag. Moreover, users give ratings to each talk
-by selecting up to three predefined string values.
-Therefore we add node `Rating` with these values as property `name` and relationship
-`HasRating` with property `user_count` between talk and rating nodes.
+tag. Moreover, users give ratings to each talk by selecting up to three
+predefined string values. Therefore we add node `Rating` with these values as
+property `name` and relationship`HasRating` with property `user_count` between
+talk and rating nodes.
 
 #### Example Queries
 
-We have prepared a database snapshot for this example, so you can easily import it
-when starting Memgraph using the `--durability-directory` option.
+We have prepared a database snapshot for this example, so you can easily import
+it when starting Memgraph using the `--durability-directory` option.
 
 ```
 /usr/lib/memgraph/memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk \
@@ -92,9 +92,9 @@ ORDER BY TalksCount DESC, Tag LIMIT 20;
 ```
 
 5) Find 20 talks most rated as "Funny". If you want to query by other ratings,
-possible values are: Obnoxious, Jaw-dropping, OK, Persuasive, Beautiful, Confusing,
-Longwinded, Unconvincing, Fascinating, Ingenious, Courageous, Funny, Informative and
-Inspiring.
+possible values are: Obnoxious, Jaw-dropping, OK, Persuasive, Beautiful,
+Confusing, Longwinded, Unconvincing, Fascinating, Ingenious, Courageous, Funny,
+Informative and Inspiring.
 ```
 MATCH (r:Rating{name:"Funny"})<-[e:HasRating]-(m:Talk)
 RETURN m.name, e.user_count ORDER BY e.user_count DESC LIMIT 20;
@@ -109,9 +109,10 @@ WHERE r.user_count > 1000
 RETURN n.title, s.name, r.user_count ORDER BY r.user_count DESC;
 ```
 
-7) Now let's see one real-world example &mdash; how to make a real-time recommendation.
-If you've just watched a talk from a certain speaker(e.g. Hans Rosling) you might be
-interested in finding more talks from the same speaker on a similar topic:
+7) Now let's see one real-world example &mdash; how to make a real-time
+recommendation. If you've just watched a talk from a certain
+speaker (e.g. Hans Rosling) you might be interested in finding more talks from
+the same speaker on a similar topic:
 
 ```
 MATCH (n:Speaker {name: "Hans Rosling"})-[:Gave]->(m:Talk)
@@ -121,7 +122,8 @@ RETURN m.title as Title, COLLECT(tag.name), COUNT(tag) as TagCount
 ORDER BY TagCount DESC, Title;
 ```
 
-The following few queries are focused on extracting information about TED events.
+The following few queries are focused on extracting information about
+TED events.
 
 8) Find how many talks were given per event:
 ```
@@ -147,13 +149,186 @@ RETURN n.name as Speaker, EventsCount
 ORDER BY EventsCount DESC, Speaker;
 ```
 
-11) For each speaker search for other speakers that participated in same events:
+11) For each speaker search for other speakers that participated in same
+events:
 ```
 MATCH (n:Speaker)-[:Gave]->()-[:InEvent]->(e:Event)<-[:InEvent]-()<-[:Gave]-(m:Speaker)
 WHERE n.name != m.name
 WITH DISTINCT n, m ORDER BY m.name
 RETURN n.name AS Speaker, COLLECT(m.name) AS Others
 ORDER BY Speaker;
+```
+
+### Football Example
+
+[Football](https://en.wikipedia.org/wiki/Association_football)
+(soccer for the heathens) is a team sport played between two teams of eleven
+players with a spherical ball. The game is played on a rectangular pitch with
+a goal at each and. The object of the game is to score by moving the ball
+beyond the goal line into the opposing goal. The game is played by more than
+250 million players in over 200 countries, making it the world's most
+popular sport.
+
+In this example, we will present a graph model of a reasonably sized dataset
+of football matches across world's most popular leagues.
+
+#### Data Model
+
+In essence, we are trying to model a set of football matches. All information
+about a single match is going to be contained in three nodes and two edges.
+Two of the nodes will represent the teams that have played the match, while the
+third node will represent the game itself. Both edges are directed from the
+team nodes to the game node and are labeled as `:Played`.
+
+Let us consider a real life example of this model&mdash;Arsene Wenger's 1000th.
+game in charge of Arsenal. This was a regular fixture of a 2013/2014
+English Premier League, yet it was written in the stars that this historic
+moment would be a big London derby against Chelsea on Stanford Bridge. The
+sketch below shows how this game is being modeled in our database.
+
+```
++---------------+                                            +-----------------------------+
+|n: Team        |                                            |w: Game                      |
+|               |-[:Played {side: "home", outcome: "won"}]-->|                             |
+|name: "Chelsea"|                                            |HT_home_score: 4             |
++---------------+                                            |HT_away_score: 0             |
+                                                             |HT_result: "H"               |
+                                                             |FT_home_score: 6             |
+                                                             |FT_away_score: 0             |
+                                                             |FT_result: "H"               |
++---------------+                                            |date: "2014-03-22"           |
+|m: Team        |                                            |league: "ENG-Premier League" |
+|               |-[:Played {side: "away", outcome: "lost"}]->|season: 2013                 |
+|name: "Arsenal"|                                            |referee: "Andre Marriner"    |
++---------------+                                            +-----------------------------+
+```
+
+#### Example Queries
+
+We have prepared a database snapshot for this example, so you can easily import
+it when starting Memgraph using the `--durability-directory` option.
+
+```
+/usr/lib/memgraph/memgraph --durability-directory /usr/share/memgraph/examples/football \
+  --durability-enabled=false --snapshot-on-exit=false
+```
+
+When using Docker, you can import the example with the following command:
+
+```
+docker run -p 7687:7687 \
+  -v mg_lib:/var/lib/memgraph -v mg_log:/var/log/memgraph -v mg_etc:/etc/memgraph \
+  memgraph --durability-directory /usr/share/memgraph/examples/football \
+  --durability-enabled=false --snapshot-on-exit=false
+```
+
+Now you're ready to try out some of the following queries.
+
+NOTE: If you modify the dataset, the changes will stay only during this run of
+Memgraph.
+
+1) You might wonder, what leagues are supported?
+
+```
+MATCH (n:Game)
+RETURN DISTINCT n.league AS League
+ORDER BY League;
+```
+
+2) We have stored a certain number of seasons for each league. What is the
+oldest/newest season we have included?
+
+```
+MATCH (n:Game)
+RETURN DISTINCT n.league AS League, MIN(n.season) AS Oldest, MAX(n.season) AS Newest
+ORDER BY League;
+```
+
+3) You have already seen one game between Chelsea and Arsenal, let's list all of
+them in chronological order.
+
+```
+MATCH (n:Team {name: "Chelsea"})-[e:Played]->(w:Game)<-[f:Played]-(m:Team {name: "Arsenal"})
+RETURN w.date AS Date, e.side AS Chelsea, f.side AS Arsenal,
+       w.FT_home_score AS home_score, w.FT_away_score AS away_score
+ORDER BY Date;
+```
+
+4) How about filtering games in which Chelsea won?
+
+```
+MATCH (n:Team {name: "Chelsea"})-[e:Played {outcome: "won"}]->
+      (w:Game)<-[f:Played]-(m:Team {name: "Arsenal"})
+RETURN w.date AS Date, e.side AS Chelsea, f.side AS Arsenal,
+       w.FT_home_score AS home_score, w.FT_away_score AS away_score
+ORDER BY Date;
+```
+
+5) Home field advantage is a thing in football. Let's list the number of home
+defeats for each Premier League team in the 2016/2017 season.
+
+```
+MATCH (n:Team)-[:Played {side: "home", outcome: "lost"}]->
+      (w:Game {league: "ENG-Premier League", season: 2016})
+RETURN n.name AS Team, count(w) AS home_defeats
+ORDER BY home_defeats, Team;
+```
+
+6) At the end of the season the team with the most points wins the league. For
+each victory, a team is awarded 3 points and for each draw it is awarded
+1 point. Let's find out how many points did reigning champions (Chelsea) have
+at the end of 2016/2017 season.
+
+```
+MATCH (n:Team {name: "Chelsea"})-[:Played {outcome: "drew"}]->(w:Game {season: 2016})
+WITH n, COUNT(w) AS draw_points
+MATCH (n)-[:Played {outcome: "won"}]->(w:Game {season: 2016})
+RETURN draw_points + 3 * COUNT(w) AS total_points;
+```
+
+7) In fact, why not retrieve the whole table?
+
+```
+MATCH (n)-[:Played {outcome: "drew"}]->(w:Game {league: "ENG-Premier League", season: 2016})
+WITH n, COUNT(w) AS draw_points
+MATCH (n)-[:Played {outcome: "won"}]->(w:Game {league: "ENG-Premier League", season: 2016})
+RETURN n.name AS Team, draw_points + 3 * COUNT(w) AS total_points
+ORDER BY total_points DESC;
+```
+
+8) People have always debated which of the major leagues is the most exciting.
+One basic metric is the average number of goals per game. Let's see the results
+at the end of the 2016/2017 season. WARNING: This might shock you.
+
+```
+MATCH (w:Game {season: 2016})
+RETURN w.league, AVG(w.FT_home_score) + AVG(w.FT_away_score) AS avg_goals_per_game
+ORDER BY avg_goals_per_game DESC;
+```
+
+9) Another metric might be the number of comebacks&mdash;games where one side
+was winning at half time but were overthrown by the other side by the end
+of the match. Let's count such occurrences during all supported seasons across
+all supported leagues.
+
+```
+MATCH (g:Game) WHERE
+(g.HT_result = "H" AND g.FT_result = "A") OR
+(g.HT_result = "A" AND g.FT_result = "H")
+RETURN g.league AS League, count(g) AS Comebacks
+ORDER BY Comebacks DESC;
+```
+
+10) Exciting leagues also tend to be very unpredictable. On that note, let's list
+all triplets of teams where, during the course of one season, team A won against
+team B, team B won against team C and team C won against team A.
+
+```
+MATCH (a)-[:Played {outcome: "won"}]->(p:Game {league: "ENG-Premier League", season: 2016})<--
+      (b)-[:Played {outcome: "won"}]->(q:Game {league: "ENG-Premier League", season: 2016})<--
+      (c)-[:Played {outcome: "won"}]->(r:Game {league: "ENG-Premier League", season: 2016})<--(a)
+WHERE p.date < q.date AND q.date < r.date
+RETURN a.name AS Team1, b.name AS Team2, c.name AS Team3;
 ```
 
 Now you're ready to explore the world of graph databases with Memgraph
@@ -169,5 +344,3 @@ examples, execute the query:
 ```
 MATCH (n) DETACH DELETE n;
 ```
-
-
