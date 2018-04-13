@@ -108,11 +108,14 @@ void RemoveOldWals(const fs::path &wal_dir,
   // We can remove all the WAL files that will not be used when restoring from
   // the snapshot created in the given transaction.
   auto min_trans_id = snapshot_transaction.snapshot().empty()
-                          ? snapshot_transaction.id_
+                          ? snapshot_transaction.id_ + 1
                           : snapshot_transaction.snapshot().front();
   for (auto &wal_file : fs::directory_iterator(wal_dir)) {
     auto tx_id = TransactionIdFromWalFilename(wal_file.path().filename());
-    if (tx_id && tx_id.value() < min_trans_id) fs::remove(wal_file);
+    if (tx_id && tx_id.value() < min_trans_id) {
+      bool result = fs::remove(wal_file);
+      DCHECK(result) << "Unable to delete old wal file: " << wal_file;
+    }
   }
 }
 }  // namespace

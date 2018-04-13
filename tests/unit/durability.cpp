@@ -176,7 +176,6 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
 
   auto is_permutation_props = [&dba_a, &dba_b](const auto &p1_id,
                                                const auto &p2_id) {
-
     std::vector<std::pair<std::string, query::TypedValue>> p1;
     std::vector<std::pair<std::string, query::TypedValue>> p2;
 
@@ -731,14 +730,19 @@ TEST_F(Durability, WalRetention) {
     MakeSnapshot(db);
     MakeDb(db, 100);
     EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
     // 1 current WAL file, plus retained ones
     EXPECT_GT(DirFiles(wal_dir_).size(), 1);
     MakeSnapshot(db);
   }
+  // Flush wal with snapshot transaction tx_id
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
   // only 1 current WAL file
   EXPECT_EQ(DirFiles(snapshot_dir_).size(), 2);
-  EXPECT_EQ(DirFiles(wal_dir_).size(), 1);
+  // There can only be one extra wal file (two total) because that file could
+  // have been written after the snapshot WAL cleanup
+  EXPECT_LE(DirFiles(wal_dir_).size(), 2);
 }
 
 TEST_F(Durability, SnapshotOnExit) {
