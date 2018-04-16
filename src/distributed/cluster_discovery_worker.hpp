@@ -1,8 +1,11 @@
 #pragma once
 
+#include <experimental/optional>
+
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/server.hpp"
 #include "distributed/coordination_worker.hpp"
+#include "durability/recovery.hpp"
 
 namespace distributed {
 using Server = communication::rpc::Server;
@@ -27,10 +30,14 @@ class ClusterDiscoveryWorker final {
    */
   void RegisterWorker(int worker_id);
 
+  /** Returns the recovery info. Valid only after registration. */
+  auto recovery_info() const { return recovery_info_; }
+
  private:
   Server &server_;
   WorkerCoordination &coordination_;
   communication::rpc::ClientPool &client_pool_;
+  std::experimental::optional<durability::RecoveryInfo> recovery_info_;
 };
 
 }  // namespace distributed

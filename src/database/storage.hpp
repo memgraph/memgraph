@@ -1,6 +1,7 @@
 #pragma once
 
 #include <experimental/filesystem>
+#include <experimental/optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "data_structures/concurrent/skiplist.hpp"
@@ -11,6 +12,7 @@
 #include "storage/edge.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
+#include "transactions/type.hpp"
 
 namespace distributed {
 class IndexRpcServer;
@@ -21,7 +23,10 @@ class GraphDb;
 };
 
 namespace durability {
-bool Recover(const std::experimental::filesystem::path &, database::GraphDb &);
+struct RecoveryInfo;
+RecoveryInfo Recover(const std::experimental::filesystem::path &,
+                     database::GraphDb &,
+                     std::experimental::optional<RecoveryInfo>);
 };
 
 namespace database {
@@ -89,8 +94,9 @@ class Storage {
   friend class GraphDbAccessor;
   friend class StorageGc;
   friend class distributed::IndexRpcServer;
-  friend bool durability::Recover(const std::experimental::filesystem::path &,
-                                  database::GraphDb &);
+  friend durability::RecoveryInfo durability::Recover(
+      const std::experimental::filesystem::path &, database::GraphDb &,
+      std::experimental::optional<durability::RecoveryInfo>);
 
   int worker_id_;
   gid::Generator vertex_generator_;

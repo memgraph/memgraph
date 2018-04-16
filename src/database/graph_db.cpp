@@ -1,3 +1,5 @@
+#include <experimental/optional>
+
 #include "glog/logging.h"
 
 #include "communication/rpc/server.hpp"
@@ -269,9 +271,45 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
   if (impl_->config_.durability_enabled)
     durability::CheckDurabilityDir(impl_->config_.durability_directory);
 
-  // Recovery on startup.
-  if (impl_->config_.db_recover_on_startup)
-    durability::Recover(impl_->config_.durability_directory, *impl_);
+  // Durability recovery.
+  {
+    auto db_type = impl_->type();
+
+    // What we should recover.
+    std::experimental::optional<durability::RecoveryInfo>
+        required_recovery_info;
+    if (db_type == Type::DISTRIBUTED_WORKER) {
+      required_recovery_info = dynamic_cast<impl::Worker *>(impl_.get())
+                                   ->cluster_discovery_.recovery_info();
+    }
+
+    // What we recover.
+    std::experimental::optional<durability::RecoveryInfo> recovery_info;
+
+    // Recover only if necessary.
+    if ((db_type != Type::DISTRIBUTED_WORKER &&
+         impl_->config_.db_recover_on_startup) ||
+        (db_type == Type::DISTRIBUTED_WORKER && required_recovery_info)) {
+      recovery_info = durability::Recover(impl_->config_.durability_directory,
+                                          *impl_, required_recovery_info);
+    }
+
+    // Post-recovery setup and checking.
+    switch (db_type) {
+      case Type::DISTRIBUTED_MASTER:
+        dynamic_cast<impl::Master *>(impl_.get())
+            ->coordination_.SetRecoveryInfo(recovery_info);
+        break;
+      case Type::DISTRIBUTED_WORKER:
+        if (required_recovery_info != recovery_info)
+          LOG(FATAL) << "Memgraph worker failed to recover the database state "
+                        "recovered on the master";
+        break;
+      case Type::SINGLE_NODE:
+        break;
+    }
+  }
+
   if (impl_->config_.durability_enabled) {
     impl_->wal().Enable();
   }

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <experimental/optional>
 #include <unordered_map>
 
 #include "boost/serialization/access.hpp"
@@ -7,6 +8,7 @@
 #include "boost/serialization/unordered_map.hpp"
 
 #include "communication/rpc/messages.hpp"
+#include "durability/recovery.hpp"
 #include "io/network/endpoint.hpp"
 
 namespace distributed {
@@ -34,11 +36,16 @@ struct RegisterWorkerReq : public Message {
 };
 
 struct RegisterWorkerRes : public Message {
-  RegisterWorkerRes(bool registration_successful,
-                    const std::unordered_map<int, Endpoint> &workers)
-      : registration_successful(registration_successful), workers(workers) {}
+  RegisterWorkerRes(
+      bool registration_successful,
+      std::experimental::optional<durability::RecoveryInfo> recovery_info,
+      std::unordered_map<int, Endpoint> workers)
+      : registration_successful(registration_successful),
+        recovery_info(recovery_info),
+        workers(std::move(workers)) {}
 
   bool registration_successful;
+  std::experimental::optional<durability::RecoveryInfo> recovery_info;
   std::unordered_map<int, Endpoint> workers;
 
  private:
@@ -49,6 +56,7 @@ struct RegisterWorkerRes : public Message {
   void serialize(TArchive &ar, unsigned int) {
     ar &boost::serialization::base_object<Message>(*this);
     ar &registration_successful;
+    ar &recovery_info;
     ar &workers;
   }
 };

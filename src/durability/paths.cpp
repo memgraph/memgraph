@@ -12,7 +12,7 @@
 
 namespace durability {
 namespace fs = std::experimental::filesystem;
-/// Returns true if the given directory path exists or is succesfully created.
+
 bool EnsureDir(const fs::path &dir) {
   std::error_code error_code;  // Just for exception suppression.
   auto result = fs::create_directories(dir, error_code);
@@ -21,8 +21,6 @@ bool EnsureDir(const fs::path &dir) {
   return result || !error_code.value();
 }
 
-/// Ensures the given durability directory exists and is ready for use. Creates
-/// the directory if it doesn't exist.
 void CheckDurabilityDir(const std::string &durability_dir) {
   namespace fs = std::experimental::filesystem;
   if (fs::exists(durability_dir)) {
@@ -36,12 +34,6 @@ void CheckDurabilityDir(const std::string &durability_dir) {
   }
 }
 
-/// Returns the transaction id contained in the file name. If the filename is
-/// not a parseable WAL file name, nullopt is returned. If the filename
-/// represents the "current" WAL file, then the maximum possible transaction ID
-/// is returned because that's appropriate for the recovery logic (the current
-/// WAL does not yet have a maximum transaction ID and can't be discarded by
-/// the recovery regardless of the snapshot from which the transaction starts).
 std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
     const std::string &name) {
   auto nullopt = std::experimental::nullopt;
@@ -95,5 +87,26 @@ fs::path WalFilenameForTransactionId(
   }
   file_name = file_name + "_Worker_" + std::to_string(worker_id);
   return wal_dir / file_name;
+}
+
+std::experimental::optional<tx::transaction_id_t>
+TransactionIdFromSnapshotFilename(const std::string &name) {
+  auto nullopt = std::experimental::nullopt;
+  auto file_name_split = utils::RSplit(name, "_tx_", 1);
+  if (file_name_split.size() != 2) {
+    LOG(WARNING) << "Unable to parse snapshot file name: " << name;
+    return nullopt;
+  }
+  try {
+    return std::stoll(file_name_split[1]);
+  } catch (std::invalid_argument &) {
+    LOG(WARNING) << "Unable to parse snapshot file name tx ID: "
+                 << file_name_split[1];
+    return nullopt;
+  } catch (std::out_of_range &) {
+    LOG(WARNING) << "Unable to parse snapshot file name tx ID: "
+                 << file_name_split[1];
+    return nullopt;
+  }
 }
 }  // namespace durability

@@ -24,6 +24,7 @@ void ClusterDiscoveryWorker::RegisterWorker(int worker_id) {
   for (auto &kv : result->workers) {
     coordination_.RegisterWorker(kv.first, kv.second);
   }
+  recovery_info_ = result->recovery_info;
 }
 
 }  // namespace distributed

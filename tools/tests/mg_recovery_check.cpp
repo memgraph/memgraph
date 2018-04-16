@@ -1,3 +1,4 @@
+#include <experimental/optional>
 #include <string>
 
 #include "gflags/gflags.h"
@@ -20,7 +21,7 @@ class RecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
     std::string durability_dir(FLAGS_durability_dir);
-    durability::Recover(durability_dir, db_);
+    durability::Recover(durability_dir, db_, std::experimental::nullopt);
   }
 
   database::SingleNode db_;

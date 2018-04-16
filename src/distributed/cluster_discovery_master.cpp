@@ -25,7 +25,8 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     }
 
     return std::make_unique<RegisterWorkerRes>(
-        registration_successful, this->coordination_.GetWorkers());
+        registration_successful, this->coordination_.RecoveryInfo(),
+        this->coordination_.GetWorkers());
   });
 }
 

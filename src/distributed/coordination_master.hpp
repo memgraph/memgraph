@@ -1,9 +1,11 @@
 #pragma once
 
+#include <experimental/optional>
 #include <mutex>
 #include <unordered_map>
 
 #include "distributed/coordination.hpp"
+#include "durability/recovery.hpp"
 #include "io/network/endpoint.hpp"
 
 namespace distributed {
@@ -28,8 +30,21 @@ class MasterCoordination final : public Coordination {
 
   Endpoint GetEndpoint(int worker_id);
 
+  /// Sets the recovery info. nullopt indicates nothing was recovered.
+  void SetRecoveryInfo(
+      std::experimental::optional<durability::RecoveryInfo> info);
+
+  std::experimental::optional<durability::RecoveryInfo> RecoveryInfo() const;
+
  private:
   // Most master functions aren't thread-safe.
   mutable std::mutex lock_;
+
+  /// Durabiliry recovery info.
+  /// Indicates if the recovery phase is done.
+  bool recovery_done_{false};
+  /// If nullopt nothing was recovered.
+  std::experimental::optional<durability::RecoveryInfo> recovery_info_;
 };
+
 }  // namespace distributed

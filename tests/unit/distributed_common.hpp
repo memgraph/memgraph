@@ -130,10 +130,10 @@ class DistributedGraphDbTest : public ::testing::Test {
     return std::distance(edges.begin(), edges.end());
   };
 
+  fs::path tmp_dir_ = fs::temp_directory_path() /
+                      ("MG_test_unit_durability" + std::to_string(getpid()));
+
  private:
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;
-
-  fs::path tmp_dir_ = fs::temp_directory_path() /
-                      ("MG_test_unit_durability" + std::to_string(getpid()));
 };

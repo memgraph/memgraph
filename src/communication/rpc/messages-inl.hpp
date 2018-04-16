@@ -14,6 +14,7 @@
 #include "distributed/storage_gc_rpc_messages.hpp"
 #include "distributed/transactional_cache_cleaner_rpc_messages.hpp"
 #include "distributed/updates_rpc_messages.hpp"
+#include "durability/recovery.hpp"
 #include "stats/stats_rpc_messages.hpp"
 #include "storage/concurrent_id_mapper_rpc_messages.hpp"
 #include "transactions/engine_rpc_messages.hpp"
@@ -54,6 +55,7 @@ BOOST_CLASS_EXPORT(tx::GlobalLastReq);
 BOOST_CLASS_EXPORT(tx::GlobalLastRes);
 
 // Distributed coordination.
+BOOST_CLASS_EXPORT(durability::RecoveryInfo);
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerReq);
 BOOST_CLASS_EXPORT(distributed::RegisterWorkerRes);
 BOOST_CLASS_EXPORT(distributed::ClusterDiscoveryReq);

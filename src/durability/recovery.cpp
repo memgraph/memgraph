@@ -37,6 +37,7 @@ using communication::bolt::DecodedValue;
 // snapshot and WAL recovery functions.
 struct RecoveryData {
   tx::transaction_id_t snapshooter_tx_id{0};
+  tx::transaction_id_t wal_max_recovered_tx_id{0};
   std::vector<tx::transaction_id_t> snapshooter_tx_snapshot;
   // A collection into which the indexes should be added so they
   // can be rebuilt at the end of the recovery transaction.
@@ -303,6 +304,7 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
           break;
         case database::StateDelta::Type::TRANSACTION_COMMIT:
           get_accessor(delta->transaction_id).Commit();
+          recovery_data.wal_max_recovered_tx_id = delta->transaction_id;
           accessors.erase(accessors.find(delta->transaction_id));
           break;
         case database::StateDelta::Type::BUILD_INDEX:
@@ -326,7 +328,9 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
 }
 }  // anonymous namespace
 
-bool Recover(const fs::path &durability_dir, database::GraphDb &db) {
+RecoveryInfo Recover(
+    const fs::path &durability_dir, database::GraphDb &db,
+    std::experimental::optional<RecoveryInfo> required_recovery_info) {
   RecoveryData recovery_data;
 
   // Attempt to recover from snapshot files in reverse order (from newest
@@ -338,6 +342,17 @@ bool Recover(const fs::path &durability_dir, database::GraphDb &db) {
       snapshot_files.emplace_back(file);
   std::sort(snapshot_files.rbegin(), snapshot_files.rend());
   for (auto &snapshot_file : snapshot_files) {
+    if (required_recovery_info) {
+      auto snapshot_file_tx_id =
+          TransactionIdFromSnapshotFilename(snapshot_file);
+      if (!snapshot_file_tx_id || snapshot_file_tx_id.value() !=
+                                      required_recovery_info->snapshot_tx_id) {
+        LOG(INFO) << "Skipping snapshot file '" << snapshot_file
+                  << "' because it does not match the required snapshot tx id: "
+                  << required_recovery_info->snapshot_tx_id;
+        continue;
+      }
+    }
     LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
     if (!RecoverSnapshot(snapshot_file, db, recovery_data)) {
       recovery_data.Clear();
@@ -348,6 +363,12 @@ bool Recover(const fs::path &durability_dir, database::GraphDb &db) {
       break;
     }
   }
+
+  // If snapshot recovery is required, and we failed, don't even deal with the
+  // WAL recovery.
+  if (required_recovery_info &&
+      recovery_data.snapshooter_tx_id != required_recovery_info->snapshot_tx_id)
+    return {recovery_data.snapshooter_tx_id, 0};
 
   // Write-ahead-log recovery.
   // WAL recovery does not have to be complete for the recovery to be
@@ -366,6 +387,8 @@ bool Recover(const fs::path &durability_dir, database::GraphDb &db) {
     db_accessor_indices.EnableIndex(key);
   }
   db_accessor_indices.Commit();
-  return true;
+
+  return {recovery_data.snapshooter_tx_id,
+          recovery_data.wal_max_recovered_tx_id};
 }
 }  // namespace durability

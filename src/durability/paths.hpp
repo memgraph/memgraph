@@ -32,6 +32,11 @@ std::experimental::filesystem::path MakeSnapshotPath(
     const std::experimental::filesystem::path &durability_dir, int worker_id,
     tx::transaction_id_t tx_id);
 
+/// Returns the transaction id contained in the file name. If the filename is
+/// not a parseable WAL file name, nullopt is returned.
+std::experimental::optional<tx::transaction_id_t>
+TransactionIdFromSnapshotFilename(const std::string &name);
+
 /// Generates a file path for a write-ahead log file of a specified worker. If
 /// given a transaction ID the file name will contain it. Otherwise the file
 /// path is for the "current" WAL file for which the max tx id is still unknown.

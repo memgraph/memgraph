@@ -15,6 +15,16 @@ MasterCoordination::MasterCoordination(const Endpoint &master_endpoint)
 
 bool MasterCoordination::RegisterWorker(int desired_worker_id,
                                         Endpoint endpoint) {
+  // Worker's can't register before the recovery phase on the master is done to
+  // ensure the whole cluster is in a consistent state.
+  while (true) {
+    {
+      std::lock_guard<std::mutex> guard(lock_);
+      if (recovery_done_) break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+
   std::lock_guard<std::mutex> guard(lock_);
   auto workers = GetWorkers();
   // Check if the desired worker id already exists.
@@ -54,6 +64,20 @@ MasterCoordination::~MasterCoordination() {
     while (utils::CanEstablishConnection(kv.second))
       std::this_thread::sleep_for(0.5s);
   }
+}
+
+void MasterCoordination::SetRecoveryInfo(
+    std::experimental::optional<durability::RecoveryInfo> info) {
+  std::lock_guard<std::mutex> guard(lock_);
+  recovery_done_ = true;
+  recovery_info_ = info;
+}
+
+std::experimental::optional<durability::RecoveryInfo>
+MasterCoordination::RecoveryInfo() const {
+  std::lock_guard<std::mutex> guard(lock_);
+  CHECK(recovery_done_) << "RecoveryInfo requested before it's available";
+  return recovery_info_;
 }
 
 }  // namespace distributed
