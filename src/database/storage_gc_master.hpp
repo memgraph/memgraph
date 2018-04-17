@@ -51,7 +51,7 @@ class StorageGcMaster : public StorageGc {
       // All workers reported back at least once
       if (min_safe > 0) {
         tx_engine_.GarbageCollectCommitLog(min_safe);
-        LOG(INFO) << "Clearing master commit log with tx:" << min_safe;
+        LOG(INFO) << "Clearing master commit log with tx: " << min_safe;
       }
     }
   }

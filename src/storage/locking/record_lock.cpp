@@ -45,9 +45,13 @@ std::experimental::optional<tx::transaction_id_t> FindOldestTxInLockCycle(
 
 }  // namespace
 
+bool RecordLock::TryLock(tx::transaction_id_t tx_id) {
+  tx::transaction_id_t unlocked{0};
+  return owner_.compare_exchange_strong(unlocked, tx_id);
+}
+
 LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
-  if (lock_.try_lock()) {
-    owner_ = tx.id_;
+  if (TryLock(tx.id_)) {
     return LockStatus::Acquired;
   }
 
@@ -59,10 +63,8 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
   // might be active for a dead transaction. By asking the transaction engine
   // for transaction info, we'll make the worker refresh it's knowledge about
   // live transactions and release obsolete locks.
-  auto info = engine.Info(owner);
-  if (!info.is_active()) {
-    if (lock_.try_lock()) {
-      owner_ = tx.id_;
+  if (owner == 0 || !engine.Info(owner).is_active()) {
+    if (TryLock(tx.id_)) {
       return LockStatus::Acquired;
     }
   }
@@ -103,8 +105,7 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
       throw LockTimeoutException(
           "Transaction was aborted since it was oldest in a lock cycle");
     }
-    if (lock_.try_lock()) {
-      owner_ = tx.id_;
+    if (TryLock(tx.id_)) {
       return LockStatus::Acquired;
     }
     if (owner != owner_) {
@@ -125,6 +126,6 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
       "Transaction locked for more than {} seconds", kTimeout.count()));
 }
 
-void RecordLock::Unlock() { lock_.unlock(); }
+void RecordLock::Unlock() { owner_ = 0; }
 
 constexpr std::chrono::duration<double> RecordLock::kTimeout;
