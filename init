@@ -43,7 +43,9 @@ function setup_virtualenv () {
     # create new virtualenv
     virtualenv -p python3 ve3 || exit 1
     source ve3/bin/activate
-    pip install -i http://deps.memgraph.io:3141/root/pypi \
+    # we need to increase the timeout for pip because our local cache server
+    # can sometimes be stupid, see: https://github.com/devpi/devpi/issues/208
+    pip --timeout 1000 install -i http://deps.memgraph.io:3141/root/pypi \
                 --trusted-host deps.memgraph.io -r requirements.txt || exit 1
     deactivate
 
