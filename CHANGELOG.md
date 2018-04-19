@@ -25,6 +25,7 @@
 * Report an error if trying to compare a property value with something that
   cannot be stored in a property.
 * Fix crashes in some obscure cases.
+* Commit log automatically garbage collected.
 * Add minor performance improvements.
 
 ## v0.9.0
