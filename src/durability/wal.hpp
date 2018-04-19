@@ -75,7 +75,7 @@ class WriteAheadLog {
     // The latest transaction whose delta is recorded in the current WAL file.
     // Zero indicates that no deltas have so far been written to the current WAL
     // file.
-    tx::transaction_id_t latest_tx_{0};
+    tx::TransactionId latest_tx_{0};
 
     void RotateFile();
   };

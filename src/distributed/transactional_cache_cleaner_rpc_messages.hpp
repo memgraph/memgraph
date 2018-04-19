@@ -5,7 +5,7 @@
 
 namespace distributed {
 
-RPC_SINGLE_MEMBER_MESSAGE(WaitOnTransactionEndReq, tx::transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(WaitOnTransactionEndReq, tx::TransactionId);
 RPC_NO_MEMBER_MESSAGE(WaitOnTransactionEndRes);
 using WaitOnTransactionEndRpc =
     communication::rpc::RequestResponse<WaitOnTransactionEndReq,

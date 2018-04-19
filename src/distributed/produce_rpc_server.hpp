@@ -32,7 +32,7 @@ class ProduceRpcServer {
   /// MG (see query::plan::Synchronize).
   class OngoingProduce {
    public:
-    OngoingProduce(database::GraphDb &db, tx::transaction_id_t tx_id,
+    OngoingProduce(database::GraphDb &db, tx::TransactionId tx_id,
                    std::shared_ptr<query::plan::LogicalOperator> op,
                    query::SymbolTable symbol_table, Parameters parameters,
                    std::vector<query::Symbol> pull_symbols);
@@ -66,12 +66,12 @@ class ProduceRpcServer {
 
   /// Finish and clear ongoing produces for all plans that are tied to a
   /// transaction with tx_id.
-  void FinishAndClearOngoingProducePlans(tx::transaction_id_t tx_id);
+  void FinishAndClearOngoingProducePlans(tx::TransactionId tx_id);
 
  private:
   std::mutex ongoing_produces_lock_;
   /// Mapping of (tx id, plan id) to OngoingProduce.
-  std::map<std::pair<tx::transaction_id_t, int64_t>, OngoingProduce>
+  std::map<std::pair<tx::TransactionId, int64_t>, OngoingProduce>
       ongoing_produces_;
   database::GraphDb &db_;
   communication::rpc::Server &produce_rpc_server_;

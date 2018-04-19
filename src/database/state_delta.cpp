@@ -6,26 +6,26 @@
 
 namespace database {
 
-StateDelta StateDelta::TxBegin(tx::transaction_id_t tx_id) {
+StateDelta StateDelta::TxBegin(tx::TransactionId tx_id) {
   return {StateDelta::Type::TRANSACTION_BEGIN, tx_id};
 }
 
-StateDelta StateDelta::TxCommit(tx::transaction_id_t tx_id) {
+StateDelta StateDelta::TxCommit(tx::TransactionId tx_id) {
   return {StateDelta::Type::TRANSACTION_COMMIT, tx_id};
 }
 
-StateDelta StateDelta::TxAbort(tx::transaction_id_t tx_id) {
+StateDelta StateDelta::TxAbort(tx::TransactionId tx_id) {
   return {StateDelta::Type::TRANSACTION_ABORT, tx_id};
 }
 
-StateDelta StateDelta::CreateVertex(tx::transaction_id_t tx_id,
+StateDelta StateDelta::CreateVertex(tx::TransactionId tx_id,
                                     gid::Gid vertex_id) {
   StateDelta op(StateDelta::Type::CREATE_VERTEX, tx_id);
   op.vertex_id = vertex_id;
   return op;
 }
 
-StateDelta StateDelta::CreateEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
+StateDelta StateDelta::CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
                                   gid::Gid vertex_from_id,
                                   gid::Gid vertex_to_id,
                                   storage::EdgeType edge_type,
@@ -39,7 +39,7 @@ StateDelta StateDelta::CreateEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
   return op;
 }
 
-StateDelta StateDelta::AddOutEdge(tx::transaction_id_t tx_id,
+StateDelta StateDelta::AddOutEdge(tx::TransactionId tx_id,
                                   gid::Gid vertex_id,
                                   storage::VertexAddress vertex_to_address,
                                   storage::EdgeAddress edge_address,
@@ -54,7 +54,7 @@ StateDelta StateDelta::AddOutEdge(tx::transaction_id_t tx_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveOutEdge(tx::transaction_id_t tx_id,
+StateDelta StateDelta::RemoveOutEdge(tx::TransactionId tx_id,
                                      gid::Gid vertex_id,
                                      storage::EdgeAddress edge_address) {
   CHECK(edge_address.is_remote()) << "WAL can only contain global addresses.";
@@ -64,7 +64,7 @@ StateDelta StateDelta::RemoveOutEdge(tx::transaction_id_t tx_id,
   return op;
 }
 
-StateDelta StateDelta::AddInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+StateDelta StateDelta::AddInEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
                                  storage::VertexAddress vertex_from_address,
                                  storage::EdgeAddress edge_address,
                                  storage::EdgeType edge_type) {
@@ -78,7 +78,7 @@ StateDelta StateDelta::AddInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveInEdge(tx::transaction_id_t tx_id,
+StateDelta StateDelta::RemoveInEdge(tx::TransactionId tx_id,
                                     gid::Gid vertex_id,
                                     storage::EdgeAddress edge_address) {
   CHECK(edge_address.is_remote()) << "WAL can only contain global addresses.";
@@ -88,7 +88,7 @@ StateDelta StateDelta::RemoveInEdge(tx::transaction_id_t tx_id,
   return op;
 }
 
-StateDelta StateDelta::PropsSetVertex(tx::transaction_id_t tx_id,
+StateDelta StateDelta::PropsSetVertex(tx::TransactionId tx_id,
                                       gid::Gid vertex_id,
                                       storage::Property property,
                                       const std::string &property_name,
@@ -101,7 +101,7 @@ StateDelta StateDelta::PropsSetVertex(tx::transaction_id_t tx_id,
   return op;
 }
 
-StateDelta StateDelta::PropsSetEdge(tx::transaction_id_t tx_id,
+StateDelta StateDelta::PropsSetEdge(tx::TransactionId tx_id,
                                     gid::Gid edge_id,
                                     storage::Property property,
                                     const std::string &property_name,
@@ -114,7 +114,7 @@ StateDelta StateDelta::PropsSetEdge(tx::transaction_id_t tx_id,
   return op;
 }
 
-StateDelta StateDelta::AddLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+StateDelta StateDelta::AddLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
                                 storage::Label label,
                                 const std::string &label_name) {
   StateDelta op(StateDelta::Type::ADD_LABEL, tx_id);
@@ -124,7 +124,7 @@ StateDelta StateDelta::AddLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveLabel(tx::transaction_id_t tx_id,
+StateDelta StateDelta::RemoveLabel(tx::TransactionId tx_id,
                                    gid::Gid vertex_id, storage::Label label,
                                    const std::string &label_name) {
   StateDelta op(StateDelta::Type::REMOVE_LABEL, tx_id);
@@ -134,7 +134,7 @@ StateDelta StateDelta::RemoveLabel(tx::transaction_id_t tx_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveVertex(tx::transaction_id_t tx_id,
+StateDelta StateDelta::RemoveVertex(tx::TransactionId tx_id,
                                     gid::Gid vertex_id, bool check_empty) {
   StateDelta op(StateDelta::Type::REMOVE_VERTEX, tx_id);
   op.vertex_id = vertex_id;
@@ -142,14 +142,14 @@ StateDelta StateDelta::RemoveVertex(tx::transaction_id_t tx_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveEdge(tx::transaction_id_t tx_id,
+StateDelta StateDelta::RemoveEdge(tx::TransactionId tx_id,
                                   gid::Gid edge_id) {
   StateDelta op(StateDelta::Type::REMOVE_EDGE, tx_id);
   op.edge_id = edge_id;
   return op;
 }
 
-StateDelta StateDelta::BuildIndex(tx::transaction_id_t tx_id,
+StateDelta StateDelta::BuildIndex(tx::TransactionId tx_id,
                                   storage::Label label,
                                   const std::string &label_name,
                                   storage::Property property,

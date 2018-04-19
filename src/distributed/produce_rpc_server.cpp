@@ -8,7 +8,7 @@
 namespace distributed {
 
 ProduceRpcServer::OngoingProduce::OngoingProduce(
-    database::GraphDb &db, tx::transaction_id_t tx_id,
+    database::GraphDb &db, tx::TransactionId tx_id,
     std::shared_ptr<query::plan::LogicalOperator> op,
     query::SymbolTable symbol_table, Parameters parameters,
     std::vector<query::Symbol> pull_symbols)
@@ -109,7 +109,7 @@ ProduceRpcServer::ProduceRpcServer(
 }
 
 void ProduceRpcServer::FinishAndClearOngoingProducePlans(
-    tx::transaction_id_t tx_id) {
+    tx::TransactionId tx_id) {
   std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
   for (auto it = ongoing_produces_.begin(); it != ongoing_produces_.end();) {
     if (it->first.first == tx_id) {

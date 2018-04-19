@@ -64,7 +64,7 @@ class StorageGc {
   StorageGc &operator=(const StorageGc &) = delete;
   StorageGc &operator=(StorageGc &&) = delete;
 
-  virtual void CollectCommitLogGarbage(tx::transaction_id_t oldest_active) = 0;
+  virtual void CollectCommitLogGarbage(tx::TransactionId oldest_active) = 0;
 
   void CollectGarbage() {
     // main garbage collection logic
@@ -129,9 +129,9 @@ class StorageGc {
   // alive transaction from the time before the hints were set is still alive
   // (otherwise that transaction could still be waiting for a resolution of
   // the query to the commit log about some old transaction)
-  std::experimental::optional<tx::transaction_id_t> GetClogSafeTransaction(
-      tx::transaction_id_t oldest_active) {
-    std::experimental::optional<tx::transaction_id_t> safe_to_delete;
+  std::experimental::optional<tx::TransactionId> GetClogSafeTransaction(
+      tx::TransactionId oldest_active) {
+    std::experimental::optional<tx::TransactionId> safe_to_delete;
     while (!gc_txid_ranges_.empty() &&
            gc_txid_ranges_.front().second < oldest_active) {
       safe_to_delete = gc_txid_ranges_.front().first;
@@ -150,7 +150,7 @@ class StorageGc {
 
   // History of <oldest active transaction, next transaction to be ran> ranges
   // that gc operated on at some previous time - used to clear commit log
-  std::queue<std::pair<tx::transaction_id_t, tx::transaction_id_t>>
+  std::queue<std::pair<tx::TransactionId, tx::TransactionId>>
       gc_txid_ranges_;
 };
 }  // namespace database

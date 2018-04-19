@@ -33,7 +33,7 @@ UpdateResult UpdatesRpcClients::Update(int worker_id,
 }
 
 gid::Gid UpdatesRpcClients::CreateVertex(
-    int worker_id, tx::transaction_id_t tx_id,
+    int worker_id, tx::TransactionId tx_id,
     const std::vector<storage::Label> &labels,
     const std::unordered_map<storage::Property, query::TypedValue>
         &properties) {
@@ -46,7 +46,7 @@ gid::Gid UpdatesRpcClients::CreateVertex(
 }
 
 storage::EdgeAddress UpdatesRpcClients::CreateEdge(
-    tx::transaction_id_t tx_id, VertexAccessor &from, VertexAccessor &to,
+    tx::TransactionId tx_id, VertexAccessor &from, VertexAccessor &to,
     storage::EdgeType edge_type) {
   CHECK(from.address().is_remote()) << "In CreateEdge `from` must be remote";
 
@@ -59,7 +59,7 @@ storage::EdgeAddress UpdatesRpcClients::CreateEdge(
   return {res->member.gid, from_worker};
 }
 
-void UpdatesRpcClients::AddInEdge(tx::transaction_id_t tx_id,
+void UpdatesRpcClients::AddInEdge(tx::TransactionId tx_id,
                                   VertexAccessor &from,
                                   storage::EdgeAddress edge_address,
                                   VertexAccessor &to,
@@ -76,7 +76,7 @@ void UpdatesRpcClients::AddInEdge(tx::transaction_id_t tx_id,
   RaiseIfRemoteError(res->member);
 }
 
-void UpdatesRpcClients::RemoveVertex(int worker_id, tx::transaction_id_t tx_id,
+void UpdatesRpcClients::RemoveVertex(int worker_id, tx::TransactionId tx_id,
                                      gid::Gid gid, bool check_empty) {
   auto res = worker_clients_.GetClientPool(worker_id).Call<RemoveVertexRpc>(
       RemoveVertexReqData{gid, tx_id, check_empty});
@@ -84,7 +84,7 @@ void UpdatesRpcClients::RemoveVertex(int worker_id, tx::transaction_id_t tx_id,
   RaiseIfRemoteError(res->member);
 }
 
-void UpdatesRpcClients::RemoveEdge(tx::transaction_id_t tx_id, int worker_id,
+void UpdatesRpcClients::RemoveEdge(tx::TransactionId tx_id, int worker_id,
                                    gid::Gid edge_gid, gid::Gid vertex_from_id,
                                    storage::VertexAddress vertex_to_addr) {
   auto res = worker_clients_.GetClientPool(worker_id).Call<RemoveEdgeRpc>(
@@ -93,7 +93,7 @@ void UpdatesRpcClients::RemoveEdge(tx::transaction_id_t tx_id, int worker_id,
   RaiseIfRemoteError(res->member);
 }
 
-void UpdatesRpcClients::RemoveInEdge(tx::transaction_id_t tx_id, int worker_id,
+void UpdatesRpcClients::RemoveInEdge(tx::TransactionId tx_id, int worker_id,
                                      gid::Gid vertex_id,
                                      storage::EdgeAddress edge_address) {
   CHECK(edge_address.is_remote()) << "RemoveInEdge edge_address is local.";
@@ -104,7 +104,7 @@ void UpdatesRpcClients::RemoveInEdge(tx::transaction_id_t tx_id, int worker_id,
 }
 
 std::vector<utils::Future<UpdateResult>> UpdatesRpcClients::UpdateApplyAll(
-    int skip_worker_id, tx::transaction_id_t tx_id) {
+    int skip_worker_id, tx::TransactionId tx_id) {
   return worker_clients_.ExecuteOnWorkers<UpdateResult>(
       skip_worker_id, [tx_id](auto &client) {
         auto res = client.template Call<UpdateApplyRpc>(tx_id);

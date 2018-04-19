@@ -14,7 +14,7 @@ class StorageGcSingleNode : public StorageGc {
     scheduler_.Stop();
   }
 
-  void CollectCommitLogGarbage(tx::transaction_id_t oldest_active) final {
+  void CollectCommitLogGarbage(tx::TransactionId oldest_active) final {
     auto safe_to_delete = GetClogSafeTransaction(oldest_active);
     if (safe_to_delete) tx_engine_.GarbageCollectCommitLog(*safe_to_delete);
   }

@@ -31,7 +31,7 @@ class StorageGcMaster : public StorageGc {
     scheduler_.Stop();
   }
 
-  void CollectCommitLogGarbage(tx::transaction_id_t oldest_active) final {
+  void CollectCommitLogGarbage(tx::TransactionId oldest_active) final {
     // Workers are sending information when it's safe to delete every
     // transaction older than oldest_active from their perspective i.e. there
     // won't exist another transaction in the future with id larger than or
@@ -39,7 +39,7 @@ class StorageGcMaster : public StorageGc {
     // the state of transactions which we are deleting.
     auto safe_transaction = GetClogSafeTransaction(oldest_active);
     if (safe_transaction) {
-      tx::transaction_id_t min_safe = *safe_transaction;
+      tx::TransactionId min_safe = *safe_transaction;
       {
         std::unique_lock<std::mutex> lock(worker_safe_transaction_mutex_);
         for (auto worker_id : coordination_.GetWorkerIds()) {
@@ -60,7 +60,7 @@ class StorageGcMaster : public StorageGc {
   distributed::MasterCoordination &coordination_;
   // Mapping of worker ids and oldest active transaction which is safe for
   // deletion from worker perspective
-  std::unordered_map<int, tx::transaction_id_t> worker_safe_transaction_;
+  std::unordered_map<int, tx::TransactionId> worker_safe_transaction_;
   std::mutex worker_safe_transaction_mutex_;
 };
 }  // namespace database

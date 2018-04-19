@@ -84,7 +84,7 @@ class IndexRpcClients {
 
   auto GetBuildIndexFutures(const storage::Label &label,
                             const storage::Property &property,
-                            tx::transaction_id_t transaction_id,
+                            tx::TransactionId transaction_id,
                             int worker_id) {
     return clients_.ExecuteOnWorkers<bool>(
         worker_id, [label, property, transaction_id](
@@ -109,7 +109,7 @@ class OngoingProduceJoinerRpcClients {
   OngoingProduceJoinerRpcClients(RpcWorkerClients &clients)
       : clients_(clients) {}
 
-  void JoinOngoingProduces(tx::transaction_id_t tx_id) {
+  void JoinOngoingProduces(tx::TransactionId tx_id) {
     auto futures = clients_.ExecuteOnWorkers<void>(
         0, [tx_id](communication::rpc::ClientPool &client_pool) {
           auto result =

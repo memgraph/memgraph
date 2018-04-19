@@ -31,8 +31,8 @@ class Record : public Version<T> {
     // again. i know, it happened to me.
 
     // fetch expiration info in a safe way (see fetch_exp for details)
-    tx::transaction_id_t tx_exp;
-    tx::command_id_t cmd_exp;
+    tx::TransactionId tx_exp;
+    tx::CommandId cmd_exp;
     std::tie(tx_exp, cmd_exp) = fetch_exp();
 
     return ((tx_.cre == t.id_ &&      // inserted by the current transaction
@@ -109,8 +109,8 @@ class Record : public Version<T> {
   // queries which can match, update and return in the same query
   bool is_visible_write(const tx::Transaction &t) {
     // fetch expiration info in a safe way (see fetch_exp for details)
-    tx::transaction_id_t tx_exp;
-    tx::command_id_t cmd_exp;
+    tx::TransactionId tx_exp;
+    tx::CommandId cmd_exp;
     std::tie(tx_exp, cmd_exp) = fetch_exp();
 
     return (tx_.cre == t.id_ &&       // inserted by the current transaction
@@ -150,7 +150,7 @@ class Record : public Version<T> {
       // Exp is aborted and we can't set the hint, this way we don't have to set
       // the hint because an aborted transaction which expires a record is the
       // same thing as a non-expired record
-      tx::transaction_id_t expected;
+      tx::TransactionId expected;
       do {
         expected = tx_.exp;
         // If the transaction expiry is no longer aborted we don't need to
@@ -208,13 +208,13 @@ class Record : public Version<T> {
   // and tx.exp is the id of the transaction that deleted the record
   // These values are used to determine the visibility of the record
   // to the current transaction.
-  CreExp<tx::transaction_id_t> tx_;
+  CreExp<tx::TransactionId> tx_;
 
   // cmd.cre is the id of the command in this transaction that created the
   // record and cmd.exp is the id of the command in this transaction that
   // deleted the record. These values are used to determine the visibility
   // of the record to the current command in the running transaction.
-  CreExp<tx::command_id_t> cmd_;
+  CreExp<tx::CommandId> cmd_;
 
   mutable Hints hints_;
   /** Fetch the (transaction, command) expiration before the check
@@ -222,8 +222,8 @@ class Record : public Version<T> {
    * Do it in a loop to ensure that command is consistent with transaction.
    */
   auto fetch_exp() const {
-    tx::transaction_id_t tx_exp;
-    tx::command_id_t cmd_exp;
+    tx::TransactionId tx_exp;
+    tx::CommandId cmd_exp;
     do {
       tx_exp = tx_.exp;
       cmd_exp = cmd_.exp;
@@ -274,7 +274,7 @@ class Record : public Version<T> {
    * @param id - id to check if it's commited and visible
    * @return true if the id is commited and visible for the transaction t.
    */
-  bool visible_from(uint8_t mask, tx::transaction_id_t id,
+  bool visible_from(uint8_t mask, tx::TransactionId id,
                     const tx::Transaction &t) {
     DCHECK(mask == Hints::kCre || mask == Hints::kExp)
         << "Mask must be either kCre or kExp";

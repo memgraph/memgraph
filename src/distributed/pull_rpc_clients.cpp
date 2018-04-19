@@ -62,7 +62,7 @@ utils::Future<PullData> PullRpcClients::Pull(
 
 std::vector<utils::Future<void>>
 PullRpcClients::NotifyAllTransactionCommandAdvanced(
-    tx::transaction_id_t tx_id) {
+    tx::TransactionId tx_id) {
   return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {
     auto res = client.template Call<TransactionCommandAdvancedRpc>(tx_id);
     CHECK(res) << "TransactionCommandAdvanceRpc failed";

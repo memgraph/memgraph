@@ -13,7 +13,7 @@
 namespace distributed {
 
 struct TxGidPair {
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
   gid::Gid gid;
 
  private:

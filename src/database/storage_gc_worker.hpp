@@ -24,7 +24,7 @@ class StorageGcWorker : public StorageGc {
     scheduler_.Stop();
   }
 
-  void CollectCommitLogGarbage(tx::transaction_id_t oldest_active) final {
+  void CollectCommitLogGarbage(tx::TransactionId oldest_active) final {
     // We first need to delete transactions that we can delete to be sure that
     // the locks are released as well. Otherwise some new transaction might
     // try to acquire a lock which hasn't been released (if the transaction

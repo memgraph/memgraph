@@ -34,7 +34,7 @@ void CheckDurabilityDir(const std::string &durability_dir) {
   }
 }
 
-std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
+std::experimental::optional<tx::TransactionId> TransactionIdFromWalFilename(
     const std::string &name) {
   auto nullopt = std::experimental::nullopt;
   // Get the max_transaction_id from the file name that has format
@@ -45,7 +45,7 @@ std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
     return nullopt;
   }
   if (utils::StartsWith(file_name_split[1], "current"))
-    return std::numeric_limits<tx::transaction_id_t>::max();
+    return std::numeric_limits<tx::TransactionId>::max();
   file_name_split = utils::Split(file_name_split[1], "_");
   if (file_name_split.size() != 5) {
     LOG(WARNING) << "Unable to parse WAL file name: " << name;
@@ -64,7 +64,7 @@ std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
 }
 
 fs::path MakeSnapshotPath(const fs::path &durability_dir, const int worker_id,
-                          tx::transaction_id_t tx_id) {
+                          tx::TransactionId tx_id) {
   std::string date_str =
       Timestamp(Timestamp::Now())
           .ToString("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
@@ -78,7 +78,7 @@ fs::path MakeSnapshotPath(const fs::path &durability_dir, const int worker_id,
 /// WAL file for which the max tx id is still unknown.
 fs::path WalFilenameForTransactionId(
     const std::experimental::filesystem::path &wal_dir, int worker_id,
-    std::experimental::optional<tx::transaction_id_t> tx_id) {
+    std::experimental::optional<tx::TransactionId> tx_id) {
   auto file_name = Timestamp::Now().ToIso8601();
   if (tx_id) {
     file_name += "__max_transaction_" + std::to_string(*tx_id);
@@ -89,7 +89,7 @@ fs::path WalFilenameForTransactionId(
   return wal_dir / file_name;
 }
 
-std::experimental::optional<tx::transaction_id_t>
+std::experimental::optional<tx::TransactionId>
 TransactionIdFromSnapshotFilename(const std::string &name) {
   auto nullopt = std::experimental::nullopt;
   auto file_name_split = utils::RSplit(name, "_tx_", 1);

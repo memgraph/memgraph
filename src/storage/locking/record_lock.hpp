@@ -21,11 +21,11 @@ class RecordLock {
   void Unlock();
 
  private:
-  bool TryLock(tx::transaction_id_t tx_id);
+  bool TryLock(tx::TransactionId tx_id);
 
   // Arbitrary choosen constant, postgresql uses 1 second so do we.
   constexpr static std::chrono::duration<double> kTimeout{
       std::chrono::seconds(1)};
 
-  std::atomic<tx::transaction_id_t> owner_{0};
+  std::atomic<tx::TransactionId> owner_{0};
 };

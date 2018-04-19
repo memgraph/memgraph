@@ -22,7 +22,7 @@ TRecord *Cache<TRecord>::FindNew(gid::Gid gid) {
 }
 
 template <typename TRecord>
-void Cache<TRecord>::FindSetOldNew(tx::transaction_id_t tx_id, int worker_id,
+void Cache<TRecord>::FindSetOldNew(tx::TransactionId tx_id, int worker_id,
                                    gid::Gid gid, TRecord *&old_record,
                                    TRecord *&new_record) {
   {

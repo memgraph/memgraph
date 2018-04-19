@@ -16,11 +16,11 @@ namespace durability {
 /// Stores info on what was (or needs to be) recovered from durability.
 struct RecoveryInfo {
   RecoveryInfo() {}
-  RecoveryInfo(tx::transaction_id_t snapshot_tx_id,
-               tx::transaction_id_t max_wal_tx_id)
+  RecoveryInfo(tx::TransactionId snapshot_tx_id,
+               tx::TransactionId max_wal_tx_id)
       : snapshot_tx_id(snapshot_tx_id), max_wal_tx_id(max_wal_tx_id) {}
-  tx::transaction_id_t snapshot_tx_id;
-  tx::transaction_id_t max_wal_tx_id;
+  tx::TransactionId snapshot_tx_id;
+  tx::TransactionId max_wal_tx_id;
 
   bool operator==(const RecoveryInfo &other) const {
     return snapshot_tx_id == other.snapshot_tx_id &&

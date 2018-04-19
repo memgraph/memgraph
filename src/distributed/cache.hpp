@@ -37,7 +37,7 @@ class Cache {
   /// from the given transaction's ID and command ID, and caches it. Sets the
   /// given pointers to point to the fetched data. Analogue to
   /// mvcc::VersionList::find_set_old_new.
-  void FindSetOldNew(tx::transaction_id_t tx_id, int worker_id, gid::Gid gid,
+  void FindSetOldNew(tx::TransactionId tx_id, int worker_id, gid::Gid gid,
                      TRecord *&old_record, TRecord *&new_record);
 
   /// Sets the given records as (new, old) data for the given gid.

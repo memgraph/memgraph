@@ -24,35 +24,35 @@ class WorkerEngine : public Engine {
   ~WorkerEngine();
 
   Transaction *Begin() override;
-  command_id_t Advance(transaction_id_t id) override;
-  command_id_t UpdateCommand(transaction_id_t id) override;
+  CommandId Advance(TransactionId id) override;
+  CommandId UpdateCommand(TransactionId id) override;
   void Commit(const Transaction &t) override;
   void Abort(const Transaction &t) override;
-  CommitLog::Info Info(transaction_id_t tid) const override;
+  CommitLog::Info Info(TransactionId tid) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
-  transaction_id_t GlobalLast() const override;
-  transaction_id_t LocalLast() const override;
+  TransactionId GlobalLast() const override;
+  TransactionId LocalLast() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
-  transaction_id_t LocalOldestActive() const override;
-  Transaction *RunningTransaction(transaction_id_t tx_id) override;
+  TransactionId LocalOldestActive() const override;
+  Transaction *RunningTransaction(TransactionId tx_id) override;
 
   // Caches the transaction for the given info an returs a ptr to it.
-  Transaction *RunningTransaction(transaction_id_t tx_id,
+  Transaction *RunningTransaction(TransactionId tx_id,
                                   const Snapshot &snapshot);
 
-  void EnsureNextIdGreater(transaction_id_t tx_id) override;
-  void GarbageCollectCommitLog(tx::transaction_id_t tx_id) override;
+  void EnsureNextIdGreater(TransactionId tx_id) override;
+  void GarbageCollectCommitLog(tx::TransactionId tx_id) override;
 
   /// Clears the cache of local transactions that have expired. The signature of
   /// this method is dictated by `distributed::TransactionalCacheCleaner`.
-  void ClearTransactionalCache(transaction_id_t oldest_active) const;
+  void ClearTransactionalCache(TransactionId oldest_active) const;
 
  private:
   // Local caches.
-  mutable ConcurrentMap<transaction_id_t, Transaction *> active_;
-  std::atomic<transaction_id_t> local_last_{0};
+  mutable ConcurrentMap<TransactionId, Transaction *> active_;
+  std::atomic<TransactionId> local_last_{0};
   // Mutable because just getting info can cause a cache fill.
   mutable CommitLog clog_;
 
@@ -61,14 +61,14 @@ class WorkerEngine : public Engine {
 
   // Used for clearing of caches of transactions that have expired.
   // Initialize the oldest_active_ with 1 because there's never a tx with id=0
-  std::atomic<transaction_id_t> oldest_active_{1};
+  std::atomic<TransactionId> oldest_active_{1};
 
   // Removes a single transaction from the cache, if present.
-  void ClearSingleTransaction(transaction_id_t tx_Id) const;
+  void ClearSingleTransaction(TransactionId tx_Id) const;
 
   // Updates the oldest active transaction to the one from the snapshot. If the
   // snapshot is empty, it's set to the given alternative.
   void UpdateOldestActive(const Snapshot &snapshot,
-                          transaction_id_t alternative);
+                          TransactionId alternative);
 };
 }  // namespace tx

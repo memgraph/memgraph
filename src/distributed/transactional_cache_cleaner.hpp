@@ -31,13 +31,13 @@ class TransactionalCacheCleaner {
 
  protected:
   /// Registers the given object for transactional cleaning. The object will
-  /// periodically get it's `ClearCache(tx::transaction_id_t)` method called
+  /// periodically get it's `ClearCache(tx::TransactionId)` method called
   /// with the oldest active transaction id. Note that the ONLY guarantee for
   /// the call param is that there are no transactions alive that have an id
   /// lower than it.
   template <typename TCache>
   void Register(TCache &cache) {
-    functions_.emplace_back([&cache](tx::transaction_id_t oldest_active) {
+    functions_.emplace_back([&cache](tx::TransactionId oldest_active) {
       cache.ClearTransactionalCache(oldest_active);
     });
   }
@@ -49,12 +49,12 @@ class TransactionalCacheCleaner {
     Register(caches...);
   }
 
-  void Clear(tx::transaction_id_t oldest_active) {
+  void Clear(tx::TransactionId oldest_active) {
     for (auto &f : functions_) f(oldest_active);
   }
 
   tx::Engine &tx_engine_;
-  std::vector<std::function<void(tx::transaction_id_t &oldest_active)>>
+  std::vector<std::function<void(tx::TransactionId &oldest_active)>>
       functions_;
   Scheduler cache_clearing_scheduler_;
 };

@@ -38,7 +38,7 @@ class PullRpcClients {
   auto GetWorkerIds() { return clients_.GetWorkerIds(); }
 
   std::vector<utils::Future<void>> NotifyAllTransactionCommandAdvanced(
-      tx::transaction_id_t tx_id);
+      tx::TransactionId tx_id);
 
  private:
   RpcWorkerClients &clients_;

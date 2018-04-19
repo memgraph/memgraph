@@ -18,7 +18,7 @@ class DataRpcClients {
   /// must be visible in given transaction.
   template <typename TRecord>
   std::unique_ptr<TRecord> RemoteElement(int worker_id,
-                                         tx::transaction_id_t tx_id,
+                                         tx::TransactionId tx_id,
                                          gid::Gid gid);
 
  private:

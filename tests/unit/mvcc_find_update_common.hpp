@@ -63,7 +63,7 @@ class Mvcc : public ::testing::Test {
   mvcc::VersionList<TestClass> version_list{*t1, 0, version_list_size};
   TestClass *v1 = nullptr;
   tx::Transaction *t2 = nullptr;
-  tx::transaction_id_t id0, id1, id2;
+  tx::TransactionId id0, id1, id2;
 };
 
 // helper macros. important:

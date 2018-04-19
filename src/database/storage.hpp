@@ -111,7 +111,7 @@ class Storage {
   LabelPropertyIndex label_property_index_;
 
   // Set of transactions ids which are building indexes currently
-  SkipList<tx::transaction_id_t> index_build_tx_in_progress_;
+  SkipList<tx::TransactionId> index_build_tx_in_progress_;
 
   /// Gets the Vertex/Edge main storage map.
   template <typename TRecord>

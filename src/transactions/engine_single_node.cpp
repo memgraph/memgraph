@@ -16,7 +16,7 @@ Transaction *SingleNodeEngine::Begin() {
   VLOG(11) << "[Tx] Starting transaction " << counter_ + 1;
   std::lock_guard<SpinLock> guard(lock_);
 
-  transaction_id_t id{++counter_};
+  TransactionId id{++counter_};
   auto t = new Transaction(id, active_, *this);
   active_.insert(id);
   store_.emplace(id, t);
@@ -26,7 +26,7 @@ Transaction *SingleNodeEngine::Begin() {
   return t;
 }
 
-command_id_t SingleNodeEngine::Advance(transaction_id_t id) {
+CommandId SingleNodeEngine::Advance(TransactionId id) {
   std::lock_guard<SpinLock> guard(lock_);
 
   auto it = store_.find(id);
@@ -34,7 +34,7 @@ command_id_t SingleNodeEngine::Advance(transaction_id_t id) {
       << "Transaction::advance on non-existing transaction";
 
   Transaction *t = it->second.get();
-  if (t->cid_ == std::numeric_limits<command_id_t>::max())
+  if (t->cid_ == std::numeric_limits<CommandId>::max())
     throw TransactionError(
         "Reached maximum number of commands in this "
         "transaction.");
@@ -42,7 +42,7 @@ command_id_t SingleNodeEngine::Advance(transaction_id_t id) {
   return ++(t->cid_);
 }
 
-command_id_t SingleNodeEngine::UpdateCommand(transaction_id_t id) {
+CommandId SingleNodeEngine::UpdateCommand(TransactionId id) {
   std::lock_guard<SpinLock> guard(lock_);
   auto it = store_.find(id);
   DCHECK(it != store_.end())
@@ -72,7 +72,7 @@ void SingleNodeEngine::Abort(const Transaction &t) {
   store_.erase(store_.find(t.id_));
 }
 
-CommitLog::Info SingleNodeEngine::Info(transaction_id_t tx) const {
+CommitLog::Info SingleNodeEngine::Info(TransactionId tx) const {
   return clog_.fetch_info(tx);
 }
 
@@ -98,19 +98,19 @@ Snapshot SingleNodeEngine::GlobalActiveTransactions() {
   return active_transactions;
 }
 
-transaction_id_t SingleNodeEngine::LocalLast() const {
+TransactionId SingleNodeEngine::LocalLast() const {
   std::lock_guard<SpinLock> guard(lock_);
   return counter_;
 }
 
-transaction_id_t SingleNodeEngine::GlobalLast() const { return LocalLast(); }
+TransactionId SingleNodeEngine::GlobalLast() const { return LocalLast(); }
 
-transaction_id_t SingleNodeEngine::LocalOldestActive() const {
+TransactionId SingleNodeEngine::LocalOldestActive() const {
   std::lock_guard<SpinLock> guard(lock_);
   return active_.empty() ? counter_ + 1 : active_.front();
 }
 
-void SingleNodeEngine::GarbageCollectCommitLog(transaction_id_t tx_id) {
+void SingleNodeEngine::GarbageCollectCommitLog(TransactionId tx_id) {
   clog_.garbage_collect_older(tx_id);
 }
 
@@ -122,7 +122,7 @@ void SingleNodeEngine::LocalForEachActiveTransaction(
   }
 }
 
-Transaction *SingleNodeEngine::RunningTransaction(transaction_id_t tx_id) {
+Transaction *SingleNodeEngine::RunningTransaction(TransactionId tx_id) {
   std::lock_guard<SpinLock> guard(lock_);
   auto found = store_.find(tx_id);
   CHECK(found != store_.end())
@@ -130,7 +130,7 @@ Transaction *SingleNodeEngine::RunningTransaction(transaction_id_t tx_id) {
   return found->second.get();
 }
 
-void SingleNodeEngine::EnsureNextIdGreater(transaction_id_t tx_id) {
+void SingleNodeEngine::EnsureNextIdGreater(TransactionId tx_id) {
   std::lock_guard<SpinLock> guard(lock_);
   counter_ = std::max(tx_id, counter_);
 }

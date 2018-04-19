@@ -23,7 +23,7 @@ class Engine;
 class Snapshot {
  public:
   Snapshot() = default;
-  Snapshot(std::vector<transaction_id_t> &&active)
+  Snapshot(std::vector<TransactionId> &&active)
       : transaction_ids_(std::move(active)) {}
   // all the copy/move constructors/assignments act naturally
 
@@ -32,7 +32,7 @@ class Snapshot {
    *
    * @param xid - The transcation id in question
    */
-  bool contains(transaction_id_t id) const {
+  bool contains(TransactionId id) const {
     return std::binary_search(transaction_ids_.begin(), transaction_ids_.end(),
                               id);
   }
@@ -43,7 +43,7 @@ class Snapshot {
    *
    * @param id - the transaction id to add
    */
-  void insert(transaction_id_t id) {
+  void insert(TransactionId id) {
     transaction_ids_.push_back(id);
     DCHECK(std::is_sorted(transaction_ids_.begin(), transaction_ids_.end()))
         << "Snapshot must be sorted";
@@ -52,18 +52,18 @@ class Snapshot {
   /** Removes the given transaction id from this Snapshot.
    *
    * @param id - the transaction id to remove */
-  void remove(transaction_id_t id) {
+  void remove(TransactionId id) {
     auto last =
         std::remove(transaction_ids_.begin(), transaction_ids_.end(), id);
     transaction_ids_.erase(last, transaction_ids_.end());
   }
 
-  transaction_id_t front() const {
+  TransactionId front() const {
     DCHECK(transaction_ids_.size()) << "Snapshot.front() on empty Snapshot";
     return transaction_ids_.front();
   }
 
-  transaction_id_t back() const {
+  TransactionId back() const {
     DCHECK(transaction_ids_.size()) << "Snapshot.back() on empty Snapshot";
     return transaction_ids_.back();
   }
@@ -94,6 +94,6 @@ class Snapshot {
     ar &transaction_ids_;
   }
 
-  std::vector<transaction_id_t> transaction_ids_;
+  std::vector<TransactionId> transaction_ids_;
 };
 }  // namespace tx

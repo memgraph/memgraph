@@ -47,7 +47,7 @@ struct StateDelta {
   };
 
   StateDelta() = default;
-  StateDelta(const enum Type &type, tx::transaction_id_t tx_id)
+  StateDelta(const enum Type &type, tx::TransactionId tx_id)
       : type(type), transaction_id(tx_id) {}
 
   /** Attempts to decode a StateDelta from the given decoder. Returns the
@@ -62,47 +62,47 @@ struct StateDelta {
       HashedFileWriter &writer,
       communication::bolt::PrimitiveEncoder<HashedFileWriter> &encoder) const;
 
-  static StateDelta TxBegin(tx::transaction_id_t tx_id);
-  static StateDelta TxCommit(tx::transaction_id_t tx_id);
-  static StateDelta TxAbort(tx::transaction_id_t tx_id);
-  static StateDelta CreateVertex(tx::transaction_id_t tx_id,
+  static StateDelta TxBegin(tx::TransactionId tx_id);
+  static StateDelta TxCommit(tx::TransactionId tx_id);
+  static StateDelta TxAbort(tx::TransactionId tx_id);
+  static StateDelta CreateVertex(tx::TransactionId tx_id,
                                  gid::Gid vertex_id);
-  static StateDelta CreateEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
+  static StateDelta CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
                                gid::Gid vertex_from_id, gid::Gid vertex_to_id,
                                storage::EdgeType edge_type,
                                const std::string &edge_type_name);
-  static StateDelta AddOutEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+  static StateDelta AddOutEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
                                storage::VertexAddress vertex_to_address,
                                storage::EdgeAddress edge_address,
                                storage::EdgeType edge_type);
-  static StateDelta RemoveOutEdge(tx::transaction_id_t tx_id,
+  static StateDelta RemoveOutEdge(tx::TransactionId tx_id,
                                   gid::Gid vertex_id,
                                   storage::EdgeAddress edge_address);
-  static StateDelta AddInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+  static StateDelta AddInEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
                               storage::VertexAddress vertex_from_address,
                               storage::EdgeAddress edge_address,
                               storage::EdgeType edge_type);
-  static StateDelta RemoveInEdge(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+  static StateDelta RemoveInEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
                                  storage::EdgeAddress edge_address);
-  static StateDelta PropsSetVertex(tx::transaction_id_t tx_id,
+  static StateDelta PropsSetVertex(tx::TransactionId tx_id,
                                    gid::Gid vertex_id,
                                    storage::Property property,
                                    const std::string &property_name,
                                    const PropertyValue &value);
-  static StateDelta PropsSetEdge(tx::transaction_id_t tx_id, gid::Gid edge_id,
+  static StateDelta PropsSetEdge(tx::TransactionId tx_id, gid::Gid edge_id,
                                  storage::Property property,
                                  const std::string &property_name,
                                  const PropertyValue &value);
-  static StateDelta AddLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+  static StateDelta AddLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
                              storage::Label label,
                              const std::string &label_name);
-  static StateDelta RemoveLabel(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+  static StateDelta RemoveLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
                                 storage::Label label,
                                 const std::string &label_name);
-  static StateDelta RemoveVertex(tx::transaction_id_t tx_id, gid::Gid vertex_id,
+  static StateDelta RemoveVertex(tx::TransactionId tx_id, gid::Gid vertex_id,
                                  bool check_empty);
-  static StateDelta RemoveEdge(tx::transaction_id_t tx_id, gid::Gid edge_id);
-  static StateDelta BuildIndex(tx::transaction_id_t tx_id, storage::Label label,
+  static StateDelta RemoveEdge(tx::TransactionId tx_id, gid::Gid edge_id);
+  static StateDelta BuildIndex(tx::TransactionId tx_id, storage::Label label,
                                const std::string &label_name,
                                storage::Property property,
                                const std::string &property_name);
@@ -112,7 +112,7 @@ struct StateDelta {
 
   // Members valid for every delta.
   enum Type type;
-  tx::transaction_id_t transaction_id;
+  tx::TransactionId transaction_id;
 
   // Members valid only for some deltas, see StateDelta::Type comments above.
   // TODO: when preparing the WAL for distributed, most likely remove Gids and

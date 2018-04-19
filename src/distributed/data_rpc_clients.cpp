@@ -7,7 +7,7 @@ namespace distributed {
 
 template <>
 std::unique_ptr<Edge> DataRpcClients::RemoteElement(int worker_id,
-                                                    tx::transaction_id_t tx_id,
+                                                    tx::TransactionId tx_id,
                                                     gid::Gid gid) {
   auto response =
       clients_.GetClientPool(worker_id).Call<EdgeRpc>(TxGidPair{tx_id, gid});
@@ -17,7 +17,7 @@ std::unique_ptr<Edge> DataRpcClients::RemoteElement(int worker_id,
 
 template <>
 std::unique_ptr<Vertex> DataRpcClients::RemoteElement(
-    int worker_id, tx::transaction_id_t tx_id, gid::Gid gid) {
+    int worker_id, tx::TransactionId tx_id, gid::Gid gid) {
   auto response =
       clients_.GetClientPool(worker_id).Call<VertexRpc>(TxGidPair{tx_id, gid});
   CHECK(response) << "VertexRpc failed";

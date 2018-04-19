@@ -52,7 +52,7 @@ class GraphDbAccessor {
   explicit GraphDbAccessor(GraphDb &db);
 
   /// Creates an accessor for a running transaction.
-  GraphDbAccessor(GraphDb &db, tx::transaction_id_t tx_id);
+  GraphDbAccessor(GraphDb &db, tx::TransactionId tx_id);
   ~GraphDbAccessor();
 
   GraphDbAccessor(const GraphDbAccessor &other) = delete;
@@ -549,7 +549,7 @@ class GraphDbAccessor {
   const std::string &PropertyName(storage::Property property) const;
 
   /** Returns the id of this accessor's transaction */
-  tx::transaction_id_t transaction_id() const;
+  tx::TransactionId transaction_id() const;
 
   /** Advances transaction's command id by 1. */
   void AdvanceCommand();

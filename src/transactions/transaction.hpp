@@ -21,8 +21,8 @@ namespace tx {
 class Transaction {
  public:
   /** Returns the maximum possible transcation id */
-  static transaction_id_t MaxId() {
-    return std::numeric_limits<transaction_id_t>::max();
+  static TransactionId MaxId() {
+    return std::numeric_limits<TransactionId>::max();
   }
 
  private:
@@ -31,7 +31,7 @@ class Transaction {
   friend class WorkerEngine;
 
   // The constructor is private, only the Engine ever uses it.
-  Transaction(transaction_id_t id, const Snapshot &snapshot, Engine &engine)
+  Transaction(TransactionId id, const Snapshot &snapshot, Engine &engine)
       : id_(id), engine_(engine), snapshot_(snapshot) {}
 
   // A transaction can't be moved nor copied. it's owned by the transaction
@@ -47,7 +47,7 @@ class Transaction {
   void TakeLock(RecordLock &lock) const { locks_.Take(&lock, *this, engine_); }
 
   /** Transaction's id. Unique in the engine that owns it */
-  const transaction_id_t id_;
+  const TransactionId id_;
 
   /** The transaction engine to which this transaction belongs */
   Engine &engine_;
@@ -71,7 +71,7 @@ class Transaction {
 
  private:
   // Index of the current command in the current transaction.
-  command_id_t cid_{1};
+  CommandId cid_{1};
 
   // A snapshot of currently active transactions.
   const Snapshot snapshot_;

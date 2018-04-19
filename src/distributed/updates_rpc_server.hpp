@@ -32,7 +32,7 @@ class UpdatesRpcServer {
   template <typename TRecordAccessor>
   class TransactionUpdates {
    public:
-    TransactionUpdates(database::GraphDb &db, tx::transaction_id_t tx_id)
+    TransactionUpdates(database::GraphDb &db, tx::TransactionId tx_id)
         : db_accessor_(db, tx_id) {}
 
     /// Adds a delta and returns the result. Does not modify the state (data) of
@@ -74,25 +74,25 @@ class UpdatesRpcServer {
   /// Applies all existsing updates for the given transaction ID. If there are
   /// no updates for that transaction, nothing happens. Clears the updates cache
   /// after applying them, regardless of the result.
-  UpdateResult Apply(tx::transaction_id_t tx_id);
+  UpdateResult Apply(tx::TransactionId tx_id);
 
   /// Clears the cache of local transactions that are completed. The signature
   /// of this method is dictated by `distributed::TransactionalCacheCleaner`.
-  void ClearTransactionalCache(tx::transaction_id_t oldest_active);
+  void ClearTransactionalCache(tx::TransactionId oldest_active);
 
  private:
   database::GraphDb &db_;
 
   template <typename TAccessor>
   using MapT =
-      ConcurrentMap<tx::transaction_id_t, TransactionUpdates<TAccessor>>;
+      ConcurrentMap<tx::TransactionId, TransactionUpdates<TAccessor>>;
   MapT<VertexAccessor> vertex_updates_;
   MapT<EdgeAccessor> edge_updates_;
 
   // Gets/creates the TransactionUpdates for the given transaction.
   template <typename TAccessor>
   TransactionUpdates<TAccessor> &GetUpdates(MapT<TAccessor> &updates,
-                                            tx::transaction_id_t tx_id);
+                                            tx::TransactionId tx_id);
 
   // Performs edge creation for the given request.
   CreateResult CreateEdge(const CreateEdgeReqData &req);

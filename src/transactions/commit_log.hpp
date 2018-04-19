@@ -18,25 +18,25 @@ class CommitLog {
   CommitLog &operator=(const CommitLog &) = delete;
   CommitLog &operator=(CommitLog &&) = delete;
 
-  bool is_active(transaction_id_t id) const {
+  bool is_active(TransactionId id) const {
     return fetch_info(id).is_active();
   }
 
-  bool is_committed(transaction_id_t id) const {
+  bool is_committed(TransactionId id) const {
     return fetch_info(id).is_committed();
   }
 
-  void set_committed(transaction_id_t id) { log.set(2 * id); }
+  void set_committed(TransactionId id) { log.set(2 * id); }
 
-  bool is_aborted(transaction_id_t id) const {
+  bool is_aborted(TransactionId id) const {
     return fetch_info(id).is_aborted();
   }
 
-  void set_aborted(transaction_id_t id) { log.set(2 * id + 1); }
+  void set_aborted(TransactionId id) { log.set(2 * id + 1); }
 
   // Clears the commit log from bits associated with transactions with an id
   // lower than `id`.
-  void garbage_collect_older(transaction_id_t id) { log.delete_prefix(2 * id); }
+  void garbage_collect_older(TransactionId id) { log.delete_prefix(2 * id); }
 
   class Info {
    public:
@@ -68,7 +68,7 @@ class CommitLog {
     uint8_t flags_{0};
   };
 
-  Info fetch_info(transaction_id_t id) const { return Info{log.at(2 * id, 2)}; }
+  Info fetch_info(TransactionId id) const { return Info{log.at(2 * id, 2)}; }
 
  private:
   DynamicBitset<uint8_t, kBitsetBlockSize> log;

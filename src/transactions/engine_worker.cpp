@@ -29,7 +29,7 @@ Transaction *WorkerEngine::Begin() {
   return tx;
 }
 
-command_id_t WorkerEngine::Advance(transaction_id_t tx_id) {
+CommandId WorkerEngine::Advance(TransactionId tx_id) {
   auto res = master_client_pool_.Call<AdvanceRpc>(tx_id);
   CHECK(res) << "AdvanceRpc failed";
   auto access = active_.access();
@@ -40,7 +40,7 @@ command_id_t WorkerEngine::Advance(transaction_id_t tx_id) {
   return res->member;
 }
 
-command_id_t WorkerEngine::UpdateCommand(transaction_id_t tx_id) {
+CommandId WorkerEngine::UpdateCommand(TransactionId tx_id) {
   auto res = master_client_pool_.Call<CommandRpc>(tx_id);
   CHECK(res) << "CommandRpc failed";
   auto cmd_id = res->member;
@@ -74,7 +74,7 @@ void WorkerEngine::Abort(const Transaction &t) {
   ClearSingleTransaction(t.id_);
 }
 
-CommitLog::Info WorkerEngine::Info(transaction_id_t tid) const {
+CommitLog::Info WorkerEngine::Info(TransactionId tid) const {
   auto info = clog_.fetch_info(tid);
   // If we don't know the transaction to be commited nor aborted, ask the
   // master about it and update the local commit log.
@@ -110,8 +110,8 @@ Snapshot WorkerEngine::GlobalActiveTransactions() {
   return snapshot;
 }
 
-transaction_id_t WorkerEngine::LocalLast() const { return local_last_; }
-transaction_id_t WorkerEngine::GlobalLast() const {
+TransactionId WorkerEngine::LocalLast() const { return local_last_; }
+TransactionId WorkerEngine::GlobalLast() const {
   auto res = master_client_pool_.Call<GlobalLastRpc>();
   CHECK(res) << "GlobalLastRpc failed";
   return res->member;
@@ -122,11 +122,11 @@ void WorkerEngine::LocalForEachActiveTransaction(
   for (auto pair : active_.access()) f(*pair.second);
 }
 
-transaction_id_t WorkerEngine::LocalOldestActive() const {
+TransactionId WorkerEngine::LocalOldestActive() const {
   return oldest_active_;
 }
 
-Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id) {
+Transaction *WorkerEngine::RunningTransaction(TransactionId tx_id) {
   auto accessor = active_.access();
   auto found = accessor.find(tx_id);
   if (found != accessor.end()) return found->second;
@@ -138,7 +138,7 @@ Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id) {
   return RunningTransaction(tx_id, snapshot);
 }
 
-Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id,
+Transaction *WorkerEngine::RunningTransaction(TransactionId tx_id,
                                               const Snapshot &snapshot) {
   auto accessor = active_.access();
   auto found = accessor.find(tx_id);
@@ -152,7 +152,7 @@ Transaction *WorkerEngine::RunningTransaction(transaction_id_t tx_id,
 }
 
 void WorkerEngine::ClearTransactionalCache(
-    transaction_id_t oldest_active) const {
+    TransactionId oldest_active) const {
   auto access = active_.access();
   for (auto kv : access) {
     if (kv.first < oldest_active) {
@@ -164,7 +164,7 @@ void WorkerEngine::ClearTransactionalCache(
   }
 }
 
-void WorkerEngine::ClearSingleTransaction(transaction_id_t tx_id) const {
+void WorkerEngine::ClearSingleTransaction(TransactionId tx_id) const {
   auto access = active_.access();
   auto found = access.find(tx_id);
   if (found != access.end()) {
@@ -176,7 +176,7 @@ void WorkerEngine::ClearSingleTransaction(transaction_id_t tx_id) const {
 }
 
 void WorkerEngine::UpdateOldestActive(const Snapshot &snapshot,
-                                      transaction_id_t alternative) {
+                                      TransactionId alternative) {
   if (snapshot.empty()) {
     oldest_active_.store(std::max(alternative, oldest_active_.load()));
   } else {
@@ -184,11 +184,11 @@ void WorkerEngine::UpdateOldestActive(const Snapshot &snapshot,
   }
 }
 
-void WorkerEngine::EnsureNextIdGreater(transaction_id_t tx_id) {
+void WorkerEngine::EnsureNextIdGreater(TransactionId tx_id) {
   master_client_pool_.Call<EnsureNextIdGreaterRpc>(tx_id);
 }
 
-void WorkerEngine::GarbageCollectCommitLog(transaction_id_t tx_id) {
+void WorkerEngine::GarbageCollectCommitLog(TransactionId tx_id) {
   clog_.garbage_collect_older(tx_id);
 }
 }  // namespace tx

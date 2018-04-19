@@ -8,7 +8,7 @@
 
 namespace distributed {
 
-RPC_SINGLE_MEMBER_MESSAGE(MakeSnapshotReq, tx::transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(MakeSnapshotReq, tx::TransactionId);
 RPC_SINGLE_MEMBER_MESSAGE(MakeSnapshotRes, bool);
 
 using MakeSnapshotRpc =

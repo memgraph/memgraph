@@ -22,7 +22,7 @@ void CheckDurabilityDir(const std::string &durability_dir);
 /// is returned because that's appropriate for the recovery logic (the current
 /// WAL does not yet have a maximum transaction ID and can't be discarded by
 /// the recovery regardless of the snapshot from which the transaction starts).
-std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
+std::experimental::optional<tx::TransactionId> TransactionIdFromWalFilename(
     const std::string &name);
 
 /** Generates a path for a DB snapshot in the given folder in a well-defined
@@ -30,11 +30,11 @@ std::experimental::optional<tx::transaction_id_t> TransactionIdFromWalFilename(
  * created appended to the file name. */
 std::experimental::filesystem::path MakeSnapshotPath(
     const std::experimental::filesystem::path &durability_dir, int worker_id,
-    tx::transaction_id_t tx_id);
+    tx::TransactionId tx_id);
 
 /// Returns the transaction id contained in the file name. If the filename is
 /// not a parseable WAL file name, nullopt is returned.
-std::experimental::optional<tx::transaction_id_t>
+std::experimental::optional<tx::TransactionId>
 TransactionIdFromSnapshotFilename(const std::string &name);
 
 /// Generates a file path for a write-ahead log file of a specified worker. If
@@ -42,6 +42,6 @@ TransactionIdFromSnapshotFilename(const std::string &name);
 /// path is for the "current" WAL file for which the max tx id is still unknown.
 std::experimental::filesystem::path WalFilenameForTransactionId(
     const std::experimental::filesystem::path &wal_dir, int worker_id,
-    std::experimental::optional<tx::transaction_id_t> tx_id =
+    std::experimental::optional<tx::TransactionId> tx_id =
         std::experimental::nullopt);
 }  // namespace durability

@@ -19,7 +19,7 @@ class DurabilityRpcClients {
   // if all workers sucesfully completed their snapshot creation, false
   // otherwise
   // @param tx - transaction from which to take db snapshot
-  utils::Future<bool> MakeSnapshot(tx::transaction_id_t tx);
+  utils::Future<bool> MakeSnapshot(tx::TransactionId tx);
 
  private:
   RpcWorkerClients &clients_;

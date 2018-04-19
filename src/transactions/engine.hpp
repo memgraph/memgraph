@@ -31,10 +31,10 @@ class Engine {
   virtual Transaction *Begin() = 0;
 
   /// Advances the command on the transaction with the given id.
-  virtual command_id_t Advance(transaction_id_t id) = 0;
+  virtual CommandId Advance(TransactionId id) = 0;
 
   /// Updates the command on the workers to the master's value.
-  virtual command_id_t UpdateCommand(transaction_id_t id) = 0;
+  virtual CommandId UpdateCommand(TransactionId id) = 0;
 
   /// Comits the given transaction. Deletes the transaction object, it's not
   /// valid after this function executes.
@@ -45,7 +45,7 @@ class Engine {
   virtual void Abort(const Transaction &t) = 0;
 
   /** Returns the commit log Info about the given transaction. */
-  virtual CommitLog::Info Info(transaction_id_t tx) const = 0;
+  virtual CommitLog::Info Info(TransactionId tx) const = 0;
 
   /** Returns the snapshot relevant to garbage collection of database records.
    *
@@ -69,29 +69,29 @@ class Engine {
   virtual Snapshot GlobalActiveTransactions() = 0;
 
   /** Returns the ID the last globally known transaction. */
-  virtual tx::transaction_id_t GlobalLast() const = 0;
+  virtual tx::TransactionId GlobalLast() const = 0;
 
   /** Returns the ID of last locally known transaction. */
-  virtual tx::transaction_id_t LocalLast() const = 0;
+  virtual tx::TransactionId LocalLast() const = 0;
 
   /** Returns the ID of the oldest transaction locally known to be active. It is
    * guaranteed that all the transactions older than the returned are globally
    * not active. */
-  virtual transaction_id_t LocalOldestActive() const = 0;
+  virtual TransactionId LocalOldestActive() const = 0;
 
   /** Calls function f on each locally active transaction. */
   virtual void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) = 0;
 
   /** Gets a transaction object for a running transaction. */
-  virtual tx::Transaction *RunningTransaction(transaction_id_t tx_id) = 0;
+  virtual tx::Transaction *RunningTransaction(TransactionId tx_id) = 0;
 
   /** Ensures the next transaction that starts will have the ID greater than
    * the given id. */
-  virtual void EnsureNextIdGreater(transaction_id_t tx_id) = 0;
+  virtual void EnsureNextIdGreater(TransactionId tx_id) = 0;
 
   /** Garbage collects transactions older than tx_id from commit log. */
-  virtual void GarbageCollectCommitLog(transaction_id_t tx_id) = 0;
+  virtual void GarbageCollectCommitLog(TransactionId tx_id) = 0;
 
   auto &local_lock_graph() { return local_lock_graph_; }
   const auto &local_lock_graph() const { return local_lock_graph_; }
@@ -100,6 +100,6 @@ class Engine {
   // Map lock dependencies. Each entry maps (tx_that_wants_lock,
   // tx_that_holds_lock). Used for local deadlock resolution.
   // TODO consider global deadlock resolution.
-  ConcurrentMap<transaction_id_t, transaction_id_t> local_lock_graph_;
+  ConcurrentMap<TransactionId, TransactionId> local_lock_graph_;
 };
 }  // namespace tx

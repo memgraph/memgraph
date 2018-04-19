@@ -37,7 +37,7 @@ enum class PullState {
 
 struct PullReq : public communication::rpc::Message {
   PullReq() {}
-  PullReq(tx::transaction_id_t tx_id, tx::Snapshot tx_snapshot, int64_t plan_id,
+  PullReq(tx::TransactionId tx_id, tx::Snapshot tx_snapshot, int64_t plan_id,
           const Parameters &params, std::vector<query::Symbol> symbols,
           bool accumulate, int batch_size, bool send_old, bool send_new)
       : tx_id(tx_id),
@@ -50,7 +50,7 @@ struct PullReq : public communication::rpc::Message {
         send_old(send_old),
         send_new(send_new) {}
 
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
   tx::Snapshot tx_snapshot;
   int64_t plan_id;
   Parameters params;
@@ -367,7 +367,7 @@ using PullRpc = communication::rpc::RequestResponse<PullReq, PullRes>;
 // optimization not to have to send the full PullReqData pack every
 // time.
 
-RPC_SINGLE_MEMBER_MESSAGE(TransactionCommandAdvancedReq, tx::transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(TransactionCommandAdvancedReq, tx::TransactionId);
 RPC_NO_MEMBER_MESSAGE(TransactionCommandAdvancedRes);
 using TransactionCommandAdvancedRpc =
     communication::rpc::RequestResponse<TransactionCommandAdvancedReq,

@@ -36,9 +36,9 @@ using communication::bolt::DecodedValue;
 // A data structure for exchanging info between main recovery function and
 // snapshot and WAL recovery functions.
 struct RecoveryData {
-  tx::transaction_id_t snapshooter_tx_id{0};
-  tx::transaction_id_t wal_max_recovered_tx_id{0};
-  std::vector<tx::transaction_id_t> snapshooter_tx_snapshot;
+  tx::TransactionId snapshooter_tx_id{0};
+  tx::TransactionId wal_max_recovered_tx_id{0};
+  std::vector<tx::TransactionId> snapshooter_tx_snapshot;
   // A collection into which the indexes should be added so they
   // can be rebuilt at the end of the recovery transaction.
   std::vector<std::pair<std::string, std::string>> indexes;
@@ -231,7 +231,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
   // than the latest one we have recovered. Do this to make sure that
   // subsequently created snapshots and WAL files will have transactional info
   // that does not interfere with that found in previous snapshots and WAL.
-  tx::transaction_id_t max_id = recovery_data.snapshooter_tx_id;
+  tx::TransactionId max_id = recovery_data.snapshooter_tx_id;
   auto &snap = recovery_data.snapshooter_tx_snapshot;
   if (!snap.empty()) max_id = *std::max_element(snap.begin(), snap.end());
   dba.db().tx_engine().EnsureNextIdGreater(max_id);
@@ -257,15 +257,15 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
   auto first_to_recover = tx_sn.empty() ? recovery_data.snapshooter_tx_id + 1
                                         : *std::min(tx_sn.begin(), tx_sn.end());
   auto should_skip = [&tx_sn, &recovery_data,
-                      first_to_recover](tx::transaction_id_t tx_id) {
+                      first_to_recover](tx::TransactionId tx_id) {
     return tx_id < first_to_recover ||
            (tx_id < recovery_data.snapshooter_tx_id &&
             !utils::Contains(tx_sn, tx_id));
   };
 
-  std::unordered_map<tx::transaction_id_t, database::GraphDbAccessor> accessors;
+  std::unordered_map<tx::TransactionId, database::GraphDbAccessor> accessors;
   auto get_accessor =
-      [&accessors](tx::transaction_id_t tx_id) -> database::GraphDbAccessor & {
+      [&accessors](tx::TransactionId tx_id) -> database::GraphDbAccessor & {
     auto found = accessors.find(tx_id);
     CHECK(found != accessors.end())
         << "Accessor does not exist for transaction: " << tx_id;
@@ -276,7 +276,7 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
   // then the latest one we have recovered. Do this to make sure that
   // subsequently created snapshots and WAL files will have transactional info
   // that does not interfere with that found in previous snapshots and WAL.
-  tx::transaction_id_t max_observed_tx_id{0};
+  tx::TransactionId max_observed_tx_id{0};
 
   // Read all the WAL files whose max_tx_id is not smaller than
   // min_tx_to_recover.

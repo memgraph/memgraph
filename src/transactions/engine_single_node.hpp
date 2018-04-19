@@ -30,26 +30,26 @@ class SingleNodeEngine : public Engine {
   explicit SingleNodeEngine(durability::WriteAheadLog *wal = nullptr);
 
   Transaction *Begin() override;
-  command_id_t Advance(transaction_id_t id) override;
-  command_id_t UpdateCommand(transaction_id_t id) override;
+  CommandId Advance(TransactionId id) override;
+  CommandId UpdateCommand(TransactionId id) override;
   void Commit(const Transaction &t) override;
   void Abort(const Transaction &t) override;
-  CommitLog::Info Info(transaction_id_t tx) const override;
+  CommitLog::Info Info(TransactionId tx) const override;
   Snapshot GlobalGcSnapshot() override;
   Snapshot GlobalActiveTransactions() override;
-  transaction_id_t GlobalLast() const override;
-  transaction_id_t LocalLast() const override;
-  transaction_id_t LocalOldestActive() const override;
+  TransactionId GlobalLast() const override;
+  TransactionId LocalLast() const override;
+  TransactionId LocalOldestActive() const override;
   void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) override;
-  Transaction *RunningTransaction(transaction_id_t tx_id) override;
-  void EnsureNextIdGreater(transaction_id_t tx_id) override;
-  void GarbageCollectCommitLog(transaction_id_t tx_id) override;
+  Transaction *RunningTransaction(TransactionId tx_id) override;
+  void EnsureNextIdGreater(TransactionId tx_id) override;
+  void GarbageCollectCommitLog(TransactionId tx_id) override;
 
  private:
-  transaction_id_t counter_{0};
+  TransactionId counter_{0};
   CommitLog clog_;
-  std::unordered_map<transaction_id_t, std::unique_ptr<Transaction>> store_;
+  std::unordered_map<TransactionId, std::unique_ptr<Transaction>> store_;
   Snapshot active_;
   mutable SpinLock lock_;
   // Optional. If present, the Engine will write tx Begin/Commit/Abort

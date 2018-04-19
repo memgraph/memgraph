@@ -11,7 +11,7 @@ namespace distributed {
 struct IndexLabelPropertyTx {
   storage::Label label;
   storage::Property property;
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
 
  private:
   friend class boost::serialization::access;

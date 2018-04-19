@@ -6,7 +6,7 @@
 
 namespace distributed {
 utils::Future<bool> DurabilityRpcClients::MakeSnapshot(
-    tx::transaction_id_t tx) {
+    tx::TransactionId tx) {
   return std::async(std::launch::async, [this, tx] {
     auto futures = clients_.ExecuteOnWorkers<bool>(
         0, [tx](communication::rpc::ClientPool &client_pool) {

@@ -22,8 +22,8 @@ class DeferredDeleter {
    */
   struct DeletedObject {
     const T *object;
-    const tx::transaction_id_t deleted_at;
-    DeletedObject(const T *object, tx::transaction_id_t deleted_at)
+    const tx::TransactionId deleted_at;
+    DeletedObject(const T *object, tx::TransactionId deleted_at)
         : object(object), deleted_at(deleted_at) {}
   };
 
@@ -44,7 +44,7 @@ class DeferredDeleter {
    */
   void AddObjects(const std::vector<DeletedObject> &objects) {
     auto previous_tx_id = objects_.empty()
-                              ? std::numeric_limits<tx::transaction_id_t>::min()
+                              ? std::numeric_limits<tx::TransactionId>::min()
                               : objects_.back().deleted_at;
     for (auto object : objects) {
       CHECK(previous_tx_id <= object.deleted_at)
@@ -58,7 +58,7 @@ class DeferredDeleter {
    * @brief - Free memory of objects deleted before the id.
    * @param id - delete before this id
    */
-  void FreeExpiredObjects(tx::transaction_id_t id) {
+  void FreeExpiredObjects(tx::TransactionId id) {
     auto it = objects_.begin();
     while (it != objects_.end() && it->deleted_at < id) {
       delete it->object;

@@ -14,10 +14,10 @@ using Endpoint = io::network::Endpoint;
 
 struct GcClearedStatusReq : public Message {
   GcClearedStatusReq() {}
-  GcClearedStatusReq(tx::transaction_id_t local_oldest_active, int worker_id)
+  GcClearedStatusReq(tx::TransactionId local_oldest_active, int worker_id)
       : local_oldest_active(local_oldest_active), worker_id(worker_id) {}
 
-  tx::transaction_id_t local_oldest_active;
+  tx::TransactionId local_oldest_active;
   int worker_id;
 
  private:

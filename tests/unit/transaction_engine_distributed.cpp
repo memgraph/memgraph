@@ -69,7 +69,7 @@ TEST_F(WorkerEngineTest, RunningTransaction) {
     ++count;
     if (t.id_ == 1) {
       EXPECT_EQ(t.snapshot(),
-                tx::Snapshot(std::vector<tx::transaction_id_t>{}));
+                tx::Snapshot(std::vector<tx::TransactionId>{}));
     } else {
       EXPECT_EQ(t.snapshot(), tx::Snapshot({1}));
     }
@@ -129,10 +129,10 @@ TEST_F(WorkerEngineTest, LocalForEachActiveTransaction) {
   master_.Begin();
   master_.Begin();
   worker_.RunningTransaction(4);
-  std::unordered_set<tx::transaction_id_t> local;
+  std::unordered_set<tx::TransactionId> local;
   worker_.LocalForEachActiveTransaction(
       [&local](Transaction &t) { local.insert(t.id_); });
-  EXPECT_EQ(local, std::unordered_set<tx::transaction_id_t>({1, 4}));
+  EXPECT_EQ(local, std::unordered_set<tx::TransactionId>({1, 4}));
 }
 
 TEST_F(WorkerEngineTest, EnsureTxIdGreater) {

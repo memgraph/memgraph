@@ -253,7 +253,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
   });
 }
 
-UpdateResult UpdatesRpcServer::Apply(tx::transaction_id_t tx_id) {
+UpdateResult UpdatesRpcServer::Apply(tx::TransactionId tx_id) {
   auto apply = [tx_id](auto &collection) {
     auto access = collection.access();
     auto found = access.find(tx_id);
@@ -273,7 +273,7 @@ UpdateResult UpdatesRpcServer::Apply(tx::transaction_id_t tx_id) {
 }
 
 void UpdatesRpcServer::ClearTransactionalCache(
-    tx::transaction_id_t oldest_active) {
+    tx::TransactionId oldest_active) {
   auto vertex_access = vertex_updates_.access();
   for (auto &kv : vertex_access) {
     if (kv.first < oldest_active) {
@@ -291,7 +291,7 @@ void UpdatesRpcServer::ClearTransactionalCache(
 // Gets/creates the TransactionUpdates for the given transaction.
 template <typename TAccessor>
 UpdatesRpcServer::TransactionUpdates<TAccessor> &UpdatesRpcServer::GetUpdates(
-    MapT<TAccessor> &updates, tx::transaction_id_t tx_id) {
+    MapT<TAccessor> &updates, tx::TransactionId tx_id) {
   return updates.access()
       .emplace(tx_id, std::make_tuple(tx_id),
                std::make_tuple(std::ref(db_), tx_id))

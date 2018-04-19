@@ -17,10 +17,10 @@ namespace {
 // transaction in that cycle. If start transaction is not in a cycle nullopt is
 // returned.
 template <typename TAccessor>
-std::experimental::optional<tx::transaction_id_t> FindOldestTxInLockCycle(
-    tx::transaction_id_t start, TAccessor &graph_accessor) {
-  std::vector<tx::transaction_id_t> path;
-  std::unordered_set<tx::transaction_id_t> visited;
+std::experimental::optional<tx::TransactionId> FindOldestTxInLockCycle(
+    tx::TransactionId start, TAccessor &graph_accessor) {
+  std::vector<tx::TransactionId> path;
+  std::unordered_set<tx::TransactionId> visited;
 
   auto current = start;
 
@@ -45,8 +45,8 @@ std::experimental::optional<tx::transaction_id_t> FindOldestTxInLockCycle(
 
 }  // namespace
 
-bool RecordLock::TryLock(tx::transaction_id_t tx_id) {
-  tx::transaction_id_t unlocked{0};
+bool RecordLock::TryLock(tx::TransactionId tx_id) {
+  tx::TransactionId unlocked{0};
   return owner_.compare_exchange_strong(unlocked, tx_id);
 }
 
@@ -55,7 +55,7 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
     return LockStatus::Acquired;
   }
 
-  tx::transaction_id_t owner = owner_;
+  tx::TransactionId owner = owner_;
   if (owner_ == tx.id_) return LockStatus::AlreadyHeld;
 
   // In a distributed worker the transaction objects (and the locks they own)

@@ -22,7 +22,7 @@ GraphDbAccessor::GraphDbAccessor(GraphDb &db)
       transaction_(*db.tx_engine().Begin()),
       transaction_starter_{true} {}
 
-GraphDbAccessor::GraphDbAccessor(GraphDb &db, tx::transaction_id_t tx_id)
+GraphDbAccessor::GraphDbAccessor(GraphDb &db, tx::TransactionId tx_id)
     : db_(db),
       transaction_(*db.tx_engine().RunningTransaction(tx_id)),
       transaction_starter_{false} {}
@@ -33,7 +33,7 @@ GraphDbAccessor::~GraphDbAccessor() {
   }
 }
 
-tx::transaction_id_t GraphDbAccessor::transaction_id() const {
+tx::TransactionId GraphDbAccessor::transaction_id() const {
   return transaction_.id_;
 }
 

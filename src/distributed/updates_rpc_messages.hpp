@@ -26,7 +26,7 @@ RPC_SINGLE_MEMBER_MESSAGE(UpdateReq, database::StateDelta);
 RPC_SINGLE_MEMBER_MESSAGE(UpdateRes, UpdateResult);
 using UpdateRpc = communication::rpc::RequestResponse<UpdateReq, UpdateRes>;
 
-RPC_SINGLE_MEMBER_MESSAGE(UpdateApplyReq, tx::transaction_id_t);
+RPC_SINGLE_MEMBER_MESSAGE(UpdateApplyReq, tx::TransactionId);
 RPC_SINGLE_MEMBER_MESSAGE(UpdateApplyRes, UpdateResult);
 using UpdateApplyRpc =
     communication::rpc::RequestResponse<UpdateApplyReq, UpdateApplyRes>;
@@ -47,7 +47,7 @@ struct CreateResult {
 };
 
 struct CreateVertexReqData {
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
   std::vector<storage::Label> labels;
   std::unordered_map<storage::Property, query::TypedValue> properties;
 
@@ -91,7 +91,7 @@ struct CreateEdgeReqData {
   gid::Gid from;
   storage::VertexAddress to;
   storage::EdgeType edge_type;
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
 
  private:
   friend class boost::serialization::access;
@@ -115,7 +115,7 @@ struct AddInEdgeReqData {
   storage::EdgeAddress edge_address;
   gid::Gid to;
   storage::EdgeType edge_type;
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
 
  private:
   friend class boost::serialization::access;
@@ -137,7 +137,7 @@ using AddInEdgeRpc =
 
 struct RemoveVertexReqData {
   gid::Gid gid;
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
   bool check_empty;
 
  private:
@@ -157,7 +157,7 @@ using RemoveVertexRpc =
     communication::rpc::RequestResponse<RemoveVertexReq, RemoveVertexRes>;
 
 struct RemoveEdgeData {
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
   gid::Gid edge_id;
   gid::Gid vertex_from_id;
   storage::VertexAddress vertex_to_address;
@@ -180,7 +180,7 @@ using RemoveEdgeRpc =
     communication::rpc::RequestResponse<RemoveEdgeReq, RemoveEdgeRes>;
 
 struct RemoveInEdgeData {
-  tx::transaction_id_t tx_id;
+  tx::TransactionId tx_id;
   gid::Gid vertex;
   storage::EdgeAddress edge_address;
 
