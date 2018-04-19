@@ -1108,9 +1108,10 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     for (auto &edge : e) edge.second.Reconstruct();
   }
 
-  // defines and performs a breadth-first expansion with the given params
+  // defines and performs a weighted shortest expansion with the given params
   // returns a vector of pairs. each pair is (vector-of-edges, vertex)
-  auto ExpandWShortest(EdgeAtom::Direction direction, int max_depth,
+  auto ExpandWShortest(EdgeAtom::Direction direction,
+                       std::experimental::optional<int> max_depth,
                        Expression *where,
                        GraphView graph_view = GraphView::AS_IS,
                        std::experimental::optional<int> node_id = 0,
@@ -1137,7 +1138,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     auto filter_lambda = last_op = std::make_shared<ExpandVariable>(
         node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
         direction, std::vector<storage::EdgeType>{}, false, nullptr,
-        LITERAL(max_depth), last_op, n.sym_, existing_node_input != nullptr,
+        max_depth ? LITERAL(max_depth.value()) : nullptr, last_op, n.sym_,
+        existing_node_input != nullptr,
         ExpandVariable::Lambda{filter_edge, filter_node, where},
         ExpandVariable::Lambda{weight_edge, weight_node,
                                PROPERTY_LOOKUP(ident_e, prop)},
@@ -1183,7 +1185,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 //     /               \
 //    /        12       \         2
 //  [0]--------<--------[4]------->-------[5]
-//    \                 /  (only for GraphState test)
+//    \                 /         (on some tests only)
 //     \               /
 //      \->[2]->-[3]->/
 //      3      3     3
@@ -1324,6 +1326,40 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
 }
 
 TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
+  {
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH,
+                                   std::experimental::nullopt, LITERAL(true));
+    ASSERT_EQ(results.size(), 4);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+  }
+  {
+    auto new_vertex = dba.InsertVertex();
+    new_vertex.PropsSet(prop.second, 5);
+    auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
+    edge.PropsSet(prop.second, 2);
+
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true),
+                                   GraphView::NEW);
+
+    ASSERT_EQ(results.size(), 5);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+    EXPECT_EQ(GetProp(results[4].vertex), 5);
+    EXPECT_EQ(results[4].total_weight, 12);
+  }
   {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
     ASSERT_EQ(results.size(), 4);

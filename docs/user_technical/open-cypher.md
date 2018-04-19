@@ -502,7 +502,7 @@ shortest path expansion:
     MATCH (a {id: 723})-[le *wShortest 10 (e, n | e.weight) total_weight]-(b {id: 882}) RETURN *
 
 The above query will find the shortest path of length up to 10 nodes between
-nodes `a`  and `b`.
+nodes `a`  and `b`. The length restriction parameter is optional.
 
 Weighted Shortest Path expansion allows an arbitrary expression that determines
 the weight for the current expansion. Total weight of a path is calculated as
