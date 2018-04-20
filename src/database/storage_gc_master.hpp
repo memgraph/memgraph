@@ -29,6 +29,7 @@ class StorageGcMaster : public StorageGc {
     // a task might try to utilize methods in this class which might cause pure
     // virtual method called since they are not implemented for the base class.
     scheduler_.Stop();
+    rpc_server_.UnRegister<distributed::RanLocalGcRpc>();
   }
 
   void CollectCommitLogGarbage(tx::TransactionId oldest_active) final {

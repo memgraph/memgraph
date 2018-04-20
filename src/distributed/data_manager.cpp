@@ -1,5 +1,5 @@
-#include "distributed/data_manager.hpp"
 #include "database/storage.hpp"
+#include "distributed/data_manager.hpp"
 
 namespace distributed {
 
@@ -11,8 +11,9 @@ Cache<TRecord> &DataManager::GetCache(CacheT<TRecord> &collection,
   if (found != access.end()) return found->second;
 
   return access
-      .emplace(tx_id, std::make_tuple(tx_id),
-               std::make_tuple(std::ref(storage_), std::ref(data_clients_)))
+      .emplace(
+          tx_id, std::make_tuple(tx_id),
+          std::make_tuple(std::ref(db_.storage()), std::ref(data_clients_)))
       .first->second;
 }
 
@@ -26,9 +27,9 @@ Cache<Edge> &DataManager::Elements<Edge>(tx::TransactionId tx_id) {
   return GetCache(edges_caches_, tx_id);
 }
 
-DataManager::DataManager(database::Storage &storage,
+DataManager::DataManager(database::GraphDb &db,
                          distributed::DataRpcClients &data_clients)
-    : storage_(storage), data_clients_(data_clients) {}
+    : db_(db), data_clients_(data_clients) {}
 
 void DataManager::ClearCacheForSingleTransaction(tx::TransactionId tx_id) {
   Elements<Vertex>(tx_id).ClearCache();

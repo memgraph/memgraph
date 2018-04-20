@@ -355,6 +355,7 @@ RecoveryInfo Recover(
     }
     LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
     if (!RecoverSnapshot(snapshot_file, db, recovery_data)) {
+      db.ReinitializeStorage();
       recovery_data.Clear();
       LOG(WARNING) << "Snapshot recovery failed, trying older snapshot...";
       continue;

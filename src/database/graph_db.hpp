@@ -114,6 +114,12 @@ class GraphDb {
   // Makes a snapshot from the visibility of the given accessor
   virtual bool MakeSnapshot(GraphDbAccessor &accessor) = 0;
 
+  // Releases the storage object safely and creates a new object.
+  // This is needed because of recovery, otherwise we might try to recover into
+  // a storage which has already been polluted because of a failed previous
+  // recovery
+  virtual void ReinitializeStorage() = 0;
+
   GraphDb(const GraphDb &) = delete;
   GraphDb(GraphDb &&) = delete;
   GraphDb &operator=(const GraphDb &) = delete;
@@ -154,6 +160,7 @@ class PublicBase : public GraphDb {
 
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
   bool MakeSnapshot(GraphDbAccessor &accessor) override;
+  void ReinitializeStorage() override;
 
  protected:
   explicit PublicBase(std::unique_ptr<PrivateBase> impl);
@@ -170,7 +177,7 @@ class PublicBase : public GraphDb {
 
 class MasterBase : public impl::PublicBase {
  public:
-  MasterBase(std::unique_ptr<impl::PrivateBase> impl);
+  explicit MasterBase(std::unique_ptr<impl::PrivateBase> impl);
   ~MasterBase();
 
  private:

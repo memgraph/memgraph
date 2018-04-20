@@ -48,7 +48,7 @@ class PrivateBase : public GraphDb {
 
   const Config config_;
 
-  Storage &storage() override { return storage_; }
+  Storage &storage() override { return *storage_; }
   durability::WriteAheadLog &wal() override { return wal_; }
   int WorkerId() const override { return config_.worker_id; }
 
@@ -63,6 +63,10 @@ class PrivateBase : public GraphDb {
       LOG(ERROR) << "Snapshot creation failed!" << std::endl;
     }
     return status;
+  }
+
+  void ReinitializeStorage() override {
+    storage_ = std::make_unique<Storage>(WorkerId());
   }
 
   distributed::PullRpcClients &pull_clients() override {
@@ -82,7 +86,8 @@ class PrivateBase : public GraphDb {
   }
 
  protected:
-  Storage storage_{config_.worker_id};
+  std::unique_ptr<Storage> storage_ =
+      std::make_unique<Storage>(config_.worker_id);
   durability::WriteAheadLog wal_{config_.worker_id,
                                  config_.durability_directory,
                                  config_.durability_enabled};
@@ -111,7 +116,7 @@ struct TypemapPack {
     return typemap_pack_.property;                              \
   }                                                             \
   database::Counters &counters() override { return counters_; } \
-  void CollectGarbage() override { storage_gc_.CollectGarbage(); }
+  void CollectGarbage() override { storage_gc_->CollectGarbage(); }
 
 class SingleNode : public PrivateBase {
  public:
@@ -120,7 +125,9 @@ class SingleNode : public PrivateBase {
   IMPL_GETTERS
 
   tx::SingleNodeEngine tx_engine_{&wal_};
-  StorageGcSingleNode storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec};
+  std::unique_ptr<StorageGcSingleNode> storage_gc_ =
+      std::make_unique<StorageGcSingleNode>(*storage_, tx_engine_,
+                                            config_.gc_cycle_sec);
   TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_;
   database::SingleNodeCounters counters_;
   std::vector<int> GetWorkerIds() const override { return {0}; }
@@ -144,6 +151,13 @@ class SingleNode : public PrivateBase {
   }
   distributed::DataManager &data_manager() override {
     LOG(FATAL) << "Remote data manager not available in single-node.";
+  }
+  void ReinitializeStorage() override {
+    // Release gc scheduler to stop it from touching storage
+    storage_gc_ = nullptr;
+    PrivateBase::ReinitializeStorage();
+    storage_gc_ = std::make_unique<StorageGcSingleNode>(*storage_, tx_engine_,
+                                                        config_.gc_cycle_sec);
   }
 };
 
@@ -195,12 +209,21 @@ class Master : public PrivateBase {
     return index_rpc_clients_;
   }
 
+  void ReinitializeStorage() override {
+    // Release gc scheduler to stop it from touching storage
+    storage_gc_ = nullptr;
+    PrivateBase::ReinitializeStorage();
+    storage_gc_ = std::make_unique<StorageGcMaster>(
+        *storage_, tx_engine_, config_.gc_cycle_sec, server_, coordination_);
+  }
+
   communication::rpc::Server server_{
       config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   tx::MasterEngine tx_engine_{server_, rpc_worker_clients_, &wal_};
   distributed::MasterCoordination coordination_{server_.endpoint()};
-  StorageGcMaster storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec,
-                              server_, coordination_};
+  std::unique_ptr<StorageGcMaster> storage_gc_ =
+      std::make_unique<StorageGcMaster>(
+          *storage_, tx_engine_, config_.gc_cycle_sec, server_, coordination_);
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{server_};
@@ -213,7 +236,7 @@ class Master : public PrivateBase {
   distributed::IndexRpcClients index_rpc_clients_{rpc_worker_clients_};
   distributed::UpdatesRpcServer updates_server_{*this, server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
-  distributed::DataManager data_manager_{storage_, data_clients_};
+  distributed::DataManager data_manager_{*this, data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{
       tx_engine_, updates_server_, data_manager_};
   distributed::ClusterDiscoveryMaster cluster_discovery_{server_, coordination_,
@@ -236,15 +259,25 @@ class Worker : public PrivateBase {
     return produce_server_;
   }
 
+  void ReinitializeStorage() override {
+    // Release gc scheduler to stop it from touching storage
+    storage_gc_ = nullptr;
+    PrivateBase::ReinitializeStorage();
+    storage_gc_ = std::make_unique<StorageGcWorker>(
+        *storage_, tx_engine_, config_.gc_cycle_sec,
+        rpc_worker_clients_.GetClientPool(0), config_.worker_id);
+  }
+
   communication::rpc::Server server_{
       config_.worker_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   distributed::WorkerCoordination coordination_{server_,
                                                 config_.master_endpoint};
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   tx::WorkerEngine tx_engine_{rpc_worker_clients_.GetClientPool(0)};
-  StorageGcWorker storage_gc_{storage_, tx_engine_, config_.gc_cycle_sec,
-                              rpc_worker_clients_.GetClientPool(0),
-                              config_.worker_id};
+  std::unique_ptr<StorageGcWorker> storage_gc_ =
+      std::make_unique<StorageGcWorker>(
+          *storage_, tx_engine_, config_.gc_cycle_sec,
+          rpc_worker_clients_.GetClientPool(0), config_.worker_id);
   TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{
       rpc_worker_clients_.GetClientPool(0)};
   database::WorkerCounters counters_{rpc_worker_clients_.GetClientPool(0)};
@@ -256,7 +289,7 @@ class Worker : public PrivateBase {
   distributed::IndexRpcServer index_rpc_server_{*this, server_};
   distributed::UpdatesRpcServer updates_server_{*this, server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
-  distributed::DataManager data_manager_{storage_, data_clients_};
+  distributed::DataManager data_manager_{*this, data_clients_};
   distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
       tx_engine_, server_, produce_server_, updates_server_, data_manager_};
   distributed::DurabilityRpcServer durability_rpc_server_{*this, server_};
@@ -401,6 +434,9 @@ distributed::DataManager &PublicBase::data_manager() {
 bool PublicBase::MakeSnapshot(GraphDbAccessor &accessor) {
   return impl_->MakeSnapshot(accessor);
 }
+
+void PublicBase::ReinitializeStorage() { impl_->ReinitializeStorage(); }
+
 }  // namespace impl
 
 MasterBase::MasterBase(std::unique_ptr<impl::PrivateBase> impl)

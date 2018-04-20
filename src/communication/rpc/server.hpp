@@ -58,6 +58,20 @@ class Server {
     }
   }
 
+  template <typename TRequestResponse>
+  void UnRegister() {
+    static_assert(
+        std::is_base_of<Message, typename TRequestResponse::Request>::value,
+        "TRequestResponse::Request must be derived from Message");
+    static_assert(
+        std::is_base_of<Message, typename TRequestResponse::Response>::value,
+        "TRequestResponse::Response must be derived from Message");
+    auto callbacks_accessor = callbacks_.access();
+    auto deleted =
+        callbacks_accessor.remove(typeid(typename TRequestResponse::Request));
+    CHECK(deleted) << "Trying to remove unknown message type callback";
+  }
+
  private:
   friend class Session;
 
@@ -67,6 +81,6 @@ class Server {
 
   std::mutex mutex_;
   communication::Server<Session, Server> server_;
-};
+};  // namespace communication::rpc
 
 }  // namespace communication::rpc

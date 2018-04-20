@@ -1,16 +1,13 @@
 #pragma once
 
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "database/graph_db.hpp"
 #include "distributed/cache.hpp"
 #include "distributed/data_rpc_clients.hpp"
 #include "transactions/type.hpp"
 
 class Vertex;
 class Edge;
-
-namespace database {
-class Storage;
-}
 
 namespace distributed {
 
@@ -25,8 +22,7 @@ class DataManager {
                            tx::TransactionId tx_id);
 
  public:
-  DataManager(database::Storage &storage,
-              distributed::DataRpcClients &data_clients);
+  DataManager(database::GraphDb &db, distributed::DataRpcClients &data_clients);
 
   /// Gets or creates the remote vertex/edge cache for the given transaction.
   template <typename TRecord>
@@ -40,7 +36,7 @@ class DataManager {
   void ClearTransactionalCache(tx::TransactionId oldest_active);
 
  private:
-  database::Storage &storage_;
+  database::GraphDb &db_;
   DataRpcClients &data_clients_;
   CacheT<Vertex> vertices_caches_;
   CacheT<Edge> edges_caches_;
