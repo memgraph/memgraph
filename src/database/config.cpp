@@ -27,6 +27,7 @@ DEFINE_int32(gc_cycle_sec, 30,
              "Amount of time between starts of two cleaning cycles in seconds. "
              "-1 to turn off.");
 
+#ifndef MG_COMMUNITY
 // Distributed master/worker flags.
 DEFINE_VALIDATED_HIDDEN_int32(worker_id, 0,
                               "ID of a worker in a distributed system. Igored "
@@ -53,7 +54,9 @@ DEFINE_VALIDATED_HIDDEN_int32(rpc_num_workers,
                               std::max(std::thread::hardware_concurrency(), 1U),
                               "Number of workers (RPC)",
                               FLAG_IN_RANGE(1, INT32_MAX));
+#endif
 
+// clang-format off
 database::Config::Config()
     // Durability flags.
     : durability_enabled{FLAGS_durability_enabled},
@@ -64,11 +67,16 @@ database::Config::Config()
       snapshot_on_exit{FLAGS_snapshot_on_exit},
       // Misc flags.
       gc_cycle_sec{FLAGS_gc_cycle_sec},
-      query_execution_time_sec{FLAGS_query_execution_time_sec},
-      rpc_num_workers{FLAGS_rpc_num_workers},
+      query_execution_time_sec{FLAGS_query_execution_time_sec}
+#ifndef MG_COMMUNITY
+      ,
       // Distributed flags.
+      rpc_num_workers{FLAGS_rpc_num_workers},
       worker_id{FLAGS_worker_id},
       master_endpoint{FLAGS_master_host,
                       static_cast<uint16_t>(FLAGS_master_port)},
       worker_endpoint{FLAGS_worker_host,
-                      static_cast<uint16_t>(FLAGS_worker_port)} {}
+                      static_cast<uint16_t>(FLAGS_worker_port)}
+#endif
+{}
+// clang-format on

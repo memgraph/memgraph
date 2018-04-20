@@ -186,6 +186,7 @@ option(EXPERIMENTAL "Build experimental binaries" OFF)
 option(CUSTOMERS "Build customer binaries" OFF)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
+option(MG_COMMUNITY "Build Memgraph Community Edition" OFF)
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -194,6 +195,10 @@ if (TEST_COVERAGE)
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+endif()
+
+if (MG_COMMUNITY)
+  add_definitions(-DMG_COMMUNITY)
 endif()
 
 # Add subprojects

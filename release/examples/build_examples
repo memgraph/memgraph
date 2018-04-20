@@ -1,21 +1,21 @@
 #!/bin/bash -e
 
 function print_help () {
-    echo "Usage: $0 MEMGRAPH_BUILD_DIR"
+    echo "Usage: $0 MEMGRAPH_EXE BOLT_CLIENT_EXE"
     echo "Build example snapshots using the compiled memgraph."
 }
 
-if [[ $# -ne 1 ]]; then
+if [[ $# -ne 2 ]]; then
   print_help
   exit 1
 fi
 
-memgraph_exe="$1/memgraph"
+memgraph_exe="$1"
 if [[ ! -x ${memgraph_exe} ]]; then
   echo "Expected memgraph executable at '${memgraph_exe}'"
   exit 1
 fi
-bolt_client_exe="$1/tests/manual/bolt_client"
+bolt_client_exe="$2"
 if [[ ! -x ${bolt_client_exe} ]]; then
   echo "Expected bolt_client executable at '${bolt_client_exe}'"
   exit 1

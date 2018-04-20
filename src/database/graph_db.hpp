@@ -43,12 +43,12 @@ struct Config {
   // Misc flags.
   int gc_cycle_sec;
   int query_execution_time_sec;
-  int rpc_num_workers;
 
   // Distributed master/worker flags.
-  int worker_id;
-  io::network::Endpoint master_endpoint;
-  io::network::Endpoint worker_endpoint;
+  int rpc_num_workers{0};
+  int worker_id{0};
+  io::network::Endpoint master_endpoint{"0.0.0.0", 0};
+  io::network::Endpoint worker_endpoint{"0.0.0.0", 0};
 };
 
 /**

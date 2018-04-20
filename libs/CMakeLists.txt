@@ -11,6 +11,10 @@ function(import_header_library name include_dir)
   add_library(${name} INTERFACE IMPORTED GLOBAL)
   set_property(TARGET ${name} PROPERTY
                INTERFACE_INCLUDE_DIRECTORIES ${include_dir})
+  string(TOUPPER ${name} _upper_name)
+  set(${_upper_name}_INCLUDE_DIR ${include_dir} CACHE FILEPATH
+      "Path to ${name} include directory" FORCE)
+  mark_as_advanced(${_upper_name}_INCLUDE_DIR)
 endfunction(import_header_library)
 
 function(import_library name type location)
