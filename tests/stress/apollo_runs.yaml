@@ -11,3 +11,16 @@
   commands: TIMEOUT=43200 ./continuous_integration --large-dataset
   infiles: *STRESS_INFILES
   slave_group: remote_16c128g
+
+- name: durability
+  commands: TIMEOUT=300 ./ve3/bin/python3 durability --num-steps 5
+  infiles: &DURABILITY_INFILES
+    - . # current directory
+    - ../../build_release/memgraph # memgraph release binary
+    - ../../config # directory with config files
+
+- name: durability_large
+  project: release
+  commands: TIMEOUT=3600 ./ve3/bin/python3 durability --num-steps 20
+  infiles: *DURABILITY_INFILES
+  slave_group: remote_16c128g

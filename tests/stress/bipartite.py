@@ -9,10 +9,10 @@ import logging
 import multiprocessing
 import time
 import atexit
-import os
 
-from common import connection_argument_parser, assert_equal, argument_driver, \
-                   OutputData, execute_till_success, batch, render
+from common import connection_argument_parser, assert_equal, \
+                   OutputData, execute_till_success, \
+                   batch, render, SessionCache
 
 
 def parse_args():
@@ -46,28 +46,6 @@ log = logging.getLogger(__name__)
 args = parse_args()
 output_data = OutputData()
 
-
-# This class is used to create and cache sessions. Session is cached by args
-# used to create it and process' pid in which it was created. This makes it easy
-# to reuse session with python multiprocessing primitives like pmap.
-class SessionCache:
-    cache = {}
-
-    @staticmethod
-    def argument_session(args):
-        key = tuple(vars(args).items()) + (os.getpid(),)
-        if key in SessionCache.cache:
-            return SessionCache.cache[key][1]
-        driver = argument_driver(args)
-        session = driver.session()
-        SessionCache.cache[key] = (driver, session)
-        return session
-
-    @staticmethod
-    def cleanup():
-        for _, (driver, session) in SessionCache.cache.items():
-            session.close()
-            driver.close()
 
 atexit.register(SessionCache.cleanup)
 

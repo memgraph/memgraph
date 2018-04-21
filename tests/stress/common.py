@@ -8,6 +8,7 @@ Only Bolt communication protocol is supported.
 '''
 
 import contextlib
+import os
 from threading import Thread
 from time import sleep
 
@@ -190,6 +191,28 @@ def argument_driver(args, ssl=False):
         'bolt://' + args.endpoint,
         auth=(args.username, str(args.password)),
         encrypted=ssl)
+
+# This class is used to create and cache sessions. Session is cached by args
+# used to create it and process' pid in which it was created. This makes it easy
+# to reuse session with python multiprocessing primitives like pmap.
+class SessionCache:
+    cache = {}
+
+    @staticmethod
+    def argument_session(args):
+        key = tuple(vars(args).items()) + (os.getpid(),)
+        if key in SessionCache.cache:
+            return SessionCache.cache[key][1]
+        driver = argument_driver(args)   # |
+        session = driver.session()       # V
+        SessionCache.cache[key] = (driver, session)
+        return session
+
+    @staticmethod
+    def cleanup():
+        for _, (driver, session) in SessionCache.cache.items():
+            session.close()
+            driver.close()
 
 
 def periodically_execute(callable, args, interval, daemon=True):
