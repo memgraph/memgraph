@@ -12,7 +12,7 @@
 TEST(Scheduler, TestFunctionExecuting) {
   std::atomic<int> x{0};
   std::function<void()> func{[&x]() { ++x; }};
-  Scheduler scheduler;
+  utils::Scheduler scheduler;
   scheduler.Run("Test", std::chrono::seconds(1), func);
 
   EXPECT_EQ(x, 0);

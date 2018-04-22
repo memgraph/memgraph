@@ -11,7 +11,7 @@ using namespace communication::rpc;
 
 struct AppendEntryReq : public Message {
   AppendEntryReq() {}
-  AppendEntryReq(int val) : val(val) {}
+  explicit AppendEntryReq(int val) : val(val) {}
   int val;
 
  private:

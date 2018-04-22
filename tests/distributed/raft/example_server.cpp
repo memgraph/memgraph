@@ -27,7 +27,7 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   // Unhandled exception handler init.
-  std::set_terminate(&terminate_handler);
+  std::set_terminate(&utils::TerminateHandler);
 
   Server server(io::network::Endpoint(FLAGS_interface, stoul(FLAGS_port)));
   std::ofstream log(FLAGS_log, std::ios_base::app);

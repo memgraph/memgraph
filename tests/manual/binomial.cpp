@@ -13,7 +13,7 @@
 #include "utils/random/fast_binomial.hpp"
 
 static constexpr unsigned B = 24;
-static thread_local FastBinomial<> rnd;
+static thread_local utils::random::FastBinomial<> rnd;
 
 static constexpr unsigned M = 4;
 static constexpr size_t N = 1ULL << 34;

@@ -25,7 +25,8 @@ namespace query {
  * Values can be of a number of predefined types that are enumerated in
  * TypedValue::Type. Each such type corresponds to exactly one C++ type.
  */
-class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
+class TypedValue
+    : public utils::TotalOrdering<TypedValue, TypedValue, TypedValue> {
  public:
   /** Custom TypedValue equality function that returns a bool
    * (as opposed to returning TypedValue as the default equality does).
@@ -152,7 +153,7 @@ class TypedValue : public TotalOrdering<TypedValue, TypedValue, TypedValue> {
   template <typename T>
   const T &Value() const;
 
-  // TODO consider adding getters for primitives by value (and not by ref)
+// TODO consider adding getters for primitives by value (and not by ref)
 
 #define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, field)          \
   /** Gets the value of type field. Throws if value is not field*/ \

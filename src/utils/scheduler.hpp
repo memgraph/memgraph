@@ -11,6 +11,8 @@
 
 #include "utils/thread.hpp"
 
+namespace utils {
+
 /**
  * Class used to run scheduled function execution.
  */
@@ -99,3 +101,5 @@ class Scheduler {
    */
   std::thread thread_;
 };
+
+}  // namespace utils

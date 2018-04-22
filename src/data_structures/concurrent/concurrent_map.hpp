@@ -11,9 +11,9 @@ template <typename TKey, typename TValue>
 class ConcurrentMap {
   /// At item in the concurrent map. A pair of <TKey, TValue> that compares on
   /// the first value (key). Comparable to another Item, or only to the TKey.
-  class Item : public TotalOrdering<Item>,
-               public TotalOrdering<TKey, Item>,
-               public TotalOrdering<Item, TKey>,
+  class Item : public utils::TotalOrdering<Item>,
+               public utils::TotalOrdering<TKey, Item>,
+               public utils::TotalOrdering<Item, TKey>,
                public std::pair<const TKey, TValue> {
    public:
     using std::pair<const TKey, TValue>::pair;

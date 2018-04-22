@@ -21,7 +21,8 @@ TEST(Antlr, Sigsegv) {
 
   for (int i = 0; i < N; ++i) {
     threads.push_back(std::thread([&run]() {
-      while (!run);
+      while (!run)
+        ;
       while (run) {
         query::frontend::opencypher::Parser parser(
             "CREATE (:Label_T7 {x: 903}) CREATE (:Label_T7 {x: 720}) CREATE "
@@ -97,7 +98,7 @@ int main(int argc, char **argv) {
   });
   utils::SignalHandler::RegisterHandler(utils::Signal::Abort, []() {
     // Log the stacktrace and let the abort continue.
-    Stacktrace stacktrace;
+    utils::Stacktrace stacktrace;
     std::cerr << "Abort signal raised" << std::endl
               << stacktrace.dump() << std::endl;
   });

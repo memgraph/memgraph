@@ -64,7 +64,7 @@ class RhBase {
 
   // Base for all iterators. It can start from any point in map.
   template <class It>
-  class IteratorBase : public Crtp<It> {
+  class IteratorBase : public utils::Crtp<It> {
    protected:
     IteratorBase() : map(nullptr) { advanced = index = ~((size_t)0); }
     IteratorBase(const RhBase *map) {

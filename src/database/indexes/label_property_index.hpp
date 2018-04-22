@@ -34,7 +34,7 @@ class LabelPropertyIndex {
   /**
    * @brief - Contain Label + property, to be used as an index key.
    */
-  class Key : public TotalOrdering<Key> {
+  class Key : public utils::TotalOrdering<Key> {
    public:
     const storage::Label label_;
     const storage::Property property_;
@@ -381,7 +381,7 @@ class LabelPropertyIndex {
    * @brief - Contains value, vlist and vertex record to distinguish between
    * index entries.
    */
-  class IndexEntry : public TotalOrdering<IndexEntry> {
+  class IndexEntry : public utils::TotalOrdering<IndexEntry> {
    public:
     IndexEntry(const IndexEntry &entry, const Vertex *new_record)
         : IndexEntry(entry.value_, entry.vlist_, new_record) {}

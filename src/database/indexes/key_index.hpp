@@ -104,7 +104,7 @@ class KeyIndex {
   /**
    * @brief - Contains vlist and record pointers.
    */
-  class IndexEntry : public TotalOrdering<IndexEntry> {
+  class IndexEntry : public utils::TotalOrdering<IndexEntry> {
    public:
     IndexEntry(const IndexEntry &entry, const TRecord *const new_record)
         : IndexEntry(entry.vlist_, new_record) {}

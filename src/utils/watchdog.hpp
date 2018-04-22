@@ -8,6 +8,8 @@
 #include <random>
 #include <thread>
 
+namespace utils {
+
 /**
  * @brief - Keeps track of how long it's been since `Notify` method was called.
  * If it wasn't called for a sufficiently long time interval (randomly chosen
@@ -54,3 +56,5 @@ class Watchdog {
   std::atomic<bool> blocked_;
   std::thread thread_;
 };
+
+}  // namespace utils

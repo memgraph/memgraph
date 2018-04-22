@@ -5,9 +5,8 @@
 #include "utils/future.hpp"
 
 namespace distributed {
-utils::Future<bool> DurabilityRpcClients::MakeSnapshot(
-    tx::TransactionId tx) {
-  return std::async(std::launch::async, [this, tx] {
+utils::Future<bool> DurabilityRpcClients::MakeSnapshot(tx::TransactionId tx) {
+  return utils::make_future(std::async(std::launch::async, [this, tx] {
     auto futures = clients_.ExecuteOnWorkers<bool>(
         0, [tx](communication::rpc::ClientPool &client_pool) {
           auto res = client_pool.Call<MakeSnapshotRpc>(tx);
@@ -21,6 +20,6 @@ utils::Future<bool> DurabilityRpcClients::MakeSnapshot(
     }
 
     return created;
-  });
+  }));
 }
 }  // namespace distributed

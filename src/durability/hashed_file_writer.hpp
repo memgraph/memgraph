@@ -54,7 +54,7 @@ class HashedFileWriter {
    */
   template <typename TValue>
   void WriteValue(const TValue &val, bool hash = true) {
-    TValue val_bswapped = bswap(val);
+    TValue val_bswapped = utils::Bswap(val);
     Write(reinterpret_cast<const uint8_t *>(&val_bswapped), sizeof(TValue),
           hash);
   }

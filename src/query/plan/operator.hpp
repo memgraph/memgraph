@@ -1812,7 +1812,8 @@ class Aggregate : public LogicalOperator {
     std::unordered_map<
         std::vector<TypedValue>, AggregationValue,
         // use FNV collection hashing specialized for a vector of TypedValues
-        FnvCollection<std::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+        utils::FnvCollection<std::vector<TypedValue>, TypedValue,
+                             TypedValue::Hash>,
         // custom equality
         TypedValueVectorEqual>
         aggregation_;
@@ -2352,7 +2353,8 @@ class Distinct : public LogicalOperator {
     std::unordered_set<
         std::vector<TypedValue>,
         // use FNV collection hashing specialized for a vector of TypedValues
-        FnvCollection<std::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+        utils::FnvCollection<std::vector<TypedValue>, TypedValue,
+                             TypedValue::Hash>,
         TypedValueVectorEqual>
         seen_rows_;
   };

@@ -29,8 +29,8 @@ namespace fs = std::experimental::filesystem;
 #include "utils/likely.hpp"
 #include "utils/underlying_cast.hpp"
 
-namespace utils {
-namespace linux_os {
+namespace utils::linux_os {
+
 void set_non_blocking(int fd) {
   auto flags = fcntl(fd, F_GETFL, 0);
 
@@ -44,7 +44,6 @@ void set_non_blocking(int fd) {
   if (UNLIKELY(status == -1))
     throw BasicException("Can't set NON_BLOCK flag to file descriptor");
 }
-}  // namespace linux_os
 
 /**
  * Goes from first to last item in a container, if an element satisfying the
@@ -194,7 +193,8 @@ class FSWatcher {
   /**
    * Initialize underlying notification system.
    */
-  FSWatcher(ms check_interval = ms(100)) : check_interval_(check_interval) {
+  explicit FSWatcher(ms check_interval = ms(100))
+      : check_interval_(check_interval) {
     DLOG(INFO) << fmt::format("Inotify header length: {}", IN_HEADER_SIZE);
     DLOG(INFO) << fmt::format("Inotify buffer length: {}", IN_BUFF_LEN);
     inotify_fd_ = inotify_init();
@@ -469,4 +469,5 @@ class FSWatcher {
    */
   char *buffer_[IN_BUFF_LEN];
 };
-}  // namespace utils
+
+}  // namespace utils::linux_os

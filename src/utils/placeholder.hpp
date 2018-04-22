@@ -6,6 +6,8 @@
 
 #include <ext/aligned_buffer.h>
 
+namespace utils {
+
 /**
  * @class Placeholder
  *
@@ -91,3 +93,5 @@ class Placeholder {
   __gnu_cxx::__aligned_buffer<T> data;
   bool initialized = false;
 };
+
+}  // namespace utils

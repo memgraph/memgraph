@@ -51,7 +51,7 @@ class HashedFileReader {
     if (!Read(reinterpret_cast<uint8_t *>(&val), sizeof(TValue), hash))
       return false;
     // TODO: must be platform specific in the future
-    val = bswap(val);
+    val = utils::Bswap(val);
     return true;
   }
 

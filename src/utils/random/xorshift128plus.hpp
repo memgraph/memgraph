@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <random>
 
+namespace utils::random {
+
 /* Xorshift algorithm (plus variant)
  *
  * This is the fastest generator passing BigCrush without systematic failures,
@@ -54,3 +56,5 @@ struct Xorshift128plus {
     return s;
   }
 };
+
+}  // namespace utils::random

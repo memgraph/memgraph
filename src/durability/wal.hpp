@@ -81,7 +81,7 @@ class WriteAheadLog {
   };
 
   RingBuffer<database::StateDelta> deltas_;
-  Scheduler scheduler_;
+  utils::Scheduler scheduler_;
   WalFile wal_file_;
   // Used for disabling the WAL during DB recovery.
   bool enabled_{false};

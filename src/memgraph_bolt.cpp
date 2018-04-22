@@ -152,7 +152,7 @@ int main(int argc, char **argv) {
   google::SetLogSymlink(google::INFO, FLAGS_log_link_basename.c_str());
 
   // Unhandled exception handler init.
-  std::set_terminate(&terminate_handler);
+  std::set_terminate(&utils::TerminateHandler);
 
   std::string stats_prefix;
   if (FLAGS_master) {
@@ -166,10 +166,10 @@ int main(int argc, char **argv) {
   utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
 
   // Start memory warning logger.
-  Scheduler mem_log_scheduler;
+  utils::Scheduler mem_log_scheduler;
   if (FLAGS_memory_warning_threshold > 0) {
     mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
-      auto free_ram_mb = utils::AvailableMem() / 1024;
+      auto free_ram_mb = utils::sysinfo::AvailableMem() / 1024;
       if (free_ram_mb < FLAGS_memory_warning_threshold)
         LOG(WARNING) << "Running out of available RAM, only " << free_ram_mb
                      << " MB left.";

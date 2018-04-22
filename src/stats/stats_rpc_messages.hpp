@@ -7,7 +7,7 @@
 #include "boost/serialization/vector.hpp"
 
 #include "communication/rpc/messages.hpp"
-#include "utils/datetime/timestamp.hpp"
+#include "utils/timestamp.hpp"
 
 namespace stats {
 
@@ -18,7 +18,7 @@ struct StatsReq : public communication::rpc::Message {
       : metric_path(metric_path),
         tags(tags),
         value(value),
-        timestamp(Timestamp::Now().SecSinceTheEpoch()) {}
+        timestamp(utils::Timestamp::Now().SecSinceTheEpoch()) {}
 
   std::string metric_path;
   std::vector<std::pair<std::string, std::string>> tags;
@@ -39,7 +39,7 @@ RPC_NO_MEMBER_MESSAGE(StatsRes);
 
 struct BatchStatsReq : public communication::rpc::Message {
   BatchStatsReq() {}
-  BatchStatsReq(std::vector<StatsReq> requests) : requests(requests) {}
+  explicit BatchStatsReq(std::vector<StatsReq> requests) : requests(requests) {}
 
   std::vector<StatsReq> requests;
 

@@ -32,6 +32,8 @@ using HashType = uint32_t;
 #endif
 }
 
+namespace utils {
+
 /**
  * Does FNV-like hashing on a collection. Not truly FNV
  * because it operates on 8-bit elements, while this
@@ -83,3 +85,5 @@ struct HashCombine {
     return ret;
   }
 };
+
+}  // namespace utils

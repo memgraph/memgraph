@@ -25,7 +25,7 @@ struct StateDelta;
  * @tparam TRecord Type of record (MVCC Version) of the accessor.
  */
 template <typename TRecord>
-class RecordAccessor : public TotalOrdering<RecordAccessor<TRecord>> {
+class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
  protected:
   using AddressT = storage::Address<mvcc::VersionList<TRecord>>;
 

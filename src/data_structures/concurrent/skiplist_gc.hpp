@@ -160,9 +160,9 @@ class SkipListGC {
   /// Constructs executor depending on flag - has to be done this way because of
   /// C++14
   auto ConstructExecutor() {
-    std::unique_ptr<Executor> executor;
+    std::unique_ptr<utils::Executor> executor;
     if (FLAGS_skiplist_gc_interval != -1) {
-      executor = std::make_unique<Executor>(
+      executor = std::make_unique<utils::Executor>(
           std::chrono::seconds(FLAGS_skiplist_gc_interval));
     }
     return executor;

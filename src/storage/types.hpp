@@ -10,7 +10,7 @@
 namespace storage {
 
 template <typename TSpecificType>
-class Common : public TotalOrdering<TSpecificType> {
+class Common : public utils::TotalOrdering<TSpecificType> {
  public:
   using StorageT = uint16_t;
 

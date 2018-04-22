@@ -13,7 +13,7 @@
 
 #include "utils/random/xorshift128plus.hpp"
 
-static thread_local Xorshift128plus rnd;
+static thread_local utils::random::Xorshift128plus rnd;
 static constexpr unsigned B = 1 << 10;
 static constexpr uint64_t K = (uint64_t)(-1) / B;
 
@@ -35,20 +35,20 @@ int main(void) {
 
   std::array<std::thread, M> threads;
 
-  for (auto& bucket : buckets) bucket.store(0);
+  for (auto &bucket : buckets) bucket.store(0);
 
-  for (auto& t : threads) t = std::thread([]() { generate(); });
+  for (auto &t : threads) t = std::thread([]() { generate(); });
 
-  for (auto& t : threads) t.join();
+  for (auto &t : threads) t.join();
 
   auto max = std::accumulate(
       buckets.begin(), buckets.end(), 0u,
-      [](auto& acc, auto& x) { return std::max(acc, x.load()); });
+      [](auto &acc, auto &x) { return std::max(acc, x.load()); });
   DCHECK(max != 0u) << "max is 0.";
 
   std::cout << std::fixed;
 
-  for (auto& bucket : buckets) {
+  for (auto &bucket : buckets) {
     auto x = bucket.load();
     auto rel = bar_len * x / max;
 

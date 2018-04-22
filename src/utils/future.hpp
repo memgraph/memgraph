@@ -11,7 +11,7 @@ template <typename TResult>
 class Future {
  public:
   Future() {}
-  Future(std::future<TResult> future) : future_(std::move(future)) {}
+  explicit Future(std::future<TResult> future) : future_(std::move(future)) {}
 
   Future(const Future &) = delete;
   Future(Future &&) = default;
@@ -42,4 +42,5 @@ template <typename TResult>
 Future<TResult> make_future(std::future<TResult> future) {
   return Future<TResult>(std::move(future));
 }
-}
+
+}  // namespace utils

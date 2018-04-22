@@ -141,7 +141,7 @@ class StorageGc {
   }
 
   tx::Engine &tx_engine_;
-  Scheduler scheduler_;
+  utils::Scheduler scheduler_;
 
  private:
   Storage &storage_;
@@ -150,7 +150,6 @@ class StorageGc {
 
   // History of <oldest active transaction, next transaction to be ran> ranges
   // that gc operated on at some previous time - used to clear commit log
-  std::queue<std::pair<tx::TransactionId, tx::TransactionId>>
-      gc_txid_ranges_;
+  std::queue<std::pair<tx::TransactionId, tx::TransactionId>> gc_txid_ranges_;
 };
 }  // namespace database

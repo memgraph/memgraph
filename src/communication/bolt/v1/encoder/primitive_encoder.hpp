@@ -20,7 +20,7 @@ namespace communication::bolt {
 template <typename Buffer>
 class PrimitiveEncoder {
  public:
-  PrimitiveEncoder(Buffer &buffer) : buffer_(buffer) {}
+  explicit PrimitiveEncoder(Buffer &buffer) : buffer_(buffer) {}
 
   void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
 
@@ -32,7 +32,7 @@ class PrimitiveEncoder {
 
   template <class T>
   void WriteValue(T value) {
-    value = bswap(value);
+    value = utils::Bswap(value);
     WriteRAW(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
   }
 

@@ -15,4 +15,5 @@ std::experimental::optional<std::string> GetHostname();
 
 // Try to establish a connection to a remote host
 bool CanEstablishConnection(const io::network::Endpoint &endpoint);
-};  // namespace utils
+
+}  // namespace utils

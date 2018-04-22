@@ -63,7 +63,8 @@ class TestOutputStream {
  */
 class TestBuffer {
  public:
-  TestBuffer(TestOutputStream &output_stream) : output_stream_(output_stream) {}
+  explicit TestBuffer(TestOutputStream &output_stream)
+      : output_stream_(output_stream) {}
 
   void Write(const uint8_t *data, size_t n) { output_stream_.Write(data, n); }
   void Chunk() {}

@@ -9,7 +9,6 @@
 #include "durability/paths.hpp"
 #include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
-#include "utils/datetime/timestamp.hpp"
 
 namespace fs = std::experimental::filesystem;
 

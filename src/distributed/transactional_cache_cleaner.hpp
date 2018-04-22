@@ -54,9 +54,8 @@ class TransactionalCacheCleaner {
   }
 
   tx::Engine &tx_engine_;
-  std::vector<std::function<void(tx::TransactionId &oldest_active)>>
-      functions_;
-  Scheduler cache_clearing_scheduler_;
+  std::vector<std::function<void(tx::TransactionId &oldest_active)>> functions_;
+  utils::Scheduler cache_clearing_scheduler_;
 };
 
 /// Registers a RPC server that listens for `WaitOnTransactionEnd` requests

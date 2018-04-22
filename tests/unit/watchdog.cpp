@@ -8,7 +8,7 @@ using namespace std::chrono_literals;
 
 TEST(Watchdog, Run) {
   std::atomic<int> count(0);
-  Watchdog dog(200ms, 200ms, [&count]() { ++count; });
+  utils::Watchdog dog(200ms, 200ms, [&count]() { ++count; });
 
   std::this_thread::sleep_for(250ms);
   EXPECT_EQ(count, 1);
@@ -29,7 +29,7 @@ TEST(Watchdog, Run) {
 
 TEST(Watchdog, Blocker) {
   std::atomic<int> count(0);
-  Watchdog dog(200ms, 200ms, [&count]() { ++count; });
+  utils::Watchdog dog(200ms, 200ms, [&count]() { ++count; });
 
   std::this_thread::sleep_for(250ms);
   EXPECT_EQ(count, 1);

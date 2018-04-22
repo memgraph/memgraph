@@ -7,6 +7,8 @@
 
 #include "utils/on_scope_exit.hpp"
 
+namespace utils {
+
 class Stacktrace {
  public:
   class Line {
@@ -92,3 +94,5 @@ class Stacktrace {
     return {original, function, location};
   }
 };
+
+}  // namespace utils

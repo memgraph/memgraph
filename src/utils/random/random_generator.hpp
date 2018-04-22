@@ -2,11 +2,7 @@
 #include <set>
 #include <vector>
 
-// namespace ::utils
-namespace utils {
-
-// namespace utils::random
-namespace random {
+namespace utils::random {
 
 template <class Distribution, class Generator>
 class RandomGenerator {
@@ -28,7 +24,7 @@ class StringGenerator
   int size_;
 
  public:
-  StringGenerator(int size)
+  explicit StringGenerator(int size)
       : RandomGenerator(std::uniform_int_distribution<int>(32, 126)),
         size_(size) {}
 
@@ -82,5 +78,4 @@ auto generate_set(RandomGenerator &gen, int size) {
   return elements;
 }
 
-};  // namespace utils::random
-};  // namespace ::utils
+}  // namespace utils::random

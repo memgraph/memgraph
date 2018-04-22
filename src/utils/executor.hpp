@@ -6,6 +6,8 @@
 
 #include "utils/scheduler.hpp"
 
+namespace utils {
+
 /**
  * @brief - Provides execution of jobs in job queue on one thread with 'pause'
  * time between two consecutives starts.
@@ -93,3 +95,5 @@ class Executor {
   Scheduler scheduler_;
   std::vector<std::pair<int, std::function<void()>>> id_job_pairs_;
 };
+
+}  // namespace utils

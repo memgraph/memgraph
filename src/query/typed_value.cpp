@@ -671,7 +671,7 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::String:
       return std::hash<std::string>{}(value.Value<std::string>());
     case TypedValue::Type::List: {
-      return FnvCollection<std::vector<TypedValue>, TypedValue, Hash>{}(
+      return utils::FnvCollection<std::vector<TypedValue>, TypedValue, Hash>{}(
           value.Value<std::vector<TypedValue>>());
     }
     case TypedValue::Type::Map: {
@@ -687,9 +687,10 @@ size_t TypedValue::Hash::operator()(const TypedValue &value) const {
     case TypedValue::Type::Edge:
       return value.Value<EdgeAccessor>().gid();
     case TypedValue::Type::Path:
-      return FnvCollection<std::vector<VertexAccessor>, VertexAccessor>{}(
+      return utils::FnvCollection<std::vector<VertexAccessor>,
+                                  VertexAccessor>{}(
                  value.ValuePath().vertices()) ^
-             FnvCollection<std::vector<EdgeAccessor>, EdgeAccessor>{}(
+             utils::FnvCollection<std::vector<EdgeAccessor>, EdgeAccessor>{}(
                  value.ValuePath().edges());
   }
   LOG(FATAL) << "Unhandled TypedValue.type() in hash function";

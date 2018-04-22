@@ -4,7 +4,7 @@
 
 #include "glog/logging.h"
 
-namespace utils {
+namespace utils::sysinfo {
 
 /**
  * Gets the amount of available RAM in kilobytes. If the information is
@@ -27,4 +27,5 @@ inline auto AvailableMem() {
   LOG(ERROR) << "Failed to read amount of available memory from /proc/meminfo";
   return 0UL;
 }
-}  // namespace utils
+
+}  // namespace utils::sysinfo

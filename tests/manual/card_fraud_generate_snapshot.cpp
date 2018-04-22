@@ -14,7 +14,6 @@
 #include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
 #include "storage/address_types.hpp"
-#include "utils/datetime/timestamp.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 

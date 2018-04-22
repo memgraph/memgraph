@@ -11,10 +11,11 @@
 using std::chrono::milliseconds;
 using std::chrono::steady_clock;
 
+namespace utils {
+
 Watchdog::Watchdog(const milliseconds &min_timeout,
                    const milliseconds &max_timeout,
-                   const std::function<void()> &callback,
-                   bool blocked)
+                   const std::function<void()> &callback, bool blocked)
     : min_timeout_(min_timeout),
       max_timeout_(max_timeout),
       generator_(std::random_device{}()),
@@ -66,3 +67,5 @@ void Watchdog::Run() {
     std::this_thread::sleep_until(t);
   }
 }
+
+}  // namespace utils

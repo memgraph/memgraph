@@ -4,7 +4,6 @@
 #include <glog/logging.h>
 
 #include "query/frontend/stripped.hpp"
-#include "utils/type_discovery.hpp"
 
 DEFINE_string(q, "CREATE (n) RETURN n", "Query");
 

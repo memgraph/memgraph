@@ -3,6 +3,8 @@
 #include "utils/likely.hpp"
 #include "utils/random/xorshift128plus.hpp"
 
+namespace utils::random {
+
 template <class R = Xorshift128plus>
 class FastBinomial {
   // fast binomial draws coin tosses from a single generated random number
@@ -55,3 +57,5 @@ class FastBinomial {
   uint64_t mask(const int n) { return (1ULL << n) - 1; }
   R random;
 };
+
+}  // namespace utils::random

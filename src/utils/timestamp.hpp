@@ -7,8 +7,15 @@
 
 #include <fmt/format.h>
 
-#include "utils/datetime/datetime_error.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/total_ordering.hpp"
+
+namespace utils {
+
+class TimestampError : public StacktraceException {
+ public:
+  using StacktraceException::StacktraceException;
+};
 
 class Timestamp : public TotalOrdering<Timestamp> {
  public:
@@ -18,11 +25,11 @@ class Timestamp : public TotalOrdering<Timestamp> {
     auto result = gmtime_r(&time, &this->time);
 
     if (result == nullptr)
-      throw DatetimeError("Unable to construct from {}", time);
+      throw TimestampError("Unable to construct from {}", time);
   }
 
-  Timestamp(const Timestamp&) = default;
-  Timestamp(Timestamp&&) = default;
+  Timestamp(const Timestamp &) = default;
+  Timestamp(Timestamp &&) = default;
 
   static Timestamp Now() {
     timespec time;
@@ -54,22 +61,22 @@ class Timestamp : public TotalOrdering<Timestamp> {
                        Subsec());
   }
 
-  const std::string ToString(const std::string& format = fiso8601) const {
+  const std::string ToString(const std::string &format = fiso8601) const {
     return fmt::format(format, Year(), Month(), Day(), Hour(), Min(), Sec(),
                        Subsec());
   }
 
-  friend std::ostream& operator<<(std::ostream& stream, const Timestamp& ts) {
+  friend std::ostream &operator<<(std::ostream &stream, const Timestamp &ts) {
     return stream << ts.ToIso8601();
   }
 
   operator std::string() const { return ToString(); }
 
-  constexpr friend bool operator==(const Timestamp& a, const Timestamp& b) {
+  constexpr friend bool operator==(const Timestamp &a, const Timestamp &b) {
     return a.unix_time == b.unix_time && a.nsec == b.nsec;
   }
 
-  constexpr friend bool operator<(const Timestamp& a, const Timestamp& b) {
+  constexpr friend bool operator<(const Timestamp &a, const Timestamp &b) {
     return a.unix_time < b.unix_time ||
            (a.unix_time == b.unix_time && a.nsec < b.nsec);
   }
@@ -84,3 +91,5 @@ class Timestamp : public TotalOrdering<Timestamp> {
   static constexpr auto fiso8601 =
       "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:05d}Z";
 };
+
+}  // namespace utils

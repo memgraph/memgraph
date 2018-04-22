@@ -1,27 +1,30 @@
 #pragma once
 
-#include "utils/stacktrace.hpp"
-
 #include <execinfo.h>
 #include <iostream>
 
-// TODO: log to local file or remote database
-void stacktrace(std::ostream &stream) noexcept {
-  Stacktrace stacktrace;
-  stacktrace.dump(stream);
-}
+#include "utils/stacktrace.hpp"
 
-// TODO: log to local file or remote database
-void terminate_handler(std::ostream &stream) noexcept {
+namespace utils {
+
+/**
+ * Dump stacktrace to the stream and abort the probram. For more details
+ * about the abort please take a look at
+ * http://en.cppreference.com/w/cpp/utility/program/abort.
+ */
+void TerminateHandler(std::ostream &stream) noexcept {
   if (auto exc = std::current_exception()) {
     try {
       std::rethrow_exception(exc);
     } catch (std::exception &ex) {
       stream << ex.what() << std::endl << std::endl;
-      stacktrace(stream);
+      utils::Stacktrace stacktrace;
+      stacktrace.dump(stream);
     }
   }
   std::abort();
 }
 
-void terminate_handler() noexcept { terminate_handler(std::cout); }
+void TerminateHandler() noexcept { TerminateHandler(std::cout); }
+
+}  // namespace utils

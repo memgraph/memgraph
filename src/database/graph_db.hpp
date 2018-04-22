@@ -171,7 +171,7 @@ class PublicBase : public GraphDb {
  private:
   /** When this is false, no new transactions should be created. */
   std::atomic<bool> is_accepting_transactions_{true};
-  Scheduler transaction_killer_;
+  utils::Scheduler transaction_killer_;
 };
 }  // namespace impl
 
@@ -181,7 +181,7 @@ class MasterBase : public impl::PublicBase {
   ~MasterBase();
 
  private:
-  std::unique_ptr<Scheduler> snapshot_creator_;
+  std::unique_ptr<utils::Scheduler> snapshot_creator_;
 };
 
 class SingleNode : public MasterBase {

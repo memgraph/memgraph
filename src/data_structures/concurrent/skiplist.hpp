@@ -19,7 +19,7 @@
  * computes the height for the new node from the interval [1...H]
  * with p(k) = (1/2)^k for all k from the interval
  */
-static thread_local FastBinomial<> rnd;
+static thread_local utils::random::FastBinomial<> rnd;
 
 /** @brief Concurrent lock-based skiplist with fine grained locking
  *
@@ -230,7 +230,7 @@ class SkipList : private Lockable<lock_t> {
       return node;
     }
 
-    Placeholder<T> data;
+    utils::Placeholder<T> data;
 
     /**
      * this creates an array of the size zero. we can't put any sensible
@@ -245,7 +245,7 @@ class SkipList : private Lockable<lock_t> {
 
  public:
   template <class It>
-  class IteratorBase : public Crtp<It> {
+  class IteratorBase : public utils::Crtp<It> {
    protected:
     explicit IteratorBase(Node *node) : node(node) {}
 
@@ -344,7 +344,7 @@ class SkipList : private Lockable<lock_t> {
     @todo
     Research possible better and faster more optimized traversals.
   */
-  class ReverseIterator : public Crtp<ReverseIterator> {
+  class ReverseIterator : public utils::Crtp<ReverseIterator> {
     friend class SkipList;
 
     explicit ReverseIterator(Node *node) : node_(node) {}

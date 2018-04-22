@@ -46,7 +46,7 @@ const uint8_t ignored_resp[] = {0x00, 0x02, 0xb0, 0x7e, 0x00, 0x00};
 
 // Write bolt chunk header (length)
 void WriteChunkHeader(TestInputStream &input_stream, uint16_t len) {
-  len = bswap(len);
+  len = utils::Bswap(len);
   input_stream.Write(reinterpret_cast<uint8_t *>(&len), sizeof(len));
 }
 

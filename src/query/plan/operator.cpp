@@ -414,32 +414,32 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, std::experimental::nullopt,
                       std::experimental::nullopt, false))> {
-    ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db, graph_view_);
-    auto convert = [&evaluator](const auto &bound)
-        -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      auto value = bound->value()->Accept(evaluator);
-      try {
+        ExpressionEvaluator evaluator(frame, context.parameters_,
+                                      context.symbol_table_, db, graph_view_);
+        auto convert = [&evaluator](const auto &bound)
+            -> std::experimental::optional<utils::Bound<PropertyValue>> {
+              if (!bound) return std::experimental::nullopt;
+              auto value = bound->value()->Accept(evaluator);
+              try {
+                return std::experimental::make_optional(
+                    utils::Bound<PropertyValue>(value, bound->type()));
+              } catch (const TypedValueException &) {
+                throw QueryRuntimeException(
+                    "'{}' cannot be used as a property value.", value.type());
+              }
+            };
+        auto maybe_lower = convert(lower_bound());
+        auto maybe_upper = convert(upper_bound());
+        // If any bound is null, then the comparison would result in nulls. This
+        // is treated as not satisfying the filter, so return no vertices.
+        if (maybe_lower && maybe_lower->value().IsNull())
+          return std::experimental::nullopt;
+        if (maybe_upper && maybe_upper->value().IsNull())
+          return std::experimental::nullopt;
         return std::experimental::make_optional(
-            utils::Bound<PropertyValue>(value, bound->type()));
-      } catch (const TypedValueException &) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                    value.type());
-      }
-    };
-    auto maybe_lower = convert(lower_bound());
-    auto maybe_upper = convert(upper_bound());
-    // If any bound is null, then the comparison would result in nulls. This is
-    // treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull())
-      return std::experimental::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull())
-      return std::experimental::nullopt;
-    return std::experimental::make_optional(
-        db.Vertices(label_, property_, maybe_lower, maybe_upper,
-                    graph_view_ == GraphView::NEW));
-  };
+            db.Vertices(label_, property_, maybe_lower, maybe_upper,
+                        graph_view_ == GraphView::NEW));
+      };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -462,18 +462,18 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
   auto vertices = [this, &db](Frame &frame, Context &context)
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, TypedValue::Null, false))> {
-    ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db, graph_view_);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::experimental::nullopt;
-    try {
-      return std::experimental::make_optional(
-          db.Vertices(label_, property_, value, graph_view_ == GraphView::NEW));
-    } catch (const TypedValueException &) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                  value.type());
-    }
-  };
+        ExpressionEvaluator evaluator(frame, context.parameters_,
+                                      context.symbol_table_, db, graph_view_);
+        auto value = expression_->Accept(evaluator);
+        if (value.IsNull()) return std::experimental::nullopt;
+        try {
+          return std::experimental::make_optional(db.Vertices(
+              label_, property_, value, graph_view_ == GraphView::NEW));
+        } catch (const TypedValueException &) {
+          throw QueryRuntimeException(
+              "'{}' cannot be used as a property value.", value.type());
+        }
+      };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -551,7 +551,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
       LOG(FATAL) << "Must indicate exact expansion direction here";
     });
     future_expands_.emplace_back(
-        FutureExpand{std::move(edge_to), frame.elems()});
+        FutureExpand{utils::make_future(std::move(edge_to)), frame.elems()});
   };
 
   auto find_ready_future = [this]() {
@@ -1402,7 +1402,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
   struct WspStateHash {
     size_t operator()(const std::pair<VertexAccessor, int> &key) const {
-      return HashCombine<VertexAccessor, int>{}(key.first, key.second);
+      return utils::HashCombine<VertexAccessor, int>{}(key.first, key.second);
     }
   };
 

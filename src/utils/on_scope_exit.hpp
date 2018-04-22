@@ -32,4 +32,5 @@ class OnScopeExit {
  private:
   std::function<void()> function_;
 };
+
 }  // namespace utils

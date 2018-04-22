@@ -70,8 +70,8 @@ class VertexCountCache {
 
   struct LabelPropertyHash {
     size_t operator()(const LabelPropertyKey &key) const {
-      return HashCombine<storage::Label, storage::Property>{}(key.first,
-                                                              key.second);
+      return utils::HashCombine<storage::Label, storage::Property>{}(
+          key.first, key.second);
     }
   };
 
@@ -88,7 +88,7 @@ class VertexCountCache {
       if (maybe_lower) lower = maybe_lower->value();
       if (maybe_upper) upper = maybe_upper->value();
       query::TypedValue::Hash hash;
-      return HashCombine<size_t, size_t>{}(hash(lower), hash(upper));
+      return utils::HashCombine<size_t, size_t>{}(hash(lower), hash(upper));
     }
   };
 

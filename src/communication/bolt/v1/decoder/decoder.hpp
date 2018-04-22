@@ -209,7 +209,7 @@ class Decoder {
         DLOG(WARNING) << "[ReadInt] Int16 missing data!";
         return false;
       }
-      ret = bswap(tmp);
+      ret = utils::Bswap(tmp);
     } else if (marker == Marker::Int32) {
       VLOG(20) << "[ReadInt] Found an Int32";
       int32_t tmp;
@@ -217,14 +217,14 @@ class Decoder {
         DLOG(WARNING) << "[ReadInt] Int32 missing data!";
         return false;
       }
-      ret = bswap(tmp);
+      ret = utils::Bswap(tmp);
     } else if (marker == Marker::Int64) {
       VLOG(20) << "[ReadInt] Found an Int64";
       if (!buffer_.Read(reinterpret_cast<uint8_t *>(&ret), sizeof(ret))) {
         DLOG(WARNING) << "[ReadInt] Int64 missing data!";
         return false;
       }
-      ret = bswap(ret);
+      ret = utils::Bswap(ret);
     } else {
       DLOG(WARNING) << "[ReadInt] Received invalid marker "
                     << utils::UnderlyingCast(marker);
@@ -244,7 +244,7 @@ class Decoder {
       DLOG(WARNING) << "[ReadDouble] Missing data!";
       return false;
     }
-    value = bswap(value);
+    value = utils::Bswap(value);
     // cppcheck-suppress invalidPointerCast
     ret = *reinterpret_cast<double *>(&value);
     *data = DecodedValue(ret);
@@ -272,7 +272,7 @@ class Decoder {
         DLOG(WARNING) << "[ReadTypeSize] Type16 missing data!";
         return -1;
       }
-      tmp = bswap(tmp);
+      tmp = utils::Bswap(tmp);
       return tmp;
     } else if (marker == Marker32[type]) {
       VLOG(20) << "[ReadTypeSize] Found a Type32";
@@ -281,7 +281,7 @@ class Decoder {
         DLOG(WARNING) << "[ReadTypeSize] Type32 missing data!";
         return -1;
       }
-      tmp = bswap(tmp);
+      tmp = utils::Bswap(tmp);
       return tmp;
     } else {
       DLOG(WARNING) << "[ReadTypeSize] Received invalid marker "
