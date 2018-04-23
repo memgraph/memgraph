@@ -19,7 +19,7 @@ A sample query that finds a shortest path between two nodes can look like this:
 
       MATCH (a {id: 723})-[le *wShortest 10 (e, n | e.weight) total_weight]-(b {id: 882}) RETURN *
 
-This query has a upper bound length restriction set to `10`. This means that no
+This query has an upper bound length restriction set to `10`. This means that no
 path that traverses more than `10` edges will be considered as a valid result.
 
 
