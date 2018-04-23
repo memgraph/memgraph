@@ -37,3 +37,6 @@ TAGS
 # Cap'n Proto generated files
 *.capnp.c++
 *.capnp.h
+
+# LCP generated C++ files
+src/query/plan/operator.hpp

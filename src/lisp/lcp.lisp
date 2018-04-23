@@ -243,17 +243,18 @@
 (defun boost-serialization (cpp-class)
   "Add boost serialization code to `CPP-CLASS'."
   (labels ((get-serialize-code (member-name serialize-fun)
-             (make-raw-cpp
-              :string
-              (if serialize-fun
-                  (etypecase serialize-fun
-                    (string serialize-fun)
-                    (raw-cpp (raw-cpp-string serialize-fun))
-                    (function
-                     (let ((res (funcall serialize-fun "ar" member-name)))
-                       (check-type res (or raw-cpp string))
-                       res)))
-                  (format nil "ar & ~A;" member-name))))
+             (if serialize-fun
+                 ;; Invoke or use serialize-fun
+                 (ctypecase serialize-fun
+                   ((or string raw-cpp) serialize-fun)
+                   (function
+                    (let ((res (funcall serialize-fun "ar" member-name)))
+                      (check-type res (or raw-cpp string))
+                      res)))
+                 ;; Else use the default serialization
+                 #>cpp
+                 ar & ${member-name};
+                 cpp<#))
            (save-member (member)
              (get-serialize-code
               (cpp-member-name member :struct (cpp-class-structp cpp-class))

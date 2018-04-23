@@ -1604,10 +1604,6 @@ std::vector<Symbol> Produce::ModifiedSymbols(const SymbolTable &table) const {
   return OutputSymbols(table);
 }
 
-const std::vector<NamedExpression *> &Produce::named_expressions() {
-  return named_expressions_;
-}
-
 Produce::ProduceCursor::ProduceCursor(const Produce &self,
                                       database::GraphDbAccessor &db)
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}

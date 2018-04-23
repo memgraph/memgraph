@@ -94,6 +94,8 @@ function(add_lcp lcp_file)
   set(generated_lcp_files ${generated_lcp_files} ${h_file} PARENT_SCOPE)
 endfunction(add_lcp)
 
+add_lcp(query/plan/operator.lcp)
+
 add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
 
 # Use this function to add each capnp file to generation. This way each file is
