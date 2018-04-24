@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <experimental/optional>
 #include <iostream>
 
 #include "transactions/commit_log.hpp"
@@ -85,8 +86,8 @@ class Record : public Version<T> {
     auto exp_id = tx_.exp.load();
 
     // a record is NOT visible if:
-    // 1. it creating transaction aborted (last check)
-    // OR
+    // 1. it creating transaction aborted (last check), and is also older than
+    // the current oldest active transaction (optimization) OR
     // 2. a) it's expiration is not 0 (some transaction expired it)
     //    AND
     //    b) the expiring transaction is older than latest active
@@ -98,7 +99,7 @@ class Record : public Version<T> {
     //       newer transactions)
     return (exp_id != 0 && exp_id < snapshot.back() &&
             committed(Hints::kExp, engine) && !snapshot.contains(exp_id)) ||
-           cre_aborted(engine);
+           (tx_.cre.load() < snapshot.back() && cre_aborted(engine));
   }
 
   // TODO: Test this
@@ -142,11 +143,14 @@ class Record : public Version<T> {
 
   /**
    * Makes sure that create and expiry are in sync with hints if they are
-   * committed or aborted.
+   * committed or aborted and are before the `tx_cutoff`.
+   * `tx_cutoff` exists as a performance optimization to avoid setting hint bits
+   * on records for which we don't need to have a guarantee that they are set as
+   * part of GC hints setting procedure
    */
-  void populate_hints(const tx::Engine &engine) {
-    populate_hint_if_possible(engine, Hints::kCre);
-    if (!populate_hint_if_possible(engine, Hints::kExp)) {
+  void populate_hints(const tx::Engine &engine, tx::TransactionId tx_cutoff) {
+    populate_hint_if_possible(engine, Hints::kCre, tx_cutoff);
+    if (!populate_hint_if_possible(engine, Hints::kExp, tx_cutoff)) {
       // Exp is aborted and we can't set the hint, this way we don't have to set
       // the hint because an aborted transaction which expires a record is the
       // same thing as a non-expired record
@@ -232,22 +236,24 @@ class Record : public Version<T> {
   }
 
   /**
-   * Populates hint if it is not set for the given create/expiry mask.
-   * Note that it doesn't set hint bits for expiry transactions which
-   * abort because it's too expensive to maintain correctness of those hints
-   * with regards to race conditions
+   * Populates hint if it is not set for the given create/expiry mask and is
+   * before the `tx_cutoff` if specified. Note that it doesn't set hint bits for
+   * expiry transactions which abort because it's too expensive to maintain
+   * correctness of those hints with regards to race conditions
    * @returns - true if hints are now equal to transaction status
    * (committed/aborted), will only be false if we are trying to set hint for
    * aborted transaction which is this records expiry
    */
-  bool populate_hint_if_possible(const tx::Engine &engine,
-                                 const uint8_t mask) const {
+  bool populate_hint_if_possible(
+      const tx::Engine &engine, const uint8_t mask,
+      const std::experimental::optional<tx::TransactionId> tx_cutoff =
+          std::experimental::nullopt) const {
     DCHECK(mask == Hints::kCre || mask == Hints::kExp)
         << "Mask should be either for creation or expiration";
     if (hints_.Get(mask)) return true;
     auto id = mask == Hints::kCre ? tx_.cre.load() : tx_.exp.load();
-    // Nothing to do here
-    if (!id) return true;
+    // Nothing to do here if there is no id or id is larger than tx_cutoff
+    if (!id || (tx_cutoff && id >= *tx_cutoff)) return true;
     auto info = engine.Info(id);
     if (info.is_committed()) {
       hints_.Set(mask & Hints::kCmt);

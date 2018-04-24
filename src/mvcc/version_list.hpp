@@ -99,7 +99,12 @@ class VersionList {
     T *current = head;
     T *oldest_visible_record = nullptr;
     while (current) {
-      current->populate_hints(engine);
+      // Populate hints only when needed to avoid excessive rpc calls on
+      // workers.
+      // snapshot.back() corresponds to the oldest active transaction,
+      // and this makes it set only hint bits when the creating or expiring
+      // transaction of a record is older than that)
+      current->populate_hints(engine, snapshot.back());
       if (!current->is_not_visible_from(snapshot, engine))
         oldest_visible_record = current;
       current = current->next();
