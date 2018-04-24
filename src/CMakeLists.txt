@@ -156,7 +156,7 @@ set(examples ${CMAKE_SOURCE_DIR}/release/examples)
 install(
   CODE
   "execute_process(COMMAND ${examples}/build_examples
-                   ${CMAKE_CURRENT_BINARY_DIR}/memgraph
+                   ${CMAKE_BINARY_DIR}/memgraph
                    ${CMAKE_BINARY_DIR}/tests/manual/bolt_client
                    WORKING_DIRECTORY ${examples})")
 install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
