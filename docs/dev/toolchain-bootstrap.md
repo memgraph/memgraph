@@ -121,6 +121,7 @@ Requirements on CentOS 7:
   * rpm-build (RPM)
   * python3 (tests, ...)
   * which (required for rocksdb)
+  * sbcl (lisp C++ preprocessing)
 
 ### Boost 1.62
 

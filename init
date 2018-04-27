@@ -11,6 +11,7 @@ required_pkgs=(git arcanist # source code control
                libboost-iostreams-dev
                libboost-serialization-dev
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+               sbcl # for custom Lisp C++ preprocessing
               )
 
 optional_pkgs=(clang-format # source code formatting
@@ -108,6 +109,21 @@ fi
 
 # create a default build directory
 mkdir -p ./build
+
+# quicklisp package manager for Common Lisp
+quicklisp_install_dir="$HOME/quicklisp"
+if [[ -v QUICKLISP_HOME ]]; then
+  quicklisp_install_dir="${QUICKLISP_HOME}"
+fi
+if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
+  wget -nv https://beta.quicklisp.org/quicklisp.lisp -O quicklisp.lisp || exit 1
+  echo \
+  "
+  (load \"${DIR}/quicklisp.lisp\")
+  (quicklisp-quickstart:install :path \"${quicklisp_install_dir}\")
+  " | sbcl --script || exit 1
+  rm -rf quicklisp.lisp || exit 1
+fi
 
 # setup libs (download)
 cd libs

@@ -74,6 +74,29 @@ set(memgraph_src_files
 )
 # -----------------------------------------------------------------------------
 
+# Lisp C++ Preprocessing
+
+set(lcp_exe ${CMAKE_SOURCE_DIR}/tools/lcp)
+set(lcp_src_files lisp/lcp.lisp ${lcp_exe})
+
+# Use this function to add each lcp file to generation. This way each file is
+# standalone and we avoid recompiling everything.
+# NOTE: Only .hpp files are generated from .lcp, so there's no need to update memgraph_src_files.
+# NOTE: generated_lcp_files are globally updated.
+function(add_lcp lcp_file)
+  string(REGEX REPLACE "\.lcp$" ".hpp" h_file
+         "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+  add_custom_command(OUTPUT ${h_file}
+    COMMAND ${lcp_exe} ${lcp_file} > ${h_file}
+    DEPENDS ${lcp_file} ${lcp_src_files}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  # Update *global* generated_lcp_files
+  set(generated_lcp_files ${generated_lcp_files} ${h_file} PARENT_SCOPE)
+endfunction(add_lcp)
+
+add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
+# -----------------------------------------------------------------------------
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # memgraph_lib depend on these libraries
@@ -96,6 +119,7 @@ endif()
 add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
 add_dependencies(memgraph_lib generate_opencypher_parser)
+add_dependencies(memgraph_lib generate_lcp)
 
 # STATIC library used to store key-value pairs
 # TODO: Create a utils lib to link with, and remove utils/file.cpp.

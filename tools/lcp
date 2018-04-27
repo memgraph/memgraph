@@ -1,0 +1,30 @@
+#!/bin/bash -e
+
+if [[ $# -ne 1 ]]; then
+  echo "Usage: $0 LCP_FILE"
+  echo "Convert a LCP_FILE to C++ header file and output to stdout"
+  exit 1
+fi
+
+if [[ ! -r "$1" ]]; then
+  echo "File '$1' doesn't exist or isn't readable"
+  exit 1
+fi
+
+lcp_file=`realpath $1`
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+cd $script_dir
+
+quicklisp_install_dir="$HOME/quicklisp"
+if [[ -v QUICKLISP_HOME ]]; then
+  quicklisp_install_dir="${QUICKLISP_HOME}"
+fi
+
+echo \
+"
+(load \"${quicklisp_install_dir}/setup.lisp\")
+(ql:quickload :cl-ppcre :silent t)
+(load \"../src/lisp/lcp.lisp\")
+(lcp:process-file \"$lcp_file\" :out-stream t)
+" | sbcl --script | clang-format -style=file
