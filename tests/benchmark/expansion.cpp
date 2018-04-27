@@ -72,7 +72,6 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Expand)
     ->Unit(benchmark::kMillisecond);
 
 int main(int argc, char **argv) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
   ::benchmark::Initialize(&argc, argv);

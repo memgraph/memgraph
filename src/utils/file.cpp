@@ -63,6 +63,22 @@ void Write(const std::string &text, const fs::path &path) {
   stream.close();
 }
 
+bool EnsureDir(const fs::path &dir) {
+  if (fs::exists(dir)) return true;
+  std::error_code error_code;  // Just for exception suppression.
+  return fs::create_directories(dir, error_code);
+}
+
+void CheckDir(const std::string &dir) {
+  if (fs::exists(dir)) {
+    CHECK(fs::is_directory(dir)) << "The directory path '" << dir
+                                 << "' is not a directory!";
+  } else {
+    bool success = EnsureDir(dir);
+    CHECK(success) << "Failed to create directory '" << dir << "'.";
+  }
+}
+
 File::File() : fd_(-1), path_() {}
 
 File::File(int fd, fs::path path) : fd_(fd), path_(std::move(path)) {}

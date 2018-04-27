@@ -9,6 +9,7 @@
 #include "durability/paths.hpp"
 #include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
+#include "utils/file.hpp"
 
 namespace fs = std::experimental::filesystem;
 
@@ -122,7 +123,7 @@ void RemoveOldWals(const fs::path &wal_dir,
 bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
                   const fs::path &durability_dir,
                   const int snapshot_max_retained) {
-  if (!EnsureDir(durability_dir / kSnapshotDir)) return false;
+  if (!utils::EnsureDir(durability_dir / kSnapshotDir)) return false;
   const auto snapshot_file =
       MakeSnapshotPath(durability_dir, db.WorkerId(), dba.transaction_id());
   if (fs::exists(snapshot_file)) return false;

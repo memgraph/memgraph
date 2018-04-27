@@ -9,13 +9,6 @@ namespace durability {
 const std::string kSnapshotDir = "snapshots";
 const std::string kWalDir = "wal";
 
-/// Esures that the given dir either exists or is succsefully created.
-bool EnsureDir(const std::experimental::filesystem::path &dir);
-
-/// Ensures the given durability directory exists and is ready for use. Creates
-/// the directory if it doesn't exist.
-void CheckDurabilityDir(const std::string &durability_dir);
-
 /// Returns the transaction id contained in the file name. If the filename is
 /// not a parseable WAL file name, nullopt is returned. If the filename
 /// represents the "current" WAL file, then the maximum possible transaction ID

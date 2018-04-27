@@ -120,6 +120,7 @@ Requirements on CentOS 7:
   * boost-static (too low version --- compile manually)
   * rpm-build (RPM)
   * python3 (tests, ...)
+  * which (required for rocksdb)
 
 ### Boost 1.62
 

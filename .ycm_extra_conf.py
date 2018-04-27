@@ -32,6 +32,9 @@ BASE_FLAGS = [
     '-I./libs/gflags/include',
     '-I./experimental/distributed/src',
     '-I./libs/postgresql/include',
+    '-I./libs/bzip2',
+    '-I./libs/zlib',
+    '-I./libs/rocksdb/include',
     '-I./build/include'
 ]
 

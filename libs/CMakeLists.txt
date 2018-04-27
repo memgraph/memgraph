@@ -43,7 +43,8 @@ endfunction(import_library)
 function(add_external_project name)
   set(options NO_C_COMPILER)
   set(one_value_kwargs SOURCE_DIR)
-  set(multi_value_kwargs CMAKE_ARGS DEPENDS INSTALL_COMMAND)
+  set(multi_value_kwargs CMAKE_ARGS DEPENDS INSTALL_COMMAND BUILD_COMMAND
+      CONFIGURE_COMMAND)
   cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${ARGN})
   set(source_dir ${CMAKE_CURRENT_SOURCE_DIR}/${name})
   if (KW_SOURCE_DIR)
@@ -54,11 +55,13 @@ function(add_external_project name)
   endif()
   ExternalProject_Add(${name}-proj DEPENDS ${KW_DEPENDS}
                       PREFIX ${source_dir} SOURCE_DIR ${source_dir}
+                      CONFIGURE_COMMAND ${KW_CONFIGURE_COMMAND}
                       CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
                                  -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
                                  -DCMAKE_INSTALL_PREFIX=${source_dir}
                                  ${KW_CMAKE_ARGS}
-                      INSTALL_COMMAND ${KW_INSTALL_COMMAND})
+                      INSTALL_COMMAND ${KW_INSTALL_COMMAND}
+                      BUILD_COMMAND ${KW_BUILD_COMMAND})
 endfunction(add_external_project)
 
 # Calls `add_external_project`, sets NAME_LIBRARY, NAME_INCLUDE_DIR variables
@@ -168,3 +171,33 @@ import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Setup json
 import_header_library(json ${CMAKE_CURRENT_SOURCE_DIR})
+
+# Setup bzip2
+import_external_library(bzip2 STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/bzip2/libbz2.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/bzip2
+    # bzip2's Makefile has -g CFLAG which is redundant
+    CONFIGURE_COMMAND sed -i "s/-Wall -Winline -O2 -g/-Wall -Winline -O2/g" ${CMAKE_CURRENT_SOURCE_DIR}/bzip2/Makefile
+    BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/bzip2
+                       CC=${CMAKE_C_COMPILER}
+                       CXX=${CMAKE_CXX_COMPILER}
+    INSTALL_COMMAND true)
+
+# Setup zlib
+import_external_library(zlib STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/zlib/lib/libz.a
+    ${CMAKE_CURRENT_SOURCE_DIR}/zlib)
+
+# Setup RocksDB
+import_external_library(rocksdb STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/librocksdb.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
+  # RocksDB's cmake on Linux doesn't generate static_lib target.
+  # That's the reason why NoOps (true) are used as configure
+  # and install commands. Build command uses RocksDB's Makefile.
+  CONFIGURE_COMMAND true
+  BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb static_lib
+                     -j${NPROC}
+                     CC=${CMAKE_C_COMPILER}
+                     CXX=${CMAKE_CXX_COMPILER}
+  INSTALL_COMMAND true)

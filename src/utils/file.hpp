@@ -48,6 +48,17 @@ std::vector<std::string> ReadLines(const fs::path &path);
  */
 void Write(const std::string &text, const fs::path &path);
 
+/**
+ * Esures that the given dir either exists or is succsefully created.
+ */
+bool EnsureDir(const std::experimental::filesystem::path &dir);
+
+/**
+ * Ensures the given directory exists and is ready for use. Creates
+ * the directory if it doesn't exist.
+ */
+void CheckDir(const std::string &dir);
+
 // End higher level operations.
 
 // Lower level wrappers around C system calls follow.

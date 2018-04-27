@@ -7,6 +7,7 @@
 #include "durability/paths.hpp"
 #include "durability/version.hpp"
 #include "query/typed_value.hpp"
+#include "utils/file.hpp"
 
 #include "graph_state.hpp"
 
@@ -116,7 +117,7 @@ void WriteToSnapshot(GraphState &state, const std::string &path) {
     const std::experimental::filesystem::path durability_dir =
         path / std::experimental::filesystem::path("worker_" +
                                                    std::to_string(worker_id));
-    if (!durability::EnsureDir(durability_dir / "snapshots")) {
+    if (!utils::EnsureDir(durability_dir / "snapshots")) {
       LOG(ERROR) << "Unable to create durability directory!";
       exit(0);
     }

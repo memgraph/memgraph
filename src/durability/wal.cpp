@@ -2,6 +2,7 @@
 
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "durability/paths.hpp"
+#include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 
 DEFINE_HIDDEN_int32(
@@ -24,7 +25,7 @@ WriteAheadLog::WriteAheadLog(
     bool durability_enabled)
     : deltas_{FLAGS_wal_buffer_size}, wal_file_{worker_id, durability_dir} {
   if (durability_enabled) {
-    CheckDurabilityDir(durability_dir);
+    utils::CheckDir(durability_dir);
     wal_file_.Init();
     scheduler_.Run("WAL",
                    std::chrono::milliseconds(FLAGS_wal_flush_interval_millis),
@@ -47,7 +48,7 @@ WriteAheadLog::WalFile::~WalFile() {
 }
 
 void WriteAheadLog::WalFile::Init() {
-  if (!EnsureDir(wal_dir_)) {
+  if (!utils::EnsureDir(wal_dir_)) {
     LOG(ERROR) << "Can't write to WAL directory: " << wal_dir_;
     current_wal_file_ = std::experimental::filesystem::path();
   } else {

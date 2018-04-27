@@ -147,6 +147,9 @@ include_directories(SYSTEM ${GFLAGS_INCLUDE_DIR})
 include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
 include_directories(SYSTEM ${FMT_INCLUDE_DIR})
 include_directories(SYSTEM ${ANTLR4_INCLUDE_DIR})
+include_directories(SYSTEM ${BZIP2_INCLUDE_DIR})
+include_directories(SYSTEM ${ZLIB_INCLUDE_DIR})
+include_directories(SYSTEM ${ROCKSDB_INCLUDE_DIR})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------

@@ -34,6 +34,7 @@
 #include "transactions/engine_master.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/engine_worker.hpp"
+#include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 
 using namespace storage;
@@ -302,7 +303,7 @@ class Worker : public PrivateBase {
 PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
     : impl_(std::move(impl)) {
   if (impl_->config_.durability_enabled)
-    durability::CheckDurabilityDir(impl_->config_.durability_directory);
+    utils::CheckDir(impl_->config_.durability_directory);
 
   // Durability recovery.
   {

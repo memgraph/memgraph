@@ -11,28 +11,8 @@
 #include "utils/timestamp.hpp"
 
 namespace durability {
+
 namespace fs = std::experimental::filesystem;
-
-bool EnsureDir(const fs::path &dir) {
-  std::error_code error_code;  // Just for exception suppression.
-  auto result = fs::create_directories(dir, error_code);
-  // The result will be false if the directory already exists. This is why we
-  // also check the error_code value.
-  return result || !error_code.value();
-}
-
-void CheckDurabilityDir(const std::string &durability_dir) {
-  namespace fs = std::experimental::filesystem;
-  if (fs::exists(durability_dir)) {
-    CHECK(fs::is_directory(durability_dir)) << "The durability directory path '"
-                                            << durability_dir
-                                            << "' is not a directory!";
-  } else {
-    bool success = EnsureDir(durability_dir);
-    CHECK(success) << "Failed to create durability directory '"
-                   << durability_dir << "'.";
-  }
-}
 
 std::experimental::optional<tx::TransactionId> TransactionIdFromWalFilename(
     const std::string &name) {

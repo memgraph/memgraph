@@ -60,7 +60,6 @@ BENCHMARK(MvccMix)
     ->Range(1 << 14, 1 << 23)  // 1<<14, 1<<15, 1<<16, ...
     ->Unit(benchmark::kMillisecond);
 
-DEFINE_string(hehehe, "bok", "ne");
 int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
