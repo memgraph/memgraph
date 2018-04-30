@@ -196,9 +196,14 @@ import_external_library(rocksdb STATIC
   # That's the reason why NoOps (true) are used as configure
   # and install commands. Build command uses RocksDB's Makefile.
   CONFIGURE_COMMAND true
-  BUILD_COMMAND ROCKSDB_DISABLE_LZ4=1
-                ROCKSDB_DISABLE_ZSTD=1
+  BUILD_COMMAND ROCKSDB_DISABLE_FALLOCATE=1
                 ROCKSDB_DISABLE_SNAPPY=1
+                ROCKSDB_DISABLE_LZ4=1
+                ROCKSDB_DISABLE_ZSTD=1
+                ROCKSDB_DISABLE_NUMA=1
+                ROCKSDB_DISABLE_TBB=1
+                ROCKSDB_DISABLE_JEMALLOC=1
+                ROCKSDB_DISABLE_TCMALLOC=1
                 make -C ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb static_lib
                      -j${NPROC}
                      CC=${CMAKE_C_COMPILER}
