@@ -70,8 +70,11 @@ class ProduceRpcServer {
 
  private:
   std::mutex ongoing_produces_lock_;
-  /// Mapping of (tx id, plan id) to OngoingProduce.
-  std::map<std::pair<tx::TransactionId, int64_t>, OngoingProduce>
+  /// Mapping of (tx id, command id, plan id) to OngoingProduce.
+  /// The command_id should be the command_id at the initialization of a cursor
+  /// that can call ProduceRpcServer.
+  std::map<std::tuple<tx::TransactionId, tx::CommandId, int64_t>,
+           OngoingProduce>
       ongoing_produces_;
   database::GraphDb &db_;
   communication::rpc::Server &produce_rpc_server_;

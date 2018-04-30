@@ -23,14 +23,15 @@ class PullRpcClients {
   PullRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
 
   /// Calls a remote pull asynchroniously. IMPORTANT: take care not to call this
-  /// function for the same (tx_id, worker_id, plan_id) before the previous call
-  /// has ended.
+  /// function for the same (tx_id, worker_id, plan_id, command_id) before the
+  /// previous call has ended.
   ///
   /// @todo: it might be cleaner to split Pull into {InitRemoteCursor,
   /// Pull, RemoteAccumulate}, but that's a lot of refactoring and more
   /// RPC calls.
   utils::Future<PullData> Pull(database::GraphDbAccessor &dba, int worker_id,
-                               int64_t plan_id, const Parameters &params,
+                               int64_t plan_id, tx::CommandId command_id,
+                               const Parameters &params,
                                const std::vector<query::Symbol> &symbols,
                                bool accumulate,
                                int batch_size = kDefaultBatchSize);

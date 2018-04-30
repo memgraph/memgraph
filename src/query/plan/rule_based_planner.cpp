@@ -577,12 +577,12 @@ std::unique_ptr<LogicalOperator> GenReturn(
     Return &ret, std::unique_ptr<LogicalOperator> input_op,
     SymbolTable &symbol_table, bool is_write,
     const std::unordered_set<Symbol> &bound_symbols, AstTreeStorage &storage) {
-  // Similar to WITH clause, but we want to accumulate and advance command when
-  // the query writes to the database. This way we handle the case when we want
-  // to return expressions with the latest updated results. For example,
-  // `MATCH (n) -- () SET n.prop = n.prop + 1 RETURN n.prop`. If we match same
-  // `n` multiple 'k' times, we want to return 'k' results where the property
-  // value is the same, final result of 'k' increments.
+  // Similar to WITH clause, but we want to accumulate when the query writes to
+  // the database. This way we handle the case when we want to return
+  // expressions with the latest updated results. For example, `MATCH (n) -- ()
+  // SET n.prop = n.prop + 1 RETURN n.prop`. If we match same `n` multiple 'k'
+  // times, we want to return 'k' results where the property value is the same,
+  // final result of 'k' increments.
   bool accumulate = is_write;
   bool advance_command = false;
   ReturnBodyContext body(ret.body_, symbol_table, bound_symbols, storage);

@@ -9,6 +9,8 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
+#include "database/graph_db.hpp"
+#include "distributed/pull_rpc_clients.hpp"
 #include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
@@ -120,6 +122,13 @@ State HandleRun(TSession &session, State state, Marker marker) {
         return State::Result;
       }
       session.db_accessor_->AdvanceCommand();
+      if (session.db_.type() == database::GraphDb::Type::DISTRIBUTED_MASTER) {
+        auto tx_id = session.db_accessor_->transaction_id();
+        auto futures =
+            session.db_.pull_clients().NotifyAllTransactionCommandAdvanced(
+                tx_id);
+        for (auto &future : futures) future.wait();
+      }
     }
 
     auto &params_map = params.ValueMap();

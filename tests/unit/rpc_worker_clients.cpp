@@ -1,3 +1,5 @@
+#include <mutex>
+
 #include "boost/archive/binary_iarchive.hpp"
 #include "boost/archive/binary_oarchive.hpp"
 #include "boost/serialization/export.hpp"
@@ -50,6 +52,7 @@ class RpcWorkerClientsTest : public ::testing::Test {
 
       workers_server_.back()->Register<distributed::IncrementCounterRpc>(
           [this, i](const distributed::IncrementCounterReq &) {
+            std::unique_lock<std::mutex> lock(mutex_);
             workers_cnt_[i]++;
             return std::make_unique<distributed::IncrementCounterRes>();
           });
@@ -76,6 +79,7 @@ class RpcWorkerClientsTest : public ::testing::Test {
   std::vector<std::unique_ptr<distributed::WorkerCoordination>> workers_coord_;
   std::vector<std::unique_ptr<distributed::ClusterDiscoveryWorker>>
       cluster_discovery_;
+  std::mutex mutex_;
   std::unordered_map<int, int> workers_cnt_;
 
   communication::rpc::Server master_server_{kLocalHost};

@@ -6,6 +6,7 @@
 
 #include "database/graph_db.hpp"
 #include "distributed/plan_consumer.hpp"
+#include "distributed/pull_rpc_clients.hpp"
 #include "distributed_common.hpp"
 #include "query/interpreter.hpp"
 #include "query_common.hpp"
@@ -31,13 +32,18 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
     DistributedGraphDbTest::TearDown();
   }
 
-  auto Run(const std::string &query) {
+  auto RunWithDba(const std::string &query, GraphDbAccessor &dba) {
     std::map<std::string, query::TypedValue> params = {};
-    GraphDbAccessor dba(master());
     ResultStreamFaker result;
     interpreter_.value()(query, dba, params, false).PullAll(result);
-    dba.Commit();
     return result.GetResults();
+  }
+
+  auto Run(const std::string &query) {
+    GraphDbAccessor dba(master());
+    auto results = RunWithDba(query, dba);
+    dba.Commit();
+    return results;
   }
 
  private:
@@ -268,6 +274,36 @@ TEST_F(DistributedInterpretationTest, ConcurrentPlanExpiration) {
   for (size_t i = 0; i < std::thread::hardware_concurrency(); ++i)
     counters.emplace_back(count_vertices);
   for (auto &t : counters) t.join();
+}
+
+TEST_F(DistributedInterpretationTest, OngoingProduceKeyTest) {
+  int worker_count = 10;
+  for (int i = 0; i < worker_count; ++i) {
+    InsertVertex(master());
+    InsertVertex(worker(1));
+    InsertVertex(worker(2));
+  }
+
+  GraphDbAccessor dba(master());
+  auto count1 = RunWithDba("MATCH (n) RETURN count(n)", dba);
+  dba.AdvanceCommand();
+  auto count2 = RunWithDba("MATCH (n) RETURN count(n)", dba);
+
+  ASSERT_EQ(count1[0][0].ValueInt(), 3 * worker_count);
+  ASSERT_EQ(count2[0][0].ValueInt(), 3 * worker_count);
+}
+
+TEST_F(DistributedInterpretationTest, AdvanceCommandOnWorkers) {
+  GraphDbAccessor dba(master());
+  RunWithDba("UNWIND RANGE(1, 10) as x CREATE (:A {id: x})", dba);
+  dba.AdvanceCommand();
+  // Advance commands on workers also.
+  auto futures = dba.db().pull_clients().NotifyAllTransactionCommandAdvanced(
+      dba.transaction_id());
+  for (auto &future : futures) future.wait();
+
+  auto count = RunWithDba("MATCH (n) RETURN count(n)", dba);
+  ASSERT_EQ(count[0][0].ValueInt(), 10);
 }
 
 int main(int argc, char **argv) {

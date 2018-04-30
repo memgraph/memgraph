@@ -38,11 +38,13 @@ enum class PullState {
 struct PullReq : public communication::rpc::Message {
   PullReq() {}
   PullReq(tx::TransactionId tx_id, tx::Snapshot tx_snapshot, int64_t plan_id,
-          const Parameters &params, std::vector<query::Symbol> symbols,
-          bool accumulate, int batch_size, bool send_old, bool send_new)
+          tx::CommandId command_id, const Parameters &params,
+          std::vector<query::Symbol> symbols, bool accumulate, int batch_size,
+          bool send_old, bool send_new)
       : tx_id(tx_id),
         tx_snapshot(tx_snapshot),
         plan_id(plan_id),
+        command_id(command_id),
         params(params),
         symbols(symbols),
         accumulate(accumulate),
@@ -53,6 +55,7 @@ struct PullReq : public communication::rpc::Message {
   tx::TransactionId tx_id;
   tx::Snapshot tx_snapshot;
   int64_t plan_id;
+  tx::CommandId command_id;
   Parameters params;
   std::vector<query::Symbol> symbols;
   bool accumulate;
@@ -70,6 +73,7 @@ struct PullReq : public communication::rpc::Message {
     ar << tx_id;
     ar << tx_snapshot;
     ar << plan_id;
+    ar << command_id;
     ar << params.size();
     for (auto &kv : params) {
       ar << kv.first;
@@ -89,6 +93,7 @@ struct PullReq : public communication::rpc::Message {
     ar >> tx_id;
     ar >> tx_snapshot;
     ar >> plan_id;
+    ar >> command_id;
     size_t params_size;
     ar >> params_size;
     for (size_t i = 0; i < params_size; ++i) {

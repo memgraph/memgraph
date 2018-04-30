@@ -9,14 +9,15 @@ namespace distributed {
 
 utils::Future<PullData> PullRpcClients::Pull(
     database::GraphDbAccessor &dba, int worker_id, int64_t plan_id,
-    const Parameters &params, const std::vector<query::Symbol> &symbols,
-    bool accumulate, int batch_size) {
+    tx::CommandId command_id, const Parameters &params,
+    const std::vector<query::Symbol> &symbols, bool accumulate,
+    int batch_size) {
   return clients_.ExecuteOnWorker<PullData>(
-      worker_id, [&dba, plan_id, params, symbols, accumulate,
+      worker_id, [&dba, plan_id, command_id, params, symbols, accumulate,
                   batch_size](ClientPool &client_pool) {
         auto result = client_pool.Call<PullRpc>(
-            dba.transaction_id(), dba.transaction().snapshot(), plan_id, params,
-            symbols, accumulate, batch_size, true, true);
+            dba.transaction_id(), dba.transaction().snapshot(), plan_id,
+            command_id, params, symbols, accumulate, batch_size, true, true);
 
         auto handle_vertex = [&dba](auto &v) {
           dba.db()
@@ -61,8 +62,7 @@ utils::Future<PullData> PullRpcClients::Pull(
 }
 
 std::vector<utils::Future<void>>
-PullRpcClients::NotifyAllTransactionCommandAdvanced(
-    tx::TransactionId tx_id) {
+PullRpcClients::NotifyAllTransactionCommandAdvanced(tx::TransactionId tx_id) {
   return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {
     auto res = client.template Call<TransactionCommandAdvancedRpc>(tx_id);
     CHECK(res) << "TransactionCommandAdvanceRpc failed";

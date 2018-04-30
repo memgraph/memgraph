@@ -122,9 +122,7 @@ void WorkerEngine::LocalForEachActiveTransaction(
   for (auto pair : active_.access()) f(*pair.second);
 }
 
-TransactionId WorkerEngine::LocalOldestActive() const {
-  return oldest_active_;
-}
+TransactionId WorkerEngine::LocalOldestActive() const { return oldest_active_; }
 
 Transaction *WorkerEngine::RunningTransaction(TransactionId tx_id) {
   auto accessor = active_.access();
@@ -151,8 +149,7 @@ Transaction *WorkerEngine::RunningTransaction(TransactionId tx_id,
   return insertion.first->second;
 }
 
-void WorkerEngine::ClearTransactionalCache(
-    TransactionId oldest_active) const {
+void WorkerEngine::ClearTransactionalCache(TransactionId oldest_active) const {
   auto access = active_.access();
   for (auto kv : access) {
     if (kv.first < oldest_active) {

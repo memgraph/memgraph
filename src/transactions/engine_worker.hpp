@@ -68,7 +68,6 @@ class WorkerEngine : public Engine {
 
   // Updates the oldest active transaction to the one from the snapshot. If the
   // snapshot is empty, it's set to the given alternative.
-  void UpdateOldestActive(const Snapshot &snapshot,
-                          TransactionId alternative);
+  void UpdateOldestActive(const Snapshot &snapshot, TransactionId alternative);
 };
 }  // namespace tx

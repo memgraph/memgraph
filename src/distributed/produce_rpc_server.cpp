@@ -112,7 +112,7 @@ void ProduceRpcServer::FinishAndClearOngoingProducePlans(
     tx::TransactionId tx_id) {
   std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
   for (auto it = ongoing_produces_.begin(); it != ongoing_produces_.end();) {
-    if (it->first.first == tx_id) {
+    if (std::get<0>(it->first) == tx_id) {
       it = ongoing_produces_.erase(it);
     } else {
       ++it;
@@ -122,9 +122,9 @@ void ProduceRpcServer::FinishAndClearOngoingProducePlans(
 
 ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
     const PullReq &req) {
-  auto key_pair = std::make_pair(req.tx_id, req.plan_id);
+  auto key_tuple = std::make_tuple(req.tx_id, req.command_id, req.plan_id);
   std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
-  auto found = ongoing_produces_.find(key_pair);
+  auto found = ongoing_produces_.find(key_tuple);
   if (found != ongoing_produces_.end()) {
     return found->second;
   }
@@ -135,7 +135,7 @@ ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
   }
   auto &plan_pack = plan_consumer_.PlanForId(req.plan_id);
   return ongoing_produces_
-      .emplace(std::piecewise_construct, std::forward_as_tuple(key_pair),
+      .emplace(std::piecewise_construct, std::forward_as_tuple(key_tuple),
                std::forward_as_tuple(db_, req.tx_id, plan_pack.plan,
                                      plan_pack.symbol_table, req.params,
                                      req.symbols))

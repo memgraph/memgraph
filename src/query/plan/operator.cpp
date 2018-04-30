@@ -412,32 +412,32 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, std::experimental::nullopt,
                       std::experimental::nullopt, false))> {
-    ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db, graph_view_);
-    auto convert = [&evaluator](const auto &bound)
-        -> std::experimental::optional<utils::Bound<PropertyValue>> {
-      if (!bound) return std::experimental::nullopt;
-      auto value = bound->value()->Accept(evaluator);
-      try {
+        ExpressionEvaluator evaluator(frame, context.parameters_,
+                                      context.symbol_table_, db, graph_view_);
+        auto convert = [&evaluator](const auto &bound)
+            -> std::experimental::optional<utils::Bound<PropertyValue>> {
+              if (!bound) return std::experimental::nullopt;
+              auto value = bound->value()->Accept(evaluator);
+              try {
+                return std::experimental::make_optional(
+                    utils::Bound<PropertyValue>(value, bound->type()));
+              } catch (const TypedValueException &) {
+                throw QueryRuntimeException(
+                    "'{}' cannot be used as a property value.", value.type());
+              }
+            };
+        auto maybe_lower = convert(lower_bound());
+        auto maybe_upper = convert(upper_bound());
+        // If any bound is null, then the comparison would result in nulls. This
+        // is treated as not satisfying the filter, so return no vertices.
+        if (maybe_lower && maybe_lower->value().IsNull())
+          return std::experimental::nullopt;
+        if (maybe_upper && maybe_upper->value().IsNull())
+          return std::experimental::nullopt;
         return std::experimental::make_optional(
-            utils::Bound<PropertyValue>(value, bound->type()));
-      } catch (const TypedValueException &) {
-        throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                    value.type());
-      }
-    };
-    auto maybe_lower = convert(lower_bound());
-    auto maybe_upper = convert(upper_bound());
-    // If any bound is null, then the comparison would result in nulls. This
-    // is treated as not satisfying the filter, so return no vertices.
-    if (maybe_lower && maybe_lower->value().IsNull())
-      return std::experimental::nullopt;
-    if (maybe_upper && maybe_upper->value().IsNull())
-      return std::experimental::nullopt;
-    return std::experimental::make_optional(
-        db.Vertices(label_, property_, maybe_lower, maybe_upper,
-                    graph_view_ == GraphView::NEW));
-  };
+            db.Vertices(label_, property_, maybe_lower, maybe_upper,
+                        graph_view_ == GraphView::NEW));
+      };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -460,18 +460,18 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
   auto vertices = [this, &db](Frame &frame, Context &context)
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, TypedValue::Null, false))> {
-    ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db, graph_view_);
-    auto value = expression_->Accept(evaluator);
-    if (value.IsNull()) return std::experimental::nullopt;
-    try {
-      return std::experimental::make_optional(
-          db.Vertices(label_, property_, value, graph_view_ == GraphView::NEW));
-    } catch (const TypedValueException &) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                  value.type());
-    }
-  };
+        ExpressionEvaluator evaluator(frame, context.parameters_,
+                                      context.symbol_table_, db, graph_view_);
+        auto value = expression_->Accept(evaluator);
+        if (value.IsNull()) return std::experimental::nullopt;
+        try {
+          return std::experimental::make_optional(db.Vertices(
+              label_, property_, value, graph_view_ == GraphView::NEW));
+        } catch (const TypedValueException &) {
+          throw QueryRuntimeException(
+              "'{}' cannot be used as a property value.", value.type());
+        }
+      };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -1367,8 +1367,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](
-                           EdgeAccessor edge, VertexAccessor vertex,
-                           double weight, int depth) {
+        EdgeAccessor edge, VertexAccessor vertex, double weight, int depth) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -3193,14 +3192,17 @@ std::vector<Symbol> PullRemoteOrderBy::ModifiedSymbols(
 
 namespace {
 
-/** Helper class that wraps remote pulling for cursors that handle results
- * from distributed workers.
+/** Helper class that wraps remote pulling for cursors that handle results from
+ * distributed workers.
+ *
+ * The command_id should be the command_id at the initialization of a cursor.
  */
 class RemotePuller {
  public:
   RemotePuller(database::GraphDbAccessor &db,
-               const std::vector<Symbol> &symbols, int64_t plan_id)
-      : db_(db), symbols_(symbols), plan_id_(plan_id) {
+               const std::vector<Symbol> &symbols, int64_t plan_id,
+               tx::CommandId command_id)
+      : db_(db), symbols_(symbols), plan_id_(plan_id), command_id_(command_id) {
     worker_ids_ = db_.db().pull_clients().GetWorkerIds();
     // Remove master from the worker ids list.
     worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
@@ -3209,7 +3211,7 @@ class RemotePuller {
   void Initialize(Context &context) {
     if (!remote_pulls_initialized_) {
       VLOG(10) << "[RemotePuller] [" << context.db_accessor_.transaction_id()
-               << "] [" << plan_id_ << "] initialized";
+               << "] [" << plan_id_ << "] [" << command_id_ << "] initialized";
       for (auto &worker_id : worker_ids_) {
         UpdatePullForWorker(worker_id, context);
       }
@@ -3223,7 +3225,8 @@ class RemotePuller {
 
     auto move_frames = [this, &context](int worker_id, auto remote_results) {
       VLOG(10) << "[RemotePuller] [" << context.db_accessor_.transaction_id()
-               << "] [" << plan_id_ << "] received results from " << worker_id;
+               << "] [" << plan_id_ << "] [" << command_id_
+               << "] received results from " << worker_id;
       remote_results_[worker_id] = std::move(remote_results.frames);
       // Since we return and remove results from the back of the vector,
       // reverse the results so the first to return is on the end of the
@@ -3246,14 +3249,16 @@ class RemotePuller {
         case distributed::PullState::CURSOR_EXHAUSTED:
           VLOG(10) << "[RemotePuller] ["
                    << context.db_accessor_.transaction_id() << "] [" << plan_id_
-                   << "] cursor exhausted from " << worker_id;
+                   << "] [" << command_id_ << "] cursor exhausted from "
+                   << worker_id;
           move_frames(worker_id, remote_results);
           remote_pulls_.erase(found_it);
           break;
         case distributed::PullState::CURSOR_IN_PROGRESS:
           VLOG(10) << "[RemotePuller] ["
                    << context.db_accessor_.transaction_id() << "] [" << plan_id_
-                   << "] cursor in progress from " << worker_id;
+                   << "] [" << command_id_ << "] cursor in progress from "
+                   << worker_id;
           move_frames(worker_id, remote_results);
           UpdatePullForWorker(worker_id, context);
           break;
@@ -3316,6 +3321,7 @@ class RemotePuller {
   database::GraphDbAccessor &db_;
   std::vector<Symbol> symbols_;
   int64_t plan_id_;
+  tx::CommandId command_id_;
   std::unordered_map<int, utils::Future<distributed::PullData>> remote_pulls_;
   std::unordered_map<int, std::vector<std::vector<query::TypedValue>>>
       remote_results_;
@@ -3323,8 +3329,9 @@ class RemotePuller {
   bool remote_pulls_initialized_ = false;
 
   void UpdatePullForWorker(int worker_id, Context &context) {
-    remote_pulls_[worker_id] = db_.db().pull_clients().Pull(
-        db_, worker_id, plan_id_, context.parameters_, symbols_, false);
+    remote_pulls_[worker_id] =
+        db_.db().pull_clients().Pull(db_, worker_id, plan_id_, command_id_,
+                                     context.parameters_, symbols_, false);
   }
 };
 
@@ -3333,7 +3340,9 @@ class PullRemoteCursor : public Cursor {
   PullRemoteCursor(const PullRemote &self, database::GraphDbAccessor &db)
       : self_(self),
         input_cursor_(self.input() ? self.input()->MakeCursor(db) : nullptr),
-        remote_puller_(RemotePuller(db, self.symbols(), self.plan_id())) {}
+        command_id_(db.transaction().cid()),
+        remote_puller_(
+            RemotePuller(db, self.symbols(), self.plan_id(), command_id_)) {}
 
   bool Pull(Frame &frame, Context &context) override {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
@@ -3369,13 +3378,15 @@ class PullRemoteCursor : public Cursor {
         if (input_cursor_ && input_cursor_->Pull(frame, context)) {
           VLOG(10) << "[PullRemoteCursor] ["
                    << context.db_accessor_.transaction_id() << "] ["
-                   << self_.plan_id() << "] producing local results ";
+                   << self_.plan_id() << "] [" << command_id_
+                   << "] producing local results ";
           return true;
         }
 
         VLOG(10) << "[PullRemoteCursor] ["
                  << context.db_accessor_.transaction_id() << "] ["
-                 << self_.plan_id() << "] no results available, sleeping ";
+                 << self_.plan_id() << "] [" << command_id_
+                 << "] no results available, sleeping ";
         // If there aren't any local/remote results available, sleep.
         std::this_thread::sleep_for(
             std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
@@ -3387,7 +3398,8 @@ class PullRemoteCursor : public Cursor {
       if (input_cursor_ && input_cursor_->Pull(frame, context)) {
         VLOG(10) << "[PullRemoteCursor] ["
                  << context.db_accessor_.transaction_id() << "] ["
-                 << self_.plan_id() << "] producing local results ";
+                 << self_.plan_id() << "] [" << command_id_
+                 << "] producing local results ";
         return true;
       }
       return false;
@@ -3397,8 +3409,8 @@ class PullRemoteCursor : public Cursor {
       int worker_id = remote_puller_.GetWorkerId(last_pulled_worker_id_index_);
       VLOG(10) << "[PullRemoteCursor] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] producing results from worker "
-               << worker_id;
+               << self_.plan_id() << "] [" << command_id_
+               << "] producing results from worker " << worker_id;
       auto result = remote_puller_.PopResultFromWorker(worker_id);
       for (size_t i = 0; i < self_.symbols().size(); ++i) {
         frame[self_.symbols()[i]] = std::move(result[i]);
@@ -3414,6 +3426,7 @@ class PullRemoteCursor : public Cursor {
  private:
   const PullRemote &self_;
   const std::unique_ptr<Cursor> input_cursor_;
+  tx::CommandId command_id_;
   RemotePuller remote_puller_;
   int last_pulled_worker_id_index_ = 0;
 };
@@ -3424,8 +3437,8 @@ class SynchronizeCursor : public Cursor {
       : self_(self),
         input_cursor_(self.input()->MakeCursor(db)),
         pull_remote_cursor_(
-            self.pull_remote() ? self.pull_remote()->MakeCursor(db) : nullptr) {
-  }
+            self.pull_remote() ? self.pull_remote()->MakeCursor(db) : nullptr),
+        command_id_(db.transaction().cid()) {}
 
   bool Pull(Frame &frame, Context &context) override {
     if (!initial_pull_done_) {
@@ -3469,6 +3482,7 @@ class SynchronizeCursor : public Cursor {
   const std::unique_ptr<Cursor> pull_remote_cursor_;
   bool initial_pull_done_{false};
   std::vector<std::vector<TypedValue>> local_frames_;
+  tx::CommandId command_id_;
 
   void InitialPull(Frame &frame, Context &context) {
     VLOG(10) << "[SynchronizeCursor] [" << context.db_accessor_.transaction_id()
@@ -3482,7 +3496,8 @@ class SynchronizeCursor : public Cursor {
         if (worker_id == db.WorkerId()) continue;
         worker_accumulations.emplace_back(db.pull_clients().Pull(
             context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
-            context.parameters_, self_.pull_remote()->symbols(), true, 0));
+            command_id_, context.parameters_, self_.pull_remote()->symbols(),
+            true, 0));
       }
     }
 
@@ -3653,7 +3668,9 @@ class PullRemoteOrderByCursor : public Cursor {
                           database::GraphDbAccessor &db)
       : self_(self),
         input_(self.input()->MakeCursor(db)),
-        remote_puller_(RemotePuller(db, self.symbols(), self.plan_id())) {}
+        command_id_(db.transaction().cid()),
+        remote_puller_(
+            RemotePuller(db, self.symbols(), self.plan_id(), command_id_)) {}
 
   bool Pull(Frame &frame, Context &context) {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
@@ -3680,7 +3697,7 @@ class PullRemoteOrderByCursor : public Cursor {
     if (!merge_initialized_) {
       VLOG(10) << "[PullRemoteOrderBy] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] initialize";
+               << self_.plan_id() << "] [" << command_id_ << "] initialize";
       remote_puller_.Initialize(context);
       missing_results_from_ = remote_puller_.Workers();
       missing_master_result_ = true;
@@ -3717,7 +3734,8 @@ class PullRemoteOrderByCursor : public Cursor {
       if (!has_all_result) {
         VLOG(10) << "[PullRemoteOrderByCursor] ["
                  << context.db_accessor_.transaction_id() << "] ["
-                 << self_.plan_id() << "] missing results, sleep";
+                 << self_.plan_id() << "] [" << command_id_
+                 << "] missing results, sleep";
         // If we don't have results from all workers, sleep before continuing.
         std::this_thread::sleep_for(
             std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
@@ -3749,13 +3767,15 @@ class PullRemoteOrderByCursor : public Cursor {
     if (result_it->worker_id) {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] producing results from worker "
+               << self_.plan_id() << "] [" << command_id_
+               << "] producing results from worker "
                << result_it->worker_id.value();
       missing_results_from_.push_back(result_it->worker_id.value());
     } else {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] producing local results";
+               << self_.plan_id() << "] [" << command_id_
+               << "] producing local results";
       missing_master_result_ = true;
     }
 
@@ -3776,6 +3796,7 @@ class PullRemoteOrderByCursor : public Cursor {
 
   const PullRemoteOrderBy &self_;
   std::unique_ptr<Cursor> input_;
+  tx::CommandId command_id_;
   RemotePuller remote_puller_;
   std::vector<MergeResultItem> merge_;
   std::vector<int> missing_results_from_;
