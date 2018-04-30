@@ -115,8 +115,8 @@ clone git://deps.memgraph.io/ltalloc.git ltalloc $ltalloc_tag
 bzip2_tag="0405487e2b1de738e7f1c8afb50d19cf44e8d580"  # v1.0.6 (May 26, 2011)
 clone git://deps.memgraph.io/bzip2.git bzip2 $bzip2_tag
 
-zlib_tag="v1.2.11"
+zlib_tag="cacf7f1d4e3d44d871b605da3b647f07d718623f" # v1.2.11.
 clone git://deps.memgraph.io/zlib.git zlib $zlib_tag
 
-rocksdb_tag="v5.11.3" # Mar 12, 2018
+rocksdb_tag="dbd8fa09b823826dd2a30bc119dad7a6fa9a4c6d" # v5.11.3 Mar 12, 2018
 clone git://deps.memgraph.io/rocksdb.git rocksdb $rocksdb_tag
