@@ -1,6 +1,5 @@
 #include "storage/kvstore.hpp"
 
-#include "durability/paths.hpp"
 #include "utils/file.hpp"
 
 namespace storage {

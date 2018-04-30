@@ -2,6 +2,7 @@
 
 #include <experimental/filesystem>
 #include <experimental/optional>
+#include <memory>
 #include <string>
 
 #include <rocksdb/db.h>
@@ -10,8 +11,6 @@
 #include "utils/exceptions.hpp"
 
 namespace storage {
-
-namespace fs = std::experimental::filesystem;
 
 class KVStoreError : public utils::BasicException {
  public:
@@ -30,7 +29,7 @@ class KVStore final {
    * NOTE: Don't instantiate more instances of a KVStore with the same
    *       storage directory because that will lead to undefined behaviour.
    */
-  explicit KVStore(fs::path storage);
+  explicit KVStore(std::experimental::filesystem::path storage);
 
   /**
    * Store value under the given key.
@@ -66,7 +65,7 @@ class KVStore final {
   bool Delete(const std::string &key);
 
  private:
-  fs::path storage_;
+  std::experimental::filesystem::path storage_;
   std::unique_ptr<rocksdb::DB> db_;
   rocksdb::Options options_;
 };

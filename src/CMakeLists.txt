@@ -98,8 +98,9 @@ target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
 add_dependencies(memgraph_lib generate_opencypher_parser)
 
 # STATIC library used to store key-value pairs
-add_library(kvstore_lib STATIC storage/kvstore.cpp)
-target_link_libraries(kvstore_lib stdc++fs rocksdb bzip2 zlib)
+# TODO: Create a utils lib to link with, and remove utils/file.cpp.
+add_library(kvstore_lib STATIC storage/kvstore.cpp utils/file.cpp)
+target_link_libraries(kvstore_lib stdc++fs fmt glog rocksdb bzip2 zlib)
 
 # Generate a version.hpp file
 set(VERSION_STRING ${memgraph_VERSION})
