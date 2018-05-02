@@ -17,21 +17,21 @@
     mkdir build_debug
     cd build_debug
     cmake ..
-    TIMEOUT=1000 make -j$THREADS
+    TIMEOUT=1200 make -j$THREADS
 
     # Build coverage binaries.
     cd ..
     mkdir build_coverage
     cd build_coverage
     cmake -DTEST_COVERAGE=ON ..
-    TIMEOUT=1000 make -j$THREADS memgraph__unit
+    TIMEOUT=1200 make -j$THREADS memgraph__unit
 
     # Build release binaries.
     cd ..
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=release ..
-    TIMEOUT=1000 make -j$THREADS memgraph tools memgraph__macro_benchmark memgraph__stress memgraph__manual__card_fraud_generate_snapshot
+    TIMEOUT=1200 make -j$THREADS memgraph tools memgraph__macro_benchmark memgraph__stress memgraph__manual__card_fraud_generate_snapshot
 
     # Generate distributed card fraud dataset.
     cd ../tests/distributed/card_fraud
@@ -47,7 +47,7 @@
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=release ..
-    TIMEOUT=1000 make -j$THREADS memgraph memgraph__macro_benchmark
+    TIMEOUT=1200 make -j$THREADS memgraph memgraph__macro_benchmark
 
 
 # release build is the default one
@@ -63,21 +63,21 @@
     mkdir build_debug
     cd build_debug
     cmake ..
-    TIMEOUT=1000 make -j$THREADS
+    TIMEOUT=1200 make -j$THREADS
 
     # Build coverage binaries.
     cd ..
     mkdir build_coverage
     cd build_coverage
     cmake -DTEST_COVERAGE=ON ..
-    TIMEOUT=1000 make -j$THREADS memgraph__unit
+    TIMEOUT=1200 make -j$THREADS memgraph__unit
 
     # Build release binaries.
     cd ..
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=Release -DUSE_READLINE=OFF ..
-    TIMEOUT=1000 make -j$THREADS
+    TIMEOUT=1200 make -j$THREADS
 
     # Create Debian package.
     mkdir output

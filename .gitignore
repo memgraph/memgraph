@@ -33,3 +33,7 @@ TAGS
 # Lisp compiled object code
 *.fas
 *.fasl
+
+# Cap'n Proto geenrated files
+*.capnp.c++
+*.capnp.h

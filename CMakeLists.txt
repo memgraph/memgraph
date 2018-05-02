@@ -150,6 +150,7 @@ include_directories(SYSTEM ${ANTLR4_INCLUDE_DIR})
 include_directories(SYSTEM ${BZIP2_INCLUDE_DIR})
 include_directories(SYSTEM ${ZLIB_INCLUDE_DIR})
 include_directories(SYSTEM ${ROCKSDB_INCLUDE_DIR})
+include_directories(SYSTEM ${CAPNP_INCLUDE_DIR})
 # -----------------------------------------------------------------------------
 
 # openCypher parser -----------------------------------------------------------

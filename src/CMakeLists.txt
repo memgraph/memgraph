@@ -95,13 +95,33 @@ function(add_lcp lcp_file)
 endfunction(add_lcp)
 
 add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
+
+# Use this function to add each capnp file to generation. This way each file is
+# standalone and we avoid recompiling everything.
+# NOTE: memgraph_src_files and generated_capnp_files are globally updated.
+function(add_capnp capnp_src_file)
+  set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.c++)
+  set(h_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.h)
+  add_custom_command(OUTPUT ${cpp_file} ${h_file}
+    COMMAND ${CAPNP_EXE} compile -o${CAPNP_CXX_EXE} ${capnp_src_file}
+    DEPENDS ${capnp_src_file} capnproto-proj
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  # Update *global* generated_capnp_files
+  set(generated_capnp_files ${generated_capnp_files} ${cpp_file} ${h_file} PARENT_SCOPE)
+  # Update *global* memgraph_src_files
+  set(memgraph_src_files ${memgraph_src_files} ${cpp_file} PARENT_SCOPE)
+endfunction(add_capnp)
+
+add_capnp(query/frontend/semantic/symbol.capnp)
+
+add_custom_target(generate_capnp DEPENDS ${generated_capnp_files})
 # -----------------------------------------------------------------------------
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags
+    antlr_opencypher_parser_lib dl glog gflags capnp kj
     ${Boost_IOSTREAMS_LIBRARY_RELEASE}
     ${Boost_SERIALIZATION_LIBRARY_RELEASE})
 
@@ -120,6 +140,7 @@ add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
 add_dependencies(memgraph_lib generate_opencypher_parser)
 add_dependencies(memgraph_lib generate_lcp)
+add_dependencies(memgraph_lib generate_capnp)
 
 # STATIC library used to store key-value pairs
 # TODO: Create a utils lib to link with, and remove utils/file.cpp.
