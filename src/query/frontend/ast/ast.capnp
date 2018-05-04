@@ -3,7 +3,7 @@
 using Cxx = import "/capnp/c++.capnp";
 $Cxx.namespace("query::capnp");
 
-using Utils = import "/utils/typed_value.capnp";
+using Utils = import "/utils/serialization.capnp";
 using Storage = import "/storage/types.capnp";
 using Symbols = import "/query/frontend/semantic/symbol.capnp";
 

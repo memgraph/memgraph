@@ -8,7 +8,7 @@
 #include "storage/vertex.hpp"
 #include "utils/exceptions.hpp"
 
-#include "typed_value.capnp.h"
+#include "utils/serialization.capnp.h"
 
 namespace boost::serialization {
 
@@ -63,7 +63,7 @@ void load(TArchive &ar, std::experimental::optional<T> &opt, unsigned int) {
 namespace utils {
 
 inline void SaveCapnpTypedValue(const query::TypedValue &value,
-                                query::capnp::TypedValue::Builder &builder) {
+                                capnp::TypedValue::Builder &builder) {
   switch (value.type()) {
     case query::TypedValue::Type::Null:
       builder.setNullType();
@@ -90,37 +90,174 @@ inline void SaveCapnpTypedValue(const query::TypedValue &value,
 }
 
 inline void LoadCapnpTypedValue(query::TypedValue &value,
-                                query::capnp::TypedValue::Reader &reader) {
+                                capnp::TypedValue::Reader &reader) {
   switch (reader.which()) {
-    case query::capnp::TypedValue::BOOL:
+    case capnp::TypedValue::BOOL:
       value = reader.getBool();
       return;
-    case query::capnp::TypedValue::DOUBLE:
+    case capnp::TypedValue::DOUBLE:
       value = reader.getDouble();
       return;
-    // case query::capnp::TypedValue::EDGE:
+    // case capnp::TypedValue::EDGE:
     //   // TODO
     //   return;
-    case query::capnp::TypedValue::INTEGER:
+    case capnp::TypedValue::INTEGER:
       value = reader.getInteger();
       return;
-    case query::capnp::TypedValue::LIST:
+    case capnp::TypedValue::LIST:
       throw utils::NotYetImplemented("Capnp deserialize typed value");
-    case query::capnp::TypedValue::MAP:
+    case capnp::TypedValue::MAP:
       throw utils::NotYetImplemented("Capnp deserialize typed value");
-    case query::capnp::TypedValue::NULL_TYPE:
+    case capnp::TypedValue::NULL_TYPE:
       value = query::TypedValue::Null;
       return;
     // case query::capnp::TypedValue::PATH:
     //   // TODO
     //   return;
-    case query::capnp::TypedValue::STRING:
+    case capnp::TypedValue::STRING:
       value = reader.getString().cStr();
       return;
       // case query::capnp::TypedValue::VERTEX:
       //   // TODO
       //   return;
   }
+}
+
+template <typename T>
+inline void SaveVector(const std::vector<T> &data,
+                       typename ::capnp::List<T>::Builder *list_builder) {
+  for (size_t i = 0; i < data.size(); ++i) {
+    list_builder->set(i, data[i]);
+  }
+}
+
+template <typename T>
+inline void LoadVector(std::vector<T> *data,
+                       const typename ::capnp::List<T>::Reader &list_reader) {
+  for (const auto e : list_reader) {
+    data->emplace_back(e);
+  }
+}
+
+template <typename TCapnp, typename T>
+inline void SaveVector(
+    const std::vector<T> &data,
+    typename ::capnp::List<TCapnp>::Builder *list_builder,
+    const std::function<void(typename TCapnp::Builder *, const T &)> &save) {
+  for (size_t i = 0; i < data.size(); ++i) {
+    auto elem_builder = (*list_builder)[i];
+    save(&elem_builder, data[i]);
+  }
+}
+
+template <typename TCapnp, typename T>
+inline void LoadVector(
+    std::vector<T> *data,
+    const typename ::capnp::List<TCapnp>::Reader &list_reader,
+    const std::function<T(const typename TCapnp::Reader &reader)> &load) {
+  for (const auto reader : list_reader) {
+    data->emplace_back(load(reader));
+  }
+}
+
+template <typename TCapnp, typename T>
+inline void SaveOptional(
+    const std::experimental::optional<T> &data,
+    typename capnp::Optional<TCapnp>::Builder *builder,
+    const std::function<void(typename TCapnp::Builder *, const T &)> &save) {
+  if (data) {
+    auto value_builder = builder->initValue();
+    save(&value_builder, data.value());
+  } else {
+    builder->setNullopt();
+  }
+}
+
+template <typename TCapnp, typename T>
+inline std::experimental::optional<T> LoadOptional(
+    const typename capnp::Optional<TCapnp>::Reader &reader,
+    const std::function<T(const typename TCapnp::Reader &reader)> &load) {
+  switch (reader.which()) {
+    case capnp::Optional<TCapnp>::NULLOPT:
+      return std::experimental::nullopt;
+    case capnp::Optional<TCapnp>::VALUE:
+      auto value_reader = reader.getValue();
+      return std::experimental::optional<T>{load(value_reader)};
+  }
+}
+
+template <typename TCapnp, typename T>
+inline void SaveUniquePtr(
+    const std::unique_ptr<T> &data,
+    typename capnp::UniquePtr<TCapnp>::Builder *builder,
+    const std::function<void(typename TCapnp::Builder *, const T &)> &save) {
+  if (data) {
+    auto value_builder = builder->initValue();
+    save(&value_builder, *data);
+  } else {
+    builder->setNullptr();
+  }
+}
+
+template <typename TCapnp, typename T>
+inline std::unique_ptr<T> LoadUniquePtr(
+    const typename capnp::UniquePtr<TCapnp>::Reader &reader,
+    const std::function<T(const typename TCapnp::Reader &reader)> &load) {
+  switch (reader.which()) {
+    case capnp::UniquePtr<TCapnp>::NULLPTR:
+      return nullptr;
+    case capnp::UniquePtr<TCapnp>::VALUE:
+      auto value_reader = reader.getValue();
+      return std::make_unique<T>(load(value_reader));
+  }
+}
+
+template <typename TCapnp, typename T>
+inline void SaveSharedPtr(
+    const std::shared_ptr<T> &data,
+    typename capnp::SharedPtr<TCapnp>::Builder *builder,
+    const std::function<void(typename TCapnp::Builder *, const T &)> &save,
+    std::vector<T *> *saved_pointers) {
+  if (!data) {
+    builder->setNullptr();
+    return;
+  }
+  auto entry_builder = builder->initEntry();
+  auto pointer_id = reinterpret_cast<uintptr_t>(data.get());
+  CHECK(pointer_id <= std::numeric_limits<uint64_t>::max());
+  entry_builder.setId(pointer_id);
+  if (utils::Contains(*saved_pointers, data.get())) {
+    return;
+  }
+  auto value_builder = entry_builder.initValue();
+  save(&value_builder, *data);
+  saved_pointers->emplace_back(data.get());
+}
+
+template <typename TCapnp, typename T>
+inline std::shared_ptr<T> LoadSharedPtr(
+    const typename capnp::SharedPtr<TCapnp>::Reader &reader,
+    const std::function<T(const typename TCapnp::Reader &reader)> &load,
+    std::vector<std::pair<uint64_t, std::shared_ptr<T>>> *loaded_pointers) {
+  std::shared_ptr<T> ret;
+  switch (reader.which()) {
+    case capnp::SharedPtr<TCapnp>::NULLPTR:
+      ret = nullptr;
+      break;
+    case capnp::SharedPtr<TCapnp>::ENTRY:
+      auto entry_reader = reader.getEntry();
+      uint64_t pointer_id = entry_reader.getId();
+      auto found =
+          std::find_if(loaded_pointers->begin(), loaded_pointers->end(),
+                       [pointer_id](const auto &e) -> bool {
+                         return e.first == pointer_id;
+                       });
+      if (found != loaded_pointers->end()) return found->second;
+      auto value_reader = entry_reader.getValue();
+      ret = std::make_shared<T>(load(value_reader));
+      loaded_pointers->emplace_back(std::make_pair(pointer_id, ret));
+  }
+  return ret;
 }
 
 /**

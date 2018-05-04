@@ -114,7 +114,7 @@ endfunction(add_capnp)
 
 add_capnp(query/frontend/semantic/symbol.capnp)
 add_capnp(query/frontend/ast/ast.capnp)
-add_capnp(utils/typed_value.capnp)
+add_capnp(utils/serialization.capnp)
 add_capnp(storage/types.capnp)
 
 add_custom_target(generate_capnp DEPENDS ${generated_capnp_files})

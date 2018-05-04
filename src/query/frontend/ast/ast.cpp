@@ -6,7 +6,7 @@
 #include "boost/archive/binary_oarchive.hpp"
 #include "boost/serialization/export.hpp"
 
-#include "utils/typed_value.capnp.h"
+#include "utils/serialization.capnp.h"
 
 namespace query {
 
