@@ -397,8 +397,10 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
       EXPECT_EQ(edge.GlobalAddress(), e_ga);
       auto from = edge.from();
       EXPECT_EQ(from.GlobalAddress(), from_addr);
+      EXPECT_EQ(edge.from_addr().is_local(), from.is_local());
       auto to = edge.to();
       EXPECT_EQ(to.GlobalAddress(), to_addr);
+      EXPECT_EQ(edge.to_addr().is_local(), to.is_local());
 
       EXPECT_EQ(edge.Properties().size(), props.size());
       for (auto &kv : props) {

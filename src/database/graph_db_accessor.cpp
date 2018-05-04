@@ -459,6 +459,8 @@ EdgeAccessor GraphDbAccessor::InsertOnlyEdge(
     storage::VertexAddress from, storage::VertexAddress to,
     storage::EdgeType edge_type,
     std::experimental::optional<gid::Gid> requested_gid) {
+  CHECK(from.is_local())
+      << "`from` address should be local when calling InsertOnlyEdge";
   auto gid = db_.storage().edge_generator_.Next(requested_gid);
   auto edge_vlist =
       new mvcc::VersionList<Edge>(transaction_, gid, from, to, edge_type);

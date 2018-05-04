@@ -76,9 +76,10 @@ template <typename TRecordAccessor>
 gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
     gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type) {
   auto &db = db_accessor_.db();
-  auto edge = db_accessor_.InsertOnlyEdge(
-      {from, db.WorkerId()}, db.storage().LocalizedAddressIfPossible(to),
-      edge_type);
+  auto from_addr = db.storage().LocalizedAddressIfPossible(
+      storage::VertexAddress(from, db.WorkerId()));
+  auto to_addr = db.storage().LocalizedAddressIfPossible(to);
+  auto edge = db_accessor_.InsertOnlyEdge(from_addr, to_addr, edge_type);
   std::lock_guard<SpinLock> guard{lock_};
   deltas_.emplace(edge.gid(),
                   std::make_pair(edge, std::vector<database::StateDelta>{}));
@@ -335,8 +336,9 @@ UpdateResult UpdatesRpcServer::RemoveEdge(const RemoveEdgeData &data) {
 }
 
 template <>
-VertexAccessor UpdatesRpcServer::TransactionUpdates<
-    VertexAccessor>::FindAccessor(gid::Gid gid) {
+VertexAccessor
+UpdatesRpcServer::TransactionUpdates<VertexAccessor>::FindAccessor(
+    gid::Gid gid) {
   return db_accessor_.FindVertex(gid, false);
 }
 

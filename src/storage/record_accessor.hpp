@@ -146,6 +146,10 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
            (current_state && new_ && !new_->is_expired_by(t));
   }
 
+  /** Indicates if this accessor represents a local Vertex/Edge, or one whose
+   * owner is some other worker in a distributed system. */
+  bool is_local() const { return address_.is_local(); }
+
  protected:
   /**
    * Sends delta for remote processing.
@@ -170,10 +174,6 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   /** Returns the current version (either new_ or old_) set on this
    * RecordAccessor. */
   const TRecord &current() const;
-
-  /** Indicates if this accessor represents a local Vertex/Edge, or one whose
-   * owner is some other worker in a distributed system. */
-  bool is_local() const { return address_.is_local(); }
 
  private:
   // The database accessor for which this record accessor is created
