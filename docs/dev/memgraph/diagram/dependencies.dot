@@ -1,0 +1,288 @@
+// dot -Tpng dependencies.dot -o /path/to/output.png
+
+// TODO (buda): Put PropertyValueStore to storage namespace
+
+digraph {
+  // At the beginning of each block there is a default style for that block
+  label="Memgraph Dependencies Diagram"; fontname="Roboto Bold"; fontcolor=black;
+    fontsize=26; labelloc=top; labeljust=right;
+  compound=true; // If true, allow edges between clusters
+  rankdir=TB; // Alternatives: LR
+  node [shape=record fontname="Roboto", fontsize=12, fontcolor=white];
+  edge [color="#B5AFB7"];
+
+  // -- Legend --
+  // dir=both arrowtail=diamond arrowhead=vee -> group ownership
+  // dir=both arrowtail=none, arrowhead=vee -> ownership; stack or uptr
+
+  subgraph cluster_tcp_end_client_communication {
+    label="TCP End Client Communication"; fontsize=14;
+    node [style=filled, color="#DD2222" fillcolor="#DD2222"];
+
+    // Owned elements
+    "communication::Server";
+    "io::network::Socket";
+
+    // Intracluster connections
+    "communication::Server" -> "io::network::Socket"
+      [label="socket_" dir=both arrowtail=none arrowhead=vee];
+  }
+
+  subgraph cluster_bolt_server {
+    label="Bolt Server"; fontsize=14;
+    node [style=filled, color="#62A2CA" fillcolor="#62A2CA"];
+
+    // Owned elements
+    "communication::bolt::SessionData";
+    "communication::bolt::Session";
+    "communication::bolt::Encoder";
+    "communication::bolt::Decoder";
+
+    // Intracluster connections
+    "communication::bolt::Session" -> "communication::bolt::Encoder"
+      [label="encoder_", dir=both arrowtail=none, arrowhead=vee];
+    "communication::bolt::Session" -> "communication::bolt::Decoder"
+      [label="decoder_", dir=both arrowtail=none, arrowhead=vee];
+  }
+
+  subgraph cluster_opencypher_engine {
+    label="openCypher Engine"; fontsize=14;
+    node [style=filled, color="#68BDF6" fillcolor="#68BDF6"];
+
+    // Owned Elements
+    "query::Interpreter";
+    "query::AstTreeStorage";
+    "query::TypedValue"
+    "query::Path";
+    "query::Simbol";
+    "query::Context";
+    "query::ExpressionEvaluator";
+    "query::Frame";
+    "query::SymbolTable";
+    "query::plan::LogicalOperator";
+    "query::plan::Cursor";
+    "query::plan::CostEstimator";
+
+    // Intracluster connections
+    "query::Interpreter" -> "query::AstTreeStorage"
+      [label="ast_cache" dir=both arrowtail=diamond arrowhead=vee];
+    "query::TypedValue" -> "query::Path";
+    "query::plan::Cursor" -> "query::Frame";
+    "query::plan::Cursor" -> "query::Context";
+    "query::plan::LogicalOperator" -> "query::Symbol";
+    "query::plan::LogicalOperator" -> "query::SymbolTable";
+    "query::plan::LogicalOperator" -> "query::plan::Cursor";
+  }
+
+
+  subgraph cluster_storage {
+    label="Storage" fontsize=14;
+    node [style=filled, color="#FB6E00" fillcolor="#FB6E00"];
+
+    // Owned Elements
+    "database::GraphDb";
+    "database::GraphDbAccessor";
+    "storage::Record";
+    "storage::Vertex";
+    "storage::Edge";
+    "storage::RecordAccessor";
+    "storage::VertexAccessor";
+    "storage::EdgeAccessor";
+    "storage::Common";
+    "storage::Label";
+    "storage::EdgeType";
+    "storage::Property";
+    "storage::compression";
+    "storage::SingleNodeConcurrentIdMapper";
+    "storage::Location";
+    "storage::StorageTypesLocation";
+    "PropertyValueStore";
+    "storage::RecordLock";
+    "mvcc::Version";
+    "mvcc::Record";
+    "mvcc::VersionList";
+
+    // Intracluster connections
+    "storage::VertexAccessor" -> "storage::RecordAccessor"
+      [arrowhead=onormal];
+    "storage::EdgeAccessor" -> "storage::RecordAccessor"
+      [arrowhead=onormal];
+    "storage::RecordAccessor" -> "database::GraphDbAccessor"
+      [style=dashed arrowhead=vee];
+    "storage::Vertex" -> "mvcc::Record"
+      [arrowhead=onormal];
+    "storage::Edge" -> "mvcc::Record"
+      [arrowhead=onormal];
+    "storage::Edge" -> "PropertyValueStore"
+      [arrowhead=vee];
+    "storage::Vertex" -> "PropertyValueStore"
+      [arrowhead=vee];
+    "storage::Edge" -> "mvcc::VersionList"
+      [label="from,to" arrowhead=vee style=dashed];
+    "storage::VertexAccessor" -> "storage::Vertex"
+      [arrowhead=vee];
+    "storage::EdgeAccessor" -> "storage::Edge"
+      [arrowhead=vee];
+    "storage::SingleNodeConcurrentIdMapper" -> "storage::StorageTypesLocation"
+      [arrowhead=vee];
+    "storage::StorageTypesLocation" -> "storage::Location"
+      [arrowhead=vee];
+    "storage::Storage" -> "storage::StorageTypesLocation"
+      [arrowhead=vee];
+    "storage::Property" -> "storage::Common"
+      [arrowhead=onormal];
+    "storage::Label" -> "storage::Common"
+      [arrowhead=onormal];
+    "storage::EdgeType" -> "storage::Common"
+      [arrowhead=onormal];
+    "storage::Property" -> "storage::Location"
+      [arrowhead=vee];
+    "PropertyValueStore" -> "storage::Property"
+      [arrowhead=vee];
+    "PropertyValueStore" -> "storage::Location"
+      [arrowhead=vee];
+    "database::GraphDbAccessor" -> "database::GraphDb"
+      [arrowhead=vee];
+    "database::GraphDbAccessor" -> "tx::TransactionId"
+      [arrowhead=vee];
+    "mvcc::VersionList" -> "storge::RecordLock"
+      [label="lock" arrowhead=vee];
+    "mvcc::VersionList" -> "mvcc::Record"
+      [label="head" arrowhead=vee];
+    "mvcc::Record" -> "mvcc::Version"
+      [arrowhead=onormal];
+
+    // Explicit positioning
+    {rank=same;
+        "database::GraphDbAccessor";
+        "storage::VertexAccessor";
+        "storage::EdgeAccessor";}
+    {rank=same;
+        "storage::Common";
+        "storage::compression";}
+  }
+
+  subgraph cluster_properties_on_disk {
+    label="Properties on Disk" fontsize=14;
+    node [style=filled, color="#102647" fillcolor="#102647"];
+
+    // Owned Elements
+    "storage::KVStore";
+    "rocksdb";
+
+    // Intracluster connections
+    "storage::KVStore" -> "rocksdb";
+  }
+
+  subgraph cluster_distributed {
+    label="Distributed" fontsize=14;
+    node [style=filled, color="#FFC500" fillcolor="#FFC500"];
+
+    // Owned Elements
+    "distributed::DataManager";
+    "distributed::DataRpcClients";
+
+    // Intracluster connections
+    "distributed::DataManager" -> "distributed::DataRpcClients"
+      [arrowhead=vee];
+    "storage::RecordAccessor" -> "distributed::DataManager"
+      [style=dashed arrowhead=vee];
+  }
+
+  subgraph cluster_dynamic_partitioning {
+    label="Dynamic Partitioning" fontsize=14;
+    node [style=filled, color="#720096" fillcolor="#720096"];
+
+    // Owned Elements
+    "DynamicPartitioner";
+  }
+
+  subgraph cluster_security {
+    label="Security" fontsize=14;
+    node [style=filled, color="#857F87" fillcolor="#857F87"];
+
+    // Owned Elements
+    "Communication Encryption";
+    "Data Encryption";
+    "Access Control";
+    "Audit Logging";
+  }
+
+  subgraph cluster_web_dashboard {
+    label="Dashaboard" fontsize=14;
+    node [style=filled, color="#FF0092" fillcolor="#FF0092"];
+
+    // Owned Elements
+    "Memgraph Ops / Memgraph Cockpit";
+  }
+
+  subgraph cluster_rpc {
+    label="RPC" fontsize=14;
+    node [style=filled, color="#857F87" fillcolor="#857F87"];
+
+    // Owned Elements
+    "communication::rpc::Server";
+    "communication::rpc::Client";
+  }
+
+  subgraph cluster_ingestion {
+    label="Ingestion" fontsize=14;
+    node [style=filled, color="#0B6D88" fillcolor="#0B6D88"];
+
+    // Owned Elements
+    "Extract";
+    "Transform";
+    "Load";
+    "Amazon S3";
+    "Kafka";
+
+    // Intracluster connections
+    "Extract" -> "Amazon S3";
+    "Extract" -> "Kafka";
+
+    // Explicit positioning
+    {rank=same;"Extract";"Transform";"Load";}
+  }
+
+  // -- Intercluster connections --
+  // cluster_tcp_end_client_communication -- cluster_bolt_server
+  "communication::Server" -> "communication::bolt::SessionData" [color=black];
+  "communication::Server" -> "communication::bolt::Session" [color=black];
+  // cluster_bolt_server -> cluster_storage
+  "communication::bolt::SessionData" -> "database::GraphDb" [color=red];
+  "communication::bolt::Session" -> "database::GraphDbAccessor" [color=red];
+  // cluster_bolt_server -> cluster_opencypher_engine
+  "communication::bolt::SessionData" -> "query::Interpreter" [color=red];
+  // cluster_opencypher_engine -- cluster_storage
+  "query::Interpreter" -> "database::GraphDbAccessor" [color=black];
+  "query::Interpreter" -> "storage::VertexAccessor" [color=black];
+  "query::Interpreter" -> "storage::EdgeAccessor" [color=black];
+  "query::TypedValue" -> "storage::VertexAccessor" [color=black];
+  "query::TypedValue" -> "storage::EdgeAccessor" [color=black];
+  "query::Path" -> "storage::VertexAccessor"
+    [label="vertices" dir=both arrowtail=diamond arrowhead=vee color=black];
+  "query::Path" -> "storage::EdgeAccessor"
+    [label="edges" dir=both arrowtail=diamond arrowhead=vee color=black];
+  "query::plan::LogicalOperator" -> "database::GraphDbAccessor"
+    [color=black arrowhead=vee];
+  // cluster_distributed -- cluster_storage
+  "distributed::DataManager" -> "database::GraphDb"
+    [arrowhead=vee style=dashed color=red];
+  "distributed::DataManager" -> "tx::TransactionId"
+    [label="ves_caches_key" dir=both arrowhead=none arrowtail=diamond
+     color=red];
+  "distributed::DataManager" -> "storage::Vertex"
+    [label="vertices_caches" dir=both arrowhead=none arrowtail=diamond
+     color=red];
+  "distributed::DataManager" -> "storage::Edge"
+    [label="edges_caches" dir=both arrowhead=none arrowtail=diamond
+     color=red];
+  // cluster_storage -- cluster_properties_on_disk
+  "PropertyValueStore" -> "storage::KVStore"
+    [label="static" arrowhead=vee color=black];
+  // cluster_dynamic_partitioning -- cluster_storage
+  "database::GraphDb" -> "DynamicPartitioner"
+    [arrowhead=vee color=red];
+  "DynamicPartitioner" -> "database::GraphDbAccessor"
+    [arrowhead=vee color=black];
+}
