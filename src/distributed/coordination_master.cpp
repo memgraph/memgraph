@@ -40,6 +40,11 @@ bool MasterCoordination::RegisterWorker(int desired_worker_id,
   return true;
 }
 
+void MasterCoordination::WorkerRecovered(int worker_id) {
+  CHECK(recovered_workers_.insert(worker_id).second)
+      << "Worker already notified about finishing recovery";
+}
+
 Endpoint MasterCoordination::GetEndpoint(int worker_id) {
   std::lock_guard<std::mutex> guard(lock_);
   return Coordination::GetEndpoint(worker_id);
@@ -71,6 +76,10 @@ void MasterCoordination::SetRecoveryInfo(
   std::lock_guard<std::mutex> guard(lock_);
   recovery_done_ = true;
   recovery_info_ = info;
+}
+
+int MasterCoordination::CountRecoveredWorkers() const {
+  return recovered_workers_.size();
 }
 
 std::experimental::optional<durability::RecoveryInfo>

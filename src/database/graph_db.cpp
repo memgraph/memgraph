@@ -333,11 +333,25 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
       case Type::DISTRIBUTED_MASTER:
         dynamic_cast<impl::Master *>(impl_.get())
             ->coordination_.SetRecoveryInfo(recovery_info);
+        if (recovery_info) {
+          CHECK(impl_->config_.recovering_cluster_size > 0)
+              << "Invalid cluster recovery size flag. Recovered cluster size "
+                 "should be at least 1";
+          while (dynamic_cast<impl::Master *>(impl_.get())
+                     ->coordination_.CountRecoveredWorkers() !=
+                 impl_->config_.recovering_cluster_size - 1) {
+            LOG(INFO) << "Waiting for workers to finish recovering..";
+            std::this_thread::sleep_for(2s);
+          }
+        }
+
         break;
       case Type::DISTRIBUTED_WORKER:
         if (required_recovery_info != recovery_info)
           LOG(FATAL) << "Memgraph worker failed to recover the database state "
                         "recovered on the master";
+        dynamic_cast<impl::Worker *>(impl_.get())
+            ->cluster_discovery_.NotifyWorkerRecovered();
         break;
       case Type::SINGLE_NODE:
         break;

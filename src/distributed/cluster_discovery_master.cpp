@@ -1,5 +1,5 @@
-#include "distributed/cluster_discovery_master.hpp"
 #include "communication/rpc/client_pool.hpp"
+#include "distributed/cluster_discovery_master.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
 
 namespace distributed {
@@ -28,6 +28,12 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
         registration_successful, this->coordination_.RecoveryInfo(),
         this->coordination_.GetWorkers());
   });
+
+  server_.Register<NotifyWorkerRecoveredRpc>(
+      [this](const NotifyWorkerRecoveredReq &req) {
+        this->coordination_.WorkerRecovered(req.member);
+        return std::make_unique<NotifyWorkerRecoveredRes>();
+      });
 }
 
 }  // namespace distributed

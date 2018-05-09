@@ -49,6 +49,7 @@ struct Config {
   int worker_id{0};
   io::network::Endpoint master_endpoint{"0.0.0.0", 0};
   io::network::Endpoint worker_endpoint{"0.0.0.0", 0};
+  int recovering_cluster_size{0};
 };
 
 /**

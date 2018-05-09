@@ -54,6 +54,10 @@ DEFINE_VALIDATED_HIDDEN_int32(rpc_num_workers,
                               std::max(std::thread::hardware_concurrency(), 1U),
                               "Number of workers (RPC)",
                               FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_VALIDATED_int32(recovering_cluster_size, 0,
+                       "Number of workers (including master) in the "
+                       "previously snapshooted/wal cluster",
+                       FLAG_IN_RANGE(0, INT32_MAX));
 #endif
 
 // clang-format off
@@ -76,7 +80,8 @@ database::Config::Config()
       master_endpoint{FLAGS_master_host,
                       static_cast<uint16_t>(FLAGS_master_port)},
       worker_endpoint{FLAGS_worker_host,
-                      static_cast<uint16_t>(FLAGS_worker_port)}
+                      static_cast<uint16_t>(FLAGS_worker_port)},
+      recovering_cluster_size{FLAGS_recovering_cluster_size}
 #endif
 {}
 // clang-format on

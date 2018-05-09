@@ -30,10 +30,17 @@ class ClusterDiscoveryWorker final {
    */
   void RegisterWorker(int worker_id);
 
+  /**
+   * Notifies the master that the worker finished recovering. Assumes that the
+   * worker was already registered with master.
+   */
+  void NotifyWorkerRecovered();
+
   /** Returns the recovery info. Valid only after registration. */
   auto recovery_info() const { return recovery_info_; }
 
  private:
+  int worker_id_{-1};
   Server &server_;
   WorkerCoordination &coordination_;
   communication::rpc::ClientPool &client_pool_;

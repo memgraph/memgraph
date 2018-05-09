@@ -81,15 +81,21 @@ struct ClusterDiscoveryReq : public Message {
 };
 
 RPC_NO_MEMBER_MESSAGE(ClusterDiscoveryRes);
+
 RPC_NO_MEMBER_MESSAGE(StopWorkerReq);
 RPC_NO_MEMBER_MESSAGE(StopWorkerRes);
+
+RPC_SINGLE_MEMBER_MESSAGE(NotifyWorkerRecoveredReq, int);
+RPC_NO_MEMBER_MESSAGE(NotifyWorkerRecoveredRes);
 
 using RegisterWorkerRpc =
     communication::rpc::RequestResponse<RegisterWorkerReq, RegisterWorkerRes>;
 using StopWorkerRpc =
     communication::rpc::RequestResponse<StopWorkerReq, StopWorkerRes>;
+using NotifyWorkerRecoveredRpc =
+    communication::rpc::RequestResponse<NotifyWorkerRecoveredReq,
+                                        NotifyWorkerRecoveredRes>;
 using ClusterDiscoveryRpc =
     communication::rpc::RequestResponse<ClusterDiscoveryReq,
                                         ClusterDiscoveryRes>;
-
 }  // namespace distributed

@@ -56,6 +56,7 @@ class MgCluster:
             "--query-vertex-count-to-expand-existing", "-1",
             "--num-workers", str(WORKERS),
             "--rpc-num-workers", str(WORKERS),
+            "--recovering-cluster-size", str(len(self._workers) + 1)
         ])
 
         # sleep to allow the master to startup

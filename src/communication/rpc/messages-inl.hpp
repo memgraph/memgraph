@@ -62,6 +62,8 @@ BOOST_CLASS_EXPORT(distributed::ClusterDiscoveryReq);
 BOOST_CLASS_EXPORT(distributed::ClusterDiscoveryRes);
 BOOST_CLASS_EXPORT(distributed::StopWorkerReq);
 BOOST_CLASS_EXPORT(distributed::StopWorkerRes);
+BOOST_CLASS_EXPORT(distributed::NotifyWorkerRecoveredReq);
+BOOST_CLASS_EXPORT(distributed::NotifyWorkerRecoveredRes);
 
 // Distributed data exchange.
 BOOST_CLASS_EXPORT(distributed::EdgeReq);

@@ -60,6 +60,7 @@ class WorkerCoordinationInThread {
   }
   auto worker_ids() { return worker->coord.GetWorkerIds(); }
   void join() { worker_thread_.join(); }
+  void NotifyWorkerRecovered() { worker->discovery.NotifyWorkerRecovered(); }
 
  private:
   std::thread worker_thread_;
@@ -170,6 +171,27 @@ TEST(Distributed, ClusterDiscovery) {
     for (auto &worker : workers) {
       EXPECT_THAT(worker->worker_ids(),
                   testing::UnorderedElementsAreArray(ids));
+    }
+  }
+
+  for (auto &worker : workers) worker->join();
+}
+
+TEST(Distributed, KeepsTrackOfRecovered) {
+  Server master_server({kLocal, 0});
+  std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
+  {
+    MasterCoordination master_coord(master_server.endpoint());
+    master_coord.SetRecoveryInfo(std::experimental::nullopt);
+    RpcWorkerClients rpc_worker_clients(master_coord);
+    ClusterDiscoveryMaster master_discovery_(master_server, master_coord,
+                                             rpc_worker_clients);
+    int worker_count = 10;
+    for (int i = 1; i <= worker_count; ++i) {
+      workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
+          master_server.endpoint(), i));
+      workers.back()->NotifyWorkerRecovered();
+      EXPECT_THAT(master_coord.CountRecoveredWorkers(), i);
     }
   }
 

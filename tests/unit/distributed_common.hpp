@@ -41,9 +41,14 @@ class DistributedGraphDbTest : public ::testing::Test {
     master_config.master_endpoint = {kLocal, 0};
     master_config.query_execution_time_sec = QueryExecutionTimeSec(0);
     master_config.durability_directory = tmp_dir_;
+    // This is semantically wrong since this is not a cluster of size 1 but of
+    // size kWorkerCount+1, but it's hard to wait here for workers to recover
+    // and simultaneously assign the port to which the workers must connect
+    // TODO(dgleich): Fix sometime in the future - not mission critical
+    master_config.recovering_cluster_size = 1;
     master_ = std::make_unique<database::Master>(modify_config(master_config));
-    std::this_thread::sleep_for(kInitTime);
 
+    std::this_thread::sleep_for(kInitTime);
     auto worker_config = [this](int worker_id) {
       database::Config config;
       config.worker_id = worker_id;

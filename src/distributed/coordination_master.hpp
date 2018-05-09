@@ -2,6 +2,7 @@
 
 #include <experimental/optional>
 #include <mutex>
+#include <set>
 #include <unordered_map>
 
 #include "distributed/coordination.hpp"
@@ -28,6 +29,12 @@ class MasterCoordination final : public Coordination {
    */
   bool RegisterWorker(int desired_worker_id, Endpoint endpoint);
 
+  /*
+   * Worker `worker_id` finished with recovering, adds it to the set of
+   * recovered workers.
+   */
+  void WorkerRecovered(int worker_id);
+
   Endpoint GetEndpoint(int worker_id);
 
   /// Sets the recovery info. nullopt indicates nothing was recovered.
@@ -36,6 +43,8 @@ class MasterCoordination final : public Coordination {
 
   std::experimental::optional<durability::RecoveryInfo> RecoveryInfo() const;
 
+  int CountRecoveredWorkers() const;
+
  private:
   // Most master functions aren't thread-safe.
   mutable std::mutex lock_;
@@ -43,6 +52,8 @@ class MasterCoordination final : public Coordination {
   /// Durabiliry recovery info.
   /// Indicates if the recovery phase is done.
   bool recovery_done_{false};
+  /// Set of workers that finished sucesfully recovering
+  std::set<int> recovered_workers_;
   /// If nullopt nothing was recovered.
   std::experimental::optional<durability::RecoveryInfo> recovery_info_;
 };
