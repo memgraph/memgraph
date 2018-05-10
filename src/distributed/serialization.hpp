@@ -32,7 +32,7 @@ template <typename TArchive>
 void SaveProperties(TArchive &ar, const PropertyValueStore &props) {
   ar << props.size();
   for (auto &kv : props) {
-    ar << kv.first.storage();
+    ar << kv.first.Id();
     utils::SaveTypedValue(ar, kv.second);
   }
 }
@@ -54,7 +54,7 @@ void SaveVertex(TArchive &ar, const Vertex &vertex, int worker_id) {
     for (auto &edge_struct : edges) {
       impl::SaveAddress(ar, edge_struct.vertex, worker_id);
       impl::SaveAddress(ar, edge_struct.edge, worker_id);
-      ar << edge_struct.edge_type.storage();
+      ar << edge_struct.edge_type.Id();
     }
   };
   save_edges(vertex.out_);
@@ -62,7 +62,7 @@ void SaveVertex(TArchive &ar, const Vertex &vertex, int worker_id) {
 
   ar << vertex.labels_.size();
   for (auto &label : vertex.labels_) {
-    ar << label.storage();
+    ar << label.Id();
   }
 
   impl::SaveProperties(ar, vertex.properties_);
@@ -81,7 +81,7 @@ template <typename TArchive>
 void SaveEdge(TArchive &ar, const Edge &edge, int worker_id) {
   impl::SaveAddress(ar, edge.from_, worker_id);
   impl::SaveAddress(ar, edge.to_, worker_id);
-  ar << edge.edge_type_.storage();
+  ar << edge.edge_type_.Id();
   impl::SaveProperties(ar, edge.properties_);
 }
 
@@ -113,7 +113,7 @@ void LoadProperties(TArchive &ar, PropertyValueStore &store) {
   size_t count;
   ar >> count;
   for (size_t i = 0; i < count; ++i) {
-    storage::Property::StorageT prop;
+    storage::Property::IdT prop;
     ar >> prop;
     query::TypedValue value;
     utils::LoadTypedValue(ar, value);
@@ -138,7 +138,7 @@ std::unique_ptr<Vertex> LoadVertex(TArchive &ar) {
     ar >> count;
     for (size_t i = 0; i < count; ++i) {
       auto vertex_address = impl::LoadVertexAddress(ar);
-      storage::EdgeType::StorageT edge_type;
+      storage::EdgeType::IdT edge_type;
       gid::Gid edge_id;
       ar >> edge_id;
       int edge_worker_id;
@@ -154,7 +154,7 @@ std::unique_ptr<Vertex> LoadVertex(TArchive &ar) {
   size_t count;
   ar >> count;
   for (size_t i = 0; i < count; ++i) {
-    storage::Label::StorageT label;
+    storage::Label::IdT label;
     ar >> label;
     vertex->labels_.emplace_back(label);
   }
@@ -173,7 +173,7 @@ template <typename TArchive>
 std::unique_ptr<Edge> LoadEdge(TArchive &ar) {
   auto from = impl::LoadVertexAddress(ar);
   auto to = impl::LoadVertexAddress(ar);
-  storage::EdgeType::StorageT edge_type;
+  storage::EdgeType::IdT edge_type;
   ar >> edge_type;
   auto edge = std::make_unique<Edge>(from, to, storage::EdgeType{edge_type});
   impl::LoadProperties(ar, edge->properties_);

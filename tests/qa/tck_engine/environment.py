@@ -88,7 +88,7 @@ def after_all(context):
 
     test_suite = get_test_suite(context)
     file_name = context.config.output_folder + timestamp + \
-        "-" + context.config.database + "-" + test_suite + ".json"
+        "-" + context.config.database + "-" + context.config.test_name + ".json"
 
     js = {
         "total": test_results.num_total(), "passed": test_results.num_passed(),

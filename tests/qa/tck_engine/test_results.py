@@ -1,7 +1,7 @@
 class TestResults:
 
     """
-    Clas used to store test results. It has parameters total
+    Class used to store test results. It has parameters total
     and passed.
 
     @attribute total:

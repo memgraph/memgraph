@@ -67,7 +67,8 @@ class PrivateBase : public GraphDb {
   }
 
   void ReinitializeStorage() override {
-    storage_ = std::make_unique<Storage>(WorkerId());
+    storage_ =
+        std::make_unique<Storage>(WorkerId(), config_.properties_on_disk);
   }
 
   distributed::PullRpcClients &pull_clients() override {
@@ -88,7 +89,7 @@ class PrivateBase : public GraphDb {
 
  protected:
   std::unique_ptr<Storage> storage_ =
-      std::make_unique<Storage>(config_.worker_id);
+      std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
   durability::WriteAheadLog wal_{config_.worker_id,
                                  config_.durability_directory,
                                  config_.durability_enabled};
@@ -129,7 +130,8 @@ class SingleNode : public PrivateBase {
   std::unique_ptr<StorageGcSingleNode> storage_gc_ =
       std::make_unique<StorageGcSingleNode>(*storage_, tx_engine_,
                                             config_.gc_cycle_sec);
-  TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_;
+  TypemapPack<SingleNodeConcurrentIdMapper> typemap_pack_{
+      storage_->PropertiesOnDisk()};
   database::SingleNodeCounters counters_;
   std::vector<int> GetWorkerIds() const override { return {0}; }
   distributed::DataRpcServer &data_server() override {

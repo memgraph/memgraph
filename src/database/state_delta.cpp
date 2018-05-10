@@ -180,14 +180,14 @@ void StateDelta::Encode(
       encoder.WriteInt(edge_id);
       encoder.WriteInt(vertex_from_id);
       encoder.WriteInt(vertex_to_id);
-      encoder.WriteInt(edge_type.storage());
+      encoder.WriteInt(edge_type.Id());
       encoder.WriteString(edge_type_name);
       break;
     case Type::ADD_OUT_EDGE:
       encoder.WriteInt(vertex_id);
       encoder.WriteInt(vertex_to_address.raw());
       encoder.WriteInt(edge_address.raw());
-      encoder.WriteInt(edge_type.storage());
+      encoder.WriteInt(edge_type.Id());
       break;
     case Type::REMOVE_OUT_EDGE:
       encoder.WriteInt(vertex_id);
@@ -197,7 +197,7 @@ void StateDelta::Encode(
       encoder.WriteInt(vertex_id);
       encoder.WriteInt(vertex_from_address.raw());
       encoder.WriteInt(edge_address.raw());
-      encoder.WriteInt(edge_type.storage());
+      encoder.WriteInt(edge_type.Id());
       break;
     case Type::REMOVE_IN_EDGE:
       encoder.WriteInt(vertex_id);
@@ -205,20 +205,20 @@ void StateDelta::Encode(
       break;
     case Type::SET_PROPERTY_VERTEX:
       encoder.WriteInt(vertex_id);
-      encoder.WriteInt(property.storage());
+      encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
       encoder.WritePropertyValue(value);
       break;
     case Type::SET_PROPERTY_EDGE:
       encoder.WriteInt(edge_id);
-      encoder.WriteInt(property.storage());
+      encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
       encoder.WritePropertyValue(value);
       break;
     case Type::ADD_LABEL:
     case Type::REMOVE_LABEL:
       encoder.WriteInt(vertex_id);
-      encoder.WriteInt(label.storage());
+      encoder.WriteInt(label.Id());
       encoder.WriteString(label_name);
       break;
     case Type::REMOVE_VERTEX:
@@ -228,9 +228,9 @@ void StateDelta::Encode(
       encoder.WriteInt(edge_id);
       break;
     case Type::BUILD_INDEX:
-      encoder.WriteInt(label.storage());
+      encoder.WriteInt(label.Id());
       encoder.WriteString(label_name);
-      encoder.WriteInt(property.storage());
+      encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
       break;
   }

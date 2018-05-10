@@ -10,6 +10,7 @@
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
 #include "storage/edge.hpp"
+#include "storage/kvstore_mock.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/type.hpp"
@@ -34,10 +35,11 @@ namespace database {
 /** A data structure containing the main data members of a graph database. */
 class Storage {
  public:
-  explicit Storage(int worker_id)
+  Storage(int worker_id, const std::vector<std::string> &properties_on_disk)
       : worker_id_(worker_id),
         vertex_generator_{worker_id},
-        edge_generator_{worker_id} {}
+        edge_generator_{worker_id},
+        properties_on_disk_{properties_on_disk} {}
 
  public:
   ~Storage() {
@@ -90,6 +92,9 @@ class Storage {
   /// Gets the local edge address for the given gid. Fails if not present.
   mvcc::VersionList<Edge> *LocalEdgeAddress(gid::Gid gid) const;
 
+  /// Gets names of properties stored on disk
+  std::vector<std::string> &PropertiesOnDisk() { return properties_on_disk_; }
+
  private:
   friend class GraphDbAccessor;
   friend class StorageGc;
@@ -109,6 +114,8 @@ class Storage {
   // indexes
   KeyIndex<storage::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
+
+  std::vector<std::string> properties_on_disk_;
 
   // Set of transactions ids which are building indexes currently
   SkipList<tx::TransactionId> index_build_tx_in_progress_;

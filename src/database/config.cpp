@@ -3,6 +3,7 @@
 #include "database/graph_db.hpp"
 #include "storage/gid.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/string.hpp"
 
 // Durability flags.
 DEFINE_bool(durability_enabled, false,
@@ -26,6 +27,10 @@ DEFINE_int32(query_execution_time_sec, 180,
 DEFINE_int32(gc_cycle_sec, 30,
              "Amount of time between starts of two cleaning cycles in seconds. "
              "-1 to turn off.");
+// Data location.
+DEFINE_string(properties_on_disk, "",
+              "Property names of properties which will be stored on available "
+              "disk. Property names have to be separated with comma (,).");
 
 #ifndef MG_COMMUNITY
 // Distributed master/worker flags.
@@ -71,7 +76,9 @@ database::Config::Config()
       snapshot_on_exit{FLAGS_snapshot_on_exit},
       // Misc flags.
       gc_cycle_sec{FLAGS_gc_cycle_sec},
-      query_execution_time_sec{FLAGS_query_execution_time_sec}
+      query_execution_time_sec{FLAGS_query_execution_time_sec},
+      // Data location.
+      properties_on_disk(utils::Split(FLAGS_properties_on_disk, ","))
 #ifndef MG_COMMUNITY
       ,
       // Distributed flags.

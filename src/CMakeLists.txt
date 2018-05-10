@@ -59,6 +59,7 @@ set(memgraph_src_files
     storage/edge_accessor.cpp
     storage/locking/record_lock.cpp
     storage/property_value.cpp
+    storage/property_value_store.cpp
     storage/record_accessor.cpp
     storage/vertex_accessor.cpp
     threading/sync/rwlock.cpp

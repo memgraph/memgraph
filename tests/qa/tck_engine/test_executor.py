@@ -32,6 +32,8 @@ def parse_args():
                       help="Pause after every scenario.")
     argp.add_argument("--single-feature", action="store_true",
                       help="Pause after every feature.")
+    argp.add_argument("--test-name", default="",
+                      help="Name of the test")
     return argp.parse_args()
 
 
@@ -66,7 +68,7 @@ def main():
                dict(action="store_true", help="Pause after every scenario."))
     add_config("--single-feature",
                dict(action="store_true", help="Pause after every feature."))
-
+    add_config("--test-name", dict(help="Name of the test."))
 
     # list with all options
     # options will be passed to the cucumber engine
@@ -99,10 +101,11 @@ def main():
         behave_options.append("--single-feature")
     behave_options.append("--output-folder")
     behave_options.append(args.output_folder)
+    behave_options.append("--test-name")
+    behave_options.append(args.test_name)
 
     # runs tests with options
     return behave_main(behave_options)
-
 
 if __name__ == '__main__':
     sys.exit(main())

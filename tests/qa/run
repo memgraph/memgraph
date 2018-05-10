@@ -4,8 +4,10 @@ function print_usage_and_exit {
     echo "./run --test-suite test_suite [--unstable]"
     echo "Required arguments:"
     echo -e "  --test-suite test_suite\trun test_suite scenarios, test_suite must be test folder in tck_engine/tests."
+    echo -e "  --name name\tunique identifer of test_suite and its parameters"
     echo "Optional arguments:"
     echo -e "  --unstable\trun unstable scenarios"
+    echo -e "  --memgraph-params \"param1=value1 param2=value2\"\tcommand line arguments for memgraph"
     exit 1
 }
 
@@ -14,6 +16,8 @@ set -e
 
 # read arguments
 unstable=false
+memgraph_params=""
+
 loglevel=2
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -23,6 +27,22 @@ while [[ $# -gt 0 ]]; do
             ;;
         --verbose)
             loglevel=0
+            shift
+            ;;
+        --memgraph-params)
+            if [ $# -eq 1 ]; then
+                print_usage_and_exit
+            fi
+            memgraph_params=$2
+            shift
+            shift
+            ;;
+        --name)
+            if [ $# -eq 1 ]; then
+                print_usage_and_exit
+            fi
+            name=$2
+            shift
             shift
             ;;
         --test-suite)
@@ -63,18 +83,19 @@ config_path="${memgraph_src_dir}/config/testing.conf"
 # run scenarios
 cd ${script_dir}
 tck_flags="--root tck_engine/tests/$test_suite
+           --test-name $name
            --no-side-effects --db memgraph"
 
 if [[ $unstable = true ]]; then
     tck_flags="$tck_flags --unstable"
 fi
 
-
 # the script has to be careful because memgraph process will be detached
 set +e
 
 # run memgraph
-MEMGRAPH_CONFIG="$config_path" "$memgraph_binary" --min-log-level=$loglevel 1>&2 &
+MEMGRAPH_CONFIG="$config_path"
+"$memgraph_binary" --min-log-level=$loglevel "$memgraph_params" 1>&2 &
 background_pid=$!
 
 function cleanup_and_exit {

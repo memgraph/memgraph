@@ -32,6 +32,7 @@ namespace database {
 /// Database configuration. Initialized from flags, but modifiable.
 struct Config {
   Config();
+
   // Durability flags.
   bool durability_enabled;
   std::string durability_directory;
@@ -50,6 +51,9 @@ struct Config {
   io::network::Endpoint master_endpoint{"0.0.0.0", 0};
   io::network::Endpoint worker_endpoint{"0.0.0.0", 0};
   int recovering_cluster_size{0};
+
+  // set of properties which will be stored on disk
+  std::vector<std::string> properties_on_disk;
 };
 
 /**

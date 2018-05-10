@@ -32,7 +32,7 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   /**
    * The database::GraphDbAccessor is friend to this accessor so it can
    * operate on it's data (mvcc version-list and the record itself).
-   * This is legitemate because database::GraphDbAccessor creates
+   * This is legitimate because database::GraphDbAccessor creates
    * RecordAccessors
    * and is semantically their parent/owner. It is necessary because
    * the database::GraphDbAccessor handles insertions and deletions, and these

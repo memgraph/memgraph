@@ -20,8 +20,7 @@ RecordAccessor<TRecord>::RecordAccessor(AddressT address,
 }
 
 template <typename TRecord>
-PropertyValue RecordAccessor<TRecord>::PropsAt(
-    storage::Property key) const {
+PropertyValue RecordAccessor<TRecord>::PropsAt(storage::Property key) const {
   return current().properties_.at(key);
 }
 

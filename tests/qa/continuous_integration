@@ -20,14 +20,55 @@ import subprocess
 
 log = logging.getLogger(__name__)
 
+class Test:
+    """
+    Class used to store basic information about a single
+    test suite
+
+    @attribute name:
+        string, name of the test_suite (must be unique)
+    @attribute test_suite:
+        string, test_suite within tck_engine/tests which contains tck tests
+    @attribute memgraph_params
+        string, any command line arguments that should be passed to
+                memgraph before evaluating tests from this suite
+    @attribute mandatory
+        bool, True if this suite is obligatory for continuous integration
+              to pass
+    """
+
+    def __init__(self, name, test_suite, memgraph_params, mandatory):
+        self.name = name
+        self.test_suite = test_suite
+        self.memgraph_params = memgraph_params
+        self.mandatory = mandatory
+
 # constants
-memgraph_suite = "memgraph_V1"
-extra_suites = ["openCypher_M09"]
+suites = [
+    Test(
+        name="memgraph_V1",
+        test_suite="memgraph_V1",
+        memgraph_params="",
+        mandatory=True
+    ),
+    Test(
+        name="memgraph_V1_POD",
+        test_suite="memgraph_V1",
+        memgraph_params="--properties-on-disk=surname,location",
+        mandatory=True
+    ),
+    Test(
+        name="openCypher_M09",
+        test_suite="openCypher_M09",
+        memgraph_params="",
+        mandatory=False
+    )
+]
+
 results_folder = os.path.join("tck_engine", "results")
 suite_suffix = "memgraph-{}.json"
 qa_status_path = ".quality_assurance_status"
 measurements_path = ".apollo_measurements"
-
 
 def get_newest_path(folder, suffix):
     """
@@ -107,16 +148,14 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
     # run suites
-    log.info("Starting Memgraph scenarios.")
-    subprocess.run(["./run", "--test-suite", memgraph_suite], check = True)
-    for suite in extra_suites:
-        log.info("Starting extra suite '{}' scenarios.".format(suite))
-        subprocess.run(["./run", "--test-suite", suite])
-
-    # get data files (memgraph internal test + openCypher TCK test results)
-    memgraph_result_path = get_newest_path(results_folder,
-            suite_suffix.format(memgraph_suite))
-    log.info("Memgraph result path is {}".format(memgraph_result_path))
+    for suite in suites:
+        log.info("Starting suite '{}' scenarios.".format(suite.name))
+        subprocess.run(["./run",
+                        "--test-suite", suite.test_suite,
+                        "--name", suite.name,
+                        # "--verbose",
+                        "--memgraph-params", suite.memgraph_params],
+                       check = False)
 
     # measurements
     measurements = ""
@@ -124,19 +163,24 @@ if __name__ == "__main__":
     # status table headers
     status_data = [["Suite", "Scenarios"]]
 
-    # read internal scenarios
-    memgraph_status, memgraph_passed, memgraph_total = generate_status(
-            memgraph_suite, memgraph_result_path, required = True)
-    status_data.append([memgraph_suite, memgraph_status])
-    measurements += generate_measurements(memgraph_suite, memgraph_result_path)
+    # List of mandatory suites that have failed
+    mandatory_fails = []
 
-    # read extra scenarios
-    for suite in extra_suites:
-        result_path = get_newest_path(results_folder, suite_suffix.format(suite))
-        log.info("Extra suite '{}' result path is {}".format(suite, result_path))
-        suite_status, _, _ = generate_status(suite, result_path)
-        status_data.append([suite, suite_status])
-        measurements += generate_measurements(suite, result_path)
+    for suite in suites:
+        # get data files for test suite
+        suite_result_path = get_newest_path(results_folder,
+                suite_suffix.format(suite.name))
+        log.info("Memgraph result path is {}".format(suite_result_path))
+
+        # read scenarios
+        suite_status, suite_passed, suite_total = generate_status(
+                suite.name, suite_result_path, required = suite.mandatory)
+
+        if suite.mandatory and suite_passed != suite_total:
+            mandatory_fails.append(suite.name)
+
+        status_data.append([suite.name, suite_status])
+        measurements += generate_measurements(suite.name, suite_result_path)
 
     # create status message
     qa_status_message = generate_remarkup(status_data)
@@ -145,13 +189,13 @@ if __name__ == "__main__":
     with open(qa_status_path, "w") as f:
         f.write(qa_status_message)
 
-    # create the measurements file
+    #create the measurements file
     with open(measurements_path, "w") as f:
         f.write(measurements)
 
     log.info("Status is generated in %s" % qa_status_path)
     log.info("Measurements are generated in %s" % measurements_path)
 
-    if memgraph_total != memgraph_passed:
-        sys.exit("There is a problem with internal scenarios! %s"
-                 % memgraph_status)
+    if mandatory_fails != []:
+        sys.exit("Some mandatory tests have failed -- %s"
+                 % str(mandatory_fails))

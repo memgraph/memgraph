@@ -8,23 +8,23 @@
 #include "storage/concurrent_id_mapper_single_node.hpp"
 #include "storage/types.hpp"
 
-using Id = storage::Label;
-using Mapper = storage::SingleNodeConcurrentIdMapper<Id>;
+using IdLabel = storage::Label;
+using MapperLabel = storage::SingleNodeConcurrentIdMapper<IdLabel>;
 
 TEST(ConcurrentIdMapper, SameValueGivesSameId) {
-  Mapper mapper;
+  MapperLabel mapper;
   EXPECT_EQ(mapper.value_to_id("a"), mapper.value_to_id("a"));
 }
 
 TEST(ConcurrentIdMapper, IdToValue) {
-  Mapper mapper;
+  MapperLabel mapper;
   std::string value = "a";
   auto id = mapper.value_to_id(value);
   EXPECT_EQ(value, mapper.id_to_value(id));
 }
 
 TEST(ConcurrentIdMapper, TwoValuesTwoIds) {
-  Mapper mapper;
+  MapperLabel mapper;
   EXPECT_NE(mapper.value_to_id("a"), mapper.value_to_id("b"));
 }
 
@@ -36,8 +36,8 @@ TEST(ConcurrentIdMapper, SameIdReturnedMultipleThreads) {
   // Perform the whole test a number of times since it's stochastic (we're
   // trying to detect bad behavior in parallel execution).
   for (int loop_ind = 0; loop_ind < 20; ++loop_ind) {
-    Mapper mapper;
-    std::vector<std::map<Id, std::string>> mappings(thread_count);
+    MapperLabel mapper;
+    std::vector<std::map<IdLabel, std::string>> mappings(thread_count);
     std::vector<std::thread> threads;
     for (int thread_ind = 0; thread_ind < thread_count; ++thread_ind) {
       threads.emplace_back([&mapper, &mappings, &values, thread_ind] {
@@ -51,4 +51,24 @@ TEST(ConcurrentIdMapper, SameIdReturnedMultipleThreads) {
     EXPECT_EQ(mappings[0].size(), values.size());
     for (auto &mapping : mappings) EXPECT_EQ(mapping, mappings[0]);
   }
+}
+
+using IdProperty = storage::Property;
+using MapperProperty = storage::SingleNodeConcurrentIdMapper<IdProperty>;
+
+TEST(ConcurrentIdMapper, PropertyLocation) {
+  // TODO(ipaljak): write unit tests for storage::Common and all
+  // derived classes (tests/unit/storage_types.cpp)
+  std::string prop_on_disk_name = "test_name1";
+  std::string prop_in_mem_name = "test_name2";
+  std::vector<std::string> props_on_disk = {prop_on_disk_name};
+  MapperProperty mapper(props_on_disk);
+
+  auto on_disk = mapper.value_to_id(prop_on_disk_name);
+  ASSERT_EQ(on_disk.Id(), 0);
+  ASSERT_EQ(on_disk.Location(), storage::Location::Disk);
+
+  auto in_mem = mapper.value_to_id(prop_in_mem_name);
+  ASSERT_EQ(in_mem.Id(), 1);
+  ASSERT_EQ(in_mem.Location(), storage::Location::Memory);
 }
