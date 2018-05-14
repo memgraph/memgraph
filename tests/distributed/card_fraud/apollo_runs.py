@@ -21,14 +21,17 @@ for i in range(NUM_MACHINES):
     additional = ["master.py"] if i == 0 else []
     outfile_paths = ["\\./" + OUTPUT_DIR_REL + "/.+"] if i == 0 else []
     if i == 0:
-        cmd = "master.py --machines-num {0} --test-suite card_fraud " \
+        cmd = "master.py"
+        args = "--machines-num {0} --test-suite card_fraud " \
                 "--test card_fraud".format(NUM_MACHINES)
     else:
         cmd = "jail_service.py"
+        args = ""
     runs.append({
         "name": "distributed__card_fraud__" + name,
         "cd": "..",
         "supervisor": cmd,
+        "arguments": args,
         "infiles": binaries + [
             "common.py",
             "jail_service.py",
