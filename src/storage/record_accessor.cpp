@@ -84,7 +84,8 @@ const PropertyValueStore &RecordAccessor<TRecord>::Properties() const {
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::operator==(const RecordAccessor &other) const {
-  DCHECK(db_accessor_ == other.db_accessor_) << "Not in the same transaction.";
+  DCHECK(db_accessor_->transaction_id() == other.db_accessor_->transaction_id())
+      << "Not in the same transaction.";
   return address_ == other.address_;
 }
 

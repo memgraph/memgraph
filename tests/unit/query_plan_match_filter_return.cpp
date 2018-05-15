@@ -6,15 +6,20 @@
 
 #include <fmt/format.h>
 
+#include "cppitertools/enumerate.hpp"
+#include "cppitertools/repeat.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db.hpp"
+#include "distributed/data_manager.hpp"
+#include "distributed/updates_rpc_server.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
 
+#include "distributed_common.hpp"
 #include "query_plan_common.hpp"
 
 using namespace query;
@@ -417,10 +422,6 @@ TEST_F(ExpandFixture, Expand) {
 
     return PullAll(produce, dba_, symbol_table);
   };
-
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, GraphView::OLD));
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, GraphView::OLD));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
 
   // test that expand works well for both old and new graph state
   v1.Reconstruct();
@@ -827,89 +828,99 @@ struct hash<std::pair<int, int>> {
 };
 }  // namespace std
 
-// TODO test optional + variable length
-
 /** A test fixture for breadth first expansion */
-class QueryPlanExpandBreadthFirst : public testing::Test {
+class QueryPlanExpandBfs
+    : public testing::TestWithParam<std::pair<TestType, int>> {
  protected:
-  // style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
-  // macro requirements
-  database::SingleNode db;
+  QueryPlanExpandBfs() : cluster(GetParam().first, GetParam().second) {}
+
+  // Worker IDs where vertices are located.
+  const std::vector<int> vertices = {0, 1, 1, 0, 1, 2};
+  // Edges in graph.
+  const std::vector<std::pair<int, int>> edges = {
+      {0, 1}, {1, 2}, {2, 4}, {2, 5}, {4, 1}, {4, 5}, {5, 4}, {5, 5}, {5, 3}};
+
+  // Style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
+  // macro requirements.
+  Cluster cluster;
+  database::GraphDb &db{*cluster.master()};
   database::GraphDbAccessor dba{db};
   std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
   storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
-  // make 4 vertices because we'll need to compare against them exactly
-  // v[0] has `prop` with the value 0
-  std::vector<VertexAccessor> v;
-
-  // make some edges too, in a map (from, to) vertex indices
-  std::unordered_map<std::pair<int, int>, EdgeAccessor> e;
+  std::vector<storage::VertexAddress> v;
+  std::unordered_map<std::pair<int, int>, storage::EdgeAddress> e;
 
   AstTreeStorage storage;
   SymbolTable symbol_table;
 
-  // inner edge and vertex symbols
-  // edge from a to b has `prop` with the value ab (all ints)
+  // Inner edge and vertex symbols.
+  // Edge from a to b has `prop` with the value ab (all ints).
   Symbol inner_edge = symbol_table.CreateSymbol("inner_edge", true);
   Symbol inner_node = symbol_table.CreateSymbol("inner_node", true);
 
   void SetUp() {
-    for (int i = 0; i < 4; i++) {
-      v.push_back(dba.InsertVertex());
-      v.back().PropsSet(prop.second, i);
+    for (auto p : iter::enumerate(vertices)) {
+      int id, worker;
+      std::tie(id, worker) = p;
+      if (GetParam().first == TestType::SINGLE_NODE || worker == 0) {
+        auto vertex = dba.InsertVertex();
+        vertex.PropsSet(prop.second, id);
+        v.push_back(vertex.GlobalAddress());
+      } else {
+        auto vertex =
+            dba.InsertVertexIntoRemote(worker, {}, {{prop.second, id}});
+        v.push_back(vertex.GlobalAddress());
+      }
     }
 
-    auto add_edge = [&](int from, int to) {
-      EdgeAccessor edge = dba.InsertEdge(v[from], v[to], edge_type);
-      edge.PropsSet(prop.second, from * 10 + to);
-      e.emplace(std::make_pair(from, to), edge);
-    };
+    for (auto p : edges) {
+      VertexAccessor from(v[p.first], dba);
+      VertexAccessor to(v[p.second], dba);
+      auto edge = dba.InsertEdge(from, to, edge_type);
+      edge.PropsSet(prop.second, p.first * 10 + p.second);
+      e.emplace(p, edge.GlobalAddress());
+    }
 
-    add_edge(0, 1);
-    add_edge(2, 0);
-    add_edge(2, 1);
-    add_edge(1, 3);
-    add_edge(3, 2);
-    add_edge(2, 2);
-
-    dba.AdvanceCommand();
-    for (auto &vertex : v) vertex.Reconstruct();
-    for (auto &edge : e) edge.second.Reconstruct();
+    cluster.AdvanceCommand(dba.transaction_id());
   }
 
-  // defines and performs a breadth-first expansion with the given params
-  // returns a vector of pairs. each pair is (vector-of-edges, vertex)
-  auto ExpandBF(EdgeAtom::Direction direction, int max_depth, Expression *where,
-                GraphView graph_view,
-                std::experimental::optional<int> node_id = 0,
-                ScanAllTuple *existing_node_input = nullptr) {
-    // scan the nodes optionally filtering on property value
-    auto n =
-        MakeScanAll(storage, symbol_table, "n",
-                    existing_node_input ? existing_node_input->op_ : nullptr);
-    auto last_op = n.op_;
-    if (node_id) {
-      last_op = std::make_shared<Filter>(
-          last_op,
-          EQ(PROPERTY_LOOKUP(n.node_->identifier_, prop), LITERAL(*node_id)));
+  // Defines and performs a breadth-first expansion with the given parameters.
+  // Returns a vector of pairs. Each pair is (vector-of-edges, vertex).
+  auto ExpandBF(EdgeAtom::Direction direction, int min_depth, int max_depth,
+                Expression *where, GraphView graph_view = GraphView::OLD,
+                const std::vector<TypedValue> &sources = {},
+                std::experimental::optional<TypedValue> existing_node =
+                    std::experimental::nullopt) {
+    auto source_sym = symbol_table.CreateSymbol("source", true);
+
+    // Wrap all sources in a list and unwind it.
+    std::vector<Expression *> source_literals;
+    for (auto &source : sources) {
+      source_literals.emplace_back(LITERAL(source));
     }
+    auto source_expr = storage.Create<ListLiteral>(source_literals);
 
-    // expand bf
-    auto node_sym = existing_node_input
-                        ? existing_node_input->sym_
-                        : symbol_table.CreateSymbol("node", true);
+    std::shared_ptr<LogicalOperator> last_op =
+        std::make_shared<query::plan::Unwind>(nullptr, source_expr, source_sym);
+
+    auto node_sym = symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
-    auto filter_lambda =
 
-        last_op = std::make_shared<ExpandVariable>(
-            node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
-            std::vector<storage::EdgeType>{}, false, nullptr,
-            LITERAL(max_depth), last_op, n.sym_, existing_node_input != nullptr,
-            ExpandVariable::Lambda{inner_edge, inner_node, where},
-            std::experimental::nullopt, std::experimental::nullopt, graph_view);
+    last_op = std::make_shared<ExpandVariable>(
+        node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
+        std::vector<storage::EdgeType>{}, false, LITERAL(min_depth),
+        LITERAL(max_depth), last_op, source_sym,
+        static_cast<bool>(existing_node),
+        ExpandVariable::Lambda{inner_edge, inner_node, where},
+        std::experimental::nullopt, std::experimental::nullopt, graph_view);
 
     Frame frame(symbol_table.max_position());
+
+    if (existing_node) {
+      frame[node_sym] = *existing_node;
+    }
+
     auto cursor = last_op->MakeCursor(dba);
     std::vector<std::pair<std::vector<EdgeAccessor>, VertexAccessor>> results;
     Context context(dba);
@@ -929,132 +940,265 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
     return accessor.PropsAt(prop.second).template Value<int64_t>();
   }
 
-  Expression *PropNe(Symbol symbol, int value) {
-    auto ident = IDENT("inner_element");
-    symbol_table[*ident] = symbol;
-    return NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(value));
+  bool EdgesEqual(const std::vector<EdgeAccessor> &edges,
+                  const std::vector<int> &ids) {
+    if (edges.size() != ids.size()) return false;
+    for (size_t i = 0; i < edges.size(); ++i) {
+      if (GetProp(edges[i]) != ids[i]) return false;
+    }
+    return true;
   }
 };
 
-#define EXPECT_EITHER(value, a, b) EXPECT_TRUE(value == a || value == b)
+TEST_P(QueryPlanExpandBfs, Basic) {
+  auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
+                          GraphView::OLD, {VertexAccessor(v[0], dba)});
 
-TEST_F(QueryPlanExpandBreadthFirst, Basic) {
-  auto results =
-      ExpandBF(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), GraphView::OLD);
+  ASSERT_EQ(results.size(), 5);
 
-  ASSERT_EQ(results.size(), 3);
+  EXPECT_EQ(GetProp(results[0].second), 1);
+  EXPECT_TRUE(EdgesEqual(results[0].first, {1}));
 
-  // check end nodes
-  EXPECT_EITHER(GetProp(results[0].second), 1, 2);
-  EXPECT_EITHER(GetProp(results[1].second), 1, 2);
-  EXPECT_NE(GetProp(results[0].second), GetProp(results[1].second));
-  EXPECT_EQ(GetProp(results[2].second), 3);
+  if (GetProp(results[1].second) == 4) {
+    std::swap(results[1], results[2]);
+  }
 
-  // check edges
-  ASSERT_EQ(results[0].first.size(), 1);
-  EXPECT_EITHER(GetProp(results[0].first[0]), 1, 20);
-  ASSERT_EQ(results[1].first.size(), 1);
-  EXPECT_EITHER(GetProp(results[1].first[0]), 1, 20);
-  ASSERT_EQ(results[2].first.size(), 2);
-  EXPECT_EITHER(GetProp(results[2].first[1]), 13, 32);
+  EXPECT_EQ(GetProp(results[1].second), 2);
+  EXPECT_TRUE(EdgesEqual(results[1].first, {1, 12}));
+
+  EXPECT_EQ(GetProp(results[2].second), 4);
+  EXPECT_TRUE(EdgesEqual(results[2].first, {1, 41}));
+
+  EXPECT_EQ(GetProp(results[3].second), 5);
+  EXPECT_TRUE(EdgesEqual(results[3].first, {1, 41, 45}) ||
+              EdgesEqual(results[3].first, {1, 41, 54}) ||
+              EdgesEqual(results[3].first, {1, 12, 25}));
+
+  EXPECT_EQ(GetProp(results[4].second), 3);
+  EXPECT_TRUE(EdgesEqual(results[4].first, {1, 41, 45, 53}) ||
+              EdgesEqual(results[4].first, {1, 41, 54, 53}) ||
+              EdgesEqual(results[4].first, {1, 12, 25, 53}));
 }
 
-TEST_F(QueryPlanExpandBreadthFirst, EdgeDirection) {
+TEST_P(QueryPlanExpandBfs, EdgeDirection) {
   {
-    auto results =
-        ExpandBF(EdgeAtom::Direction::IN, 1000, LITERAL(true), GraphView::OLD);
-    ASSERT_EQ(results.size(), 3);
-    EXPECT_EQ(GetProp(results[0].second), 2);
-    EXPECT_EQ(GetProp(results[1].second), 3);
-    EXPECT_EQ(GetProp(results[2].second), 1);
-    for (int i = 0; i < 3; i++) EXPECT_EQ(results[i].first.size(), i + 1);
-    // assume edges are OK because vertices are (tested before)
-  }
-  {
-    auto results =
-        ExpandBF(EdgeAtom::Direction::OUT, 1000, LITERAL(true), GraphView::OLD);
-    ASSERT_EQ(results.size(), 3);
+    auto results = ExpandBF(EdgeAtom::Direction::OUT, 1, 1000, nullptr,
+                            GraphView::OLD, {VertexAccessor(v[4], dba)});
+    ASSERT_EQ(results.size(), 4);
+
+    if (GetProp(results[0].second) == 5) {
+      std::swap(results[0], results[1]);
+    }
+
     EXPECT_EQ(GetProp(results[0].second), 1);
-    EXPECT_EQ(GetProp(results[1].second), 3);
+    EXPECT_TRUE(EdgesEqual(results[0].first, {41}));
+
+    EXPECT_EQ(GetProp(results[1].second), 5);
+    EXPECT_TRUE(EdgesEqual(results[1].first, {45}));
+
+    if (GetProp(results[2].second) == 3) {
+      std::swap(results[2], results[3]);
+    }
+
     EXPECT_EQ(GetProp(results[2].second), 2);
-    for (int i = 0; i < 3; i++) EXPECT_EQ(results[i].first.size(), i + 1);
-    // assume edges are OK because vertices are (tested before)
+    EXPECT_TRUE(EdgesEqual(results[2].first, {41, 12}));
+
+    EXPECT_EQ(GetProp(results[3].second), 3);
+    EXPECT_TRUE(EdgesEqual(results[3].first, {45, 53}));
+  }
+
+  {
+    auto results = ExpandBF(EdgeAtom::Direction::IN, 1, 1000, nullptr,
+                            GraphView::OLD, {VertexAccessor(v[4], dba)});
+    ASSERT_EQ(results.size(), 4);
+
+    if (GetProp(results[0].second) == 5) {
+      std::swap(results[0], results[1]);
+    }
+
+    EXPECT_EQ(GetProp(results[0].second), 2);
+    EXPECT_TRUE(EdgesEqual(results[0].first, {24}));
+
+    EXPECT_EQ(GetProp(results[1].second), 5);
+    EXPECT_TRUE(EdgesEqual(results[1].first, {54}));
+
+    EXPECT_EQ(GetProp(results[2].second), 1);
+    EXPECT_TRUE(EdgesEqual(results[2].first, {24, 12}));
+
+    EXPECT_EQ(GetProp(results[3].second), 0);
+    EXPECT_TRUE(EdgesEqual(results[3].first, {24, 12, 1}));
   }
 }
 
-TEST_F(QueryPlanExpandBreadthFirst, Where) {
+TEST_P(QueryPlanExpandBfs, Where) {
+  // TODO(mtomic): lambda filtering in distributed
+  if (GetParam().first == TestType::DISTRIBUTED) {
+    return;
+  }
+
+  auto ident = IDENT("inner_element");
   {
-    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1000,
-                            PropNe(inner_node, 2), GraphView::OLD);
+    symbol_table[*ident] = inner_node;
+    auto filter_expr = LESS(PROPERTY_LOOKUP(ident, prop), LITERAL(4));
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, filter_expr,
+                            GraphView::OLD, {VertexAccessor(v[0], dba)});
     ASSERT_EQ(results.size(), 2);
     EXPECT_EQ(GetProp(results[0].second), 1);
-    EXPECT_EQ(GetProp(results[1].second), 3);
+    EXPECT_EQ(GetProp(results[1].second), 2);
   }
   {
-    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1000,
-                            PropNe(inner_edge, 20), GraphView::OLD);
-    ASSERT_EQ(results.size(), 3);
+    symbol_table[*ident] = inner_edge;
+    auto filter_expr = AND(LESS(PROPERTY_LOOKUP(ident, prop), LITERAL(50)),
+                           NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(12)));
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, filter_expr,
+                            GraphView::OLD, {VertexAccessor(v[0], dba)});
+    ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].second), 1);
-    EXPECT_EITHER(GetProp(results[1].second), 3, 2);
-    EXPECT_EITHER(GetProp(results[2].second), 3, 2);
-    EXPECT_NE(GetProp(results[1].second), GetProp(results[2].second));
+    EXPECT_EQ(GetProp(results[1].second), 4);
+
+    if (GetProp(results[2].second) == 5) {
+      std::swap(results[2], results[3]);
+    }
+    EXPECT_EQ(GetProp(results[2].second), 2);
+    EXPECT_EQ(GetProp(results[3].second), 5);
+    EXPECT_TRUE(EdgesEqual(results[3].first, {1, 41, 45}));
   }
 }
 
-TEST_F(QueryPlanExpandBreadthFirst, GraphState) {
+TEST_P(QueryPlanExpandBfs, GraphState) {
   auto ExpandSize = [this](GraphView graph_view) {
-    return ExpandBF(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), graph_view)
+    return ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, graph_view,
+                    {VertexAccessor(v[0], dba)})
         .size();
   };
-  EXPECT_EQ(ExpandSize(GraphView::OLD), 3);
-  EXPECT_EQ(ExpandSize(GraphView::NEW), 3);
-  auto new_vertex = dba.InsertVertex();
-  new_vertex.PropsSet(prop.second, 4);
-  dba.InsertEdge(v[3], new_vertex, edge_type);
-  EXPECT_EQ(CountIterable(dba.Vertices(false)), 4);
-  EXPECT_EQ(CountIterable(dba.Vertices(true)), 5);
-  EXPECT_EQ(ExpandSize(GraphView::OLD), 3);
-  EXPECT_EQ(ExpandSize(GraphView::NEW), 4);
-  dba.AdvanceCommand();
-  EXPECT_EQ(ExpandSize(GraphView::OLD), 4);
-  EXPECT_EQ(ExpandSize(GraphView::NEW), 4);
-}
 
-TEST_F(QueryPlanExpandBreadthFirst, MultipleInputs) {
-  auto results = ExpandBF(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                          GraphView::OLD, std::experimental::nullopt);
-  // expect that each vertex has been returned 3 times
-  EXPECT_EQ(results.size(), 12);
-  std::vector<int> found(4, 0);
-  for (const auto &row : results) found[GetProp(row.second)]++;
-  EXPECT_EQ(found, std::vector<int>(4, 3));
-}
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 5);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 5);
 
-TEST_F(QueryPlanExpandBreadthFirst, ExistingNode) {
-  auto ExpandPreceeding =
-      [this](std::experimental::optional<int> preceeding_node_id) {
-        // scan the nodes optionally filtering on property value
-        auto n0 = MakeScanAll(storage, symbol_table, "n0");
-        if (preceeding_node_id) {
-          auto filter = std::make_shared<Filter>(
-              n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
-                         LITERAL(*preceeding_node_id)));
-          // inject the filter op into the ScanAllTuple. that way the filter op
-          // can be passed into the ExpandBF function without too much refactor
-          n0.op_ = filter;
-        }
-
-        return ExpandBF(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                        GraphView::OLD, std::experimental::nullopt, &n0);
-      };
-
-  EXPECT_EQ(ExpandPreceeding(std::experimental::nullopt).size(), 12);
   {
-    auto results = ExpandPreceeding(0);
-    ASSERT_EQ(results.size(), 3);
-    for (int i = 0; i < 3; i++) EXPECT_EQ(GetProp(results[i].second), 0);
+    auto from = VertexAccessor(v[0], dba);
+    auto to = dba.InsertVertex();
+    v.push_back(to.GlobalAddress());
+
+    dba.InsertEdge(from, to, edge_type);
+    cluster.ApplyUpdates(dba.transaction_id());
+  }
+
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 5);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 6);
+
+  cluster.AdvanceCommand(dba.transaction_id());
+
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 6);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 6);
+
+  {
+    v.push_back(dba.InsertVertex().GlobalAddress());
+    cluster.AdvanceCommand(dba.transaction_id());
+
+    auto from = VertexAccessor(v[4], dba);
+    auto to = VertexAccessor(v[7], dba);
+
+    dba.InsertEdge(from, to, edge_type);
+    cluster.ApplyUpdates(dba.transaction_id());
+  }
+
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 6);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 7);
+
+  cluster.AdvanceCommand(dba.transaction_id());
+
+  EXPECT_EQ(ExpandSize(GraphView::OLD), 7);
+  EXPECT_EQ(ExpandSize(GraphView::NEW), 7);
+}
+
+TEST_P(QueryPlanExpandBfs, MultipleInputs) {
+  auto results =
+      ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, GraphView::OLD,
+               {VertexAccessor(v[0], dba), VertexAccessor(v[3], dba)});
+  // Expect that each vertex has been returned 2 times.
+  EXPECT_EQ(results.size(), 10);
+  std::vector<int> found(5, 0);
+  for (const auto &row : results) found[GetProp(row.second)]++;
+  EXPECT_EQ(found, (std::vector<int>{1, 2, 2, 1, 2}));
+}
+
+TEST_P(QueryPlanExpandBfs, ExistingNode) {
+  using testing::ElementsAre;
+  using testing::WhenSorted;
+
+  std::vector<TypedValue> sources;
+  for (int i = 0; i < 5; ++i) {
+    sources.push_back(VertexAccessor(v[i], dba));
+  }
+
+  {
+    auto results =
+        ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, GraphView::OLD,
+                 {VertexAccessor(v[0], dba)}, VertexAccessor(v[3], dba));
+    EXPECT_EQ(results.size(), 1);
+    EXPECT_EQ(GetProp(results[0].second), 3);
+  }
+  {
+    auto results = ExpandBF(EdgeAtom::Direction::IN, 1, 1000, nullptr,
+                            GraphView::OLD, sources, VertexAccessor(v[5], dba));
+
+    std::vector<int> nodes;
+    for (auto &row : results) {
+      EXPECT_EQ(GetProp(row.second), 5);
+      nodes.push_back(GetProp(row.first[0]) % 10);
+    }
+    EXPECT_THAT(nodes, WhenSorted(ElementsAre(1, 2, 3, 4)));
+  }
+  {
+    auto results = ExpandBF(EdgeAtom::Direction::OUT, 1, 1000, nullptr,
+                            GraphView::OLD, sources, VertexAccessor(v[5], dba));
+
+    std::vector<int> nodes;
+    for (auto &row : results) {
+      EXPECT_EQ(GetProp(row.second), 5);
+      nodes.push_back(GetProp(row.first[0]) / 10);
+    }
+    EXPECT_THAT(nodes, WhenSorted(ElementsAre(0, 1, 2, 4)));
   }
 }
+
+TEST_P(QueryPlanExpandBfs, OptionalMatch) {
+  {
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
+                            GraphView::OLD, {TypedValue::Null});
+    EXPECT_EQ(results.size(), 0);
+  }
+  {
+    auto results =
+        ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, GraphView::OLD,
+                 {VertexAccessor(v[0], dba)}, TypedValue::Null);
+    EXPECT_EQ(results.size(), 0);
+  }
+}
+
+TEST_P(QueryPlanExpandBfs, ExpansionDepth) {
+  {
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 2, 3, nullptr,
+                            GraphView::OLD, {VertexAccessor(v[0], dba)});
+    EXPECT_EQ(results.size(), 3);
+    if (GetProp(results[0].second) == 4) {
+      std::swap(results[0], results[1]);
+    }
+
+    EXPECT_EQ(GetProp(results[0].second), 2);
+    EXPECT_EQ(GetProp(results[1].second), 4);
+    EXPECT_EQ(GetProp(results[2].second), 5);
+  }
+}
+
+INSTANTIATE_TEST_CASE_P(SingleNode, QueryPlanExpandBfs,
+                        ::testing::Values(std::make_pair(TestType::SINGLE_NODE,
+                                                         0)));
+
+INSTANTIATE_TEST_CASE_P(Distributed, QueryPlanExpandBfs,
+                        ::testing::Values(std::make_pair(TestType::DISTRIBUTED,
+                                                         2)));
 
 /** A test fixture for weighted shortest path expansion */
 class QueryPlanExpandWeightedShortestPath : public testing::Test {
@@ -1066,8 +1210,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   };
 
  protected:
-  // style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
-  // macro requirements
+  // style-guide non-conformant name due to PROPERTY_PAIR and
+  // PROPERTY_LOOKUP macro requirements
   database::SingleNode db;
   database::GraphDbAccessor dba{db};
   std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
@@ -1116,11 +1260,12 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     for (auto &edge : e) edge.second.Reconstruct();
   }
 
-  // defines and performs a weighted shortest expansion with the given params
-  // returns a vector of pairs. each pair is (vector-of-edges, vertex)
+  // defines and performs a weighted shortest expansion with the given
+  // params returns a vector of pairs. each pair is (vector-of-edges,
+  // vertex)
   auto ExpandWShortest(EdgeAtom::Direction direction,
                        std::experimental::optional<int> max_depth,
-                       Expression *where, GraphView graph_view,
+                       Expression *where, GraphView graph_view = GraphView::OLD,
                        std::experimental::optional<int> node_id = 0,
                        ScanAllTuple *existing_node_input = nullptr) {
     // scan the nodes optionally filtering on property value
@@ -1198,8 +1343,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 //      3      3     3
 
 TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
-  auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
-                                 GraphView::OLD);
+  auto results =
+      ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
 
   ASSERT_EQ(results.size(), 4);
 
@@ -1232,8 +1377,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::OUT, 1000,
-                                   LITERAL(true), GraphView::OLD);
+    auto results =
+        ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1245,8 +1390,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true),
-                                   GraphView::OLD);
+    auto results =
+        ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 4);
     EXPECT_EQ(results[0].total_weight, 12);
@@ -1262,7 +1407,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
 TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
   {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
-                                   PropNe(filter_node, 2), GraphView::OLD);
+                                   PropNe(filter_node, 2));
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 1);
     EXPECT_EQ(results[0].total_weight, 5);
@@ -1273,7 +1418,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
   }
   {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
-                                   PropNe(filter_node, 1), GraphView::OLD);
+                                   PropNe(filter_node, 1));
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1314,9 +1459,9 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
           auto filter = std::make_shared<Filter>(
               n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
                          LITERAL(*preceeding_node_id)));
-          // inject the filter op into the ScanAllTuple. that way the filter op
-          // can be passed into the ExpandWShortest function without too much
-          // refactor
+          // inject the filter op into the ScanAllTuple. that way the filter
+          // op can be passed into the ExpandWShortest function without too
+          // much refactor
           n0.op_ = filter;
         }
 
@@ -1334,9 +1479,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
   {
-    auto results =
-        ExpandWShortest(EdgeAtom::Direction::BOTH, std::experimental::nullopt,
-                        LITERAL(true), GraphView::OLD);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH,
+                                   std::experimental::nullopt, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1369,8 +1513,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
     EXPECT_EQ(results[4].total_weight, 12);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true),
-                                   GraphView::OLD);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1382,8 +1525,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
     EXPECT_EQ(results[3].total_weight, 10);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true),
-                                   GraphView::OLD);
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -2082,9 +2224,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   database::SingleNode db;
-  // Add 2 vertices with the same label, but one has a property value while the
-  // other does not. Checking if the value is equal to null, should yield no
-  // results.
+  // Add 2 vertices with the same label, but one has a property value while
+  // the other does not. Checking if the value is equal to null, should
+  // yield no results.
   auto label = database::GraphDbAccessor(db).Label("label");
   auto prop = database::GraphDbAccessor(db).Property("prop");
   {
@@ -2115,9 +2257,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
 
 TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   database::SingleNode db;
-  // Add 2 vertices with the same label, but one has a property value while the
-  // other does not. Checking if the value is between nulls, should yield no
-  // results.
+  // Add 2 vertices with the same label, but one has a property value while
+  // the other does not. Checking if the value is between nulls, should
+  // yield no results.
   auto label = database::GraphDbAccessor(db).Label("label");
   auto prop = database::GraphDbAccessor(db).Property("prop");
   {

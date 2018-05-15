@@ -20,7 +20,7 @@ namespace distributed {
  * Thread safe. */
 class RpcWorkerClients {
  public:
-  RpcWorkerClients(Coordination &coordination)
+  explicit RpcWorkerClients(Coordination &coordination)
       : coordination_(coordination),
         thread_pool_(std::thread::hardware_concurrency()) {}
 
@@ -68,6 +68,20 @@ class RpcWorkerClients {
     return futures;
   }
 
+  template <typename TResult>
+  auto ExecuteOnWorkers(
+      int skip_worker_id,
+      std::function<TResult(int, communication::rpc::ClientPool &)> execute) {
+    std::vector<utils::Future<TResult>> futures;
+    for (auto &worker_id : coordination_.GetWorkerIds()) {
+      if (worker_id == skip_worker_id) continue;
+      auto &client_pool = GetClientPool(worker_id);
+      futures.emplace_back(
+          thread_pool_.Run(execute, worker_id, std::ref(client_pool)));
+    }
+    return futures;
+  }
+
  private:
   // TODO make Coordination const, it's member GetEndpoint must be const too.
   Coordination &coordination_;
@@ -80,12 +94,11 @@ class RpcWorkerClients {
  */
 class IndexRpcClients {
  public:
-  IndexRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
+  explicit IndexRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
 
   auto GetBuildIndexFutures(const storage::Label &label,
                             const storage::Property &property,
-                            tx::TransactionId transaction_id,
-                            int worker_id) {
+                            tx::TransactionId transaction_id, int worker_id) {
     return clients_.ExecuteOnWorkers<bool>(
         worker_id, [label, property, transaction_id](
                        communication::rpc::ClientPool &client_pool) {
@@ -119,8 +132,8 @@ class OngoingProduceJoinerRpcClients {
               << tx_id << " ended";
         });
 
-    // We need to wait for all workers to destroy pending futures to avoid using
-    // already destroyed (released) transaction objects.
+    // We need to wait for all workers to destroy pending futures to avoid
+    // using already destroyed (released) transaction objects.
     for (auto &future : futures) {
       future.wait();
     }

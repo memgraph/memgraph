@@ -5,6 +5,7 @@
 #include "boost/serialization/export.hpp"
 
 #include "database/state_delta.hpp"
+#include "distributed/bfs_rpc_messages.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
 #include "distributed/data_rpc_messages.hpp"
 #include "distributed/durability_rpc_messages.hpp"
@@ -134,3 +135,23 @@ BOOST_CLASS_EXPORT(distributed::GcClearedStatusRes);
 // Transactional Cache Cleaner.
 BOOST_CLASS_EXPORT(distributed::WaitOnTransactionEndReq);
 BOOST_CLASS_EXPORT(distributed::WaitOnTransactionEndRes);
+
+// Cursor.
+BOOST_CLASS_EXPORT(distributed::CreateBfsSubcursorReq);
+BOOST_CLASS_EXPORT(distributed::CreateBfsSubcursorRes);
+BOOST_CLASS_EXPORT(distributed::RegisterSubcursorsReq);
+BOOST_CLASS_EXPORT(distributed::RegisterSubcursorsRes);
+BOOST_CLASS_EXPORT(distributed::RemoveBfsSubcursorReq);
+BOOST_CLASS_EXPORT(distributed::RemoveBfsSubcursorRes);
+BOOST_CLASS_EXPORT(distributed::SetSourceReq);
+BOOST_CLASS_EXPORT(distributed::SetSourceRes);
+BOOST_CLASS_EXPORT(distributed::ExpandLevelReq);
+BOOST_CLASS_EXPORT(distributed::ExpandLevelRes);
+BOOST_CLASS_EXPORT(distributed::SubcursorPullReq);
+BOOST_CLASS_EXPORT(distributed::SubcursorPullRes);
+BOOST_CLASS_EXPORT(distributed::ExpandToRemoteVertexReq);
+BOOST_CLASS_EXPORT(distributed::ExpandToRemoteVertexRes);
+BOOST_CLASS_EXPORT(distributed::ReconstructPathReq);
+BOOST_CLASS_EXPORT(distributed::ReconstructPathRes);
+BOOST_CLASS_EXPORT(distributed::PrepareForExpandReq);
+BOOST_CLASS_EXPORT(distributed::PrepareForExpandRes);

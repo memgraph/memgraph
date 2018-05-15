@@ -7,6 +7,8 @@
 #include "database/storage_gc_master.hpp"
 #include "database/storage_gc_single_node.hpp"
 #include "database/storage_gc_worker.hpp"
+#include "distributed/bfs_rpc_clients.hpp"
+#include "distributed/bfs_rpc_server.hpp"
 #include "distributed/cluster_discovery_master.hpp"
 #include "distributed/cluster_discovery_worker.hpp"
 #include "distributed/coordination_master.hpp"
@@ -134,6 +136,12 @@ class SingleNode : public PrivateBase {
       storage_->PropertiesOnDisk()};
   database::SingleNodeCounters counters_;
   std::vector<int> GetWorkerIds() const override { return {0}; }
+  distributed::BfsRpcServer &bfs_subcursor_server() override {
+    LOG(FATAL) << "Subcursor server not available in single-node.";
+  }
+  distributed::BfsRpcClients &bfs_subcursor_clients() override {
+    LOG(FATAL) << "Subcursor clients not available in single-node.";
+  }
   distributed::DataRpcServer &data_server() override {
     LOG(FATAL) << "Remote data server not available in single-node.";
   }
@@ -167,6 +175,12 @@ class SingleNode : public PrivateBase {
 #define IMPL_DISTRIBUTED_GETTERS                                              \
   std::vector<int> GetWorkerIds() const override {                            \
     return coordination_.GetWorkerIds();                                      \
+  }                                                                           \
+  distributed::BfsRpcServer &bfs_subcursor_server() override {                \
+    return bfs_subcursor_server_;                                             \
+  }                                                                           \
+  distributed::BfsRpcClients &bfs_subcursor_clients() override {              \
+    return bfs_subcursor_clients_;                                            \
   }                                                                           \
   distributed::DataRpcServer &data_server() override { return data_server_; } \
   distributed::DataRpcClients &data_clients() override {                      \
@@ -230,6 +244,11 @@ class Master : public PrivateBase {
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   TypemapPack<MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{server_};
+  distributed::BfsSubcursorStorage subcursor_storage_{this};
+  distributed::BfsRpcServer bfs_subcursor_server_{this, &server_,
+                                                  &subcursor_storage_};
+  distributed::BfsRpcClients bfs_subcursor_clients_{this, &subcursor_storage_,
+                                                    &rpc_worker_clients_};
   distributed::DurabilityRpcClients durability_rpc_clients_{
       rpc_worker_clients_};
   distributed::DataRpcServer data_server_{*this, server_};
@@ -284,6 +303,11 @@ class Worker : public PrivateBase {
   TypemapPack<WorkerConcurrentIdMapper> typemap_pack_{
       rpc_worker_clients_.GetClientPool(0)};
   database::WorkerCounters counters_{rpc_worker_clients_.GetClientPool(0)};
+  distributed::BfsSubcursorStorage subcursor_storage_{this};
+  distributed::BfsRpcServer bfs_subcursor_server_{this, &server_,
+                                                  &subcursor_storage_};
+  distributed::BfsRpcClients bfs_subcursor_clients_{this, &subcursor_storage_,
+                                                    &rpc_worker_clients_};
   distributed::DataRpcServer data_server_{*this, server_};
   distributed::DataRpcClients data_clients_{rpc_worker_clients_};
   distributed::PlanConsumer plan_consumer_{server_};
@@ -416,6 +440,12 @@ void PublicBase::CollectGarbage() { impl_->CollectGarbage(); }
 int PublicBase::WorkerId() const { return impl_->WorkerId(); }
 std::vector<int> PublicBase::GetWorkerIds() const {
   return impl_->GetWorkerIds();
+}
+distributed::BfsRpcServer &PublicBase::bfs_subcursor_server() {
+  return impl_->bfs_subcursor_server();
+}
+distributed::BfsRpcClients &PublicBase::bfs_subcursor_clients() {
+  return impl_->bfs_subcursor_clients();
 }
 distributed::DataRpcServer &PublicBase::data_server() {
   return impl_->data_server();

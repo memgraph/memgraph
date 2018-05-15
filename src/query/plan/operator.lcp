@@ -605,7 +605,7 @@ property value.
    (existing-node :bool :scope :protected :documentation
                   "If the given node atom refer to a symbol that has already
                   been expanded and should be just validated in the frame.")
-   (graph-view "GraphView" :scope :protected :documentation
+   (graph-view "GraphView" :reader t :scope :protected :documentation
                "from which state the input node should get expanded"))
   (:documentation
    "Common functionality and data members of single-edge and variable-length
@@ -826,8 +826,9 @@ pulled.")
    // the Cursors are not declared in the header because
    // it's edges_ and edges_it_ are decltyped using a helper function
    // that should be inaccessible (private class function won't compile)
+   friend class DistributedExpandBfsCursor;
    friend class ExpandVariableCursor;
-   friend class ExpandBreadthFirstCursor;
+   friend class ExpandBfsCursor;
    friend class ExpandWeightedShortestPathCursor;
 
    ExpandVariable() {}

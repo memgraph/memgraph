@@ -211,7 +211,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&exp);
     return true;
   }
-  // TODO: ExpandVariable
+
+  bool PreVisit(ExpandVariable &exp) override {
+    prev_ops_.push_back(&exp);
+    return true;
+  }
 
   // The following operators filter the frame or put something on it. They
   // should be worker local.

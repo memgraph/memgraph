@@ -180,4 +180,5 @@ std::unique_ptr<Edge> LoadEdge(TArchive &ar) {
 
   return edge;
 }
+
 }  // namespace distributed

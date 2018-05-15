@@ -46,13 +46,14 @@ void save(TArchive &ar, const std::experimental::optional<T> &opt,
 }
 
 template <class TArchive, class T>
-void load(TArchive &ar, std::experimental::optional<T> &opt, unsigned int) {
+void load(TArchive &ar, std::experimental::optional<T> &opt,
+          unsigned int version) {
   bool has_value;
   ar >> has_value;
   if (has_value) {
-    T tmp;
-    ar >> tmp;
-    opt = std::move(tmp);
+    detail::stack_construct<TArchive, T> tmp(ar, version);
+    ar >> tmp.reference();
+    opt = std::move(tmp.reference());
   } else {
     opt = std::experimental::nullopt;
   }

@@ -182,7 +182,7 @@ class ExpectExpandVariable : public OpChecker<ExpandVariable> {
   }
 };
 
-class ExpectExpandBreadthFirst : public OpChecker<ExpandVariable> {
+class ExpectExpandBfs : public OpChecker<ExpandVariable> {
  public:
   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
     EXPECT_EQ(op.type(), query::EdgeAtom::Type::BREADTH_FIRST);
@@ -2026,7 +2026,7 @@ TYPED_TEST(TestPlanner, UnwindMatchVariable) {
                        ExpectExpandVariable(), ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, MatchBreadthFirst) {
+TYPED_TEST(TestPlanner, MatchBfs) {
   // Test MATCH (n) -[r:type *..10 (r, n|n)]-> (m) RETURN r
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
@@ -2040,7 +2040,7 @@ TYPED_TEST(TestPlanner, MatchBreadthFirst) {
   bfs->filter_lambda_.expression = IDENT("n");
   bfs->upper_bound_ = LITERAL(10);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
-  CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectExpandBreadthFirst(),
+  CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectExpandBfs(),
                        ExpectProduce());
 }
 

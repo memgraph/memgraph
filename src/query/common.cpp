@@ -279,4 +279,20 @@ bool TypedValueVectorCompare::TypedValueCompare(const TypedValue &a,
       LOG(FATAL) << "Unhandled comparison for types";
   }
 }
+
+template <typename TAccessor>
+void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
+  switch (graph_view) {
+    case GraphView::NEW:
+      accessor.SwitchNew();
+      break;
+    case GraphView::OLD:
+      accessor.SwitchOld();
+      break;
+  }
+}
+
+template void SwitchAccessor<>(VertexAccessor &accessor, GraphView graph_view);
+template void SwitchAccessor<>(EdgeAccessor &accessor, GraphView graph_view);
+
 }  // namespace query

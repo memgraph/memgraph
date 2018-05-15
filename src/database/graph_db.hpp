@@ -15,6 +15,8 @@
 #include "utils/scheduler.hpp"
 
 namespace distributed {
+class BfsRpcServer;
+class BfsRpcClients;
 class DataRpcServer;
 class DataRpcClients;
 class PlanDispatcher;
@@ -100,6 +102,8 @@ class GraphDb {
   virtual std::vector<int> GetWorkerIds() const = 0;
 
   // Supported only in distributed master and worker, not in single-node.
+  virtual distributed::BfsRpcServer &bfs_subcursor_server() = 0;
+  virtual distributed::BfsRpcClients &bfs_subcursor_clients() = 0;
   virtual distributed::DataRpcServer &data_server() = 0;
   virtual distributed::DataRpcClients &data_clients() = 0;
   virtual distributed::UpdatesRpcServer &updates_server() = 0;
@@ -152,6 +156,8 @@ class PublicBase : public GraphDb {
   void CollectGarbage() override;
   int WorkerId() const override;
   std::vector<int> GetWorkerIds() const override;
+  distributed::BfsRpcServer &bfs_subcursor_server() override;
+  distributed::BfsRpcClients &bfs_subcursor_clients() override;
   distributed::DataRpcServer &data_server() override;
   distributed::DataRpcClients &data_clients() override;
   distributed::PlanDispatcher &plan_dispatcher() override;

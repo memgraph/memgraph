@@ -64,4 +64,9 @@ class TypedValueVectorCompare {
   //  - (list, map, path, vertex, edge) can't compare to anything
   bool TypedValueCompare(const TypedValue &a, const TypedValue &b) const;
 };
+
+// Switch the given [Vertex/Edge]Accessor to the desired state.
+template <class TAccessor>
+void SwitchAccessor(TAccessor &accessor, GraphView graph_view);
+
 }  // namespace query

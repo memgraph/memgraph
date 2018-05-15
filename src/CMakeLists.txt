@@ -13,6 +13,8 @@ set(memgraph_src_files
     database/graph_db.cpp
     database/graph_db_accessor.cpp
     database/state_delta.cpp
+    distributed/bfs_rpc_clients.cpp
+    distributed/bfs_subcursor.cpp
     distributed/cluster_discovery_master.cpp
     distributed/cluster_discovery_worker.cpp
     distributed/coordination.cpp

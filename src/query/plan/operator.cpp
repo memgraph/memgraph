@@ -17,6 +17,7 @@
 #include "glog/logging.h"
 
 #include "database/graph_db_accessor.hpp"
+#include "distributed/bfs_rpc_clients.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
@@ -652,21 +653,6 @@ void Expand::ExpandCursor::Reset() {
   last_frame_.clear();
 }
 
-namespace {
-// Switch the given [Vertex/Edge]Accessor to the desired state.
-template <typename TAccessor>
-void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
-  switch (graph_view) {
-    case GraphView::NEW:
-      accessor.SwitchNew();
-      break;
-    case GraphView::OLD:
-      accessor.SwitchOld();
-      break;
-  }
-}
-}  // namespace
-
 bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
   // Input Vertex could be null if it is created by a failed optional match. In
   // those cases we skip that input pull and continue with the next.
@@ -1044,10 +1030,9 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-class ExpandBreadthFirstCursor : public query::plan::Cursor {
+class ExpandBfsCursor : public query::plan::Cursor {
  public:
-  ExpandBreadthFirstCursor(const ExpandVariable &self,
-                           database::GraphDbAccessor &db)
+  ExpandBfsCursor(const ExpandVariable &self, database::GraphDbAccessor &db)
       : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
@@ -1202,6 +1187,169 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
   std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
+class DistributedExpandBfsCursor : public query::plan::Cursor {
+ public:
+  DistributedExpandBfsCursor(const ExpandVariable &self,
+                             database::GraphDbAccessor &db)
+      : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {
+    subcursor_ids_ = db_.db().bfs_subcursor_clients().CreateBfsSubcursors(
+        db_.transaction_id(), self_.direction(), self_.edge_types(),
+        self_.graph_view());
+    db_.db().bfs_subcursor_clients().RegisterSubcursors(subcursor_ids_);
+    VLOG(10) << "BFS subcursors initialized";
+    pull_pos_ = subcursor_ids_.end();
+  }
+
+  ~DistributedExpandBfsCursor() {
+    VLOG(10) << "Removing BFS subcursors";
+    db_.db().bfs_subcursor_clients().RemoveBfsSubcursors(subcursor_ids_);
+  }
+
+  bool Pull(Frame &frame, Context &context) override {
+    // TODO(mtomic): lambda filtering in distributed
+    if (self_.filter_lambda_.expression) {
+      throw utils::NotYetImplemented("lambda filtering in distributed BFS");
+    }
+
+    // Evaluator for the filtering condition and expansion depth.
+    ExpressionEvaluator evaluator(frame, context.parameters_,
+                                  context.symbol_table_, db_,
+                                  self_.graph_view_);
+
+    while (true) {
+      TypedValue last_vertex;
+
+      if (current_depth_ >= lower_bound_) {
+        for (; pull_pos_ != subcursor_ids_.end(); ++pull_pos_) {
+          auto vertex = db_.db().bfs_subcursor_clients().Pull(
+              pull_pos_->first, pull_pos_->second, &db_);
+          if (vertex) {
+            last_vertex = *vertex;
+            SwitchAccessor(last_vertex.ValueVertex(), self_.graph_view_);
+            break;
+          }
+          VLOG(10) << "Nothing to pull from " << pull_pos_->first;
+        }
+      }
+
+      if (last_vertex.IsVertex()) {
+        // Handle existence flag
+        if (self_.existing_node_) {
+          TypedValue &node = frame[self_.node_symbol_];
+          // Due to optional matching the existing node could be null
+          if (node.IsNull() || (node != last_vertex).ValueBool()) continue;
+        } else {
+          frame[self_.node_symbol_] = last_vertex;
+        }
+
+        VLOG(10) << "Expanded to vertex: " << last_vertex;
+
+        // Reconstruct path
+        std::vector<TypedValue> edges;
+
+        // During path reconstruction, edges crossing worker boundary are
+        // obtained from edge owner to reduce network traffic. If the last
+        // worker queried for its path segment owned the crossing edge,
+        // `current_vertex_addr` will be set. Otherwise, `current_edge_addr`
+        // will be set.
+        std::experimental::optional<storage::VertexAddress>
+            current_vertex_addr = last_vertex.ValueVertex().GlobalAddress();
+        std::experimental::optional<storage::EdgeAddress> current_edge_addr;
+
+        while (true) {
+          DCHECK(static_cast<bool>(current_edge_addr) ^
+                 static_cast<bool>(current_vertex_addr))
+              << "Exactly one of `current_edge_addr` or `current_vertex_addr` "
+                 "should be set during path reconstruction";
+          auto ret = current_edge_addr
+                         ? db_.db().bfs_subcursor_clients().ReconstructPath(
+                               subcursor_ids_, *current_edge_addr, &db_)
+                         : db_.db().bfs_subcursor_clients().ReconstructPath(
+                               subcursor_ids_, *current_vertex_addr, &db_);
+          edges.insert(edges.end(), ret.edges.begin(), ret.edges.end());
+          current_vertex_addr = ret.next_vertex;
+          current_edge_addr = ret.next_edge;
+          if (!current_vertex_addr && !current_edge_addr) break;
+        }
+        std::reverse(edges.begin(), edges.end());
+        for (auto &edge : edges)
+          SwitchAccessor(edge.ValueEdge(), self_.graph_view_);
+        frame[self_.edge_symbol_] = std::move(edges);
+        return true;
+      }
+
+      // We're done pulling for this level
+      pull_pos_ = subcursor_ids_.begin();
+
+      // Try to expand again
+      if (current_depth_ < upper_bound_) {
+        VLOG(10) << "Trying to expand again...";
+        current_depth_++;
+        db_.db().bfs_subcursor_clients().PrepareForExpand(subcursor_ids_,
+                                                          false);
+        if (db_.db().bfs_subcursor_clients().ExpandLevel(subcursor_ids_)) {
+          continue;
+        }
+      }
+
+      VLOG(10) << "Trying to get a new source...";
+      // We're done with this source, try getting a new one
+      if (!input_cursor_->Pull(frame, context)) return false;
+
+      auto vertex_value = frame[self_.input_symbol_];
+
+      // It is possible that the vertex is Null due to optional matching.
+      if (vertex_value.IsNull()) continue;
+
+      auto vertex = vertex_value.ValueVertex();
+      lower_bound_ = self_.lower_bound_
+                         ? EvaluateInt(evaluator, self_.lower_bound_,
+                                       "Min depth in breadth-first expansion")
+                         : 1;
+      upper_bound_ = self_.upper_bound_
+                         ? EvaluateInt(evaluator, self_.upper_bound_,
+                                       "Max depth in breadth-first expansion")
+                         : std::numeric_limits<int>::max();
+
+      if (upper_bound_ < 1) {
+        throw QueryRuntimeException(
+            "Max depth in breadth-first expansion must be at least 1");
+      }
+
+      VLOG(10) << "Starting BFS from " << vertex << " with limits "
+               << lower_bound_ << ".." << upper_bound_;
+      db_.db().bfs_subcursor_clients().PrepareForExpand(subcursor_ids_, true);
+      db_.db().bfs_subcursor_clients().SetSource(subcursor_ids_,
+                                                 vertex.GlobalAddress());
+      current_depth_ = 1;
+    }
+  }
+
+  void Reset() override {
+    LOG(FATAL) << "`Reset` not supported in distributed";
+  }
+
+ private:
+  const ExpandVariable &self_;
+  database::GraphDbAccessor &db_;
+  const std::unique_ptr<query::plan::Cursor> input_cursor_;
+
+  // Depth bounds. Calculated on each pull from the input, the initial value
+  // is irrelevant.
+  int lower_bound_{-1};
+  int upper_bound_{-1};
+
+  // Current depth. Reset for each new expansion, the initial value is
+  // irrelevant.
+  int current_depth_{-1};
+
+  // Map from worker IDs to their corresponding subcursors.
+  std::unordered_map<int, int64_t> subcursor_ids_;
+
+  // Next worker master should try pulling from.
+  std::unordered_map<int, int64_t>::iterator pull_pos_;
+};
+
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
  public:
   ExpandWeightedShortestPathCursor(const ExpandVariable &self,
@@ -1212,7 +1360,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(frame, context.parameters_,
                                   context.symbol_table_, db_,
                                   self_.graph_view_);
-
     auto create_state = [this](VertexAccessor vertex, int depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -1442,12 +1589,17 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
 std::unique_ptr<Cursor> ExpandVariable::MakeCursor(
     database::GraphDbAccessor &db) const {
-  if (type_ == EdgeAtom::Type::BREADTH_FIRST)
-    return std::make_unique<ExpandBreadthFirstCursor>(*this, db);
-  else if (type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
+  if (type_ == EdgeAtom::Type::BREADTH_FIRST) {
+    if (db.db().type() == database::GraphDb::Type::SINGLE_NODE) {
+      return std::make_unique<ExpandBfsCursor>(*this, db);
+    } else {
+      return std::make_unique<DistributedExpandBfsCursor>(*this, db);
+    }
+  } else if (type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
     return std::make_unique<ExpandWeightedShortestPathCursor>(*this, db);
-  else
+  } else {
     return std::make_unique<ExpandVariableCursor>(*this, db);
+  }
 }
 
 class ConstructNamedPathCursor : public Cursor {
@@ -2621,8 +2773,8 @@ std::unique_ptr<Cursor> Merge::MakeCursor(database::GraphDbAccessor &db) const {
 
 std::vector<Symbol> Merge::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  // Match and create branches should have the same symbols, so just take one of
-  // them.
+  // Match and create branches should have the same symbols, so just take one
+  // of them.
   auto my_symbols = merge_match_->OutputSymbols(table);
   symbols.insert(symbols.end(), my_symbols.begin(), my_symbols.end());
   return symbols;
@@ -3041,8 +3193,8 @@ std::vector<Symbol> PullRemoteOrderBy::ModifiedSymbols(
 
 namespace {
 
-/** Helper class that wraps remote pulling for cursors that handle results from
- * distributed workers.
+/** Helper class that wraps remote pulling for cursors that handle results
+ * from distributed workers.
  */
 class RemotePuller {
  public:
@@ -3354,24 +3506,28 @@ class SynchronizeCursor : public Cursor {
               "Expected exhausted cursor after remote pull accumulate");
         case distributed::PullState::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
-              "Failed to perform remote accumulate due to SerializationError");
+              "Failed to perform remote accumulate due to "
+              "SerializationError");
         case distributed::PullState::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
-              "Failed to perform remote accumulate due to RecordDeletedError");
+              "Failed to perform remote accumulate due to "
+              "RecordDeletedError");
         case distributed::PullState::LOCK_TIMEOUT_ERROR:
           throw LockTimeoutException(
               "Failed to perform remote accumulate due to "
               "LockTimeoutException");
         case distributed::PullState::RECONSTRUCTION_ERROR:
           throw QueryRuntimeException(
-              "Failed to perform remote accumulate due to ReconstructionError");
+              "Failed to perform remote accumulate due to "
+              "ReconstructionError");
         case distributed::PullState::UNABLE_TO_DELETE_VERTEX_ERROR:
           throw RemoveAttachedVertexException();
         case distributed::PullState::HINTED_ABORT_ERROR:
           throw HintedAbortError();
         case distributed::PullState::QUERY_ERROR:
           throw QueryRuntimeException(
-              "Failed to perform remote accumulate due to Query runtime error");
+              "Failed to perform remote accumulate due to Query runtime "
+              "error");
       }
     }
 
@@ -3438,7 +3594,8 @@ class CartesianCursor : public Cursor {
         left_op_frames_.emplace_back(copy_frame());
       }
 
-      // We're setting the iterator to 'end' here so it pulls the right cursor.
+      // We're setting the iterator to 'end' here so it pulls the right
+      // cursor.
       left_op_frames_it_ = left_op_frames_.end();
       cartesian_pull_initialized_ = true;
     }
