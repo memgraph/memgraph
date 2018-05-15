@@ -645,7 +645,7 @@ expansion")
                 const std::vector<storage::EdgeType> &edge_types,
                 const std::shared_ptr<LogicalOperator> &input,
                 Symbol input_symbol, bool existing_node,
-                GraphView graph_view = GraphView::AS_IS);
+                GraphView graph_view);
    cpp<#)
   (:protected
    #>cpp
@@ -808,7 +808,7 @@ pulled.")
                   Symbol input_symbol, bool existing_node, Lambda filter_lambda,
                   std::experimental::optional<Lambda> weight_lambda,
                   std::experimental::optional<Symbol> total_weight,
-                  GraphView graph_view = GraphView::AS_IS);
+                  GraphView graph_view);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(

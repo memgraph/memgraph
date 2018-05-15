@@ -21,12 +21,8 @@ std::string ParseParameter(const std::string &s);
  * see the OLD graph state (the latest state before the
  * current transaction+command), or NEW (state as
  * changed by the current transaction+command).
- *
- * Also some part of query execution could leave
- * the graph state AS_IS, that is as it was left
- * by some previous part of execution.
  */
-enum class GraphView { AS_IS, OLD, NEW };
+enum class GraphView { OLD, NEW };
 
 /**
  * Helper function for recursively reconstructing all the accessors in the
@@ -68,4 +64,4 @@ class TypedValueVectorCompare {
   //  - (list, map, path, vertex, edge) can't compare to anything
   bool TypedValueCompare(const TypedValue &a, const TypedValue &b) const;
 };
-}
+}  // namespace query

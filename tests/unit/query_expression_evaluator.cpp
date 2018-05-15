@@ -33,7 +33,8 @@ struct NoContextExpressionEvaluator {
   database::SingleNode db;
   database::GraphDbAccessor dba{db};
   Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
+  ExpressionEvaluator eval{frame, parameters, symbol_table, dba,
+                           GraphView::OLD};
 };
 
 TypedValue EvaluateFunction(const std::string &function_name,
@@ -44,7 +45,8 @@ TypedValue EvaluateFunction(const std::string &function_name,
   database::GraphDbAccessor dba(db);
   Frame frame{128};
   Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
+  ExpressionEvaluator eval{frame, parameters, symbol_table, dba,
+                           GraphView::OLD};
 
   std::vector<Expression *> expressions;
   for (const auto &arg : args) {
@@ -719,7 +721,8 @@ TEST(ExpressionEvaluator, Aggregation) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, dba};
+  ExpressionEvaluator eval{frame, parameters, symbol_table, dba,
+                           GraphView::OLD};
   auto value = aggr->Accept(eval);
   EXPECT_EQ(value.Value<int64_t>(), 1);
 }

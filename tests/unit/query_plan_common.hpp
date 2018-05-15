@@ -176,7 +176,7 @@ ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
                        EdgeAtom::Direction direction,
                        const std::vector<storage::EdgeType> &edge_types,
                        const std::string &node_identifier, bool existing_node,
-                       GraphView graph_view = GraphView::AS_IS) {
+                       GraphView graph_view) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
   symbol_table[*edge->identifier_] = edge_sym;

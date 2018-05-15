@@ -353,10 +353,7 @@ ScanAll::ScanAll(const std::shared_ptr<LogicalOperator> &input,
                  Symbol output_symbol, GraphView graph_view)
     : input_(input ? input : std::make_shared<Once>()),
       output_symbol_(output_symbol),
-      graph_view_(graph_view) {
-  CHECK(graph_view != GraphView::AS_IS)
-      << "ScanAll must have explicitly defined GraphView";
-}
+      graph_view_(graph_view) {}
 
 ACCEPT_WITH_INPUT(ScanAll)
 
@@ -414,32 +411,32 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, std::experimental::nullopt,
                       std::experimental::nullopt, false))> {
-        ExpressionEvaluator evaluator(frame, context.parameters_,
-                                      context.symbol_table_, db, graph_view_);
-        auto convert = [&evaluator](const auto &bound)
-            -> std::experimental::optional<utils::Bound<PropertyValue>> {
-              if (!bound) return std::experimental::nullopt;
-              auto value = bound->value()->Accept(evaluator);
-              try {
-                return std::experimental::make_optional(
-                    utils::Bound<PropertyValue>(value, bound->type()));
-              } catch (const TypedValueException &) {
-                throw QueryRuntimeException(
-                    "'{}' cannot be used as a property value.", value.type());
-              }
-            };
-        auto maybe_lower = convert(lower_bound());
-        auto maybe_upper = convert(upper_bound());
-        // If any bound is null, then the comparison would result in nulls. This
-        // is treated as not satisfying the filter, so return no vertices.
-        if (maybe_lower && maybe_lower->value().IsNull())
-          return std::experimental::nullopt;
-        if (maybe_upper && maybe_upper->value().IsNull())
-          return std::experimental::nullopt;
+    ExpressionEvaluator evaluator(frame, context.parameters_,
+                                  context.symbol_table_, db, graph_view_);
+    auto convert = [&evaluator](const auto &bound)
+        -> std::experimental::optional<utils::Bound<PropertyValue>> {
+      if (!bound) return std::experimental::nullopt;
+      auto value = bound->value()->Accept(evaluator);
+      try {
         return std::experimental::make_optional(
-            db.Vertices(label_, property_, maybe_lower, maybe_upper,
-                        graph_view_ == GraphView::NEW));
-      };
+            utils::Bound<PropertyValue>(value, bound->type()));
+      } catch (const TypedValueException &) {
+        throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                    value.type());
+      }
+    };
+    auto maybe_lower = convert(lower_bound());
+    auto maybe_upper = convert(upper_bound());
+    // If any bound is null, then the comparison would result in nulls. This
+    // is treated as not satisfying the filter, so return no vertices.
+    if (maybe_lower && maybe_lower->value().IsNull())
+      return std::experimental::nullopt;
+    if (maybe_upper && maybe_upper->value().IsNull())
+      return std::experimental::nullopt;
+    return std::experimental::make_optional(
+        db.Vertices(label_, property_, maybe_lower, maybe_upper,
+                    graph_view_ == GraphView::NEW));
+  };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -462,18 +459,18 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
   auto vertices = [this, &db](Frame &frame, Context &context)
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, TypedValue::Null, false))> {
-        ExpressionEvaluator evaluator(frame, context.parameters_,
-                                      context.symbol_table_, db, graph_view_);
-        auto value = expression_->Accept(evaluator);
-        if (value.IsNull()) return std::experimental::nullopt;
-        try {
-          return std::experimental::make_optional(db.Vertices(
-              label_, property_, value, graph_view_ == GraphView::NEW));
-        } catch (const TypedValueException &) {
-          throw QueryRuntimeException(
-              "'{}' cannot be used as a property value.", value.type());
-        }
-      };
+    ExpressionEvaluator evaluator(frame, context.parameters_,
+                                  context.symbol_table_, db, graph_view_);
+    auto value = expression_->Accept(evaluator);
+    if (value.IsNull()) return std::experimental::nullopt;
+    try {
+      return std::experimental::make_optional(
+          db.Vertices(label_, property_, value, graph_view_ == GraphView::NEW));
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                  value.type());
+    }
+  };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -665,8 +662,6 @@ void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
       break;
     case GraphView::OLD:
       accessor.SwitchOld();
-      break;
-    case GraphView::AS_IS:
       break;
   }
 }
@@ -907,7 +902,8 @@ class ExpandVariableCursor : public Cursor {
 
       // Evaluate the upper and lower bounds.
       ExpressionEvaluator evaluator(frame, context.parameters_,
-                                    context.symbol_table_, db_);
+                                    context.symbol_table_, db_,
+                                    self_.graph_view_);
       auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(evaluator, bound, "Variable expansion bound");
         if (value < 0)
@@ -1055,7 +1051,7 @@ class ExpandBreadthFirstCursor : public query::plan::Cursor {
       : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
-    // evaulator for the filtering condition
+    // evaluator for the filtering condition
     ExpressionEvaluator evaluator(frame, context.parameters_,
                                   context.symbol_table_, db_,
                                   self_.graph_view_);
@@ -1224,7 +1220,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](
-        EdgeAccessor edge, VertexAccessor vertex, double weight, int depth) {
+                           EdgeAccessor edge, VertexAccessor vertex,
+                           double weight, int depth) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -2433,10 +2430,11 @@ Skip::SkipCursor::SkipCursor(const Skip &self, database::GraphDbAccessor &db)
 bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
   while (input_cursor_->Pull(frame, context)) {
     if (to_skip_ == -1) {
-      // first successful pull from the input
-      // evaluate the skip expression
+      // First successful pull from the input, evaluate the skip expression. The
+      // skip expression doesn't contain identifiers so graph view parameter is
+      // not important.
       ExpressionEvaluator evaluator(frame, context.parameters_,
-                                    context.symbol_table_, db_);
+                                    context.symbol_table_, db_, GraphView::OLD);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException("Result of SKIP expression must be an int");
@@ -2484,13 +2482,15 @@ Limit::LimitCursor::LimitCursor(const Limit &self,
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
-  // we need to evaluate the limit expression before the first input Pull
-  // because it might be 0 and thereby we shouldn't Pull from input at all
-  // we can do this before Pulling from the input because the limit
-  // expression is not allowed to contain any identifiers
+  // We need to evaluate the limit expression before the first input Pull
+  // because it might be 0 and thereby we shouldn't Pull from input at all.
+  // We can do this before Pulling from the input because the limit expression
+  // is not allowed to contain any identifiers.
   if (limit_ == -1) {
+    // Limit expression doesn't contain identifiers so graph view is not
+    // important.
     ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db_);
+                                  context.symbol_table_, db_, GraphView::OLD);
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException("Result of LIMIT expression must be an int");
@@ -2552,7 +2552,7 @@ OrderBy::OrderByCursor::OrderByCursor(const OrderBy &self,
 bool OrderBy::OrderByCursor::Pull(Frame &frame, Context &context) {
   if (!did_pull_all_) {
     ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db_);
+                                  context.symbol_table_, db_, GraphView::OLD);
     while (input_cursor_->Pull(frame, context)) {
       // collect the order_by elements
       std::vector<TypedValue> order_by;
@@ -2782,7 +2782,7 @@ bool Unwind::UnwindCursor::Pull(Frame &frame, Context &context) {
 
     // successful pull from input, initialize value and iterator
     ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, db_);
+                                  context.symbol_table_, db_, GraphView::OLD);
     TypedValue input_value = self_.input_expression_->Accept(evaluator);
     if (input_value.type() != TypedValue::Type::List)
       throw QueryRuntimeException("UNWIND only accepts list values, got '{}'",
@@ -3501,7 +3501,8 @@ class PullRemoteOrderByCursor : public Cursor {
   bool Pull(Frame &frame, Context &context) {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
     ExpressionEvaluator evaluator(frame, context.parameters_,
-                                  context.symbol_table_, context.db_accessor_);
+                                  context.symbol_table_, context.db_accessor_,
+                                  GraphView::OLD);
 
     auto evaluate_result = [this, &evaluator]() {
       std::vector<TypedValue> order_by;

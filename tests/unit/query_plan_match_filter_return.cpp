@@ -418,10 +418,10 @@ TEST_F(ExpandFixture, Expand) {
     return PullAll(produce, dba_, symbol_table);
   };
 
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, GraphView::AS_IS));
-  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, GraphView::AS_IS));
-  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::AS_IS));
-  //
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, GraphView::OLD));
+  EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, GraphView::OLD));
+  EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
+
   // test that expand works well for both old and new graph state
   v1.Reconstruct();
   v2.Reconstruct();
@@ -442,8 +442,9 @@ TEST_F(ExpandFixture, Expand) {
 
 TEST_F(ExpandFixture, ExpandPath) {
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, {}, "m", false);
+  auto r_m =
+      MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                 EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
   Symbol path_sym = symbol_table.CreateSymbol("path", true);
   auto path = std::make_shared<ConstructNamedPath>(
       r_m.op_, path_sym,
@@ -540,7 +541,7 @@ class QueryPlanExpandVariable : public testing::Test {
       const std::vector<storage::EdgeType> &edge_types,
       std::experimental::optional<size_t> lower,
       std::experimental::optional<size_t> upper, Symbol edge_sym,
-      const std::string &node_to, GraphView graph_view = GraphView::AS_IS,
+      const std::string &node_to, GraphView graph_view,
       bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
@@ -628,7 +629,7 @@ TEST_F(QueryPlanExpandVariable, OneVariableExpansion) {
     auto e = Edge("r", direction);
     return GetEdgeListSizes(
         AddMatch<ExpandVariable>(nullptr, "n", layer, direction, {}, lower,
-                                 upper, e, "m", GraphView::AS_IS, reverse),
+                                 upper, e, "m", GraphView::OLD, reverse),
         e);
   };
 
@@ -691,18 +692,19 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
     if (single_expansion_before) {
       symbols.push_back(Edge("r0", direction));
       last_op = AddMatch<Expand>(last_op, "n0", layer, direction, {}, lower,
-                                 upper, symbols.back(), "m0");
+                                 upper, symbols.back(), "m0", GraphView::OLD);
     }
 
     auto var_length_sym = Edge("r1", direction);
     symbols.push_back(var_length_sym);
-    last_op = AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {},
-                                       lower, upper, var_length_sym, "m1");
+    last_op =
+        AddMatch<ExpandVariable>(last_op, "n1", layer, direction, {}, lower,
+                                 upper, var_length_sym, "m1", GraphView::OLD);
 
     if (!single_expansion_before) {
       symbols.push_back(Edge("r2", direction));
       last_op = AddMatch<Expand>(last_op, "n2", layer, direction, {}, lower,
-                                 upper, symbols.back(), "m2");
+                                 upper, symbols.back(), "m2", GraphView::OLD);
     }
 
     if (add_uniqueness_check) {
@@ -731,11 +733,13 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
                          std::experimental::optional<size_t> upper,
                          bool add_uniqueness_check) {
     auto e1 = Edge("r1", direction);
-    auto first = AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {},
-                                          lower, upper, e1, "m1");
+    auto first =
+        AddMatch<ExpandVariable>(nullptr, "n1", layer, direction, {}, lower,
+                                 upper, e1, "m1", GraphView::OLD);
     auto e2 = Edge("r2", direction);
-    auto last_op = AddMatch<ExpandVariable>(first, "n2", layer, direction, {},
-                                            lower, upper, e2, "m2");
+    auto last_op =
+        AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower,
+                                 upper, e2, "m2", GraphView::OLD);
     if (add_uniqueness_check) {
       last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
           last_op, e2, std::vector<Symbol>{e1});
@@ -785,8 +789,9 @@ TEST_F(QueryPlanExpandVariable, GraphState) {
 
 TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
-  auto expand = AddMatch<ExpandVariable>(
-      nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2, 2, e, "m");
+  auto expand =
+      AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2,
+                               2, e, "m", GraphView::OLD);
   auto find_symbol = [this](const std::string &name) {
     for (const auto &pos_sym : symbol_table.table())
       if (pos_sym.second.name() == name) return pos_sym.second;
@@ -876,7 +881,7 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
   // defines and performs a breadth-first expansion with the given params
   // returns a vector of pairs. each pair is (vector-of-edges, vertex)
   auto ExpandBF(EdgeAtom::Direction direction, int max_depth, Expression *where,
-                GraphView graph_view = GraphView::AS_IS,
+                GraphView graph_view,
                 std::experimental::optional<int> node_id = 0,
                 ScanAllTuple *existing_node_input = nullptr) {
     // scan the nodes optionally filtering on property value
@@ -934,7 +939,8 @@ class QueryPlanExpandBreadthFirst : public testing::Test {
 #define EXPECT_EITHER(value, a, b) EXPECT_TRUE(value == a || value == b)
 
 TEST_F(QueryPlanExpandBreadthFirst, Basic) {
-  auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  auto results =
+      ExpandBF(EdgeAtom::Direction::BOTH, 1000, LITERAL(true), GraphView::OLD);
 
   ASSERT_EQ(results.size(), 3);
 
@@ -955,7 +961,8 @@ TEST_F(QueryPlanExpandBreadthFirst, Basic) {
 
 TEST_F(QueryPlanExpandBreadthFirst, EdgeDirection) {
   {
-    auto results = ExpandBF(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    auto results =
+        ExpandBF(EdgeAtom::Direction::IN, 1000, LITERAL(true), GraphView::OLD);
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].second), 2);
     EXPECT_EQ(GetProp(results[1].second), 3);
@@ -964,7 +971,8 @@ TEST_F(QueryPlanExpandBreadthFirst, EdgeDirection) {
     // assume edges are OK because vertices are (tested before)
   }
   {
-    auto results = ExpandBF(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    auto results =
+        ExpandBF(EdgeAtom::Direction::OUT, 1000, LITERAL(true), GraphView::OLD);
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].second), 1);
     EXPECT_EQ(GetProp(results[1].second), 3);
@@ -976,15 +984,15 @@ TEST_F(QueryPlanExpandBreadthFirst, EdgeDirection) {
 
 TEST_F(QueryPlanExpandBreadthFirst, Where) {
   {
-    auto results =
-        ExpandBF(EdgeAtom::Direction::BOTH, 1000, PropNe(inner_node, 2));
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1000,
+                            PropNe(inner_node, 2), GraphView::OLD);
     ASSERT_EQ(results.size(), 2);
     EXPECT_EQ(GetProp(results[0].second), 1);
     EXPECT_EQ(GetProp(results[1].second), 3);
   }
   {
-    auto results =
-        ExpandBF(EdgeAtom::Direction::BOTH, 1000, PropNe(inner_edge, 20));
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1000,
+                            PropNe(inner_edge, 20), GraphView::OLD);
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].second), 1);
     EXPECT_EITHER(GetProp(results[1].second), 3, 2);
@@ -1014,7 +1022,7 @@ TEST_F(QueryPlanExpandBreadthFirst, GraphState) {
 
 TEST_F(QueryPlanExpandBreadthFirst, MultipleInputs) {
   auto results = ExpandBF(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                          GraphView::AS_IS, std::experimental::nullopt);
+                          GraphView::OLD, std::experimental::nullopt);
   // expect that each vertex has been returned 3 times
   EXPECT_EQ(results.size(), 12);
   std::vector<int> found(4, 0);
@@ -1037,7 +1045,7 @@ TEST_F(QueryPlanExpandBreadthFirst, ExistingNode) {
         }
 
         return ExpandBF(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                        GraphView::AS_IS, std::experimental::nullopt, &n0);
+                        GraphView::OLD, std::experimental::nullopt, &n0);
       };
 
   EXPECT_EQ(ExpandPreceeding(std::experimental::nullopt).size(), 12);
@@ -1112,8 +1120,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   // returns a vector of pairs. each pair is (vector-of-edges, vertex)
   auto ExpandWShortest(EdgeAtom::Direction direction,
                        std::experimental::optional<int> max_depth,
-                       Expression *where,
-                       GraphView graph_view = GraphView::AS_IS,
+                       Expression *where, GraphView graph_view,
                        std::experimental::optional<int> node_id = 0,
                        ScanAllTuple *existing_node_input = nullptr) {
     // scan the nodes optionally filtering on property value
@@ -1191,8 +1198,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 //      3      3     3
 
 TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
-  auto results =
-      ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true));
+  auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
+                                 GraphView::OLD);
 
   ASSERT_EQ(results.size(), 4);
 
@@ -1225,8 +1232,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Basic) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
   {
-    auto results =
-        ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true));
+    auto results = ExpandWShortest(EdgeAtom::Direction::OUT, 1000,
+                                   LITERAL(true), GraphView::OLD);
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1238,8 +1245,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto results =
-        ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true));
+    auto results = ExpandWShortest(EdgeAtom::Direction::IN, 1000, LITERAL(true),
+                                   GraphView::OLD);
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 4);
     EXPECT_EQ(results[0].total_weight, 12);
@@ -1255,7 +1262,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, EdgeDirection) {
 TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
   {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
-                                   PropNe(filter_node, 2));
+                                   PropNe(filter_node, 2), GraphView::OLD);
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 1);
     EXPECT_EQ(results[0].total_weight, 5);
@@ -1266,7 +1273,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
   }
   {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1000,
-                                   PropNe(filter_node, 1));
+                                   PropNe(filter_node, 1), GraphView::OLD);
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1299,23 +1306,23 @@ TEST_F(QueryPlanExpandWeightedShortestPath, GraphState) {
 }
 
 TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
-  auto ExpandPreceeding = [this](
-      std::experimental::optional<int> preceeding_node_id) {
-    // scan the nodes optionally filtering on property value
-    auto n0 = MakeScanAll(storage, symbol_table, "n0");
-    if (preceeding_node_id) {
-      auto filter = std::make_shared<Filter>(
-          n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
-                     LITERAL(*preceeding_node_id)));
-      // inject the filter op into the ScanAllTuple. that way the filter op
-      // can be passed into the ExpandWShortest function without too much
-      // refactor
-      n0.op_ = filter;
-    }
+  auto ExpandPreceeding =
+      [this](std::experimental::optional<int> preceeding_node_id) {
+        // scan the nodes optionally filtering on property value
+        auto n0 = MakeScanAll(storage, symbol_table, "n0");
+        if (preceeding_node_id) {
+          auto filter = std::make_shared<Filter>(
+              n0.op_, EQ(PROPERTY_LOOKUP(n0.node_->identifier_, prop),
+                         LITERAL(*preceeding_node_id)));
+          // inject the filter op into the ScanAllTuple. that way the filter op
+          // can be passed into the ExpandWShortest function without too much
+          // refactor
+          n0.op_ = filter;
+        }
 
-    return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                           GraphView::AS_IS, std::experimental::nullopt, &n0);
-  };
+        return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
+                               GraphView::OLD, std::experimental::nullopt, &n0);
+      };
 
   EXPECT_EQ(ExpandPreceeding(std::experimental::nullopt).size(), 20);
   {
@@ -1327,8 +1334,9 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
 
 TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH,
-                                   std::experimental::nullopt, LITERAL(true));
+    auto results =
+        ExpandWShortest(EdgeAtom::Direction::BOTH, std::experimental::nullopt,
+                        LITERAL(true), GraphView::OLD);
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1361,7 +1369,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
     EXPECT_EQ(results[4].total_weight, 12);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true),
+                                   GraphView::OLD);
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1373,7 +1382,8 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
     EXPECT_EQ(results[3].total_weight, 10);
   }
   {
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true));
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 1, LITERAL(true),
+                                   GraphView::OLD);
     ASSERT_EQ(results.size(), 3);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
     EXPECT_EQ(results[0].total_weight, 3);
@@ -1433,8 +1443,9 @@ TEST(QueryPlan, ExpandOptional) {
 
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_m = MakeExpand(storage, symbol_table, nullptr, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, {}, "m", false);
+  auto r_m =
+      MakeExpand(storage, symbol_table, nullptr, n.sym_, "r",
+                 EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
   auto optional = std::make_shared<plan::Optional>(
       n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
@@ -1508,8 +1519,9 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   symbol_table[*n_ne] = with_n_sym;
   auto with = MakeProduce(optional, n_ne);
   // MATCH (n) -[r]-> (m)
-  auto r_m = MakeExpand(storage, symbol_table, with, with_n_sym, "r",
-                        EdgeAtom::Direction::OUT, {}, "m", false);
+  auto r_m =
+      MakeExpand(storage, symbol_table, with, with_n_sym, "r",
+                 EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
@@ -1558,7 +1570,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   symbol_table[*node->identifier_] = with_n_sym;
   auto expand = std::make_shared<plan::Expand>(
       with_n_sym, edge_sym, edge_direction, std::vector<storage::EdgeType>{},
-      m.op_, m.sym_, true);
+      m.op_, m.sym_, true, GraphView::OLD);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = m.sym_;
@@ -1587,11 +1599,13 @@ TEST(QueryPlan, ExpandExistingNode) {
   auto test_existing = [&](bool with_existing, int expected_result_count) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     auto r_n = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::OUT, {}, "n", with_existing);
+                          EdgeAtom::Direction::OUT, {}, "n", with_existing,
+                          GraphView::OLD);
     if (with_existing)
-      r_n.op_ = std::make_shared<Expand>(
-          n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
-          std::vector<storage::EdgeType>{}, n.op_, n.sym_, with_existing);
+      r_n.op_ =
+          std::make_shared<Expand>(n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
+                                   std::vector<storage::EdgeType>{}, n.op_,
+                                   n.sym_, with_existing, GraphView::OLD);
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));
@@ -1622,8 +1636,9 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto r_ = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                       EdgeAtom::Direction::BOTH, {}, "_", false);
+  auto r_ =
+      MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                 EdgeAtom::Direction::BOTH, {}, "_", false, GraphView::OLD);
   EXPECT_EQ(1, PullAll(r_.op_, dba, symbol_table));
 }
 
@@ -1670,7 +1685,8 @@ TEST(QueryPlan, EdgeFilter) {
     auto n = MakeScanAll(storage, symbol_table, "n");
     const auto &edge_type = edge_types[0];
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                          EdgeAtom::Direction::OUT, {edge_type}, "m", false);
+                          EdgeAtom::Direction::OUT, {edge_type}, "m", false,
+                          GraphView::OLD);
     r_m.edge_->edge_types_.push_back(edge_type);
     r_m.edge_->properties_[prop] = LITERAL(42);
     auto *filter_expr =
@@ -1715,7 +1731,8 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
-                        EdgeAtom::Direction::OUT, {type_1, type_2}, "m", false);
+                        EdgeAtom::Direction::OUT, {type_1, type_2}, "m", false,
+                        GraphView::OLD);
 
   // make a named expression and a produce
   auto output = NEXPR("m", IDENT("m"));
@@ -1776,14 +1793,16 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
     SymbolTable symbol_table;
 
     auto n1 = MakeScanAll(storage, symbol_table, "n1");
-    auto r1_n2 = MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
-                            EdgeAtom::Direction::OUT, {}, "n2", false);
+    auto r1_n2 =
+        MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
+                   EdgeAtom::Direction::OUT, {}, "n2", false, GraphView::OLD);
     std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
     if (vertex_uniqueness)
       last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
           last_op, r1_n2.node_sym_, std::vector<Symbol>{n1.sym_});
-    auto r2_n3 = MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_,
-                            "r2", EdgeAtom::Direction::OUT, {}, "n3", false);
+    auto r2_n3 =
+        MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2",
+                   EdgeAtom::Direction::OUT, {}, "n3", false, GraphView::OLD);
     last_op = r2_n3.op_;
     if (edge_uniqueness)
       last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(

@@ -163,7 +163,7 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 TEST_F(QueryCostEstimator, Expand) {
   MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
                  std::vector<storage::EdgeType>{}, last_op_, NextSymbol(),
-                 false);
+                 false, GraphView::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
@@ -173,7 +173,7 @@ TEST_F(QueryCostEstimator, ExpandVariable) {
       EdgeAtom::Direction::IN, std::vector<storage::EdgeType>{}, false, nullptr,
       nullptr, last_op_, NextSymbol(), false,
       ExpandVariable::Lambda{NextSymbol(), NextSymbol(), nullptr},
-      std::experimental::nullopt, std::experimental::nullopt);
+      std::experimental::nullopt, std::experimental::nullopt, GraphView::OLD);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 
@@ -199,11 +199,12 @@ TEST_F(QueryCostEstimator, ExpandUniquenessFilter) {
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {
-  TEST_OP(MakeOp<query::plan::Unwind>(
-              last_op_, storage_.Create<ListLiteral>(
-                            std::vector<Expression *>(7, nullptr)),
-              NextSymbol()),
-          CostParam::kUnwind, 7);
+  TEST_OP(
+      MakeOp<query::plan::Unwind>(
+          last_op_,
+          storage_.Create<ListLiteral>(std::vector<Expression *>(7, nullptr)),
+          NextSymbol()),
+      CostParam::kUnwind, 7);
 }
 
 TEST_F(QueryCostEstimator, UnwindNoLiteral) {

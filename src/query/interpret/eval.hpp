@@ -22,7 +22,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   ExpressionEvaluator(Frame &frame, const Parameters &parameters,
                       const SymbolTable &symbol_table,
                       database::GraphDbAccessor &db_accessor,
-                      GraphView graph_view = GraphView::AS_IS)
+                      GraphView graph_view)
       : frame_(frame),
         parameters_(parameters),
         symbol_table_(symbol_table),
@@ -444,7 +444,6 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   // If the given TypedValue contains accessors, switch them to New or Old,
   // depending on use_new_ flag.
   void SwitchAccessors(TypedValue &value) {
-    if (graph_view_ == GraphView::AS_IS) return;
     switch (value.type()) {
       case TypedValue::Type::Vertex: {
         auto &vertex = value.Value<VertexAccessor>();
