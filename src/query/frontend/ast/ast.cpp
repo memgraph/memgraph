@@ -309,7 +309,7 @@ void MapLiteral::Save(capnp::BaseLiteral::Builder *base_literal_builder,
     auto key_builder = entry_builder.getKey();
     key_builder.setFirst(entry.first.first);
     auto storage_property_builder = key_builder.getSecond();
-    entry.first.second.Save(storage_property_builder);
+    entry.first.second.Save(&storage_property_builder);
     auto value_builder = entry_builder.getValue();
     if (entry.second) entry.second->Save(&value_builder, saved_uids);
     ++i;
@@ -976,11 +976,10 @@ void LabelsTest::Save(capnp::LabelsTest::Builder *builder,
     auto expr_builder = builder->initExpression();
     expression_->Save(&expr_builder, saved_uids);
   }
-  ::capnp::List<storage::capnp::Common>::Builder common_builders =
-      builder->initLabels(labels_.size());
+  auto common_builders = builder->initLabels(labels_.size());
   for (size_t i = 0; i < labels_.size(); ++i) {
     auto common_builder = common_builders[i];
-    labels_[i].Save(common_builder);
+    labels_[i].Save(&common_builder);
   }
 }
 
@@ -1040,7 +1039,7 @@ void PropertyLookup::Save(capnp::PropertyLookup::Builder *builder,
   }
   builder->setPropertyName(property_name_);
   auto storage_property_builder = builder->initProperty();
-  property_.Save(storage_property_builder);
+  property_.Save(&storage_property_builder);
 }
 
 void PropertyLookup::Load(const capnp::Tree::Reader &base_reader,
@@ -1297,9 +1296,9 @@ void CreateIndex::Save(capnp::Clause::Builder *builder,
 void CreateIndex::Save(capnp::CreateIndex::Builder *builder,
                        std::vector<int> *saved_uids) {
   auto label_builder = builder->getLabel();
-  label_.Save(label_builder);
+  label_.Save(&label_builder);
   auto property_builder = builder->getProperty();
-  property_.Save(property_builder);
+  property_.Save(&property_builder);
 }
 
 CreateIndex *CreateIndex::Construct(const capnp::CreateIndex::Reader &reader,
@@ -1458,13 +1457,13 @@ void RemoveLabels::Save(capnp::RemoveLabels::Builder *builder,
     auto id_builder = builder->getIdentifier();
     identifier_->Save(&id_builder, saved_uids);
   }
-  ::capnp::List<storage::capnp::Common>::Builder common_builders =
-      builder->initLabels(labels_.size());
+  auto common_builders = builder->initLabels(labels_.size());
   for (size_t i = 0; i < labels_.size(); ++i) {
     auto common_builder = common_builders[i];
-    labels_[i].Save(common_builder);
+    labels_[i].Save(&common_builder);
   }
 }
+
 void RemoveLabels::Load(const capnp::Tree::Reader &base_reader,
                         AstTreeStorage *storage,
                         std::vector<int> *loaded_uids) {
@@ -1628,11 +1627,10 @@ void SetLabels::Save(capnp::SetLabels::Builder *builder,
     auto id_builder = builder->getIdentifier();
     identifier_->Save(&id_builder, saved_uids);
   }
-  ::capnp::List<storage::capnp::Common>::Builder common_builders =
-      builder->initLabels(labels_.size());
+  auto common_builders = builder->initLabels(labels_.size());
   for (size_t i = 0; i < labels_.size(); ++i) {
     auto common_builder = common_builders[i];
-    labels_[i].Save(common_builder);
+    labels_[i].Save(&common_builder);
   }
 }
 
@@ -1827,11 +1825,10 @@ void CypherUnion::Save(capnp::CypherUnion::Builder *builder,
     single_query_->Save(&sq_builder, saved_uids);
   }
   builder->setDistinct(distinct_);
-  ::capnp::List<capnp::Symbol>::Builder symbol_builders =
-      builder->initUnionSymbols(union_symbols_.size());
+  auto symbol_builders = builder->initUnionSymbols(union_symbols_.size());
   for (size_t i = 0; i < union_symbols_.size(); ++i) {
     auto symbol_builder = symbol_builders[i];
-    union_symbols_[i].Save(symbol_builder);
+    union_symbols_[i].Save(&symbol_builder);
   }
 }
 
@@ -2007,16 +2004,15 @@ void NodeAtom::Save(capnp::NodeAtom::Builder *builder,
     auto key_builder = entry_builder.getKey();
     key_builder.setFirst(entry.first.first);
     auto storage_property_builder = key_builder.getSecond();
-    entry.first.second.Save(storage_property_builder);
+    entry.first.second.Save(&storage_property_builder);
     auto value_builder = entry_builder.getValue();
     if (entry.second) entry.second->Save(&value_builder, saved_uids);
     ++i;
   }
-  ::capnp::List<storage::capnp::Common>::Builder common_builders =
-      builder->initLabels(labels_.size());
+  auto common_builders = builder->initLabels(labels_.size());
   for (size_t i = 0; i < labels_.size(); ++i) {
     auto common_builder = common_builders[i];
-    labels_[i].Save(common_builder);
+    labels_[i].Save(&common_builder);
   }
 }
 
@@ -2102,11 +2098,10 @@ void EdgeAtom::Save(capnp::EdgeAtom::Builder *builder,
       break;
   }
 
-  ::capnp::List<storage::capnp::Common>::Builder common_builders =
-      builder->initEdgeTypes(edge_types_.size());
+  auto common_builders = builder->initEdgeTypes(edge_types_.size());
   for (size_t i = 0; i < edge_types_.size(); ++i) {
     auto common_builder = common_builders[i];
-    edge_types_[i].Save(common_builder);
+    edge_types_[i].Save(&common_builder);
   }
 
   ::capnp::List<capnp::EdgeAtom::Entry>::Builder map_builder =
@@ -2117,7 +2112,7 @@ void EdgeAtom::Save(capnp::EdgeAtom::Builder *builder,
     auto key_builder = entry_builder.getKey();
     key_builder.setFirst(entry.first.first);
     auto storage_property_builder = key_builder.getSecond();
-    entry.first.second.Save(storage_property_builder);
+    entry.first.second.Save(&storage_property_builder);
     auto value_builder = entry_builder.getValue();
     if (entry.second) entry.second->Save(&value_builder, saved_uids);
     ++i;

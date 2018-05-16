@@ -38,5 +38,7 @@ TAGS
 *.capnp.c++
 *.capnp.h
 
-# LCP generated C++ files
+# LCP generated C++ & Cap'n Proto files
 src/query/plan/operator.hpp
+src/query/plan/operator.lcp.cpp
+src/query/plan/operator.capnp

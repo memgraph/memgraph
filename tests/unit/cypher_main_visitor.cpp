@@ -19,7 +19,6 @@
 #include "query/typed_value.hpp"
 
 #include "capnp/message.h"
-#include "capnp/serialize-packed.h"
 #include "query/frontend/ast/ast.capnp.h"
 
 namespace {

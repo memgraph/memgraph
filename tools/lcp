@@ -1,8 +1,9 @@
 #!/bin/bash -e
 
-if [[ $# -ne 1 ]]; then
-  echo "Usage: $0 LCP_FILE"
-  echo "Convert a LCP_FILE to C++ header file and output to stdout"
+if [[ $# -ne 1 && $# -ne 2 ]]; then
+  echo "Usage: $0 LCP_FILE [CAPNP_EXE]"
+  echo "Convert a LCP_FILE to C++ header file and output to stdout."
+  echo "If CAPNP_EXE is provided, then the Cap'n Proto schema generated."
   exit 1
 fi
 
@@ -14,17 +15,28 @@ fi
 lcp_file=`realpath $1`
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-cd $script_dir
-
 quicklisp_install_dir="$HOME/quicklisp"
 if [[ -v QUICKLISP_HOME ]]; then
   quicklisp_install_dir="${QUICKLISP_HOME}"
+fi
+
+capnp=""
+if [[ $# -eq 2 ]]; then
+  capnp=":capnp-id \"$($2 id)\""
 fi
 
 echo \
 "
 (load \"${quicklisp_install_dir}/setup.lisp\")
 (ql:quickload :cl-ppcre :silent t)
-(load \"../src/lisp/lcp.lisp\")
-(lcp:process-file \"$lcp_file\" :out-stream t)
-" | sbcl --script | clang-format -style=file
+(load \"$script_dir/../src/lisp/lcp.lisp\")
+(lcp:process-file \"$lcp_file\" $capnp)
+" | sbcl --script
+
+filename=`basename $lcp_file .lcp`
+hpp_file="$(dirname $lcp_file)/$filename.hpp"
+clang-format -style=file -i $hpp_file
+
+if [[ $# -eq 2 ]]; then
+  clang-format -style=file -i "$lcp_file.cpp"
+fi

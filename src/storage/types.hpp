@@ -56,11 +56,11 @@ class Common : public utils::TotalOrdering<TSpecificType> {
     size_t operator()(const TSpecificType &t) const { return hash(t.id_); }
   };
 
-  virtual void Save(capnp::Common::Builder &builder) const {
-    builder.setStorage(id_);
+  virtual void Save(capnp::Common::Builder *builder) const {
+    builder->setStorage(id_);
   }
 
-  virtual void Load(capnp::Common::Reader &reader) {
+  virtual void Load(const capnp::Common::Reader &reader) {
     id_ = reader.getStorage();
   }
 

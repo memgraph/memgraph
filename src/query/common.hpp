@@ -7,6 +7,8 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
 
+#include "query/common.capnp.h"
+
 namespace query {
 
 // These are the functions for parsing literals and parameter names from
@@ -37,7 +39,7 @@ void ReconstructTypedValue(TypedValue &value);
 // Does lexicographical ordering of elements based on the above
 // defined TypedValueCompare, and also accepts a vector of Orderings
 // the define how respective elements compare.
-class TypedValueVectorCompare {
+class TypedValueVectorCompare final {
  public:
   TypedValueVectorCompare() {}
   explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering)
@@ -46,6 +48,9 @@ class TypedValueVectorCompare {
                   const std::vector<TypedValue> &c2) const;
 
   const auto &ordering() const { return ordering_; }
+
+  void Save(capnp::TypedValueVectorCompare::Builder *builder) const;
+  void Load(const capnp::TypedValueVectorCompare::Reader &reader);
 
  private:
   std::vector<Ordering> ordering_;

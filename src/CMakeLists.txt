@@ -73,30 +73,6 @@ set(memgraph_src_files
 )
 # -----------------------------------------------------------------------------
 
-# Lisp C++ Preprocessing
-
-set(lcp_exe ${CMAKE_SOURCE_DIR}/tools/lcp)
-set(lcp_src_files lisp/lcp.lisp ${lcp_exe})
-
-# Use this function to add each lcp file to generation. This way each file is
-# standalone and we avoid recompiling everything.
-# NOTE: Only .hpp files are generated from .lcp, so there's no need to update memgraph_src_files.
-# NOTE: generated_lcp_files are globally updated.
-function(add_lcp lcp_file)
-  string(REGEX REPLACE "\.lcp$" ".hpp" h_file
-         "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
-  add_custom_command(OUTPUT ${h_file}
-    COMMAND ${lcp_exe} ${lcp_file} > ${h_file}
-    DEPENDS ${lcp_file} ${lcp_src_files}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  # Update *global* generated_lcp_files
-  set(generated_lcp_files ${generated_lcp_files} ${h_file} PARENT_SCOPE)
-endfunction(add_lcp)
-
-add_lcp(query/plan/operator.lcp)
-
-add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
-
 # Use this function to add each capnp file to generation. This way each file is
 # standalone and we avoid recompiling everything.
 # NOTE: memgraph_src_files and generated_capnp_files are globally updated.
@@ -105,7 +81,7 @@ function(add_capnp capnp_src_file)
   set(h_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.h)
   add_custom_command(OUTPUT ${cpp_file} ${h_file}
     COMMAND ${CAPNP_EXE} compile -o${CAPNP_CXX_EXE} ${capnp_src_file} -I ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS ${capnp_src_file} capnproto-proj
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file} capnproto-proj
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   # Update *global* generated_capnp_files
   set(generated_capnp_files ${generated_capnp_files} ${cpp_file} ${h_file} PARENT_SCOPE)
@@ -113,12 +89,52 @@ function(add_capnp capnp_src_file)
   set(memgraph_src_files ${memgraph_src_files} ${cpp_file} PARENT_SCOPE)
 endfunction(add_capnp)
 
+# Lisp C++ Preprocessing
+
+set(lcp_exe ${CMAKE_SOURCE_DIR}/tools/lcp)
+set(lcp_src_files lisp/lcp.lisp ${lcp_exe})
+
+# Use this function to add each lcp file to generation. This way each file is
+# standalone and we avoid recompiling everything.
+# NOTE: memgraph_src_files and generated_lcp_files are globally updated.
+function(add_lcp lcp_file)
+  set(options CAPNP_SCHEMA)
+  cmake_parse_arguments(KW "${options}" "" "" ${ARGN})
+  string(REGEX REPLACE "\.lcp$" ".hpp" h_file
+         "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+  if (KW_CAPNP_SCHEMA)
+    string(REGEX REPLACE "\.lcp$" ".capnp" capnp_file
+           "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+    set(capnp_id_command ${CAPNP_EXE})
+    set(capnp_depend capnproto-proj)
+    set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
+    # Update *global* memgraph_src_files
+    set(memgraph_src_files ${memgraph_src_files} ${cpp_file} PARENT_SCOPE)
+  endif()
+  add_custom_command(OUTPUT ${h_file} ${cpp_file} ${capnp_file}
+    COMMAND ${lcp_exe} ${lcp_file} ${capnp_id_command}
+    VERBATIM
+    DEPENDS ${lcp_file} ${lcp_src_files} ${capnp_depend}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+  # Update *global* generated_lcp_files
+  set(generated_lcp_files ${generated_lcp_files} ${h_file} ${cpp_file} ${capnp_file} PARENT_SCOPE)
+endfunction(add_lcp)
+
+add_lcp(query/plan/operator.lcp CAPNP_SCHEMA)
+add_capnp(query/plan/operator.capnp)
+
+add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
+
+# Registering capnp must come after registering lcp files.
+
 add_capnp(query/frontend/semantic/symbol.capnp)
 add_capnp(query/frontend/ast/ast.capnp)
 add_capnp(utils/serialization.capnp)
 add_capnp(storage/types.capnp)
+add_capnp(query/common.capnp)
 
-add_custom_target(generate_capnp DEPENDS ${generated_capnp_files})
+add_custom_target(generate_capnp DEPENDS generate_lcp ${generated_capnp_files})
+
 # -----------------------------------------------------------------------------
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)

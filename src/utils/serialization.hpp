@@ -203,13 +203,13 @@ inline void SaveUniquePtr(
 template <typename TCapnp, typename T>
 inline std::unique_ptr<T> LoadUniquePtr(
     const typename capnp::UniquePtr<TCapnp>::Reader &reader,
-    const std::function<T(const typename TCapnp::Reader &reader)> &load) {
+    const std::function<T*(const typename TCapnp::Reader &reader)> &load) {
   switch (reader.which()) {
     case capnp::UniquePtr<TCapnp>::NULLPTR:
       return nullptr;
     case capnp::UniquePtr<TCapnp>::VALUE:
       auto value_reader = reader.getValue();
-      return std::make_unique<T>(load(value_reader));
+      return std::unique_ptr<T>(load(value_reader));
   }
 }
 
@@ -236,9 +236,9 @@ inline void SaveSharedPtr(
 }
 
 template <typename TCapnp, typename T>
-inline std::shared_ptr<T> LoadSharedPtr(
+std::shared_ptr<T> LoadSharedPtr(
     const typename capnp::SharedPtr<TCapnp>::Reader &reader,
-    const std::function<T(const typename TCapnp::Reader &reader)> &load,
+    const std::function<T *(const typename TCapnp::Reader &reader)> &load,
     std::vector<std::pair<uint64_t, std::shared_ptr<T>>> *loaded_pointers) {
   std::shared_ptr<T> ret;
   switch (reader.which()) {
@@ -255,7 +255,7 @@ inline std::shared_ptr<T> LoadSharedPtr(
                        });
       if (found != loaded_pointers->end()) return found->second;
       auto value_reader = entry_reader.getValue();
-      ret = std::make_shared<T>(load(value_reader));
+      ret = std::shared_ptr<T>(load(value_reader));
       loaded_pointers->emplace_back(std::make_pair(pointer_id, ret));
   }
   return ret;

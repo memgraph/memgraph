@@ -8,6 +8,7 @@
 #include "glog/logging.h"
 
 #include "query/exceptions.hpp"
+#include "utils/serialization.hpp"
 #include "utils/string.hpp"
 
 namespace query {
@@ -278,6 +279,28 @@ bool TypedValueVectorCompare::TypedValueCompare(const TypedValue &a,
     default:
       LOG(FATAL) << "Unhandled comparison for types";
   }
+}
+
+void TypedValueVectorCompare::Save(
+    capnp::TypedValueVectorCompare::Builder *builder) const {
+  auto ordering_builder = builder->initOrdering(ordering_.size());
+  for (size_t i = 0; i < ordering_.size(); ++i) {
+    ordering_builder.set(i, ordering_[i] == Ordering::ASC
+                                ? capnp::Ordering::ASC
+                                : capnp::Ordering::DESC);
+  }
+}
+
+void TypedValueVectorCompare::Load(
+    const capnp::TypedValueVectorCompare::Reader &reader) {
+  std::vector<Ordering> ordering;
+  ordering.reserve(reader.getOrdering().size());
+  for (auto ordering_reader : reader.getOrdering()) {
+    ordering.push_back(ordering_reader == capnp::Ordering::ASC
+                           ? Ordering::ASC
+                           : Ordering::DESC);
+  }
+  ordering_ = ordering;
 }
 
 template <typename TAccessor>

@@ -42,29 +42,29 @@ class Symbol {
   bool user_declared() const { return user_declared_; }
   int token_position() const { return token_position_; }
 
-  void Save(capnp::Symbol::Builder &builder) {
-    builder.setName(name_);
-    builder.setPosition(position_);
-    builder.setUserDeclared(user_declared_);
-    builder.setTokenPosition(token_position_);
+  void Save(capnp::Symbol::Builder *builder) const {
+    builder->setName(name_);
+    builder->setPosition(position_);
+    builder->setUserDeclared(user_declared_);
+    builder->setTokenPosition(token_position_);
     switch (type_) {
       case Type::Any:
-        builder.setType(capnp::Symbol::Type::ANY);
+        builder->setType(capnp::Symbol::Type::ANY);
         break;
       case Type::Edge:
-        builder.setType(capnp::Symbol::Type::EDGE);
+        builder->setType(capnp::Symbol::Type::EDGE);
         break;
       case Type::EdgeList:
-        builder.setType(capnp::Symbol::Type::EDGE_LIST);
+        builder->setType(capnp::Symbol::Type::EDGE_LIST);
         break;
       case Type::Number:
-        builder.setType(capnp::Symbol::Type::NUMBER);
+        builder->setType(capnp::Symbol::Type::NUMBER);
         break;
       case Type::Path:
-        builder.setType(capnp::Symbol::Type::PATH);
+        builder->setType(capnp::Symbol::Type::PATH);
         break;
       case Type::Vertex:
-        builder.setType(capnp::Symbol::Type::VERTEX);
+        builder->setType(capnp::Symbol::Type::VERTEX);
         break;
     }
   }

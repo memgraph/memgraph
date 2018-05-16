@@ -28,19 +28,25 @@
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
 
+#include "query/plan/operator.capnp.h"
+
 namespace database {
 class GraphDbAccessor;
 }
+cpp<#
 
-namespace query {
+(lcp:namespace query)
 
+#>cpp
 class Context;
 class ExpressionEvaluator;
 class Frame;
 class SymbolTable;
+cpp<#
 
-namespace plan {
+(lcp:namespace plan)
 
+#>cpp
 /** @brief Base class for iteration cursors of @c LogicalOperator classes.
  *
  *  Each @c LogicalOperator must produce a concrete @c Cursor, which provides
@@ -129,82 +135,115 @@ class HierarchicalLogicalOperatorVisitor
   using LogicalOperatorLeafVisitor::Visit;
   using typename LogicalOperatorLeafVisitor::ReturnType;
 };
+cpp<#
 
-/** Base class for logical operators.
- *
- *  Each operator describes an operation, which is to be performed on the
- *  database. Operators are iterated over using a @c Cursor. Various operators
- *  can serve as inputs to others and thus a sequence of operations is formed.
- */
-class LogicalOperator
-    : public ::utils::Visitable<HierarchicalLogicalOperatorVisitor> {
- public:
-  virtual ~LogicalOperator() {}
+(lcp:capnp-namespace "query::plan")
 
-  /** Constructs a @c Cursor which is used to run this operator.
-   *
-   *  @param database::GraphDbAccessor Used to perform operations on the
-   * database.
-   */
-  virtual std::unique_ptr<Cursor> MakeCursor(
-      database::GraphDbAccessor &) const = 0;
+(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/types.capnp")
+(lcp:capnp-import 'ast "/query/frontend/ast/ast.capnp")
+(lcp:capnp-import 'semantic "/query/frontend/semantic/symbol.capnp")
+(lcp:capnp-import 'common "/query/common.capnp")
 
-  /** Return @c Symbol vector where the query results will be stored.
-   *
-   * Currently, outputs symbols are generated in @c Produce and @c Union
-   * operators. @c Skip, @c Limit, @c OrderBy and @c Distinct propagate the
-   * symbols from @c Produce (if it exists as input operator).
-   *
-   *  @param SymbolTable used to find symbols for expressions.
-   *  @return std::vector<Symbol> used for results.
-   */
-  virtual std::vector<Symbol> OutputSymbols(const SymbolTable &) const {
-    return std::vector<Symbol>();
-  }
+(lcp:capnp-type-conversion "Symbol" "Semantic.Symbol")
+(lcp:capnp-type-conversion "storage::Label" "Storage.Common")
+(lcp:capnp-type-conversion "storage::Property" "Storage.Common")
+(lcp:capnp-type-conversion "storage::EdgeType" "Storage.Common")
+(lcp:capnp-type-conversion "GraphView" "Common.GraphView")
 
-  /**
-   * Symbol vector whose values are modified by this operator sub-tree.
-   *
-   * This is different than @c OutputSymbols, because it returns all of the
-   * modified symbols, including those that may not be returned as the
-   * result of the query. Note that the modified symbols will not contain
-   * those that should not be read after the operator is processed.
-   *
-   * For example, `MATCH (n)-[e]-(m) RETURN n AS l` will generate `ScanAll (n) >
-   * Expand (e, m) > Produce (l)`. The modified symbols on Produce sub-tree will
-   * be `l`, the same as output symbols, because it isn't valid to read `n`, `e`
-   * nor `m` after Produce. On the other hand, modified symbols from Expand
-   * contain `e` and `m`, as well as `n`, while output symbols are empty.
-   * Modified symbols from ScanAll contain only `n`, while output symbols are
-   * also empty.
-   */
-  virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const = 0;
+(lcp:define-class logical-operator ("::utils::Visitable<HierarchicalLogicalOperatorVisitor>")
+  ()
+  (:documentation
+   "Base class for logical operators.
 
-  /**
-   * Returns true if the operator takes only one input operator.
-   * NOTE: When this method returns true, you may use `input` and `set_input`
-   * methods.
-   */
-  virtual bool HasSingleInput() const = 0;
+Each operator describes an operation, which is to be performed on the
+database. Operators are iterated over using a @c Cursor. Various operators
+can serve as inputs to others and thus a sequence of operations is formed.")
+  (:public
+   #>cpp
+   virtual ~LogicalOperator() {}
 
-  /**
-   * Returns the input operator if it has any.
-   * NOTE: This should only be called if `HasSingleInput() == true`.
-   */
-  virtual std::shared_ptr<LogicalOperator> input() const = 0;
-  /**
-   * Set a different input on this operator.
-   * NOTE: This should only be called if `HasSingleInput() == true`.
-   */
-  virtual void set_input(std::shared_ptr<LogicalOperator>) = 0;
+   /** Constructs a @c Cursor which is used to run this operator.
+    *
+    *  @param database::GraphDbAccessor Used to perform operations on the
+    * database.
+    */
+   virtual std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &) const = 0;
 
- private:
-  friend class boost::serialization::access;
+   /** Return @c Symbol vector where the query results will be stored.
+    *
+    * Currently, outputs symbols are generated in @c Produce and @c Union
+    * operators. @c Skip, @c Limit, @c OrderBy and @c Distinct propagate the
+    * symbols from @c Produce (if it exists as input operator).
+    *
+    *  @param SymbolTable used to find symbols for expressions.
+    *  @return std::vector<Symbol> used for results.
+    */
+   virtual std::vector<Symbol> OutputSymbols(const SymbolTable &) const {
+     return std::vector<Symbol>();
+   }
 
-  template <class TArchive>
-  void serialize(TArchive &, const unsigned int) {}
-};
+   /**
+    * Symbol vector whose values are modified by this operator sub-tree.
+    *
+    * This is different than @c OutputSymbols, because it returns all of the
+    * modified symbols, including those that may not be returned as the
+    * result of the query. Note that the modified symbols will not contain
+    * those that should not be read after the operator is processed.
+    *
+    * For example, `MATCH (n)-[e]-(m) RETURN n AS l` will generate `ScanAll (n) >
+    * Expand (e, m) > Produce (l)`. The modified symbols on Produce sub-tree will
+    * be `l`, the same as output symbols, because it isn't valid to read `n`, `e`
+    * nor `m` after Produce. On the other hand, modified symbols from Expand
+    * contain `e` and `m`, as well as `n`, while output symbols are empty.
+    * Modified symbols from ScanAll contain only `n`, while output symbols are
+    * also empty.
+    */
+   virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const = 0;
 
+   /**
+    * Returns true if the operator takes only one input operator.
+    * NOTE: When this method returns true, you may use `input` and `set_input`
+    * methods.
+    */
+   virtual bool HasSingleInput() const = 0;
+
+   /**
+    * Returns the input operator if it has any.
+    * NOTE: This should only be called if `HasSingleInput() == true`.
+    */
+   virtual std::shared_ptr<LogicalOperator> input() const = 0;
+   /**
+    * Set a different input on this operator.
+    * NOTE: This should only be called if `HasSingleInput() == true`.
+    */
+   virtual void set_input(std::shared_ptr<LogicalOperator>) = 0;
+
+   struct SaveHelper {
+     std::vector<int> saved_ast_uids;
+     std::vector<LogicalOperator *> saved_ops;
+   };
+
+   struct LoadHelper {
+     AstTreeStorage ast_storage;
+     std::vector<int> loaded_ast_uids;
+     std::vector<std::pair<uint64_t, std::shared_ptr<LogicalOperator>>>
+         loaded_ops;
+   };
+   cpp<#)
+  (:private
+   #>cpp
+   friend class boost::serialization::access;
+
+   template <class TArchive>
+   void serialize(TArchive &, const unsigned int) {}
+   cpp<#)
+  (:serialize :capnp :base t
+              :save-args '((helper "SaveHelper *"))
+              :load-args '((helper "LoadHelper *"))))
+
+#>cpp
 template <class TArchive>
 std::pair<std::unique_ptr<LogicalOperator>, AstTreeStorage> LoadPlan(
     TArchive &ar) {
@@ -233,6 +272,125 @@ cpp<#
 (defun load-pointers (archive member-name)
   #>cpp
   LoadPointers(${archive}, ${member-name});
+  cpp<#)
+
+(defun capnp-save-vector (capnp-type cpp-type &optional lambda-code)
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
+    (lambda (builder member-name)
+      #>cpp
+      utils::SaveVector<${capnp-type}, ${cpp-type}>(${member-name}, &${builder}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-load-vector (capnp-type cpp-type &optional lambda-code)
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         (format nil
+                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
+                                 cpp-type))))
+    (lambda (reader member-name)
+      #>cpp
+      utils::LoadVector<${capnp-type}, ${cpp-type}>(&${member-name}, ${reader}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-save-optional (capnp-type cpp-type &optional lambda-code)
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
+    (lambda (builder member)
+      #>cpp
+      utils::SaveOptional<${capnp-type}, ${cpp-type}>(${member}, &${builder}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-load-optional (capnp-type cpp-type &optional lambda-code)
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         (format nil
+                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
+                                 cpp-type))))
+    (lambda (reader member)
+      #>cpp
+      ${member} = utils::LoadOptional<${capnp-type}, ${cpp-type}>(${reader}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-save-enum (capnp-type cpp-type enum-values)
+  (lambda (builder member)
+    (let* ((member-setter (remove #\_ (string-capitalize member)))
+           (cases (mapcar (lambda (value-symbol)
+                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                             #>cpp
+                             case ${cpp-type}::${value}:
+                                 ${builder}->set${member-setter}(${capnp-type}::${value});
+                                 break;
+                                 cpp<#))
+                          enum-values)))
+      (format nil "switch (~A) {~%~{~A~%~}}" member (mapcar #'lcp::raw-cpp-string cases)))))
+
+(defun capnp-load-enum (capnp-type cpp-type enum-values)
+  (lambda (reader member)
+    (let* ((member-getter (remove #\_ (string-capitalize member)))
+           (cases (mapcar (lambda (value-symbol)
+                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                             #>cpp
+                             case ${capnp-type}::${value}:
+                                 ${member} = ${cpp-type}::${value};
+                                 break;
+                             cpp<#))
+                          enum-values)))
+      (format nil "switch (~A.get~A()) {~%~{~A~%~}}"
+              reader member-getter (mapcar #'lcp::raw-cpp-string cases)))))
+
+(defun save-ast-pointer (builder member)
+  (let ((member-getter (remove #\_ (string-capitalize member))))
+    #>cpp
+    if (${member}) {
+      auto ${member}_builder = ${builder}->init${member-getter}();
+      ${member}->Save(&${member}_builder, &helper->saved_ast_uids);
+    }
+    cpp<#))
+
+(defun load-ast-pointer (ast-type)
+  (lambda (reader member)
+    (let ((member-getter (remove #\_ (string-capitalize member))))
+      #>cpp
+      if (${reader}.has${member-getter}())
+        ${member} = static_cast<${ast-type}>(helper->ast_storage.Load(${reader}.get${member-getter}(), &helper->loaded_ast_uids));
+      else
+        ${member} = nullptr;
+      cpp<#)))
+
+(defun save-ast-vector (ast-type)
+  (capnp-save-vector "::query::capnp::Tree" ast-type
+                     "[helper](auto *builder, const auto &val) {
+                        val->Save(builder, &helper->saved_ast_uids);
+                      }"))
+
+(defun load-ast-vector (ast-type)
+  (capnp-load-vector "::query::capnp::Tree" ast-type
+                     (format
+                      nil
+                      "[helper](const auto &reader) {
+                        // We expect the unsafe downcast via static_cast to work.
+                        return static_cast<~A>(helper->ast_storage.Load(reader, &helper->loaded_ast_uids));
+                      }" ast-type)))
+
+(defun save-operator-pointer (builder member-name)
+  #>cpp
+  utils::SaveSharedPtr<capnp::LogicalOperator, LogicalOperator>(${member-name}, &${builder},
+                       [helper](auto *builder, const auto &val) {
+                         val.Save(builder, helper);
+                       }, &helper->saved_ops);
+  cpp<#)
+
+(defun load-operator-pointer (reader member-name)
+  #>cpp
+  ${member-name} = utils::LoadSharedPtr<capnp::LogicalOperator, LogicalOperator>(${reader},
+                       [helper](const auto &reader) {
+                         auto op = LogicalOperator::Construct(reader);
+                         op->Load(reader, helper);
+                         return op.release();
+                       }, &helper->loaded_ops);
   cpp<#)
 
 (lcp:define-class once (logical-operator)
@@ -265,11 +423,15 @@ and false on every following Pull.")
      bool did_pull_{false};
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class create-node (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (node-atom "NodeAtom *" :initval "nullptr"
+              :capnp-type "Ast.Tree" :capnp-init nil
+              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *")
               :save-fun #'save-pointer :load-fun #'load-pointer)
    (on-random-worker :bool :initval "false"))
   (:documentation
@@ -323,16 +485,22 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class create-expand (logical-operator)
   (
    ;; info on what's getting expanded
-   (node-atom "NodeAtom *" :save-fun #'save-pointer :load-fun #'load-pointer)
-   (edge-atom "EdgeAtom *" :save-fun #'save-pointer :load-fun #'load-pointer)
+   (node-atom "NodeAtom *" :save-fun #'save-pointer :load-fun #'load-pointer
+              :capnp-type "Ast.Tree" :capnp-init nil
+              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
+   (edge-atom "EdgeAtom *" :save-fun #'save-pointer :load-fun #'load-pointer
+              :capnp-type "Ast.Tree" :capnp-init nil
+              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "EdgeAtom *"))
    ;; the input op and the symbol under which the op's result
    ;; can be found in the frame
-   (input "std::shared_ptr<LogicalOperator>")
+   (input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol")
    (existing-node :bool :documentation
                   "if the given node atom refers to an existing node (either matched or created)"))
@@ -409,12 +577,19 @@ chained in cases when longer paths need creating.
                      ExpressionEvaluator &evaluator);
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class scan-all (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>" :scope :protected)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :protected
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (output-symbol "Symbol" :reader t :scope :protected)
    (graph-view "GraphView" :reader t :scope :protected
+               :capnp-init nil
+               :capnp-save (capnp-save-enum "::query::capnp::GraphView" "GraphView"
+                                            '(old new))
+               :capnp-load (capnp-load-enum "::query::capnp::GraphView" "GraphView"
+                                            '(old new))
                :documentation
                "Controls which graph state is used to produce vertices.
 
@@ -454,7 +629,7 @@ with a constructor argument.
    }
    cpp<#)
   (:protected #>cpp ScanAll() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class scan-all-by-label (scan-all)
   ((label "storage::Label" :reader t))
@@ -475,12 +650,39 @@ given label.
        database::GraphDbAccessor &db) const override;
    cpp<#)
   (:private #>cpp ScanAllByLabel() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
+
+(defun save-optional-bound (builder member)
+  (let ((save-bound
+         "[helper](auto *builder, const auto &bound) {
+           builder->setType(bound.type() == Bound::Type::INCLUSIVE ?
+                            ::utils::capnp::Bound<::query::capnp::Tree>::Type::INCLUSIVE :
+                            ::utils::capnp::Bound<::query::capnp::Tree>::Type::EXCLUSIVE);
+           auto value_builder = builder->initValue();
+           bound.value()->Save(&value_builder, &helper->saved_ast_uids);
+         }"))
+    (funcall (capnp-save-optional "::utils::capnp::Bound<::query::capnp::Tree>" "Bound"
+                                  save-bound)
+             builder member)))
+
+(defun load-optional-bound (reader member)
+  (let ((load-bound
+         "[helper](const auto &reader) {
+           auto type = reader.getType() == ::utils::capnp::Bound<::query::capnp::Tree>::Type::INCLUSIVE
+                       ? Bound::Type::INCLUSIVE : Bound::Type::EXCLUSIVE;
+           auto *value = static_cast<Expression*>(helper->ast_storage.Load(reader.getValue(), &helper->loaded_ast_uids));
+           return Bound(value, type);
+         }"))
+    (funcall (capnp-load-optional "::utils::capnp::Bound<::query::capnp::Tree>" "Bound"
+                                  load-bound)
+             reader member)))
 
 (lcp:define-class scan-all-by-label-property-range (scan-all)
   ((label "storage::Label" :reader t)
    (property "storage::Property" :reader t)
    (lower-bound "std::experimental::optional<Bound>" :reader t
+                :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"
+                :capnp-save #'save-optional-bound :capnp-load #'load-optional-bound
                 :save-fun
                 #>cpp
                 auto save_bound = [&ar](auto &maybe_bound) {
@@ -513,8 +715,11 @@ given label.
                 load_bound(lower_bound_);
                 cpp<#)
    (upper-bound "std::experimental::optional<Bound>" :reader t
+                :capnp-save #'save-optional-bound :capnp-load #'load-optional-bound
+                :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"
                 :save-fun #>cpp save_bound(upper_bound_); cpp<#
-                :load-fun #>cpp load_bound(upper_bound_); cpp<#))
+                :load-fun #>cpp load_bound(upper_bound_); cpp<#
+                ))
   (:documentation
    "Behaves like @c ScanAll, but produces only vertices with given label and
 property value which is inside a range (inclusive or exlusive).
@@ -552,12 +757,14 @@ property value which is inside a range (inclusive or exlusive).
        database::GraphDbAccessor &db) const override;
    cpp<#)
   (:private #>cpp ScanAllByLabelPropertyRange() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class scan-all-by-label-property-value (scan-all)
   ((label "storage::Label" :reader t)
    (property "storage::Property" :reader t)
    (expression "Expression *" :reader t
+               :capnp-type "Ast.Tree" :capnp-init nil
+               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                :save-fun #'save-pointer :load-fun #'load-pointer))
   (:documentation
    "Behaves like @c ScanAll, but produces only vertices with given label and
@@ -589,23 +796,38 @@ property value.
        database::GraphDbAccessor &db) const override;
    cpp<#)
   (:private #>cpp ScanAllByLabelPropertyValue() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class expand-common ()
   (
    ;; info on what's getting expanded
    (node-symbol "Symbol" :reader t :scope :protected)
    (edge-symbol "Symbol" :reader t :scope :protected)
-   (direction "EdgeAtom::Direction" :reader t :scope :protected)
-   (edge-types "std::vector<storage::EdgeType>" :reader t :scope :protected)
+   (direction "EdgeAtom::Direction" :reader t :scope :protected
+              :capnp-type "Ast.EdgeAtom.Direction" :capnp-init nil
+              :capnp-save (capnp-save-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
+                                           '(in out both))
+              :capnp-load (capnp-load-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
+                                           '(in out both)))
+   (edge-types "std::vector<storage::EdgeType>" :reader t :scope :protected
+               :capnp-save (capnp-save-vector "::storage::capnp::Common" "storage::EdgeType")
+               :capnp-load (capnp-load-vector "::storage::capnp::Common" "storage::EdgeType"))
    ;; the input op and the symbol under which the op's result
    ;; can be found in the frame
-   (input "std::shared_ptr<LogicalOperator>" :scope :protected)
+   (input "std::shared_ptr<LogicalOperator>" :scope :protected
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :reader t :scope :protected)
    (existing-node :bool :scope :protected :documentation
                   "If the given node atom refer to a symbol that has already
                   been expanded and should be just validated in the frame.")
-   (graph-view "GraphView" :reader t :scope :protected :documentation
+   (graph-view "GraphView" :reader t :scope :protected
+               :capnp-init nil
+               :capnp-save (capnp-save-enum "::query::capnp::GraphView" "GraphView"
+                                            '(old new))
+               :capnp-load (capnp-load-enum "::query::capnp::GraphView" "GraphView"
+                                            '(old new))
+               :documentation
                "from which state the input node should get expanded"))
   (:documentation
    "Common functionality and data members of single-edge and variable-length
@@ -649,6 +871,8 @@ expansion")
    cpp<#)
   (:protected
    #>cpp
+   virtual ~ExpandCommon() {}
+
    // types that we'll use for members in both subclasses
    using InEdgeT = decltype(std::declval<VertexAccessor>().in());
    using InEdgeIteratorT = decltype(std::declval<VertexAccessor>().in().begin());
@@ -668,7 +892,9 @@ expansion")
 
    ExpandCommon() {}
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp
+              :save-args '((helper "LogicalOperator::SaveHelper *"))
+              :load-args '((helper "LogicalOperator::LoadHelper *"))))
 
 (lcp:define-class expand (logical-operator expand-common)
   ()
@@ -738,19 +964,36 @@ pulled.")
      bool InitEdges(Frame &, Context &);
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp :inherit-compose '(expand-common)))
 
 (lcp:define-class expand-variable (logical-operator expand-common)
-  ((type "EdgeAtom::Type" :reader t)
+  ((type "EdgeAtom::Type" :reader t :capnp-type "Ast.EdgeAtom.Type"
+         :capnp-init nil
+         :capnp-save (capnp-save-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
+                                      '(single depth-first breadth-first weighted-shortest-path))
+         :capnp-load (capnp-load-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
+                                      '(single depth-first breadth-first weighted-shortest-path)))
    (is-reverse :bool :documentation
                "True if the path should be written as expanding from node_symbol to input_symbol.")
    (lower-bound "Expression *" :save-fun #'save-pointer :load-fun #'load-pointer
+                :capnp-type "Ast.Tree" :capnp-init nil
+                :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Optional lower bound of the variable length expansion, defaults are (1, inf)")
    (upper-bound "Expression *" :save-fun #'save-pointer :load-fun #'load-pointer
+                :capnp-type "Ast.Tree" :capnp-init nil
+                :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Optional upper bound of the variable length expansion, defaults are (1, inf)")
    (filter-lambda "Lambda")
-   (weight-lambda "std::experimental::optional<Lambda>")
-   (total-weight "std::experimental::optional<Symbol>"))
+   (weight-lambda "std::experimental::optional<Lambda>"
+                  :capnp-save (capnp-save-optional
+                               "capnp::ExpandVariable::Lambda" "Lambda"
+                               "[helper](auto *builder, const auto &val) { val.Save(builder, helper); }")
+                  :capnp-load (capnp-load-optional
+                               "capnp::ExpandVariable::Lambda" "Lambda"
+                               "[helper](const auto &reader) { Lambda val; val.Load(reader, helper); return val; }"))
+   (total-weight "std::experimental::optional<Symbol>"
+                 :capnp-save (capnp-save-optional "::query::capnp::Symbol" "Symbol")
+                 :capnp-load (capnp-load-optional "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Variable-length expansion operator. For a node existing in
 the frame it expands a variable number of edges and places them
@@ -773,8 +1016,12 @@ pulled.")
      ((inner-edge-symbol "Symbol" :documentation "Currently expanded edge symbol.")
       (inner-node-symbol "Symbol" :documentation "Currently expanded node symbol.")
       (expression "Expression *" :documentation "Expression used in lambda during expansion."
+                  :capnp-type "Ast.Tree" :capnp-init nil
+                  :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                   :save-fun #'save-pointer :load-fun #'load-pointer))
-     (:serialize :boost))
+     (:serialize :boost :capnp
+                        :save-args '((helper "LogicalOperator::SaveHelper *"))
+                        :load-args '((helper "LogicalOperator::LoadHelper *"))))
    #>cpp
    /**
     * Creates a variable-length expansion. Most params are forwarded
@@ -797,7 +1044,7 @@ pulled.")
     *    assigned to this symbol so it can be evaulated by the 'where'
     * expression.
     * @param filter_ The filter that must be satisfied for an expansion to
-    * succeed. Can use inner(node|edge) symbols. If nullptr, it is ignored.
+    * succeed. Can use inner(node/edge) symbols. If nullptr, it is ignored.
     */
    ExpandVariable(Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
                   EdgeAtom::Direction direction,
@@ -833,12 +1080,16 @@ pulled.")
 
    ExpandVariable() {}
    cpp<#)
-   (:serialize :boost))
+   (:serialize :boost :capnp :inherit-compose '(expand-common)))
 
 (lcp:define-class construct-named-path (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (path-symbol "Symbol" :reader t)
-   (path-elements "std::vector<Symbol>" :reader t))
+   (path-elements "std::vector<Symbol>" :reader t
+                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Constructs a named path from it's elements and places it on the frame.")
   (:public
@@ -862,11 +1113,15 @@ pulled.")
    cpp<#)
   (:private
    #>cpp ConstructNamedPath() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class filter (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (expression "Expression *"
+               :capnp-type "Ast.Tree" :capnp-init nil
+               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                :save-fun #'save-pointer :load-fun #'load-pointer))
   (:documentation
    "Filter whose Pull returns true only when the given expression
@@ -905,11 +1160,16 @@ a boolean value.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class produce (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (named-expressions "std::vector<NamedExpression *>" :reader t
+                      :capnp-type "List(Ast.Tree)"
+                      :capnp-save (save-ast-vector "NamedExpression *")
+                      :capnp-load (load-ast-vector "NamedExpression *")
                       :save-fun #'save-pointers :load-fun #'load-pointers))
   (:documentation
    "A logical operator that places an arbitrary number
@@ -953,11 +1213,16 @@ RETURN clause) the Produce's pull succeeds exactly once.")
 
    Produce() {}
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class delete (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (expressions "std::vector<Expression *>"
+                :capnp-type "List(Ast.Tree)"
+                :capnp-save (save-ast-vector "Expression *")
+                :capnp-load (load-ast-vector "Expression *")
                 :save-fun #'save-pointers :load-fun #'load-pointers)
    (detach :bool :documentation
            "if the vertex should be detached before deletion if not detached,
@@ -997,13 +1262,19 @@ Has a flag for using DETACH DELETE when deleting vertices.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class set-property (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (lhs "PropertyLookup *"
+        :capnp-type "Ast.Tree" :capnp-init nil
+        :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "PropertyLookup *")
         :save-fun #'save-pointer :load-fun #'load-pointer)
    (rhs "Expression *"
+        :capnp-type "Ast.Tree" :capnp-init nil
+        :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
         :save-fun #'save-pointer :load-fun #'load-pointer))
   (:documentation
    "Logical Op for setting a single property on a single vertex or edge.
@@ -1041,37 +1312,38 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class set-properties (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol")
    (rhs "Expression *"
+        :capnp-type "Ast.Tree" :capnp-init nil
+        :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
         :save-fun #'save-pointer :load-fun #'load-pointer)
-   (op "Op"))
+   (op "Op" :capnp-init nil
+       :capnp-save (capnp-save-enum "capnp::SetProperties::Op" "Op" '(update replace))
+       :capnp-load (capnp-load-enum "capnp::SetProperties::Op" "Op" '(update replace))))
   (:documentation
-   "Logical op for setting the whole properties set on a vertex or an
-edge.
+   "Logical op for setting the whole properties set on a vertex or an edge.
 
 The value being set is an expression that must evaluate to a vertex, edge
-or
-map (literal or parameter).
+or map (literal or parameter).
 
 Supports setting (replacing the whole properties set with another) and
 updating.")
   (:public
-   #>cpp
-   /**
-    * @brief Defines how setting the properties works.
-    *
-    * @c UPDATE means that the current property set is augmented with
-    * additional
-    * ones (existing props of the same name are replaced), while @c REPLACE
-    * means
-    * that the old props are discarded and replaced with new ones.
-    */
-   enum class Op { UPDATE, REPLACE };
+   (lcp:define-enum op
+       "Defines how setting the properties works.
 
+@c UPDATE means that the current property set is augmented with additional
+ones (existing props of the same name are replaced), while @c REPLACE means
+that the old props are discarded and replaced with new ones."
+     update replace)
+
+   #>cpp
    SetProperties(const std::shared_ptr<LogicalOperator> &input,
                  Symbol input_symbol, Expression *rhs, Op op);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -1110,12 +1382,16 @@ updating.")
      void Set(TRecordAccessor &record, const TypedValue &rhs) const;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class set-labels (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol")
-   (labels "std::vector<storage::Label>"))
+   (labels "std::vector<storage::Label>"
+     :capnp-save (capnp-save-vector "::storage::capnp::Common" "storage::Label")
+     :capnp-load (capnp-load-vector "::storage::capnp::Common" "storage::Label")))
   (:documentation
    "Logical operator for setting an arbitrary number of labels on a Vertex.
 
@@ -1150,11 +1426,15 @@ It does NOT remove labels that are already set on that Vertex.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class remove-property (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (lhs "PropertyLookup *"
+        :capnp-type "Ast.Tree" :capnp-init nil
+        :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "PropertyLookup *")
         :save-fun #'save-pointer :load-fun #'load-pointer))
   (:documentation
    "Logical op for removing a property from an edge or a vertex.")
@@ -1190,12 +1470,16 @@ It does NOT remove labels that are already set on that Vertex.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class remove-labels (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol")
-   (labels "std::vector<storage::Label>"))
+   (labels "std::vector<storage::Label>"
+     :capnp-save (capnp-save-vector "::storage::capnp::Common" "storage::Label")
+     :capnp-load (capnp-load-vector "::storage::capnp::Common" "storage::Label")))
   (:documentation
    "Logical operator for removing an arbitrary number of labels on a Vertex.
 
@@ -1230,18 +1514,22 @@ If a label does not exist on a Vertex, nothing happens.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class (expand-uniqueness-filter t-accessor) (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (expand-symbol "Symbol")
-   (previous-symbols "std::vector<Symbol>"))
+   (previous-symbols "std::vector<Symbol>"
+                     :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                     :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Filter whose Pull returns true only when the given
 expand_symbol frame value (the latest expansion) is not
 equal to any of the previous_symbols frame values.
 
-Used for implementing [iso|cypher]morphism.
+Used for implementing [iso/cypher]morphism.
 Isomorphism is vertex-uniqueness. It means that
 two different vertices in a pattern can not map to the
 same data vertex. For example, if the database
@@ -1290,11 +1578,15 @@ between edges and an edge lists).")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp :type-args '(vertex-accessor edge-accessor)))
 
 (lcp:define-class accumulate (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
-   (symbols "std::vector<Symbol>" :reader t)
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (symbols "std::vector<Symbol>" :reader t
+            :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+            :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (advance-command :bool :reader t))
   (:documentation
    "Pulls everything from the input before passing it through.
@@ -1357,7 +1649,7 @@ has been cached will be reconstructed before Pull returns.
      bool pulled_all_input_{false};
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 #>cpp
 /**
@@ -1371,11 +1663,24 @@ struct TypedValueVectorEqual {
 cpp<#
 
 (lcp:define-class aggregate (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
-   (aggregations "std::vector<Element>" :reader t)
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (aggregations "std::vector<Element>" :reader t
+                 :capnp-save (capnp-save-vector
+                              "capnp::Aggregate::Element" "Element"
+                              "[helper](auto *builder, const auto &val) { val.Save(builder, helper); }")
+                 :capnp-load (capnp-load-vector
+                              "capnp::Aggregate::Element" "Element"
+                              "[helper](const auto &reader) { Element val; val.Load(reader, helper); return val; }"))
    (group-by "std::vector<Expression *>" :reader t
+             :capnp-type "List(Ast.Tree)"
+             :capnp-save (save-ast-vector "Expression *")
+             :capnp-load (load-ast-vector "Expression *")
              :save-fun #'save-pointers :load-fun #'load-pointers)
-   (remember "std::vector<Symbol>" :reader t))
+   (remember "std::vector<Symbol>" :reader t
+             :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+             :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Performs an arbitrary number of aggregations of data
 from the given input grouped by the given criteria.
@@ -1393,16 +1698,26 @@ elements are in an undefined state after aggregation.")
   (:public
    (lcp:define-struct element ()
      ((value "Expression *"
+             :capnp-type "Ast.Tree" :capnp-init nil
+             :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
              :save-fun #'save-pointer :load-fun #'load-pointer)
       (key "Expression *"
+           :capnp-type "Ast.Tree" :capnp-init nil
+           :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
            :save-fun #'save-pointer :load-fun #'load-pointer)
-      (op "Aggregation::Op")
-      (output_sym "Symbol"))
+      (op "Aggregation::Op" :capnp-type "Ast.Aggregation.Op"
+          :capnp-init nil :capnp-save (capnp-save-enum "::query::capnp::Aggregation::Op" "Aggregation::Op"
+                                                       '(count min max sum avg collect-list collect-map))
+          :capnp-load (capnp-load-enum "::query::capnp::Aggregation::Op" "Aggregation::Op"
+                                       '(count min max sum avg collect-list collect-map)))
+      (output-sym "Symbol"))
      (:documentation
       "An aggregation element, contains:
        (input data expression, key expression - only used in COLLECT_MAP, type of
        aggregation, output symbol).")
-     (:serialize :boost))
+     (:serialize :boost :capnp
+                        :save-args '((helper "LogicalOperator::SaveHelper *"))
+                        :load-args '((helper "LogicalOperator::LoadHelper *"))))
    #>cpp
    Aggregate(const std::shared_ptr<LogicalOperator> &input,
              const std::vector<Element> &aggregations,
@@ -1503,11 +1818,15 @@ elements are in an undefined state after aggregation.")
      void EnsureOkForAvgSum(const TypedValue &value) const;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class skip (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (expression "Expression *"
+               :capnp-type "Ast.Tree" :capnp-init nil
+               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                :save-fun #'save-pointer :load-fun #'load-pointer))
   (:documentation
    "Skips a number of Pulls from the input op.
@@ -1556,11 +1875,15 @@ operator's implementation does not expect this.")
      int skipped_{0};
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class limit (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (expression "Expression *"
+               :capnp-type "Ast.Tree" :capnp-init nil
+               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                :save-fun #'save-pointer :load-fun #'load-pointer))
   (:documentation
    "Limits the number of Pulls from the input op.
@@ -1612,14 +1935,22 @@ input should be performed).")
      int pulled_{0};
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class order-by (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
-   (compare "TypedValueVectorCompare" :reader t)
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (compare "TypedValueVectorCompare" :reader t
+            :capnp-type "Common.TypedValueVectorCompare")
    (order-by "std::vector<Expression *>" :reader t
+             :capnp-type "List(Ast.Tree)"
+             :capnp-save (save-ast-vector "Expression *")
+             :capnp-load (load-ast-vector "Expression *")
              :save-fun #'save-pointers :load-fun #'load-pointers)
-   (output-symbols "std::vector<Symbol>" :reader t))
+   (output-symbols "std::vector<Symbol>" :reader t
+                   :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                   :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Logical operator for ordering (sorting) results.
 
@@ -1673,12 +2004,18 @@ are valid for usage after the OrderBy operator.")
      decltype(cache_.begin()) cache_it_ = cache_.begin();
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class merge (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
-   (merge-match "std::shared_ptr<LogicalOperator>" :reader t)
-   (merge-create "std::shared_ptr<LogicalOperator>" :reader t))
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (merge-match "std::shared_ptr<LogicalOperator>" :reader t
+                :capnp-save #'save-operator-pointer
+                :capnp-load #'load-operator-pointer)
+   (merge-create "std::shared_ptr<LogicalOperator>" :reader t
+                 :capnp-save #'save-operator-pointer
+                 :capnp-load #'load-operator-pointer))
   (:documentation
    "Merge operator. For every sucessful Pull from the
 input operator a Pull from the merge_match is attempted. All
@@ -1733,12 +2070,18 @@ documentation.")
      bool pull_input_{true};
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class optional (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
-   (optional "std::shared_ptr<LogicalOperator>" :reader t)
-   (optional-symbols "std::vector<Symbol>" :reader t))
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (optional "std::shared_ptr<LogicalOperator>" :reader t
+             :capnp-save #'save-operator-pointer
+             :capnp-load #'load-operator-pointer)
+   (optional-symbols "std::vector<Symbol>" :reader t
+                     :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                     :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Optional operator. Used for optional match. For every
 successful Pull from the input branch a Pull from the optional
@@ -1785,11 +2128,15 @@ and returns true, once.")
      bool pull_input_{true};
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class unwind (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (input-expression "Expression *" :reader t
+                     :capnp-type "Ast.Tree" :capnp-init nil
+                     :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                      :save-fun #'save-pointer :load-fun #'load-pointer)
    (output-symbol "Symbol"))
   (:documentation
@@ -1832,11 +2179,15 @@ Input is optional (unwind can be the first clause in a query).")
      std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class distinct (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
-   (value-symbols "std::vector<Symbol>"))
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (value-symbols "std::vector<Symbol>"
+                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Ensures that only distinct rows are yielded.
 This implementation accepts a vector of Symbols
@@ -1884,7 +2235,7 @@ This implementation maintains input ordering.")
          seen_rows_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class create-index (logical-operator)
   ((label "storage::Label" :reader t)
@@ -1911,14 +2262,24 @@ case the index already exists, nothing happens.")
    void set_input(std::shared_ptr<LogicalOperator>) override;
    cpp<#)
   (:private #>cpp CreateIndex() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class union (logical-operator)
-  ((left-op "std::shared_ptr<LogicalOperator>")
-   (right-op "std::shared_ptr<LogicalOperator>")
-   (union-symbols "std::vector<Symbol>")
-   (left-symbols "std::vector<Symbol>")
-   (right-symbols "std::vector<Symbol>"))
+  ((left-op "std::shared_ptr<LogicalOperator>" :reader t
+            :capnp-save #'save-operator-pointer
+            :capnp-load #'load-operator-pointer)
+   (right-op "std::shared_ptr<LogicalOperator>" :reader t
+             :capnp-save #'save-operator-pointer
+             :capnp-load #'load-operator-pointer)
+   (union-symbols "std::vector<Symbol>" :reader t
+                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+   (left-symbols "std::vector<Symbol>" :reader t
+                 :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                 :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+   (right-symbols "std::vector<Symbol>" :reader t
+                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "A logical operator that applies UNION operator on inputs and places the
 result on the frame.
@@ -1957,12 +2318,16 @@ vectors of symbols used  by each of the inputs.")
      const std::unique_ptr<Cursor> left_cursor_, right_cursor_;
    };
    cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class pull-remote (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (plan-id :int64_t :initval 0 :reader t)
-   (symbols "std::vector<Symbol>" :reader t))
+   (symbols "std::vector<Symbol>" :reader t
+            :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+            :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "An operator in distributed Memgraph that yields both local and remote (from
 other workers) frames. Obtaining remote frames is done through RPC calls to
@@ -1988,11 +2353,26 @@ time on data transfer. It gives no guarantees on result order.")
    }
    cpp<#)
   (:private #>cpp PullRemote() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
+
+(defun load-pull-remote (reader member-name)
+  #>cpp
+  ${member-name} = std::static_pointer_cast<PullRemote>(
+      utils::LoadSharedPtr<capnp::LogicalOperator, LogicalOperator>(${reader},
+                       [helper](const auto &reader) {
+                         auto op = LogicalOperator::Construct(reader);
+                         op->Load(reader, helper);
+                         return op.release();
+                       }, &helper->loaded_ops));
+  cpp<#)
 
 (lcp:define-class synchronize (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
-   (pull-remote "std::shared_ptr<PullRemote>" :reader t)
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (pull-remote "std::shared_ptr<PullRemote>" :reader t
+                :capnp-save #'save-operator-pointer
+                :capnp-load #'load-pull-remote)
    (advance-command :bool :initval "false" :reader t))
   (:documentation
    "Operator used to synchronize stages of plan execution between the master and
@@ -2037,13 +2417,21 @@ Logic of the synchronize operator is:
    }
    cpp<#)
   (:private #>cpp Synchronize() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class cartesian (logical-operator)
-  ((left-op "std::shared_ptr<LogicalOperator>" :reader t)
-   (left-symbols "std::vector<Symbol>" :reader t)
-   (right-op "std::shared_ptr<LogicalOperator>" :reader t)
-   (right-symbols "std::vector<Symbol>" :reader t))
+  ((left-op "std::shared_ptr<LogicalOperator>" :reader t
+            :capnp-save #'save-operator-pointer
+            :capnp-load #'load-operator-pointer)
+   (left-symbols "std::vector<Symbol>" :reader t
+                 :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                 :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+   (right-op "std::shared_ptr<LogicalOperator>" :reader t
+             :capnp-save #'save-operator-pointer
+             :capnp-load #'load-operator-pointer)
+   (right-symbols "std::vector<Symbol>" :reader t
+                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Operator for producing a Cartesian product from 2 input branches")
   (:public
@@ -2068,15 +2456,23 @@ Logic of the synchronize operator is:
     void set_input(std::shared_ptr<LogicalOperator>) override;
     cpp<#)
   (:private #>cpp Cartesian() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
 
 (lcp:define-class pull-remote-order-by (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>")
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
    (plan-id :int64_t :initval 0 :reader t)
-   (symbols "std::vector<Symbol>" :reader t)
+   (symbols "std::vector<Symbol>" :reader t
+            :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
+            :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (order-by "std::vector<Expression *>" :reader t
+             :capnp-type "List(Ast.Tree)"
+             :capnp-save (save-ast-vector "Expression *")
+             :capnp-load (load-ast-vector "Expression *")
              :save-fun #'save-pointers :load-fun #'load-pointers)
-   (compare "TypedValueVectorCompare" :reader t))
+   (compare "TypedValueVectorCompare" :reader t
+            :capnp-type "Common.TypedValueVectorCompare"))
   (:documentation
    "Operator that merges distributed OrderBy operators.
 Instead of using a regular OrderBy on master (which would collect all remote
@@ -2103,13 +2499,12 @@ by having only one result from each worker.")
     }
   cpp<#)
   (:private #>cpp PullRemoteOrderBy() {} cpp<#)
-  (:serialize :boost))
+  (:serialize :boost :capnp))
+
+(lcp:pop-namespace) ;; plan
+(lcp:pop-namespace) ;; query
 
 #>cpp
-
-}  // namespace plan
-}  // namespace query
-
 BOOST_CLASS_EXPORT_KEY(query::plan::Once);
 BOOST_CLASS_EXPORT_KEY(query::plan::CreateNode);
 BOOST_CLASS_EXPORT_KEY(query::plan::CreateExpand);

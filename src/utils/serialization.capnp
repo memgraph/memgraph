@@ -62,7 +62,8 @@ struct SharedPtr(T) {
   }
 }
 
-# TypedValue.
+# Our types
+
 struct TypedValue {
   union {
     nullType @0 :Void;
@@ -80,5 +81,15 @@ struct TypedValue {
   struct Entry {
     key @0 :Text;
     value @1 :TypedValue;
+  }
+}
+
+struct Bound(T) {
+  type @0 :Type;
+  value @1 :T;
+
+  enum Type {
+    inclusive @0;
+    exclusive @1;
   }
 }

@@ -17,6 +17,9 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 
+#include "capnp/message.h"
+#include "query/plan/operator.capnp.h"
+
 #include "query_common.hpp"
 
 namespace query {
@@ -505,6 +508,42 @@ class SerializedPlanner {
   std::unique_ptr<LogicalOperator> plan_;
 };
 
+void SavePlan(const LogicalOperator &plan, ::capnp::MessageBuilder *message) {
+  auto builder = message->initRoot<query::plan::capnp::LogicalOperator>();
+  LogicalOperator::SaveHelper helper;
+  plan.Save(&builder, &helper);
+}
+
+auto LoadPlan(const ::query::plan::capnp::LogicalOperator::Reader &reader) {
+  auto plan = LogicalOperator::Construct(reader);
+  LogicalOperator::LoadHelper helper;
+  plan->Load(reader, &helper);
+  return std::make_pair(std::move(plan), std::move(helper.ast_storage));
+}
+
+class CapnpPlanner {
+ public:
+  CapnpPlanner(std::vector<SingleQueryPart> single_query_parts,
+               PlanningContext<database::GraphDbAccessor> &context) {
+    ::capnp::MallocMessageBuilder message;
+    {
+      auto original_plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+          single_query_parts, context);
+      SavePlan(*original_plan, &message);
+    }
+    {
+      auto reader = message.getRoot<query::plan::capnp::LogicalOperator>();
+      std::tie(plan_, ast_storage_) = LoadPlan(reader);
+    }
+  }
+
+  auto &plan() { return *plan_; }
+
+ private:
+  AstTreeStorage ast_storage_;
+  std::unique_ptr<LogicalOperator> plan_;
+};
+
 template <class TPlanner>
 TPlanner MakePlanner(database::MasterBase &master_db, AstTreeStorage &storage,
                      SymbolTable &symbol_table) {
@@ -637,7 +676,7 @@ ExpectedDistributedPlan ExpectDistributed(
 template <class T>
 class TestPlanner : public ::testing::Test {};
 
-using PlannerTypes = ::testing::Types<Planner, SerializedPlanner>;
+using PlannerTypes = ::testing::Types<Planner, SerializedPlanner, CapnpPlanner>;
 
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
@@ -2232,6 +2271,113 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreate) {
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TEST(CapnpSerial, Union) {
+  std::vector<Symbol> left_symbols{
+      Symbol("symbol", 1, true, Symbol::Type::Edge)};
+  std::vector<Symbol> right_symbols{
+      Symbol("symbol", 3, true, Symbol::Type::Any)};
+  auto union_symbols = right_symbols;
+  auto union_op = std::make_unique<Union>(nullptr, nullptr, union_symbols,
+                                          left_symbols, right_symbols);
+  std::unique_ptr<LogicalOperator> loaded_plan;
+  ::capnp::MallocMessageBuilder message;
+  SavePlan(*union_op, &message);
+  AstTreeStorage new_storage;
+  std::tie(loaded_plan, new_storage) =
+      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
+  ASSERT_TRUE(loaded_plan);
+  auto *loaded_op = dynamic_cast<Union *>(loaded_plan.get());
+  ASSERT_TRUE(loaded_op);
+  EXPECT_FALSE(loaded_op->left_op());
+  EXPECT_FALSE(loaded_op->right_op());
+  EXPECT_EQ(loaded_op->left_symbols(), left_symbols);
+  EXPECT_EQ(loaded_op->right_symbols(), right_symbols);
+  EXPECT_EQ(loaded_op->union_symbols(), union_symbols);
+}
+
+TEST(CapnpSerial, Cartesian) {
+  std::vector<Symbol> left_symbols{
+      Symbol("left_symbol", 1, true, Symbol::Type::Edge)};
+  std::vector<Symbol> right_symbols{
+      Symbol("right_symbol", 3, true, Symbol::Type::Any)};
+  auto cartesian = std::make_unique<Cartesian>(nullptr, left_symbols, nullptr,
+                                               right_symbols);
+  std::unique_ptr<LogicalOperator> loaded_plan;
+  ::capnp::MallocMessageBuilder message;
+  SavePlan(*cartesian, &message);
+  AstTreeStorage new_storage;
+  std::tie(loaded_plan, new_storage) =
+      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
+  ASSERT_TRUE(loaded_plan);
+  auto *loaded_op = dynamic_cast<Cartesian *>(loaded_plan.get());
+  ASSERT_TRUE(loaded_op);
+  EXPECT_FALSE(loaded_op->left_op());
+  EXPECT_FALSE(loaded_op->right_op());
+  EXPECT_EQ(loaded_op->left_symbols(), left_symbols);
+  EXPECT_EQ(loaded_op->right_symbols(), right_symbols);
+}
+
+TEST(CapnpSerial, Synchronize) {
+  auto synchronize = std::make_unique<Synchronize>(nullptr, nullptr, true);
+  std::unique_ptr<LogicalOperator> loaded_plan;
+  ::capnp::MallocMessageBuilder message;
+  SavePlan(*synchronize, &message);
+  AstTreeStorage new_storage;
+  std::tie(loaded_plan, new_storage) =
+      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
+  ASSERT_TRUE(loaded_plan);
+  auto *loaded_op = dynamic_cast<Synchronize *>(loaded_plan.get());
+  ASSERT_TRUE(loaded_op);
+  EXPECT_FALSE(loaded_op->input());
+  EXPECT_FALSE(loaded_op->pull_remote());
+  EXPECT_TRUE(loaded_op->advance_command());
+}
+
+TEST(CapnpSerial, PullRemote) {
+  std::vector<Symbol> symbols{
+      Symbol("symbol", 1, true, Symbol::Type::Edge)};
+  auto pull_remote = std::make_unique<PullRemote>(nullptr, 42, symbols);
+  std::unique_ptr<LogicalOperator> loaded_plan;
+  ::capnp::MallocMessageBuilder message;
+  SavePlan(*pull_remote, &message);
+  AstTreeStorage new_storage;
+  std::tie(loaded_plan, new_storage) =
+      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
+  ASSERT_TRUE(loaded_plan);
+  auto *loaded_op = dynamic_cast<PullRemote *>(loaded_plan.get());
+  ASSERT_TRUE(loaded_op);
+  EXPECT_FALSE(loaded_op->input());
+  EXPECT_EQ(loaded_op->plan_id(), 42);
+  EXPECT_EQ(loaded_op->symbols(), symbols);
+}
+
+TEST(CapnpSerial, PullRemoteOrderBy) {
+  auto once = std::make_shared<Once>();
+  AstTreeStorage storage;
+  std::vector<Symbol> symbols{
+      Symbol("my_symbol", 2, true, Symbol::Type::Vertex, 3)};
+  std::vector<std::pair<query::Ordering, query::Expression *>> order_by{
+      {query::Ordering::ASC, IDENT("my_symbol")}};
+  auto pull_remote_order_by =
+      std::make_unique<PullRemoteOrderBy>(once, 42, order_by, symbols);
+  std::unique_ptr<LogicalOperator> loaded_plan;
+  ::capnp::MallocMessageBuilder message;
+  SavePlan(*pull_remote_order_by, &message);
+  AstTreeStorage new_storage;
+  std::tie(loaded_plan, new_storage) =
+      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
+  ASSERT_TRUE(loaded_plan);
+  auto *loaded_op = dynamic_cast<PullRemoteOrderBy *>(loaded_plan.get());
+  ASSERT_TRUE(loaded_op);
+  ASSERT_TRUE(std::dynamic_pointer_cast<Once>(loaded_op->input()));
+  EXPECT_EQ(loaded_op->plan_id(), 42);
+  EXPECT_EQ(loaded_op->symbols(), symbols);
+  ASSERT_EQ(loaded_op->order_by().size(), 1);
+  EXPECT_TRUE(dynamic_cast<query::Identifier *>(loaded_op->order_by()[0]));
+  ASSERT_EQ(loaded_op->compare().ordering().size(), 1);
+  EXPECT_EQ(loaded_op->compare().ordering()[0], query::Ordering::ASC);
 }
 
 }  // namespace

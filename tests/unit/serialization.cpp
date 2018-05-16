@@ -91,7 +91,6 @@ void CheckOptionalInt(const std::experimental::optional<int> &x1) {
 TEST(Serialization, CapnpOptional) {
   std::experimental::optional<int> x1 = {};
   std::experimental::optional<int> x2 = 42;
-  std::experimental::optional<int> y1, y2;
 
   CheckOptionalInt(x1);
   CheckOptionalInt(x2);
@@ -104,13 +103,11 @@ TEST(Serialization, CapnpOptionalNonCopyable) {
   {
     auto builder = message.initRoot<utils::capnp::Optional<
         utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();
-    auto save = [](
-        utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Builder *builder,
-        const std::unique_ptr<int> &data) {
-      auto save_int = [](utils::capnp::BoxInt32::Builder *builder, int value) {
-        builder->setValue(value);
+    auto save = [](auto *ptr_builder, const auto &data) {
+      auto save_int = [](auto *int_builder, int value) {
+        int_builder->setValue(value);
       };
-      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, builder,
+      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, ptr_builder,
                                                         save_int);
     };
     utils::SaveOptional<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
@@ -120,13 +117,11 @@ TEST(Serialization, CapnpOptionalNonCopyable) {
   {
     auto reader = message.getRoot<utils::capnp::Optional<
         utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();
-    auto load = [](
-        const utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Reader &reader)
-        -> std::unique_ptr<int> {
-      auto load_int = [](const utils::capnp::BoxInt32::Reader &reader) -> int {
-        return reader.getValue();
+    auto load = [](const auto &ptr_reader) {
+      auto load_int = [](const auto &int_reader) {
+        return new int(int_reader.getValue());
       };
-      return utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(reader,
+      return utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(ptr_reader,
                                                                load_int);
     };
     element =
@@ -150,8 +145,8 @@ void CheckUniquePtrInt(const std::unique_ptr<int> &x1) {
   {
     auto reader =
         message.getRoot<utils::capnp::UniquePtr<utils::capnp::BoxInt32>>();
-    auto load = [](const utils::capnp::BoxInt32::Reader &reader) -> int {
-      return reader.getValue();
+    auto load = [](const auto &int_reader) {
+      return new int(int_reader.getValue());
     };
     y1 = utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(reader, load);
   }
@@ -176,13 +171,11 @@ TEST(Serialization, CapnpUniquePtrNonCopyable) {
   {
     auto builder = message.initRoot<utils::capnp::UniquePtr<
         utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();
-    auto save = [](
-        utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Builder *builder,
-        const std::unique_ptr<int> &data) {
-      auto save_int = [](utils::capnp::BoxInt32::Builder *builder, int value) {
-        builder->setValue(value);
+    auto save = [](auto *ptr_builder, const auto &data) {
+      auto save_int = [](auto *int_builder, int value) {
+        int_builder->setValue(value);
       };
-      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, builder,
+      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, ptr_builder,
                                                         save_int);
     };
     utils::SaveUniquePtr<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
@@ -192,14 +185,13 @@ TEST(Serialization, CapnpUniquePtrNonCopyable) {
   {
     auto reader = message.getRoot<utils::capnp::UniquePtr<
         utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();
-    auto load = [](
-        const utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Reader &reader)
-        -> std::unique_ptr<int> {
-      auto load_int = [](const utils::capnp::BoxInt32::Reader &reader) -> int {
-        return reader.getValue();
+    auto load = [](const auto &ptr_reader) {
+      auto load_int = [](const auto &int_reader) {
+        return new int(int_reader.getValue());
       };
-      return utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(reader,
-                                                               load_int);
+      return new std::unique_ptr<int>(
+          utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(ptr_reader,
+                                                            load_int));
     };
     element =
         utils::LoadUniquePtr<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
@@ -233,8 +225,8 @@ TEST(Serialization, CapnpSharedPtr) {
   {
     auto reader = message.getRoot<
         ::capnp::List<utils::capnp::SharedPtr<utils::capnp::BoxInt32>>>();
-    auto load = [](const utils::capnp::BoxInt32::Reader &reader) -> int {
-      return reader.getValue();
+    auto load = [](const auto &int_reader) {
+      return new int(int_reader.getValue());
     };
     for (const auto ptr_reader : reader) {
       elements.emplace_back(utils::LoadSharedPtr<utils::capnp::BoxInt32, int>(
@@ -256,13 +248,11 @@ TEST(Serialization, CapnpSharedPtrNonCopyable) {
   {
     auto builder = message.initRoot<utils::capnp::SharedPtr<
         utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();
-    auto save = [](
-        utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Builder *builder,
-        const std::unique_ptr<int> &data) {
-      auto save_int = [](utils::capnp::BoxInt32::Builder *builder, int value) {
-        builder->setValue(value);
+    auto save = [](auto *ptr_builder, const auto &data) {
+      auto save_int = [](auto *int_builder, int value) {
+        int_builder->setValue(value);
       };
-      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, builder,
+      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, ptr_builder,
                                                         save_int);
     };
     utils::SaveSharedPtr<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
@@ -275,14 +265,13 @@ TEST(Serialization, CapnpSharedPtrNonCopyable) {
   {
     auto reader = message.getRoot<utils::capnp::SharedPtr<
         utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();
-    auto load = [](
-        const utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Reader &reader)
-        -> std::unique_ptr<int> {
-      auto load_int = [](const utils::capnp::BoxInt32::Reader &reader) -> int {
-        return reader.getValue();
+    auto load = [](const auto &ptr_reader) {
+      auto load_int = [](const auto &int_reader) {
+        return new int(int_reader.getValue());
       };
-      return utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(reader,
-                                                               load_int);
+      return new std::unique_ptr<int>(
+          utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(ptr_reader,
+                                                            load_int));
     };
     element =
         utils::LoadSharedPtr<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
@@ -344,13 +333,11 @@ TEST(Serialization, CapnpVectorNonCopyable) {
     auto list_builder = message.initRoot<
         ::capnp::List<utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>(
         data.size());
-    auto save = [](
-        utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Builder *builder,
-        const std::unique_ptr<int> &data) {
-      auto save_int = [](utils::capnp::BoxInt32::Builder *builder, int value) {
-        builder->setValue(value);
+    auto save = [](auto *ptr_builder, const auto &data) {
+      auto save_int = [](auto *int_builder, int value) {
+        int_builder->setValue(value);
       };
-      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, builder,
+      utils::SaveUniquePtr<utils::capnp::BoxInt32, int>(data, ptr_builder,
                                                         save_int);
     };
     utils::SaveVector<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
@@ -360,13 +347,11 @@ TEST(Serialization, CapnpVectorNonCopyable) {
   {
     auto reader = message.getRoot<
         ::capnp::List<utils::capnp::UniquePtr<utils::capnp::BoxInt32>>>();
-    auto load = [](
-        const utils::capnp::UniquePtr<utils::capnp::BoxInt32>::Reader &reader)
-        -> std::unique_ptr<int> {
-      auto load_int = [](const utils::capnp::BoxInt32::Reader &reader) -> int {
-        return reader.getValue();
+    auto load = [](const auto &ptr_reader) {
+      auto load_int = [](const auto &int_reader) {
+        return new int(int_reader.getValue());
       };
-      return utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(reader,
+      return utils::LoadUniquePtr<utils::capnp::BoxInt32, int>(ptr_reader,
                                                                load_int);
     };
     utils::LoadVector<utils::capnp::UniquePtr<utils::capnp::BoxInt32>,
