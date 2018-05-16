@@ -47,15 +47,15 @@ struct Config {
   int gc_cycle_sec;
   int query_execution_time_sec;
 
+  // set of properties which will be stored on disk
+  std::vector<std::string> properties_on_disk;
+
   // Distributed master/worker flags.
   int rpc_num_workers{0};
   int worker_id{0};
   io::network::Endpoint master_endpoint{"0.0.0.0", 0};
   io::network::Endpoint worker_endpoint{"0.0.0.0", 0};
   int recovering_cluster_size{0};
-
-  // set of properties which will be stored on disk
-  std::vector<std::string> properties_on_disk;
 };
 
 /**
