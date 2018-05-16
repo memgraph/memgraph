@@ -12,6 +12,7 @@
 
 - name: code_coverage
   type: data process
+  require_runs: ^unit__.+ # regex to match all unit runs
   commands: ./coverage_convert
   infiles:
     - coverage_convert # coverage_convert script

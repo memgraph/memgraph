@@ -54,7 +54,7 @@ for test in tests:
         dirname = dirname.replace("/build_debug/", "/build_coverage/")
         curdir_abs = os.path.normpath(os.path.join(SCRIPT_DIR, dirname))
         curdir_rel = os.path.relpath(curdir_abs, WORKSPACE_DIR)
-        outfile_paths.append("\./" + curdir_rel.replace(".", "\\.") + "/.+")
+        outfile_paths.append("\./" + curdir_rel.replace(".", "\\.") + "/default\\.profraw")
     elif name.startswith("benchmark"):
         dirname = dirname.replace("/build_debug/", "/build_release/")
 

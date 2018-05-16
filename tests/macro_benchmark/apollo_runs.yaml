@@ -49,6 +49,7 @@
 - name: macro_benchmark_summary
   project: ^mg-master-diff$ # regex to match only 'mg-master-diff'
   type: data process
+  require_runs: ^macro_benchmark(_parent)?__query_suite$ # regex to match our runs
   cd: ../../..
   commands: >
     ./memgraph/tools/apollo/macro_benchmark_summary
