@@ -7,7 +7,7 @@
     cd memgraph
 
     # Initialize and create documentation.
-    TIMEOUT=600 ./init
+    TIMEOUT=1200 ./init
     doxygen Doxyfile
 
     # Remove default build directory.
@@ -41,7 +41,7 @@
     # Checkout to parent commit and initialize.
     cd ../parent
     git checkout HEAD~1
-    TIMEOUT=600 ./init
+    TIMEOUT=1200 ./init
 
     # Build parent release binaries.
     mkdir build_release
@@ -53,7 +53,7 @@
 # release build is the default one
 - name: Release build
   commands: |
-    TIMEOUT=600 ./init
+    TIMEOUT=1200 ./init
     doxygen Doxyfile
 
     # Remove default build directory.
