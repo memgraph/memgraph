@@ -144,6 +144,29 @@ TEST(BoltDecoder, String) {
   }
 }
 
+TEST(BoltDecoder, StringLarge) {
+  TestDecoderBuffer buffer;
+  DecoderT decoder(buffer);
+  DecodedValue dv;
+
+  uint8_t header[6] = "\xD2\x00\x01\x86\xA0";
+
+  // test missing data
+  buffer.Clear();
+  buffer.Write(header, 5);
+  buffer.Write(data, 10);
+  ASSERT_EQ(decoder.ReadValue(&dv), false);
+
+  // test all ok
+  buffer.Clear();
+  buffer.Write(header, 5);
+  buffer.Write(data, 100000);
+  ASSERT_EQ(decoder.ReadValue(&dv), true);
+  ASSERT_EQ(dv.type(), DecodedValue::Type::String);
+  std::string &str = dv.ValueString();
+  for (int j = 0; j < 100000; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
+}
+
 TEST(BoltDecoder, List) {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);

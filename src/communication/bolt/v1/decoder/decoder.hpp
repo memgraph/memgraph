@@ -249,16 +249,35 @@ class Decoder {
   }
 
   bool ReadString(const Marker &marker, DecodedValue *data) {
+    const int kMaxStackBuffer = 8192;
+    uint8_t buffer[kMaxStackBuffer];
     auto size = ReadTypeSize(marker, MarkerString);
     if (size == -1) {
       return false;
     }
-    std::unique_ptr<uint8_t[]> ret(new uint8_t[size]);
-    if (!buffer_.Read(ret.get(), size)) {
-      return false;
+    // Here we use a temporary buffer on the stack to prevent temporary
+    // allocations. Most of strings that are decoded are small so it makes no
+    // sense to allocate a temporary buffer every time we decode a string. This
+    // way we allocate a temporary buffer only when the string is large. This
+    // wouldn't be necessary if we had full C++17 support. In C++17 we could
+    // preallocate the `buffer[size]` in the destination string `*data =
+    // DecodedValue(std::string('\0', size))` and just call
+    // `buffer_.Read(data->ValueString().data())`.
+    if (size < kMaxStackBuffer) {
+      if (!buffer_.Read(buffer, size)) {
+        DLOG(WARNING) << "[ReadString] Missing data!";
+        return false;
+      }
+      *data = DecodedValue(std::string(reinterpret_cast<char *>(buffer), size));
+    } else {
+      std::unique_ptr<uint8_t[]> ret(new uint8_t[size]);
+      if (!buffer_.Read(ret.get(), size)) {
+        DLOG(WARNING) << "[ReadString] Missing data!";
+        return false;
+      }
+      *data =
+          DecodedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
     }
-    *data =
-        DecodedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
     return true;
   }
 
