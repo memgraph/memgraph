@@ -19,7 +19,7 @@ class TestSymbolGenerator : public ::testing::Test {
   database::GraphDbAccessor dba{db};
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator{symbol_table};
-  AstTreeStorage storage;
+  AstStorage storage;
 };
 
 TEST_F(TestSymbolGenerator, MatchNodeReturn) {
@@ -1091,7 +1091,7 @@ TEST_F(TestSymbolGenerator, MatchUnion) {
 TEST(TestSymbolTable, Serialization) {
   SymbolTable original_table;
   SymbolGenerator symbol_generator{original_table};
-  AstTreeStorage storage;
+  AstStorage storage;
   auto ident_a = IDENT("a");
   auto sym_a = original_table.CreateSymbol("a", true, Symbol::Type::Vertex, 0);
   original_table[*ident_a] = sym_a;

@@ -23,7 +23,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   storage::Label label = dba.Label("Person");
   auto property = PROPERTY_PAIR("prop");
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto node = NODE("n");
@@ -57,7 +57,7 @@ TEST(QueryPlan, CreateReturn) {
   storage::Label label = dba.Label("Person");
   auto property = PROPERTY_PAIR("property");
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto node = NODE("n");
@@ -101,7 +101,7 @@ TEST(QueryPlan, CreateExpand) {
   storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
-  AstTreeStorage storage;
+  AstStorage storage;
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created,
                               int expected_edges_created) {
@@ -176,7 +176,7 @@ TEST(QueryPlan, MatchCreateNode) {
   dba.AdvanceCommand();
 
   SymbolTable symbol_table;
-  AstTreeStorage storage;
+  AstStorage storage;
 
   // first node
   auto n_scan_all = MakeScanAll(storage, symbol_table, "n");
@@ -208,7 +208,7 @@ TEST(QueryPlan, MatchCreateExpand) {
   storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
   SymbolTable symbol_table;
-  AstTreeStorage storage;
+  AstStorage storage;
 
   auto test_create_path = [&](bool cycle, int expected_nodes_created,
                               int expected_edges_created) {
@@ -260,7 +260,7 @@ TEST(QueryPlan, Delete) {
   EXPECT_EQ(4, CountIterable(dba.Vertices(false)));
   EXPECT_EQ(6, CountIterable(dba.Edges(false)));
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // attempt to delete a vertex, and fail
@@ -345,7 +345,7 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
     EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
     EXPECT_EQ(1, CountIterable(dba.Edges(false)));
 
-    AstTreeStorage storage;
+    AstStorage storage;
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(storage, symbol_table, "n");
@@ -388,7 +388,7 @@ TEST(QueryPlan, DeleteReturn) {
   EXPECT_EQ(4, CountIterable(dba.Vertices(false)));
   EXPECT_EQ(0, CountIterable(dba.Edges(false)));
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -415,7 +415,7 @@ TEST(QueryPlan, DeleteNull) {
   // test (simplified) WITH Null as x delete x
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto once = std::make_shared<Once>();
@@ -439,7 +439,7 @@ TEST(QueryPlan, DeleteAdvance) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -468,7 +468,7 @@ TEST(QueryPlan, SetProperty) {
   dba.InsertEdge(v2, v4, edge_type);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // scan (n)-[r]->(m)
@@ -520,7 +520,7 @@ TEST(QueryPlan, SetProperties) {
     v2.PropsSet(prop_c, 2);
     dba.AdvanceCommand();
 
-    AstTreeStorage storage;
+    AstStorage storage;
     SymbolTable symbol_table;
 
     // scan (n)-[r]->(m)
@@ -585,7 +585,7 @@ TEST(QueryPlan, SetLabels) {
   dba.InsertVertex().add_label(label1);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -624,7 +624,7 @@ TEST(QueryPlan, RemoveProperty) {
   v2.PropsSet(prop2, 0);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // scan (n)-[r]->(m)
@@ -670,7 +670,7 @@ TEST(QueryPlan, RemoveLabels) {
   v2.add_label(label3);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -702,7 +702,7 @@ TEST(QueryPlan, NodeFilterSet) {
   // Create operations which match (v1 {prop: 42}) -- (v) and increment the
   // v1.prop. The expected result is two incremenentations, since v1 is matched
   // twice for 2 edges it has.
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n {prop: 42}) -[r]- (m)
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
@@ -742,7 +742,7 @@ TEST(QueryPlan, FilterRemove) {
   dba.AdvanceCommand();
   // Create operations which match (v1 {prop: 42}) -- (v) and remove v1.prop.
   // The expected result is two matches, for each edge of v1.
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) -[r]- (m) WHERE n.prop < 43
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
@@ -773,7 +773,7 @@ TEST(QueryPlan, SetRemove) {
   dba.AdvanceCommand();
   // Create operations which match (v) and set and remove v :label.
   // The expected result is single (v) as it was at the start.
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) SET n :label1 :label2 REMOVE n :label1 :label2
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
@@ -803,7 +803,7 @@ TEST(QueryPlan, Merge) {
   auto v3 = dba.InsertVertex();
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto prop = PROPERTY_PAIR("property");
@@ -843,7 +843,7 @@ TEST(QueryPlan, MergeNoInput) {
 
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto node = NODE("n");
@@ -862,7 +862,7 @@ TEST(QueryPlan, SetPropertyOnNull) {
   // SET (Null).prop = 42
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
   auto null = LITERAL(TypedValue::Null);
@@ -877,7 +877,7 @@ TEST(QueryPlan, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto n_ident = IDENT("n");
@@ -895,7 +895,7 @@ TEST(QueryPlan, SetLabelsOnNull) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto n_ident = IDENT("n");
@@ -912,7 +912,7 @@ TEST(QueryPlan, RemovePropertyOnNull) {
   // REMOVE (Null).prop
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
   auto null = LITERAL(TypedValue::Null);
@@ -927,7 +927,7 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto n_ident = IDENT("n");
@@ -960,7 +960,7 @@ TEST(QueryPlan, DeleteSetProperty) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n.property = 42
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -983,7 +983,7 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = {property: 42}
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1017,7 +1017,7 @@ TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
   }
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = n
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1045,7 +1045,7 @@ TEST(QueryPlan, DeleteRemoveLabels) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n :label
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1065,7 +1065,7 @@ TEST(QueryPlan, DeleteRemoveProperty) {
   dba.InsertVertex();
   dba.AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n.property
   auto n = MakeScanAll(storage, symbol_table, "n");

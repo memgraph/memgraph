@@ -573,7 +573,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
 
  public:
   Query *query() { return query_; }
-  AstTreeStorage &storage() { return storage_; }
+  AstStorage &storage() { return storage_; }
   const static std::string kAnonPrefix;
 
  private:
@@ -582,7 +582,7 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   std::unordered_set<std::string> users_identifiers;
   // Identifiers that user didn't name.
   std::vector<Identifier **> anonymous_identifiers;
-  AstTreeStorage storage_;
+  AstStorage storage_;
   Query *query_ = nullptr;
   // All return items which are not variables must be aliased in with.
   // We use this variable in visitReturnItem to check if we are in with or

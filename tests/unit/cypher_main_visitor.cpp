@@ -68,7 +68,7 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
  public:
   explicit OriginalAfterCloningAstGenerator(const std::string &query)
       : AstGenerator(query) {
-    AstTreeStorage storage;
+    AstStorage storage;
     visitor_.query()->Clone(storage);
   }
 };
@@ -86,7 +86,7 @@ class ClonedAstGenerator : public Base {
           return visitor.query()->Clone(storage);
         }()) {}
 
-  AstTreeStorage storage;
+  AstStorage storage;
   Query *query_;
 };
 
@@ -103,13 +103,13 @@ class CachedAstGenerator : public Base {
           ::frontend::opencypher::Parser parser(stripped.query());
           CypherMainVisitor visitor(context_);
           visitor.visit(parser.tree());
-          AstTreeStorage new_ast;
+          AstStorage new_ast;
           visitor.storage().query()->Clone(new_ast);
           return new_ast;
         }()),
         query_(storage_.query()) {}
 
-  AstTreeStorage storage_;
+  AstStorage storage_;
   Query *query_;
 };
 
@@ -127,7 +127,7 @@ class SerializedAstGenerator : public Base {
             boost::archive::binary_oarchive out_archive(stream);
             out_archive << *visitor.query();
           }
-          AstTreeStorage new_ast;
+          AstStorage new_ast;
           {
             boost::archive::binary_iarchive in_archive(stream);
             new_ast.Load(in_archive);
@@ -136,7 +136,7 @@ class SerializedAstGenerator : public Base {
         }()),
         query_(storage_.query()) {}
 
-  AstTreeStorage storage_;
+  AstStorage storage_;
   Query *query_;
 };
 
@@ -157,7 +157,7 @@ class CapnpAstGenerator : public Base {
             visitor.query()->Save(&builder, &saved_uids);
           }
 
-          AstTreeStorage new_ast;
+          AstStorage new_ast;
           {
             const query::capnp::Tree::Reader reader =
                 message.getRoot<query::capnp::Tree>();
@@ -168,7 +168,7 @@ class CapnpAstGenerator : public Base {
         }()),
         query_(storage_.query()) {}
 
-  AstTreeStorage storage_;
+  AstStorage storage_;
   Query *query_;
 };
 

@@ -164,7 +164,7 @@ class Interpreter {
                      bool in_explicit_transaction);
 
  private:
-  ConcurrentMap<HashType, AstTreeStorage> ast_cache_;
+  ConcurrentMap<HashType, AstStorage> ast_cache_;
   PlanCacheT plan_cache_;
   std::atomic<int64_t> next_plan_id_{0};
   // Antlr has singleton instance that is shared between threads. It is
@@ -182,12 +182,12 @@ class Interpreter {
   std::shared_ptr<CachedPlan> QueryToPlan(const StrippedQuery &stripped,
                                           Context &ctx);
   // stripped query -> high level tree
-  AstTreeStorage QueryToAst(const StrippedQuery &stripped, Context &ctx);
+  AstStorage QueryToAst(const StrippedQuery &stripped, Context &ctx);
 
   // high level tree -> (logical plan, plan cost)
-  // AstTreeStorage and SymbolTable may be modified during planning.
+  // AstStorage and SymbolTable may be modified during planning.
   std::pair<std::unique_ptr<plan::LogicalOperator>, double> MakeLogicalPlan(
-      AstTreeStorage &, Context &);
+      AstStorage &, Context &);
 };
 
 }  // namespace query

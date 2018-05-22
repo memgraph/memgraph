@@ -25,7 +25,7 @@ TEST(QueryPlan, Skip) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n1");
@@ -54,7 +54,7 @@ TEST(QueryPlan, Limit) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n1");
@@ -89,7 +89,7 @@ TEST(QueryPlan, CreateLimit) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n1");
@@ -106,7 +106,7 @@ TEST(QueryPlan, CreateLimit) {
 TEST(QueryPlan, OrderBy) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");
 
@@ -167,7 +167,7 @@ TEST(QueryPlan, OrderBy) {
 TEST(QueryPlan, OrderByMultiple) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto p1 = dba.Property("p1");
@@ -223,7 +223,7 @@ TEST(QueryPlan, OrderByMultiple) {
 TEST(QueryPlan, OrderByExceptions) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");
 

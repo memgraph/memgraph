@@ -10,7 +10,7 @@
 #include "query_plan_common.hpp"
 
 using namespace query::plan;
-using query::AstTreeStorage;
+using query::AstStorage;
 using Direction = query::EdgeAtom::Direction;
 
 namespace std {
@@ -63,7 +63,7 @@ void AssertRows(const std::vector<std::vector<TypedValue>> &datum,
 };
 
 void CheckPlansProduce(
-    size_t expected_plan_count, AstTreeStorage &storage,
+    size_t expected_plan_count, AstStorage &storage,
     database::GraphDbAccessor &dba,
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = MakeSymbolTable(*storage.query());
@@ -91,7 +91,7 @@ TEST(TestVariableStartPlanner, MatchReturn) {
   dba.InsertEdge(v1, v2, dba.EdgeType("r"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       RETURN("n")));
@@ -114,7 +114,7 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   dba.AdvanceCommand();
   {
     // Test `MATCH (n) -[r]-> (m) -[e]-> (l) RETURN n`
-    AstTreeStorage storage;
+    AstStorage storage;
     QUERY(SINGLE_QUERY(
         MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"),
                       EDGE("e", Direction::OUT), NODE("l"))),
@@ -127,7 +127,7 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
   }
   {
     // Equivalent to `MATCH (n) -[r]-> (m), (m) -[e]-> (l) RETURN n`.
-    AstTreeStorage storage;
+    AstStorage storage;
     QUERY(SINGLE_QUERY(
         MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m")),
               PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
@@ -149,7 +149,7 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
   dba.InsertEdge(v2, v3, dba.EdgeType("r"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
@@ -175,7 +175,7 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l)
   //      MERGE (u) -[q:r]-> (v) RETURN n, m, l, u, v
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
@@ -198,7 +198,7 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
   dba.InsertEdge(v1, v2, dba.EdgeType("r"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
       WITH("n"),
@@ -223,7 +223,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   auto r2 = dba.InsertEdge(v2, v3, dba.EdgeType("r2"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r*]-> (m) RETURN r
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::OUT);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
@@ -250,7 +250,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   auto r2 = dba.InsertEdge(v2, v3, dba.EdgeType("r2"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r*..n.id]-> (m) RETURN r
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::OUT);
   edge->upper_bound_ = PROPERTY_LOOKUP("n", id);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -275,7 +275,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   auto r2 = dba.InsertEdge(v2, v3, dba.EdgeType("r2"));
   dba.AdvanceCommand();
   // Test MATCH (n {id:1}) -[r*]- (m) RETURN r
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH);
   auto node_n = NODE("n");
   node_n->properties_[std::make_pair("id", id)] = LITERAL(1);
@@ -303,7 +303,7 @@ TEST(TestVariableStartPlanner, MatchBfs) {
   dba.InsertEdge(v2, v3, dba.EdgeType("r2"));
   dba.AdvanceCommand();
   // Test MATCH (n) -[r *bfs..10](r, n | n.id <> 3)]-> (m) RETURN r
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
       std::vector<storage::EdgeType>{});

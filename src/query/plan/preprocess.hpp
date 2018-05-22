@@ -182,7 +182,7 @@ class Filters {
   /// Goes through all the atoms in a pattern and generates filter expressions
   /// for found labels, properties and edge types. The generated expressions are
   /// stored.
-  void CollectPatternFilters(Pattern &, SymbolTable &, AstTreeStorage &);
+  void CollectPatternFilters(Pattern &, SymbolTable &, AstStorage &);
   /// Collects filtering information from a where expression.
   ///
   /// Takes the where expression and stores it, then analyzes the expression for
@@ -280,8 +280,8 @@ struct QueryParts {
 ///
 /// This function will normalize patterns inside @c Match and @c Merge clauses
 /// and do some other preprocessing in order to generate multiple @c QueryPart
-/// structures. @c AstTreeStorage and @c SymbolTable may be used to create new
+/// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-QueryParts CollectQueryParts(SymbolTable &, AstTreeStorage &);
+QueryParts CollectQueryParts(SymbolTable &, AstStorage &);
 
 }  // namespace query::plan

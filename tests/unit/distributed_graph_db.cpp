@@ -102,7 +102,7 @@ TEST_F(DistributedGraphDbTest, DispatchPlan) {
   auto kRPCWaitTime = 600ms;
   int64_t plan_id = 5;
   SymbolTable symbol_table;
-  AstTreeStorage storage;
+  AstStorage storage;
 
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
 

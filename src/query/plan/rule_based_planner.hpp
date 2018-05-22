@@ -23,7 +23,7 @@ struct PlanningContext {
   SymbolTable &symbol_table;
   /// @brief The storage is used to traverse the AST as well as create new nodes
   /// for use in operators.
-  AstTreeStorage &ast_storage;
+  AstStorage &ast_storage;
   /// @brief TDbAccessor, which may be used to get some information from the
   /// database to generate better plans. The accessor is required only to live
   /// long enough for the plan generation to finish.
@@ -38,7 +38,7 @@ struct PlanningContext {
 };
 
 template <class TDbAccessor>
-auto MakePlanningContext(AstTreeStorage &ast_storage, SymbolTable &symbol_table,
+auto MakePlanningContext(AstStorage &ast_storage, SymbolTable &symbol_table,
                          const TDbAccessor &db) {
   return PlanningContext<TDbAccessor>{symbol_table, ast_storage, db};
 }
@@ -67,11 +67,11 @@ namespace impl {
 // `AndOperator` if symbols they use are bound.. All the joined filters are
 // removed from `Filters`.
 Expression *ExtractFilters(const std::unordered_set<Symbol> &, Filters &,
-                           AstTreeStorage &);
+                           AstStorage &);
 
 std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator>,
                                             const std::unordered_set<Symbol> &,
-                                            Filters &, AstTreeStorage &);
+                                            Filters &, AstStorage &);
 
 // For all given `named_paths` checks if all its symbols have been bound.
 // If so, it creates a logical operator for named path generation, binds its
@@ -85,7 +85,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(
 std::unique_ptr<LogicalOperator> GenReturn(
     Return &ret, std::unique_ptr<LogicalOperator> input_op,
     SymbolTable &symbol_table, bool is_write,
-    const std::unordered_set<Symbol> &bound_symbols, AstTreeStorage &storage);
+    const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage);
 
 std::unique_ptr<LogicalOperator> GenCreateForPattern(
     Pattern &pattern, std::unique_ptr<LogicalOperator> input_op,
@@ -98,14 +98,14 @@ std::unique_ptr<LogicalOperator> HandleWriteClause(
 std::unique_ptr<LogicalOperator> GenWith(
     With &with, std::unique_ptr<LogicalOperator> input_op,
     SymbolTable &symbol_table, bool is_write,
-    std::unordered_set<Symbol> &bound_symbols, AstTreeStorage &storage);
+    std::unordered_set<Symbol> &bound_symbols, AstStorage &storage);
 
 std::unique_ptr<LogicalOperator> GenUnion(
     CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
     std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
 
 template <class TBoolOperator>
-Expression *BoolJoin(AstTreeStorage &storage, Expression *expr1,
+Expression *BoolJoin(AstStorage &storage, Expression *expr1,
                      Expression *expr2) {
   if (expr1 && expr2) {
     return storage.Create<TBoolOperator>(expr1, expr2);

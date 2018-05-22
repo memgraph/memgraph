@@ -44,7 +44,7 @@ struct NoContextExpressionEvaluator {
 TypedValue EvaluateFunction(const std::string &function_name,
                             const std::vector<TypedValue> &args,
                             database::GraphDb &db) {
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   database::GraphDbAccessor dba(db);
   Frame frame{128};
@@ -67,7 +67,7 @@ TypedValue EvaluateFunction(const std::string &function_name,
 }
 
 TEST(ExpressionEvaluator, OrOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true),
@@ -81,7 +81,7 @@ TEST(ExpressionEvaluator, OrOperator) {
 }
 
 TEST(ExpressionEvaluator, XorOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true),
@@ -95,7 +95,7 @@ TEST(ExpressionEvaluator, XorOperator) {
 }
 
 TEST(ExpressionEvaluator, AndOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(true),
@@ -109,7 +109,7 @@ TEST(ExpressionEvaluator, AndOperator) {
 }
 
 TEST(ExpressionEvaluator, AndOperatorShortCircuit) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   {
     auto *op =
@@ -130,7 +130,7 @@ TEST(ExpressionEvaluator, AndOperatorShortCircuit) {
 }
 
 TEST(ExpressionEvaluator, AndOperatorNull) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   {
     // Null doesn't short circuit
@@ -157,7 +157,7 @@ TEST(ExpressionEvaluator, AndOperatorNull) {
 }
 
 TEST(ExpressionEvaluator, AdditionOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op = storage.Create<AdditionOperator>(
       storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
@@ -166,7 +166,7 @@ TEST(ExpressionEvaluator, AdditionOperator) {
 }
 
 TEST(ExpressionEvaluator, SubtractionOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op = storage.Create<SubtractionOperator>(
       storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
@@ -175,7 +175,7 @@ TEST(ExpressionEvaluator, SubtractionOperator) {
 }
 
 TEST(ExpressionEvaluator, MultiplicationOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op = storage.Create<MultiplicationOperator>(
       storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
@@ -184,7 +184,7 @@ TEST(ExpressionEvaluator, MultiplicationOperator) {
 }
 
 TEST(ExpressionEvaluator, DivisionOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<DivisionOperator>(storage.Create<PrimitiveLiteral>(50),
@@ -194,7 +194,7 @@ TEST(ExpressionEvaluator, DivisionOperator) {
 }
 
 TEST(ExpressionEvaluator, ModOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op = storage.Create<ModOperator>(storage.Create<PrimitiveLiteral>(65),
                                          storage.Create<PrimitiveLiteral>(10));
@@ -203,7 +203,7 @@ TEST(ExpressionEvaluator, ModOperator) {
 }
 
 TEST(ExpressionEvaluator, EqualOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(10),
@@ -221,7 +221,7 @@ TEST(ExpressionEvaluator, EqualOperator) {
 }
 
 TEST(ExpressionEvaluator, NotEqualOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(10),
@@ -239,7 +239,7 @@ TEST(ExpressionEvaluator, NotEqualOperator) {
 }
 
 TEST(ExpressionEvaluator, LessOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(10),
                                           storage.Create<PrimitiveLiteral>(15));
@@ -256,7 +256,7 @@ TEST(ExpressionEvaluator, LessOperator) {
 }
 
 TEST(ExpressionEvaluator, GreaterOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(10),
@@ -274,7 +274,7 @@ TEST(ExpressionEvaluator, GreaterOperator) {
 }
 
 TEST(ExpressionEvaluator, LessEqualOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(10),
@@ -292,7 +292,7 @@ TEST(ExpressionEvaluator, LessEqualOperator) {
 }
 
 TEST(ExpressionEvaluator, GreaterEqualOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op = storage.Create<GreaterEqualOperator>(
       storage.Create<PrimitiveLiteral>(10),
@@ -312,7 +312,7 @@ TEST(ExpressionEvaluator, GreaterEqualOperator) {
 }
 
 TEST(ExpressionEvaluator, InListOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
       storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
@@ -368,7 +368,7 @@ TEST(ExpressionEvaluator, InListOperator) {
 }
 
 TEST(ExpressionEvaluator, ListMapIndexingOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
       storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
@@ -420,7 +420,7 @@ TEST(ExpressionEvaluator, ListMapIndexingOperator) {
 }
 
 TEST(ExpressionEvaluator, MapIndexing) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
@@ -460,7 +460,7 @@ TEST(ExpressionEvaluator, MapIndexing) {
 }
 
 TEST(ExpressionEvaluator, ListSlicingOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
       storage.Create<PrimitiveLiteral>(1), storage.Create<PrimitiveLiteral>(2),
@@ -553,7 +553,7 @@ TEST(ExpressionEvaluator, ListSlicingOperator) {
 }
 
 TEST(ExpressionEvaluator, IfOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *then_expression = storage.Create<PrimitiveLiteral>(10);
   auto *else_expression = storage.Create<PrimitiveLiteral>(20);
@@ -586,7 +586,7 @@ TEST(ExpressionEvaluator, IfOperator) {
 }
 
 TEST(ExpressionEvaluator, NotOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<NotOperator>(storage.Create<PrimitiveLiteral>(false));
@@ -595,7 +595,7 @@ TEST(ExpressionEvaluator, NotOperator) {
 }
 
 TEST(ExpressionEvaluator, UnaryPlusOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<UnaryPlusOperator>(storage.Create<PrimitiveLiteral>(5));
@@ -604,7 +604,7 @@ TEST(ExpressionEvaluator, UnaryPlusOperator) {
 }
 
 TEST(ExpressionEvaluator, UnaryMinusOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<UnaryMinusOperator>(storage.Create<PrimitiveLiteral>(5));
@@ -613,7 +613,7 @@ TEST(ExpressionEvaluator, UnaryMinusOperator) {
 }
 
 TEST(ExpressionEvaluator, IsNullOperator) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *op =
       storage.Create<IsNullOperator>(storage.Create<PrimitiveLiteral>(1));
@@ -627,7 +627,7 @@ TEST(ExpressionEvaluator, IsNullOperator) {
 
 class ExpressionEvaluatorPropertyLookup : public testing::Test {
  protected:
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   database::SingleNode db;
   database::GraphDbAccessor dba{db};
@@ -675,7 +675,7 @@ TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
 }
 
 TEST(ExpressionEvaluator, LabelsTest) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
@@ -714,7 +714,7 @@ TEST(ExpressionEvaluator, LabelsTest) {
 }
 
 TEST(ExpressionEvaluator, Aggregation) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),
                                           nullptr, Aggregation::Op::COUNT);
   SymbolTable symbol_table;
@@ -732,7 +732,7 @@ TEST(ExpressionEvaluator, Aggregation) {
 }
 
 TEST(ExpressionEvaluator, ListLiteral) {
-  AstTreeStorage storage;
+  AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *list_literal = storage.Create<ListLiteral>(
       std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1),
@@ -1196,7 +1196,7 @@ TEST(ExpressionEvaluator, FunctionContains) {
 }
 
 TEST(ExpressionEvaluator, FunctionAll) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *all =
       ALL("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
@@ -1210,7 +1210,7 @@ TEST(ExpressionEvaluator, FunctionAll) {
 }
 
 TEST(ExpressionEvaluator, FunctionAllNullList) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *all = ALL("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
   NoContextExpressionEvaluator eval;
   const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
@@ -1220,7 +1220,7 @@ TEST(ExpressionEvaluator, FunctionAllNullList) {
 }
 
 TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
   NoContextExpressionEvaluator eval;
   const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
@@ -1229,7 +1229,7 @@ TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
 }
 
 TEST(ExpressionEvaluator, FunctionSingle) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single =
       SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
@@ -1243,7 +1243,7 @@ TEST(ExpressionEvaluator, FunctionSingle) {
 }
 
 TEST(ExpressionEvaluator, FunctionSingle2) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)),
                         WHERE(GREATER(ident_x, LITERAL(0))));
@@ -1257,7 +1257,7 @@ TEST(ExpressionEvaluator, FunctionSingle2) {
 }
 
 TEST(ExpressionEvaluator, FunctionSingleNullList) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *single = SINGLE("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
   NoContextExpressionEvaluator eval;
   const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
@@ -1267,7 +1267,7 @@ TEST(ExpressionEvaluator, FunctionSingleNullList) {
 }
 
 TEST(ExpressionEvaluator, FunctionReduce) {
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *ident_sum = IDENT("sum");
   auto *ident_x = IDENT("x");
   auto *reduce = REDUCE("sum", LITERAL(0), "x", LIST(LITERAL(1), LITERAL(2)),
@@ -1312,7 +1312,7 @@ TEST(ExpressionEvaluator, FunctionAssert) {
 TEST(ExpressionEvaluator, ParameterLookup) {
   NoContextExpressionEvaluator eval;
   eval.parameters.Add(0, 42);
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *param_lookup = storage.Create<ParameterLookup>(0);
   auto value = param_lookup->Accept(eval.eval);
   ASSERT_EQ(value.type(), TypedValue::Type::Int);

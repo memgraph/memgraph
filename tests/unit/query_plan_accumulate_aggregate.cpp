@@ -38,7 +38,7 @@ TEST(QueryPlan, Accumulate) {
     dba.InsertEdge(v1, v2, dba.EdgeType("T"));
     dba.AdvanceCommand();
 
-    AstTreeStorage storage;
+    AstStorage storage;
     SymbolTable symbol_table;
 
     auto n = MakeScanAll(storage, symbol_table, "n");
@@ -89,7 +89,7 @@ TEST(QueryPlan, AccumulateAdvance) {
   auto check = [&](bool advance) {
     database::SingleNode db;
     database::GraphDbAccessor dba(db);
-    AstTreeStorage storage;
+    AstStorage storage;
     SymbolTable symbol_table;
 
     auto node = NODE("n");
@@ -107,7 +107,7 @@ TEST(QueryPlan, AccumulateAdvance) {
 
 std::shared_ptr<Produce> MakeAggregationProduce(
     std::shared_ptr<LogicalOperator> input, SymbolTable &symbol_table,
-    AstTreeStorage &storage, const std::vector<Expression *> aggr_inputs,
+    AstStorage &storage, const std::vector<Expression *> aggr_inputs,
     const std::vector<Aggregation::Op> aggr_ops,
     const std::vector<Expression *> group_by_exprs,
     const std::vector<Symbol> remember) {
@@ -153,7 +153,7 @@ class QueryPlanAggregateOps : public ::testing::Test {
   database::GraphDbAccessor dba{db};
   storage::Property prop = dba.Property("prop");
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   void AddData() {
@@ -318,7 +318,7 @@ TEST(QueryPlan, AggregateGroupByValues) {
     dba.InsertVertex().PropsSet(prop, group_by_vals[i % group_by_vals.size()]);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // match all nodes and perform aggregations
@@ -361,7 +361,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   }
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // match all nodes and perform aggregations
@@ -384,7 +384,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
 TEST(QueryPlan, AggregateNoInput) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto two = LITERAL(2);
@@ -413,7 +413,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -471,7 +471,7 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   v1.PropsSet(prop_int, 12);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -529,7 +529,7 @@ TEST(QueryPlan, AggregateTypes) {
   dba.InsertVertex().PropsSet(p2, true);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -576,7 +576,7 @@ TEST(QueryPlan, AggregateTypes) {
 TEST(QueryPlan, Unwind) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y

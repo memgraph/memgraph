@@ -92,7 +92,7 @@ struct ScanAllTuple {
  *
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
-ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
+ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table,
                          const std::string &identifier,
                          std::shared_ptr<LogicalOperator> input = {nullptr},
                          GraphView graph_view = GraphView::OLD) {
@@ -110,7 +110,7 @@ ScanAllTuple MakeScanAll(AstTreeStorage &storage, SymbolTable &symbol_table,
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAllByLabel(
-    AstTreeStorage &storage, SymbolTable &symbol_table,
+    AstStorage &storage, SymbolTable &symbol_table,
     const std::string &identifier, storage::Label label,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
@@ -129,7 +129,7 @@ ScanAllTuple MakeScanAllByLabel(
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAllByLabelPropertyRange(
-    AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
+    AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
     storage::Label label, storage::Property property,
     std::experimental::optional<Bound> lower_bound,
     std::experimental::optional<Bound> upper_bound,
@@ -150,7 +150,7 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
  * Returns ScanAllTuple(node_atom, scan_all_logical_op, symbol).
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(
-    AstTreeStorage &storage, SymbolTable &symbol_table, std::string identifier,
+    AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
     storage::Label label, storage::Property property, Expression *value,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
@@ -170,7 +170,7 @@ struct ExpandTuple {
   std::shared_ptr<LogicalOperator> op_;
 };
 
-ExpandTuple MakeExpand(AstTreeStorage &storage, SymbolTable &symbol_table,
+ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
                        std::shared_ptr<LogicalOperator> input,
                        Symbol input_symbol, const std::string &edge_identifier,
                        EdgeAtom::Direction direction,

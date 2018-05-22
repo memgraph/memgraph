@@ -98,7 +98,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   ReturnBodyContext(const ReturnBody &body, SymbolTable &symbol_table,
                     const std::unordered_set<Symbol> &bound_symbols,
-                    AstTreeStorage &storage, Where *where = nullptr)
+                    AstStorage &storage, Where *where = nullptr)
       : body_(body),
         symbol_table_(symbol_table),
         bound_symbols_(bound_symbols),
@@ -449,7 +449,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   const ReturnBody &body_;
   SymbolTable &symbol_table_;
   const std::unordered_set<Symbol> &bound_symbols_;
-  AstTreeStorage &storage_;
+  AstStorage &storage_;
   const Where *const where_ = nullptr;
   std::unordered_set<Symbol> used_symbols_;
   std::vector<Symbol> output_symbols_;
@@ -523,7 +523,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(
 namespace impl {
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
-                           Filters &filters, AstTreeStorage &storage) {
+                           Filters &filters, AstStorage &storage) {
   Expression *filter_expr = nullptr;
   for (auto filters_it = filters.begin(); filters_it != filters.end();) {
     if (HasBoundFilterSymbols(bound_symbols, *filters_it)) {
@@ -540,7 +540,7 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols,
 std::unique_ptr<LogicalOperator> GenFilters(
     std::unique_ptr<LogicalOperator> last_op,
     const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
-    AstTreeStorage &storage) {
+    AstStorage &storage) {
   auto *filter_expr = ExtractFilters(bound_symbols, filters, storage);
   if (filter_expr) {
     last_op = std::make_unique<Filter>(std::move(last_op), filter_expr);
@@ -576,7 +576,7 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(
 std::unique_ptr<LogicalOperator> GenReturn(
     Return &ret, std::unique_ptr<LogicalOperator> input_op,
     SymbolTable &symbol_table, bool is_write,
-    const std::unordered_set<Symbol> &bound_symbols, AstTreeStorage &storage) {
+    const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage) {
   // Similar to WITH clause, but we want to accumulate when the query writes to
   // the database. This way we handle the case when we want to return
   // expressions with the latest updated results. For example, `MATCH (n) -- ()
@@ -672,7 +672,7 @@ std::unique_ptr<LogicalOperator> HandleWriteClause(
 std::unique_ptr<LogicalOperator> GenWith(
     With &with, std::unique_ptr<LogicalOperator> input_op,
     SymbolTable &symbol_table, bool is_write,
-    std::unordered_set<Symbol> &bound_symbols, AstTreeStorage &storage) {
+    std::unordered_set<Symbol> &bound_symbols, AstStorage &storage) {
   // WITH clause is Accumulate/Aggregate (advance_command) + Produce and
   // optional Filter. In case of update and aggregation, we want to accumulate
   // first, so that when aggregating, we get the latest results. Similar to

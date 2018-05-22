@@ -30,7 +30,7 @@ namespace query {
 }  // namespace query
 
 using namespace query::plan;
-using query::AstTreeStorage;
+using query::AstStorage;
 using query::SingleQuery;
 using query::Symbol;
 using query::SymbolGenerator;
@@ -504,7 +504,7 @@ class SerializedPlanner {
   auto &plan() { return *plan_; }
 
  private:
-  AstTreeStorage ast_storage_;
+  AstStorage ast_storage_;
   std::unique_ptr<LogicalOperator> plan_;
 };
 
@@ -540,12 +540,12 @@ class CapnpPlanner {
   auto &plan() { return *plan_; }
 
  private:
-  AstTreeStorage ast_storage_;
+  AstStorage ast_storage_;
   std::unique_ptr<LogicalOperator> plan_;
 };
 
 template <class TPlanner>
-TPlanner MakePlanner(database::MasterBase &master_db, AstTreeStorage &storage,
+TPlanner MakePlanner(database::MasterBase &master_db, AstStorage &storage,
                      SymbolTable &symbol_table) {
   database::GraphDbAccessor dba(master_db);
   auto planning_context = MakePlanningContext(storage, symbol_table, dba);
@@ -564,7 +564,7 @@ auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table,
 }
 
 template <class TPlanner, class... TChecker>
-auto CheckPlan(AstTreeStorage &storage, TChecker... checker) {
+auto CheckPlan(AstStorage &storage, TChecker... checker) {
   auto symbol_table = MakeSymbolTable(*storage.query());
   database::SingleNode db;
   auto planner = MakePlanner<TPlanner>(db, storage, symbol_table);
@@ -577,7 +577,7 @@ struct ExpectedDistributedPlan {
 };
 
 template <class TPlanner>
-DistributedPlan MakeDistributedPlan(query::AstTreeStorage &storage) {
+DistributedPlan MakeDistributedPlan(query::AstStorage &storage) {
   database::Master db;
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto planner = MakePlanner<TPlanner>(db, storage, symbol_table);
@@ -616,7 +616,7 @@ void CheckDistributedPlan(const LogicalOperator &plan,
 }
 
 template <class TPlanner>
-void CheckDistributedPlan(AstTreeStorage &storage,
+void CheckDistributedPlan(AstStorage &storage,
                           ExpectedDistributedPlan &expected_distributed_plan) {
   auto distributed_plan = MakeDistributedPlan<TPlanner>(storage);
   CheckDistributedPlan(distributed_plan, expected_distributed_plan);
@@ -682,7 +682,7 @@ TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
 TYPED_TEST(TestPlanner, MatchNodeReturn) {
   // Test MATCH (n) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n)));
   auto symbol_table = MakeSymbolTable(*storage.query());
@@ -698,7 +698,7 @@ TYPED_TEST(TestPlanner, MatchNodeReturn) {
 
 TYPED_TEST(TestPlanner, CreateNodeReturn) {
   // Test CREATE (n) RETURN n AS n
-  AstTreeStorage storage;
+  AstStorage storage;
   auto ident_n = IDENT("n");
   auto query =
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n"))));
@@ -720,7 +720,7 @@ TYPED_TEST(TestPlanner, CreateNodeReturn) {
 
 TYPED_TEST(TestPlanner, CreateExpand) {
   // Test CREATE (n) -[r :rel1]-> (m)
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
@@ -736,7 +736,7 @@ TYPED_TEST(TestPlanner, CreateExpand) {
 
 TYPED_TEST(TestPlanner, CreateMultipleNode) {
   // Test CREATE (n), (m)
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateNode());
   ExpectedDistributedPlan expected{
@@ -748,7 +748,7 @@ TYPED_TEST(TestPlanner, CreateMultipleNode) {
 
 TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
   // Test CREATE (n) -[r :rel]-> (m), (l)
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("rel");
@@ -766,7 +766,7 @@ TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
 
 TYPED_TEST(TestPlanner, CreateNamedPattern) {
   // Test CREATE p = (n) -[r :rel]-> (m)
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("rel");
@@ -783,7 +783,7 @@ TYPED_TEST(TestPlanner, CreateNamedPattern) {
 
 TYPED_TEST(TestPlanner, MatchCreateExpand) {
   // Test MATCH (n) CREATE (n) -[r :rel1]-> (m)
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
@@ -800,7 +800,7 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
 
 TYPED_TEST(TestPlanner, MatchLabeledNodes) {
   // Test MATCH (n :label) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
@@ -819,7 +819,7 @@ TYPED_TEST(TestPlanner, MatchLabeledNodes) {
 
 TYPED_TEST(TestPlanner, MatchPathReturn) {
   // Test MATCH (n) -[r :relationship]- (m) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
@@ -841,7 +841,7 @@ TYPED_TEST(TestPlanner, MatchPathReturn) {
 
 TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) RETURN p
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
@@ -866,7 +866,7 @@ TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
 
 TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) WHERE 2 = p RETURN p
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("relationship");
@@ -892,7 +892,7 @@ TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
 TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   // Test OPTIONAL MATCH p = (n) -[r]- (m) RETURN p
   database::SingleNode db;
-  AstTreeStorage storage;
+  AstStorage storage;
   auto node_n = NODE("n");
   auto edge = EDGE("r");
   auto node_m = NODE("m");
@@ -920,7 +920,7 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
   // Test MATCH (n) WHERE n.property < 42 RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto property = dba.Property("property");
@@ -941,7 +941,7 @@ TYPED_TEST(TestPlanner, MatchWhereReturn) {
 
 TYPED_TEST(TestPlanner, MatchDelete) {
   // Test MATCH (n) DELETE n
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectDelete());
   auto expected = ExpectDistributed(
@@ -952,7 +952,7 @@ TYPED_TEST(TestPlanner, MatchDelete) {
 
 TYPED_TEST(TestPlanner, MatchNodeSet) {
   // Test MATCH (n) SET n.prop = 42, n = n, n :label
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
@@ -972,7 +972,7 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
 
 TYPED_TEST(TestPlanner, MatchRemove) {
   // Test MATCH (n) REMOVE n.prop REMOVE n :label
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
@@ -991,7 +991,7 @@ TYPED_TEST(TestPlanner, MatchRemove) {
 
 TYPED_TEST(TestPlanner, MatchMultiPattern) {
   // Test MATCH (n) -[r]- (m), (j) -[e]- (i) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
                            PATTERN(NODE("j"), EDGE("e"), NODE("i"))),
                      RETURN("n")));
@@ -1004,7 +1004,7 @@ TYPED_TEST(TestPlanner, MatchMultiPattern) {
 
 TYPED_TEST(TestPlanner, MatchMultiPatternSameStart) {
   // Test MATCH (n), (n) -[e]- (m) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n")), PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
       RETURN("n")));
@@ -1016,7 +1016,7 @@ TYPED_TEST(TestPlanner, MatchMultiPatternSameStart) {
 
 TYPED_TEST(TestPlanner, MatchMultiPatternSameExpandStart) {
   // Test MATCH (n) -[r]- (m), (m) -[e]- (l) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")),
                            PATTERN(NODE("m"), EDGE("e"), NODE("l"))),
                      RETURN("n")));
@@ -1030,7 +1030,7 @@ TYPED_TEST(TestPlanner, MatchMultiPatternSameExpandStart) {
 
 TYPED_TEST(TestPlanner, MultiMatch) {
   // Test MATCH (n) -[r]- (m) MATCH (j) -[e]- (i) -[f]- (h) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *node_n = NODE("n");
   auto *edge_r = EDGE("r");
   auto *node_m = NODE("m");
@@ -1073,7 +1073,7 @@ TYPED_TEST(TestPlanner, MultiMatch) {
 
 TYPED_TEST(TestPlanner, MultiMatchSameStart) {
   // Test MATCH (n) MATCH (n) -[r]- (m) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                      MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
@@ -1094,7 +1094,7 @@ TYPED_TEST(TestPlanner, MultiMatchSameStart) {
 
 TYPED_TEST(TestPlanner, MatchWithReturn) {
   // Test MATCH (old) WITH old AS new RETURN new
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_new = NEXPR("new", IDENT("new"));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
                      RETURN(as_new)));
@@ -1116,7 +1116,7 @@ TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_new = NEXPR("new", IDENT("new"));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
                      WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))),
@@ -1141,7 +1141,7 @@ TYPED_TEST(TestPlanner, CreateMultiExpand) {
   database::GraphDbAccessor dba(db);
   auto r = dba.EdgeType("r");
   auto p = dba.EdgeType("p");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
              PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l")))));
@@ -1160,7 +1160,7 @@ TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto literal = LITERAL(42);
   QUERY(SINGLE_QUERY(
@@ -1177,7 +1177,7 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
   database::GraphDbAccessor dba(db);
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop1));
   auto n_prop2 = PROPERTY_LOOKUP("n", prop2);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -1208,7 +1208,7 @@ TYPED_TEST(TestPlanner, CreateWithSum) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto sum = SUM(n_prop);
   auto query =
@@ -1228,7 +1228,7 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto r_type = dba.EdgeType("r");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
       CREATE(
@@ -1244,7 +1244,7 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
 
 TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
   // Test MATCH (n) RETURN n SKIP 2 LIMIT 1
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                      RETURN(as_n, SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
@@ -1263,7 +1263,7 @@ TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
 
 TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   // Test CREATE (n) WITH n AS m SKIP 2 RETURN m LIMIT 1
-  AstTreeStorage storage;
+  AstStorage storage;
   auto ident_n = IDENT("n");
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))),
                                   WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
@@ -1292,7 +1292,7 @@ TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   auto sum = SUM(n_prop);
   auto query = QUERY(
@@ -1311,7 +1311,7 @@ TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_m = NEXPR("m", IDENT("n"));
   auto *node_n = NODE("n");
   auto ret = RETURN(as_m, ORDER_BY(PROPERTY_LOOKUP("n", prop)));
@@ -1340,7 +1340,7 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
   auto r_type = dba.EdgeType("r");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto ident_n = IDENT("n");
   auto new_prop = PROPERTY_LOOKUP("new", prop);
   auto r_prop = PROPERTY_LOOKUP("r", prop);
@@ -1369,7 +1369,7 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
 
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
   // Test RETURN SUM(1) + COUNT(2) AS result ORDER BY result
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LITERAL(1));
   auto count = COUNT(LITERAL(2));
   QUERY(SINGLE_QUERY(
@@ -1389,7 +1389,7 @@ TYPED_TEST(TestPlanner, MatchMerge) {
   database::GraphDbAccessor dba(db);
   auto r_type = dba.EdgeType("r");
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto ident_n = IDENT("n");
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
@@ -1418,7 +1418,7 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                      OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                      WHERE(LESS(PROPERTY_LOOKUP("m", prop), LITERAL(42))),
@@ -1431,7 +1431,7 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhereReturn) {
 
 TYPED_TEST(TestPlanner, MatchUnwindReturn) {
   // Test MATCH (n) UNWIND [1,2,3] AS x RETURN n, x
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *as_x = NEXPR("x", IDENT("x"));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
@@ -1451,7 +1451,7 @@ TYPED_TEST(TestPlanner, MatchUnwindReturn) {
 
 TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
   // Test RETURN DISTINCT 1 ORDER BY 1 SKIP 1 LIMIT 1
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(RETURN_DISTINCT(LITERAL(1), AS("1"), ORDER_BY(LITERAL(1)),
                                      SKIP(LITERAL(1)), LIMIT(LITERAL(1)))));
   CheckPlan<TypeParam>(storage, ExpectProduce(), ExpectDistinct(),
@@ -1467,7 +1467,7 @@ TYPED_TEST(TestPlanner, CreateWithDistinctSumWhereReturn) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto node_n = NODE("n");
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto query =
@@ -1486,7 +1486,7 @@ TYPED_TEST(TestPlanner, MatchCrossReferenceVariable) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto node_n = NODE("n");
   auto m_prop = PROPERTY_LOOKUP("m", prop.second);
   node_n->properties_[prop] = m_prop;
@@ -1505,7 +1505,7 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                      WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
@@ -1529,7 +1529,7 @@ TYPED_TEST(TestPlanner, MultiMatchWhere) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                      MATCH(PATTERN(NODE("l"))),
                      WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
@@ -1545,7 +1545,7 @@ TYPED_TEST(TestPlanner, MatchOptionalMatchWhere) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
                      OPTIONAL_MATCH(PATTERN(NODE("l"))),
                      WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))),
@@ -1563,7 +1563,7 @@ TYPED_TEST(TestPlanner, MatchReturnAsterisk) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto ret = RETURN(PROPERTY_LOOKUP("m", prop), AS("m.prop"));
   ret->body_.all_identifiers = true;
   auto query =
@@ -1585,7 +1585,7 @@ TYPED_TEST(TestPlanner, MatchReturnAsteriskSum) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(PROPERTY_LOOKUP("n", prop));
   auto ret = RETURN(sum, AS("s"));
   ret->body_.all_identifiers = true;
@@ -1614,7 +1614,7 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
   // Test UNWIND [1] AS i MERGE (n {prop: i})
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   auto node_n = NODE("n");
   node_n->properties_[PROPERTY_PAIR("prop")] = IDENT("i");
   QUERY(
@@ -1629,7 +1629,7 @@ TYPED_TEST(TestPlanner, UnwindMergeNodeProperty) {
 
 TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
   // Test OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(OPTIONAL_MATCH(PATTERN(NODE("n"))),
                      OPTIONAL_MATCH(PATTERN(NODE("m"))), RETURN("n")));
   std::list<BaseOpChecker *> optional{new ExpectScanAll()};
@@ -1639,7 +1639,7 @@ TYPED_TEST(TestPlanner, MultipleOptionalMatchReturn) {
 
 TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
   // Test RETURN sqrt(SUM(2)) AS result, 42 AS group_by
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
   QUERY(SINGLE_QUERY(
@@ -1652,7 +1652,7 @@ TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
 
 TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
   // Test RETURN pi() AS pi
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(RETURN(FN("pi"), AS("pi"))));
   CheckPlan<TypeParam>(storage, ExpectProduce());
   auto expected = ExpectDistributed(MakeCheckers(ExpectProduce()));
@@ -1661,7 +1661,7 @@ TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
 
 TYPED_TEST(TestPlanner, ListLiteralAggregationReturn) {
   // Test RETURN [SUM(2)] AS result, 42 AS group_by
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
   QUERY(SINGLE_QUERY(
@@ -1672,7 +1672,7 @@ TYPED_TEST(TestPlanner, ListLiteralAggregationReturn) {
 
 TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
   // Test RETURN {sum: SUM(2)} AS result, 42 AS group_by
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto sum = SUM(LITERAL(2));
@@ -1685,7 +1685,7 @@ TYPED_TEST(TestPlanner, MapLiteralAggregationReturn) {
 
 TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
   // Test RETURN [][SUM(2)] AS result, 42 AS group_by
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto empty_list = LIST();
   auto group_by_literal = LITERAL(42);
@@ -1701,7 +1701,7 @@ TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
 
 TYPED_TEST(TestPlanner, ListSliceAggregationReturn) {
   // Test RETURN [1, 2][0..SUM(2)] AS result, 42 AS group_by
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto list = LIST(LITERAL(1), LITERAL(2));
   auto group_by_literal = LITERAL(42);
@@ -1715,7 +1715,7 @@ TYPED_TEST(TestPlanner, ListSliceAggregationReturn) {
 
 TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
   // Test RETURN [sum(2), 42]
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
   QUERY(SINGLE_QUERY(RETURN(LIST(sum, group_by_literal), AS("result"))));
@@ -1725,7 +1725,7 @@ TYPED_TEST(TestPlanner, ListWithAggregationAndGroupBy) {
 
 TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
   // Test RETURN sum(2), [sum(3), 42]
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum2 = SUM(LITERAL(2));
   auto sum3 = SUM(LITERAL(3));
   auto group_by_literal = LITERAL(42);
@@ -1738,7 +1738,7 @@ TYPED_TEST(TestPlanner, AggregatonWithListWithAggregationAndGroupBy) {
 TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
   // Test RETURN {lit: 42, sum: sum(2)}
   database::SingleNode db;
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LITERAL(2));
   auto group_by_literal = LITERAL(42);
   QUERY(SINGLE_QUERY(RETURN(MAP({PROPERTY_PAIR("sum"), sum},
@@ -1754,7 +1754,7 @@ TYPED_TEST(TestPlanner, CreateIndex) {
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
   auto property = dba.Property("property");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(CREATE_INDEX_ON(label, property)));
   CheckPlan<TypeParam>(storage, ExpectCreateIndex(label, property));
   auto expected =
@@ -1764,7 +1764,7 @@ TYPED_TEST(TestPlanner, CreateIndex) {
 
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
   // Test MATCH (n :label {property: 42, not_indexed: 0}) RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
@@ -1791,7 +1791,7 @@ TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
 
 TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
   // Test MATCH (n {property: 42}) WHERE n.not_indexed AND n:label RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
@@ -1818,7 +1818,7 @@ TYPED_TEST(TestPlanner, AtomPropertyWhereLabelIndexing) {
 
 TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
   // Test MATCH (n :label) WHERE n.property = 42 RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
@@ -1839,7 +1839,7 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelProperty) {
 
 TYPED_TEST(TestPlanner, BestPropertyIndexed) {
   // Test MATCH (n :label) WHERE n.property = 1 AND n.better = 42 RETURN n
-  AstTreeStorage storage;
+  AstStorage storage;
   database::SingleNode db;
   auto label = database::GraphDbAccessor(db).Label("label");
   auto property = database::GraphDbAccessor(db).Property("property");
@@ -1882,7 +1882,7 @@ TYPED_TEST(TestPlanner, MultiPropertyIndexScan) {
   auto prop2 = PROPERTY_PAIR("prop2");
   database::GraphDbAccessor(db).BuildIndex(label1, prop1.second);
   database::GraphDbAccessor(db).BuildIndex(label2, prop2.second);
-  AstTreeStorage storage;
+  AstStorage storage;
   auto lit_1 = LITERAL(1);
   auto lit_2 = LITERAL(2);
   QUERY(SINGLE_QUERY(
@@ -1905,14 +1905,14 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
   auto label = database::GraphDbAccessor(db).Label("label");
   auto property = database::GraphDbAccessor(db).Property("property");
   database::GraphDbAccessor(db).BuildIndex(label, property);
-  AstTreeStorage storage;
+  AstStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
   auto check_planned_range = [&label, &property, &db](const auto &rel_expr,
                                                       auto lower_bound,
                                                       auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
-    AstTreeStorage storage;
+    AstStorage storage;
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr),
                        RETURN("n")));
     auto symbol_table = MakeSymbolTable(*storage.query());
@@ -1956,7 +1956,7 @@ TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
   auto property = dba.Property("property");
   dba.BuildIndex(label, property);
   {
-    AstTreeStorage storage;
+    AstStorage storage;
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))),
                        WHERE(EQ(PROPERTY_LOOKUP("n", property),
                                 PROPERTY_LOOKUP("n", property))),
@@ -1978,7 +1978,7 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
   auto property = PROPERTY_PAIR("property");
   dba.BuildIndex(label, dba.Property("property"));
   {
-    AstTreeStorage storage;
+    AstStorage storage;
     auto n_prop = PROPERTY_LOOKUP("n", property);
     auto m_prop = PROPERTY_LOOKUP("m", property);
     QUERY(SINGLE_QUERY(
@@ -1996,7 +1996,7 @@ TYPED_TEST(TestPlanner, SecondPropertyIndex) {
 
 TYPED_TEST(TestPlanner, ReturnSumGroupByAll) {
   // Test RETURN sum([1,2,3]), all(x in [1] where x = 1)
-  AstTreeStorage storage;
+  AstStorage storage;
   auto sum = SUM(LIST(LITERAL(1), LITERAL(2), LITERAL(3)));
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(EQ(IDENT("x"), LITERAL(1))));
   QUERY(SINGLE_QUERY(RETURN(sum, AS("sum"), all, AS("all"))));
@@ -2006,7 +2006,7 @@ TYPED_TEST(TestPlanner, ReturnSumGroupByAll) {
 
 TYPED_TEST(TestPlanner, MatchExpandVariable) {
   // Test MATCH (n) -[r *..3]-> (m) RETURN r
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r");
   edge->upper_bound_ = LITERAL(3);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -2016,7 +2016,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariable) {
 
 TYPED_TEST(TestPlanner, MatchExpandVariableNoBounds) {
   // Test MATCH (n) -[r *]-> (m) RETURN r
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r");
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectExpandVariable(),
@@ -2029,7 +2029,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
   database::GraphDbAccessor dba(db);
   auto type = dba.EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
   edge->properties_[prop] = LITERAL(42);
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -2045,7 +2045,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
   database::GraphDbAccessor dba(db);
   auto type = dba.EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
   edge->properties_[prop] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -2055,7 +2055,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
 
 TYPED_TEST(TestPlanner, UnwindMatchVariable) {
   // Test UNWIND [1,2,3] AS depth MATCH (n) -[r*d]-> (m) RETURN r
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::OUT);
   edge->lower_bound_ = IDENT("d");
   edge->upper_bound_ = IDENT("d");
@@ -2070,7 +2070,7 @@ TYPED_TEST(TestPlanner, MatchBfs) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto edge_type = dba.EdgeType("type");
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
       std::vector<storage::EdgeType>{edge_type});
@@ -2088,7 +2088,7 @@ TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto label = dba.Label("label");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m", label))),
                      RETURN("r")));
   auto symbol_table = MakeSymbolTable(*storage.query());
@@ -2118,7 +2118,7 @@ TYPED_TEST(TestPlanner, MatchScanToExpand) {
   vertex.PropsSet(property, 1);
   dba.Commit();
   {
-    AstTreeStorage storage;
+    AstStorage storage;
     auto node_m = NODE("m", label);
     node_m->properties_[std::make_pair("property", property)] = LITERAL(1);
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), node_m)),
@@ -2137,7 +2137,7 @@ TYPED_TEST(TestPlanner, MatchWhereAndSplit) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
   auto prop = PROPERTY_PAIR("prop");
-  AstTreeStorage storage;
+  AstStorage storage;
   QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
       WHERE(AND(PROPERTY_LOOKUP("n", prop), PROPERTY_LOOKUP("r", prop))),
@@ -2150,7 +2150,7 @@ TYPED_TEST(TestPlanner, MatchWhereAndSplit) {
 TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   // Test MATCH (n) -[r* (ie, in | true)]- (m) RETURN *
   database::SingleNode db;
-  AstTreeStorage storage;
+  AstStorage storage;
   auto edge = EDGE_VARIABLE("r", Direction::BOTH);
   edge->filter_lambda_.inner_edge = IDENT("ie");
   edge->filter_lambda_.inner_node = IDENT("in");
@@ -2175,7 +2175,7 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
 
 TYPED_TEST(TestPlanner, DistributedAvg) {
   // Test MATCH (n) RETURN AVG(n.prop) AS res
-  AstTreeStorage storage;
+  AstStorage storage;
   database::Master db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
@@ -2209,7 +2209,7 @@ TYPED_TEST(TestPlanner, DistributedAvg) {
 
 TYPED_TEST(TestPlanner, DistributedCollectList) {
   // Test MATCH (n) RETURN COLLECT(n.prop) AS res
-  AstTreeStorage storage;
+  AstStorage storage;
   database::Master db;
   database::GraphDbAccessor dba(db);
   auto prop = dba.Property("prop");
@@ -2228,7 +2228,7 @@ TYPED_TEST(TestPlanner, DistributedCollectList) {
 
 TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
   // Test MATCH (n) CREATE (m) RETURN m
-  AstTreeStorage storage;
+  AstStorage storage;
   auto *ident_m = IDENT("m");
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("m"))),
                      RETURN(ident_m, AS("m"))));
@@ -2246,7 +2246,7 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
 
 TYPED_TEST(TestPlanner, DistributedCartesianCreate) {
   // Test MATCH (a), (b) CREATE (a)-[e:r]->(b) RETURN e
-  AstTreeStorage storage;
+  AstStorage storage;
   database::Master db;
   database::GraphDbAccessor dba(db);
   auto relationship = dba.EdgeType("r");
@@ -2284,7 +2284,7 @@ TEST(CapnpSerial, Union) {
   std::unique_ptr<LogicalOperator> loaded_plan;
   ::capnp::MallocMessageBuilder message;
   SavePlan(*union_op, &message);
-  AstTreeStorage new_storage;
+  AstStorage new_storage;
   std::tie(loaded_plan, new_storage) =
       LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
   ASSERT_TRUE(loaded_plan);
@@ -2307,7 +2307,7 @@ TEST(CapnpSerial, Cartesian) {
   std::unique_ptr<LogicalOperator> loaded_plan;
   ::capnp::MallocMessageBuilder message;
   SavePlan(*cartesian, &message);
-  AstTreeStorage new_storage;
+  AstStorage new_storage;
   std::tie(loaded_plan, new_storage) =
       LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
   ASSERT_TRUE(loaded_plan);
@@ -2324,7 +2324,7 @@ TEST(CapnpSerial, Synchronize) {
   std::unique_ptr<LogicalOperator> loaded_plan;
   ::capnp::MallocMessageBuilder message;
   SavePlan(*synchronize, &message);
-  AstTreeStorage new_storage;
+  AstStorage new_storage;
   std::tie(loaded_plan, new_storage) =
       LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
   ASSERT_TRUE(loaded_plan);
@@ -2342,7 +2342,7 @@ TEST(CapnpSerial, PullRemote) {
   std::unique_ptr<LogicalOperator> loaded_plan;
   ::capnp::MallocMessageBuilder message;
   SavePlan(*pull_remote, &message);
-  AstTreeStorage new_storage;
+  AstStorage new_storage;
   std::tie(loaded_plan, new_storage) =
       LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
   ASSERT_TRUE(loaded_plan);
@@ -2355,7 +2355,7 @@ TEST(CapnpSerial, PullRemote) {
 
 TEST(CapnpSerial, PullRemoteOrderBy) {
   auto once = std::make_shared<Once>();
-  AstTreeStorage storage;
+  AstStorage storage;
   std::vector<Symbol> symbols{
       Symbol("my_symbol", 2, true, Symbol::Type::Vertex, 3)};
   std::vector<std::pair<query::Ordering, query::Expression *>> order_by{
@@ -2365,7 +2365,7 @@ TEST(CapnpSerial, PullRemoteOrderBy) {
   std::unique_ptr<LogicalOperator> loaded_plan;
   ::capnp::MallocMessageBuilder message;
   SavePlan(*pull_remote_order_by, &message);
-  AstTreeStorage new_storage;
+  AstStorage new_storage;
   std::tie(loaded_plan, new_storage) =
       LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
   ASSERT_TRUE(loaded_plan);

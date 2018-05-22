@@ -4,7 +4,7 @@
 /// The usage of macros is very similar to how one would write openCypher. For
 /// example:
 ///
-///     AstTreeStorage storage;  // Macros rely on storage being in scope.
+///     AstStorage storage;  // Macros rely on storage being in scope.
 ///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros rely on database::SingleNode
 ///     database::SingleNode db;
 ///
@@ -109,26 +109,26 @@ auto GetOrderBy(T... exprs) {
 ///
 /// Name is used to create the Identifier which is used for property lookup.
 ///
-auto GetPropertyLookup(AstTreeStorage &storage, database::GraphDb &db,
+auto GetPropertyLookup(AstStorage &storage, database::GraphDb &db,
                        const std::string &name, storage::Property property) {
   database::GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         dba.PropertyName(property), property);
 }
-auto GetPropertyLookup(AstTreeStorage &storage, database::GraphDb &db,
+auto GetPropertyLookup(AstStorage &storage, database::GraphDb &db,
                        Expression *expr, storage::Property property) {
   database::GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(expr, dba.PropertyName(property),
                                         property);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, database::GraphDb &, const std::string &name,
+    AstStorage &storage, database::GraphDb &, const std::string &name,
     const std::pair<std::string, storage::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         prop_pair.first, prop_pair.second);
 }
 auto GetPropertyLookup(
-    AstTreeStorage &storage, database::GraphDb &, Expression *expr,
+    AstStorage &storage, database::GraphDb &, Expression *expr,
     const std::pair<std::string, storage::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(expr, prop_pair.first,
                                         prop_pair.second);
@@ -139,7 +139,7 @@ auto GetPropertyLookup(
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 ///
-auto GetEdge(AstTreeStorage &storage, const std::string &name,
+auto GetEdge(AstStorage &storage, const std::string &name,
              EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
              const std::vector<storage::EdgeType> &edge_types = {}) {
   return storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
@@ -152,7 +152,7 @@ auto GetEdge(AstTreeStorage &storage, const std::string &name,
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 ///
-auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
+auto GetEdgeVariable(AstStorage &storage, const std::string &name,
                      EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
                      const std::vector<storage::EdgeType> &edge_types = {},
                      Identifier *inner_edge = nullptr,
@@ -174,7 +174,7 @@ auto GetEdgeVariable(AstTreeStorage &storage, const std::string &name,
 ///
 /// Name is used to create the Identifier which is assigned to the node.
 ///
-auto GetNode(AstTreeStorage &storage, const std::string &name,
+auto GetNode(AstStorage &storage, const std::string &name,
              std::experimental::optional<storage::Label> label =
                  std::experimental::nullopt) {
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
@@ -185,7 +185,7 @@ auto GetNode(AstTreeStorage &storage, const std::string &name,
 ///
 /// Create a Pattern with given atoms.
 ///
-auto GetPattern(AstTreeStorage &storage, std::vector<PatternAtom *> atoms) {
+auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
   auto pattern = storage.Create<Pattern>();
   pattern->identifier_ =
       storage.Create<Identifier>(utils::RandomString(20), false);
@@ -196,7 +196,7 @@ auto GetPattern(AstTreeStorage &storage, std::vector<PatternAtom *> atoms) {
 ///
 /// Create a Pattern with given name and atoms.
 ///
-auto GetPattern(AstTreeStorage &storage, const std::string &name,
+auto GetPattern(AstStorage &storage, const std::string &name,
                 std::vector<PatternAtom *> atoms) {
   auto pattern = storage.Create<Pattern>();
   pattern->identifier_ = storage.Create<Identifier>(name, true);
@@ -261,81 +261,81 @@ auto GetCypherUnion(CypherUnion *cypher_union, SingleQuery *single_query) {
   return cypher_union;
 }
 
-auto GetQuery(AstTreeStorage &storage, SingleQuery *single_query) {
+auto GetQuery(AstStorage &storage, SingleQuery *single_query) {
   storage.query()->single_query_ = single_query;
   return storage.query();
 }
 
-auto GetQuery(AstTreeStorage &storage, SingleQuery *single_query,
+auto GetQuery(AstStorage &storage, SingleQuery *single_query,
               CypherUnion *cypher_union) {
   storage.query()->cypher_unions_.emplace_back(cypher_union);
   return GetQuery(storage, single_query);
 }
 
 template <class... T>
-auto GetQuery(AstTreeStorage &storage, SingleQuery *single_query,
+auto GetQuery(AstStorage &storage, SingleQuery *single_query,
               CypherUnion *cypher_union, T *... cypher_unions) {
   storage.query()->cypher_unions_.emplace_back(cypher_union);
   return GetQuery(storage, single_query, cypher_unions...);
 }
 
 // Helper functions for constructing RETURN and WITH clauses.
-void FillReturnBody(AstTreeStorage &, ReturnBody &body,
+void FillReturnBody(AstStorage &, ReturnBody &body,
                     NamedExpression *named_expr) {
   body.named_expressions.emplace_back(named_expr);
 }
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+void FillReturnBody(AstStorage &storage, ReturnBody &body,
                     const std::string &name) {
   auto *ident = storage.Create<query::Identifier>(name);
   auto *named_expr = storage.Create<query::NamedExpression>(name, ident);
   body.named_expressions.emplace_back(named_expr);
 }
-void FillReturnBody(AstTreeStorage &, ReturnBody &body, Limit limit) {
+void FillReturnBody(AstStorage &, ReturnBody &body, Limit limit) {
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &, ReturnBody &body, Skip skip,
+void FillReturnBody(AstStorage &, ReturnBody &body, Skip skip,
                     Limit limit = Limit{}) {
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &, ReturnBody &body, OrderBy order_by,
+void FillReturnBody(AstStorage &, ReturnBody &body, OrderBy order_by,
                     Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &, ReturnBody &body, OrderBy order_by,
+void FillReturnBody(AstStorage &, ReturnBody &body, OrderBy order_by,
                     Skip skip, Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
   body.skip = skip.expression;
   body.limit = limit.expression;
 }
-void FillReturnBody(AstTreeStorage &, ReturnBody &body, Expression *expr,
+void FillReturnBody(AstStorage &, ReturnBody &body, Expression *expr,
                     NamedExpression *named_expr) {
   // This overload supports `RETURN(expr, AS(name))` construct, since
   // NamedExpression does not inherit Expression.
   named_expr->expression_ = expr;
   body.named_expressions.emplace_back(named_expr);
 }
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+void FillReturnBody(AstStorage &storage, ReturnBody &body,
                     const std::string &name, NamedExpression *named_expr) {
   named_expr->expression_ = storage.Create<query::Identifier>(name);
   body.named_expressions.emplace_back(named_expr);
 }
 template <class... T>
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body, Expression *expr,
+void FillReturnBody(AstStorage &storage, ReturnBody &body, Expression *expr,
                     NamedExpression *named_expr, T... rest) {
   named_expr->expression_ = expr;
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }
 template <class... T>
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+void FillReturnBody(AstStorage &storage, ReturnBody &body,
                     NamedExpression *named_expr, T... rest) {
   body.named_expressions.emplace_back(named_expr);
   FillReturnBody(storage, body, rest...);
 }
 template <class... T>
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+void FillReturnBody(AstStorage &storage, ReturnBody &body,
                     const std::string &name, NamedExpression *named_expr,
                     T... rest) {
   named_expr->expression_ = storage.Create<query::Identifier>(name);
@@ -343,7 +343,7 @@ void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
   FillReturnBody(storage, body, rest...);
 }
 template <class... T>
-void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
+void FillReturnBody(AstStorage &storage, ReturnBody &body,
                     const std::string &name, T... rest) {
   auto *ident = storage.Create<query::Identifier>(name);
   auto *named_expr = storage.Create<query::NamedExpression>(name, ident);
@@ -366,7 +366,7 @@ void FillReturnBody(AstTreeStorage &storage, ReturnBody &body,
 ///
 /// @sa GetWith
 template <class... T>
-auto GetReturn(AstTreeStorage &storage, bool distinct, T... exprs) {
+auto GetReturn(AstStorage &storage, bool distinct, T... exprs) {
   auto ret = storage.Create<Return>();
   ret->body_.distinct = distinct;
   FillReturnBody(storage, ret->body_, exprs...);
@@ -380,7 +380,7 @@ auto GetReturn(AstTreeStorage &storage, bool distinct, T... exprs) {
 ///
 /// @sa GetReturn
 template <class... T>
-auto GetWith(AstTreeStorage &storage, bool distinct, T... exprs) {
+auto GetWith(AstStorage &storage, bool distinct, T... exprs) {
   auto with = storage.Create<With>();
   with->body_.distinct = distinct;
   FillReturnBody(storage, with->body_, exprs...);
@@ -390,10 +390,10 @@ auto GetWith(AstTreeStorage &storage, bool distinct, T... exprs) {
 ///
 /// Create the UNWIND clause with given named expression.
 ///
-auto GetUnwind(AstTreeStorage &storage, NamedExpression *named_expr) {
+auto GetUnwind(AstStorage &storage, NamedExpression *named_expr) {
   return storage.Create<query::Unwind>(named_expr);
 }
-auto GetUnwind(AstTreeStorage &storage, Expression *expr, NamedExpression *as) {
+auto GetUnwind(AstStorage &storage, Expression *expr, NamedExpression *as) {
   as->expression_ = expr;
   return GetUnwind(storage, as);
 }
@@ -401,7 +401,7 @@ auto GetUnwind(AstTreeStorage &storage, Expression *expr, NamedExpression *as) {
 ///
 /// Create the delete clause with given named expressions.
 ///
-auto GetDelete(AstTreeStorage &storage, std::vector<Expression *> exprs,
+auto GetDelete(AstStorage &storage, std::vector<Expression *> exprs,
                bool detach = false) {
   auto del = storage.Create<Delete>();
   del->expressions_.insert(del->expressions_.begin(), exprs.begin(),
@@ -414,7 +414,7 @@ auto GetDelete(AstTreeStorage &storage, std::vector<Expression *> exprs,
 /// Create a set property clause for given property lookup and the right hand
 /// side expression.
 ///
-auto GetSet(AstTreeStorage &storage, PropertyLookup *prop_lookup,
+auto GetSet(AstStorage &storage, PropertyLookup *prop_lookup,
             Expression *expr) {
   return storage.Create<SetProperty>(prop_lookup, expr);
 }
@@ -423,7 +423,7 @@ auto GetSet(AstTreeStorage &storage, PropertyLookup *prop_lookup,
 /// Create a set properties clause for given identifier name and the right hand
 /// side expression.
 ///
-auto GetSet(AstTreeStorage &storage, const std::string &name, Expression *expr,
+auto GetSet(AstStorage &storage, const std::string &name, Expression *expr,
             bool update = false) {
   return storage.Create<SetProperties>(storage.Create<Identifier>(name), expr,
                                        update);
@@ -432,7 +432,7 @@ auto GetSet(AstTreeStorage &storage, const std::string &name, Expression *expr,
 ///
 /// Create a set labels clause for given identifier name and labels.
 ///
-auto GetSet(AstTreeStorage &storage, const std::string &name,
+auto GetSet(AstStorage &storage, const std::string &name,
             std::vector<storage::Label> labels) {
   return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
 }
@@ -440,14 +440,14 @@ auto GetSet(AstTreeStorage &storage, const std::string &name,
 ///
 /// Create a remove property clause for given property lookup
 ///
-auto GetRemove(AstTreeStorage &storage, PropertyLookup *prop_lookup) {
+auto GetRemove(AstStorage &storage, PropertyLookup *prop_lookup) {
   return storage.Create<RemoveProperty>(prop_lookup);
 }
 
 ///
 /// Create a remove labels clause for given identifier name and labels.
 ///
-auto GetRemove(AstTreeStorage &storage, const std::string &name,
+auto GetRemove(AstStorage &storage, const std::string &name,
                std::vector<storage::Label> labels) {
   return storage.Create<RemoveLabels>(storage.Create<Identifier>(name), labels);
 }
@@ -456,14 +456,14 @@ auto GetRemove(AstTreeStorage &storage, const std::string &name,
 /// Create a Merge clause for given Pattern with optional OnMatch and OnCreate
 /// parts.
 ///
-auto GetMerge(AstTreeStorage &storage, Pattern *pattern,
+auto GetMerge(AstStorage &storage, Pattern *pattern,
               OnCreate on_create = OnCreate{}) {
   auto *merge = storage.Create<query::Merge>();
   merge->pattern_ = pattern;
   merge->on_create_ = on_create.set;
   return merge;
 }
-auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
+auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
               OnCreate on_create = OnCreate{}) {
   auto *merge = storage.Create<query::Merge>();
   merge->pattern_ = pattern;
@@ -478,13 +478,13 @@ auto GetMerge(AstTreeStorage &storage, Pattern *pattern, OnMatch on_match,
 
 ///
 /// All the following macros implicitly pass `storage` variable to functions.
-/// You need to have `AstTreeStorage storage;` somewhere in scope to use them.
+/// You need to have `AstStorage storage;` somewhere in scope to use them.
 /// Refer to function documentation to see what the macro does.
 ///
 /// Example usage:
 ///
 ///   // Create MATCH (n) -[r]- (m) RETURN m AS new_name
-///   AstTreeStorage storage;
+///   AstStorage storage;
 ///   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
 ///                      RETURN(NEXPR("new_name"), IDENT("m")));
 ///

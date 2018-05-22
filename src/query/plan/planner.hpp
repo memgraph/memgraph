@@ -14,7 +14,7 @@
 
 namespace query {
 
-class AstTreeStorage;
+class AstStorage;
 class SymbolTable;
 
 namespace plan {

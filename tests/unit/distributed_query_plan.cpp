@@ -35,7 +35,7 @@ TEST_F(DistributedGraphDbTest, PullProduceRpc) {
   GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
-  AstTreeStorage storage;
+  AstStorage storage;
 
   // Query plan for: UNWIND [42, true, "bla", 1, 2] as x RETURN x
   using namespace query;
@@ -122,7 +122,7 @@ TEST_F(DistributedGraphDbTest, PullProduceRpcWithGraphElements) {
   GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
-  AstTreeStorage storage;
+  AstStorage storage;
 
   // Query plan for: MATCH p = (n)-[r]->(m) return [n, r], m, p
   // Use this query to test graph elements are transferred correctly in
@@ -202,7 +202,7 @@ TEST_F(DistributedGraphDbTest, Synchronize) {
   GraphDbAccessor dba{db};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
-  AstTreeStorage storage;
+  AstStorage storage;
   // MATCH
   auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
   auto r_m =
@@ -250,7 +250,7 @@ TEST_F(DistributedGraphDbTest, Create) {
   GraphDbAccessor dba{db};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
-  AstTreeStorage storage;
+  AstStorage storage;
   auto range = FN("range", LITERAL(0), LITERAL(1000));
   auto x = ctx.symbol_table_.CreateSymbol("x", true);
   auto unwind = std::make_shared<plan::Unwind>(nullptr, range, x);
@@ -294,7 +294,7 @@ TEST_F(DistributedGraphDbTest, PullRemoteOrderBy) {
   GraphDbAccessor dba{db};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
-  AstTreeStorage storage;
+  AstStorage storage;
 
   // Query plan for:  MATCH (n) RETURN n.prop ORDER BY n.prop;
   auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
@@ -336,7 +336,7 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
   GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
-  AstTreeStorage storage;
+  AstStorage storage;
 
   // Make distributed plan for MATCH (n) RETURN n
   auto scan_all = MakeScanAll(storage, ctx.symbol_table_, "n");

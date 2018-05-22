@@ -14,23 +14,23 @@ namespace query {
 // isn't unique, then different instances (even across different types!) will
 // replace the previous helper. The documentation recommends to take an address
 // of a function, which should be unique in the produced binary.
-// It might seem logical to take an address of a AstTreeStorage constructor, but
+// It might seem logical to take an address of a AstStorage constructor, but
 // according to c++ standard, the constructor function need not have an address.
 // Additionally, pointers to member functions are not required to contain the
 // address of the function
 // (https://isocpp.org/wiki/faq/pointers-to-members#addr-of-memfn). So, to be
 // safe, use a regular top-level function.
-void *const AstTreeStorage::kHelperId = (void *)CloneReturnBody;
+void *const AstStorage::kHelperId = (void *)CloneReturnBody;
 
-AstTreeStorage::AstTreeStorage() {
+AstStorage::AstStorage() {
   storage_.emplace_back(new Query(next_uid_++));
 }
 
-Query *AstTreeStorage::query() const {
+Query *AstStorage::query() const {
   return dynamic_cast<Query *>(storage_[0].get());
 }
 
-ReturnBody CloneReturnBody(AstTreeStorage &storage, const ReturnBody &body) {
+ReturnBody CloneReturnBody(AstStorage &storage, const ReturnBody &body) {
   ReturnBody new_body;
   new_body.distinct = body.distinct;
   new_body.all_identifiers = body.all_identifiers;
@@ -47,7 +47,7 @@ ReturnBody CloneReturnBody(AstTreeStorage &storage, const ReturnBody &body) {
 
 // Capnproto serialization.
 
-Tree *AstTreeStorage::Load(const capnp::Tree::Reader &tree,
+Tree *AstStorage::Load(const capnp::Tree::Reader &tree,
                            std::vector<int> *loaded_uids) {
   auto uid = tree.getUid();
 
@@ -137,7 +137,7 @@ bool Tree::IsSaved(const std::vector<int> &saved_uids) {
   return utils::Contains(saved_uids, uid_);
 }
 
-void Tree::Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+void Tree::Load(const capnp::Tree::Reader &reader, AstStorage *storage,
                 std::vector<int> *loaded_uids) {
   uid_ = reader.getUid();
 }
@@ -159,7 +159,7 @@ void Expression::Save(capnp::Tree::Builder *tree_builder,
 }
 
 Expression *Expression::Construct(const capnp::Expression::Reader &reader,
-                                  AstTreeStorage *storage) {
+                                  AstStorage *storage) {
   switch (reader.which()) {
     case capnp::Expression::BINARY_OPERATOR: {
       auto bop_reader = reader.getBinaryOperator();
@@ -225,7 +225,7 @@ void BaseLiteral::Save(capnp::Expression::Builder *expr_builder,
 }
 
 BaseLiteral *BaseLiteral::Construct(const capnp::BaseLiteral::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   switch (reader.which()) {
     case capnp::BaseLiteral::PRIMITIVE_LITERAL: {
       auto literal = reader.getPrimitiveLiteral();
@@ -253,7 +253,7 @@ void PrimitiveLiteral::Save(capnp::BaseLiteral::Builder *base_literal_builder,
 }
 
 void PrimitiveLiteral::Load(const capnp::Tree::Reader &reader,
-                            AstTreeStorage *storage,
+                            AstStorage *storage,
                             std::vector<int> *loaded_uids) {
   BaseLiteral::Load(reader, storage, loaded_uids);
   auto pl_reader =
@@ -264,7 +264,7 @@ void PrimitiveLiteral::Load(const capnp::Tree::Reader &reader,
 }
 
 PrimitiveLiteral *PrimitiveLiteral::Construct(
-    const capnp::PrimitiveLiteral::Reader &reader, AstTreeStorage *storage) {
+    const capnp::PrimitiveLiteral::Reader &reader, AstStorage *storage) {
   return storage->Create<PrimitiveLiteral>();
 }
 
@@ -282,7 +282,7 @@ void ListLiteral::Save(capnp::BaseLiteral::Builder *base_literal_builder,
 }
 
 void ListLiteral::Load(const capnp::Tree::Reader &base_reader,
-                       AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                       AstStorage *storage, std::vector<int> *loaded_uids) {
   BaseLiteral::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getBaseLiteral().getListLiteral();
   for (const auto tree_reader : reader.getElements()) {
@@ -292,7 +292,7 @@ void ListLiteral::Load(const capnp::Tree::Reader &base_reader,
 }
 
 ListLiteral *ListLiteral::Construct(const capnp::ListLiteral::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<ListLiteral>();
 }
 
@@ -317,7 +317,7 @@ void MapLiteral::Save(capnp::BaseLiteral::Builder *base_literal_builder,
 }
 
 void MapLiteral::Load(const capnp::Tree::Reader &base_reader,
-                      AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                      AstStorage *storage, std::vector<int> *loaded_uids) {
   BaseLiteral::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getBaseLiteral().getMapLiteral();
   for (auto entry_reader : reader.getElements()) {
@@ -335,7 +335,7 @@ void MapLiteral::Load(const capnp::Tree::Reader &base_reader,
 }
 
 MapLiteral *MapLiteral::Construct(const capnp::MapLiteral::Reader &reader,
-                                  AstTreeStorage *storage) {
+                                  AstStorage *storage) {
   return storage->Create<MapLiteral>();
 }
 
@@ -360,7 +360,7 @@ void BinaryOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 void BinaryOperator::Load(const capnp::Tree::Reader &reader,
-                          AstTreeStorage *storage,
+                          AstStorage *storage,
                           std::vector<int> *loaded_uids) {
   Expression::Load(reader, storage, loaded_uids);
   auto bop_reader = reader.getExpression().getBinaryOperator();
@@ -377,7 +377,7 @@ void BinaryOperator::Load(const capnp::Tree::Reader &reader,
 }
 
 BinaryOperator *BinaryOperator::Construct(
-    const capnp::BinaryOperator::Reader &reader, AstTreeStorage *storage) {
+    const capnp::BinaryOperator::Reader &reader, AstStorage *storage) {
   switch (reader.which()) {
     case capnp::BinaryOperator::ADDITION_OPERATOR: {
       auto literal = reader.getAdditionOperator();
@@ -457,7 +457,7 @@ void OrOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 OrOperator *OrOperator::Construct(const capnp::OrOperator::Reader &,
-                                  AstTreeStorage *storage) {
+                                  AstStorage *storage) {
   return storage->Create<OrOperator>();
 }
 
@@ -468,7 +468,7 @@ void XorOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 XorOperator *XorOperator::Construct(const capnp::XorOperator::Reader &,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<XorOperator>();
 }
 
@@ -479,7 +479,7 @@ void AndOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 AndOperator *AndOperator::Construct(const capnp::AndOperator::Reader &,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<AndOperator>();
 }
 
@@ -490,7 +490,7 @@ void AdditionOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 AdditionOperator *AdditionOperator::Construct(
-    const capnp::AdditionOperator::Reader &, AstTreeStorage *storage) {
+    const capnp::AdditionOperator::Reader &, AstStorage *storage) {
   return storage->Create<AdditionOperator>();
 }
 
@@ -501,7 +501,7 @@ void SubtractionOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 SubtractionOperator *SubtractionOperator::Construct(
-    capnp::SubtractionOperator::Reader &, AstTreeStorage *storage) {
+    capnp::SubtractionOperator::Reader &, AstStorage *storage) {
   return storage->Create<SubtractionOperator>();
 }
 
@@ -512,7 +512,7 @@ void MultiplicationOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 MultiplicationOperator *MultiplicationOperator::Construct(
-    capnp::MultiplicationOperator::Reader &, AstTreeStorage *storage) {
+    capnp::MultiplicationOperator::Reader &, AstStorage *storage) {
   return storage->Create<MultiplicationOperator>();
 }
 
@@ -523,7 +523,7 @@ void DivisionOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 DivisionOperator *DivisionOperator::Construct(
-    const capnp::DivisionOperator::Reader &, AstTreeStorage *storage) {
+    const capnp::DivisionOperator::Reader &, AstStorage *storage) {
   return storage->Create<DivisionOperator>();
 }
 
@@ -534,7 +534,7 @@ void ModOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 ModOperator *ModOperator::Construct(const capnp::ModOperator::Reader &,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<ModOperator>();
 }
 
@@ -545,7 +545,7 @@ void NotEqualOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 NotEqualOperator *NotEqualOperator::Construct(
-    const capnp::NotEqualOperator::Reader &, AstTreeStorage *storage) {
+    const capnp::NotEqualOperator::Reader &, AstStorage *storage) {
   return storage->Create<NotEqualOperator>();
 }
 
@@ -556,7 +556,7 @@ void EqualOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 EqualOperator *EqualOperator::Construct(const capnp::EqualOperator::Reader &,
-                                        AstTreeStorage *storage) {
+                                        AstStorage *storage) {
   return storage->Create<EqualOperator>();
 }
 
@@ -567,7 +567,7 @@ void LessOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 LessOperator *LessOperator::Construct(const capnp::LessOperator::Reader &,
-                                      AstTreeStorage *storage) {
+                                      AstStorage *storage) {
   return storage->Create<LessOperator>();
 }
 
@@ -578,7 +578,7 @@ void GreaterOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 GreaterOperator *GreaterOperator::Construct(
-    const capnp::GreaterOperator::Reader &, AstTreeStorage *storage) {
+    const capnp::GreaterOperator::Reader &, AstStorage *storage) {
   return storage->Create<GreaterOperator>();
 }
 
@@ -589,7 +589,7 @@ void LessEqualOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 LessEqualOperator *LessEqualOperator::Construct(
-    const capnp::LessEqualOperator::Reader &, AstTreeStorage *storage) {
+    const capnp::LessEqualOperator::Reader &, AstStorage *storage) {
   return storage->Create<LessEqualOperator>();
 }
 
@@ -600,7 +600,7 @@ void GreaterEqualOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 GreaterEqualOperator *GreaterEqualOperator::Construct(
-    const capnp::GreaterEqualOperator::Reader &, AstTreeStorage *storage) {
+    const capnp::GreaterEqualOperator::Reader &, AstStorage *storage) {
   return storage->Create<GreaterEqualOperator>();
 }
 
@@ -611,7 +611,7 @@ void InListOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 InListOperator *InListOperator::Construct(const capnp::InListOperator::Reader &,
-                                          AstTreeStorage *storage) {
+                                          AstStorage *storage) {
   return storage->Create<InListOperator>();
 }
 
@@ -622,7 +622,7 @@ void ListMapIndexingOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 ListMapIndexingOperator *ListMapIndexingOperator::Construct(
-    capnp::ListMapIndexingOperator::Reader &, AstTreeStorage *storage) {
+    capnp::ListMapIndexingOperator::Reader &, AstStorage *storage) {
   return storage->Create<ListMapIndexingOperator>();
 }
 
@@ -656,7 +656,7 @@ void Aggregation::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 Aggregation *Aggregation::Construct(const capnp::Aggregation::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   Op op;
   switch (reader.getOp()) {
     case capnp::Aggregation::Op::AVG:
@@ -701,7 +701,7 @@ void UnaryOperator::Save(capnp::UnaryOperator::Builder *builder,
 }
 
 void UnaryOperator::Load(const capnp::Tree::Reader &reader,
-                         AstTreeStorage *storage,
+                         AstStorage *storage,
                          std::vector<int> *loaded_uids) {
   Expression::Load(reader, storage, loaded_uids);
   if (reader.hasExpression()) {
@@ -713,7 +713,7 @@ void UnaryOperator::Load(const capnp::Tree::Reader &reader,
 }
 
 UnaryOperator *UnaryOperator::Construct(
-    const capnp::UnaryOperator::Reader &reader, AstTreeStorage *storage) {
+    const capnp::UnaryOperator::Reader &reader, AstStorage *storage) {
   switch (reader.which()) {
     case capnp::UnaryOperator::IS_NULL_OPERATOR: {
       auto op = reader.getIsNullOperator();
@@ -742,7 +742,7 @@ void IsNullOperator::Save(capnp::UnaryOperator::Builder *builder,
 }
 
 IsNullOperator *IsNullOperator::Construct(const capnp::IsNullOperator::Reader &,
-                                          AstTreeStorage *storage) {
+                                          AstStorage *storage) {
   return storage->Create<IsNullOperator>();
 }
 
@@ -754,7 +754,7 @@ void NotOperator::Save(capnp::UnaryOperator::Builder *builder,
 }
 
 NotOperator *NotOperator::Construct(const capnp::NotOperator::Reader &,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<NotOperator>();
 }
 
@@ -766,7 +766,7 @@ void UnaryPlusOperator::Save(capnp::UnaryOperator::Builder *builder,
 }
 
 UnaryPlusOperator *UnaryPlusOperator::Construct(
-    const capnp::UnaryPlusOperator::Reader &, AstTreeStorage *storage) {
+    const capnp::UnaryPlusOperator::Reader &, AstStorage *storage) {
   return storage->Create<UnaryPlusOperator>();
 }
 
@@ -778,7 +778,7 @@ void UnaryMinusOperator::Save(capnp::UnaryOperator::Builder *builder,
 }
 
 UnaryMinusOperator *UnaryMinusOperator::Construct(
-    capnp::UnaryMinusOperator::Reader &, AstTreeStorage *storage) {
+    capnp::UnaryMinusOperator::Reader &, AstStorage *storage) {
   return storage->Create<UnaryMinusOperator>();
 }
 
@@ -807,7 +807,7 @@ void ListSlicingOperator::Save(capnp::ListSlicingOperator::Builder *builder,
 }
 
 void ListSlicingOperator::Load(const capnp::Tree::Reader &base_reader,
-                               AstTreeStorage *storage,
+                               AstStorage *storage,
                                std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getListSlicingOperator();
@@ -828,7 +828,7 @@ void ListSlicingOperator::Load(const capnp::Tree::Reader &base_reader,
 }
 
 ListSlicingOperator *ListSlicingOperator::Construct(
-    const capnp::ListSlicingOperator::Reader &reader, AstTreeStorage *storage) {
+    const capnp::ListSlicingOperator::Reader &reader, AstStorage *storage) {
   return storage->Create<ListSlicingOperator>(nullptr, nullptr, nullptr);
 }
 
@@ -851,7 +851,7 @@ void IfOperator::Save(capnp::IfOperator::Builder *builder,
 }
 
 void IfOperator::Load(const capnp::Tree::Reader &base_reader,
-                      AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                      AstStorage *storage, std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getIfOperator();
   const auto condition_reader = reader.getCondition();
@@ -866,7 +866,7 @@ void IfOperator::Load(const capnp::Tree::Reader &base_reader,
 }
 
 IfOperator *IfOperator::Construct(const capnp::IfOperator::Reader &reader,
-                                  AstTreeStorage *storage) {
+                                  AstStorage *storage) {
   return storage->Create<IfOperator>(nullptr, nullptr, nullptr);
 }
 
@@ -887,7 +887,7 @@ void All::Save(capnp::All::Builder *builder, std::vector<int> *saved_uids) {
   where_->Save(&where_builder, saved_uids);
 }
 
-void All::Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+void All::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
                std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getAll();
@@ -901,7 +901,7 @@ void All::Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
   where_ = dynamic_cast<Where *>(storage->Load(where_reader, loaded_uids));
 }
 
-All *All::Construct(const capnp::All::Reader &reader, AstTreeStorage *storage) {
+All *All::Construct(const capnp::All::Reader &reader, AstStorage *storage) {
   return storage->Create<All>(nullptr, nullptr, nullptr);
 }
 
@@ -925,7 +925,7 @@ void Function::Save(capnp::Function::Builder *builder,
 }
 
 void Function::Load(const capnp::Tree::Reader &base_reader,
-                    AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                    AstStorage *storage, std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getFunction();
   function_name_ = reader.getFunctionName().cStr();
@@ -937,7 +937,7 @@ void Function::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Function *Function::Construct(const capnp::Function::Reader &reader,
-                              AstTreeStorage *storage) {
+                              AstStorage *storage) {
   return storage->Create<Function>();
 }
 
@@ -956,7 +956,7 @@ void Identifier::Save(capnp::Identifier::Builder *builder,
 }
 
 Identifier *Identifier::Construct(const capnp::Identifier::Reader &reader,
-                                  AstTreeStorage *storage) {
+                                  AstStorage *storage) {
   auto name = reader.getName().cStr();
   auto user_declared = reader.getUserDeclared();
   return storage->Create<Identifier>(name, user_declared);
@@ -984,7 +984,7 @@ void LabelsTest::Save(capnp::LabelsTest::Builder *builder,
 }
 
 void LabelsTest::Load(const capnp::Tree::Reader &base_reader,
-                      AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                      AstStorage *storage, std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getLabelsTest();
   if (reader.hasExpression()) {
@@ -1000,7 +1000,7 @@ void LabelsTest::Load(const capnp::Tree::Reader &base_reader,
 }
 
 LabelsTest *LabelsTest::Construct(const capnp::LabelsTest::Reader &reader,
-                                  AstTreeStorage *storage) {
+                                  AstStorage *storage) {
   return storage->Create<LabelsTest>(nullptr, std::vector<storage::Label>());
 }
 
@@ -1018,7 +1018,7 @@ void ParameterLookup::Save(capnp::ParameterLookup::Builder *builder,
 }
 
 ParameterLookup *ParameterLookup::Construct(
-    const capnp::ParameterLookup::Reader &reader, AstTreeStorage *storage) {
+    const capnp::ParameterLookup::Reader &reader, AstStorage *storage) {
   auto token_position = reader.getTokenPosition();
   return storage->Create<ParameterLookup>(token_position);
 }
@@ -1043,7 +1043,7 @@ void PropertyLookup::Save(capnp::PropertyLookup::Builder *builder,
 }
 
 void PropertyLookup::Load(const capnp::Tree::Reader &base_reader,
-                          AstTreeStorage *storage,
+                          AstStorage *storage,
                           std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getPropertyLookup();
@@ -1058,7 +1058,7 @@ void PropertyLookup::Load(const capnp::Tree::Reader &base_reader,
 }
 
 PropertyLookup *PropertyLookup::Construct(
-    const capnp::PropertyLookup::Reader &reader, AstTreeStorage *storage) {
+    const capnp::PropertyLookup::Reader &reader, AstStorage *storage) {
   return storage->Create<PropertyLookup>(nullptr, "", storage::Property());
 }
 
@@ -1085,7 +1085,7 @@ void Reduce::Save(capnp::Reduce::Builder *builder,
 }
 
 void Reduce::Load(const capnp::Tree::Reader &base_reader,
-                  AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                  AstStorage *storage, std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getReduce();
   const auto acc_reader = reader.getAccumulator();
@@ -1105,7 +1105,7 @@ void Reduce::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Reduce *Reduce::Construct(const capnp::Reduce::Reader &reader,
-                          AstTreeStorage *storage) {
+                          AstStorage *storage) {
   return storage->Create<Reduce>(nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
@@ -1128,7 +1128,7 @@ void Single::Save(capnp::Single::Builder *builder,
 }
 
 void Single::Load(const capnp::Tree::Reader &base_reader,
-                  AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                  AstStorage *storage, std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getSingle();
   const auto id_reader = reader.getIdentifier();
@@ -1142,7 +1142,7 @@ void Single::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Single *Single::Construct(const capnp::Single::Reader &reader,
-                          AstTreeStorage *storage) {
+                          AstStorage *storage) {
   return storage->Create<Single>(nullptr, nullptr, nullptr);
 }
 
@@ -1166,7 +1166,7 @@ void Where::Save(capnp::Where::Builder *builder, std::vector<int> *saved_uids) {
 }
 
 void Where::Load(const capnp::Tree::Reader &base_reader,
-                 AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                 AstStorage *storage, std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getWhere();
   if (reader.hasExpression()) {
@@ -1177,7 +1177,7 @@ void Where::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Where *Where::Construct(const capnp::Where::Reader &reader,
-                        AstTreeStorage *storage) {
+                        AstStorage *storage) {
   return storage->Create<Where>();
 }
 
@@ -1194,7 +1194,7 @@ void Clause::Save(capnp::Tree::Builder *tree_builder,
 }
 
 Clause *Clause::Construct(const capnp::Clause::Reader &reader,
-                          AstTreeStorage *storage) {
+                          AstStorage *storage) {
   switch (reader.which()) {
     case capnp::Clause::CREATE: {
       auto create_reader = reader.getCreate();
@@ -1271,7 +1271,7 @@ void Create::Save(capnp::Create::Builder *builder,
 }
 
 void Create::Load(const capnp::Tree::Reader &base_reader,
-                  AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                  AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getCreate();
   for (const auto pattern_reader : reader.getPatterns()) {
@@ -1281,7 +1281,7 @@ void Create::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Create *Create::Construct(const capnp::Create::Reader &reader,
-                          AstTreeStorage *storage) {
+                          AstStorage *storage) {
   return storage->Create<Create>();
 }
 
@@ -1302,7 +1302,7 @@ void CreateIndex::Save(capnp::CreateIndex::Builder *builder,
 }
 
 CreateIndex *CreateIndex::Construct(const capnp::CreateIndex::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   auto label_reader = reader.getLabel();
   storage::Label label;
   label.Load(label_reader);
@@ -1332,7 +1332,7 @@ void Delete::Save(capnp::Delete::Builder *builder,
 }
 
 void Delete::Load(const capnp::Tree::Reader &base_reader,
-                  AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                  AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getDelete();
   for (const auto tree_reader : reader.getExpressions()) {
@@ -1343,7 +1343,7 @@ void Delete::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Delete *Delete::Construct(const capnp::Delete::Reader &reader,
-                          AstTreeStorage *storage) {
+                          AstStorage *storage) {
   return storage->Create<Delete>();
 }
 
@@ -1371,7 +1371,7 @@ void Match::Save(capnp::Match::Builder *builder, std::vector<int> *saved_uids) {
 }
 
 void Match::Load(const capnp::Tree::Reader &base_reader,
-                 AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                 AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getMatch();
   for (const auto tree_reader : reader.getPatterns()) {
@@ -1386,7 +1386,7 @@ void Match::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Match *Match::Construct(const capnp::Match::Reader &reader,
-                        AstTreeStorage *storage) {
+                        AstStorage *storage) {
   return storage->Create<Match>();
 }
 
@@ -1420,7 +1420,7 @@ void Merge::Save(capnp::Merge::Builder *builder, std::vector<int> *saved_uids) {
 }
 
 void Merge::Load(const capnp::Tree::Reader &base_reader,
-                 AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                 AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getMerge();
   for (const auto tree_reader : reader.getOnMatch()) {
@@ -1439,7 +1439,7 @@ void Merge::Load(const capnp::Tree::Reader &base_reader,
   }
 }
 Merge *Merge::Construct(const capnp::Merge::Reader &reader,
-                        AstTreeStorage *storage) {
+                        AstStorage *storage) {
   return storage->Create<Merge>();
 }
 
@@ -1465,7 +1465,7 @@ void RemoveLabels::Save(capnp::RemoveLabels::Builder *builder,
 }
 
 void RemoveLabels::Load(const capnp::Tree::Reader &base_reader,
-                        AstTreeStorage *storage,
+                        AstStorage *storage,
                         std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getRemoveLabels();
@@ -1482,7 +1482,7 @@ void RemoveLabels::Load(const capnp::Tree::Reader &base_reader,
 }
 
 RemoveLabels *RemoveLabels::Construct(const capnp::RemoveLabels::Reader &reader,
-                                      AstTreeStorage *storage) {
+                                      AstStorage *storage) {
   return storage->Create<RemoveLabels>();
 }
 
@@ -1503,7 +1503,7 @@ void RemoveProperty::Save(capnp::RemoveProperty::Builder *builder,
 }
 
 void RemoveProperty::Load(const capnp::Tree::Reader &base_reader,
-                          AstTreeStorage *storage,
+                          AstStorage *storage,
                           std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getRemoveProperty();
@@ -1515,7 +1515,7 @@ void RemoveProperty::Load(const capnp::Tree::Reader &base_reader,
 }
 
 RemoveProperty *RemoveProperty::Construct(
-    const capnp::RemoveProperty::Reader &reader, AstTreeStorage *storage) {
+    const capnp::RemoveProperty::Reader &reader, AstStorage *storage) {
   return storage->Create<RemoveProperty>();
 }
 
@@ -1568,7 +1568,7 @@ void Return::Save(capnp::Return::Builder *builder,
 }
 
 void LoadReturnBody(capnp::ReturnBody::Reader &rb_reader, ReturnBody &body,
-                    AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                    AstStorage *storage, std::vector<int> *loaded_uids) {
   body.distinct = rb_reader.getDistinct();
   body.all_identifiers = rb_reader.getAllIdentifiers();
 
@@ -1601,7 +1601,7 @@ void LoadReturnBody(capnp::ReturnBody::Reader &rb_reader, ReturnBody &body,
 }
 
 void Return::Load(const capnp::Tree::Reader &base_reader,
-                  AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                  AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getReturn();
   auto rb_reader = reader.getReturnBody();
@@ -1609,7 +1609,7 @@ void Return::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Return *Return::Construct(const capnp::Return::Reader &reader,
-                          AstTreeStorage *storage) {
+                          AstStorage *storage) {
   return storage->Create<Return>();
 }
 
@@ -1635,7 +1635,7 @@ void SetLabels::Save(capnp::SetLabels::Builder *builder,
 }
 
 void SetLabels::Load(const capnp::Tree::Reader &base_reader,
-                     AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                     AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getSetLabels();
   if (reader.hasIdentifier()) {
@@ -1651,7 +1651,7 @@ void SetLabels::Load(const capnp::Tree::Reader &base_reader,
 }
 
 SetLabels *SetLabels::Construct(const capnp::SetLabels::Reader &reader,
-                                AstTreeStorage *storage) {
+                                AstStorage *storage) {
   return storage->Create<SetLabels>();
 }
 
@@ -1676,7 +1676,7 @@ void SetProperty::Save(capnp::SetProperty::Builder *builder,
 }
 
 void SetProperty::Load(const capnp::Tree::Reader &base_reader,
-                       AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                       AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getSetProperty();
   if (reader.hasPropertyLookup()) {
@@ -1692,7 +1692,7 @@ void SetProperty::Load(const capnp::Tree::Reader &base_reader,
 }
 
 SetProperty *SetProperty::Construct(const capnp::SetProperty::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<SetProperty>();
 }
 
@@ -1718,7 +1718,7 @@ void SetProperties::Save(capnp::SetProperties::Builder *builder,
 }
 
 void SetProperties::Load(const capnp::Tree::Reader &base_reader,
-                         AstTreeStorage *storage,
+                         AstStorage *storage,
                          std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getSetProperties();
@@ -1736,7 +1736,7 @@ void SetProperties::Load(const capnp::Tree::Reader &base_reader,
 }
 
 SetProperties *SetProperties::Construct(
-    const capnp::SetProperties::Reader &reader, AstTreeStorage *storage) {
+    const capnp::SetProperties::Reader &reader, AstStorage *storage) {
   return storage->Create<SetProperties>();
 }
 
@@ -1757,7 +1757,7 @@ void Unwind::Save(capnp::Unwind::Builder *builder,
 }
 
 void Unwind::Load(const capnp::Tree::Reader &base_reader,
-                  AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                  AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getUnwind();
   if (reader.hasNamedExpression()) {
@@ -1768,7 +1768,7 @@ void Unwind::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Unwind *Unwind::Construct(const capnp::Unwind::Reader &reader,
-                          AstTreeStorage *storage) {
+                          AstStorage *storage) {
   return storage->Create<Unwind>();
 }
 
@@ -1789,7 +1789,7 @@ void With::Save(capnp::With::Builder *builder, std::vector<int> *saved_uids) {
   SaveReturnBody(&rb_builder, body_, saved_uids);
 }
 
-void With::Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+void With::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
                 std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getWith();
@@ -1802,7 +1802,7 @@ void With::Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
 }
 
 With *With::Construct(const capnp::With::Reader &reader,
-                      AstTreeStorage *storage) {
+                      AstStorage *storage) {
   return storage->Create<With>();
 }
 
@@ -1833,7 +1833,7 @@ void CypherUnion::Save(capnp::CypherUnion::Builder *builder,
 }
 
 void CypherUnion::Load(const capnp::Tree::Reader &base_reader,
-                       AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                       AstStorage *storage, std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getCypherUnion();
   if (reader.hasSingleQuery()) {
@@ -1850,7 +1850,7 @@ void CypherUnion::Load(const capnp::Tree::Reader &base_reader,
 }
 
 CypherUnion *CypherUnion::Construct(const capnp::CypherUnion::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<CypherUnion>();
 }
 
@@ -1877,7 +1877,7 @@ void NamedExpression::Save(capnp::NamedExpression::Builder *builder,
 }
 
 void NamedExpression::Load(const capnp::Tree::Reader &base_reader,
-                           AstTreeStorage *storage,
+                           AstStorage *storage,
                            std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getNamedExpression();
@@ -1891,7 +1891,7 @@ void NamedExpression::Load(const capnp::Tree::Reader &base_reader,
 }
 
 NamedExpression *NamedExpression::Construct(
-    const capnp::NamedExpression::Reader &reader, AstTreeStorage *storage) {
+    const capnp::NamedExpression::Reader &reader, AstStorage *storage) {
   return storage->Create<NamedExpression>();
 }
 
@@ -1922,7 +1922,7 @@ void Pattern::Save(capnp::Pattern::Builder *builder,
 }
 
 void Pattern::Load(const capnp::Tree::Reader &base_reader,
-                   AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                   AstStorage *storage, std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getPattern();
   if (reader.hasIdentifier()) {
@@ -1937,7 +1937,7 @@ void Pattern::Load(const capnp::Tree::Reader &base_reader,
 }
 
 Pattern *Pattern::Construct(const capnp::Pattern::Reader &reader,
-                            AstTreeStorage *storage) {
+                            AstStorage *storage) {
   return storage->Create<Pattern>();
 }
 
@@ -1962,7 +1962,7 @@ void PatternAtom::Save(capnp::PatternAtom::Builder *builder,
 }
 
 PatternAtom *PatternAtom::Construct(const capnp::PatternAtom::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   switch (reader.which()) {
     case capnp::PatternAtom::EDGE_ATOM: {
       auto edge_reader = reader.getEdgeAtom();
@@ -1976,7 +1976,7 @@ PatternAtom *PatternAtom::Construct(const capnp::PatternAtom::Reader &reader,
 }
 
 void PatternAtom::Load(const capnp::Tree::Reader &reader,
-                       AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                       AstStorage *storage, std::vector<int> *loaded_uids) {
   Tree::Load(reader, storage, loaded_uids);
   auto pa_reader = reader.getPatternAtom();
   if (pa_reader.hasIdentifier()) {
@@ -2017,7 +2017,7 @@ void NodeAtom::Save(capnp::NodeAtom::Builder *builder,
 }
 
 void NodeAtom::Load(const capnp::Tree::Reader &base_reader,
-                    AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                    AstStorage *storage, std::vector<int> *loaded_uids) {
   PatternAtom::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getPatternAtom().getNodeAtom();
   for (auto entry_reader : reader.getProperties()) {
@@ -2040,7 +2040,7 @@ void NodeAtom::Load(const capnp::Tree::Reader &base_reader,
 }
 
 NodeAtom *NodeAtom::Construct(const capnp::NodeAtom::Reader &reader,
-                              AstTreeStorage *storage) {
+                              AstStorage *storage) {
   return storage->Create<NodeAtom>();
 }
 
@@ -2139,7 +2139,7 @@ void EdgeAtom::Save(capnp::EdgeAtom::Builder *builder,
 }
 
 void LoadLambda(capnp::EdgeAtom::Lambda::Reader &reader,
-                query::EdgeAtom::Lambda &lambda, AstTreeStorage *storage,
+                query::EdgeAtom::Lambda &lambda, AstStorage *storage,
                 std::vector<int> *loaded_uids) {
   if (reader.hasInnerEdge()) {
     const auto ie_reader = reader.getInnerEdge();
@@ -2159,7 +2159,7 @@ void LoadLambda(capnp::EdgeAtom::Lambda::Reader &reader,
 }
 
 void EdgeAtom::Load(const capnp::Tree::Reader &base_reader,
-                    AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                    AstStorage *storage, std::vector<int> *loaded_uids) {
   PatternAtom::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getPatternAtom().getEdgeAtom();
   switch (reader.getType()) {
@@ -2230,7 +2230,7 @@ void EdgeAtom::Load(const capnp::Tree::Reader &base_reader,
 }
 
 EdgeAtom *EdgeAtom::Construct(const capnp::EdgeAtom::Reader &reader,
-                              AstTreeStorage *storage) {
+                              AstStorage *storage) {
   return storage->Create<EdgeAtom>();
 }
 
@@ -2259,7 +2259,7 @@ void Query::Save(capnp::Query::Builder *builder, std::vector<int> *saved_uids) {
   }
 }
 
-void Query::Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+void Query::Load(const capnp::Tree::Reader &reader, AstStorage *storage,
                  std::vector<int> *loaded_uids) {
   Tree::Load(reader, storage, loaded_uids);
   auto query_reader = reader.getQuery();
@@ -2297,7 +2297,7 @@ void SingleQuery::Save(capnp::SingleQuery::Builder *builder,
 }
 
 void SingleQuery::Load(const capnp::Tree::Reader &base_reader,
-                       AstTreeStorage *storage, std::vector<int> *loaded_uids) {
+                       AstStorage *storage, std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getSingleQuery();
   for (const auto tree_reader : reader.getClauses()) {
@@ -2307,7 +2307,7 @@ void SingleQuery::Load(const capnp::Tree::Reader &base_reader,
 }
 
 SingleQuery *SingleQuery::Construct(const capnp::SingleQuery::Reader &reader,
-                                    AstTreeStorage *storage) {
+                                    AstStorage *storage) {
   return storage->Create<SingleQuery>();
 }
 }  // namespace query

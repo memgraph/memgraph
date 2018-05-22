@@ -41,14 +41,14 @@ class GraphDbAccessor;
 namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
-  auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
+  auto Clone(AstStorage &storage) const->std::remove_const<              \
       std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
-  auto Clone(AstTreeStorage &storage) const->std::remove_const<              \
+  auto Clone(AstStorage &storage) const->std::remove_const<              \
       std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
@@ -66,13 +66,13 @@ class Tree;
 // It would be better to call this AstTree, but we already have a class Tree,
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...
-class AstTreeStorage {
+class AstStorage {
  public:
-  AstTreeStorage();
-  AstTreeStorage(const AstTreeStorage &) = delete;
-  AstTreeStorage &operator=(const AstTreeStorage &) = delete;
-  AstTreeStorage(AstTreeStorage &&) = default;
-  AstTreeStorage &operator=(AstTreeStorage &&) = default;
+  AstStorage();
+  AstStorage(const AstStorage &) = delete;
+  AstStorage &operator=(const AstStorage &) = delete;
+  AstStorage(AstStorage &&) = default;
+  AstStorage &operator=(AstStorage &&) = default;
 
   template <typename T, typename... Args>
   T *Create(Args &&... args) {
@@ -85,13 +85,13 @@ class AstTreeStorage {
 
   Query *query() const;
 
-  /// Id for using get_helper<AstTreeStorage> in boost archives.
+  /// Id for using get_helper<AstStorage> in boost archives.
   static void *const kHelperId;
 
   /// Load an Ast Node into this storage.
   template <class TArchive, class TNode>
   void Load(TArchive &ar, TNode &node) {
-    auto &tmp_ast = ar.template get_helper<AstTreeStorage>(kHelperId);
+    auto &tmp_ast = ar.template get_helper<AstStorage>(kHelperId);
     std::swap(*this, tmp_ast);
     ar >> node;
     std::swap(*this, tmp_ast);
@@ -123,7 +123,7 @@ void LoadPointer(TArchive &ar, TNode *&node) {
   ar >> node;
   if (node) {
     auto &ast_storage =
-        ar.template get_helper<AstTreeStorage>(AstTreeStorage::kHelperId);
+        ar.template get_helper<AstStorage>(AstStorage::kHelperId);
     auto found =
         std::find_if(ast_storage.storage_.begin(), ast_storage.storage_.end(),
                      [&](const auto &n) { return n->uid() == node->uid(); });
@@ -160,7 +160,7 @@ void LoadPointers(TArchive &ar, std::vector<TNode *> &nodes) {
 
 class Tree : public ::utils::Visitable<HierarchicalTreeVisitor>,
              ::utils::Visitable<TreeVisitor<TypedValue>> {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
@@ -168,14 +168,14 @@ class Tree : public ::utils::Visitable<HierarchicalTreeVisitor>,
 
   int uid() const { return uid_; }
 
-  virtual Tree *Clone(AstTreeStorage &storage) const = 0;
+  virtual Tree *Clone(AstStorage &storage) const = 0;
   virtual void Save(capnp::Tree::Builder *builder,
                     std::vector<int> *saved_uids);
 
  protected:
   explicit Tree(int uid) : uid_(uid) {}
 
-  virtual void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  virtual void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
                     std::vector<int> *loaded_uids);
   bool IsSaved(const std::vector<int> &saved_uids);
   void AddToSaved(std::vector<int> *saved_uids);
@@ -194,12 +194,12 @@ class Tree : public ::utils::Visitable<HierarchicalTreeVisitor>,
 // Expressions
 
 class Expression : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
-  Expression *Clone(AstTreeStorage &storage) const override = 0;
+  Expression *Clone(AstStorage &storage) const override = 0;
   static Expression *Construct(const capnp::Expression::Reader &reader,
-                               AstTreeStorage *storage);
+                               AstStorage *storage);
 
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
@@ -215,7 +215,7 @@ class Expression : public Tree {
 };
 
 class Where : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -226,12 +226,12 @@ class Where : public Tree {
     return visitor.PostVisit(*this);
   }
 
-  Where *Clone(AstTreeStorage &storage) const override {
+  Where *Clone(AstStorage &storage) const override {
     return storage.Create<Where>(expression_->Clone(storage));
   }
 
   static Where *Construct(const capnp::Where::Reader &reader,
-                          AstTreeStorage *storage);
+                          AstStorage *storage);
 
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
@@ -243,7 +243,7 @@ class Where : public Tree {
   Where(int uid, Expression *expression) : Tree(uid), expression_(expression) {}
 
   virtual void Save(capnp::Where::Builder *, std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &tree_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -269,15 +269,15 @@ class Where : public Tree {
 };
 
 class BinaryOperator : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   Expression *expression1_ = nullptr;
   Expression *expression2_ = nullptr;
 
-  BinaryOperator *Clone(AstTreeStorage &storage) const override = 0;
+  BinaryOperator *Clone(AstStorage &storage) const override = 0;
   static BinaryOperator *Construct(const capnp::BinaryOperator::Reader &reader,
-                                   AstTreeStorage *storage);
+                                   AstStorage *storage);
 
  protected:
   explicit BinaryOperator(int uid) : Expression(uid) {}
@@ -289,7 +289,7 @@ class BinaryOperator : public Expression {
   using Expression::Save;
   virtual void Save(capnp::BinaryOperator::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -313,14 +313,14 @@ class BinaryOperator : public Expression {
 };
 
 class UnaryOperator : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   Expression *expression_ = nullptr;
 
-  UnaryOperator *Clone(AstTreeStorage &storage) const override = 0;
+  UnaryOperator *Clone(AstStorage &storage) const override = 0;
   static UnaryOperator *Construct(const capnp::UnaryOperator::Reader &reader,
-                                  AstTreeStorage *storage);
+                                  AstStorage *storage);
 
  protected:
   explicit UnaryOperator(int uid) : Expression(uid) {}
@@ -332,7 +332,7 @@ class UnaryOperator : public Expression {
   using Expression::Save;
   virtual void Save(capnp::UnaryOperator::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -354,7 +354,7 @@ class UnaryOperator : public Expression {
 };
 
 class OrOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -367,7 +367,7 @@ class OrOperator : public BinaryOperator {
   CLONE_BINARY_EXPRESSION;
 
   static OrOperator *Construct(const capnp::OrOperator::Reader &reader,
-                               AstTreeStorage *storage);
+                               AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -384,7 +384,7 @@ class OrOperator : public BinaryOperator {
 };
 
 class XorOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -396,7 +396,7 @@ class XorOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static XorOperator *Construct(const capnp::XorOperator::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -413,7 +413,7 @@ class XorOperator : public BinaryOperator {
 };
 
 class AndOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -425,7 +425,7 @@ class AndOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static AndOperator *Construct(const capnp::AndOperator::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -442,7 +442,7 @@ class AndOperator : public BinaryOperator {
 };
 
 class AdditionOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -454,7 +454,7 @@ class AdditionOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static AdditionOperator *Construct(
-      const capnp::AdditionOperator::Reader &reader, AstTreeStorage *storage);
+      const capnp::AdditionOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -471,7 +471,7 @@ class AdditionOperator : public BinaryOperator {
 };
 
 class SubtractionOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -483,7 +483,7 @@ class SubtractionOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static SubtractionOperator *Construct(
-      capnp::SubtractionOperator::Reader &reader, AstTreeStorage *storage);
+      capnp::SubtractionOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -500,7 +500,7 @@ class SubtractionOperator : public BinaryOperator {
 };
 
 class MultiplicationOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -512,7 +512,7 @@ class MultiplicationOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static MultiplicationOperator *Construct(
-      capnp::MultiplicationOperator::Reader &reader, AstTreeStorage *storage);
+      capnp::MultiplicationOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -528,7 +528,7 @@ class MultiplicationOperator : public BinaryOperator {
 };
 
 class DivisionOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -540,7 +540,7 @@ class DivisionOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static DivisionOperator *Construct(
-      const capnp::DivisionOperator::Reader &reader, AstTreeStorage *storage);
+      const capnp::DivisionOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -557,7 +557,7 @@ class DivisionOperator : public BinaryOperator {
 };
 
 class ModOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -569,7 +569,7 @@ class ModOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static ModOperator *Construct(const capnp::ModOperator::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -586,7 +586,7 @@ class ModOperator : public BinaryOperator {
 };
 
 class NotEqualOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -598,7 +598,7 @@ class NotEqualOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static NotEqualOperator *Construct(
-      const capnp::NotEqualOperator::Reader &reader, AstTreeStorage *storage);
+      const capnp::NotEqualOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -615,7 +615,7 @@ class NotEqualOperator : public BinaryOperator {
 };
 
 class EqualOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -627,7 +627,7 @@ class EqualOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static EqualOperator *Construct(const capnp::EqualOperator::Reader &reader,
-                                  AstTreeStorage *storage);
+                                  AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -644,7 +644,7 @@ class EqualOperator : public BinaryOperator {
 };
 
 class LessOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -656,7 +656,7 @@ class LessOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static LessOperator *Construct(const capnp::LessOperator::Reader &reader,
-                                 AstTreeStorage *storage);
+                                 AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -673,7 +673,7 @@ class LessOperator : public BinaryOperator {
 };
 
 class GreaterOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -685,7 +685,7 @@ class GreaterOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static GreaterOperator *Construct(
-      const capnp::GreaterOperator::Reader &reader, AstTreeStorage *storage);
+      const capnp::GreaterOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -702,7 +702,7 @@ class GreaterOperator : public BinaryOperator {
 };
 
 class LessEqualOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -714,7 +714,7 @@ class LessEqualOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static LessEqualOperator *Construct(
-      const capnp::LessEqualOperator::Reader &reader, AstTreeStorage *storage);
+      const capnp::LessEqualOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -731,7 +731,7 @@ class LessEqualOperator : public BinaryOperator {
 };
 
 class GreaterEqualOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -744,7 +744,7 @@ class GreaterEqualOperator : public BinaryOperator {
   CLONE_BINARY_EXPRESSION;
   static GreaterEqualOperator *Construct(
       const capnp::GreaterEqualOperator::Reader &reader,
-      AstTreeStorage *storage);
+      AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -761,7 +761,7 @@ class GreaterEqualOperator : public BinaryOperator {
 };
 
 class InListOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -773,7 +773,7 @@ class InListOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static InListOperator *Construct(const capnp::InListOperator::Reader &reader,
-                                   AstTreeStorage *storage);
+                                   AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -790,7 +790,7 @@ class InListOperator : public BinaryOperator {
 };
 
 class ListMapIndexingOperator : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -802,7 +802,7 @@ class ListMapIndexingOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static ListMapIndexingOperator *Construct(
-      capnp::ListMapIndexingOperator::Reader &reader, AstTreeStorage *storage);
+      capnp::ListMapIndexingOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -818,7 +818,7 @@ class ListMapIndexingOperator : public BinaryOperator {
 };
 
 class ListSlicingOperator : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -835,7 +835,7 @@ class ListSlicingOperator : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  ListSlicingOperator *Clone(AstTreeStorage &storage) const override {
+  ListSlicingOperator *Clone(AstStorage &storage) const override {
     return storage.Create<ListSlicingOperator>(
         list_->Clone(storage),
         lower_bound_ ? lower_bound_->Clone(storage) : nullptr,
@@ -844,7 +844,7 @@ class ListSlicingOperator : public Expression {
 
   static ListSlicingOperator *Construct(
       const capnp::ListSlicingOperator::Reader &reader,
-      AstTreeStorage *storage);
+      AstStorage *storage);
 
   Expression *list_ = nullptr;
   Expression *lower_bound_ = nullptr;
@@ -863,7 +863,7 @@ class ListSlicingOperator : public Expression {
   using Expression::Save;
   virtual void Save(capnp::ListSlicingOperator::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -894,7 +894,7 @@ class ListSlicingOperator : public Expression {
 };
 
 class IfOperator : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -906,14 +906,14 @@ class IfOperator : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  IfOperator *Clone(AstTreeStorage &storage) const override {
+  IfOperator *Clone(AstStorage &storage) const override {
     return storage.Create<IfOperator>(condition_->Clone(storage),
                                       then_expression_->Clone(storage),
                                       else_expression_->Clone(storage));
   }
 
   static IfOperator *Construct(const capnp::IfOperator::Reader &reader,
-                               AstTreeStorage *storage);
+                               AstStorage *storage);
   // None of the expressions should be nullptrs. If there is no else_expression
   // you probably want to make it NULL PrimitiveLiteral.
   Expression *condition_;
@@ -933,7 +933,7 @@ class IfOperator : public Expression {
   using Expression::Save;
   virtual void Save(capnp::IfOperator::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -964,7 +964,7 @@ class IfOperator : public Expression {
 };
 
 class NotOperator : public UnaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -976,7 +976,7 @@ class NotOperator : public UnaryOperator {
   }
   CLONE_UNARY_EXPRESSION;
   static NotOperator *Construct(const capnp::NotOperator::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
@@ -993,7 +993,7 @@ class NotOperator : public UnaryOperator {
 };
 
 class UnaryPlusOperator : public UnaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1005,7 +1005,7 @@ class UnaryPlusOperator : public UnaryOperator {
   }
   CLONE_UNARY_EXPRESSION;
   static UnaryPlusOperator *Construct(
-      const capnp::UnaryPlusOperator::Reader &reader, AstTreeStorage *storage);
+      const capnp::UnaryPlusOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
@@ -1022,7 +1022,7 @@ class UnaryPlusOperator : public UnaryOperator {
 };
 
 class UnaryMinusOperator : public UnaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1034,7 +1034,7 @@ class UnaryMinusOperator : public UnaryOperator {
   }
   CLONE_UNARY_EXPRESSION;
   static UnaryMinusOperator *Construct(
-      capnp::UnaryMinusOperator::Reader &reader, AstTreeStorage *storage);
+      capnp::UnaryMinusOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
@@ -1051,7 +1051,7 @@ class UnaryMinusOperator : public UnaryOperator {
 };
 
 class IsNullOperator : public UnaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1063,7 +1063,7 @@ class IsNullOperator : public UnaryOperator {
   }
   CLONE_UNARY_EXPRESSION;
   static IsNullOperator *Construct(const capnp::IsNullOperator::Reader &reader,
-                                   AstTreeStorage *storage);
+                                   AstStorage *storage);
 
  protected:
   using UnaryOperator::UnaryOperator;
@@ -1080,12 +1080,12 @@ class IsNullOperator : public UnaryOperator {
 };
 
 class BaseLiteral : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
-  BaseLiteral *Clone(AstTreeStorage &storage) const override = 0;
+  BaseLiteral *Clone(AstStorage &storage) const override = 0;
   static BaseLiteral *Construct(const capnp::BaseLiteral::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
  protected:
   explicit BaseLiteral(int uid) : Expression(uid) {}
@@ -1102,18 +1102,18 @@ class BaseLiteral : public Expression {
 };
 
 class PrimitiveLiteral : public BaseLiteral {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
-  PrimitiveLiteral *Clone(AstTreeStorage &storage) const override {
+  PrimitiveLiteral *Clone(AstStorage &storage) const override {
     return storage.Create<PrimitiveLiteral>(value_, token_position_);
   }
 
   static PrimitiveLiteral *Construct(
-      const capnp::PrimitiveLiteral::Reader &reader, AstTreeStorage *storage);
+      const capnp::PrimitiveLiteral::Reader &reader, AstStorage *storage);
 
   TypedValue value_;
   // This field contains token position of literal used to create
@@ -1131,7 +1131,7 @@ class PrimitiveLiteral : public BaseLiteral {
 
   void Save(capnp::BaseLiteral::Builder *builder,
             std::vector<int> *saved_uids) override;
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1160,7 +1160,7 @@ class PrimitiveLiteral : public BaseLiteral {
 };
 
 class ListLiteral : public BaseLiteral {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1172,7 +1172,7 @@ class ListLiteral : public BaseLiteral {
     return visitor.PostVisit(*this);
   }
 
-  ListLiteral *Clone(AstTreeStorage &storage) const override {
+  ListLiteral *Clone(AstStorage &storage) const override {
     auto *list = storage.Create<ListLiteral>();
     for (auto *element : elements_) {
       list->elements_.push_back(element->Clone(storage));
@@ -1181,7 +1181,7 @@ class ListLiteral : public BaseLiteral {
   }
 
   static ListLiteral *Construct(const capnp::ListLiteral::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
   std::vector<Expression *> elements_;
 
@@ -1192,7 +1192,7 @@ class ListLiteral : public BaseLiteral {
 
   void Save(capnp::BaseLiteral::Builder *builder,
             std::vector<int> *saved_uids) override;
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1219,7 +1219,7 @@ class ListLiteral : public BaseLiteral {
 };
 
 class MapLiteral : public BaseLiteral {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1231,7 +1231,7 @@ class MapLiteral : public BaseLiteral {
     return visitor.PostVisit(*this);
   }
 
-  MapLiteral *Clone(AstTreeStorage &storage) const override {
+  MapLiteral *Clone(AstStorage &storage) const override {
     auto *map = storage.Create<MapLiteral>();
     for (auto pair : elements_)
       map->elements_.emplace(pair.first, pair.second->Clone(storage));
@@ -1239,7 +1239,7 @@ class MapLiteral : public BaseLiteral {
   }
 
   static MapLiteral *Construct(const capnp::MapLiteral::Reader &reader,
-                               AstTreeStorage *storage);
+                               AstStorage *storage);
 
   // maps (property_name, property) to expressions
   std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
@@ -1254,7 +1254,7 @@ class MapLiteral : public BaseLiteral {
 
   void Save(capnp::BaseLiteral::Builder *builder,
             std::vector<int> *saved_uids) override;
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1297,18 +1297,18 @@ class MapLiteral : public BaseLiteral {
 };
 
 class Identifier : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
-  Identifier *Clone(AstTreeStorage &storage) const override {
+  Identifier *Clone(AstStorage &storage) const override {
     return storage.Create<Identifier>(name_, user_declared_);
   }
 
   static Identifier *Construct(const capnp::Identifier::Reader &reader,
-                               AstTreeStorage *storage);
+                               AstStorage *storage);
   using Expression::Save;
 
   std::string name_;
@@ -1341,7 +1341,7 @@ class Identifier : public Expression {
 };
 
 class PropertyLookup : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1352,13 +1352,13 @@ class PropertyLookup : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  PropertyLookup *Clone(AstTreeStorage &storage) const override {
+  PropertyLookup *Clone(AstStorage &storage) const override {
     return storage.Create<PropertyLookup>(expression_->Clone(storage),
                                           property_name_, property_);
   }
 
   static PropertyLookup *Construct(const capnp::PropertyLookup::Reader &reader,
-                                   AstTreeStorage *storage);
+                                   AstStorage *storage);
   using Expression::Save;
 
   Expression *expression_ = nullptr;
@@ -1383,7 +1383,7 @@ class PropertyLookup : public Expression {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::PropertyLookup::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1414,7 +1414,7 @@ class PropertyLookup : public Expression {
 };
 
 class LabelsTest : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1425,12 +1425,12 @@ class LabelsTest : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  LabelsTest *Clone(AstTreeStorage &storage) const override {
+  LabelsTest *Clone(AstStorage &storage) const override {
     return storage.Create<LabelsTest>(expression_->Clone(storage), labels_);
   }
 
   static LabelsTest *Construct(const capnp::LabelsTest::Reader &reader,
-                               AstTreeStorage *storage);
+                               AstStorage *storage);
   using Expression::Save;
 
   Expression *expression_ = nullptr;
@@ -1445,7 +1445,7 @@ class LabelsTest : public Expression {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::LabelsTest::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &tree_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1474,7 +1474,7 @@ class LabelsTest : public Expression {
 };
 
 class Function : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1487,7 +1487,7 @@ class Function : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  Function *Clone(AstTreeStorage &storage) const override {
+  Function *Clone(AstStorage &storage) const override {
     std::vector<Expression *> arguments;
     for (auto *argument : arguments_) {
       arguments.push_back(argument->Clone(storage));
@@ -1496,7 +1496,7 @@ class Function : public Expression {
   }
 
   static Function *Construct(const capnp::Function::Reader &reader,
-                             AstTreeStorage *storage);
+                             AstStorage *storage);
 
   const auto &function() const { return function_; }
   const auto &function_name() const { return function_name_; }
@@ -1518,7 +1518,7 @@ class Function : public Expression {
   using Expression::Save;
   virtual void Save(capnp::Function::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &tree_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1553,7 +1553,7 @@ class Function : public Expression {
 };
 
 class Aggregation : public BinaryOperator {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   enum class Op { COUNT, MIN, MAX, SUM, AVG, COLLECT_LIST, COLLECT_MAP };
@@ -1579,7 +1579,7 @@ class Aggregation : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
-  Aggregation *Clone(AstTreeStorage &storage) const override {
+  Aggregation *Clone(AstStorage &storage) const override {
     return storage.Create<Aggregation>(
         expression1_ ? expression1_->Clone(storage) : nullptr,
         expression2_ ? expression2_->Clone(storage) : nullptr, op_);
@@ -1587,7 +1587,7 @@ class Aggregation : public BinaryOperator {
 
   Op op_;
   static Aggregation *Construct(const capnp::Aggregation::Reader &,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
  protected:
   // Use only for serialization.
@@ -1624,7 +1624,7 @@ class Aggregation : public BinaryOperator {
 };
 
 class Reduce : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1637,7 +1637,7 @@ class Reduce : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  Reduce *Clone(AstTreeStorage &storage) const override {
+  Reduce *Clone(AstStorage &storage) const override {
     return storage.Create<Reduce>(
         accumulator_->Clone(storage), initializer_->Clone(storage),
         identifier_->Clone(storage), list_->Clone(storage),
@@ -1645,7 +1645,7 @@ class Reduce : public Expression {
   }
 
   static Reduce *Construct(const capnp::Reduce::Reader &reader,
-                           AstTreeStorage *storage);
+                           AstStorage *storage);
   using Expression::Save;
 
   // None of these should be nullptr after construction.
@@ -1676,7 +1676,7 @@ class Reduce : public Expression {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Reduce::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &tree_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1711,7 +1711,7 @@ class Reduce : public Expression {
 
 // TODO: Think about representing All and Any as Reduce.
 class All : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1723,14 +1723,14 @@ class All : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  All *Clone(AstTreeStorage &storage) const override {
+  All *Clone(AstStorage &storage) const override {
     return storage.Create<All>(identifier_->Clone(storage),
                                list_expression_->Clone(storage),
                                where_->Clone(storage));
   }
 
   static All *Construct(const capnp::All::Reader &reader,
-                        AstTreeStorage *storage);
+                        AstStorage *storage);
 
   // None of these should be nullptr after construction.
   Identifier *identifier_ = nullptr;
@@ -1749,7 +1749,7 @@ class All : public Expression {
             std::vector<int> *saved_uids) override;
   using Expression::Save;
   virtual void Save(capnp::All::Builder *builder, std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &tree_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1782,7 +1782,7 @@ class All : public Expression {
 // All, Any and Single into something like a higher-order function call which
 // takes a list argument and a function which is applied on list elements.
 class Single : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1794,14 +1794,14 @@ class Single : public Expression {
     return visitor.PostVisit(*this);
   }
 
-  Single *Clone(AstTreeStorage &storage) const override {
+  Single *Clone(AstStorage &storage) const override {
     return storage.Create<Single>(identifier_->Clone(storage),
                                   list_expression_->Clone(storage),
                                   where_->Clone(storage));
   }
 
   static Single *Construct(const capnp::Single::Reader &reader,
-                           AstTreeStorage *storage);
+                           AstStorage *storage);
   using Expression::Save;
 
   // None of these should be nullptr after construction.
@@ -1821,7 +1821,7 @@ class Single : public Expression {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Single::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &tree_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1851,18 +1851,18 @@ class Single : public Expression {
 };
 
 class ParameterLookup : public Expression {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
-  ParameterLookup *Clone(AstTreeStorage &storage) const override {
+  ParameterLookup *Clone(AstStorage &storage) const override {
     return storage.Create<ParameterLookup>(token_position_);
   }
 
   static ParameterLookup *Construct(
-      const capnp::ParameterLookup::Reader &reader, AstTreeStorage *storage);
+      const capnp::ParameterLookup::Reader &reader, AstStorage *storage);
   using Expression::Save;
 
   // This field contains token position of *literal* used to create
@@ -1895,7 +1895,7 @@ class ParameterLookup : public Expression {
 };
 
 class NamedExpression : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -1906,13 +1906,13 @@ class NamedExpression : public Tree {
     return visitor.PostVisit(*this);
   }
 
-  NamedExpression *Clone(AstTreeStorage &storage) const override {
+  NamedExpression *Clone(AstStorage &storage) const override {
     return storage.Create<NamedExpression>(name_, expression_->Clone(storage),
                                            token_position_);
   }
 
   static NamedExpression *Construct(
-      const capnp::NamedExpression::Reader &reader, AstTreeStorage *storage);
+      const capnp::NamedExpression::Reader &reader, AstStorage *storage);
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
 
@@ -1937,7 +1937,7 @@ class NamedExpression : public Tree {
 
   virtual void Save(capnp::NamedExpression::Builder *,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -1970,15 +1970,15 @@ class NamedExpression : public Tree {
 // Pattern atoms
 
 class PatternAtom : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   Identifier *identifier_ = nullptr;
 
-  PatternAtom *Clone(AstTreeStorage &storage) const override = 0;
+  PatternAtom *Clone(AstStorage &storage) const override = 0;
 
   static PatternAtom *Construct(const capnp::PatternAtom::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
 
@@ -1989,7 +1989,7 @@ class PatternAtom : public Tree {
 
   virtual void Save(capnp::PatternAtom::Builder *,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2011,7 +2011,7 @@ class PatternAtom : public Tree {
 };
 
 class NodeAtom : public PatternAtom {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2027,7 +2027,7 @@ class NodeAtom : public PatternAtom {
     return visitor.PostVisit(*this);
   }
 
-  NodeAtom *Clone(AstTreeStorage &storage) const override {
+  NodeAtom *Clone(AstStorage &storage) const override {
     auto *node_atom = storage.Create<NodeAtom>(identifier_->Clone(storage));
     node_atom->labels_ = labels_;
     for (auto property : properties_) {
@@ -2037,7 +2037,7 @@ class NodeAtom : public PatternAtom {
   }
 
   static NodeAtom *Construct(const capnp::NodeAtom::Reader &reader,
-                             AstTreeStorage *storage);
+                             AstStorage *storage);
   using PatternAtom::Save;
 
   std::vector<storage::Label> labels_;
@@ -2052,7 +2052,7 @@ class NodeAtom : public PatternAtom {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::NodeAtom::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2096,10 +2096,10 @@ class NodeAtom : public PatternAtom {
 };
 
 class EdgeAtom : public PatternAtom {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
   template <typename TPtr>
-  static TPtr *CloneOpt(TPtr *ptr, AstTreeStorage &storage) {
+  static TPtr *CloneOpt(TPtr *ptr, AstStorage &storage) {
     return ptr ? ptr->Clone(storage) : nullptr;
   }
 
@@ -2145,7 +2145,7 @@ class EdgeAtom : public PatternAtom {
     return visitor.PostVisit(*this);
   }
 
-  EdgeAtom *Clone(AstTreeStorage &storage) const override {
+  EdgeAtom *Clone(AstStorage &storage) const override {
     auto *edge_atom = storage.Create<EdgeAtom>(identifier_->Clone(storage));
     edge_atom->direction_ = direction_;
     edge_atom->type_ = type_;
@@ -2178,7 +2178,7 @@ class EdgeAtom : public PatternAtom {
   }
 
   static EdgeAtom *Construct(const capnp::EdgeAtom::Reader &reader,
-                             AstTreeStorage *storage);
+                             AstStorage *storage);
   using PatternAtom::Save;
 
   Type type_ = Type::SINGLE;
@@ -2222,7 +2222,7 @@ class EdgeAtom : public PatternAtom {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::EdgeAtom::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2290,7 +2290,7 @@ class EdgeAtom : public PatternAtom {
 };
 
 class Pattern : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2306,7 +2306,7 @@ class Pattern : public Tree {
     return visitor.PostVisit(*this);
   }
 
-  Pattern *Clone(AstTreeStorage &storage) const override {
+  Pattern *Clone(AstStorage &storage) const override {
     auto *pattern = storage.Create<Pattern>();
     pattern->identifier_ = identifier_->Clone(storage);
     for (auto *atom : atoms_) {
@@ -2316,7 +2316,7 @@ class Pattern : public Tree {
   }
 
   static Pattern *Construct(const capnp::Pattern::Reader &reader,
-                            AstTreeStorage *storage);
+                            AstStorage *storage);
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
 
@@ -2327,7 +2327,7 @@ class Pattern : public Tree {
   explicit Pattern(int uid) : Tree(uid) {}
 
   virtual void Save(capnp::Pattern::Builder *, std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2357,15 +2357,15 @@ class Pattern : public Tree {
 // Clause
 
 class Clause : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   explicit Clause(int uid) : Tree(uid) {}
 
-  Clause *Clone(AstTreeStorage &storage) const override = 0;
+  Clause *Clone(AstStorage &storage) const override = 0;
 
   static Clause *Construct(const capnp::Clause::Reader &reader,
-                           AstTreeStorage *storage);
+                           AstStorage *storage);
 
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
@@ -2381,7 +2381,7 @@ class Clause : public Tree {
 // SingleQuery
 
 class SingleQuery : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2394,7 +2394,7 @@ class SingleQuery : public Tree {
     return visitor.PostVisit(*this);
   }
 
-  SingleQuery *Clone(AstTreeStorage &storage) const override {
+  SingleQuery *Clone(AstStorage &storage) const override {
     auto *single_query = storage.Create<SingleQuery>();
     for (auto *clause : clauses_) {
       single_query->clauses_.push_back(clause->Clone(storage));
@@ -2403,7 +2403,7 @@ class SingleQuery : public Tree {
   }
 
   static SingleQuery *Construct(const capnp::SingleQuery::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
@@ -2415,7 +2415,7 @@ class SingleQuery : public Tree {
 
   virtual void Save(capnp::SingleQuery::Builder *,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2444,7 +2444,7 @@ class SingleQuery : public Tree {
 // CypherUnion
 
 class CypherUnion : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2455,7 +2455,7 @@ class CypherUnion : public Tree {
     return visitor.PostVisit(*this);
   }
 
-  CypherUnion *Clone(AstTreeStorage &storage) const override {
+  CypherUnion *Clone(AstStorage &storage) const override {
     auto cypher_union = storage.Create<CypherUnion>(distinct_);
     cypher_union->single_query_ = single_query_->Clone(storage);
     cypher_union->union_symbols_ = union_symbols_;
@@ -2463,7 +2463,7 @@ class CypherUnion : public Tree {
   }
 
   static CypherUnion *Construct(const capnp::CypherUnion::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
 
@@ -2486,7 +2486,7 @@ class CypherUnion : public Tree {
 
   virtual void Save(capnp::CypherUnion::Builder *,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2519,7 +2519,7 @@ class CypherUnion : public Tree {
 // Queries
 
 class Query : public Tree {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2536,7 +2536,7 @@ class Query : public Tree {
   }
 
   // Creates deep copy of whole ast.
-  Query *Clone(AstTreeStorage &storage) const override {
+  Query *Clone(AstStorage &storage) const override {
     auto *query = storage.query();
     query->single_query_ = single_query_->Clone(storage);
     for (auto *cypher_union : cypher_unions_) {
@@ -2545,7 +2545,7 @@ class Query : public Tree {
     return query;
   }
 
-  void Load(const capnp::Tree::Reader &reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
@@ -2585,7 +2585,7 @@ class Query : public Tree {
 // Clauses
 
 class Create : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2598,7 +2598,7 @@ class Create : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  Create *Clone(AstTreeStorage &storage) const override {
+  Create *Clone(AstStorage &storage) const override {
     auto *create = storage.Create<Create>();
     for (auto *pattern : patterns_) {
       create->patterns_.push_back(pattern->Clone(storage));
@@ -2607,7 +2607,7 @@ class Create : public Clause {
   }
 
   static Create *Construct(const capnp::Create::Reader &reader,
-                           AstTreeStorage *storage);
+                           AstStorage *storage);
   using Clause::Save;
 
   std::vector<Pattern *> patterns_;
@@ -2621,7 +2621,7 @@ class Create : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Create::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &tree_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2647,7 +2647,7 @@ class Create : public Clause {
 };
 
 class Match : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2667,7 +2667,7 @@ class Match : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  Match *Clone(AstTreeStorage &storage) const override {
+  Match *Clone(AstStorage &storage) const override {
     auto *match = storage.Create<Match>(optional_);
     for (auto *pattern : patterns_) {
       match->patterns_.push_back(pattern->Clone(storage));
@@ -2678,7 +2678,7 @@ class Match : public Clause {
 
   using Clause::Save;
   static Match *Construct(const capnp::Match::Reader &reader,
-                          AstTreeStorage *storage);
+                          AstStorage *storage);
 
   std::vector<Pattern *> patterns_;
   Where *where_ = nullptr;
@@ -2694,7 +2694,7 @@ class Match : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Match::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2745,7 +2745,7 @@ struct ReturnBody {
 // Deep copy ReturnBody.
 // TODO: Think about turning ReturnBody to class and making this
 // function class member.
-ReturnBody CloneReturnBody(AstTreeStorage &storage, const ReturnBody &body);
+ReturnBody CloneReturnBody(AstStorage &storage, const ReturnBody &body);
 
 template <class TArchive>
 void serialize(TArchive &ar, ReturnBody &body,
@@ -2786,7 +2786,7 @@ void load(TArchive &ar, ReturnBody &body, const unsigned int) {
 }
 
 class Return : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2813,7 +2813,7 @@ class Return : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  Return *Clone(AstTreeStorage &storage) const override {
+  Return *Clone(AstStorage &storage) const override {
     auto *ret = storage.Create<Return>();
     ret->body_ = CloneReturnBody(storage, body_);
     return ret;
@@ -2821,7 +2821,7 @@ class Return : public Clause {
 
   using Clause::Save;
   static Return *Construct(const capnp::Return::Reader &reader,
-                           AstTreeStorage *storage);
+                           AstStorage *storage);
 
   ReturnBody body_;
 
@@ -2833,7 +2833,7 @@ class Return : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Return::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2851,7 +2851,7 @@ class Return : public Clause {
 };
 
 class With : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2879,7 +2879,7 @@ class With : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  With *Clone(AstTreeStorage &storage) const override {
+  With *Clone(AstStorage &storage) const override {
     auto *with = storage.Create<With>();
     with->body_ = CloneReturnBody(storage, body_);
     with->where_ = where_ ? where_->Clone(storage) : nullptr;
@@ -2888,7 +2888,7 @@ class With : public Clause {
 
   using Clause::Save;
   static With *Construct(const capnp::With::Reader &reader,
-                         AstTreeStorage *storage);
+                         AstStorage *storage);
 
   ReturnBody body_;
   Where *where_ = nullptr;
@@ -2902,7 +2902,7 @@ class With : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::With::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2930,7 +2930,7 @@ class With : public Clause {
 };
 
 class Delete : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -2943,7 +2943,7 @@ class Delete : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  Delete *Clone(AstTreeStorage &storage) const override {
+  Delete *Clone(AstStorage &storage) const override {
     auto *del = storage.Create<Delete>();
     for (auto *expression : expressions_) {
       del->expressions_.push_back(expression->Clone(storage));
@@ -2954,7 +2954,7 @@ class Delete : public Clause {
 
   using Clause::Save;
   static Delete *Construct(const capnp::Delete::Reader &reader,
-                           AstTreeStorage *storage);
+                           AstStorage *storage);
 
   std::vector<Expression *> expressions_;
 
@@ -2969,7 +2969,7 @@ class Delete : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Delete::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -2997,7 +2997,7 @@ class Delete : public Clause {
 };
 
 class SetProperty : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -3008,14 +3008,14 @@ class SetProperty : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  SetProperty *Clone(AstTreeStorage &storage) const override {
+  SetProperty *Clone(AstStorage &storage) const override {
     return storage.Create<SetProperty>(property_lookup_->Clone(storage),
                                        expression_->Clone(storage));
   }
 
   using Clause::Save;
   static SetProperty *Construct(const capnp::SetProperty::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
 
   PropertyLookup *property_lookup_ = nullptr;
   Expression *expression_ = nullptr;
@@ -3031,7 +3031,7 @@ class SetProperty : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::SetProperty::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -3060,7 +3060,7 @@ class SetProperty : public Clause {
 };
 
 class SetProperties : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -3071,14 +3071,14 @@ class SetProperties : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  SetProperties *Clone(AstTreeStorage &storage) const override {
+  SetProperties *Clone(AstStorage &storage) const override {
     return storage.Create<SetProperties>(identifier_->Clone(storage),
                                          expression_->Clone(storage), update_);
   }
 
   using Clause::Save;
   static SetProperties *Construct(const capnp::SetProperties::Reader &reader,
-                                  AstTreeStorage *storage);
+                                  AstStorage *storage);
 
   Identifier *identifier_ = nullptr;
   Expression *expression_ = nullptr;
@@ -3097,7 +3097,7 @@ class SetProperties : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::SetProperties::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -3128,7 +3128,7 @@ class SetProperties : public Clause {
 };
 
 class SetLabels : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -3139,13 +3139,13 @@ class SetLabels : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  SetLabels *Clone(AstTreeStorage &storage) const override {
+  SetLabels *Clone(AstStorage &storage) const override {
     return storage.Create<SetLabels>(identifier_->Clone(storage), labels_);
   }
 
   using Clause::Save;
   static SetLabels *Construct(const capnp::SetLabels::Reader &reader,
-                              AstTreeStorage *storage);
+                              AstStorage *storage);
 
   Identifier *identifier_ = nullptr;
   std::vector<storage::Label> labels_;
@@ -3160,7 +3160,7 @@ class SetLabels : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::SetLabels::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -3188,7 +3188,7 @@ class SetLabels : public Clause {
 };
 
 class RemoveProperty : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -3199,13 +3199,13 @@ class RemoveProperty : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  RemoveProperty *Clone(AstTreeStorage &storage) const override {
+  RemoveProperty *Clone(AstStorage &storage) const override {
     return storage.Create<RemoveProperty>(property_lookup_->Clone(storage));
   }
 
   using Clause::Save;
   static RemoveProperty *Construct(const capnp::RemoveProperty::Reader &reader,
-                                   AstTreeStorage *storage);
+                                   AstStorage *storage);
 
   PropertyLookup *property_lookup_ = nullptr;
 
@@ -3218,7 +3218,7 @@ class RemoveProperty : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::RemoveProperty::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -3245,7 +3245,7 @@ class RemoveProperty : public Clause {
 };
 
 class RemoveLabels : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -3256,13 +3256,13 @@ class RemoveLabels : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  RemoveLabels *Clone(AstTreeStorage &storage) const override {
+  RemoveLabels *Clone(AstStorage &storage) const override {
     return storage.Create<RemoveLabels>(identifier_->Clone(storage), labels_);
   }
 
   using Clause::Save;
   static RemoveLabels *Construct(const capnp::RemoveLabels::Reader &reader,
-                                 AstTreeStorage *storage);
+                                 AstStorage *storage);
 
   Identifier *identifier_ = nullptr;
   std::vector<storage::Label> labels_;
@@ -3277,7 +3277,7 @@ class RemoveLabels : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::RemoveLabels::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -3306,7 +3306,7 @@ class RemoveLabels : public Clause {
 };
 
 class Merge : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -3333,7 +3333,7 @@ class Merge : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  Merge *Clone(AstTreeStorage &storage) const override {
+  Merge *Clone(AstStorage &storage) const override {
     auto *merge = storage.Create<Merge>();
     merge->pattern_ = pattern_->Clone(storage);
     for (auto *on_match : on_match_) {
@@ -3347,7 +3347,7 @@ class Merge : public Clause {
 
   using Clause::Save;
   static Merge *Construct(const capnp::Merge::Reader &reader,
-                          AstTreeStorage *storage);
+                          AstStorage *storage);
 
   Pattern *pattern_ = nullptr;
   std::vector<Clause *> on_match_;
@@ -3366,7 +3366,7 @@ class Merge : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Merge::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -3396,7 +3396,7 @@ class Merge : public Clause {
 };
 
 class Unwind : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
@@ -3407,13 +3407,13 @@ class Unwind : public Clause {
     return visitor.PostVisit(*this);
   }
 
-  Unwind *Clone(AstTreeStorage &storage) const override {
+  Unwind *Clone(AstStorage &storage) const override {
     return storage.Create<Unwind>(named_expression_->Clone(storage));
   }
 
   using Clause::Save;
   static Unwind *Construct(const capnp::Unwind::Reader &reader,
-                           AstTreeStorage *storage);
+                           AstStorage *storage);
 
   NamedExpression *named_expression_ = nullptr;
 
@@ -3430,7 +3430,7 @@ class Unwind : public Clause {
             std::vector<int> *saved_uids) override;
   virtual void Save(capnp::Unwind::Builder *builder,
                     std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstTreeStorage *storage,
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 
  private:
@@ -3456,18 +3456,18 @@ class Unwind : public Clause {
 };
 
 class CreateIndex : public Clause {
-  friend class AstTreeStorage;
+  friend class AstStorage;
 
  public:
   DEFVISITABLE(TreeVisitor<TypedValue>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
-  CreateIndex *Clone(AstTreeStorage &storage) const override {
+  CreateIndex *Clone(AstStorage &storage) const override {
     return storage.Create<CreateIndex>(label_, property_);
   }
 
   static CreateIndex *Construct(const capnp::CreateIndex::Reader &reader,
-                                AstTreeStorage *storage);
+                                AstStorage *storage);
   using Clause::Save;
 
   storage::Label label_;

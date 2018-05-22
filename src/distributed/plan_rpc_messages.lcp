@@ -46,7 +46,7 @@ cpp<#
             :capnp-type "Utils.SharedPtr(Plan.LogicalOperator)"
             :capnp-save #'save-plan :capnp-load #'load-plan)
       (symbol-table "query::SymbolTable" :capnp-type "Sem.SymbolTable")
-      (storage "query::AstTreeStorage" :initarg nil
+      (storage "query::AstStorage" :initarg nil
                :save-fun ""
                :load-fun "storage = std::move(ar.template get_helper<query::AstTreeStorage>(query::AstTreeStorage::kHelperId));"
                :capnp-save :dont-save)))

@@ -9,7 +9,7 @@
 #include "query/plan/vertex_count_cache.hpp"
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
-static void AddChainedMatches(int num_matches, query::AstTreeStorage &storage) {
+static void AddChainedMatches(int num_matches, query::AstStorage &storage) {
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
     auto *pattern = storage.Create<query::Pattern>();
@@ -34,7 +34,7 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
   database::GraphDbAccessor dba(db);
   while (state.KeepRunning()) {
     state.PauseTiming();
-    query::AstTreeStorage storage;
+    query::AstStorage storage;
     int num_matches = state.range(0);
     AddChainedMatches(num_matches, storage);
     query::SymbolTable symbol_table;
@@ -64,7 +64,7 @@ BENCHMARK(BM_PlanChainedMatches)
 static void AddIndexedMatches(
     int num_matches, storage::Label label,
     const std::pair<std::string, storage::Property> &property,
-    query::AstTreeStorage &storage) {
+    query::AstStorage &storage) {
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
     auto *pattern = storage.Create<query::Pattern>();
@@ -110,7 +110,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
   Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
-    query::AstTreeStorage storage;
+    query::AstStorage storage;
     AddIndexedMatches(index_count, label, std::make_pair("prop", prop),
                       storage);
     query::SymbolTable symbol_table;
@@ -144,7 +144,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
   Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
-    query::AstTreeStorage storage;
+    query::AstStorage storage;
     AddIndexedMatches(index_count, label, std::make_pair("prop", prop),
                       storage);
     query::SymbolTable symbol_table;

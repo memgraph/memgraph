@@ -17,7 +17,7 @@ struct DistributedPlan {
   std::vector<std::pair<int64_t, std::shared_ptr<LogicalOperator>>>
       worker_plans;
   /// Ast storage with newly added expressions.
-  AstTreeStorage ast_storage;
+  AstStorage ast_storage;
   /// Symbol table with newly added symbols.
   SymbolTable symbol_table;
 };

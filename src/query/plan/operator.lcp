@@ -226,7 +226,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
    };
 
    struct LoadHelper {
-     AstTreeStorage ast_storage;
+     AstStorage ast_storage;
      std::vector<int> loaded_ast_uids;
      std::vector<std::pair<uint64_t, std::shared_ptr<LogicalOperator>>>
          loaded_ops;
@@ -245,12 +245,12 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
 #>cpp
 template <class TArchive>
-std::pair<std::unique_ptr<LogicalOperator>, AstTreeStorage> LoadPlan(
+std::pair<std::unique_ptr<LogicalOperator>, AstStorage> LoadPlan(
     TArchive &ar) {
   std::unique_ptr<LogicalOperator> root;
   ar >> root;
-  return {std::move(root), std::move(ar.template get_helper<AstTreeStorage>(
-                               AstTreeStorage::kHelperId))};
+  return {std::move(root), std::move(ar.template get_helper<AstStorage>(
+                               AstStorage::kHelperId))};
 }
 cpp<#
 

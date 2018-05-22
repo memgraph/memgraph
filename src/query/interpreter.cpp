@@ -125,7 +125,7 @@ Interpreter::Results Interpreter::operator()(
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
     const StrippedQuery &stripped, Context &ctx) {
-  AstTreeStorage ast_storage = QueryToAst(stripped, ctx);
+  AstStorage ast_storage = QueryToAst(stripped, ctx);
   SymbolGenerator symbol_generator(ctx.symbol_table_);
   ast_storage.query()->Accept(symbol_generator);
 
@@ -156,7 +156,7 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
   }
 }
 
-AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
+AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
                                        Context &ctx) {
   if (!ctx.is_query_cached_) {
     // stripped query -> AST
@@ -201,13 +201,13 @@ AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
         ast_cache_accessor.insert(stripped.hash(), std::move(visitor.storage()))
             .first;
   }
-  AstTreeStorage new_ast;
+  AstStorage new_ast;
   ast_it->second.query()->Clone(new_ast);
   return new_ast;
 }
 
 std::pair<std::unique_ptr<plan::LogicalOperator>, double>
-Interpreter::MakeLogicalPlan(AstTreeStorage &ast_storage, Context &context) {
+Interpreter::MakeLogicalPlan(AstStorage &ast_storage, Context &context) {
   std::unique_ptr<plan::LogicalOperator> logical_plan;
   auto vertex_counts = plan::MakeVertexCountCache(context.db_accessor_);
   auto planning_context = plan::MakePlanningContext(

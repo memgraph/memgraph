@@ -725,7 +725,7 @@ void ExaminePlans(
   }
 }
 
-query::AstTreeStorage MakeAst(const std::string &query,
+query::AstStorage MakeAst(const std::string &query,
                               database::GraphDbAccessor &dba) {
   query::Context ctx(dba);
   // query -> AST
@@ -736,7 +736,7 @@ query::AstTreeStorage MakeAst(const std::string &query,
   return std::move(visitor.storage());
 }
 
-query::SymbolTable MakeSymbolTable(const query::AstTreeStorage &ast) {
+query::SymbolTable MakeSymbolTable(const query::AstStorage &ast) {
   query::SymbolTable symbol_table;
   query::SymbolGenerator symbol_generator(symbol_table);
   ast.query()->Accept(symbol_generator);
@@ -745,7 +745,7 @@ query::SymbolTable MakeSymbolTable(const query::AstTreeStorage &ast) {
 
 // Returns a list of pairs (plan, estimated cost), sorted in the ascending
 // order by cost.
-auto MakeLogicalPlans(query::AstTreeStorage &ast,
+auto MakeLogicalPlans(query::AstStorage &ast,
                       query::SymbolTable &symbol_table,
                       InteractiveDbAccessor &dba) {
   auto query_parts = query::plan::CollectQueryParts(symbol_table, ast);

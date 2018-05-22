@@ -30,7 +30,7 @@ class QueryCostEstimator : public ::testing::Test {
   // start it off with Once
   std::shared_ptr<LogicalOperator> last_op_ = std::make_shared<Once>();
 
-  AstTreeStorage storage_;
+  AstStorage storage_;
   SymbolTable symbol_table_;
   Parameters parameters_;
   int symbol_count = 0;

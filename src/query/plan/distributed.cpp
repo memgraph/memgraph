@@ -16,7 +16,7 @@ namespace query::plan {
 
 namespace {
 
-std::pair<std::unique_ptr<LogicalOperator>, AstTreeStorage> Clone(
+std::pair<std::unique_ptr<LogicalOperator>, AstStorage> Clone(
     const LogicalOperator &original_plan) {
   // TODO: Add a proper Clone method to LogicalOperator
   std::stringstream stream;
@@ -28,8 +28,8 @@ std::pair<std::unique_ptr<LogicalOperator>, AstTreeStorage> Clone(
   LogicalOperator *plan_copy = nullptr;
   in_archive >> plan_copy;
   return {std::unique_ptr<LogicalOperator>(plan_copy),
-          std::move(in_archive.template get_helper<AstTreeStorage>(
-              AstTreeStorage::kHelperId))};
+          std::move(in_archive.template get_helper<AstStorage>(
+              AstStorage::kHelperId))};
 }
 
 int64_t AddWorkerPlan(DistributedPlan &distributed_plan,

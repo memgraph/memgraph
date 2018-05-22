@@ -29,7 +29,7 @@ class MatchReturnFixture : public testing::Test {
  protected:
   database::SingleNode db_;
   database::GraphDbAccessor dba_{db_};
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   void AddVertices(int count) {
@@ -98,7 +98,7 @@ TEST(QueryPlan, MatchReturnCartesian) {
   dba.InsertVertex().add_label(dba.Label("l2"));
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -132,7 +132,7 @@ TEST(QueryPlan, StandaloneReturn) {
   dba.InsertVertex();
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto output = NEXPR("n", LITERAL(42));
@@ -171,7 +171,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   v5.PropsSet(property.second, 1);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // make a scan all
@@ -226,7 +226,7 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   v3.add_label(label3);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // make a scan all
@@ -265,7 +265,7 @@ TEST(QueryPlan, Cartesian) {
                                        add_vertex("v3")};
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -300,7 +300,7 @@ TEST(QueryPlan, CartesianEmptySet) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -338,7 +338,7 @@ TEST(QueryPlan, CartesianThreeWay) {
                                        add_vertex("v3")};
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -388,7 +388,7 @@ class ExpandFixture : public testing::Test {
  protected:
   database::SingleNode db_;
   database::GraphDbAccessor dba_{db_};
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
@@ -490,7 +490,7 @@ class QueryPlanExpandVariable : public testing::Test {
   // for all the edges
   storage::EdgeType edge_type = dba_.EdgeType("edge_type");
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // using std::experimental::nullopt
@@ -851,7 +851,7 @@ class QueryPlanExpandBfs
   std::vector<storage::VertexAddress> v;
   std::unordered_map<std::pair<int, int>, storage::EdgeAddress> e;
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // Inner edge and vertex symbols.
@@ -1224,7 +1224,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   // make some edges too, in a map (from, to) vertex indices
   std::unordered_map<std::pair<int, int>, EdgeAccessor> e;
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // inner edge and vertex symbols
@@ -1567,7 +1567,7 @@ TEST(QueryPlan, ExpandOptional) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // graph (v2 {p: 2})<-[:T]-(v1 {p: 1})-[:T]->(v3 {p: 2})
@@ -1627,7 +1627,7 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // OPTIONAL MATCH (n)
@@ -1648,7 +1648,7 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
 TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n)
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1684,7 +1684,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   dba.AdvanceCommand();
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   EXPECT_EQ(1, CountIterable(dba.Edges(false)));
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n :missing)
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1735,7 +1735,7 @@ TEST(QueryPlan, ExpandExistingNode) {
   dba.InsertEdge(v1, v2, edge_type);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto test_existing = [&](bool with_existing, int expected_result_count) {
@@ -1774,7 +1774,7 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   dba.InsertEdge(v, v, dba.EdgeType("et"));
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1817,7 +1817,7 @@ TEST(QueryPlan, EdgeFilter) {
   for (auto &vertex : vertices) vertex.Reconstruct();
   for (auto &edge : edges) edge.Reconstruct();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto test_filter = [&]() {
@@ -1867,7 +1867,7 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   dba.InsertEdge(v1, v2, type_3);
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // make a scan all
@@ -1899,7 +1899,7 @@ TEST(QueryPlan, Filter) {
   dba.InsertVertex();  // prop not set, gives NULL
   dba.AdvanceCommand();
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1931,7 +1931,7 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
 
   auto check_expand_results = [&](bool vertex_uniqueness,
                                   bool edge_uniqueness) {
-    AstTreeStorage storage;
+    AstStorage storage;
     SymbolTable symbol_table;
 
     auto n1 = MakeScanAll(storage, symbol_table, "n1");
@@ -1968,7 +1968,7 @@ TEST(QueryPlan, Distinct) {
 
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   auto check_distinct = [&](const std::vector<TypedValue> input,
@@ -2019,7 +2019,7 @@ TEST(QueryPlan, ScanAllByLabel) {
   dba.AdvanceCommand();
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (n :label)
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all_by_label =
       MakeScanAllByLabel(storage, symbol_table, "n", label);
@@ -2063,7 +2063,7 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   auto check = [&dba, label, prop](TypedValue lower, Bound::Type lower_type,
                                    TypedValue upper, Bound::Type upper_type,
                                    const std::vector<TypedValue> &expected) {
-    AstTreeStorage storage;
+    AstStorage storage;
     SymbolTable symbol_table;
     auto scan_all = MakeScanAllByLabelPropertyRange(
         storage, symbol_table, "n", label, prop,
@@ -2125,7 +2125,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   database::GraphDbAccessor dba(db);
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (n :label {prop: 42})
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n",
                                                   label, prop, LITERAL(42));
@@ -2161,7 +2161,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   database::GraphDbAccessor dba(db);
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (m), (n :label {prop: m})
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all = MakeScanAll(storage, symbol_table, "m");
   auto *ident_m = IDENT("m");
@@ -2189,7 +2189,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   database::GraphDbAccessor dba(db);
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (m), (n :label {prop: m})
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all = MakeScanAll(storage, symbol_table, "m");
   auto *ident_m = IDENT("m");
@@ -2242,7 +2242,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   database::GraphDbAccessor dba(db);
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (n :label {prop: 42})
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyValue(
       storage, symbol_table, "n", label, prop, LITERAL(TypedValue::Null));
@@ -2275,7 +2275,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   database::GraphDbAccessor dba(db);
   EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
   // MATCH (n :label) WHERE null <= n.prop < null
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyRange(
       storage, symbol_table, "n", label, prop,
@@ -2305,7 +2305,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   database::GraphDbAccessor dba(db);
   EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
 
-  AstTreeStorage storage;
+  AstStorage storage;
   SymbolTable symbol_table;
 
   // UNWIND [1, 2, 3] as x

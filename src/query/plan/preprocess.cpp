@@ -82,7 +82,7 @@ std::vector<Expansion> NormalizePatterns(
 // will lift them out of a pattern and generate new expressions (just like they
 // were in a Where clause).
 void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
-                 SymbolTable &symbol_table, AstTreeStorage &storage,
+                 SymbolTable &symbol_table, AstStorage &storage,
                  Matching &matching) {
   auto expansions = NormalizePatterns(symbol_table, patterns);
   std::unordered_set<Symbol> edge_symbols;
@@ -125,7 +125,7 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where,
   }
 }
 void AddMatching(const Match &match, SymbolTable &symbol_table,
-                 AstTreeStorage &storage, Matching &matching) {
+                 AstStorage &storage, Matching &matching) {
   return AddMatching(match.patterns_, match.where_, symbol_table, storage,
                      matching);
 }
@@ -219,7 +219,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, storage::Label label) {
 }
 
 void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
-                                    AstTreeStorage &storage) {
+                                    AstStorage &storage) {
   UsedSymbolsCollector collector(symbol_table);
   auto add_properties_variable = [&](EdgeAtom *atom) {
     const auto &symbol = symbol_table.at(*atom->identifier_);
@@ -443,7 +443,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
 std::vector<SingleQueryPart> CollectSingleQueryParts(
-    SymbolTable &symbol_table, AstTreeStorage &storage,
+    SymbolTable &symbol_table, AstStorage &storage,
     SingleQuery *single_query) {
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
@@ -478,7 +478,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
 }
 
 QueryParts CollectQueryParts(SymbolTable &symbol_table,
-                             AstTreeStorage &storage) {
+                             AstStorage &storage) {
   auto query = storage.query();
   std::vector<QueryPart> query_parts;
   bool distinct = false;
