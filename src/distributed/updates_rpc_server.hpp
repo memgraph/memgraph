@@ -40,11 +40,13 @@ class UpdatesRpcServer {
     /// fail-fast on serialization and update-after-delete errors.
     UpdateResult Emplace(const database::StateDelta &delta);
 
-    /// Creates a new vertex and returns it's gid.
+    /// Creates a new vertex with requested_gid if possible and returns it's
+    /// gid.
     gid::Gid CreateVertex(
         const std::vector<storage::Label> &labels,
         const std::unordered_map<storage::Property, query::TypedValue>
-            &properties);
+            &properties,
+        std::experimental::optional<gid::Gid> requested_gid);
 
     /// Creates a new edge and returns it's gid. Does not update vertices at the
     /// end of the edge.
@@ -84,8 +86,7 @@ class UpdatesRpcServer {
   database::GraphDb &db_;
 
   template <typename TAccessor>
-  using MapT =
-      ConcurrentMap<tx::TransactionId, TransactionUpdates<TAccessor>>;
+  using MapT = ConcurrentMap<tx::TransactionId, TransactionUpdates<TAccessor>>;
   MapT<VertexAccessor> vertex_updates_;
   MapT<EdgeAccessor> edge_updates_;
 

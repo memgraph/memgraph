@@ -50,6 +50,7 @@ struct CreateVertexReqData {
   tx::TransactionId tx_id;
   std::vector<storage::Label> labels;
   std::unordered_map<storage::Property, query::TypedValue> properties;
+  std::experimental::optional<gid::Gid> requested_gid;
 
  private:
   friend class boost::serialization::access;
@@ -63,6 +64,7 @@ struct CreateVertexReqData {
       ar << kv.first;
       utils::SaveTypedValue(ar, kv.second);
     }
+    ar << requested_gid;
   }
 
   template <class TArchive>
@@ -78,6 +80,7 @@ struct CreateVertexReqData {
       utils::LoadTypedValue(ar, tv);
       properties.emplace(p, std::move(tv));
     }
+    ar >> requested_gid;
   }
   BOOST_SERIALIZATION_SPLIT_MEMBER()
 };
