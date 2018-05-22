@@ -34,14 +34,16 @@ class UpdatesRpcClients {
                                                  query::TypedValue> &properties,
                         std::experimental::optional<gid::Gid> requested_gid);
 
-  /// Creates an edge on the given worker and returns it's address. If the `to`
-  /// vertex is on the same worker as `from`, then all remote CRUD will be
-  /// handled by a call to this function. Otherwise a separate call to
-  /// `AddInEdge` might be necessary. Throws all the exceptions that can
-  /// occur remotely as a result of updating a vertex.
-  storage::EdgeAddress CreateEdge(tx::TransactionId tx_id, VertexAccessor &from,
-                                  VertexAccessor &to,
-                                  storage::EdgeType edge_type);
+  /// Creates an edge with gid equal to `requested gid` (if possible) on the
+  /// given worker and returns it's address. If the `to` vertex is on the same
+  /// worker as `from`, then all remote CRUD will be handled by a call to this
+  /// function. Otherwise a separate call to `AddInEdge` might be necessary.
+  /// Throws all the exceptions that can occur remotely as a result of updating
+  /// a vertex.
+  storage::EdgeAddress CreateEdge(
+      tx::TransactionId tx_id, VertexAccessor &from, VertexAccessor &to,
+      storage::EdgeType edge_type,
+      std::experimental::optional<gid::Gid> requested_gid);
 
   /// Adds the edge with the given address to the `to` vertex as an incoming
   /// edge. Only used when `to` is remote and not on the same worker as `from`.

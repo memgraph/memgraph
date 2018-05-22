@@ -48,10 +48,12 @@ class UpdatesRpcServer {
             &properties,
         std::experimental::optional<gid::Gid> requested_gid);
 
-    /// Creates a new edge and returns it's gid. Does not update vertices at the
-    /// end of the edge.
+    /// Creates a new edge and returns it's gid (tries to create it with
+    /// requested gid if possible (tries to create it with requested gid if
+    /// possible)). Does not update vertices at the end of the edge.
     gid::Gid CreateEdge(gid::Gid from, storage::VertexAddress to,
-                        storage::EdgeType edge_type);
+                        storage::EdgeType edge_type,
+                        std::experimental::optional<gid::Gid> requested_gid);
 
     /// Applies all the deltas on the record.
     UpdateResult Apply();

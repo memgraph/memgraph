@@ -95,6 +95,7 @@ struct CreateEdgeReqData {
   storage::VertexAddress to;
   storage::EdgeType edge_type;
   tx::TransactionId tx_id;
+  std::experimental::optional<gid::Gid> requested_gid;
 
  private:
   friend class boost::serialization::access;
@@ -105,6 +106,7 @@ struct CreateEdgeReqData {
     ar &to;
     ar &edge_type;
     ar &tx_id;
+    ar &requested_gid;
   }
 };
 
