@@ -1363,4 +1363,20 @@ TEST(ExpressionEvaluator, FunctionIndexInfo) {
     EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)"));
   }
 }
+
+TEST(ExpressionEvaluator, FunctionUid) {
+  database::SingleNode db;
+  EXPECT_THROW(EvaluateFunction("ID", {}, db), QueryRuntimeException);
+  database::GraphDbAccessor dba(db);
+
+  auto va = dba.InsertVertex();
+  auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
+  EXPECT_EQ(EvaluateFunction("ID", {va}, db).Value<int64_t>(), 0);
+  EXPECT_EQ(EvaluateFunction("ID", {ea}, db).Value<int64_t>(), 0);
+
+  auto vb = dba.InsertVertex();
+  auto eb = dba.InsertEdge(vb, vb, dba.EdgeType("edge"));
+  EXPECT_EQ(EvaluateFunction("ID", {vb}, db).Value<int64_t>(), 1024);
+  EXPECT_EQ(EvaluateFunction("ID", {eb}, db).Value<int64_t>(), 1024);
+}
 }  // namespace

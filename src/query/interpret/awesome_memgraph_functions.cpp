@@ -622,6 +622,23 @@ TypedValue WorkerId(const std::vector<TypedValue> &args,
       throw QueryRuntimeException("workerId argument must be a vertex or edge");
   }
 }
+
+TypedValue Id(const std::vector<TypedValue> &args,
+              database::GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("Id takes one argument");
+  }
+  auto &arg = args[0];
+  switch (arg.type()) {
+    case TypedValue::Type::Vertex:
+      return static_cast<int64_t>(arg.ValueVertex().gid());
+    case TypedValue::Type::Edge:
+      return static_cast<int64_t>(arg.ValueEdge().gid());
+    default:
+      throw QueryRuntimeException("Id argument must be a vertex or edge");
+  }
+}
+
 }  // namespace
 
 std::function<TypedValue(const std::vector<TypedValue> &,
@@ -672,6 +689,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "COUNTERSET") return CounterSet;
   if (function_name == "INDEXINFO") return IndexInfo;
   if (function_name == "WORKERID") return WorkerId;
+  if (function_name == "ID") return Id;
   return nullptr;
 }
 }  // namespace query
