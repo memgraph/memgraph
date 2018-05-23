@@ -55,11 +55,11 @@ class HashedFileReader {
     return true;
   }
 
-  void Seek(std::iostream::streamoff offset, std::ios_base::seekdir way) {
+  void Seek(std::streamoff offset, std::ios_base::seekdir way) {
     input_stream_.seekg(offset, way);
   }
 
-  void Seek(std::iostream::streampos pos) { input_stream_.seekg(pos); }
+  void Seek(std::streampos pos) { input_stream_.seekg(pos); }
 
   auto Tellg() { return input_stream_.tellg(); }
 
