@@ -15,6 +15,18 @@
 #include "utils/atomic.hpp"
 #include "utils/on_scope_exit.hpp"
 
+// Autogenerate property with Vertex ID
+DEFINE_bool(
+    generate_vertex_ids, false,
+    "If enabled database will automatically generate Ids as properties of "
+    "vertices, which can be accessed using the `Id` cypher function.");
+
+// Autogenerate property with Edge ID
+DEFINE_bool(
+    generate_edge_ids, false,
+    "If enabled database will automatically generate Ids as properties of "
+    "edges, which can be accessed using the `Id` cypher function.");
+
 namespace database {
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
@@ -65,7 +77,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
     std::experimental::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
-  auto gid = db_.storage().vertex_generator_.Next(requested_gid);
+  int64_t gid = db_.storage().vertex_generator_.Next(requested_gid);
   auto vertex_vlist = new mvcc::VersionList<Vertex>(transaction_, gid);
 
   bool success =
@@ -74,7 +86,10 @@ VertexAccessor GraphDbAccessor::InsertVertex(
                  << gid;
   wal().Emplace(
       database::StateDelta::CreateVertex(transaction_.id_, vertex_vlist->gid_));
-  return VertexAccessor(vertex_vlist, *this);
+  auto va = VertexAccessor(vertex_vlist, *this);
+  if (FLAGS_generate_vertex_ids)
+    va.PropsSet(Property(PropertyValueStore::IdPropertyName), gid);
+  return va;
 }
 
 VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
@@ -391,16 +406,9 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
 
   Vertex *from_updated;
   if (from.is_local()) {
-    auto gid = db_.storage().edge_generator_.Next(requested_gid);
-    edge_address = new mvcc::VersionList<Edge>(
-        transaction_, gid, from.address(), to.address(), edge_type);
-    // We need to insert edge_address to edges_ before calling update since
-    // update can throw and edge_vlist will not be garbage collected if it is
-    // not in edges_ skiplist.
-    bool success =
-        db_.storage().edges_.access().insert(gid, edge_address.local()).second;
-    CHECK(success) << "Attempting to insert an edge with an existing GID: "
-                   << gid;
+    auto edge_accessor =
+        InsertOnlyEdge(from.address(), to.address(), edge_type, requested_gid);
+    edge_address = edge_accessor.address(),
 
     from.SwitchNew();
     from_updated = &from.update();
@@ -409,7 +417,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     // `CREATE_EDGE`, but always have it split into 3 parts (edge insertion,
     // in/out modification).
     wal().Emplace(database::StateDelta::CreateEdge(
-        transaction_.id_, gid, from.gid(), to.gid(), edge_type,
+        transaction_.id_, edge_accessor.gid(), from.gid(), to.gid(), edge_type,
         EdgeTypeName(edge_type)));
 
   } else {
@@ -467,7 +475,7 @@ EdgeAccessor GraphDbAccessor::InsertOnlyEdge(
     std::experimental::optional<gid::Gid> requested_gid) {
   CHECK(from.is_local())
       << "`from` address should be local when calling InsertOnlyEdge";
-  auto gid = db_.storage().edge_generator_.Next(requested_gid);
+  int64_t gid = db_.storage().edge_generator_.Next(requested_gid);
   auto edge_vlist =
       new mvcc::VersionList<Edge>(transaction_, gid, from, to, edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
@@ -476,7 +484,10 @@ EdgeAccessor GraphDbAccessor::InsertOnlyEdge(
   bool success = db_.storage().edges_.access().insert(gid, edge_vlist).second;
   CHECK(success) << "Attempting to insert an edge with an existing GID: "
                  << gid;
-  return EdgeAccessor(edge_vlist, *this, from, to, edge_type);
+  auto ea = EdgeAccessor(edge_vlist, *this, from, to, edge_type);
+  if (FLAGS_generate_edge_ids)
+    ea.PropsSet(Property(PropertyValueStore::IdPropertyName), gid);
+  return ea;
 }
 
 int64_t GraphDbAccessor::EdgesCount() const {

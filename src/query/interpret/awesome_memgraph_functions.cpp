@@ -624,16 +624,32 @@ TypedValue WorkerId(const std::vector<TypedValue> &args,
 }
 
 TypedValue Id(const std::vector<TypedValue> &args,
-              database::GraphDbAccessor &) {
+              database::GraphDbAccessor &dba) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("Id takes one argument");
   }
   auto &arg = args[0];
   switch (arg.type()) {
-    case TypedValue::Type::Vertex:
-      return static_cast<int64_t>(arg.ValueVertex().gid());
-    case TypedValue::Type::Edge:
-      return static_cast<int64_t>(arg.ValueEdge().gid());
+    case TypedValue::Type::Vertex: {
+      auto id = arg.ValueVertex().PropsAt(
+          dba.Property(PropertyValueStore::IdPropertyName));
+      if (id.IsNull()) {
+        throw QueryRuntimeException(
+            "Ids are not set on vertices, have a look at flags to "
+            "automatically generate them.");
+      }
+      return id.Value<int64_t>();
+    }
+    case TypedValue::Type::Edge: {
+      auto id = arg.ValueEdge().PropsAt(
+          dba.Property(PropertyValueStore::IdPropertyName));
+      if (id.IsNull()) {
+        throw QueryRuntimeException(
+            "Ids are not set on edges, have a look at flags to "
+            "automatically generate them.");
+      }
+      return id.Value<int64_t>();
+    }
     default:
       throw QueryRuntimeException("Id argument must be a vertex or edge");
   }

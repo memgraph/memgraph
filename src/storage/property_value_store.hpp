@@ -33,6 +33,10 @@ class PropertyValueStore {
   using Location = storage::Location;
 
  public:
+  // Property name which will be used to store vertex/edge ids inside property
+  // value store
+  static constexpr char IdPropertyName[] = "__id__";
+
   PropertyValueStore() = default;
 
   PropertyValueStore(const PropertyValueStore &old) {
