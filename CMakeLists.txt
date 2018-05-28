@@ -191,6 +191,10 @@ option(CUSTOMERS "Build customer binaries" OFF)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
 option(MG_COMMUNITY "Build Memgraph Community Edition" OFF)
+option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
+option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
+option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
+option(THIN_LTO "Build with link time optimization" OFF)
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -203,6 +207,62 @@ endif()
 
 if (MG_COMMUNITY)
   add_definitions(-DMG_COMMUNITY)
+endif()
+
+if (ASAN)
+  # Enable Addres sanitizer and get nicer stack traces in error messages.
+  # NOTE: AddressSanitizer uses llvm-symbolizer binary from the Clang
+  # distribution to symbolize the stack traces (note that ideally the
+  # llvm-symbolizer version must match the version of ASan runtime library).
+  # Just make sure llvm-symbolizer is in PATH before running the binary or
+  # provide it in separate ASAN_SYMBOLIZER_PATH environment variable.
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+  # To detect Stack-use-after-return bugs set run-time flag:
+  #   ASAN_OPTIONS=detect_stack_use_after_return=1
+  # To check initialization order bugs set run-time flag:
+  #   ASAN_OPTIONS=check_initialization_order=true
+  #     This mode reports an error if initializer for a global variable accesses
+  #     dynamically initialized global from another translation unit, which is
+  #     not yet initialized
+  #   ASAN_OPTIONS=strict_init_order=true
+  #     This mode reports an error if initializer for a global variable accesses
+  #     any dynamically initialized global from another translation unit.
+endif()
+
+if (TSAN)
+  # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
+  # If some code (e.g. dynamic libraries) is not compiled with the flag, it can
+  # lead to false positive race reports, false negative race reports and/or
+  # missed stack frames in reports depending on the nature of non-instrumented
+  # code. To not produce false positive reports ThreadSanitizer has to see all
+  # synchronization in the program, some synchronization operations (namely,
+  # atomic operations and thread-safe static initialization) are intercepted
+  # during compilation (and can only be intercepted during compilation).
+  # ThreadSanitizer stack trace collection also relies on compiler instrumentation
+  # (unwinding stack on each memory access is too expensive).
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread")
+  # By default ThreadSanitizer uses addr2line utility to symbolize reports.
+  # llvm-symbolizer is faster, consumes less memory and produces much better
+  # reports. To use it set runtime flag:
+  #   TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
+  # For more runtime flags see: https://github.com/google/sanitizers/wiki/ThreadSanitizerFlags
+endif()
+
+if (UBSAN)
+  # Compile with UBSAN but disable vptr check. This is disabled because it
+  # requires linking with clang++ to make sure C++ specific parts of the
+  # runtime library and c++ standard libraries are present.
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined -fno-sanitize=vptr")
+  # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1
+  # Make sure llvm-symbolizer binary is in path
+endif()
+
+if (THIN_LTO)
+  set(CMAKE_CXX_FLAGS"${CMAKE_CXX_FLAGS} -flto=thin")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto=thin")
 endif()
 
 # Add subprojects

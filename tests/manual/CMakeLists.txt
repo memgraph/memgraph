@@ -73,3 +73,4 @@ target_link_libraries(${test_prefix}stripped_timing memgraph_lib)
 
 add_manual_test(xorshift.cpp)
 target_link_libraries(${test_prefix}xorshift mg-utils)
+
