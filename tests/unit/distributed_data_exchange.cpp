@@ -88,3 +88,45 @@ TEST_F(DistributedGraphDbTest, RemoteExpansion) {
     }
   }
 }
+
+TEST_F(DistributedGraphDbTest, VertexCountsEqual) {
+  for (int i = 0; i < 5; ++i) InsertVertex(master());
+  for (int i = 0; i < 7; ++i) InsertVertex(worker(1));
+  for (int i = 0; i < 9; ++i) InsertVertex(worker(2));
+
+  {
+    GraphDbAccessor accessor(master());
+    auto m_cnt =
+        master().data_clients().VertexCounts(accessor.transaction().id_);
+    auto w1_cnt =
+        worker(1).data_clients().VertexCounts(accessor.transaction().id_);
+    auto w2_cnt =
+        worker(2).data_clients().VertexCounts(accessor.transaction().id_);
+
+    auto check = [&m_cnt, &w1_cnt, &w2_cnt](int key, int value) {
+      return m_cnt[key] == w1_cnt[key] && w1_cnt[key] == w2_cnt[key] &&
+             m_cnt[key] == value;
+    };
+
+    EXPECT_TRUE(check(master().WorkerId(), 5));
+    EXPECT_TRUE(check(worker(1).WorkerId(), 7));
+    EXPECT_TRUE(check(worker(2).WorkerId(), 9));
+  }
+}
+
+TEST_F(DistributedGraphDbTest, VertexCountsTransactional) {
+  {
+    GraphDbAccessor accessor(master());
+    InsertVertex(master());
+    EXPECT_EQ(master().data_clients().VertexCounts(
+                  accessor.transaction().id_)[master().WorkerId()],
+              0);
+  }
+  // Transaction after insert which should now see the insertion
+  {
+    GraphDbAccessor accessor(master());
+    EXPECT_EQ(master().data_clients().VertexCounts(
+                  accessor.transaction().id_)[master().WorkerId()],
+              1);
+  }
+}

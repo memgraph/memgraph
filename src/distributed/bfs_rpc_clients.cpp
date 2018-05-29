@@ -36,7 +36,7 @@ std::unordered_map<int, int64_t> BfsRpcClients::CreateBfsSubcursors(
 void BfsRpcClients::RegisterSubcursors(
     const std::unordered_map<int, int64_t> &subcursor_ids) {
   auto futures = clients_->ExecuteOnWorkers<void>(
-      db_->WorkerId(), [&subcursor_ids](auto &client) {
+      db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
         auto res = client.template Call<RegisterSubcursorsRpc>(subcursor_ids);
         CHECK(res) << "RegisterSubcursors RPC failed!";
       });

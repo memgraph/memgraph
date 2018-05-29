@@ -107,7 +107,7 @@ void UpdatesRpcClients::RemoveInEdge(tx::TransactionId tx_id, int worker_id,
 std::vector<utils::Future<UpdateResult>> UpdatesRpcClients::UpdateApplyAll(
     int skip_worker_id, tx::TransactionId tx_id) {
   return worker_clients_.ExecuteOnWorkers<UpdateResult>(
-      skip_worker_id, [tx_id](auto &client) {
+      skip_worker_id, [tx_id](int worker_id, auto &client) {
         auto res = client.template Call<UpdateApplyRpc>(tx_id);
         CHECK(res) << "UpdateApplyRpc failed";
         return res->member;

@@ -72,6 +72,8 @@ BOOST_CLASS_EXPORT(distributed::EdgeRes);
 BOOST_CLASS_EXPORT(distributed::VertexReq);
 BOOST_CLASS_EXPORT(distributed::VertexRes);
 BOOST_CLASS_EXPORT(distributed::TxGidPair);
+BOOST_CLASS_EXPORT(distributed::VertexCountReq);
+BOOST_CLASS_EXPORT(distributed::VertexCountRes);
 
 // Distributed plan exchange.
 BOOST_CLASS_EXPORT(distributed::DispatchPlanReq);
@@ -89,6 +91,10 @@ BOOST_CLASS_EXPORT(distributed::TransactionCommandAdvancedRes);
 BOOST_CLASS_EXPORT(distributed::BuildIndexReq);
 BOOST_CLASS_EXPORT(distributed::BuildIndexRes);
 BOOST_CLASS_EXPORT(distributed::IndexLabelPropertyTx);
+
+// Token sharing.
+BOOST_CLASS_EXPORT(distributed::TokenTransferReq);
+BOOST_CLASS_EXPORT(distributed::TokenTransferRes);
 
 // Stats.
 BOOST_CLASS_EXPORT(stats::StatsReq);

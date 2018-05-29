@@ -24,6 +24,13 @@ DataRpcServer::DataRpcServer(database::GraphDb &db,
     CHECK(edge.GetOld()) << "Old record must exist when sending edge by RPC";
     return std::make_unique<EdgeRes>(edge.GetOld(), db_.WorkerId());
   });
+
+  rpc_server_.Register<VertexCountRpc>([this](const VertexCountReq &req) {
+    database::GraphDbAccessor dba(db_, req.member);
+    int64_t size = 0;
+    for (auto vertex : dba.Vertices(false)) ++size;
+    return std::make_unique<VertexCountRes>(size);
+  });
 }
 
 }  // namespace distributed

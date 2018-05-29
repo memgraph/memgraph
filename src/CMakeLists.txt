@@ -58,6 +58,8 @@ set(memgraph_src_files
     stats/stats.cpp
     storage/concurrent_id_mapper_master.cpp
     storage/concurrent_id_mapper_worker.cpp
+    storage/dynamic_graph_partitioner/dgp.cpp
+    storage/dynamic_graph_partitioner/vertex_migrator.cpp
     storage/edge_accessor.cpp
     storage/locking/record_lock.cpp
     storage/property_value.cpp

@@ -17,7 +17,7 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
 
     if (registration_successful) {
       rpc_worker_clients_.ExecuteOnWorkers<void>(
-          0, [req](communication::rpc::ClientPool &client_pool) {
+          0, [req](int worker_id, communication::rpc::ClientPool &client_pool) {
             auto result = client_pool.Call<ClusterDiscoveryRpc>(
                 req.desired_worker_id, req.endpoint);
             CHECK(result) << "ClusterDiscoveryRpc failed";

@@ -7,6 +7,7 @@
 #include "communication/rpc/client_pool.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/index_rpc_messages.hpp"
+#include "distributed/token_sharing_rpc_messages.hpp"
 #include "distributed/transactional_cache_cleaner_rpc_messages.hpp"
 #include "storage/types.hpp"
 #include "transactions/transaction.hpp"
@@ -48,9 +49,10 @@ class RpcWorkerClients {
   template <typename TResult>
   auto ExecuteOnWorker(
       int worker_id,
-      std::function<TResult(communication::rpc::ClientPool &)> execute) {
+      std::function<TResult(int worker_id, communication::rpc::ClientPool &)>
+          execute) {
     auto &client_pool = GetClientPool(worker_id);
-    return thread_pool_.Run(execute, std::ref(client_pool));
+    return thread_pool_.Run(execute, worker_id, std::ref(client_pool));
   }
 
   /** Asynchroniously executes the `execute` function on all worker rpc clients
@@ -59,25 +61,12 @@ class RpcWorkerClients {
   template <typename TResult>
   auto ExecuteOnWorkers(
       int skip_worker_id,
-      std::function<TResult(communication::rpc::ClientPool &)> execute) {
+      std::function<TResult(int worker_id, communication::rpc::ClientPool &)>
+          execute) {
     std::vector<utils::Future<TResult>> futures;
     for (auto &worker_id : coordination_.GetWorkerIds()) {
       if (worker_id == skip_worker_id) continue;
       futures.emplace_back(std::move(ExecuteOnWorker(worker_id, execute)));
-    }
-    return futures;
-  }
-
-  template <typename TResult>
-  auto ExecuteOnWorkers(
-      int skip_worker_id,
-      std::function<TResult(int, communication::rpc::ClientPool &)> execute) {
-    std::vector<utils::Future<TResult>> futures;
-    for (auto &worker_id : coordination_.GetWorkerIds()) {
-      if (worker_id == skip_worker_id) continue;
-      auto &client_pool = GetClientPool(worker_id);
-      futures.emplace_back(
-          thread_pool_.Run(execute, worker_id, std::ref(client_pool)));
     }
     return futures;
   }
@@ -100,8 +89,9 @@ class IndexRpcClients {
                             const storage::Property &property,
                             tx::TransactionId transaction_id, int worker_id) {
     return clients_.ExecuteOnWorkers<bool>(
-        worker_id, [label, property, transaction_id](
-                       communication::rpc::ClientPool &client_pool) {
+        worker_id,
+        [label, property, transaction_id](
+            int worker_id, communication::rpc::ClientPool &client_pool) {
           return client_pool.Call<BuildIndexRpc>(
                      distributed::IndexLabelPropertyTx{
                          label, property, transaction_id}) != nullptr;
@@ -110,6 +100,26 @@ class IndexRpcClients {
 
  private:
   RpcWorkerClients &clients_;
+};
+
+/** Wrapper class around a RPC call to share token between workers.
+ */
+class TokenSharingRpcClients {
+ public:
+  explicit TokenSharingRpcClients(RpcWorkerClients *clients)
+      : clients_(clients) {}
+
+  auto TransferToken(int worker_id) {
+    return clients_->ExecuteOnWorker<void>(
+        worker_id,
+        [](int worker_id, communication::rpc::ClientPool &client_pool) {
+          CHECK(client_pool.Call<TokenTransferRpc>())
+              << "Unable to transfer token";
+        });
+  }
+
+ private:
+  RpcWorkerClients *clients_;
 };
 
 /** Join ongoing produces on all workers.
@@ -124,7 +134,7 @@ class OngoingProduceJoinerRpcClients {
 
   void JoinOngoingProduces(tx::TransactionId tx_id) {
     auto futures = clients_.ExecuteOnWorkers<void>(
-        0, [tx_id](communication::rpc::ClientPool &client_pool) {
+        0, [tx_id](int worker_id, communication::rpc::ClientPool &client_pool) {
           auto result =
               client_pool.Call<distributed::WaitOnTransactionEndRpc>(tx_id);
           CHECK(result)

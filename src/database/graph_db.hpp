@@ -51,6 +51,7 @@ struct Config {
   std::vector<std::string> properties_on_disk;
 
   // Distributed master/worker flags.
+  bool dynamic_graph_partitioner_enabled{false};
   int rpc_num_workers{0};
   int worker_id{0};
   io::network::Endpoint master_endpoint{"0.0.0.0", 0};

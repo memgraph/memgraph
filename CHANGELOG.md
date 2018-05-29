@@ -1,5 +1,15 @@
 # Change Log
 
+## v0.11.0
+
+### Breaking Changes
+
+### Major Features and Improvements
+
+* Dynamic graph partitioner added.
+
+### Bug Fixes and Other Changes
+
 ## v0.10.0
 
 ### Breaking Changes

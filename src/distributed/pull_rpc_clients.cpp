@@ -14,7 +14,7 @@ utils::Future<PullData> PullRpcClients::Pull(
     int batch_size) {
   return clients_.ExecuteOnWorker<PullData>(
       worker_id, [&dba, plan_id, command_id, params, symbols, accumulate,
-                  batch_size](ClientPool &client_pool) {
+                  batch_size](int worker_id, ClientPool &client_pool) {
         auto result = client_pool.Call<PullRpc>(
             dba.transaction_id(), dba.transaction().snapshot(), plan_id,
             command_id, params, symbols, accumulate, batch_size, true, true);
@@ -63,10 +63,11 @@ utils::Future<PullData> PullRpcClients::Pull(
 
 std::vector<utils::Future<void>>
 PullRpcClients::NotifyAllTransactionCommandAdvanced(tx::TransactionId tx_id) {
-  return clients_.ExecuteOnWorkers<void>(0, [tx_id](auto &client) {
-    auto res = client.template Call<TransactionCommandAdvancedRpc>(tx_id);
-    CHECK(res) << "TransactionCommandAdvanceRpc failed";
-  });
+  return clients_.ExecuteOnWorkers<void>(
+      0, [tx_id](int worker_id, auto &client) {
+        auto res = client.template Call<TransactionCommandAdvancedRpc>(tx_id);
+        CHECK(res) << "TransactionCommandAdvanceRpc failed";
+      });
 }
 
 }  // namespace distributed

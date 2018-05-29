@@ -24,6 +24,7 @@
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/produce_rpc_server.hpp"
 #include "distributed/pull_rpc_clients.hpp"
+#include "distributed/token_sharing_rpc_server.hpp"
 #include "distributed/transactional_cache_cleaner.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
@@ -47,6 +48,7 @@ namespace impl {
 class PrivateBase : public GraphDb {
  public:
   explicit PrivateBase(const Config &config) : config_(config) {}
+
   virtual ~PrivateBase() {}
 
   const Config config_;
@@ -263,6 +265,11 @@ class Master : public PrivateBase {
       tx_engine_, updates_server_, data_manager_};
   distributed::ClusterDiscoveryMaster cluster_discovery_{server_, coordination_,
                                                          rpc_worker_clients_};
+  distributed::TokenSharingRpcClients token_sharing_clients_{
+      &rpc_worker_clients_};
+  distributed::TokenSharingRpcServer token_sharing_server_{
+      this, config_.worker_id, &coordination_, &server_,
+      &token_sharing_clients_};
 };
 
 class Worker : public PrivateBase {
@@ -322,6 +329,11 @@ class Worker : public PrivateBase {
   distributed::DurabilityRpcServer durability_rpc_server_{*this, server_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
       server_, coordination_, rpc_worker_clients_.GetClientPool(0)};
+  distributed::TokenSharingRpcClients token_sharing_clients_{
+      &rpc_worker_clients_};
+  distributed::TokenSharingRpcServer token_sharing_server_{
+      this, config_.worker_id, &coordination_, &server_,
+      &token_sharing_clients_};
 };
 
 #undef IMPL_GETTERS
@@ -369,6 +381,12 @@ PublicBase::PublicBase(std::unique_ptr<PrivateBase> impl)
             LOG(INFO) << "Waiting for workers to finish recovering..";
             std::this_thread::sleep_for(2s);
           }
+        }
+
+        // Start the dynamic graph partitioner inside token sharing server
+        if (impl_->config_.dynamic_graph_partitioner_enabled) {
+          dynamic_cast<impl::Master *>(impl_.get())
+              ->token_sharing_server_.StartTokenSharing();
         }
 
         break;

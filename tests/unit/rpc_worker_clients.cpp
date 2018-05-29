@@ -104,7 +104,7 @@ TEST_F(RpcWorkerClientsTest, GetClientPool) {
 }
 
 TEST_F(RpcWorkerClientsTest, ExecuteOnWorker) {
-  auto execute = [](auto &client) -> void {
+  auto execute = [](int worker_id, auto &client) -> void {
     ASSERT_TRUE(client.template Call<distributed::IncrementCounterRpc>());
   };
 
@@ -115,7 +115,7 @@ TEST_F(RpcWorkerClientsTest, ExecuteOnWorker) {
 }
 
 TEST_F(RpcWorkerClientsTest, ExecuteOnWorkers) {
-  auto execute = [](auto &client) -> void {
+  auto execute = [](int worker_id, auto &client) -> void {
     ASSERT_TRUE(client.template Call<distributed::IncrementCounterRpc>());
   };
 

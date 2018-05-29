@@ -17,9 +17,12 @@ class DataRpcClients {
   /// That worker must own the vertex/edge for the given id, and that vertex
   /// must be visible in given transaction.
   template <typename TRecord>
-  std::unique_ptr<TRecord> RemoteElement(int worker_id,
-                                         tx::TransactionId tx_id,
+  std::unique_ptr<TRecord> RemoteElement(int worker_id, tx::TransactionId tx_id,
                                          gid::Gid gid);
+
+  /// Returns (worker_id, vertex_count) for each worker and the number of
+  /// vertices on it from the perspective of transaction `tx_id`.
+  std::unordered_map<int, int64_t> VertexCounts(tx::TransactionId tx_id);
 
  private:
   RpcWorkerClients &clients_;

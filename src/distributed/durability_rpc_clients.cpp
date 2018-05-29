@@ -8,7 +8,7 @@ namespace distributed {
 utils::Future<bool> DurabilityRpcClients::MakeSnapshot(tx::TransactionId tx) {
   return utils::make_future(std::async(std::launch::async, [this, tx] {
     auto futures = clients_.ExecuteOnWorkers<bool>(
-        0, [tx](communication::rpc::ClientPool &client_pool) {
+        0, [tx](int worker_id, communication::rpc::ClientPool &client_pool) {
           auto res = client_pool.Call<MakeSnapshotRpc>(tx);
           if (res == nullptr) return false;
           return res->member;

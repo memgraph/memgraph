@@ -61,8 +61,12 @@ MAKE_RESPONSE(Edge, edge)
 
 RPC_SINGLE_MEMBER_MESSAGE(VertexReq, TxGidPair);
 RPC_SINGLE_MEMBER_MESSAGE(EdgeReq, TxGidPair);
+RPC_SINGLE_MEMBER_MESSAGE(VertexCountReq, tx::TransactionId);
+RPC_SINGLE_MEMBER_MESSAGE(VertexCountRes, int64_t);
 
 using VertexRpc = communication::rpc::RequestResponse<VertexReq, VertexRes>;
 using EdgeRpc = communication::rpc::RequestResponse<EdgeReq, EdgeRes>;
+using VertexCountRpc =
+    communication::rpc::RequestResponse<VertexCountReq, VertexCountRes>;
 
 }  // namespace distributed

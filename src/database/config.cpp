@@ -61,8 +61,10 @@ DEFINE_VALIDATED_HIDDEN_int32(rpc_num_workers,
                               FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_VALIDATED_int32(recovering_cluster_size, 0,
                        "Number of workers (including master) in the "
-                       "previously snapshooted/wal cluster",
+                       "previously snapshooted/wal cluster.",
                        FLAG_IN_RANGE(0, INT32_MAX));
+DEFINE_bool(dynamic_graph_partitioner_enabled, false,
+            "If the dynamic graph partitioner should be enabled.");
 #endif
 
 // clang-format off
@@ -82,6 +84,7 @@ database::Config::Config()
 #ifndef MG_COMMUNITY
       ,
       // Distributed flags.
+      dynamic_graph_partitioner_enabled{FLAGS_dynamic_graph_partitioner_enabled},
       rpc_num_workers{FLAGS_rpc_num_workers},
       worker_id{FLAGS_worker_id},
       master_endpoint{FLAGS_master_host,
