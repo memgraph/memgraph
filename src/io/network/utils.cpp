@@ -1,4 +1,4 @@
-#include "utils/network.hpp"
+#include "io/network/utils.hpp"
 
 #include <arpa/inet.h>
 #include <netdb.h>
@@ -12,7 +12,7 @@
 
 #include "io/network/socket.hpp"
 
-namespace utils {
+namespace io::network {
 
 /// Resolves hostname to ip, if already an ip, just returns it
 std::string ResolveHostname(std::string hostname) {
@@ -58,4 +58,4 @@ bool CanEstablishConnection(const io::network::Endpoint &endpoint) {
   return client.Connect(endpoint);
 }
 
-};  // namespace utils
+};  // namespace io::network

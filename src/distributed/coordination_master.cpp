@@ -6,7 +6,7 @@
 #include "communication/rpc/client.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
-#include "utils/network.hpp"
+#include "io/network/utils.hpp"
 
 namespace distributed {
 
@@ -66,7 +66,7 @@ MasterCoordination::~MasterCoordination() {
   for (const auto &kv : workers) {
     // Skip master (self).
     if (kv.first == 0) continue;
-    while (utils::CanEstablishConnection(kv.second))
+    while (io::network::CanEstablishConnection(kv.second))
       std::this_thread::sleep_for(0.5s);
   }
 }

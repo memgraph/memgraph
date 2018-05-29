@@ -1,9 +1,9 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "utils/network.hpp"
+#include "io/network/utils.hpp"
 
-using namespace utils;
+using namespace io::network;
 
 TEST(ResolveHostname, Simple) {
   auto result = ResolveHostname("localhost");

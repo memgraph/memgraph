@@ -4,7 +4,6 @@
 
 #include "stats/metrics.hpp"
 #include "stats/stats.hpp"
-#include "utils/network.hpp"
 #include "utils/timer.hpp"
 
 #include "common.hpp"

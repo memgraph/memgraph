@@ -1,5 +1,8 @@
 # CMake configuration for the main memgraph library and executable
 
+# add memgraph sub libraries
+add_subdirectory(utils)
+
 # all memgraph src files
 set(memgraph_src_files
     communication/buffer.cpp
@@ -40,6 +43,7 @@ set(memgraph_src_files
     io/network/addrinfo.cpp
     io/network/endpoint.cpp
     io/network/socket.cpp
+    io/network/utils.cpp
     query/common.cpp
     query/repl.cpp
     query/frontend/ast/ast.cpp
@@ -71,11 +75,6 @@ set(memgraph_src_files
     transactions/engine_master.cpp
     transactions/engine_single_node.cpp
     transactions/engine_worker.cpp
-    utils/demangle.cpp
-    utils/file.cpp
-    utils/network.cpp
-    utils/signals.cpp
-    utils/watchdog.cpp
 )
 # -----------------------------------------------------------------------------
 
@@ -147,15 +146,14 @@ endif()
 
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
+target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS} mg-utils)
 add_dependencies(memgraph_lib generate_opencypher_parser)
 add_dependencies(memgraph_lib generate_lcp)
 add_dependencies(memgraph_lib generate_capnp)
 
 # STATIC library used to store key-value pairs
-# TODO: Create a utils lib to link with, and remove utils/file.cpp.
-add_library(kvstore_lib STATIC storage/kvstore.cpp utils/file.cpp)
-target_link_libraries(kvstore_lib stdc++fs fmt gflags glog rocksdb bzip2 zlib)
+add_library(kvstore_lib STATIC storage/kvstore.cpp)
+target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib)
 
 # Generate a version.hpp file
 set(VERSION_STRING ${memgraph_VERSION})

@@ -13,9 +13,9 @@
 #include <glog/logging.h>
 #include <json/json.hpp>
 
+#include "io/network/utils.hpp"
 #include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
-#include "utils/network.hpp"
 #include "utils/timer.hpp"
 
 #include "long_running_common.hpp"
@@ -276,7 +276,7 @@ int main(int argc, char **argv) {
   std::cin >> config;
 
   auto independent_nodes_ids = [&] {
-    Endpoint endpoint(utils::ResolveHostname(FLAGS_address), FLAGS_port);
+    Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
     Client client;
     if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
       LOG(FATAL) << "Couldn't connect to " << endpoint;

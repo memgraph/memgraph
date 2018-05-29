@@ -8,8 +8,8 @@
 
 #include "communication/rpc/client.hpp"
 #include "io/network/endpoint.hpp"
+#include "io/network/utils.hpp"
 #include "messages.hpp"
-#include "utils/network.hpp"
 
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
@@ -26,7 +26,7 @@ int main(int argc, char **argv) {
 
   // Initialize client.
   Client client(io::network::Endpoint(
-      utils::ResolveHostname(FLAGS_server_interface), FLAGS_server_port));
+      io::network::ResolveHostname(FLAGS_server_interface), FLAGS_server_port));
 
   // Try to send 100 values to server.
   // If requests timeout, try to resend it.

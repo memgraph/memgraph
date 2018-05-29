@@ -1,27 +1,75 @@
-# set current directory name as a test type
-get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+set(test_prefix memgraph__manual__)
 
-# get all cpp abs file names recursively starting from current directory
-file(GLOB_RECURSE test_type_cpps *.cpp)
-message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
+add_custom_target(memgraph__manual)
 
-# for each cpp file build binary and register test
-foreach(test_cpp ${test_type_cpps})
+function(add_manual_test test_cpp)
+  # get exec name (remove extension from the abs path)
+  get_filename_component(exec_name ${test_cpp} NAME_WE)
+  set(target_name ${test_prefix}${exec_name})
+  add_executable(${target_name} ${test_cpp})
+  # OUTPUT_NAME sets the real name of a target when it is built and can be
+  # used to help create two targets of the same name even though CMake
+  # requires unique logical target names
+  set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
+  add_dependencies(memgraph__manual ${target_name})
+endfunction(add_manual_test)
 
-    # get exec name (remove extension from the abs path)
-    get_filename_component(exec_name ${test_cpp} NAME_WE)
+add_manual_test(antlr_parser.cpp)
+target_link_libraries(${test_prefix}antlr_parser antlr_opencypher_parser_lib)
 
-    set(target_name memgraph__${test_type}__${exec_name})
+add_manual_test(antlr_sigsegv.cpp)
+target_link_libraries(${test_prefix}antlr_sigsegv gtest gtest_main
+                      antlr_opencypher_parser_lib mg-utils)
 
-    # build exec file
-    add_executable(${target_name} ${test_cpp})
+add_manual_test(antlr_tree_pretty_print.cpp)
+target_link_libraries(${test_prefix}antlr_tree_pretty_print antlr_opencypher_parser_lib)
 
-    # OUTPUT_NAME sets the real name of a target when it is built and can be
-    # used to help create two targets of the same name even though CMake
-    # requires unique logical target names
-    set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
+add_manual_test(binomial.cpp)
+target_link_libraries(${test_prefix}binomial mg-utils)
 
-    # link libraries
-    target_link_libraries(${target_name} memgraph_lib gtest gtest_main
-        glog kvstore_lib)
-endforeach()
+add_manual_test(bolt_client.cpp)
+target_link_libraries(${test_prefix}bolt_client memgraph_lib)
+
+add_manual_test(card_fraud_generate_snapshot.cpp)
+target_link_libraries(${test_prefix}card_fraud_generate_snapshot memgraph_lib)
+
+add_manual_test(card_fraud_local.cpp)
+target_link_libraries(${test_prefix}card_fraud_local memgraph_lib)
+
+add_manual_test(distributed_repl.cpp)
+target_link_libraries(${test_prefix}distributed_repl memgraph_lib)
+
+add_manual_test(endinan.cpp)
+
+add_manual_test(generate_snapshot.cpp)
+target_link_libraries(${test_prefix}generate_snapshot memgraph_lib)
+
+add_manual_test(graph_500_generate_snapshot.cpp)
+target_link_libraries(${test_prefix}graph_500_generate_snapshot memgraph_lib)
+
+add_manual_test(kvstore.cpp)
+target_link_libraries(${test_prefix}kvstore gtest gtest_main memgraph_lib kvstore_lib)
+
+add_manual_test(query_hash.cpp)
+target_link_libraries(${test_prefix}query_hash memgraph_lib)
+
+add_manual_test(query_planner.cpp)
+target_link_libraries(${test_prefix}query_planner memgraph_lib)
+
+add_manual_test(raft_rpc.cpp)
+target_link_libraries(${test_prefix}raft_rpc memgraph_lib)
+
+add_manual_test(repl.cpp)
+target_link_libraries(${test_prefix}repl memgraph_lib)
+
+add_manual_test(single_query.cpp)
+target_link_libraries(${test_prefix}single_query memgraph_lib)
+
+add_manual_test(sl_position_and_count.cpp)
+target_link_libraries(${test_prefix}sl_position_and_count memgraph_lib)
+
+add_manual_test(stripped_timing.cpp)
+target_link_libraries(${test_prefix}stripped_timing memgraph_lib)
+
+add_manual_test(xorshift.cpp)
+target_link_libraries(${test_prefix}xorshift mg-utils)

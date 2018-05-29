@@ -3,7 +3,7 @@
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
-#include "utils/network.hpp"
+#include "io/network/utils.hpp"
 #include "utils/timer.hpp"
 
 DEFINE_string(address, "127.0.0.1", "Server address");
@@ -16,7 +16,7 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
 
   // TODO: handle endpoint exception
-  io::network::Endpoint endpoint(utils::ResolveHostname(FLAGS_address),
+  io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
                                  FLAGS_port);
   communication::bolt::Client client;
 
