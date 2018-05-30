@@ -422,10 +422,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
 
   } else {
     edge_address = db().updates_clients().CreateEdge(transaction_id(), from, to,
-                                                     edge_type, requested_gid);
-
-    CHECK(!requested_gid || *requested_gid == edge_address.gid())
-        << "Unable to assign requested edge gid";
+                                                     edge_type);
 
     from_updated = db().data_manager()
                        .Elements<Vertex>(transaction_id())

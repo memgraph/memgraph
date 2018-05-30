@@ -74,14 +74,12 @@ gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
 
 template <typename TRecordAccessor>
 gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
-    gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid) {
+    gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type) {
   auto &db = db_accessor_.db();
   auto from_addr = db.storage().LocalizedAddressIfPossible(
       storage::VertexAddress(from, db.WorkerId()));
   auto to_addr = db.storage().LocalizedAddressIfPossible(to);
-  auto edge =
-      db_accessor_.InsertOnlyEdge(from_addr, to_addr, edge_type, requested_gid);
+  auto edge = db_accessor_.InsertOnlyEdge(from_addr, to_addr, edge_type);
   std::lock_guard<SpinLock> guard{lock_};
   deltas_.emplace(edge.gid(),
                   std::make_pair(edge, std::vector<database::StateDelta>{}));
@@ -303,9 +301,8 @@ UpdatesRpcServer::TransactionUpdates<TAccessor> &UpdatesRpcServer::GetUpdates(
 }
 
 CreateResult UpdatesRpcServer::CreateEdge(const CreateEdgeReqData &req) {
-  auto gid =
-      GetUpdates(edge_updates_, req.tx_id)
-          .CreateEdge(req.from, req.to, req.edge_type, req.requested_gid);
+  auto gid = GetUpdates(edge_updates_, req.tx_id)
+                 .CreateEdge(req.from, req.to, req.edge_type);
 
   auto from_delta = database::StateDelta::AddOutEdge(
       req.tx_id, req.from, req.to, {gid, db_.WorkerId()}, req.edge_type);

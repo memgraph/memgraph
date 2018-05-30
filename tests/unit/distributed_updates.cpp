@@ -378,18 +378,15 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
   }
 
   void CreateEdge(database::GraphDb &creator, storage::VertexAddress from_addr,
-                  storage::VertexAddress to_addr,
-                  std::experimental::optional<gid::Gid> requested_gid =
-                      std::experimental::nullopt) {
+                  storage::VertexAddress to_addr) {
     CHECK(from_addr.is_remote() && to_addr.is_remote())
         << "Local address given to CreateEdge";
     database::GraphDbAccessor dba{creator};
     auto edge_type = dba.EdgeType("et");
     VertexAccessor v1{from_addr, dba};
     VertexAccessor v2{to_addr, dba};
-    auto edge = dba.InsertEdge(v1, v2, edge_type, requested_gid);
+    auto edge = dba.InsertEdge(v1, v2, edge_type);
     e_ga = edge.GlobalAddress();
-    EXPECT_TRUE(!requested_gid || *requested_gid == e_ga.gid());
 
     for (auto &kv : props) edge.PropsSet(dba.Property(kv.first), kv.second);
 
@@ -484,10 +481,6 @@ TEST_F(DistributedEdgeCreateTest, RemoteRemoteSameWorkers) {
 TEST_F(DistributedEdgeCreateTest, RemoteRemoteCycle) {
   CreateEdge(master(), w1_a, w1_a);
   CheckAll(w1_a, w1_a);
-}
-
-TEST_F(DistributedEdgeCreateTest, EdgeWithGid) {
-  CreateEdge(worker(1), w1_a, w2_a, 1337);
 }
 
 class DistributedEdgeRemoveTest : public DistributedGraphDbTest {

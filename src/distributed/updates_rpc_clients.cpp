@@ -47,15 +47,13 @@ gid::Gid UpdatesRpcClients::CreateVertex(
 
 storage::EdgeAddress UpdatesRpcClients::CreateEdge(
     tx::TransactionId tx_id, VertexAccessor &from, VertexAccessor &to,
-    storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid) {
+    storage::EdgeType edge_type) {
   CHECK(from.address().is_remote()) << "In CreateEdge `from` must be remote";
 
   int from_worker = from.address().worker_id();
-  auto res =
-      worker_clients_.GetClientPool(from_worker)
-          .Call<CreateEdgeRpc>(CreateEdgeReqData{
-              from.gid(), to.GlobalAddress(), edge_type, tx_id, requested_gid});
+  auto res = worker_clients_.GetClientPool(from_worker)
+                 .Call<CreateEdgeRpc>(CreateEdgeReqData{
+                     from.gid(), to.GlobalAddress(), edge_type, tx_id});
   CHECK(res) << "CreateEdge RPC failed on worker: " << from_worker;
   RaiseIfRemoteError(res->member.result);
   return {res->member.gid, from_worker};
