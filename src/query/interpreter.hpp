@@ -11,7 +11,7 @@
 #include "query/interpret/frame.hpp"
 #include "query/plan/distributed.hpp"
 #include "query/plan/operator.hpp"
-#include "threading/sync/spinlock.hpp"
+#include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
 DECLARE_int32(query_plan_cache_ttl);
@@ -173,7 +173,7 @@ class Interpreter {
   // can remove this lock. This will probably never happen since antlr
   // developers introduce more bugs in each version. Fortunately, we have cache
   // so this lock probably won't impact performance much...
-  SpinLock antlr_lock_;
+  utils::SpinLock antlr_lock_;
 
   // Optional, not null only in a distributed master.
   distributed::PlanDispatcher *plan_dispatcher_{nullptr};

@@ -6,14 +6,12 @@
 #include <type_traits>
 
 #include "glog/logging.h"
+
+#include "data_structures/concurrent/skiplist_gc.hpp"
 #include "utils/crtp.hpp"
 #include "utils/placeholder.hpp"
 #include "utils/random/fast_binomial.hpp"
-
-#include "threading/sync/lockable.hpp"
-#include "threading/sync/spinlock.hpp"
-
-#include "data_structures/concurrent/skiplist_gc.hpp"
+#include "utils/thread/sync.hpp"
 
 /**
  * computes the height for the new node from the interval [1...H]
@@ -102,8 +100,8 @@ static thread_local utils::random::FastBinomial<> rnd;
  * @tparam lock_t Lock type used when locking is needed during the creation
  *                and deletion of nodes.
  */
-template <class T, size_t H = 32, class lock_t = SpinLock>
-class SkipList : private Lockable<lock_t> {
+template <class T, size_t H = 32, class lock_t = utils::SpinLock>
+class SkipList : private utils::Lockable<lock_t> {
  public:
   /** @brief Wrapper class for flags used in the implementation
    *
@@ -134,7 +132,7 @@ class SkipList : private Lockable<lock_t> {
     std::atomic<uint8_t> flags{0};
   };
 
-  class Node : Lockable<lock_t> {
+  class Node : utils::Lockable<lock_t> {
    public:
     friend class SkipList;
 

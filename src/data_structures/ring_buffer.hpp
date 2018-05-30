@@ -9,7 +9,7 @@
 
 #include "glog/logging.h"
 
-#include "threading/sync/spinlock.hpp"
+#include "utils/thread/sync.hpp"
 
 /**
  * A thread-safe ring buffer. Multi-producer, multi-consumer. Producers get
@@ -43,7 +43,7 @@ class RingBuffer {
   void emplace(TArgs &&... args) {
     while (true) {
       {
-        std::lock_guard<SpinLock> guard(lock_);
+        std::lock_guard<utils::SpinLock> guard(lock_);
         if (size_ < capacity_) {
           buffer_[write_pos_++] = TElement(std::forward<TArgs>(args)...);
           write_pos_ %= capacity_;
@@ -64,7 +64,7 @@ class RingBuffer {
    * empty, nullopt is returned.
    */
   std::experimental::optional<TElement> pop() {
-    std::lock_guard<SpinLock> guard(lock_);
+    std::lock_guard<utils::SpinLock> guard(lock_);
     if (size_ == 0) return std::experimental::nullopt;
     size_--;
     std::experimental::optional<TElement> result(
@@ -75,7 +75,7 @@ class RingBuffer {
 
   /** Removes all elements from the buffer. */
   void clear() {
-    std::lock_guard<SpinLock> guard(lock_);
+    std::lock_guard<utils::SpinLock> guard(lock_);
     read_pos_ = 0;
     write_pos_ = 0;
     size_ = 0;
@@ -84,7 +84,7 @@ class RingBuffer {
  private:
   int capacity_;
   TElement *buffer_;
-  SpinLock lock_;
+  utils::SpinLock lock_;
   int read_pos_{0};
   int write_pos_{0};
   int size_{0};

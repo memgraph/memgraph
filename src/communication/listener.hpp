@@ -13,8 +13,8 @@
 #include "communication/session.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "utils/thread.hpp"
+#include "utils/thread/sync.hpp"
 
 namespace communication {
 
@@ -50,7 +50,7 @@ class Listener {
         utils::ThreadSetName(fmt::format("{} timeout", service_name));
         while (alive_) {
           {
-            std::unique_lock<SpinLock> guard(lock_);
+            std::unique_lock<utils::SpinLock> guard(lock_);
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
                 LOG(WARNING) << service_name << " session associated with "
@@ -86,7 +86,7 @@ class Listener {
    * @param connection socket which should be added to the event pool
    */
   void AddConnection(io::network::Socket &&connection) {
-    std::unique_lock<SpinLock> guard(lock_);
+    std::unique_lock<utils::SpinLock> guard(lock_);
 
     // Set connection options.
     // The socket is left to be a blocking socket, but when `Read` is called
@@ -202,7 +202,7 @@ class Listener {
     // https://idea.popcount.org/2017-03-20-epoll-is-fundamentally-broken-22/
     epoll_.Delete(session.socket().fd());
 
-    std::unique_lock<SpinLock> guard(lock_);
+    std::unique_lock<utils::SpinLock> guard(lock_);
     auto it = std::find_if(sessions_.begin(), sessions_.end(),
                            [&](const auto &l) { return l.get() == &session; });
 
@@ -220,7 +220,7 @@ class Listener {
 
   TSessionData &data_;
 
-  SpinLock lock_;
+  utils::SpinLock lock_;
   std::vector<std::unique_ptr<SessionHandler>> sessions_;
 
   std::thread thread_;

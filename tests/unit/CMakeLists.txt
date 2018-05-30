@@ -145,14 +145,8 @@ target_link_libraries(${test_prefix}mvcc_one_transaction memgraph_lib)
 add_unit_test(mvcc_parallel_update.cpp)
 target_link_libraries(${test_prefix}mvcc_parallel_update memgraph_lib)
 
-add_unit_test(network_endpoint.cpp)
-target_link_libraries(${test_prefix}network_endpoint memgraph_lib)
-
 add_unit_test(network_timeouts.cpp)
 target_link_libraries(${test_prefix}network_timeouts memgraph_lib)
-
-add_unit_test(network_utils.cpp)
-target_link_libraries(${test_prefix}network_utils memgraph_lib)
 
 add_unit_test(property_value_store.cpp)
 target_link_libraries(${test_prefix}property_value_store memgraph_lib)
@@ -199,17 +193,11 @@ target_link_libraries(${test_prefix}raft_storage memgraph_lib)
 add_unit_test(record_edge_vertex_accessor.cpp)
 target_link_libraries(${test_prefix}record_edge_vertex_accessor memgraph_lib)
 
-add_unit_test(ring_buffer.cpp)
-target_link_libraries(${test_prefix}ring_buffer memgraph_lib)
-
 add_unit_test(rpc.cpp)
 target_link_libraries(${test_prefix}rpc memgraph_lib)
 
 add_unit_test(rpc_worker_clients.cpp)
 target_link_libraries(${test_prefix}rpc_worker_clients memgraph_lib)
-
-add_unit_test(rwlock.cpp)
-target_link_libraries(${test_prefix}rwlock memgraph_lib)
 
 add_unit_test(serialization.cpp)
 target_link_libraries(${test_prefix}serialization memgraph_lib)
@@ -241,9 +229,6 @@ target_link_libraries(${test_prefix}storage_address memgraph_lib)
 add_unit_test(stripped.cpp)
 target_link_libraries(${test_prefix}stripped memgraph_lib)
 
-add_unit_test(thread_pool.cpp)
-target_link_libraries(${test_prefix}thread_pool memgraph_lib)
-
 add_unit_test(transaction_engine_distributed.cpp)
 target_link_libraries(${test_prefix}transaction_engine_distributed memgraph_lib)
 
@@ -252,6 +237,19 @@ target_link_libraries(${test_prefix}transaction_engine_single_node memgraph_lib)
 
 add_unit_test(typed_value.cpp)
 target_link_libraries(${test_prefix}typed_value memgraph_lib)
+
+# Test data structures
+
+add_unit_test(ring_buffer.cpp)
+target_link_libraries(${test_prefix}ring_buffer mg-utils)
+
+# Test mg-io
+
+add_unit_test(network_endpoint.cpp)
+target_link_libraries(${test_prefix}network_endpoint mg-io)
+add_unit_test(network_utils.cpp)
+target_link_libraries(${test_prefix}network_utils mg-io)
+
 
 # Test mg-utils
 
@@ -270,11 +268,17 @@ target_link_libraries(${test_prefix}utils_on_scope_exit mg-utils)
 add_unit_test(utils_scheduler.cpp)
 target_link_libraries(${test_prefix}utils_scheduler mg-utils)
 
+add_unit_test(utils_rwlock.cpp)
+target_link_libraries(${test_prefix}utils_rwlock mg-utils)
+
 add_unit_test(utils_signals.cpp)
 target_link_libraries(${test_prefix}utils_signals mg-utils)
 
 add_unit_test(utils_string.cpp)
 target_link_libraries(${test_prefix}utils_string mg-utils)
+
+add_unit_test(utils_thread_pool.cpp)
+target_link_libraries(${test_prefix}utils_thread_pool mg-utils)
 
 add_unit_test(utils_timestamp.cpp)
 target_link_libraries(${test_prefix}utils_timestamp mg-utils)

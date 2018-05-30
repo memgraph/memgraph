@@ -4,7 +4,6 @@
 #include "mvcc/record.hpp"
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
-#include "threading/sync/lock_timeout_exception.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 

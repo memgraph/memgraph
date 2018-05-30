@@ -4,9 +4,9 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
+#include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
 #include "common.hpp"
@@ -47,7 +47,7 @@ void ExecuteQueries(const std::vector<std::string> &queries,
                     std::ostream &ostream) {
   std::vector<std::thread> threads;
 
-  SpinLock spinlock;
+  utils::SpinLock spinlock;
   uint64_t last = 0;
   std::vector<std::map<std::string, DecodedValue>> metadata;
 
@@ -67,7 +67,7 @@ void ExecuteQueries(const std::vector<std::string> &queries,
       while (true) {
         uint64_t pos;
         {
-          std::lock_guard<SpinLock> lock(spinlock);
+          std::lock_guard<utils::SpinLock> lock(spinlock);
           if (last == queries.size()) {
             break;
           }

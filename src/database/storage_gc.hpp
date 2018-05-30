@@ -14,6 +14,7 @@
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/timer.hpp"
 
 namespace database {
 

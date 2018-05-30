@@ -2,6 +2,8 @@ set(utils_src_files
     demangle.cpp
     file.cpp
     signals.cpp
+    thread.cpp
+    thread/sync.cpp
     watchdog.cpp)
 
 add_library(mg-utils STATIC ${utils_src_files})

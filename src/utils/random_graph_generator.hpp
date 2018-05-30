@@ -13,7 +13,6 @@
 #include "storage/property_value.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "threading/sync/lock_timeout_exception.hpp"
 
 namespace utils {
 

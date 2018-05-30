@@ -4,6 +4,7 @@
 
 #include "distributed/updates_rpc_clients.hpp"
 #include "query/exceptions.hpp"
+#include "utils/thread/sync.hpp"
 
 namespace distributed {
 
@@ -15,7 +16,7 @@ void RaiseIfRemoteError(UpdateResult result) {
     case UpdateResult::SERIALIZATION_ERROR:
       throw mvcc::SerializationError();
     case UpdateResult::LOCK_TIMEOUT_ERROR:
-      throw LockTimeoutException(
+      throw utils::LockTimeoutException(
           "Remote LockTimeoutError during edge creation");
     case UpdateResult::UPDATE_DELETED_ERROR:
       throw RecordDeletedError();

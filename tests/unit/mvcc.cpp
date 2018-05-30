@@ -4,9 +4,9 @@
 #include "mvcc/record.hpp"
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
-#include "threading/sync/lock_timeout_exception.hpp"
 #include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
+#include "utils/thread/sync.hpp"
 
 #include "mvcc_gc_common.hpp"
 
@@ -23,7 +23,7 @@ TEST(MVCC, Deadlock) {
 
   version_list1.update(*t1);
   version_list2.update(*t2);
-  EXPECT_THROW(version_list1.update(*t2), LockTimeoutException);
+  EXPECT_THROW(version_list1.update(*t2), utils::LockTimeoutException);
 }
 
 // TODO Gleich: move this test to mvcc_gc???

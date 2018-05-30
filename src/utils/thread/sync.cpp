@@ -1,6 +1,19 @@
-#include "threading/sync/rwlock.hpp"
+#include "utils/thread/sync.hpp"
 
-namespace threading {
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+namespace sys {
+inline int futex(void *addr1, int op, int val1, const struct timespec *timeout,
+                 void *addr2, int val3) {
+  return syscall(SYS_futex, addr1, op, val1, timeout, addr2, val3);
+};
+
+}  // namespace sys
+
+namespace utils {
 
 RWLock::RWLock(RWLockPriority priority) {
   int err;
@@ -87,4 +100,65 @@ void RWLock::unlock_shared() {
   }
 }
 
-}  // namespace threading
+void Futex::lock(const struct timespec *timeout) {
+  // try to fast lock a few times before going to sleep
+  for (size_t i = 0; i < LOCK_RETRIES; ++i) {
+    // try to lock and exit if we succeed
+    if (try_lock()) return;
+
+    // we failed, chill a bit
+    relax();
+  }
+
+  // the lock is contended, go to sleep. when someone
+  // wakes you up, try taking the lock again
+  while (mutex.all.exchange(LOCKED_CONTENDED, std::memory_order_seq_cst) &
+         LOCKED) {
+    // wait in the kernel for someone to wake us up when unlocking
+    auto status = futex_wait(LOCKED_CONTENDED, timeout);
+
+    // check if we woke up because of a timeout
+    if (status == -1 && errno == ETIMEDOUT)
+      throw LockTimeoutException("Lock timeout");
+  }
+}
+
+void Futex::unlock() {
+  futex_t state = LOCKED;
+
+  // if we're locked and uncontended, try to unlock the mutex before
+  // it becomes contended
+  if (mutex.all.load(std::memory_order_seq_cst) == LOCKED &&
+      mutex.all.compare_exchange_strong(state, UNLOCKED,
+                                        std::memory_order_seq_cst,
+                                        std::memory_order_seq_cst))
+    return;
+
+  // we are contended, just release the lock
+  mutex.state.locked.store(UNLOCKED, std::memory_order_seq_cst);
+
+  // spin and hope someone takes a lock so we don't have to wake up
+  // anyone because that's quite expensive
+  for (size_t i = 0; i < UNLOCK_RETRIES; ++i) {
+    // if someone took the lock, we're ok
+    if (is_locked(std::memory_order_seq_cst)) return;
+
+    relax();
+  }
+
+  // store that we are becoming uncontended
+  mutex.state.contended.store(UNCONTENDED, std::memory_order_seq_cst);
+
+  // we need to wake someone up
+  futex_wake(LOCKED);
+}
+
+int Futex::futex_wait(int value, const struct timespec *timeout) {
+  return sys::futex(&mutex.all, FUTEX_WAIT_PRIVATE, value, timeout, nullptr, 0);
+}
+
+void Futex::futex_wake(int value) {
+  sys::futex(&mutex.all, FUTEX_WAKE_PRIVATE, value, nullptr, nullptr, 0);
+}
+
+}  // namespace utils

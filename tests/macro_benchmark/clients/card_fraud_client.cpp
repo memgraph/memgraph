@@ -7,7 +7,7 @@
 
 #include "stats/stats.hpp"
 #include "stats/stats_rpc_messages.hpp"
-#include "threading/sync/rwlock.hpp"
+#include "utils/thread/sync.hpp"
 
 #include "long_running_common.hpp"
 
@@ -25,7 +25,7 @@ std::atomic<int64_t> num_cards;
 std::atomic<int64_t> num_transactions;
 std::atomic<int64_t> max_tx_id;
 
-threading::RWLock world_lock(threading::RWLockPriority::WRITE);
+utils::RWLock world_lock(utils::RWLockPriority::WRITE);
 
 DEFINE_string(config, "", "test config");
 
@@ -201,12 +201,12 @@ class CardFraudClient : public TestClient {
   void AnalyticStep() {
     std::this_thread::sleep_for(
         std::chrono::milliseconds(config_["analytic"]["query_interval_ms"]));
-    std::shared_lock<threading::RWLock> lock(world_lock);
+    std::shared_lock<utils::RWLock> lock(world_lock);
     GetCompromisedPosInc(config_["analytic"]["pos_limit"]);
   }
 
   void WorkerStep() {
-    std::shared_lock<threading::RWLock> lock(world_lock);
+    std::shared_lock<utils::RWLock> lock(world_lock);
     bool is_fraud = UniformDouble(0, 1) < config_["fraud_probability"];
 
     int64_t pos_id = UniformInt(0, num_pos - 1);
@@ -243,7 +243,7 @@ class CardFraudClient : public TestClient {
   void CleanupStep() {
     if (num_transactions >= config_["cleanup"]["tx_hi"].get<int64_t>()) {
       LOG(INFO) << "Trying to obtain world lock...";
-      std::unique_lock<threading::RWLock> lock(world_lock);
+      std::unique_lock<utils::RWLock> lock(world_lock);
       int64_t id_limit = max_tx_id - config_["cleanup"]["tx_lo"].get<int>() + 1;
       LOG(INFO) << "Transaction cleanup started, deleting transactions "
                    "with ids less than "

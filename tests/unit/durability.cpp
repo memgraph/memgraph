@@ -814,7 +814,7 @@ TEST_F(Durability, SequentialRecovery) {
           auto v = dba.FindVertex(random_int(kNumVertices), false);
           try {
             v.PropsSet(dba.Property("prop"), random_int(100));
-          } catch (LockTimeoutException &) {
+          } catch (utils::LockTimeoutException &) {
           } catch (mvcc::SerializationError &) {
           }
           dba.InsertVertex();

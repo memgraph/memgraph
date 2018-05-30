@@ -9,6 +9,7 @@
 #include "query/exceptions.hpp"
 #include "storage/dynamic_graph_partitioner/vertex_migrator.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/thread/sync.hpp"
 
 DEFINE_VALIDATED_int32(
     dgp_improvement_threshold, 10,
@@ -52,7 +53,7 @@ void DynamicGraphPartitioner::Run() {
           throw query::QueryRuntimeException(
               "Failed to apply deferred updates due to RecordDeletedError");
         case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
-          throw LockTimeoutException(
+          throw utils::LockTimeoutException(
               "Failed to apply deferred update due to LockTimeoutException");
         case distributed::UpdateResult::DONE:
           break;

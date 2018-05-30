@@ -5,11 +5,11 @@
 #include <unordered_map>
 
 #include "durability/wal.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/thread/sync.hpp"
 
 namespace tx {
 
@@ -51,7 +51,7 @@ class SingleNodeEngine : public Engine {
   CommitLog clog_;
   std::unordered_map<TransactionId, std::unique_ptr<Transaction>> store_;
   Snapshot active_;
-  mutable SpinLock lock_;
+  mutable utils::SpinLock lock_;
   // Optional. If present, the Engine will write tx Begin/Commit/Abort
   // atomically (while under lock).
   durability::WriteAheadLog *wal_{nullptr};

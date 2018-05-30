@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/transaction.hpp"
 #include "transactions/type.hpp"

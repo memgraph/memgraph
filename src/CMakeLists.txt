@@ -2,6 +2,7 @@
 
 # add memgraph sub libraries
 add_subdirectory(utils)
+add_subdirectory(io)
 
 # all memgraph src files
 set(memgraph_src_files
@@ -40,10 +41,6 @@ set(memgraph_src_files
     durability/recovery.cpp
     durability/snapshooter.cpp
     durability/wal.cpp
-    io/network/addrinfo.cpp
-    io/network/endpoint.cpp
-    io/network/socket.cpp
-    io/network/utils.cpp
     query/common.cpp
     query/repl.cpp
     query/frontend/ast/ast.cpp
@@ -70,8 +67,6 @@ set(memgraph_src_files
     storage/property_value_store.cpp
     storage/record_accessor.cpp
     storage/vertex_accessor.cpp
-    threading/sync/rwlock.cpp
-    threading/thread.cpp
     transactions/engine_master.cpp
     transactions/engine_single_node.cpp
     transactions/engine_worker.cpp
@@ -132,7 +127,8 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
     ${Boost_IOSTREAMS_LIBRARY_RELEASE}
-    ${Boost_SERIALIZATION_LIBRARY_RELEASE})
+    ${Boost_SERIALIZATION_LIBRARY_RELEASE}
+    mg-utils mg-io)
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
@@ -146,7 +142,7 @@ endif()
 
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS} mg-utils)
+target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
 add_dependencies(memgraph_lib generate_opencypher_parser)
 add_dependencies(memgraph_lib generate_lcp)
 add_dependencies(memgraph_lib generate_capnp)

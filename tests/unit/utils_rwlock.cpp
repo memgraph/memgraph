@@ -4,13 +4,13 @@
 #include "glog/logging.h"
 #include "gtest/gtest.h"
 
-#include "threading/sync/rwlock.hpp"
+#include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
 using namespace std::chrono_literals;
 
-using threading::RWLock;
-using threading::RWLockPriority;
+using utils::RWLock;
+using utils::RWLockPriority;
 
 TEST(RWLock, MultipleReaders) {
   RWLock rwlock(RWLockPriority::READ);

@@ -75,7 +75,7 @@ std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
       utils::Timer t;
       std::chrono::microseconds to_sleep(rand_dist_(pseudo_rand_gen_));
       while (t.Elapsed() < to_sleep) {
-        cpu_relax();
+        utils::CpuRelax();
       }
     }
   }

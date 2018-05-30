@@ -3,8 +3,6 @@
 #include <atomic>
 
 #include "glog/logging.h"
-#include "threading/sync/lockable.hpp"
-#include "threading/sync/spinlock.hpp"
 
 /**
  * A sequentially ordered non-unique lock-free concurrent collection of bits.

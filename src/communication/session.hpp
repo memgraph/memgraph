@@ -12,8 +12,8 @@
 #include "communication/buffer.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/thread/sync.hpp"
 
 namespace communication {
 
@@ -126,7 +126,7 @@ class Session {
    * different threads in the network stack.
    */
   bool TimedOut() {
-    std::unique_lock<SpinLock> guard(lock_);
+    std::unique_lock<utils::SpinLock> guard(lock_);
     return last_event_time_ + std::chrono::seconds(inactivity_timeout_sec_) <
            std::chrono::steady_clock::now();
   }
@@ -138,7 +138,7 @@ class Session {
 
  private:
   void RefreshLastEventTime() {
-    std::unique_lock<SpinLock> guard(lock_);
+    std::unique_lock<utils::SpinLock> guard(lock_);
     last_event_time_ = std::chrono::steady_clock::now();
   }
 
@@ -155,7 +155,7 @@ class Session {
   // Time of the last event and associated lock.
   std::chrono::time_point<std::chrono::steady_clock> last_event_time_{
       std::chrono::steady_clock::now()};
-  SpinLock lock_;
+  utils::SpinLock lock_;
   const int inactivity_timeout_sec_;
 };
 }  // namespace communication

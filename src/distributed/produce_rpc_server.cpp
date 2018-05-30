@@ -72,7 +72,7 @@ ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
     }
   } catch (const mvcc::SerializationError &) {
     cursor_state_ = PullState::SERIALIZATION_ERROR;
-  } catch (const LockTimeoutException &) {
+  } catch (const utils::LockTimeoutException &) {
     cursor_state_ = PullState::LOCK_TIMEOUT_ERROR;
   } catch (const RecordDeletedError &) {
     cursor_state_ = PullState::UPDATE_DELETED_ERROR;

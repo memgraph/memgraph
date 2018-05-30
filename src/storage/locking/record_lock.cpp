@@ -6,9 +6,9 @@
 #include <stack>
 #include <unordered_set>
 
-#include "threading/sync/lock_timeout_exception.hpp"
 #include "transactions/engine.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
 namespace {
@@ -102,7 +102,7 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
       // Message could be incorrect. Transaction could be aborted because it was
       // running for too long time, but that is unlikely and it is not very
       // important which exception (and message) we throw here.
-      throw LockTimeoutException(
+      throw utils::LockTimeoutException(
           "Transaction was aborted since it was oldest in a lock cycle");
     }
     if (TryLock(tx.id_)) {
@@ -119,10 +119,10 @@ LockStatus RecordLock::Lock(const tx::Transaction &tx, tx::Engine &engine) {
       it->second = owner;
       abort_oldest_tx_in_lock_cycle();
     }
-    cpu_relax();
+    utils::CpuRelax();
   }
 
-  throw LockTimeoutException(fmt::format(
+  throw utils::LockTimeoutException(fmt::format(
       "Transaction locked for more than {} seconds", kTimeout.count()));
 }
 

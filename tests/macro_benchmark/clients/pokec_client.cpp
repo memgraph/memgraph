@@ -14,7 +14,6 @@
 #include <json/json.hpp>
 
 #include "io/network/utils.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/timer.hpp"
 

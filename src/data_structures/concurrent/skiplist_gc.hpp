@@ -12,8 +12,8 @@
 
 #include "data_structures/concurrent/push_queue.hpp"
 
-#include "threading/sync/spinlock.hpp"
 #include "utils/executor.hpp"
+#include "utils/thread/sync.hpp"
 
 DECLARE_int32(skiplist_gc_interval);
 

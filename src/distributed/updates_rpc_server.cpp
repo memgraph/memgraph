@@ -3,7 +3,7 @@
 #include "glog/logging.h"
 
 #include "distributed/updates_rpc_server.hpp"
-#include "threading/sync/lock_timeout_exception.hpp"
+#include "utils/thread/sync.hpp"
 
 namespace distributed {
 
@@ -13,7 +13,7 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
   auto gid = std::is_same<TRecordAccessor, VertexAccessor>::value
                  ? delta.vertex_id
                  : delta.edge_id;
-  std::lock_guard<SpinLock> guard{lock_};
+  std::lock_guard<utils::SpinLock> guard{lock_};
   auto found = deltas_.find(gid);
   if (found == deltas_.end()) {
     found =
@@ -52,7 +52,7 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
   //   return UpdateResult::SERIALIZATION_ERROR;
   // } catch (const RecordDeletedError &) {
   //   return UpdateResult::UPDATE_DELETED_ERROR;
-  // } catch (const LockTimeoutException &) {
+  // } catch (const utils::LockTimeoutException &) {
   //   return UpdateResult::LOCK_TIMEOUT_ERROR;
   // }
   return UpdateResult::DONE;
@@ -66,7 +66,7 @@ gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
   auto result = db_accessor_.InsertVertex();
   for (auto &label : labels) result.add_label(label);
   for (auto &kv : properties) result.PropsSet(kv.first, kv.second);
-  std::lock_guard<SpinLock> guard{lock_};
+  std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(result.gid(),
                   std::make_pair(result, std::vector<database::StateDelta>{}));
   return result.gid();
@@ -80,7 +80,7 @@ gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
       storage::VertexAddress(from, db.WorkerId()));
   auto to_addr = db.storage().LocalizedAddressIfPossible(to);
   auto edge = db_accessor_.InsertOnlyEdge(from_addr, to_addr, edge_type);
-  std::lock_guard<SpinLock> guard{lock_};
+  std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(edge.gid(),
                   std::make_pair(edge, std::vector<database::StateDelta>{}));
   return edge.gid();
@@ -88,7 +88,7 @@ gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
 
 template <typename TRecordAccessor>
 UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
-  std::lock_guard<SpinLock> guard{lock_};
+  std::lock_guard<utils::SpinLock> guard{lock_};
   for (auto &kv : deltas_) {
     auto &record_accessor = kv.second.first;
     // We need to reconstruct the record as in the meantime some local
@@ -164,7 +164,7 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
         return UpdateResult::SERIALIZATION_ERROR;
       } catch (const RecordDeletedError &) {
         return UpdateResult::UPDATE_DELETED_ERROR;
-      } catch (const LockTimeoutException &) {
+      } catch (const utils::LockTimeoutException &) {
         return UpdateResult::LOCK_TIMEOUT_ERROR;
       }
     }

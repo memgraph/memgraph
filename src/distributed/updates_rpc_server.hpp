@@ -16,8 +16,8 @@
 #include "storage/gid.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "transactions/type.hpp"
+#include "utils/thread/sync.hpp"
 
 namespace distributed {
 
@@ -62,7 +62,7 @@ class UpdatesRpcServer {
         gid::Gid, std::pair<TRecordAccessor, std::vector<database::StateDelta>>>
         deltas_;
     // Multiple workers might be sending remote updates concurrently.
-    SpinLock lock_;
+    utils::SpinLock lock_;
 
     // Helper method specialized for [Vertex|Edge]Accessor.
     TRecordAccessor FindAccessor(gid::Gid gid);

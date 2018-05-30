@@ -4,9 +4,7 @@
 #include <chrono>
 #include <unordered_set>
 
-#include "data_structures/concurrent/concurrent_map.hpp"
 #include "storage/locking/lock_status.hpp"
-#include "threading/sync/futex.hpp"
 #include "transactions/type.hpp"
 
 namespace tx {

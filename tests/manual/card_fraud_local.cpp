@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
              {"card", rint(kCardCount)},
              {"tx", tx_counter++}});
         CheckResults(res, {{1}}, "Transaction creation");
-      } catch (LockTimeoutException &) {
+      } catch (utils::LockTimeoutException &) {
         --i;
       } catch (mvcc::SerializationError &) {
         --i;

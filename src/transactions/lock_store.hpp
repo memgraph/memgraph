@@ -7,8 +7,8 @@
 #include "glog/logging.h"
 #include "storage/locking/lock_status.hpp"
 #include "storage/locking/record_lock.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "transactions/type.hpp"
+#include "utils/thread/sync.hpp"
 
 namespace tx {
 
@@ -69,7 +69,7 @@ class LockStore {
     // same time. IMPORTANT: This guard must come after LockHolder construction,
     // as that potentially takes a long time and this guard only needs to
     // protect locks_ update.
-    std::lock_guard<SpinLock> guard{locks_lock_};
+    std::lock_guard<utils::SpinLock> guard{locks_lock_};
     locks_.emplace_back(std::move(holder));
     if (!locks_.back().active()) {
       locks_.pop_back();
@@ -77,7 +77,7 @@ class LockStore {
   }
 
  private:
-  SpinLock locks_lock_;
+  utils::SpinLock locks_lock_;
   std::vector<LockHolder> locks_;
 };
 }  // namespace tx

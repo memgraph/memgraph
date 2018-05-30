@@ -17,7 +17,6 @@
 #include "communication/buffer.hpp"
 #include "database/graph_db.hpp"
 #include "query/interpreter.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/exceptions.hpp"
 

@@ -36,7 +36,7 @@ class TestClient {
   virtual ~TestClient() {}
 
   auto ConsumeStats() {
-    std::unique_lock<SpinLock> guard(lock_);
+    std::unique_lock<utils::SpinLock> guard(lock_);
     auto stats = stats_;
     stats_.clear();
     return stats;
@@ -76,7 +76,7 @@ class TestClient {
     auto metadata = result.metadata;
     metadata["wall_time"] = wall_time.count();
     {
-      std::unique_lock<SpinLock> guard(lock_);
+      std::unique_lock<utils::SpinLock> guard(lock_);
       if (query_name != "") {
         stats_[query_name].push_back(std::move(metadata));
       } else {
@@ -88,7 +88,7 @@ class TestClient {
     return result;
   }
 
-  SpinLock lock_;
+  utils::SpinLock lock_;
   std::unordered_map<std::string,
                      std::vector<std::map<std::string, DecodedValue>>>
       stats_;

@@ -4,7 +4,7 @@
 #include "gtest/gtest.h"
 
 #include "data_structures/ring_buffer.hpp"
-#include "threading/sync/spinlock.hpp"
+#include "utils/thread/sync.hpp"
 
 TEST(RingBuffer, MultithreadedUsage) {
   auto test_f = [](int producer_count, int elems_per_producer,
@@ -12,7 +12,7 @@ TEST(RingBuffer, MultithreadedUsage) {
                    int consumer_sleep_ms) {
 
     std::unordered_set<int> consumed;
-    SpinLock consumed_lock;
+    utils::SpinLock consumed_lock;
     RingBuffer<int> buffer{20};
 
     std::vector<std::thread> producers;
@@ -34,7 +34,7 @@ TEST(RingBuffer, MultithreadedUsage) {
         while (true) {
           std::this_thread::sleep_for(
               std::chrono::milliseconds(consumer_sleep_ms));
-          std::lock_guard<SpinLock> guard(consumed_lock);
+          std::lock_guard<utils::SpinLock> guard(consumed_lock);
           if (consumed.size() == elem_total_count) break;
           auto value = buffer.pop();
           if (value) consumed.emplace(*value);

@@ -6,16 +6,16 @@
 
 #include "glog/logging.h"
 
-#include "threading/sync/spinlock.hpp"
+#include "utils/thread/sync.hpp"
 
 int x = 0;
-SpinLock lock;
+utils::SpinLock lock;
 
 void test_lock() {
   using namespace std::literals;
 
   {
-    std::unique_lock<SpinLock> guard(lock);
+    std::unique_lock<utils::SpinLock> guard(lock);
     x++;
 
     std::this_thread::sleep_for(25ms);

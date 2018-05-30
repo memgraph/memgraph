@@ -11,9 +11,8 @@
 #include "distributed/transactional_cache_cleaner_rpc_messages.hpp"
 #include "storage/types.hpp"
 #include "transactions/transaction.hpp"
-
-#include "threading/thread_pool.hpp"
 #include "utils/future.hpp"
+#include "utils/thread.hpp"
 
 namespace distributed {
 
@@ -76,7 +75,7 @@ class RpcWorkerClients {
   Coordination &coordination_;
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   std::mutex lock_;
-  threading::ThreadPool thread_pool_;
+  utils::ThreadPool thread_pool_;
 };
 
 /** Wrapper class around a RPC call to build indices.

@@ -162,7 +162,7 @@ AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
     // stripped query -> AST
     auto parser = [&] {
       // Be careful about unlocking since parser can throw.
-      std::unique_lock<SpinLock> guard(antlr_lock_);
+      std::unique_lock<utils::SpinLock> guard(antlr_lock_);
       return std::make_unique<frontend::opencypher::Parser>(
           stripped.original_query());
     }();
@@ -178,7 +178,7 @@ AstTreeStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
     // stripped query -> AST
     auto parser = [&] {
       // Be careful about unlocking since parser can throw.
-      std::unique_lock<SpinLock> guard(antlr_lock_);
+      std::unique_lock<utils::SpinLock> guard(antlr_lock_);
       try {
         return std::make_unique<frontend::opencypher::Parser>(stripped.query());
       } catch (const SyntaxException &e) {

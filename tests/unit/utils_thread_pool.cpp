@@ -5,12 +5,12 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "threading/thread_pool.hpp"
 #include "utils/future.hpp"
+#include "utils/thread.hpp"
 #include "utils/timer.hpp"
 
 TEST(ThreadPool, RunMany) {
-  threading::ThreadPool tp(10);
+  utils::ThreadPool tp(10);
   const int kResults = 10000;
   std::vector<utils::Future<int>> results;
   for (int i = 0; i < kResults; ++i) {
@@ -26,7 +26,7 @@ TEST(ThreadPool, EnsureParallel) {
   using namespace std::chrono_literals;
 
   const int kSize = 10;
-  threading::ThreadPool tp(kSize);
+  utils::ThreadPool tp(kSize);
   std::vector<utils::Future<void>> results;
 
   utils::Timer t;

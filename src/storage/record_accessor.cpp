@@ -8,7 +8,7 @@
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
-#include "threading/sync/lock_timeout_exception.hpp"
+#include "utils/thread/sync.hpp"
 
 using database::StateDelta;
 
@@ -214,7 +214,7 @@ void RecordAccessor<TRecord>::SendDelta(
     case distributed::UpdateResult::UPDATE_DELETED_ERROR:
       throw RecordDeletedError();
     case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
-      throw LockTimeoutException("Lock timeout on remote worker");
+      throw utils::LockTimeoutException("Lock timeout on remote worker");
   }
 }
 

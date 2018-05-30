@@ -8,7 +8,6 @@
 #include "long_running_common.hpp"
 #include "stats/stats.hpp"
 #include "stats/stats_rpc_messages.hpp"
-#include "threading/sync/rwlock.hpp"
 
 class Graph500BfsClient : public TestClient {
  public:

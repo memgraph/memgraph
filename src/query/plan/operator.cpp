@@ -30,6 +30,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
+#include "utils/thread/sync.hpp"
 
 DEFINE_HIDDEN_int32(remote_pull_sleep_micros, 10,
                     "Sleep between remote result pulling in microseconds");
@@ -3266,7 +3267,7 @@ class RemotePuller {
           throw mvcc::SerializationError(
               "Serialization error occured during PullRemote !");
         case distributed::PullState::LOCK_TIMEOUT_ERROR:
-          throw LockTimeoutException(
+          throw utils::LockTimeoutException(
               "LockTimeout error occured during PullRemote !");
         case distributed::PullState::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
@@ -3528,7 +3529,7 @@ class SynchronizeCursor : public Cursor {
               "Failed to perform remote accumulate due to "
               "RecordDeletedError");
         case distributed::PullState::LOCK_TIMEOUT_ERROR:
-          throw LockTimeoutException(
+          throw utils::LockTimeoutException(
               "Failed to perform remote accumulate due to "
               "LockTimeoutException");
         case distributed::PullState::RECONSTRUCTION_ERROR:
@@ -3566,7 +3567,7 @@ class SynchronizeCursor : public Cursor {
           throw QueryRuntimeException(
               "Failed to apply deferred updates due to RecordDeletedError");
         case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
-          throw LockTimeoutException(
+          throw utils::LockTimeoutException(
               "Failed to apply deferred update due to LockTimeoutException");
         case distributed::UpdateResult::DONE:
           break;

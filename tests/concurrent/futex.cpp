@@ -3,9 +3,11 @@
 #include <random>
 #include <thread>
 
-#include "threading/sync/futex.hpp"
+#include <glog/logging.h>
 
-Futex futex;
+#include "utils/thread/sync.hpp"
+
+utils::Futex futex;
 int x = 0;
 
 /**
@@ -19,7 +21,7 @@ void test_lock(int) {
   // TODO: create long running test
   for (int i = 0; i < 5; ++i) {
     {
-      std::unique_lock<Futex> guard(futex);
+      std::unique_lock<utils::Futex> guard(futex);
       x++;
       std::this_thread::sleep_for(std::chrono::milliseconds(dis(gen)));
       CHECK(x == 1) << "Other thread shouldn't be able to "

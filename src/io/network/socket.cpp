@@ -19,7 +19,6 @@
 #include "glog/logging.h"
 
 #include "io/network/addrinfo.hpp"
-#include "threading/sync/cpu_relax.hpp"
 #include "utils/likely.hpp"
 
 namespace io::network {

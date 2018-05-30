@@ -8,8 +8,6 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "storage/locking/record_lock.hpp"
-#include "threading/sync/lockable.hpp"
-#include "threading/sync/spinlock.hpp"
 #include "transactions/lock_store.hpp"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"
