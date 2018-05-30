@@ -133,17 +133,6 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithData) {
   }
 }
 
-// Checks if it's possible to request a specific gid for vertex creation
-TEST_F(DistributedGraphDbTest, CreateVertexWithGid) {
-  std::experimental::optional<gid::Gid> gid(1337);
-  {
-    database::GraphDbAccessor dba{worker(1)};
-    auto v = dba.InsertVertexIntoRemote(2, {}, {}, gid);
-    EXPECT_EQ(v.gid(), *gid);
-    dba.Commit();
-  }
-}
-
 // Checks if expiring a local record for a local update before applying a remote
 // update delta causes a problem
 TEST_F(DistributedGraphDbTest, UpdateVertexRemoteAndLocal) {

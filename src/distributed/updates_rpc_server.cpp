@@ -61,9 +61,9 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
 template <typename TRecordAccessor>
 gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue> &properties,
-    std::experimental::optional<gid::Gid> requested_gid) {
-  auto result = db_accessor_.InsertVertex(requested_gid);
+    const std::unordered_map<storage::Property, query::TypedValue>
+        &properties) {
+  auto result = db_accessor_.InsertVertex();
   for (auto &label : labels) result.add_label(label);
   for (auto &kv : properties) result.PropsSet(kv.first, kv.second);
   std::lock_guard<SpinLock> guard{lock_};
@@ -201,8 +201,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
 
   server.Register<CreateVertexRpc>([this](const CreateVertexReq &req) {
     gid::Gid gid = GetUpdates(vertex_updates_, req.member.tx_id)
-                       .CreateVertex(req.member.labels, req.member.properties,
-                                     req.member.requested_gid);
+                       .CreateVertex(req.member.labels, req.member.properties);
     return std::make_unique<CreateVertexRes>(
         CreateResult{UpdateResult::DONE, gid});
   });

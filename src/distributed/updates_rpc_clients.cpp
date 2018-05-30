@@ -23,7 +23,7 @@ void RaiseIfRemoteError(UpdateResult result) {
       break;
   }
 }
-}  // namespace
+}
 
 UpdateResult UpdatesRpcClients::Update(int worker_id,
                                        const database::StateDelta &delta) {
@@ -35,10 +35,10 @@ UpdateResult UpdatesRpcClients::Update(int worker_id,
 gid::Gid UpdatesRpcClients::CreateVertex(
     int worker_id, tx::TransactionId tx_id,
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue> &properties,
-    std::experimental::optional<gid::Gid> requested_gid) {
+    const std::unordered_map<storage::Property, query::TypedValue>
+        &properties) {
   auto res = worker_clients_.GetClientPool(worker_id).Call<CreateVertexRpc>(
-      CreateVertexReqData{tx_id, labels, properties, requested_gid});
+      CreateVertexReqData{tx_id, labels, properties});
   CHECK(res) << "CreateVertexRpc failed on worker: " << worker_id;
   CHECK(res->member.result == UpdateResult::DONE)
       << "Remote Vertex creation result not UpdateResult::DONE";
@@ -59,7 +59,8 @@ storage::EdgeAddress UpdatesRpcClients::CreateEdge(
   return {res->member.gid, from_worker};
 }
 
-void UpdatesRpcClients::AddInEdge(tx::TransactionId tx_id, VertexAccessor &from,
+void UpdatesRpcClients::AddInEdge(tx::TransactionId tx_id,
+                                  VertexAccessor &from,
                                   storage::EdgeAddress edge_address,
                                   VertexAccessor &to,
                                   storage::EdgeType edge_type) {

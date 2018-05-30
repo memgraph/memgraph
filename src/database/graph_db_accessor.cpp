@@ -94,16 +94,13 @@ VertexAccessor GraphDbAccessor::InsertVertex(
 
 VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
     int worker_id, const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue> &properties,
-    std::experimental::optional<gid::Gid> requested_gid) {
+    const std::unordered_map<storage::Property, query::TypedValue>
+        &properties) {
   CHECK(worker_id != db().WorkerId())
       << "Not allowed to call InsertVertexIntoRemote for local worker";
 
   gid::Gid gid = db().updates_clients().CreateVertex(
-      worker_id, transaction_id(), labels, properties, requested_gid);
-
-  CHECK(!requested_gid || *requested_gid == gid)
-      << "Unable to assign requested vertex gid";
+      worker_id, transaction_id(), labels, properties);
 
   auto vertex = std::make_unique<Vertex>();
   vertex->labels_ = labels;
