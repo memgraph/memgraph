@@ -7,6 +7,7 @@
 ### Major Features and Improvements
 
 * Dynamic graph partitioner added.
+* Static vertices/edges id generators exposed through the Id Cypher function.
 
 ### Bug Fixes and Other Changes
 
