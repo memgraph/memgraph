@@ -30,24 +30,27 @@ class RpcNetwork : public RaftNetworkInterface<State> {
       : server_(server), directory_(std::move(directory)) {}
 
   virtual void Start(RaftMember<State> &member) override {
-    server_.Register<PeerProtocol<State>>(
-        [&member](const PeerRpcRequest<State> &request) {
-          auto reply = std::make_unique<PeerRpcReply>();
-          reply->type = request.type;
-          switch (request.type) {
-            case RpcType::REQUEST_VOTE:
-              reply->request_vote = member.OnRequestVote(request.request_vote);
-              break;
-            case RpcType::APPEND_ENTRIES:
-              reply->append_entries =
-                  member.OnAppendEntries(request.append_entries);
-              break;
-            default:
-              LOG(ERROR) << "Unknown RPC type: "
-                         << static_cast<int>(request.type);
-          }
-          return reply;
-        });
+    // TODO: Serialize RPC via Cap'n Proto
+//    server_.Register<PeerProtocol<State>>(
+//        [&member](const auto &req_reader, auto *res_builder) {
+//          PeerRpcRequest<State> request;
+//          request.Load(req_reader);
+//          PeerRpcReply reply;
+//          reply.type = request.type;
+//          switch (request.type) {
+//            case RpcType::REQUEST_VOTE:
+//              reply.request_vote = member.OnRequestVote(request.request_vote);
+//              break;
+//            case RpcType::APPEND_ENTRIES:
+//              reply.append_entries =
+//                  member.OnAppendEntries(request.append_entries);
+//              break;
+//            default:
+//              LOG(ERROR) << "Unknown RPC type: "
+//                         << static_cast<int>(request.type);
+//          }
+//          reply.Save(res_builder);
+//        });
   }
 
   virtual bool SendRequestVote(const MemberId &recipient,

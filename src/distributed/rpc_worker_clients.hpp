@@ -91,9 +91,8 @@ class IndexRpcClients {
         worker_id,
         [label, property, transaction_id](
             int worker_id, communication::rpc::ClientPool &client_pool) {
-          return client_pool.Call<BuildIndexRpc>(
-                     distributed::IndexLabelPropertyTx{
-                         label, property, transaction_id}) != nullptr;
+          return static_cast<bool>(
+              client_pool.Call<BuildIndexRpc>(label, property, transaction_id));
         });
   }
 

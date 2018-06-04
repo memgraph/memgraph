@@ -1,11 +1,10 @@
 #include <sstream>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/unique_ptr.hpp"
+#include "capnp/message.h"
+#include "capnp/serialize.h"
 #include "fmt/format.h"
 
-#include "communication/rpc/messages-inl.hpp"
+#include "communication/rpc/messages.capnp.h"
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/protocol.hpp"
 #include "communication/rpc/server.hpp"
@@ -28,65 +27,51 @@ void Session::Execute() {
   if (input_stream_.size() < request_size) return;
 
   // Read the request message.
-  std::unique_ptr<Message> request([this, request_len]() {
-    Message *req_ptr = nullptr;
-    std::stringstream stream(std::ios_base::in | std::ios_base::binary);
-    stream.str(std::string(
-        reinterpret_cast<char *>(input_stream_.data() + sizeof(MessageSize)),
-        request_len));
-    boost::archive::binary_iarchive archive(stream);
-    // Sent from client.cpp
-    archive >> req_ptr;
-    return req_ptr;
-  }());
+  auto data =
+      ::kj::arrayPtr(input_stream_.data() + sizeof(request_len), request_len);
+  // Our data is word aligned and padded to 64bit because we use regular
+  // (non-packed) serialization of Cap'n Proto. So we can use reinterpret_cast.
+  auto data_words =
+      ::kj::arrayPtr(reinterpret_cast<::capnp::word *>(data.begin()),
+                     reinterpret_cast<::capnp::word *>(data.end()));
+  ::capnp::FlatArrayMessageReader request_message(data_words.asConst());
+  auto request = request_message.getRoot<capnp::Message>();
   input_stream_.Shift(sizeof(MessageSize) + request_len);
 
   auto callbacks_accessor = server_.callbacks_.access();
-  auto it = callbacks_accessor.find(request->type_index());
+  auto it = callbacks_accessor.find(request.getTypeId());
   if (it == callbacks_accessor.end()) {
     // Throw exception to close the socket and cleanup the session.
     throw SessionException(
         "Session trying to execute an unregistered RPC call!");
   }
 
-  if (VLOG_IS_ON(12)) {
-    auto req_type = utils::Demangle(request->type_index().name());
-    LOG(INFO) << "[RpcServer] received " << (req_type ? req_type.value() : "");
-  }
+  VLOG(12) << "[RpcServer] received " << it->second.req_type.name;
 
-  std::unique_ptr<Message> response = it->second(*(request.get()));
-
-  if (!response) {
-    throw SessionException("Trying to send nullptr instead of message");
-  }
+  ::capnp::MallocMessageBuilder response_message;
+  // callback fills the message data
+  auto response_builder = response_message.initRoot<capnp::Message>();
+  it->second.callback(request, &response_builder);
 
   // Serialize and send response
-  std::stringstream stream(std::ios_base::out | std::ios_base::binary);
-  {
-    boost::archive::binary_oarchive archive(stream);
-    archive << response;
-    // Archive destructor ensures everything is written.
-  }
-
-  const std::string &buffer = stream.str();
-  if (buffer.size() > std::numeric_limits<MessageSize>::max()) {
+  auto response_words = ::capnp::messageToFlatArray(response_message);
+  auto response_bytes = response_words.asBytes();
+  if (response_bytes.size() > std::numeric_limits<MessageSize>::max()) {
     throw SessionException(fmt::format(
         "Trying to send response of size {}, max response size is {}",
-        buffer.size(), std::numeric_limits<MessageSize>::max()));
+        response_bytes.size(), std::numeric_limits<MessageSize>::max()));
   }
 
-  MessageSize input_stream_size = buffer.size();
+  MessageSize input_stream_size = response_bytes.size();
   if (!output_stream_.Write(reinterpret_cast<uint8_t *>(&input_stream_size),
                             sizeof(MessageSize), true)) {
     throw SessionException("Couldn't send response size!");
   }
-  if (!output_stream_.Write(buffer)) {
+  if (!output_stream_.Write(response_bytes.begin(), response_bytes.size())) {
     throw SessionException("Couldn't send response data!");
   }
 
-  if (VLOG_IS_ON(12)) {
-    auto res_type = utils::Demangle(response->type_index().name());
-    LOG(INFO) << "[RpcServer] sent " << (res_type ? res_type.value() : "");
-  }
+  VLOG(12) << "[RpcServer] sent " << it->second.res_type.name;
 }
+
 }  // namespace communication::rpc

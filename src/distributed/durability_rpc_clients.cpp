@@ -10,7 +10,7 @@ utils::Future<bool> DurabilityRpcClients::MakeSnapshot(tx::TransactionId tx) {
     auto futures = clients_.ExecuteOnWorkers<bool>(
         0, [tx](int worker_id, communication::rpc::ClientPool &client_pool) {
           auto res = client_pool.Call<MakeSnapshotRpc>(tx);
-          if (res == nullptr) return false;
+          if (!res) return false;
           return res->member;
         });
 

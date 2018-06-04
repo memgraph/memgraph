@@ -19,39 +19,39 @@ class BfsRpcClients {
                 distributed::BfsSubcursorStorage *subcursor_storage,
                 distributed::RpcWorkerClients *clients);
 
-  std::unordered_map<int, int64_t> CreateBfsSubcursors(
+  std::unordered_map<int16_t, int64_t> CreateBfsSubcursors(
       tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
       const std::vector<storage::EdgeType> &edge_types,
       query::GraphView graph_view);
 
   void RegisterSubcursors(
-      const std::unordered_map<int, int64_t> &subcursor_ids);
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
   void RemoveBfsSubcursors(
-      const std::unordered_map<int, int64_t> &subcursor_ids);
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
   std::experimental::optional<VertexAccessor> Pull(
-      int worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba);
+      int16_t worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba);
 
-  bool ExpandLevel(const std::unordered_map<int, int64_t> &subcursor_ids);
+  bool ExpandLevel(const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
-  void SetSource(const std::unordered_map<int, int64_t> &subcursor_ids,
+  void SetSource(const std::unordered_map<int16_t, int64_t> &subcursor_ids,
                  storage::VertexAddress source_address);
 
   bool ExpandToRemoteVertex(
-      const std::unordered_map<int, int64_t> &subcursor_ids, EdgeAccessor edge,
-      VertexAccessor vertex);
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids,
+      EdgeAccessor edge, VertexAccessor vertex);
 
   PathSegment ReconstructPath(
-      const std::unordered_map<int, int64_t> &subcursor_ids,
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids,
       storage::EdgeAddress edge, database::GraphDbAccessor *dba);
 
   PathSegment ReconstructPath(
-      const std::unordered_map<int, int64_t> &subcursor_ids,
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids,
       storage::VertexAddress vertex, database::GraphDbAccessor *dba);
 
-  void PrepareForExpand(const std::unordered_map<int, int64_t> &subcursor_ids,
-                        bool clear);
+  void PrepareForExpand(
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear);
 
  private:
   database::GraphDb *db_;

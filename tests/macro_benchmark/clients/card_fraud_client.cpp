@@ -11,15 +11,6 @@
 
 #include "long_running_common.hpp"
 
-// TODO(mtomic): this sucks but I don't know a different way to make it work
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/export.hpp"
-BOOST_CLASS_EXPORT(stats::StatsReq);
-BOOST_CLASS_EXPORT(stats::StatsRes);
-BOOST_CLASS_EXPORT(stats::BatchStatsReq);
-BOOST_CLASS_EXPORT(stats::BatchStatsRes);
-
 std::atomic<int64_t> num_pos;
 std::atomic<int64_t> num_cards;
 std::atomic<int64_t> num_transactions;

@@ -7,13 +7,6 @@
 
 // TODO (buda): move this logic to a unit test
 
-// TODO (mtomic): This is a hack. I don't know a better way to make this work.
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/export.hpp"
-BOOST_CLASS_EXPORT(stats::StatsReq);
-BOOST_CLASS_EXPORT(stats::StatsRes);
-
 bool parse_input(const std::string &s, std::string &metric_path,
                  std::vector<std::pair<std::string, std::string>> &tags,
                  double &value) {

@@ -3,11 +3,20 @@
   (:export #:define-class
            #:define-struct
            #:define-enum
+           #:define-rpc
+           #:cpp-list
+           #:in-impl
            #:namespace
            #:pop-namespace
            #:capnp-namespace
            #:capnp-import
            #:capnp-type-conversion
+           #:capnp-save-optional
+           #:capnp-load-optional
+           #:capnp-save-vector
+           #:capnp-load-vector
+           #:capnp-save-enum
+           #:capnp-load-enum
            #:process-file))
 
 (in-package #:lcp)
@@ -75,21 +84,57 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-dispatch-macro-character #\# #\> #'|#>-reader|))
 
-(deftype cpp-primitive-type ()
-  `(member :bool :int :int32_t :int64_t :uint :uint32_t :uint64_t :float :double))
+(defclass cpp-type ()
+  ((documentation :type (or null string) :initarg :documentation :initform nil
+                  :reader cpp-type-documentation
+                  :documentation "Documentation string for this C++ type.")
+   (namespace :type list :initarg :ns :initarg :namespace :initform nil
+              :reader cpp-type-namespace
+              :documentation "A list of symbols or strings defining the full
+              namespace. A single symbol may refer to a `CPP-CLASS' which
+              encloses this type.")
+   (enclosing-class :type (or null symbol) :initarg :enclosing-class
+                    :initform nil :accessor cpp-type-enclosing-class)
+   (name :type (or symbol string) :initarg :name :reader cpp-type-base-name
+         :documentation "Base name of this type.")
+   (type-params :type list :initarg :type-params :initform nil
+                :reader cpp-type-type-params
+                :documentation "List of template parameters that are needed to
+                instantiate a concrete type. For example, in `template
+                <TValue> class vector`, 'TValue' is type parameter.")
+   (type-args :type list :initarg :type-args :initform nil
+              :reader cpp-type-type-args
+              :documentation "List of already applied template arguments. For
+              example in `std::vector<int>`, 'int' is a type argument."))
+  (:documentation "Base class for meta information on C++ types."))
 
-(defun cpp-primitive-type-p (type)
-  (member type '(:bool :int :int32_t :int64_t :uint :uint32_t :uint64_t :float :double)))
+(defgeneric cpp-type-name (cpp-type)
+  (:documentation "Get C++ style type name from `CPP-TYPE' as a string."))
 
-;; TODO: Rename this to cpp-type and set it as the base class/struct for all
-;; the other cpp type metainformation (`CPP-CLASS', `CPP-ENUM' ...)
-(defstruct cpp-type-decl
-  namespace
-  name
-  type-args)
+(defmethod cpp-type-name ((cpp-type string))
+  "Return CPP-TYPE string as is."
+  cpp-type)
+
+(defmethod cpp-type-name ((cpp-type cpp-type))
+  "Return `CPP-TYPE' name as PascalCase or if string, as is."
+  (cpp-type-name (cpp-type-base-name cpp-type)))
+
+(deftype cpp-primitive-type-keywords ()
+  "List of keywords that specify a primitive type in C++."
+  `(member :bool :int :int16_t :int32_t :int64_t :uint :uint32_t :uint64_t :float :double))
+
+(defmethod cpp-type-name ((cpp-type symbol))
+  "Return PascalCase of CPP-TYPE symbol or lowercase if it is a primitive type."
+  (if (typep cpp-type 'cpp-primitive-type-keywords)
+      (string-downcase (string cpp-type))
+      (remove #\- (string-capitalize (string cpp-type)))))
+
+(defclass cpp-primitive-type (cpp-type)
+  ((name :type cpp-primitive-type-keywords))
+  (:documentation "Represents a primitive type in C++."))
 
 (defun parse-cpp-type-declaration (type-decl)
-  "Parse C++ type from TYPE-DECL string and return CPP-TYPE-DECL.
+  "Parse C++ type from TYPE-DECL string and return CPP-TYPE.
 
 For example:
 
@@ -97,14 +142,14 @@ For example:
 
 produces:
 
-;; (cpp-type-decl
+;; (cpp-type
 ;;  :name pair
-;;  :type-args ((cpp-type-decl
+;;  :type-args ((cpp-type
 ;;              :name MyClass
-;;              :type-args ((cpp-type-decl :name function
-;;                                         :type-args (cpp-type-decl :name void(int, bool)))
-;;                          (cpp-type-decl :name double)))
-;;              (cpp-type-decl :name char)))"
+;;              :type-args ((cpp-type :name function
+;;                                    :type-args (cpp-type :name void(int, bool)))
+;;                          (cpp-type :name double)))
+;;              (cpp-type :name char)))"
   (declare (type string type-decl))
   ;; C++ type can be declared as follows:
   ;; namespace::namespace::type<type-arg, type-arg> *
@@ -140,31 +185,33 @@ produces:
                        (subseq template arg-start (1- match-end)))
                       type-args)
                 (setf arg-start (1+ match-end)))))))
-      (make-cpp-type-decl :namespace (when (cdr namespace-split)
-                                       (butlast namespace-split))
-                          :name name
-                          :type-args (reverse type-args)))))
+      (make-instance 'cpp-type
+                     :ns (when (cdr namespace-split)
+                           (butlast namespace-split))
+                     :name name
+                     :type-args (reverse type-args)))))
 
-(defun string<-cpp-type-decl (type-decl)
-  (declare (type cpp-type-decl type-decl))
+(defun cpp-type-decl (cpp-type)
+  (declare (type cpp-type cpp-type))
+  ;; TODO: Merge this and cpp-class-full-name
   (with-output-to-string (s)
-    (format s "~{~A::~}" (cpp-type-decl-namespace type-decl))
-    (write-string (cpp-type-decl-name type-decl) s)
-    (when (cpp-type-decl-type-args type-decl)
-      (format s "<~{~A~^, ~}>"
-              (mapcar #'string<-cpp-type-decl (cpp-type-decl-type-args type-decl))))))
+    (format s "~{~A::~}" (cpp-type-namespace cpp-type))
+    (write-string (cpp-type-name cpp-type) s)
+    (when (cpp-type-type-args cpp-type)
+      (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-decl (cpp-type-type-args cpp-type))))))
 
-(defstruct cpp-enum
-  "Meta information on a C++ enum."
-  (symbol nil :type symbol :read-only t)
-  (documentation nil :type (or null string) :read-only t)
-  (values nil :read-only t)
-  (enclosing-class nil :type (or null symbol) :read-only t))
+(defclass cpp-enum (cpp-type)
+  ((values :type list :initarg :values :initform nil :reader cpp-enum-values)
+   ;; If true, generate the schema for this enum.
+   (capnp-schema :type boolean :initarg :capnp-schema :initform nil
+                 :reader cpp-enum-capnp-schema))
+  (:documentation "Meta information on a C++ enum."))
 
 (defstruct cpp-member
   "Meta information on a C++ class (or struct) member variable."
   (symbol nil :type symbol :read-only t)
-  (type nil :type (or cpp-primitive-type string) :read-only t)
+  (type nil :type (or cpp-primitive-type-keywords string) :read-only t)
+  (initarg nil :type symbol :read-only t)
   (initval nil :type (or null string integer float) :read-only t)
   (scope :private :type (member :public :protected :private) :read-only t)
   ;; TODO: Support giving a name for reader function.
@@ -174,9 +221,11 @@ produces:
   ;; args: (archive member-name) and needs to return C++ code.
   (save-fun nil :type (or null string raw-cpp function) :read-only t)
   (load-fun nil :type (or null string raw-cpp function) :read-only t)
-  (capnp-type nil :type (or null string) :read-only t)
+  ;; CAPNP-TYPE may be a string specifying the type, or a list of
+  ;; (member-symbol "capnp-type") specifying a union type.
+  (capnp-type nil :type (or null string list) :read-only t)
   (capnp-init t :type boolean :read-only t)
-  (capnp-save nil :type (or null function) :read-only t)
+  (capnp-save nil :type (or null function (eql :dont-save)) :read-only t)
   (capnp-load nil :type (or null function) :read-only t))
 
 (defstruct capnp-opts
@@ -193,47 +242,44 @@ produces:
   ;; as a composition.
   (inherit-compose nil :read-only t))
 
-(defstruct cpp-class
-  "Meta information on a C++ class (or struct)."
-  (structp nil :type boolean :read-only t)
-  (name nil :type symbol :read-only t)
-  (super-classes nil :read-only t)
-  (type-params nil :read-only t)
-  (documentation "" :type (or null string) :read-only t)
-  (members nil :read-only t)
-  ;; Custom C++ code in 3 scopes. May be a list of C++ meta information or a
-  ;; single element.
-  (public nil :read-only t)
-  (protected nil :read-only t)
-  (private nil)
-  (capnp-opts nil :type (or null capnp-opts) :read-only t)
-  (namespace nil :read-only t)
-  (inner-types nil)
-  (enclosing-class nil :type (or null symbol)))
-
-(defun cpp-type-name (name)
-  "Get C++ style type name from NAME as a string."
-  (typecase name
-    (cpp-primitive-type (string-downcase (string name)))
-    (symbol (remove #\- (string-capitalize (string name))))
-    (string name)
-    (otherwise (error "Unkown conversion to C++ type for ~S" (type-of name)))))
+(defclass cpp-class (cpp-type)
+  ((structp :type boolean :initarg :structp :initform nil
+            :reader cpp-class-structp)
+   (super-classes :initarg :super-classes :initform nil
+                  :reader cpp-class-super-classes)
+   (members :initarg :members :initform nil :reader cpp-class-members)
+   ;; Custom C++ code in 3 scopes. May be a list of C++ meta information or a
+   ;; single element.
+   (public :initarg :public :initform nil :reader cpp-class-public)
+   (protected :initarg :protected :initform nil :reader cpp-class-protected)
+   (private :initarg :private :initform nil :accessor cpp-class-private)
+   (capnp-opts :type (or null capnp-opts) :initarg :capnp-opts :initform nil
+               :reader cpp-class-capnp-opts)
+   (inner-types :initarg :inner-types :initform nil :reader cpp-class-inner-types))
+  (:documentation "Meta information on a C++ class (or struct)."))
 
 (defvar *cpp-classes* nil "List of defined classes from LCP file")
+(defvar *cpp-enums* nil "List of defined enums from LCP file")
 
 (defun find-cpp-class (cpp-class-name)
   "Find CPP-CLASS in *CPP-CLASSES* by CPP-CLASS-NAME"
   (declare (type (or symbol string) cpp-class-name))
+  ;; TODO: Find by full name
   (if (stringp cpp-class-name)
-      (find cpp-class-name *cpp-classes*
-            :key (lambda (class) (cpp-type-name (cpp-class-name class)))
-            :test #'string=)
-      (find cpp-class-name *cpp-classes* :key #'cpp-class-name)))
+      (find cpp-class-name *cpp-classes* :key #'cpp-type-name :test #'string=)
+      (find cpp-class-name *cpp-classes* :key #'cpp-type-base-name)))
+
+(defun find-cpp-enum (cpp-enum-name)
+  "Find CPP-ENUM in *CPP-ENUMS* by CPP-ENUM-NAME"
+  (declare (type (or symbol string) cpp-enum-name))
+  (if (stringp cpp-enum-name)
+      (find cpp-enum-name *cpp-enums* :key #'cpp-type-name :test #'string=)
+      (find cpp-enum-name *cpp-enums* :key #'cpp-type-base-name)))
 
 (defun direct-subclasses-of (cpp-class)
   "Find direct subclasses of CPP-CLASS from *CPP-CLASSES*"
   (declare (type (or symbol cpp-class) cpp-class))
-  (let ((name (if (symbolp cpp-class) cpp-class (cpp-class-name cpp-class))))
+  (let ((name (if (symbolp cpp-class) cpp-class (cpp-type-base-name cpp-class))))
     (reverse ;; reverse to get them in definition order
      (remove-if (lambda (subclass)
                   (not (member name (cpp-class-super-classes subclass))))
@@ -244,9 +290,7 @@ produces:
   (declare (type string documentation))
   (format nil "/// ~A"
           (cl-ppcre:regex-replace-all
-           (string #\Newline)
-           documentation
-           (format nil "~%/// "))))
+           (string #\Newline) documentation (format nil "~%/// "))))
 
 (defun cpp-variable-name (symbol)
   "Get C++ style name of SYMBOL as a string."
@@ -270,9 +314,9 @@ produces:
   "Get C++ style `CPP-ENUM' definition as a string."
   (declare (type cpp-enum cpp-enum))
   (with-output-to-string (s)
-    (when (cpp-enum-documentation cpp-enum)
-      (write-line (cpp-documentation (cpp-enum-documentation cpp-enum)) s))
-    (format s "enum class ~A {~%" (cpp-type-name (cpp-enum-symbol cpp-enum)))
+    (when (cpp-type-documentation cpp-enum)
+      (write-line (cpp-documentation (cpp-type-documentation cpp-enum)) s))
+    (format s "enum class ~A {~%" (cpp-type-name cpp-enum))
     (format s "~{ ~A~^,~%~}~%" (mapcar #'cpp-constant-name (cpp-enum-values cpp-enum)))
     (write-line "};" s)))
 
@@ -292,7 +336,7 @@ produces:
 (defun cpp-member-reader-definition (cpp-member)
   "Get C++ style `CPP-MEMBER' getter (reader) function."
   (declare (type cpp-member cpp-member))
-  (if (cpp-primitive-type-p (cpp-member-type cpp-member))
+  (if (typep (cpp-member-type cpp-member) 'cpp-primitive-type-keywords)
       (format nil "auto ~A() const { return ~A; }" (cpp-member-name cpp-member :struct t) (cpp-member-name cpp-member))
       (format nil "const auto &~A() const { return ~A; }" (cpp-member-name cpp-member :struct t) (cpp-member-name cpp-member))))
 
@@ -312,20 +356,20 @@ NIL, returns a string."
            (cpp-member-declaration member :struct (cpp-class-structp cpp-class))))
     (with-output-to-string (s)
       (terpri s)
-      (when (cpp-class-documentation cpp-class)
-        (write-line (cpp-documentation (cpp-class-documentation cpp-class)) s))
-      (when (cpp-class-type-params cpp-class)
-        (cpp-template (cpp-class-type-params cpp-class) s))
+      (when (cpp-type-documentation cpp-class)
+        (write-line (cpp-documentation (cpp-type-documentation cpp-class)) s))
+      (when (cpp-type-type-params cpp-class)
+        (cpp-template (cpp-type-type-params cpp-class) s))
       (if (cpp-class-structp cpp-class)
           (write-string "struct " s)
           (write-string "class " s))
-      (format s "~A" (cpp-type-name (cpp-class-name cpp-class)))
+      (format s "~A" (cpp-type-name cpp-class))
       (when (cpp-class-super-classes cpp-class)
         (format s " : ~{public ~A~^, ~}"
                 (mapcar #'cpp-type-name (cpp-class-super-classes cpp-class))))
       (write-line " {" s)
-      (let ((reader-members (remove-if (lambda (m) (not (cpp-member-reader m)))
-                                         (cpp-class-members cpp-class))))
+      (let ((reader-members (remove-if (complement #'cpp-member-reader)
+                                       (cpp-class-members cpp-class))))
         (when (or (cpp-class-public cpp-class) (cpp-class-members-scoped :public) reader-members)
           (unless (cpp-class-structp cpp-class)
             (write-line " public:" s))
@@ -337,9 +381,9 @@ NIL, returns a string."
         (let ((save (capnp-save-declaration cpp-class))
               (construct (capnp-construct-declaration cpp-class))
               (load (capnp-load-declaration cpp-class)))
-          (when save (format s "  ~A;~%" save))
-          (when construct (format s "  ~A;~%" construct))
-          (when load (format s "  ~A;~%" load))))
+          (when save (format s "  ~A;~2%" save))
+          (when construct (format s "  ~A;~2%" construct))
+          (when load (format s "  ~A;~2%" load))))
       (when (or (cpp-class-protected cpp-class) (cpp-class-members-scoped :protected))
         (write-line " protected:" s)
         (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-protected cpp-class)))
@@ -360,14 +404,14 @@ NIL, returns a string."
            (let (enclosing)
              (loop
                 for class = cpp-class
-                then (find-cpp-class (cpp-class-enclosing-class class))
+                then (find-cpp-class (cpp-type-enclosing-class class))
                 while class
-                do (push (cpp-type-name (cpp-class-name class)) enclosing))
+                do (push (cpp-type-name class) enclosing))
              enclosing)))
     (let* ((full-name (format nil "~{~A~^::~}" (enclosing-classes class)))
-           (type-args (if (or (not type-args) (not (cpp-class-type-params class)))
+           (type-args (if (or (not type-args) (not (cpp-type-type-params class)))
                           ""
-                          (format nil "<~{~A~^, ~}>" (mapcar #'cpp-type-name (cpp-class-type-params class))))))
+                          (format nil "<~{~A~^, ~}>" (mapcar #'cpp-type-name (cpp-type-type-params class))))))
       (concatenate 'string full-name type-args))))
 
 (defun cpp-method-declaration (class method-name
@@ -380,18 +424,17 @@ declaration to be used outside of class definition.  Remaining keys are flags
 which generate the corresponding C++ keywords."
   (declare (type cpp-class class)
            (type string method-name))
-  (let* ((type-params (cpp-class-type-params class))
+  (let* ((type-params (cpp-type-type-params class))
          (template (if (or inline (not type-params)) "" (cpp-template type-params)))
          (static/virtual (cond
                            ((and inline static) "static")
                            ((and inline virtual) "virtual")
                            (t "")))
          (namespace (if inline "" (format nil "~A::" (cpp-class-full-name class))))
-         (args (format nil "~{~A~^, ~}"
+         (args (format nil "~:{~A ~A~:^, ~}"
                        (mapcar (lambda (name-and-type)
-                                 (format nil "~A ~A"
-                                         (cpp-type-name (second name-and-type))
-                                         (cpp-variable-name (first name-and-type))))
+                                 (list (cpp-type-name (second name-and-type))
+                                       (cpp-variable-name (first name-and-type))))
                                args)))
          (const (if const "const" ""))
          (override (if (and override inline) "override" "")))
@@ -401,6 +444,15 @@ which generate the corresponding C++ keywords."
      ${returns} ${namespace}${method-name}(${args}) ${const} ${override}
      cpp<#)))
 
+(defstruct cpp-list
+  values)
+
+(defun cpp-list (&rest args)
+  (make-cpp-list
+   :values (remove-if (lambda (a)
+                        (not (typep a '(or raw-cpp cpp-type cpp-list))))
+                      args)))
+
 (defun cpp-code (cpp)
   "Get a C++ string from given CPP meta information."
   (typecase cpp
@@ -408,6 +460,7 @@ which generate the corresponding C++ keywords."
     (cpp-class (cpp-class-definition cpp))
     (cpp-enum (cpp-enum-definition cpp))
     (string cpp)
+    (cpp-list (format nil "~{~A~^~%~}" (mapcar #'cpp-code (cpp-list-values cpp))))
     (null "")
     (otherwise (error "Unknown conversion to C++ for ~S" (type-of cpp)))))
 
@@ -530,7 +583,7 @@ which generate the corresponding C++ keywords."
   "Get direct subclasses of CPP-CLASS which should be modeled as a union in
 Cap'n Proto schema."
   (declare (type (or symbol cpp-class) cpp-class))
-  (let ((class-name (if (symbolp cpp-class) cpp-class (cpp-class-name cpp-class))))
+  (let ((class-name (if (symbolp cpp-class) cpp-class (cpp-type-base-name cpp-class))))
     (remove-if (lambda (subclass)
                  (member class-name
                          (capnp-opts-inherit-compose (cpp-class-capnp-opts subclass))))
@@ -544,10 +597,11 @@ CPP-CLASS."
   (let* ((class (if (symbolp cpp-class) (find-cpp-class cpp-class) cpp-class))
          (capnp-opts (cpp-class-capnp-opts class))
          union compose)
-    (dolist (parent (cpp-class-super-classes class))
-      (if (member parent (capnp-opts-inherit-compose capnp-opts))
-          (push parent compose)
-          (push parent union)))
+    (when (not (capnp-opts-base capnp-opts))
+      (dolist (parent (cpp-class-super-classes class))
+        (if (member parent (capnp-opts-inherit-compose capnp-opts))
+            (push parent compose)
+            (push parent union))))
     (values union compose)))
 
 (defun capnp-union-parents-rec (cpp-class)
@@ -560,7 +614,7 @@ encoded as union inheritance in Cap'n Proto."
                (and opts (capnp-opts-base opts))))
            (rec (class)
              (declare (type cpp-class class))
-             (cons (cpp-class-name class)
+             (cons (cpp-type-base-name class)
                    ;; Continue to supers only if this isn't marked as capnp base class.
                    (when (and (not (capnp-base-p class))
                               (capnp-union-and-compose-parents class))
@@ -580,45 +634,72 @@ encoded as union inheritance in Cap'n Proto."
   (push (cons cpp-type capnp-type) *capnp-type-converters*))
 
 (defun capnp-type<-cpp-type (cpp-type)
-  (typecase cpp-type
-    (cpp-primitive-type
-     (when (member cpp-type '(:int :uint))
-       (error "Unable to get Capnp type for integer without specified width."))
-     ;; Delete the _t suffix
-     (cl-ppcre:regex-replace "_t$" (string-downcase cpp-type :start 1) ""))
-    (string
-     (let ((type-decl (parse-cpp-type-declaration cpp-type)))
-       (cond
-         ((string= "shared_ptr" (cpp-type-decl-name type-decl))
-          (let ((class (find-cpp-class
-                        ;; TODO: Use full type
-                        (cpp-type-decl-name (first (cpp-type-decl-type-args type-decl))))))
-            (unless class
-              (error "Unable to determine base type for '~A'; use :capnp-type"
-                     cpp-type))
-            (let* ((parents (capnp-union-parents-rec class))
-                   (top-parent (if parents (car (last parents)) (cpp-class-name class))))
-                   (format nil "Utils.SharedPtr(~A)" (cpp-type-name top-parent)))))
-         ((string= "vector" (cpp-type-decl-name type-decl))
-          (format nil "List(~A)"
-                  (capnp-type<-cpp-type
-                   (string<-cpp-type-decl (first (cpp-type-decl-type-args type-decl))))))
-         ((string= "optional" (cpp-type-decl-name type-decl))
-          (format nil "Utils.Optional(~A)"
-                  (capnp-type<-cpp-type
-                   (string<-cpp-type-decl (first (cpp-type-decl-type-args type-decl))))))
-         ((assoc cpp-type *capnp-type-converters* :test #'string=)
-          (cdr (assoc cpp-type *capnp-type-converters* :test #'string=)))
-         (t (cpp-type-name cpp-type)))))
-    ;; Capnp only accepts uppercase first letter in types (PascalCase), so
-    ;; this is the same as our conversion to C++ type name.
-    (otherwise (cpp-type-name cpp-type))))
+  (flet ((convert-primitive-type (name)
+           (when (member name '(:int :uint))
+             (error "Unable to get Capnp type for integer without specified width."))
+           (case name
+             (:bool "Bool")
+             (:float "Float32")
+             (:double "Float64")
+             (otherwise
+              (let ((pos-of-i (position #\I (string name))))
+                ;; Delete the _t suffix
+                (cl-ppcre:regex-replace
+                 "_t$" (string-downcase name :start (1+ pos-of-i)) ""))))))
+    (typecase cpp-type
+      (cpp-primitive-type-keywords (convert-primitive-type cpp-type))
+      (cpp-primitive-type (convert-primitive-type (cpp-type-base-name cpp-type)))
+      (string
+       (let ((type (parse-cpp-type-declaration cpp-type)))
+         (cond
+           ((string= "string" (cpp-type-base-name type))
+            "Text")
+           ((string= "shared_ptr" (cpp-type-base-name type))
+            (let ((class (find-cpp-class
+                          ;; TODO: Use full type
+                          (cpp-type-base-name (first (cpp-type-type-args type))))))
+              (unless class
+                (error "Unable to determine base type for '~A'; use :capnp-type"
+                       cpp-type))
+              (let* ((parents (capnp-union-parents-rec class))
+                     (top-parent (if parents (car (last parents)) (cpp-type-base-name class))))
+                (format nil "Utils.SharedPtr(~A)" (cpp-type-name top-parent)))))
+           ((string= "vector" (cpp-type-base-name type))
+            (format nil "List(~A)"
+                    (capnp-type<-cpp-type
+                     (cpp-type-decl (first (cpp-type-type-args type))))))
+           ((string= "optional" (cpp-type-base-name type))
+            (format nil "Utils.Optional(~A)"
+                    (capnp-type<-cpp-type (cpp-type-decl (first (cpp-type-type-args type))))))
+           ((assoc cpp-type *capnp-type-converters* :test #'string=)
+            (cdr (assoc cpp-type *capnp-type-converters* :test #'string=)))
+           (t (cpp-type-name cpp-type)))))
+      ;; Capnp only accepts uppercase first letter in types (PascalCase), so
+      ;; this is the same as our conversion to C++ type name.
+      (otherwise (cpp-type-name cpp-type)))))
+
+(defun capnp-type-of-member (member)
+  (declare (type cpp-member member))
+  (if (cpp-member-capnp-type member)
+      (cpp-member-capnp-type member)
+      (capnp-type<-cpp-type (cpp-member-type member))))
+
+(defun capnp-primitive-type-p (capnp-type)
+  (declare (type (or list string) capnp-type))
+  (and (stringp capnp-type)
+       (member capnp-type
+               '("Bool"
+                 "Int8" "Int16" "Int32" "Int64"
+                 "UInt8" "UInt16" "UInt32" "UInt64"
+                 "Float32" "Float64"
+                 "Text" "Void")
+               :test #'string=)))
 
 (defun capnp-schema-for-enum (cpp-enum)
   "Generate Cap'n Proto serialization schema for CPP-ENUM"
   (declare (type cpp-enum cpp-enum))
   (with-output-to-string (s)
-    (format s "enum ~A {~%" (cpp-type-name (cpp-enum-symbol cpp-enum)))
+    (format s "enum ~A {~%" (cpp-type-name cpp-enum))
     (loop for val in (cpp-enum-values cpp-enum) and field-number from 0
        do (format s "  ~A @~A;~%"
                   (string-downcase (cpp-type-name val) :end 1)
@@ -630,14 +711,14 @@ encoded as union inheritance in Cap'n Proto."
   (declare (type (or cpp-class cpp-enum symbol) cpp-class))
   (when (null cpp-class)
     (return-from capnp-schema))
-  (when (cpp-enum-p cpp-class)
+  (when (typep cpp-class 'cpp-enum)
     (return-from capnp-schema (capnp-schema-for-enum cpp-class)))
-  (let ((class-name (if (symbolp cpp-class) cpp-class (cpp-class-name cpp-class)))
-        (members (when (cpp-class-p cpp-class) (cpp-class-members cpp-class)))
-        (inner-types (when (cpp-class-p cpp-class) (cpp-class-inner-types cpp-class)))
+  (let ((class-name (if (symbolp cpp-class) cpp-class (cpp-type-base-name cpp-class)))
+        (members (when (typep cpp-class 'cpp-class) (cpp-class-members cpp-class)))
+        (inner-types (when (typep cpp-class 'cpp-class) (cpp-class-inner-types cpp-class)))
         (union-subclasses (capnp-union-subclasses cpp-class))
-        (type-params (when (cpp-class-p cpp-class) (cpp-class-type-params cpp-class)))
-        (capnp-type-args (when (cpp-class-p cpp-class)
+        (type-params (when (typep cpp-class 'cpp-class) (cpp-type-type-params cpp-class)))
+        (capnp-type-args (when (typep cpp-class 'cpp-class)
                            (capnp-opts-type-args (cpp-class-capnp-opts cpp-class))))
         (field-number 0))
     (when (and type-params (not capnp-type-args))
@@ -667,22 +748,40 @@ encoded as union inheritance in Cap'n Proto."
               (incf field-number))
             (write-line "  }" s))
           (dolist (member members)
-            (format s "  ~A @~A :~A;~%"
-                    (field-name<-symbol (cpp-member-symbol member))
-                    field-number
-                    (if (cpp-member-capnp-type member)
-                        (cpp-member-capnp-type member)
-                        (capnp-type<-cpp-type (cpp-member-type member))))
-            (incf field-number))
+            (unless (eq :dont-save (cpp-member-capnp-save member))
+              (let ((capnp-type (capnp-type-of-member member))
+                    (field-name (field-name<-symbol (cpp-member-symbol member))))
+                (if (stringp capnp-type)
+                    (progn
+                      (format s "  ~A @~A :~A;~%"
+                              field-name field-number capnp-type)
+                      (incf field-number))
+                    ;; capnp-type is a list specifying a union type
+                    (progn
+                      (format s "  ~A :union {~%" field-name)
+                      (dolist (union-member capnp-type)
+                        (format s "    ~A @~A :~A;~%"
+                                (field-name<-symbol (first union-member))
+                                field-number (second union-member))
+                        (incf field-number))
+                      (write-line "  }" s))))))
           (dolist (inner inner-types)
-            (write-line (capnp-schema inner) s))
+            (when (or (and (typep inner 'cpp-class) (cpp-class-capnp-opts inner))
+                      (and (typep inner 'cpp-enum) (cpp-enum-capnp-schema inner)))
+              (write-line (capnp-schema inner) s)))
           (when union-subclasses
             (write-line "  union {" s)
+            (when union-parents
+              ;; Allow instantiating classes in the middle of inheritance
+              ;; hierarchy.
+              (format s "    ~A @~A :Void;~%"
+                      (field-name<-symbol class-name) field-number)
+              (incf field-number))
             (dolist (subclass union-subclasses)
               (format s "    ~A @~A :~A;~%"
-                      (field-name<-symbol (cpp-class-name subclass))
+                      (field-name<-symbol (cpp-type-base-name subclass))
                       field-number
-                      (capnp-type<-cpp-type (cpp-class-name subclass)))
+                      (capnp-type<-cpp-type (cpp-type-base-name subclass)))
               (incf field-number))
             (write-line "  }" s))
           (write-line "}" s))))))
@@ -744,7 +843,7 @@ encoded as union inheritance in Cap'n Proto."
   "Get additional arguments to Save/Load function for CPP-CLASS."
   (declare (type cpp-class cpp-class)
            (type (member :save :load) save-or-load))
-  (loop for parent in (cons (cpp-class-name cpp-class) (capnp-union-parents-rec cpp-class))
+  (loop for parent in (cons (cpp-type-base-name cpp-class) (capnp-union-parents-rec cpp-class))
      for opts = (cpp-class-capnp-opts (find-cpp-class parent))
      for args = (ecase save-or-load
                   (:save (capnp-opts-save-args opts))
@@ -758,8 +857,8 @@ used for outside definition."
   (declare (type cpp-class cpp-class))
   (let* ((parents (capnp-union-parents-rec cpp-class))
          (top-parent-class (if parents
-                               (cpp-class-full-name (find-cpp-class (car (last parents))))
-                               (cpp-class-full-name cpp-class)))
+                               (cpp-class-full-name (find-cpp-class (car (last parents))) :type-args nil)
+                               (cpp-class-full-name cpp-class :type-args nil)))
          (builder-arg
           (list (if parents 'base-builder 'builder)
                 (format nil "capnp::~A::Builder *" top-parent-class))))
@@ -772,7 +871,7 @@ used for outside definition."
   "Generate the default call to save for member."
   (declare (type string member-name member-type member-builder))
   (let* ((type (parse-cpp-type-declaration member-type))
-         (type-name (cpp-type-decl-name type)))
+         (type-name (cpp-type-base-name type)))
     (when (member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
       (error "Use a custom :capnp-save function for ~A ~A" type-name member-name))
     (let* ((cpp-class (find-cpp-class type-name)) ;; TODO: full type-name search
@@ -803,11 +902,15 @@ used for outside definition."
                       (cpp-type-name first-parent) (parent-args first-parent)))
             (when (or compose-parents (cpp-class-members cpp-class))
               (format s "  auto ~A_builder = base_builder->~{get~A().~}init~A();~%"
-                      (cpp-variable-name (cpp-class-name cpp-class))
+                      (cpp-variable-name (cpp-type-base-name cpp-class))
                       (mapcar #'cpp-type-name (cdr (reverse parents)))
-                      (cpp-type-name (cpp-class-name cpp-class)))
+                      (cpp-type-name cpp-class))
               (format s "  auto *builder = &~A_builder;~%"
-                      (cpp-variable-name (cpp-class-name cpp-class))))))
+                      (cpp-variable-name (cpp-type-base-name cpp-class))))
+            (when (capnp-union-subclasses cpp-class)
+              ;; We are in the middle of inheritance hierarchy, so set our
+              ;; union Void field.
+              (format s "  builder->set~A();" (cpp-type-name cpp-class)))))
         ;; Now handle composite inheritance calls.
         (dolist (parent compose-parents)
           (write-line "{" s)
@@ -818,39 +921,40 @@ used for outside definition."
           (write-line "}" s))))
     ;; Set the template instantiations
     (when (and (capnp-opts-type-args (cpp-class-capnp-opts cpp-class))
-               (/= 1 (list-length (cpp-class-type-params cpp-class))))
-      (error "Don't know how to save templated class ~A" (cpp-class-name cpp-class)))
-    (let ((type-param (first (cpp-class-type-params cpp-class))))
+               (/= 1 (list-length (cpp-type-type-params cpp-class))))
+      (error "Don't know how to save templated class ~A" (cpp-type-base-name cpp-class)))
+    (let ((type-param (first (cpp-type-type-params cpp-class))))
       (dolist (type-arg (capnp-opts-type-args (cpp-class-capnp-opts cpp-class)))
         (format s "  if (std::is_same<~A, ~A>::value) { builder->set~A(); }"
                 (cpp-type-name type-arg) (cpp-type-name type-param) (cpp-type-name type-arg))))
     (dolist (member (cpp-class-members cpp-class))
-      (let ((member-name (cpp-member-name member :struct (cpp-class-structp cpp-class)))
-            (member-builder (format nil "~A_builder" (cpp-member-name member :struct t)))
-            (capnp-name (cpp-type-name (cpp-member-symbol member))))
-        (cond
-          ((cpp-primitive-type-p (cpp-member-type member))
-           (format s "  builder->set~A(~A);~%" capnp-name member-name))
-          (t
-           (write-line "{" s) ;; Enclose larger save code in new scope
-           (let ((size (if (string= "vector" (cpp-type-decl-name
-                                              (parse-cpp-type-declaration
-                                               (cpp-member-type member))))
-                           (format nil "~A.size()" member-name)
-                           "")))
-             (if (cpp-member-capnp-init member)
-                 (format s "  auto ~A = builder->init~A(~A);~%"
-                         member-builder capnp-name size)
-                 (setf member-builder "builder")))
-           (if (cpp-member-capnp-save member)
-               (format s "  ~A~%"
-                       (cpp-code (funcall (cpp-member-capnp-save member)
-                                          member-builder member-name)))
-               (write-line (capnp-save-default member-name
-                                               (cpp-member-type member)
-                                               member-builder)
-                           s))
-           (write-line "}" s)))))
+      (unless (eq :dont-save (cpp-member-capnp-save member))
+        (let ((member-name (cpp-member-name member :struct (cpp-class-structp cpp-class)))
+              (member-builder (format nil "~A_builder" (cpp-member-name member :struct t)))
+              (capnp-name (cpp-type-name (cpp-member-symbol member))))
+          (cond
+            ((capnp-primitive-type-p (capnp-type-of-member member))
+             (format s "  builder->set~A(~A);~%" capnp-name member-name))
+            (t
+             (write-line "{" s) ;; Enclose larger save code in new scope
+             (let ((size (if (string= "vector" (cpp-type-base-name
+                                                (parse-cpp-type-declaration
+                                                 (cpp-member-type member))))
+                             (format nil "~A.size()" member-name)
+                             "")))
+               (if (cpp-member-capnp-init member)
+                   (format s "  auto ~A = builder->init~A(~A);~%"
+                           member-builder capnp-name size)
+                   (setf member-builder "builder")))
+             (if (cpp-member-capnp-save member)
+                 (format s "  ~A~%"
+                         (cpp-code (funcall (cpp-member-capnp-save member)
+                                            member-builder member-name)))
+                 (write-line (capnp-save-default member-name
+                                                 (cpp-member-type member)
+                                                 member-builder)
+                             s))
+             (write-line "}" s))))))
     (write-line "}" s)))
 
 ;;; Capnp C++ deserialization code generation
@@ -887,7 +991,7 @@ used for outside definition."
   (let ((construct-declaration (capnp-construct-declaration cpp-class :inline nil)))
     (unless construct-declaration
       (return-from capnp-construct-code))
-    (let ((class-name (cpp-class-name cpp-class))
+    (let ((class-name (cpp-type-base-name cpp-class))
           (union-subclasses (capnp-union-subclasses cpp-class)))
       (with-output-to-string (s)
         (format s "~A {~%" construct-declaration)
@@ -898,11 +1002,17 @@ used for outside definition."
             ;; Inheritance, so forward the Construct.
             (progn
               (write-line "  switch (reader.which()) {" s)
+              (when (capnp-union-and-compose-parents cpp-class)
+                ;; We are in the middle of the hierarchy, so allow
+                ;; constructing us.
+                (format s "    case capnp::~A::~A: return std::unique_ptr<~A>(new ~A());~%"
+                        (cpp-type-name class-name) (cpp-constant-name class-name)
+                        (cpp-type-name class-name) (cpp-type-name class-name)))
               (dolist (subclass union-subclasses)
                 (format s "    case capnp::~A::~A:~%"
                         (cpp-type-name class-name)
-                        (cpp-constant-name (cpp-class-name subclass)))
-                (let ((subclass-name (cpp-type-name (cpp-class-name subclass))))
+                        (cpp-constant-name (cpp-type-base-name subclass)))
+                (let ((subclass-name (cpp-type-name (cpp-type-base-name subclass))))
                   (if (capnp-opts-type-args (cpp-class-capnp-opts subclass))
                       ;; Handle template instantiation
                       (progn
@@ -923,7 +1033,7 @@ used for outside definition."
   "Generate default load call for member."
   (declare (type string member-name member-type member-reader))
   (let* ((type (parse-cpp-type-declaration member-type))
-         (type-name (cpp-type-decl-name type)))
+         (type-name (cpp-type-base-name type)))
     (when (member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
       (error "Use a custom :capnp-load function for ~A ~A" type-name member-name))
     (let* ((cpp-class (find-cpp-class type-name)) ;; TODO: full type-name search
@@ -941,8 +1051,8 @@ used for outside definition."
   (declare (type cpp-class cpp-class))
   (let* ((parents (capnp-union-parents-rec cpp-class))
          (top-parent-class (if parents
-                               (cpp-class-full-name (find-cpp-class (car (last parents))))
-                               (cpp-class-full-name cpp-class)))
+                               (cpp-class-full-name (find-cpp-class (car (last parents))) :type-args nil)
+                               (cpp-class-full-name cpp-class :type-args nil)))
          (reader-arg
           (list (if parents 'base-reader 'reader)
                 (format nil "const capnp::~A::Reader &" top-parent-class))))
@@ -972,7 +1082,7 @@ used for outside definition."
             (when (or compose-parents (cpp-class-members cpp-class))
               (format s "  auto reader = base_reader.~{get~A().~}get~A();~%"
                       (mapcar #'cpp-type-name (cdr (reverse parents)))
-                      (cpp-type-name (cpp-class-name cpp-class))))
+                      (cpp-type-name cpp-class)))
             ;; Now handle composite inheritance calls.
             (dolist (parent compose-parents)
               (write-line "{" s)
@@ -982,25 +1092,27 @@ used for outside definition."
                       (cpp-type-name parent) (cpp-variable-name parent) (parent-args parent))
               (write-line "}" s))))))
     (dolist (member (cpp-class-members cpp-class))
-      (let ((member-name (cpp-member-name member :struct (cpp-class-structp cpp-class)))
-            (member-reader (format nil "~A_reader" (cpp-member-name member :struct t)))
-            (capnp-name (cpp-type-name (cpp-member-symbol member))))
-        (cond
-          ((cpp-primitive-type-p (cpp-member-type member))
-           (format s "  ~A = reader.get~A();~%" member-name capnp-name))
-          (t
-           (write-line "{" s) ;; Enclose larger load code in new scope
-           (if (cpp-member-capnp-init member)
-               (format s "  auto ~A = reader.get~A();~%" member-reader capnp-name)
-               (setf member-reader "reader"))
-           (if (cpp-member-capnp-load member)
-               (format s "  ~A~%"
-                       (cpp-code (funcall (cpp-member-capnp-load member)
-                                          member-reader member-name)))
-               (write-line (capnp-load-default member-name
-                                               (cpp-member-type member)
-                                               member-reader) s))
-           (write-line "}" s)))))
+      (unless (and (eq :dont-save (cpp-member-capnp-save member))
+                   (not (cpp-member-capnp-load member)))
+        (let ((member-name (cpp-member-name member :struct (cpp-class-structp cpp-class)))
+              (member-reader (format nil "~A_reader" (cpp-member-name member :struct t)))
+              (capnp-name (cpp-type-name (cpp-member-symbol member))))
+          (cond
+            ((capnp-primitive-type-p (capnp-type-of-member member))
+             (format s "  ~A = reader.get~A();~%" member-name capnp-name))
+            (t
+             (write-line "{" s) ;; Enclose larger load code in new scope
+             (if (cpp-member-capnp-init member)
+                 (format s "  auto ~A = reader.get~A();~%" member-reader capnp-name)
+                 (setf member-reader "reader"))
+             (if (cpp-member-capnp-load member)
+                 (format s "  ~A~%"
+                         (cpp-code (funcall (cpp-member-capnp-load member)
+                                            member-reader member-name)))
+                 (write-line (capnp-load-default member-name
+                                                 (cpp-member-type member)
+                                                 member-reader) s))
+             (write-line "}" s))))))
     (write-line "}" s)))
 
 (defvar *capnp-imports* nil
@@ -1021,6 +1133,109 @@ used for outside definition."
   (declare (type string namespace))
   (setf *capnp-namespace* namespace))
 
+(defun capnp-save-optional (capnp-type cpp-type &optional lambda-code)
+  "Generate the C++ code calling utils::SaveOptional. CAPNP-TYPE and CPP-TYPE
+are passed as template parameters, while the optional LAMBDA-CODE is used to
+save the value inside the std::optional."
+  (declare (type string capnp-type cpp-type)
+           (type (or null string) lambda-code))
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
+    (lambda (builder member)
+      #>cpp
+      utils::SaveOptional<${capnp-type}, ${cpp-type}>(${member}, &${builder}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-load-optional (capnp-type cpp-type &optional lambda-code)
+  "Generate the C++ code calling utils::LoadOptional. CAPNP-TYPE and CPP-TYPE
+are passed as template parameters, while the optional LAMBDA-CODE is used to
+load the value of std::optional."
+  (declare (type string capnp-type cpp-type)
+           (type (or null string) lambda-code))
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         (format nil
+                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
+                                 cpp-type))))
+    (lambda (reader member)
+      #>cpp
+      ${member} = utils::LoadOptional<${capnp-type}, ${cpp-type}>(${reader}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-save-vector (capnp-type cpp-type &optional lambda-code)
+  "Generate the C++ code calling utils::SaveVector. CAPNP-TYPE and CPP-TYPE
+are passed as template parameters, while LAMBDA-CODE is used to save each
+element."
+  (declare (type string capnp-type cpp-type)
+           (type (or null string) lambda-code))
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
+    (lambda (builder member-name)
+      #>cpp
+      utils::SaveVector<${capnp-type}, ${cpp-type}>(${member-name}, &${builder}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-load-vector (capnp-type cpp-type &optional lambda-code)
+  "Generate the C++ code calling utils::LoadVector. CAPNP-TYPE and CPP-TYPE
+are passed as template parameters, while LAMBDA-CODE is used to load each
+element."
+  (declare (type string capnp-type cpp-type)
+           (type (or null string) lambda-code))
+  (let ((lambda-code (if lambda-code
+                         lambda-code
+                         (format nil
+                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
+                                 cpp-type))))
+    (lambda (reader member-name)
+      #>cpp
+      utils::LoadVector<${capnp-type}, ${cpp-type}>(&${member-name}, ${reader}, ${lambda-code});
+      cpp<#)))
+
+(defun capnp-save-enum (capnp-type cpp-type &optional enum-values)
+  "Generate C++ code for saving the enum specified by CPP-TYPE by converting
+the values to CAPNP-TYPE. If ENUM-VALUES are not specified, tries to find the
+CPP-TYPE among defined enums."
+  (declare (type string capnp-type)
+           (type (or symbol string) cpp-type))
+  (lambda (builder member)
+    (let* ((enum-values (if enum-values
+                            enum-values
+                            (cpp-enum-values (find-cpp-enum cpp-type))))
+           (member-setter (remove #\_ (string-capitalize member)))
+           (cases (mapcar (lambda (value-symbol)
+                            (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                              #>cpp
+                              case ${cpp-type}::${value}:
+                                ${builder}->set${member-setter}(${capnp-type}::${value});
+                                break;
+                              cpp<#))
+                          enum-values)))
+      (format nil "switch (~A) {~%~{~A~%~}}" member (mapcar #'raw-cpp-string cases)))))
+
+(defun capnp-load-enum (capnp-type cpp-type &optional enum-values)
+  "Generate C++ code for loading the enum specified by CPP-TYPE by converting
+the values from CAPNP-TYPE. If ENUM-VALUES are not specified, tries to find the
+CPP-TYPE among defined enums."
+  (declare (type string capnp-type)
+           (type (or symbol string) cpp-type))
+  (lambda (reader member)
+    (let* ((enum-values (if enum-values
+                            enum-values
+                            (cpp-enum-values (find-cpp-enum cpp-type))))
+           (member-getter (remove #\_ (string-capitalize member)))
+           (cases (mapcar (lambda (value-symbol)
+                            (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                              #>cpp
+                              case ${capnp-type}::${value}:
+                                ${member} = ${cpp-type}::${value};
+                                break;
+                              cpp<#))
+                          enum-values)))
+      (format nil "switch (~A.get~A()) {~%~{~A~%~}}"
+              reader member-getter (mapcar #'raw-cpp-string cases)))))
+
 (defvar *cpp-namespaces* nil
   "Stack of C++ namespaces we are generating the code in.")
 
@@ -1037,30 +1252,39 @@ used for outside definition."
   (pop *cpp-namespaces*)
   #>cpp } cpp<#)
 
+(defvar *cpp-impl* nil "List of (namespace . C++ code) pairs that should be
+  written in the implementation (.cpp) file.")
+
+(defun in-impl (&rest args)
+  (let ((namespaces (reverse *cpp-namespaces*)))
+    (setf *cpp-impl*
+          (append *cpp-impl* (mapcar (lambda (cpp) (cons namespaces cpp))
+                                     args)))))
+
 (defvar *cpp-inner-types* nil
   "List of cpp types defined inside an enclosing class or struct")
 
 (defvar *cpp-enclosing-class* nil
   "Symbol name of the `CPP-CLASS' inside which inner types are defined.")
 
-(defmacro define-enum (name maybe-documentation &rest values)
-  "Define a C++ enum. Documentation is optional. Syntax is:
+(defmacro define-enum (name values &rest options)
+  "Define a C++ enum. Documentation is optional. The only options are
+  :documentation and :serialize. Syntax is:
 
 ;; (define-enum name
-;;   [documentation-string]
-;;   value1 value2 ...)"
-  (declare (type symbol name)
-           (type (or string symbol) maybe-documentation))
-  (let ((documentation (when (stringp maybe-documentation) maybe-documentation))
-        (all-values (if (symbolp maybe-documentation)
-                        (cons maybe-documentation values)
-                        values))
+;;   (value1 value2 ...)
+;;   (:enum-option option-value)*)"
+  (declare (type symbol name))
+  (let ((documentation (second (assoc :documentation options)))
         (enum (gensym (format nil "ENUM-~A" name))))
-    `(let ((,enum (make-cpp-enum :symbol ',name
+    `(let ((,enum (make-instance 'cpp-enum
+                                 :name ',name
                                  :documentation ,documentation
-                                 :values ',all-values
-                                 :enclosing-class *cpp-enclosing-class*)))
+                                 :values ',values
+                                 :enclosing-class *cpp-enclosing-class*
+                                 :capnp-schema ',(assoc :serialize options))))
        (prog1 ,enum
+         (push ,enum *cpp-enums*)
          (push ,enum *cpp-inner-types*)))))
 
 (defmacro define-class (name super-classes slots &rest options)
@@ -1147,32 +1371,100 @@ Generates C++:
         `(let ((,class
                 (let ((*cpp-inner-types* nil)
                       (*cpp-enclosing-class* ',class-name))
-                  (make-cpp-class :name ',class-name :super-classes ',super-classes
-                                  :type-params ',type-params
-                                  :structp ,(second (assoc :structp options))
-                                  :members (list ,@members)
-                                  :documentation ,(second (assoc :documentation options))
-                                  :public (list ,@(cdr (assoc :public options)))
-                                  :protected (list ,@(cdr (assoc :protected options)))
-                                  :private (list ,@(cdr (assoc :private options)))
-                                  :capnp-opts ,(when (member :capnp serialize)
-                                                 `(make-capnp-opts ,@(cdr (member :capnp serialize))))
-                                  :namespace (reverse *cpp-namespaces*)
-                                  ;; Set inner types at the end. This works
-                                  ;; because CL standard specifies order of
-                                  ;; evaluation from left to right.
-                                  :inner-types *cpp-inner-types*))))
+                  (make-instance 'cpp-class
+                                 :name ',class-name :super-classes ',super-classes
+                                 :type-params ',type-params
+                                 :structp ,(second (assoc :structp options))
+                                 :members (list ,@members)
+                                 :documentation ,(second (assoc :documentation options))
+                                 :public (list ,@(cdr (assoc :public options)))
+                                 :protected (list ,@(cdr (assoc :protected options)))
+                                 :private (list ,@(cdr (assoc :private options)))
+                                 :capnp-opts ,(when (member :capnp serialize)
+                                                `(make-capnp-opts ,@(cdr (member :capnp serialize))))
+                                 :namespace (reverse *cpp-namespaces*)
+                                 ;; Set inner types at the end. This works
+                                 ;; because CL standard specifies order of
+                                 ;; evaluation from left to right.
+                                 :inner-types *cpp-inner-types*))))
            (prog1 ,class
              (push ,class *cpp-classes*)
              ;; Set the parent's inner types
              (push ,class *cpp-inner-types*)
-             (setf (cpp-class-enclosing-class ,class) *cpp-enclosing-class*)
+             (setf (cpp-type-enclosing-class ,class) *cpp-enclosing-class*)
              ,(when (eq :boost (car serialize))
                 `(setf (cpp-class-private ,class)
                        (append (cpp-class-private ,class) (boost-serialization ,class))))))))))
 
 (defmacro define-struct (name super-classes slots &rest options)
   `(define-class ,name ,super-classes ,slots (:structp t) ,@options))
+
+(defmacro define-rpc (name request response)
+  (declare (type list request response))
+  (assert (eq :request (car request)))
+  (assert (eq :response (car response)))
+  (flet ((decl-type-info (class-name)
+           #>cpp
+           using Capnp = capnp::${class-name};
+           static const communication::rpc::MessageType TypeInfo;
+           cpp<#)
+         (def-type-info (class-name)
+           #>cpp
+           const communication::rpc::MessageType
+           ${class-name}::TypeInfo{::capnp::typeId<${class-name}::Capnp>(), "${class-name}"};
+           cpp<#)
+         (def-constructor (class-name members)
+           (let ((full-constructor
+                  (let ((init-members (remove-if (lambda (slot-def)
+                                                   ;; TODO: proper initarg
+                                                   (let ((initarg (member :initarg slot-def)))
+                                                     (and initarg (null (second initarg)))))
+                                                 members)))
+                    (with-output-to-string (s)
+                      (when init-members
+                        (format s "~A ~A(~:{~A ~A~:^, ~}) : ~:{~A(~A)~:^, ~} {}"
+                                (if (= 1 (list-length init-members)) "explicit" "")
+                                class-name
+                                (mapcar (lambda (member)
+                                          (list (cpp-type-name (second member))
+                                                (cpp-variable-name (first member))))
+                                        init-members)
+                                (mapcar (lambda (member)
+                                          (let ((var (cpp-variable-name (first member)))
+                                                (movep (eq :move (second (member :initarg member)))))
+                                            (list var (if movep
+                                                          (format nil "std::move(~A)" var)
+                                                          var))))
+                                        init-members)))))))
+             #>cpp
+             ${class-name}() {}
+             ${full-constructor}
+             cpp<#)))
+    (let* ((req-sym (intern (format nil "~A-~A" name 'req)))
+           (req-name (cpp-type-name req-sym))
+           (res-sym (intern (format nil "~A-~A" name 'res)))
+           (res-name (cpp-type-name res-sym))
+           (rpc-name (format nil "~ARpc" (cpp-type-name name)))
+           (rpc-decl
+            #>cpp
+             using ${rpc-name} = communication::rpc::RequestResponse<${req-name}, ${res-name}>;
+             cpp<#))
+      `(cpp-list
+        (define-struct ,req-sym ()
+          ,@(cdr request)
+          (:public
+           ,(decl-type-info req-name)
+           ,(def-constructor req-name (second request)))
+          (:serialize :capnp :base t))
+        (in-impl ,(def-type-info req-name))
+        (define-struct ,res-sym ()
+          ,@(cdr response)
+          (:public
+           ,(decl-type-info res-name)
+           ,(def-constructor res-name (second response)))
+          (:serialize :capnp :base t))
+        (in-impl ,(def-type-info res-name))
+        ,rpc-decl))))
 
 (defun read-lcp (filepath)
   "Read the FILEPATH and return a list of C++ meta information that should be
@@ -1185,12 +1477,12 @@ formatted and output."
              for res = (handler-case (eval form)
                          (error (err)
                            (file-position in-stream 0) ;; start of stream
-                           (error "~%~A:~A: error:~%~%~A~%~%in:~%~%~A"
+                           (error "~%~A:~A: error:~2%~A~2%in:~2%~A"
                                   (uiop:native-namestring filepath)
                                   (count-newlines in-stream :stop-position (1+ stream-pos))
                                   err form)))
              do (setf stream-pos (file-position in-stream))
-             when (typep res '(or raw-cpp cpp-class cpp-enum))
+             when (typep res '(or raw-cpp cpp-type cpp-list))
              collect res)
         (end-of-file ()
           (file-position in-stream 0) ;; start of stream
@@ -1199,58 +1491,55 @@ formatted and output."
                  (count-newlines in-stream
                                  :stop-position (1+ stream-pos))))))))
 
-(defun generate-capnp (cpp-classes &key capnp-file capnp-id cpp-file hpp-file lcp-file)
-  "Generate Cap'n Proto serialization code for given CPP-CLASSES.  The schema
+(defun generate-capnp (cpp-types &key capnp-file capnp-id cpp-out lcp-file)
+  "Generate Cap'n Proto serialization code for given CPP-TYPES.  The schema
 is written to CAPNP-FILE using the CAPNP-ID.  The C++ serialization code is
-written to CPP-FILE.  This source file will include the provided HPP-FILE.
+written to CPP-OUT stream.  This source file will include the provided HPP-FILE.
 Original LCP-FILE is used just to insert a comment about the source of the
 code generation."
   (with-open-file (out capnp-file :direction :output :if-exists :supersede)
-    (format out "# Autogenerated using LCP from '~A'~%~%" lcp-file)
-    (format out "~A;~%~%" capnp-id)
+    (format out "# Autogenerated using LCP from '~A'~%# DO NOT EDIT!~2%" lcp-file)
+    (format out "~A;~2%" capnp-id)
     (write-line "using Cxx = import \"/capnp/c++.capnp\";" out)
-    (format out "$Cxx.namespace(\"~A::capnp\");~%~%" *capnp-namespace*)
+    (format out "$Cxx.namespace(\"~A::capnp\");~2%" *capnp-namespace*)
     (dolist (capnp-import *capnp-imports* (terpri out))
       (format out "using ~A = import ~S;~%"
               (remove #\- (string-capitalize (car capnp-import)))
               (cdr capnp-import)))
-    (dolist (cpp-class cpp-classes)
+    (dolist (cpp-type cpp-types)
       ;; Generate schema only for top level classes, inner classes are handled
       ;; inside the generation of the enclosing class.
-      (unless (cpp-class-enclosing-class cpp-class)
-        (let ((schema (capnp-schema cpp-class)))
+      (unless (cpp-type-enclosing-class cpp-type)
+        (let ((schema (capnp-schema cpp-type)))
           (when schema (write-line schema out))))))
   ;; Now generate the save/load C++ code in the cpp file.
-  (with-open-file (out cpp-file :direction :output :if-exists :supersede)
-    (format out "// Autogenerated using LCP from '~A'~%~%" lcp-file)
-    (write-line "#include \"utils/serialization.hpp\"" out)
-    (format out "#include \"~A\"~%~%" hpp-file)
-    (let (open-namespaces)
-      (dolist (cpp-class cpp-classes)
-        ;; Check if we need to open or close namespaces
-        (loop for namespace in (cpp-class-namespace cpp-class)
-           with unmatched = open-namespaces do
-             (if (string= namespace (car unmatched))
-                 (setf unmatched (cdr unmatched))
-                 (progn
-                   (dolist (to-close unmatched)
-                     (declare (ignore to-close))
-                     (write-line "}" out))
-                   (format out "namespace ~A {~%~%" namespace))))
-        (setf open-namespaces (cpp-class-namespace cpp-class))
-        ;; Output the serialization code
-        (format out "// Serialize code for ~A~%~%"
-                (cpp-type-name (cpp-class-name cpp-class)))
-        (let ((save-code (capnp-save-code cpp-class))
-              (construct-code (capnp-construct-code cpp-class))
-              (load-code (capnp-load-code cpp-class)))
-          (when save-code (write-line save-code out))
-          (when construct-code (write-line construct-code out))
-          (when load-code (write-line load-code out))))
-      ;; Close remaining namespaces
-      (dolist (to-close open-namespaces)
-        (declare (ignore to-close))
-        (write-line "}" out)))))
+  (write-line "// Autogenerated Cap'n Proto serialization code" cpp-out)
+  (write-line "#include \"utils/serialization.hpp\"" cpp-out)
+  (let (open-namespaces)
+    (dolist (cpp-class (remove-if (lambda (cpp-type) (not (typep cpp-type 'cpp-class))) cpp-types))
+      ;; Check if we need to open or close namespaces
+      (loop for namespace in (cpp-type-namespace cpp-class)
+         with unmatched = open-namespaces do
+           (if (string= namespace (car unmatched))
+               (setf unmatched (cdr unmatched))
+               (progn
+                 (dolist (to-close unmatched)
+                   (declare (ignore to-close))
+                   (format cpp-out "~%}"))
+                 (format cpp-out "namespace ~A {~2%" namespace))))
+      (setf open-namespaces (cpp-type-namespace cpp-class))
+      ;; Output the serialization code
+      (format cpp-out "// Serialize code for ~A~2%" (cpp-type-name cpp-class))
+      (let ((save-code (capnp-save-code cpp-class))
+            (construct-code (capnp-construct-code cpp-class))
+            (load-code (capnp-load-code cpp-class)))
+        (when save-code (write-line save-code cpp-out))
+        (when construct-code (write-line construct-code cpp-out))
+        (when load-code (write-line load-code cpp-out))))
+    ;; Close remaining namespaces
+    (dolist (to-close open-namespaces)
+      (declare (ignore to-close))
+      (format cpp-out "~%}"))))
 
 (defun process-file (lcp-file &key capnp-id)
   "Process a LCP-FILE and write the output to .hpp file in the same directory.
@@ -1270,24 +1559,52 @@ file."
           (*capnp-imports* nil)
           (*capnp-type-converters* nil)
           (*cpp-inner-types* nil)
+          (*cpp-impl*)
           ;; Don't reset *cpp-classes* if we want to have support for
           ;; procesing multiple files.
           ;; (*cpp-classes* nil)
+          ;; (*cpp-enums* nil)
           )
       ;; First read and evaluate the whole file, then output the evaluated
       ;; cpp-code. This allows us to generate code which may rely on
       ;; evaluation done after the code definition.
       (with-open-file (out hpp-file :direction :output :if-exists :supersede)
-        (format out "// Autogenerated using LCP from '~A'~%~%" lcp-file)
+        (format out "// Autogenerated using LCP from '~A'~%// DO NOT EDIT!~2%" lcp-file)
         (dolist (res (read-lcp lcp-file))
           (write-line (cpp-code res) out)))
       (when *cpp-namespaces*
         (error "Unclosed namespaces: ~A" (reverse *cpp-namespaces*)))
       ;; If we have a capnp-id, generate the schema
-      (when capnp-id
-        (let ((classes-for-capnp
-               (remove-if (complement #'cpp-class-capnp-opts) *cpp-classes*)))
-          (when classes-for-capnp
-            (generate-capnp classes-for-capnp :capnp-file capnp-file :capnp-id capnp-id
-                            :cpp-file cpp-file :hpp-file (file-namestring hpp-file)
-                            :lcp-file lcp-file)))))))
+      (let ((types-for-capnp (when capnp-id
+                               (append (remove-if (complement #'cpp-class-capnp-opts) *cpp-classes*)
+                                       (remove-if (complement #'cpp-enum-capnp-schema) *cpp-enums*)))))
+        ;; When we have either capnp or C++ code for the .cpp file, generate the .cpp file
+        (when (or *cpp-impl* types-for-capnp)
+          (with-open-file (out cpp-file :direction :output :if-exists :supersede)
+            (format out "// Autogenerated using LCP from '~A'~%// DO NOT EDIT!~2%" lcp-file)
+            (format out "#include \"~A\"~2%" (file-namestring hpp-file))
+            ;; First output the C++ code from the user
+            (let (open-namespaces)
+              (dolist (cpp *cpp-impl*)
+                (destructuring-bind (namespaces . code) cpp
+                  ;; Check if we need to open or close namespaces
+                  (loop for namespace in namespaces
+                     with unmatched = open-namespaces do
+                       (if (string= namespace (car unmatched))
+                           (setf unmatched (cdr unmatched))
+                           (progn
+                             (dolist (to-close unmatched)
+                               (declare (ignore to-close))
+                               (format out "~%}"))
+                             (format out "namespace ~A {~2%" namespace))))
+                  (setf open-namespaces namespaces)
+                  ;; Output the code
+                  (write-line (cpp-code code) out)))
+              ;; Close remaining namespaces
+              (dolist (to-close open-namespaces)
+                (declare (ignore to-close))
+                (format out "~%}")))
+            ;; Now output the capnp code
+            (when types-for-capnp
+              (generate-capnp types-for-capnp :capnp-file capnp-file :capnp-id capnp-id
+                              :cpp-out out :lcp-file lcp-file))))))))

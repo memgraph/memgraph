@@ -10,11 +10,11 @@ BfsRpcClients::BfsRpcClients(
     distributed::RpcWorkerClients *clients)
     : db_(db), subcursor_storage_(subcursor_storage), clients_(clients) {}
 
-std::unordered_map<int, int64_t> BfsRpcClients::CreateBfsSubcursors(
+std::unordered_map<int16_t, int64_t> BfsRpcClients::CreateBfsSubcursors(
     tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
     const std::vector<storage::EdgeType> &edge_types,
     query::GraphView graph_view) {
-  auto futures = clients_->ExecuteOnWorkers<std::pair<int, int64_t>>(
+  auto futures = clients_->ExecuteOnWorkers<std::pair<int16_t, int64_t>>(
       db_->WorkerId(),
       [tx_id, direction, &edge_types, graph_view](int worker_id, auto &client) {
         auto res = client.template Call<CreateBfsSubcursorRpc>(
@@ -22,7 +22,7 @@ std::unordered_map<int, int64_t> BfsRpcClients::CreateBfsSubcursors(
         CHECK(res) << "CreateBfsSubcursor RPC failed!";
         return std::make_pair(worker_id, res->member);
       });
-  std::unordered_map<int, int64_t> subcursor_ids;
+  std::unordered_map<int16_t, int64_t> subcursor_ids;
   subcursor_ids.emplace(
       db_->WorkerId(),
       subcursor_storage_->Create(tx_id, direction, edge_types, graph_view));
@@ -34,7 +34,7 @@ std::unordered_map<int, int64_t> BfsRpcClients::CreateBfsSubcursors(
 }
 
 void BfsRpcClients::RegisterSubcursors(
-    const std::unordered_map<int, int64_t> &subcursor_ids) {
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
   auto futures = clients_->ExecuteOnWorkers<void>(
       db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
         auto res = client.template Call<RegisterSubcursorsRpc>(subcursor_ids);
@@ -45,7 +45,7 @@ void BfsRpcClients::RegisterSubcursors(
 }
 
 void BfsRpcClients::RemoveBfsSubcursors(
-    const std::unordered_map<int, int64_t> &subcursor_ids) {
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
   auto futures = clients_->ExecuteOnWorkers<void>(
       db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
         auto res = client.template Call<RemoveBfsSubcursorRpc>(
@@ -56,7 +56,7 @@ void BfsRpcClients::RemoveBfsSubcursors(
 }
 
 std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
-    int worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba) {
+    int16_t worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba) {
   if (worker_id == db_->WorkerId()) {
     return subcursor_storage_->Get(subcursor_id)->Pull();
   }
@@ -75,7 +75,7 @@ std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
 }
 
 bool BfsRpcClients::ExpandLevel(
-    const std::unordered_map<int, int64_t> &subcursor_ids) {
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
   auto futures = clients_->ExecuteOnWorkers<bool>(
       db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
         auto res =
@@ -92,7 +92,7 @@ bool BfsRpcClients::ExpandLevel(
 }
 
 void BfsRpcClients::SetSource(
-    const std::unordered_map<int, int64_t> &subcursor_ids,
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids,
     storage::VertexAddress source_address) {
   CHECK(source_address.is_remote())
       << "SetSource should be called with global address";
@@ -109,8 +109,8 @@ void BfsRpcClients::SetSource(
 }
 
 bool BfsRpcClients::ExpandToRemoteVertex(
-    const std::unordered_map<int, int64_t> &subcursor_ids, EdgeAccessor edge,
-    VertexAccessor vertex) {
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids,
+    EdgeAccessor edge, VertexAccessor vertex) {
   CHECK(!vertex.is_local())
       << "ExpandToRemoteVertex should not be called with local vertex";
   int worker_id = vertex.address().worker_id();
@@ -137,7 +137,7 @@ PathSegment BuildPathSegment(ReconstructPathRes *res,
 }
 
 PathSegment BfsRpcClients::ReconstructPath(
-    const std::unordered_map<int, int64_t> &subcursor_ids,
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids,
     storage::VertexAddress vertex, database::GraphDbAccessor *dba) {
   int worker_id = vertex.worker_id();
   if (worker_id == db_->WorkerId()) {
@@ -147,11 +147,11 @@ PathSegment BfsRpcClients::ReconstructPath(
 
   auto res = clients_->GetClientPool(worker_id).Call<ReconstructPathRpc>(
       subcursor_ids.at(worker_id), vertex);
-  return BuildPathSegment(res.get(), dba);
+  return BuildPathSegment(&res.value(), dba);
 }
 
 PathSegment BfsRpcClients::ReconstructPath(
-    const std::unordered_map<int, int64_t> &subcursor_ids,
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids,
     storage::EdgeAddress edge, database::GraphDbAccessor *dba) {
   int worker_id = edge.worker_id();
   if (worker_id == db_->WorkerId()) {
@@ -160,11 +160,11 @@ PathSegment BfsRpcClients::ReconstructPath(
   }
   auto res = clients_->GetClientPool(worker_id).Call<ReconstructPathRpc>(
       subcursor_ids.at(worker_id), edge);
-  return BuildPathSegment(res.get(), dba);
+  return BuildPathSegment(&res.value(), dba);
 }
 
 void BfsRpcClients::PrepareForExpand(
-    const std::unordered_map<int, int64_t> &subcursor_ids, bool clear) {
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear) {
   auto res = clients_->ExecuteOnWorkers<void>(
       db_->WorkerId(), [clear, &subcursor_ids](int worker_id, auto &client) {
         auto res = client.template Call<PrepareForExpandRpc>(

@@ -17,10 +17,11 @@ class StorageGcMaster : public StorageGc {
         rpc_server_(rpc_server),
         coordination_(coordination) {
     rpc_server_.Register<distributed::RanLocalGcRpc>(
-        [this](const distributed::GcClearedStatusReq &req) {
+        [this](const auto &req_reader, auto *res_builder) {
+          distributed::RanLocalGcReq req;
+          req.Load(req_reader);
           std::unique_lock<std::mutex> lock(worker_safe_transaction_mutex_);
           worker_safe_transaction_[req.worker_id] = req.local_oldest_active;
-          return std::make_unique<distributed::GcClearedStatusRes>();
         });
   }
 

@@ -1,0 +1,69 @@
+#>cpp
+#pragma once
+
+#include "communication/rpc/messages.hpp"
+#include "transactions/commit_log.hpp"
+#include "transactions/engine_rpc_messages.capnp.h"
+#include "transactions/snapshot.hpp"
+#include "transactions/type.hpp"
+cpp<#
+
+(lcp:namespace tx)
+
+(lcp:capnp-namespace "tx")
+
+(lcp:capnp-import 'tx "/transactions/common.capnp")
+(lcp:capnp-type-conversion "TransactionId" "UInt64")
+(lcp:capnp-type-conversion "CommandId" "UInt32")
+(lcp:capnp-type-conversion "Snapshot" "Tx.Snapshot")
+
+(lcp:define-struct tx-and-snapshot ()
+  ((tx-id "TransactionId")
+   (snapshot "Snapshot"))
+  (:serialize :capnp))
+
+(lcp:define-rpc begin
+    (:request ())
+  (:response ((member "TxAndSnapshot"))))
+
+(lcp:define-rpc advance
+    (:request ((member "TransactionId")))
+  (:response ((member "CommandId"))))
+
+(lcp:define-rpc commit
+    (:request ((member "TransactionId")))
+  (:response ()))
+
+(lcp:define-rpc abort
+    (:request ((member "TransactionId")))
+  (:response ()))
+
+(lcp:define-rpc snapshot
+    (:request ((member "TransactionId")))
+  (:response ((member "Snapshot"))))
+
+(lcp:define-rpc command
+    (:request ((member "TransactionId")))
+  (:response ((member "CommandId"))))
+
+(lcp:define-rpc gc-snapshot
+    (:request ())
+  (:response ((member "Snapshot"))))
+
+(lcp:define-rpc clog-info
+    (:request ((member "TransactionId")))
+  (:response ((member "CommitLog::Info" :capnp-type "Tx.CommitLogInfo"))))
+
+(lcp:define-rpc active-transactions
+    (:request ())
+  (:response ((member "Snapshot"))))
+
+(lcp:define-rpc ensure-next-id-greater
+    (:request ((member "TransactionId")))
+  (:response ()))
+
+(lcp:define-rpc global-last
+    (:request ())
+  (:response ((member "TransactionId"))))
+
+(lcp:pop-namespace) ;; tx

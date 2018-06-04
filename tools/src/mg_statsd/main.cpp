@@ -41,23 +41,31 @@ int main(int argc, char *argv[]) {
       << "Failed to connect to Graphite";
   graphite_socket.SetKeepAlive();
 
-  server.Register<stats::StatsRpc>([&](const stats::StatsReq &req) {
-    LOG(INFO) << "StatsRpc::Received";
-    std::string data = GraphiteFormat(req);
-    graphite_socket.Write(data);
-    return std::make_unique<stats::StatsRes>();
-  });
+  server.Register<stats::StatsRpc>(
+      [&](const auto &req_reader, auto *res_builder) {
+        stats::StatsReq req;
+        req.Load(req_reader);
+        LOG(INFO) << "StatsRpc::Received";
+        std::string data = GraphiteFormat(req);
+        graphite_socket.Write(data);
+        stats::StatsRes res;
+        res.Save(res_builder);
+      });
 
-  server.Register<stats::BatchStatsRpc>([&](const stats::BatchStatsReq &req) {
-    // TODO(mtomic): batching?
-    LOG(INFO) << fmt::format("BatchStatsRpc::Received: {}",
-                             req.requests.size());
-    for (size_t i = 0; i < req.requests.size(); ++i) {
-      std::string data = GraphiteFormat(req.requests[i]);
-      graphite_socket.Write(data, i + 1 < req.requests.size());
-    }
-    return std::make_unique<stats::BatchStatsRes>();
-  });
+  server.Register<stats::BatchStatsRpc>(
+      [&](const auto &req_reader, auto *res_builder) {
+        // TODO(mtomic): batching?
+        stats::BatchStatsReq req;
+        req.Load(req_reader);
+        LOG(INFO) << fmt::format("BatchStatsRpc::Received: {}",
+                                 req.requests.size());
+        for (size_t i = 0; i < req.requests.size(); ++i) {
+          std::string data = GraphiteFormat(req.requests[i]);
+          graphite_socket.Write(data, i + 1 < req.requests.size());
+        }
+        stats::BatchStatsRes res;
+        res.Save(res_builder);
+      });
 
   std::this_thread::sleep_until(std::chrono::system_clock::time_point::max());
 

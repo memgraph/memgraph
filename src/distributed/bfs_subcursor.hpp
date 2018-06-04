@@ -35,7 +35,7 @@ class ExpandBfsSubcursor {
                      query::GraphView graph_view);
 
   // Stores subcursor ids of other workers.
-  void RegisterSubcursors(std::unordered_map<int, int64_t> subcursor_ids) {
+  void RegisterSubcursors(std::unordered_map<int16_t, int64_t> subcursor_ids) {
     subcursor_ids_ = std::move(subcursor_ids);
   }
 
@@ -91,7 +91,7 @@ class ExpandBfsSubcursor {
   database::GraphDbAccessor dba_;
 
   /// IDs of subcursors on other workers, used when sending RPCs.
-  std::unordered_map<int, int64_t> subcursor_ids_;
+  std::unordered_map<int16_t, int64_t> subcursor_ids_;
 
   query::EdgeAtom::Direction direction_;
   std::vector<storage::EdgeType> edge_types_;

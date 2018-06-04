@@ -96,15 +96,22 @@ ProduceRpcServer::ProduceRpcServer(
       produce_rpc_server_(server),
       plan_consumer_(plan_consumer),
       tx_engine_(tx_engine) {
-  produce_rpc_server_.Register<PullRpc>([this](const PullReq &req) {
-    return std::make_unique<PullRes>(Pull(req));
-  });
+  produce_rpc_server_.Register<PullRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        PullReq req;
+        req.Load(req_reader);
+        PullRes res(Pull(req));
+        res.Save(res_builder);
+      });
 
   produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
-      [this](const TransactionCommandAdvancedReq &req) {
+      [this](const auto &req_reader, auto *res_builder) {
+        TransactionCommandAdvancedReq req;
+        req.Load(req_reader);
         tx_engine_.UpdateCommand(req.member);
         db_.data_manager().ClearCacheForSingleTransaction(req.member);
-        return std::make_unique<TransactionCommandAdvancedRes>();
+        TransactionCommandAdvancedRes res;
+        res.Save(res_builder);
       });
 }
 
@@ -145,22 +152,22 @@ ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
 PullResData ProduceRpcServer::Pull(const PullReq &req) {
   auto &ongoing_produce = GetOngoingProduce(req);
 
-  PullResData result{db_.WorkerId(), req.send_old, req.send_new};
-  result.state_and_frames.pull_state = PullState::CURSOR_IN_PROGRESS;
+  PullResData result(db_.WorkerId(), req.send_old, req.send_new);
+  result.pull_state = PullState::CURSOR_IN_PROGRESS;
 
   if (req.accumulate) {
-    result.state_and_frames.pull_state = ongoing_produce.Accumulate();
+    result.pull_state = ongoing_produce.Accumulate();
     // If an error ocurred, we need to return that error.
-    if (result.state_and_frames.pull_state != PullState::CURSOR_EXHAUSTED) {
+    if (result.pull_state != PullState::CURSOR_EXHAUSTED) {
       return result;
     }
   }
 
   for (int i = 0; i < req.batch_size; ++i) {
     auto pull_result = ongoing_produce.Pull();
-    result.state_and_frames.pull_state = pull_result.second;
+    result.pull_state = pull_result.second;
     if (pull_result.second != PullState::CURSOR_IN_PROGRESS) break;
-    result.state_and_frames.frames.emplace_back(std::move(pull_result.first));
+    result.frames.emplace_back(std::move(pull_result.first));
   }
 
   return result;

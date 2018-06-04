@@ -1,38 +1,50 @@
 #pragma once
 
+#include <cstdint>
 #include <memory>
-#include <type_traits>
-#include <typeindex>
-
-#include "boost/serialization/access.hpp"
-#include "boost/serialization/base_object.hpp"
 
 namespace communication::rpc {
 
 using MessageSize = uint32_t;
 
-/**
- * Base class for messages.
- */
-class Message {
- public:
-  virtual ~Message() {}
-
-  /**
-   * Run-time type identification that is used for callbacks.
-   *
-   * Warning: this works because of the virtual destructor, don't remove it from
-   * this class
-   */
-  std::type_index type_index() const { return typeid(*this); }
-
- private:
-  friend boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &, unsigned int) {}
+/// Type information on a RPC message.
+/// Each message should have a static member `TypeInfo` with this information.
+struct MessageType {
+  /// Unique ID for a message.
+  uint64_t id;
+  /// Pretty name of the type.
+  std::string name;
 };
 
+inline bool operator==(const MessageType &a, const MessageType &b) {
+  return a.id == b.id;
+}
+inline bool operator!=(const MessageType &a, const MessageType &b) {
+  return a.id != b.id;
+}
+inline bool operator<(const MessageType &a, const MessageType &b) {
+  return a.id < b.id;
+}
+inline bool operator<=(const MessageType &a, const MessageType &b) {
+  return a.id <= b.id;
+}
+inline bool operator>(const MessageType &a, const MessageType &b) {
+  return a.id > b.id;
+}
+inline bool operator>=(const MessageType &a, const MessageType &b) {
+  return a.id >= b.id;
+}
+
+/// Each RPC is defined via this struct.
+///
+/// `TRequest` and `TResponse` are required to be classes which have a static
+/// member `TypeInfo` of `MessageType` type. This is used for proper
+/// registration and deserialization of RPC types. Additionally, both `TRequest`
+/// and `TResponse` are required to define a nested `Capnp` type, which
+/// corresponds to the Cap'n Proto schema type, as well as defined the following
+/// serialization functions:
+///   * void Save(Capnp::Builder *, ...) const
+///   * void Load(const Capnp::Reader &, ...)
 template <typename TRequest, typename TResponse>
 struct RequestResponse {
   using Request = TRequest;
@@ -40,35 +52,3 @@ struct RequestResponse {
 };
 
 }  // namespace communication::rpc
-
-// RPC Pimp
-#define RPC_NO_MEMBER_MESSAGE(name)                                       \
-  struct name : public communication::rpc::Message {                      \
-    name() {}                                                             \
-                                                                          \
-   private:                                                               \
-    friend class boost::serialization::access;                            \
-                                                                          \
-    template <class TArchive>                                             \
-    void serialize(TArchive &ar, unsigned int) {                          \
-      ar &boost::serialization::base_object<communication::rpc::Message>( \
-          *this);                                                         \
-    }                                                                     \
-  }
-
-#define RPC_SINGLE_MEMBER_MESSAGE(name, type)                             \
-  struct name : public communication::rpc::Message {                      \
-    name() {}                                                             \
-    name(const type &member) : member(member) {}                          \
-    type member;                                                          \
-                                                                          \
-   private:                                                               \
-    friend class boost::serialization::access;                            \
-                                                                          \
-    template <class TArchive>                                             \
-    void serialize(TArchive &ar, unsigned int) {                          \
-      ar &boost::serialization::base_object<communication::rpc::Message>( \
-          *this);                                                         \
-      ar &member;                                                         \
-    }                                                                     \
-  }

@@ -22,7 +22,7 @@ fi
 
 capnp=""
 if [[ $# -eq 2 ]]; then
-  capnp=":capnp-id \"$($2 id)\""
+  capnp=":capnp-id \"$2\""
 fi
 
 echo \
@@ -37,6 +37,6 @@ filename=`basename $lcp_file .lcp`
 hpp_file="$(dirname $lcp_file)/$filename.hpp"
 clang-format -style=file -i $hpp_file
 
-if [[ $# -eq 2 ]]; then
+if [[ $# -eq 2 && -w  "$lcp_file.cpp" ]]; then
   clang-format -style=file -i "$lcp_file.cpp"
 fi

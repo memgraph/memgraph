@@ -15,61 +15,74 @@ MasterEngine::MasterEngine(communication::rpc::Server &server,
     : SingleNodeEngine(wal),
       rpc_server_(server),
       ongoing_produce_joiner_(rpc_worker_clients) {
-  rpc_server_.Register<BeginRpc>([this](const BeginReq &) {
-    auto tx = Begin();
-    return std::make_unique<BeginRes>(TxAndSnapshot{tx->id_, tx->snapshot()});
-  });
-
-  rpc_server_.Register<AdvanceRpc>([this](const AdvanceReq &req) {
-    return std::make_unique<AdvanceRes>(Advance(req.member));
-  });
-
-  rpc_server_.Register<CommitRpc>([this](const CommitReq &req) {
-    Commit(*RunningTransaction(req.member));
-    return std::make_unique<CommitRes>();
-  });
-
-  rpc_server_.Register<AbortRpc>([this](const AbortReq &req) {
-    Abort(*RunningTransaction(req.member));
-    return std::make_unique<AbortRes>();
-  });
-
-  rpc_server_.Register<SnapshotRpc>([this](const SnapshotReq &req) {
-    // It is guaranteed that the Worker will not be requesting this for a
-    // transaction that's done, and that there are no race conditions here.
-    return std::make_unique<SnapshotRes>(
-        RunningTransaction(req.member)->snapshot());
-  });
-
-  rpc_server_.Register<CommandRpc>([this](const CommandReq &req) {
-    // It is guaranteed that the Worker will not be requesting this for a
-    // transaction that's done, and that there are no race conditions here.
-    return std::make_unique<CommandRes>(RunningTransaction(req.member)->cid());
-  });
-
-  rpc_server_.Register<GcSnapshotRpc>(
-      [this](const communication::rpc::Message &) {
-        return std::make_unique<SnapshotRes>(GlobalGcSnapshot());
+  rpc_server_.Register<BeginRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        auto tx = this->Begin();
+        BeginRes res(TxAndSnapshot{tx->id_, tx->snapshot()});
+        res.Save(res_builder);
       });
 
-  rpc_server_.Register<ClogInfoRpc>([this](const ClogInfoReq &req) {
-    return std::make_unique<ClogInfoRes>(Info(req.member));
-  });
+  rpc_server_.Register<AdvanceRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        AdvanceRes res(this->Advance(req_reader.getMember()));
+        res.Save(res_builder);
+      });
+
+  rpc_server_.Register<CommitRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        this->Commit(*this->RunningTransaction(req_reader.getMember()));
+      });
+
+  rpc_server_.Register<AbortRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        this->Abort(*this->RunningTransaction(req_reader.getMember()));
+      });
+
+  rpc_server_.Register<SnapshotRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        // It is guaranteed that the Worker will not be requesting this for a
+        // transaction that's done, and that there are no race conditions here.
+        SnapshotRes res(
+            this->RunningTransaction(req_reader.getMember())->snapshot());
+        res.Save(res_builder);
+      });
+
+  rpc_server_.Register<CommandRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        // It is guaranteed that the Worker will not be requesting this for a
+        // transaction that's done, and that there are no race conditions here.
+        CommandRes res(this->RunningTransaction(req_reader.getMember())->cid());
+        res.Save(res_builder);
+      });
+
+  rpc_server_.Register<GcSnapshotRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        GcSnapshotRes res(this->GlobalGcSnapshot());
+        res.Save(res_builder);
+      });
+
+  rpc_server_.Register<ClogInfoRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        ClogInfoRes res(this->Info(req_reader.getMember()));
+        res.Save(res_builder);
+      });
 
   rpc_server_.Register<ActiveTransactionsRpc>(
-      [this](const communication::rpc::Message &) {
-        return std::make_unique<SnapshotRes>(GlobalActiveTransactions());
+      [this](const auto &req_reader, auto *res_builder) {
+        ActiveTransactionsRes res(this->GlobalActiveTransactions());
+        res.Save(res_builder);
       });
 
   rpc_server_.Register<EnsureNextIdGreaterRpc>(
-      [this](const EnsureNextIdGreaterReq &req) {
-        EnsureNextIdGreater(req.member);
-        return std::make_unique<EnsureNextIdGreaterRes>();
+      [this](const auto &req_reader, auto *res_builder) {
+        this->EnsureNextIdGreater(req_reader.getMember());
       });
 
-  rpc_server_.Register<GlobalLastRpc>([this](const GlobalLastReq &) {
-    return std::make_unique<GlobalLastRes>(GlobalLast());
-  });
+  rpc_server_.Register<GlobalLastRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        GlobalLastRes res(this->GlobalLast());
+        res.Save(res_builder);
+      });
 }
 
 void MasterEngine::Commit(const Transaction &t) {

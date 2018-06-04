@@ -72,11 +72,10 @@ class WorkerTransactionalCacheCleaner : public TransactionalCacheCleaner {
         rpc_server_(server),
         produce_server_(produce_server) {
     Register(tx_engine);
-    rpc_server_.Register<WaitOnTransactionEndRpc>(
-        [this](const WaitOnTransactionEndReq &req) {
-          produce_server_.FinishAndClearOngoingProducePlans(req.member);
-          return std::make_unique<WaitOnTransactionEndRes>();
-        });
+    rpc_server_.Register<WaitOnTransactionEndRpc>([this](const auto &req_reader,
+                                                         auto *res_builder) {
+      produce_server_.FinishAndClearOngoingProducePlans(req_reader.getMember());
+    });
   }
 
  private:

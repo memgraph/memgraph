@@ -18,7 +18,7 @@ class PlanDispatcher {
   /** Dispatch a plan to all workers and wait for their acknowledgement. */
   void DispatchPlan(int64_t plan_id,
                     std::shared_ptr<query::plan::LogicalOperator> plan,
-                    const SymbolTable &symbol_table);
+                    const query::SymbolTable &symbol_table);
 
   /** Remove a plan from all workers and wait for their acknowledgement. */
   void RemovePlan(int64_t plan_id);

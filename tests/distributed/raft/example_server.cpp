@@ -56,13 +56,17 @@ int main(int argc, char **argv) {
       << "Unable to register SIGINT handler!";
 
   // Example callback.
-  server.Register<AppendEntry>([&log](const AppendEntryReq &request) {
-    log << request.val << std::endl;
-    log.flush();
-    LOG(INFO) << fmt::format("AppendEntry: {}", request.val);
-    return std::make_unique<AppendEntryRes>(200, FLAGS_interface,
-                                            stol(FLAGS_port));
-  });
+  // TODO: Serialize RPC via Cap'n Proto
+  // server.Register<AppendEntry>(
+  //     [&log](const auto &req_reader, auto *res_builder) {
+  //       AppendEntryReq request;
+  //       request.Load(req_reader);
+  //       log << request.val << std::endl;
+  //       log.flush();
+  //       LOG(INFO) << fmt::format("AppendEntry: {}", request.val);
+  //       AppendEntryRes res(200, FLAGS_interface, stol(FLAGS_port));
+  //       res.Save(res_builder);
+  //     });
 
   LOG(INFO) << "Raft RPC server started";
   // Sleep until shutdown detected.

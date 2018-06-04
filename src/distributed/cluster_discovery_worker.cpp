@@ -8,10 +8,12 @@ ClusterDiscoveryWorker::ClusterDiscoveryWorker(
     Server &server, WorkerCoordination &coordination,
     communication::rpc::ClientPool &client_pool)
     : server_(server), coordination_(coordination), client_pool_(client_pool) {
-  server_.Register<ClusterDiscoveryRpc>([this](const ClusterDiscoveryReq &req) {
-    this->coordination_.RegisterWorker(req.worker_id, req.endpoint);
-    return std::make_unique<ClusterDiscoveryRes>();
-  });
+  server_.Register<ClusterDiscoveryRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        ClusterDiscoveryReq req;
+        req.Load(req_reader);
+        this->coordination_.RegisterWorker(req.worker_id, req.endpoint);
+      });
 }
 
 void ClusterDiscoveryWorker::RegisterWorker(int worker_id) {

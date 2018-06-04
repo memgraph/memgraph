@@ -1,5 +1,6 @@
 #include "durability/recovery.hpp"
 
+#include <experimental/filesystem>
 #include <limits>
 #include <unordered_map>
 
@@ -15,6 +16,8 @@
 #include "storage/address_types.hpp"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
+
+namespace fs = std::experimental::filesystem;
 
 namespace durability {
 

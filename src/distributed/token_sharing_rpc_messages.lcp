@@ -1,0 +1,20 @@
+#>cpp
+#pragma once
+
+#include <memory>
+#include <string>
+
+#include "communication/rpc/messages.hpp"
+#include "distributed/serialization.hpp"
+#include "distributed/token_sharing_rpc_messages.capnp.h"
+cpp<#
+
+(lcp:namespace distributed)
+
+(lcp:capnp-namespace "distributed")
+
+(lcp:define-rpc token-transfer
+    (:request ())
+  (:response ()))
+
+(lcp:pop-namespace) ;; distributed

@@ -16,14 +16,14 @@ class PlanConsumer {
  public:
   struct PlanPack {
     PlanPack(std::shared_ptr<query::plan::LogicalOperator> plan,
-             SymbolTable symbol_table, AstTreeStorage storage)
+             query::SymbolTable symbol_table, query::AstTreeStorage storage)
         : plan(plan),
           symbol_table(std::move(symbol_table)),
           storage(std::move(storage)) {}
 
     std::shared_ptr<query::plan::LogicalOperator> plan;
-    SymbolTable symbol_table;
-    const AstTreeStorage storage;
+    query::SymbolTable symbol_table;
+    const query::AstTreeStorage storage;
   };
 
   explicit PlanConsumer(communication::rpc::Server &server);

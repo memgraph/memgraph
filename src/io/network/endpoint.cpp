@@ -24,6 +24,18 @@ Endpoint::Endpoint(const std::string &address, uint16_t port)
   CHECK(family_ != 0) << "Not a valid IPv4 or IPv6 address: " << address;
 }
 
+void Endpoint::Save(capnp::Endpoint::Builder *builder) const {
+  builder->setAddress(address_);
+  builder->setPort(port_);
+  builder->setFamily(family_);
+}
+
+void Endpoint::Load(const capnp::Endpoint::Reader &reader) {
+  address_ = reader.getAddress();
+  port_ = reader.getPort();
+  family_ = reader.getFamily();
+}
+
 bool Endpoint::operator==(const Endpoint &other) const {
   return address_ == other.address_ && port_ == other.port_ &&
          family_ == other.family_;

@@ -29,10 +29,7 @@ class TokenSharingRpcServer {
         clients_(clients),
         dgp_(db) {
     server_->Register<distributed::TokenTransferRpc>(
-        [this](const distributed::TokenTransferReq &req) {
-          token_ = true;
-          return std::make_unique<distributed::TokenTransferRes>();
-        });
+        [this](const auto &req_reader, auto *res_builder) { token_ = true; });
 
     runner_ = std::thread([this]() {
       while (true) {

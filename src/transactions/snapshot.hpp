@@ -4,10 +4,8 @@
 #include <iostream>
 #include <vector>
 
-#include "boost/serialization/access.hpp"
-#include "boost/serialization/vector.hpp"
-
 #include "glog/logging.h"
+#include "transactions/common.capnp.h"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
 
@@ -86,14 +84,11 @@ class Snapshot {
     return stream;
   }
 
+  void Save(capnp::Snapshot::Builder *builder) const;
+  void Load(const capnp::Snapshot::Reader &reader);
+
  private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &transaction_ids_;
-  }
-
   std::vector<TransactionId> transaction_ids_;
 };
+
 }  // namespace tx

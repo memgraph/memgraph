@@ -6,8 +6,8 @@
 
 #include "boost/serialization/base_object.hpp"
 #include "glog/logging.h"
-#include "types.capnp.h"
 
+#include "storage/serialization.capnp.h"
 #include "utils/total_ordering.hpp"
 
 namespace storage {

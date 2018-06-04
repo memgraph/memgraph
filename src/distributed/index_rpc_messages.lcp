@@ -1,0 +1,25 @@
+#>cpp
+#pragma once
+
+#include <memory>
+#include <string>
+
+#include "communication/rpc/messages.hpp"
+#include "distributed/serialization.hpp"
+#include "distributed/index_rpc_messages.capnp.h"
+cpp<#
+
+(lcp:namespace distributed)
+
+(lcp:capnp-namespace "distributed")
+
+(lcp:capnp-import 'storage "/storage/serialization.capnp")
+
+(lcp:define-rpc build-index
+    (:request
+     ((label "storage::Label" :capnp-type "Storage.Common")
+      (property "storage::Property" :capnp-type "Storage.Common")
+      (tx-id "tx::TransactionId" :capnp-type "UInt64")))
+  (:response ()))
+
+(lcp:pop-namespace) ;; distributed

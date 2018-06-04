@@ -5,7 +5,6 @@
 #include <string>
 
 #include "communication/rpc/client_pool.hpp"
-#include "communication/rpc/messages.hpp"
 #include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 
@@ -45,7 +44,7 @@ class SingleNodeCounters : public Counters {
 /** Implementation for distributed master. */
 class MasterCounters : public SingleNodeCounters {
  public:
-  MasterCounters(communication::rpc::Server &server);
+  explicit MasterCounters(communication::rpc::Server &server);
 
  private:
   communication::rpc::Server &rpc_server_;
@@ -54,7 +53,7 @@ class MasterCounters : public SingleNodeCounters {
 /** Implementation for distributed worker. */
 class WorkerCounters : public Counters {
  public:
-  WorkerCounters(communication::rpc::ClientPool &master_client_pool);
+  explicit WorkerCounters(communication::rpc::ClientPool &master_client_pool);
 
   int64_t Get(const std::string &name) override;
   void Set(const std::string &name, int64_t value) override;

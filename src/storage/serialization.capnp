@@ -15,3 +15,7 @@ struct Common {
 struct Label {}
 struct EdgeType {}
 struct Property {}
+
+struct Address {
+  storage @0 :UInt64;
+}

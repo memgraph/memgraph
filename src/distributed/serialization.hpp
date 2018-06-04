@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 
+#include "distributed/serialization.capnp.h"
 #include "storage/address_types.hpp"
 #include "storage/edge.hpp"
 #include "storage/types.hpp"
@@ -38,6 +39,9 @@ void SaveProperties(TArchive &ar, const PropertyValueStore &props) {
 }
 }  // namespace impl
 
+void SaveVertex(const Vertex &vertex, capnp::Vertex::Builder *builder,
+                int16_t worker_id);
+
 /**
  * Saves the given vertex into the given Boost archive.
  *
@@ -68,6 +72,9 @@ void SaveVertex(TArchive &ar, const Vertex &vertex, int worker_id) {
   impl::SaveProperties(ar, vertex.properties_);
 }
 
+void SaveEdge(const Edge &edge, capnp::Edge::Builder *builder,
+              int16_t worker_id);
+
 /**
  * Saves the given edge into the given Boost archive.
  *
@@ -83,6 +90,18 @@ void SaveEdge(TArchive &ar, const Edge &edge, int worker_id) {
   impl::SaveAddress(ar, edge.to_, worker_id);
   ar << edge.edge_type_.Id();
   impl::SaveProperties(ar, edge.properties_);
+}
+
+/// Alias for `SaveEdge` allowing for param type resolution.
+inline void SaveElement(const Edge &record, capnp::Edge::Builder *builder,
+                 int16_t worker_id) {
+  return SaveEdge(record, builder, worker_id);
+}
+
+/// Alias for `SaveVertex` allowing for param type resolution.
+inline void SaveElement(const Vertex &record, capnp::Vertex::Builder *builder,
+                 int16_t worker_id) {
+  return SaveVertex(record, builder, worker_id);
 }
 
 /// Alias for `SaveEdge` allowing for param type resolution.
@@ -163,6 +182,9 @@ std::unique_ptr<Vertex> LoadVertex(TArchive &ar) {
   return vertex;
 }
 
+template <>
+std::unique_ptr<Vertex> LoadVertex(const capnp::Vertex::Reader &reader);
+
 /**
  * Loads an Edge from the given archive and returns it.
  *
@@ -180,5 +202,8 @@ std::unique_ptr<Edge> LoadEdge(TArchive &ar) {
 
   return edge;
 }
+
+template <>
+std::unique_ptr<Edge> LoadEdge(const capnp::Edge::Reader &reader);
 
 }  // namespace distributed

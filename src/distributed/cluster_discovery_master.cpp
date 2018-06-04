@@ -11,7 +11,10 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     : server_(server),
       coordination_(coordination),
       rpc_worker_clients_(rpc_worker_clients) {
-  server_.Register<RegisterWorkerRpc>([this](const RegisterWorkerReq &req) {
+  server_.Register<RegisterWorkerRpc>([this](const auto &req_reader,
+                                             auto *res_builder) {
+    RegisterWorkerReq req;
+    req.Load(req_reader);
     bool registration_successful =
         this->coordination_.RegisterWorker(req.desired_worker_id, req.endpoint);
 
@@ -24,15 +27,15 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
           });
     }
 
-    return std::make_unique<RegisterWorkerRes>(
-        registration_successful, this->coordination_.RecoveryInfo(),
-        this->coordination_.GetWorkers());
+    RegisterWorkerRes res(registration_successful,
+                          this->coordination_.RecoveryInfo(),
+                          this->coordination_.GetWorkers());
+    res.Save(res_builder);
   });
 
   server_.Register<NotifyWorkerRecoveredRpc>(
-      [this](const NotifyWorkerRecoveredReq &req) {
-        this->coordination_.WorkerRecovered(req.member);
-        return std::make_unique<NotifyWorkerRecoveredRes>();
+      [this](const auto &req_reader, auto *res_builder) {
+        this->coordination_.WorkerRecovered(req_reader.getMember());
       });
 }
 

@@ -19,3 +19,13 @@ struct Symbol {
   userDeclared @3 :Bool;
   tokenPosition @4 :Int32;
 }
+
+struct SymbolTable {
+  position @0 :Int32;
+  table @1 :List(Entry);
+
+  struct Entry {
+    key @0 :Int32;
+    val @1 :Symbol;
+  }
+}

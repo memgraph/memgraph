@@ -140,7 +140,7 @@ cpp<#
 (lcp:capnp-namespace "query::plan")
 
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
-(lcp:capnp-import 'storage "/storage/types.capnp")
+(lcp:capnp-import 'storage "/storage/serialization.capnp")
 (lcp:capnp-import 'ast "/query/frontend/ast/ast.capnp")
 (lcp:capnp-import 'semantic "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'common "/query/common.capnp")
@@ -274,73 +274,6 @@ cpp<#
   LoadPointers(${archive}, ${member-name});
   cpp<#)
 
-(defun capnp-save-vector (capnp-type cpp-type &optional lambda-code)
-  (let ((lambda-code (if lambda-code
-                         lambda-code
-                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
-    (lambda (builder member-name)
-      #>cpp
-      utils::SaveVector<${capnp-type}, ${cpp-type}>(${member-name}, &${builder}, ${lambda-code});
-      cpp<#)))
-
-(defun capnp-load-vector (capnp-type cpp-type &optional lambda-code)
-  (let ((lambda-code (if lambda-code
-                         lambda-code
-                         (format nil
-                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
-                                 cpp-type))))
-    (lambda (reader member-name)
-      #>cpp
-      utils::LoadVector<${capnp-type}, ${cpp-type}>(&${member-name}, ${reader}, ${lambda-code});
-      cpp<#)))
-
-(defun capnp-save-optional (capnp-type cpp-type &optional lambda-code)
-  (let ((lambda-code (if lambda-code
-                         lambda-code
-                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
-    (lambda (builder member)
-      #>cpp
-      utils::SaveOptional<${capnp-type}, ${cpp-type}>(${member}, &${builder}, ${lambda-code});
-      cpp<#)))
-
-(defun capnp-load-optional (capnp-type cpp-type &optional lambda-code)
-  (let ((lambda-code (if lambda-code
-                         lambda-code
-                         (format nil
-                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
-                                 cpp-type))))
-    (lambda (reader member)
-      #>cpp
-      ${member} = utils::LoadOptional<${capnp-type}, ${cpp-type}>(${reader}, ${lambda-code});
-      cpp<#)))
-
-(defun capnp-save-enum (capnp-type cpp-type enum-values)
-  (lambda (builder member)
-    (let* ((member-setter (remove #\_ (string-capitalize member)))
-           (cases (mapcar (lambda (value-symbol)
-                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
-                             #>cpp
-                             case ${cpp-type}::${value}:
-                                 ${builder}->set${member-setter}(${capnp-type}::${value});
-                                 break;
-                                 cpp<#))
-                          enum-values)))
-      (format nil "switch (~A) {~%~{~A~%~}}" member (mapcar #'lcp::raw-cpp-string cases)))))
-
-(defun capnp-load-enum (capnp-type cpp-type enum-values)
-  (lambda (reader member)
-    (let* ((member-getter (remove #\_ (string-capitalize member)))
-           (cases (mapcar (lambda (value-symbol)
-                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
-                             #>cpp
-                             case ${capnp-type}::${value}:
-                                 ${member} = ${cpp-type}::${value};
-                                 break;
-                             cpp<#))
-                          enum-values)))
-      (format nil "switch (~A.get~A()) {~%~{~A~%~}}"
-              reader member-getter (mapcar #'lcp::raw-cpp-string cases)))))
-
 (defun save-ast-pointer (builder member)
   (let ((member-getter (remove #\_ (string-capitalize member))))
     #>cpp
@@ -361,19 +294,19 @@ cpp<#
       cpp<#)))
 
 (defun save-ast-vector (ast-type)
-  (capnp-save-vector "::query::capnp::Tree" ast-type
-                     "[helper](auto *builder, const auto &val) {
-                        val->Save(builder, &helper->saved_ast_uids);
-                      }"))
+  (lcp:capnp-save-vector "::query::capnp::Tree" ast-type
+                         "[helper](auto *builder, const auto &val) {
+                            val->Save(builder, &helper->saved_ast_uids);
+                          }"))
 
 (defun load-ast-vector (ast-type)
-  (capnp-load-vector "::query::capnp::Tree" ast-type
-                     (format
-                      nil
-                      "[helper](const auto &reader) {
-                        // We expect the unsafe downcast via static_cast to work.
-                        return static_cast<~A>(helper->ast_storage.Load(reader, &helper->loaded_ast_uids));
-                      }" ast-type)))
+  (lcp:capnp-load-vector "::query::capnp::Tree" ast-type
+                         (format
+                          nil
+                          "[helper](const auto &reader) {
+                            // We expect the unsafe downcast via static_cast to work.
+                            return static_cast<~A>(helper->ast_storage.Load(reader, &helper->loaded_ast_uids));
+                          }" ast-type)))
 
 (defun save-operator-pointer (builder member-name)
   #>cpp
@@ -586,10 +519,10 @@ chained in cases when longer paths need creating.
    (output-symbol "Symbol" :reader t :scope :protected)
    (graph-view "GraphView" :reader t :scope :protected
                :capnp-init nil
-               :capnp-save (capnp-save-enum "::query::capnp::GraphView" "GraphView"
-                                            '(old new))
-               :capnp-load (capnp-load-enum "::query::capnp::GraphView" "GraphView"
-                                            '(old new))
+               :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView" "GraphView"
+                                                '(old new))
+               :capnp-load (lcp:capnp-load-enum "::query::capnp::GraphView" "GraphView"
+                                                '(old new))
                :documentation
                "Controls which graph state is used to produce vertices.
 
@@ -661,8 +594,8 @@ given label.
            auto value_builder = builder->initValue();
            bound.value()->Save(&value_builder, &helper->saved_ast_uids);
          }"))
-    (funcall (capnp-save-optional "::utils::capnp::Bound<::query::capnp::Tree>" "Bound"
-                                  save-bound)
+    (funcall (lcp:capnp-save-optional "::utils::capnp::Bound<::query::capnp::Tree>" "Bound"
+                                      save-bound)
              builder member)))
 
 (defun load-optional-bound (reader member)
@@ -673,8 +606,8 @@ given label.
            auto *value = static_cast<Expression*>(helper->ast_storage.Load(reader.getValue(), &helper->loaded_ast_uids));
            return Bound(value, type);
          }"))
-    (funcall (capnp-load-optional "::utils::capnp::Bound<::query::capnp::Tree>" "Bound"
-                                  load-bound)
+    (funcall (lcp:capnp-load-optional "::utils::capnp::Bound<::query::capnp::Tree>" "Bound"
+                                      load-bound)
              reader member)))
 
 (lcp:define-class scan-all-by-label-property-range (scan-all)
@@ -805,13 +738,13 @@ property value.
    (edge-symbol "Symbol" :reader t :scope :protected)
    (direction "EdgeAtom::Direction" :reader t :scope :protected
               :capnp-type "Ast.EdgeAtom.Direction" :capnp-init nil
-              :capnp-save (capnp-save-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
-                                           '(in out both))
-              :capnp-load (capnp-load-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
-                                           '(in out both)))
+              :capnp-save (lcp:capnp-save-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
+                                               '(in out both))
+              :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
+                                               '(in out both)))
    (edge-types "std::vector<storage::EdgeType>" :reader t :scope :protected
-               :capnp-save (capnp-save-vector "::storage::capnp::Common" "storage::EdgeType")
-               :capnp-load (capnp-load-vector "::storage::capnp::Common" "storage::EdgeType"))
+               :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::EdgeType")
+               :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::EdgeType"))
    ;; the input op and the symbol under which the op's result
    ;; can be found in the frame
    (input "std::shared_ptr<LogicalOperator>" :scope :protected
@@ -823,10 +756,10 @@ property value.
                   been expanded and should be just validated in the frame.")
    (graph-view "GraphView" :reader t :scope :protected
                :capnp-init nil
-               :capnp-save (capnp-save-enum "::query::capnp::GraphView" "GraphView"
-                                            '(old new))
-               :capnp-load (capnp-load-enum "::query::capnp::GraphView" "GraphView"
-                                            '(old new))
+               :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView" "GraphView"
+                                                '(old new))
+               :capnp-load (lcp:capnp-load-enum "::query::capnp::GraphView" "GraphView"
+                                                '(old new))
                :documentation
                "from which state the input node should get expanded"))
   (:documentation
@@ -969,10 +902,10 @@ pulled.")
 (lcp:define-class expand-variable (logical-operator expand-common)
   ((type "EdgeAtom::Type" :reader t :capnp-type "Ast.EdgeAtom.Type"
          :capnp-init nil
-         :capnp-save (capnp-save-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
-                                      '(single depth-first breadth-first weighted-shortest-path))
-         :capnp-load (capnp-load-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
-                                      '(single depth-first breadth-first weighted-shortest-path)))
+         :capnp-save (lcp:capnp-save-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
+                                          '(single depth-first breadth-first weighted-shortest-path))
+         :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
+                                          '(single depth-first breadth-first weighted-shortest-path)))
    (is-reverse :bool :documentation
                "True if the path should be written as expanding from node_symbol to input_symbol.")
    (lower-bound "Expression *" :save-fun #'save-pointer :load-fun #'load-pointer
@@ -985,15 +918,15 @@ pulled.")
                 :documentation "Optional upper bound of the variable length expansion, defaults are (1, inf)")
    (filter-lambda "Lambda")
    (weight-lambda "std::experimental::optional<Lambda>"
-                  :capnp-save (capnp-save-optional
+                  :capnp-save (lcp:capnp-save-optional
                                "capnp::ExpandVariable::Lambda" "Lambda"
                                "[helper](auto *builder, const auto &val) { val.Save(builder, helper); }")
-                  :capnp-load (capnp-load-optional
+                  :capnp-load (lcp:capnp-load-optional
                                "capnp::ExpandVariable::Lambda" "Lambda"
                                "[helper](const auto &reader) { Lambda val; val.Load(reader, helper); return val; }"))
    (total-weight "std::experimental::optional<Symbol>"
-                 :capnp-save (capnp-save-optional "::query::capnp::Symbol" "Symbol")
-                 :capnp-load (capnp-load-optional "::query::capnp::Symbol" "Symbol")))
+                 :capnp-save (lcp:capnp-save-optional "::query::capnp::Symbol" "Symbol")
+                 :capnp-load (lcp:capnp-load-optional "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Variable-length expansion operator. For a node existing in
 the frame it expands a variable number of edges and places them
@@ -1088,8 +1021,8 @@ pulled.")
           :capnp-load #'load-operator-pointer)
    (path-symbol "Symbol" :reader t)
    (path-elements "std::vector<Symbol>" :reader t
-                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+                  :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Constructs a named path from it's elements and places it on the frame.")
   (:public
@@ -1324,8 +1257,8 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
         :save-fun #'save-pointer :load-fun #'load-pointer)
    (op "Op" :capnp-init nil
-       :capnp-save (capnp-save-enum "capnp::SetProperties::Op" "Op" '(update replace))
-       :capnp-load (capnp-load-enum "capnp::SetProperties::Op" "Op" '(update replace))))
+       :capnp-save (lcp:capnp-save-enum "capnp::SetProperties::Op" "Op")
+       :capnp-load (lcp:capnp-load-enum "capnp::SetProperties::Op" "Op")))
   (:documentation
    "Logical op for setting the whole properties set on a vertex or an edge.
 
@@ -1336,12 +1269,13 @@ Supports setting (replacing the whole properties set with another) and
 updating.")
   (:public
    (lcp:define-enum op
-       "Defines how setting the properties works.
+     (update replace)
+     (:documentation "Defines how setting the properties works.
 
 @c UPDATE means that the current property set is augmented with additional
 ones (existing props of the same name are replaced), while @c REPLACE means
-that the old props are discarded and replaced with new ones."
-     update replace)
+that the old props are discarded and replaced with new ones.")
+     (:serialize :capnp))
 
    #>cpp
    SetProperties(const std::shared_ptr<LogicalOperator> &input,
@@ -1390,8 +1324,8 @@ that the old props are discarded and replaced with new ones."
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol")
    (labels "std::vector<storage::Label>"
-     :capnp-save (capnp-save-vector "::storage::capnp::Common" "storage::Label")
-     :capnp-load (capnp-load-vector "::storage::capnp::Common" "storage::Label")))
+     :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
+     :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
   (:documentation
    "Logical operator for setting an arbitrary number of labels on a Vertex.
 
@@ -1478,8 +1412,8 @@ It does NOT remove labels that are already set on that Vertex.")
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol")
    (labels "std::vector<storage::Label>"
-     :capnp-save (capnp-save-vector "::storage::capnp::Common" "storage::Label")
-     :capnp-load (capnp-load-vector "::storage::capnp::Common" "storage::Label")))
+     :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
+     :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
   (:documentation
    "Logical operator for removing an arbitrary number of labels on a Vertex.
 
@@ -1522,8 +1456,8 @@ If a label does not exist on a Vertex, nothing happens.")
           :capnp-load #'load-operator-pointer)
    (expand-symbol "Symbol")
    (previous-symbols "std::vector<Symbol>"
-                     :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                     :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+                     :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                     :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Filter whose Pull returns true only when the given
 expand_symbol frame value (the latest expansion) is not
@@ -1585,8 +1519,8 @@ between edges and an edge lists).")
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (symbols "std::vector<Symbol>" :reader t
-            :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-            :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+            :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+            :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (advance-command :bool :reader t))
   (:documentation
    "Pulls everything from the input before passing it through.
@@ -1667,10 +1601,10 @@ cpp<#
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (aggregations "std::vector<Element>" :reader t
-                 :capnp-save (capnp-save-vector
+                 :capnp-save (lcp:capnp-save-vector
                               "capnp::Aggregate::Element" "Element"
                               "[helper](auto *builder, const auto &val) { val.Save(builder, helper); }")
-                 :capnp-load (capnp-load-vector
+                 :capnp-load (lcp:capnp-load-vector
                               "capnp::Aggregate::Element" "Element"
                               "[helper](const auto &reader) { Element val; val.Load(reader, helper); return val; }"))
    (group-by "std::vector<Expression *>" :reader t
@@ -1679,8 +1613,8 @@ cpp<#
              :capnp-load (load-ast-vector "Expression *")
              :save-fun #'save-pointers :load-fun #'load-pointers)
    (remember "std::vector<Symbol>" :reader t
-             :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-             :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+             :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+             :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Performs an arbitrary number of aggregations of data
 from the given input grouped by the given criteria.
@@ -1706,10 +1640,10 @@ elements are in an undefined state after aggregation.")
            :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
            :save-fun #'save-pointer :load-fun #'load-pointer)
       (op "Aggregation::Op" :capnp-type "Ast.Aggregation.Op"
-          :capnp-init nil :capnp-save (capnp-save-enum "::query::capnp::Aggregation::Op" "Aggregation::Op"
-                                                       '(count min max sum avg collect-list collect-map))
-          :capnp-load (capnp-load-enum "::query::capnp::Aggregation::Op" "Aggregation::Op"
-                                       '(count min max sum avg collect-list collect-map)))
+          :capnp-init nil :capnp-save (lcp:capnp-save-enum "::query::capnp::Aggregation::Op" "Aggregation::Op"
+                                                           '(count min max sum avg collect-list collect-map))
+          :capnp-load (lcp:capnp-load-enum "::query::capnp::Aggregation::Op" "Aggregation::Op"
+                                           '(count min max sum avg collect-list collect-map)))
       (output-sym "Symbol"))
      (:documentation
       "An aggregation element, contains:
@@ -1949,8 +1883,8 @@ input should be performed).")
              :capnp-load (load-ast-vector "Expression *")
              :save-fun #'save-pointers :load-fun #'load-pointers)
    (output-symbols "std::vector<Symbol>" :reader t
-                   :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                   :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+                   :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                   :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Logical operator for ordering (sorting) results.
 
@@ -2080,8 +2014,8 @@ documentation.")
              :capnp-save #'save-operator-pointer
              :capnp-load #'load-operator-pointer)
    (optional-symbols "std::vector<Symbol>" :reader t
-                     :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                     :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+                     :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                     :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Optional operator. Used for optional match. For every
 successful Pull from the input branch a Pull from the optional
@@ -2186,8 +2120,8 @@ Input is optional (unwind can be the first clause in a query).")
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (value-symbols "std::vector<Symbol>"
-                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+                  :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Ensures that only distinct rows are yielded.
 This implementation accepts a vector of Symbols
@@ -2272,14 +2206,14 @@ case the index already exists, nothing happens.")
              :capnp-save #'save-operator-pointer
              :capnp-load #'load-operator-pointer)
    (union-symbols "std::vector<Symbol>" :reader t
-                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+                  :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (left-symbols "std::vector<Symbol>" :reader t
-                 :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                 :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+                 :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                 :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (right-symbols "std::vector<Symbol>" :reader t
-                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+                  :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "A logical operator that applies UNION operator on inputs and places the
 result on the frame.
@@ -2326,8 +2260,8 @@ vectors of symbols used  by each of the inputs.")
           :capnp-load #'load-operator-pointer)
    (plan-id :int64_t :initval 0 :reader t)
    (symbols "std::vector<Symbol>" :reader t
-            :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-            :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+            :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+            :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "An operator in distributed Memgraph that yields both local and remote (from
 other workers) frames. Obtaining remote frames is done through RPC calls to
@@ -2424,14 +2358,14 @@ Logic of the synchronize operator is:
             :capnp-save #'save-operator-pointer
             :capnp-load #'load-operator-pointer)
    (left-symbols "std::vector<Symbol>" :reader t
-                 :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                 :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+                 :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                 :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (right-op "std::shared_ptr<LogicalOperator>" :reader t
              :capnp-save #'save-operator-pointer
              :capnp-load #'load-operator-pointer)
    (right-symbols "std::vector<Symbol>" :reader t
-                  :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-                  :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol")))
+                  :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+                  :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
    "Operator for producing a Cartesian product from 2 input branches")
   (:public
@@ -2464,8 +2398,8 @@ Logic of the synchronize operator is:
           :capnp-load #'load-operator-pointer)
    (plan-id :int64_t :initval 0 :reader t)
    (symbols "std::vector<Symbol>" :reader t
-            :capnp-save (capnp-save-vector "::query::capnp::Symbol" "Symbol")
-            :capnp-load (capnp-load-vector "::query::capnp::Symbol" "Symbol"))
+            :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
+            :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (order-by "std::vector<Expression *>" :reader t
              :capnp-type "List(Ast.Tree)"
              :capnp-save (save-ast-vector "Expression *")

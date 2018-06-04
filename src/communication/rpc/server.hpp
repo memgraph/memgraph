@@ -1,9 +1,11 @@
 #pragma once
 
-#include <type_traits>
 #include <unordered_map>
 #include <vector>
 
+#include "capnp/any.h"
+
+#include "communication/rpc/messages.capnp.h"
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/protocol.hpp"
 #include "communication/server.hpp"
@@ -27,57 +29,53 @@ class Server {
 
   const io::network::Endpoint &endpoint() const;
 
-  template <typename TRequestResponse>
-  void Register(
-      std::function<std::unique_ptr<typename TRequestResponse::Response>(
-          const typename TRequestResponse::Request &)>
-          callback) {
-    static_assert(
-        std::is_base_of<Message, typename TRequestResponse::Request>::value,
-        "TRequestResponse::Request must be derived from Message");
-    static_assert(
-        std::is_base_of<Message, typename TRequestResponse::Response>::value,
-        "TRequestResponse::Response must be derived from Message");
+  template <class TRequestResponse>
+  void Register(std::function<
+                void(const typename TRequestResponse::Request::Capnp::Reader &,
+                     typename TRequestResponse::Response::Capnp::Builder *)>
+                    callback) {
+    RpcCallback rpc;
+    rpc.req_type = TRequestResponse::Request::TypeInfo;
+    rpc.res_type = TRequestResponse::Response::TypeInfo;
+    rpc.callback = [callback = callback](const auto &reader, auto *builder) {
+      auto req_data =
+          reader.getData()
+              .template getAs<typename TRequestResponse::Request::Capnp>();
+      builder->setTypeId(TRequestResponse::Response::TypeInfo.id);
+      auto data_builder = builder->initData();
+      auto res_builder =
+          data_builder
+              .template initAs<typename TRequestResponse::Response::Capnp>();
+      callback(req_data, &res_builder);
+    };
     auto callbacks_accessor = callbacks_.access();
-    auto got = callbacks_accessor.insert(
-        typeid(typename TRequestResponse::Request),
-        [callback = callback](const Message &base_message) {
-          const auto &message =
-              dynamic_cast<const typename TRequestResponse::Request &>(
-                  base_message);
-          return callback(message);
-        });
+    auto got =
+        callbacks_accessor.insert(TRequestResponse::Request::TypeInfo.id, rpc);
     CHECK(got.second) << "Callback for that message type already registered";
-    if (VLOG_IS_ON(12)) {
-      auto req_type =
-          utils::Demangle(typeid(typename TRequestResponse::Request).name());
-      auto res_type =
-          utils::Demangle(typeid(typename TRequestResponse::Response).name());
-      LOG(INFO) << "[RpcServer] register " << (req_type ? req_type.value() : "")
-                << " -> " << (res_type ? res_type.value() : "");
-    }
+    VLOG(12) << "[RpcServer] register " << rpc.req_type.name << " -> "
+             << rpc.res_type.name;
   }
 
   template <typename TRequestResponse>
   void UnRegister() {
-    static_assert(
-        std::is_base_of<Message, typename TRequestResponse::Request>::value,
-        "TRequestResponse::Request must be derived from Message");
-    static_assert(
-        std::is_base_of<Message, typename TRequestResponse::Response>::value,
-        "TRequestResponse::Response must be derived from Message");
+    const MessageType &type = TRequestResponse::Request::TypeInfo;
     auto callbacks_accessor = callbacks_.access();
-    auto deleted =
-        callbacks_accessor.remove(typeid(typename TRequestResponse::Request));
+    auto deleted = callbacks_accessor.remove(type.id);
     CHECK(deleted) << "Trying to remove unknown message type callback";
   }
 
  private:
   friend class Session;
 
-  ConcurrentMap<std::type_index,
-                std::function<std::unique_ptr<Message>(const Message &)>>
-      callbacks_;
+  struct RpcCallback {
+    MessageType req_type;
+    std::function<void(const capnp::Message::Reader &,
+                       capnp::Message::Builder *)>
+        callback;
+    MessageType res_type;
+  };
+
+  ConcurrentMap<uint64_t, RpcCallback> callbacks_;
 
   std::mutex mutex_;
   communication::Server<Session, Server> server_;

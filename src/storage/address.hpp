@@ -2,9 +2,9 @@
 
 #include <cstdint>
 
-#include "boost/serialization/access.hpp"
 #include "glog/logging.h"
 
+#include "storage/serialization.capnp.h"
 #include "storage/gid.hpp"
 
 namespace storage {
@@ -89,13 +89,16 @@ class Address {
     return storage_ == other.storage_;
   }
 
+  void Save(capnp::Address::Builder *builder) const {
+    builder->setStorage(storage_);
+  }
+
+  void Load(const capnp::Address::Reader &reader) {
+    storage_ = reader.getStorage();
+  }
+
  private:
   StorageT storage_{0};
-
-  friend class boost::serialization::access;
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &storage_;
-  }
 };
+
 }  // namespace storage

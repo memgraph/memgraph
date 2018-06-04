@@ -175,7 +175,9 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
 UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
                                    communication::rpc::Server &server)
     : db_(db) {
-  server.Register<UpdateRpc>([this](const UpdateReq &req) {
+  server.Register<UpdateRpc>([this](const auto &req_reader, auto *res_builder) {
+    UpdateReq req;
+    req.Load(req_reader);
     using DeltaType = database::StateDelta::Type;
     auto &delta = req.member;
     switch (delta.type) {
@@ -183,74 +185,106 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
       case DeltaType::ADD_LABEL:
       case DeltaType::REMOVE_LABEL:
       case database::StateDelta::Type::REMOVE_OUT_EDGE:
-      case database::StateDelta::Type::REMOVE_IN_EDGE:
-        return std::make_unique<UpdateRes>(
+      case database::StateDelta::Type::REMOVE_IN_EDGE: {
+        UpdateRes res(
             GetUpdates(vertex_updates_, delta.transaction_id).Emplace(delta));
-      case DeltaType::SET_PROPERTY_EDGE:
-        return std::make_unique<UpdateRes>(
+        res.Save(res_builder);
+        return;
+      }
+      case DeltaType::SET_PROPERTY_EDGE: {
+        UpdateRes res(
             GetUpdates(edge_updates_, delta.transaction_id).Emplace(delta));
+        res.Save(res_builder);
+        return;
+      }
       default:
         LOG(FATAL) << "Can't perform a remote update with delta type: "
                    << static_cast<int>(req.member.type);
     }
   });
 
-  server.Register<UpdateApplyRpc>([this](const UpdateApplyReq &req) {
-    return std::make_unique<UpdateApplyRes>(Apply(req.member));
-  });
+  server.Register<UpdateApplyRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        UpdateApplyReq req;
+        req.Load(req_reader);
+        UpdateApplyRes res(Apply(req.member));
+        res.Save(res_builder);
+      });
 
-  server.Register<CreateVertexRpc>([this](const CreateVertexReq &req) {
+  server.Register<CreateVertexRpc>([this](const auto &req_reader,
+                                          auto *res_builder) {
+    CreateVertexReq req;
+    req.Load(req_reader);
     gid::Gid gid = GetUpdates(vertex_updates_, req.member.tx_id)
                        .CreateVertex(req.member.labels, req.member.properties);
-    return std::make_unique<CreateVertexRes>(
-        CreateResult{UpdateResult::DONE, gid});
+    CreateVertexRes res(CreateResult{UpdateResult::DONE, gid});
+    res.Save(res_builder);
   });
 
-  server.Register<CreateEdgeRpc>([this](const CreateEdgeReq &req) {
+  server.Register<CreateEdgeRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        CreateEdgeReq req;
+        req.Load(req_reader);
+        auto data = req.member;
+        auto creation_result = CreateEdge(data);
+
+        // If `from` and `to` are both on this worker, we handle it in this
+        // RPC call. Do it only if CreateEdge succeeded.
+        if (creation_result.result == UpdateResult::DONE &&
+            data.to.worker_id() == db_.WorkerId()) {
+          auto to_delta = database::StateDelta::AddInEdge(
+              data.tx_id, data.to.gid(), {data.from, db_.WorkerId()},
+              {creation_result.gid, db_.WorkerId()}, data.edge_type);
+          creation_result.result =
+              GetUpdates(vertex_updates_, data.tx_id).Emplace(to_delta);
+        }
+
+        CreateEdgeRes res(creation_result);
+        res.Save(res_builder);
+      });
+
+  server.Register<AddInEdgeRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        AddInEdgeReq req;
+        req.Load(req_reader);
+        auto to_delta = database::StateDelta::AddInEdge(
+            req.member.tx_id, req.member.to, req.member.from,
+            req.member.edge_address, req.member.edge_type);
+        auto result =
+            GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
+        AddInEdgeRes res(result);
+        res.Save(res_builder);
+      });
+
+  server.Register<RemoveVertexRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        RemoveVertexReq req;
+        req.Load(req_reader);
+        auto to_delta = database::StateDelta::RemoveVertex(
+            req.member.tx_id, req.member.gid, req.member.check_empty);
+        auto result =
+            GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
+        RemoveVertexRes res(result);
+        res.Save(res_builder);
+      });
+
+  server.Register<RemoveEdgeRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        RemoveEdgeReq req;
+        req.Load(req_reader);
+        RemoveEdgeRes res(RemoveEdge(req.member));
+        res.Save(res_builder);
+      });
+
+  server.Register<RemoveInEdgeRpc>([this](const auto &req_reader,
+                                          auto *res_builder) {
+    RemoveInEdgeReq req;
+    req.Load(req_reader);
     auto data = req.member;
-    auto creation_result = CreateEdge(data);
-
-    // If `from` and `to` are both on this worker, we handle it in this
-    // RPC call. Do it only if CreateEdge succeeded.
-    if (creation_result.result == UpdateResult::DONE &&
-        data.to.worker_id() == db_.WorkerId()) {
-      auto to_delta = database::StateDelta::AddInEdge(
-          data.tx_id, data.to.gid(), {data.from, db_.WorkerId()},
-          {creation_result.gid, db_.WorkerId()}, data.edge_type);
-      creation_result.result =
-          GetUpdates(vertex_updates_, data.tx_id).Emplace(to_delta);
-    }
-
-    return std::make_unique<CreateEdgeRes>(creation_result);
-  });
-
-  server.Register<AddInEdgeRpc>([this](const AddInEdgeReq &req) {
-    auto to_delta = database::StateDelta::AddInEdge(
-        req.member.tx_id, req.member.to, req.member.from,
-        req.member.edge_address, req.member.edge_type);
-    auto result =
-        GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
-    return std::make_unique<AddInEdgeRes>(result);
-  });
-
-  server.Register<RemoveVertexRpc>([this](const RemoveVertexReq &req) {
-    auto to_delta = database::StateDelta::RemoveVertex(
-        req.member.tx_id, req.member.gid, req.member.check_empty);
-    auto result =
-        GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
-    return std::make_unique<RemoveVertexRes>(result);
-  });
-
-  server.Register<RemoveEdgeRpc>([this](const RemoveEdgeReq &req) {
-    return std::make_unique<RemoveEdgeRes>(RemoveEdge(req.member));
-  });
-
-  server.Register<RemoveInEdgeRpc>([this](const RemoveInEdgeReq &req) {
-    auto data = req.member;
-    return std::make_unique<RemoveInEdgeRes>(
-        GetUpdates(vertex_updates_, data.tx_id)
-            .Emplace(database::StateDelta::RemoveInEdge(data.tx_id, data.vertex,
-                                                        data.edge_address)));
+    RemoveInEdgeRes res(GetUpdates(vertex_updates_, data.tx_id)
+                            .Emplace(database::StateDelta::RemoveInEdge(
+                                data.tx_id, data.vertex, data.edge_address)));
+    res.Save(res_builder);
   });
 }
 

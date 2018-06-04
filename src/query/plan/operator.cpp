@@ -1345,10 +1345,10 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   int current_depth_{-1};
 
   // Map from worker IDs to their corresponding subcursors.
-  std::unordered_map<int, int64_t> subcursor_ids_;
+  std::unordered_map<int16_t, int64_t> subcursor_ids_;
 
   // Next worker master should try pulling from.
-  std::unordered_map<int, int64_t>::iterator pull_pos_;
+  std::unordered_map<int16_t, int64_t>::iterator pull_pos_;
 };
 
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {

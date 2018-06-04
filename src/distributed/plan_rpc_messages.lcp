@@ -1,0 +1,59 @@
+#>cpp
+#pragma once
+
+#include "communication/rpc/messages.hpp"
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/operator.hpp"
+
+#include "distributed/plan_rpc_messages.capnp.h"
+cpp<#
+
+(lcp:namespace distributed)
+
+(lcp:capnp-namespace "distributed")
+
+(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'plan "/query/plan/operator.capnp")
+(lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
+
+(defun load-plan (reader member)
+  #>cpp
+  query::plan::LogicalOperator::LoadHelper helper;
+  ${member} = utils::LoadSharedPtr<query::plan::capnp::LogicalOperator, query::plan::LogicalOperator>(
+      ${reader}, [&helper](const auto &reader) {
+                   auto op = query::plan::LogicalOperator::Construct(reader);
+                   op->Load(reader, &helper);
+                   return op.release();
+                 }, &helper.loaded_ops);
+  storage = std::move(helper.ast_storage);
+  cpp<#)
+
+(defun save-plan (builder member)
+  #>cpp
+  query::plan::LogicalOperator::SaveHelper helper;
+  utils::SaveSharedPtr<query::plan::capnp::LogicalOperator, query::plan::LogicalOperator>(
+      ${member}, &${builder},
+      [&helper](auto *builder, const auto &val) {
+        val.Save(builder, &helper);
+      }, &helper.saved_ops);
+  cpp<#)
+
+(lcp:define-rpc dispatch-plan
+    (:request
+     ((plan-id :int64_t)
+      (plan "std::shared_ptr<query::plan::LogicalOperator>"
+            :capnp-type "Utils.SharedPtr(Plan.LogicalOperator)"
+            :capnp-save #'save-plan :capnp-load #'load-plan)
+      (symbol-table "query::SymbolTable" :capnp-type "Sem.SymbolTable")
+      (storage "query::AstTreeStorage" :initarg nil
+               :save-fun ""
+               :load-fun "storage = std::move(ar.template get_helper<query::AstTreeStorage>(query::AstTreeStorage::kHelperId));"
+               :capnp-save :dont-save)))
+  (:response ()))
+
+(lcp:define-rpc remove-plan
+    (:request ((member :int64_t)))
+  (:response ()))
+
+(lcp:pop-namespace) ;; distributed

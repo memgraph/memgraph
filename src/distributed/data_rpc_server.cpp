@@ -10,27 +10,34 @@ DataRpcServer::DataRpcServer(database::GraphDb &db,
                              communication::rpc::Server &server)
     : db_(db), rpc_server_(server) {
   rpc_server_.Register<VertexRpc>(
-      [this](const VertexReq &req) {
-        database::GraphDbAccessor dba(db_, req.member.tx_id);
-        auto vertex = dba.FindVertex(req.member.gid, false);
+      [this](const auto &req_reader, auto *res_builder) {
+        database::GraphDbAccessor dba(db_, req_reader.getMember().getTxId());
+        auto vertex = dba.FindVertex(req_reader.getMember().getGid(), false);
         CHECK(vertex.GetOld())
             << "Old record must exist when sending vertex by RPC";
-        return std::make_unique<VertexRes>(vertex.GetOld(), db_.WorkerId());
+        VertexRes response(vertex.GetOld(), db_.WorkerId());
+        response.Save(res_builder);
       });
 
-  rpc_server_.Register<EdgeRpc>([this](const EdgeReq &req) {
-    database::GraphDbAccessor dba(db_, req.member.tx_id);
-    auto edge = dba.FindEdge(req.member.gid, false);
+  rpc_server_.Register<EdgeRpc>([this](const auto &req_reader,
+                                       auto *res_builder) {
+    database::GraphDbAccessor dba(db_, req_reader.getMember().getTxId());
+    auto edge = dba.FindEdge(req_reader.getMember().getGid(), false);
     CHECK(edge.GetOld()) << "Old record must exist when sending edge by RPC";
-    return std::make_unique<EdgeRes>(edge.GetOld(), db_.WorkerId());
+    EdgeRes response(edge.GetOld(), db_.WorkerId());
+    response.Save(res_builder);
   });
 
-  rpc_server_.Register<VertexCountRpc>([this](const VertexCountReq &req) {
-    database::GraphDbAccessor dba(db_, req.member);
-    int64_t size = 0;
-    for (auto vertex : dba.Vertices(false)) ++size;
-    return std::make_unique<VertexCountRes>(size);
-  });
+  rpc_server_.Register<VertexCountRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        VertexCountReq req;
+        req.Load(req_reader);
+        database::GraphDbAccessor dba(db_, req.member);
+        int64_t size = 0;
+        for (auto vertex : dba.Vertices(false)) ++size;
+        VertexCountRes res(size);
+        res.Save(res_builder);
+      });
 }
 
 }  // namespace distributed

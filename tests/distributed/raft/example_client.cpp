@@ -34,14 +34,15 @@ int main(int argc, char **argv) {
   // in correct order.
   for (int i = 1; i <= 100; ++i) {
     LOG(INFO) << fmt::format("Apennding value: {}", i);
-    auto result_tuple = client.Call<AppendEntry>(i);
-    if (!result_tuple) {
-      LOG(INFO) << "Request unsuccessful";
-      // Try to resend value
-      --i;
-    } else {
-      LOG(INFO) << fmt::format("Appended value: {}", i);
-    }
+    // TODO: Serialize RPC via Cap'n Proto
+    // auto result_tuple = client.Call<AppendEntry>(i);
+    // if (!result_tuple) {
+    //   LOG(INFO) << "Request unsuccessful";
+    //   // Try to resend value
+    //   --i;
+    // } else {
+    //   LOG(INFO) << fmt::format("Appended value: {}", i);
+    // }
   }
 
   return 0;

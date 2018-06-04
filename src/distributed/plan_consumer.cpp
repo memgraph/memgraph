@@ -4,19 +4,21 @@ namespace distributed {
 
 PlanConsumer::PlanConsumer(communication::rpc::Server &server)
     : server_(server) {
-  server_.Register<DistributedPlanRpc>([this](const DispatchPlanReq &req) {
-    plan_cache_.access().insert(
-        req.plan_id_,
-        std::make_unique<PlanPack>(
-            req.plan_, req.symbol_table_,
-            std::move(const_cast<DispatchPlanReq &>(req).storage_)));
-    return std::make_unique<DispatchPlanRes>();
-  });
+  server_.Register<DispatchPlanRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        DispatchPlanReq req;
+        req.Load(req_reader);
+        plan_cache_.access().insert(
+            req.plan_id, std::make_unique<PlanPack>(req.plan, req.symbol_table,
+                                                    std::move(req.storage)));
+        DispatchPlanRes res;
+        res.Save(res_builder);
+      });
 
-  server_.Register<RemovePlanRpc>([this](const RemovePlanReq &req) {
-    plan_cache_.access().remove(req.member);
-    return std::make_unique<RemovePlanRes>();
-  });
+  server_.Register<RemovePlanRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        plan_cache_.access().remove(req_reader.getMember());
+      });
 }
 
 PlanConsumer::PlanPack &PlanConsumer::PlanForId(int64_t plan_id) const {

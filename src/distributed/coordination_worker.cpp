@@ -27,19 +27,18 @@ void WorkerCoordination::WaitForShutdown() {
   std::condition_variable cv;
   bool shutdown = false;
 
-  server_.Register<StopWorkerRpc>([&](const StopWorkerReq &) {
+  server_.Register<StopWorkerRpc>([&](const auto &req_reader, auto *res_builder) {
     std::unique_lock<std::mutex> lk(mutex);
     shutdown = true;
     lk.unlock();
     cv.notify_one();
-    return std::make_unique<StopWorkerRes>();
   });
 
   std::unique_lock<std::mutex> lk(mutex);
   cv.wait(lk, [&shutdown] { return shutdown; });
 }
 
-Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
+io::network::Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
   std::lock_guard<std::mutex> guard(lock_);
   return Coordination::GetEndpoint(worker_id);
 }

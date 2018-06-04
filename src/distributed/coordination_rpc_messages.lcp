@@ -1,0 +1,72 @@
+#>cpp
+#pragma once
+
+#include <experimental/optional>
+#include <unordered_map>
+
+#include "communication/rpc/messages.hpp"
+#include "distributed/coordination_rpc_messages.capnp.h"
+#include "durability/recovery.hpp"
+#include "io/network/endpoint.hpp"
+cpp<#
+
+(lcp:namespace distributed)
+
+(lcp:capnp-namespace "distributed")
+
+(lcp:capnp-import 'dur "/durability/recovery.capnp")
+(lcp:capnp-import 'io "/io/network/endpoint.capnp")
+(lcp:capnp-import 'utils "/utils/serialization.capnp")
+
+(lcp:define-rpc register-worker
+    (:request
+     ((desired-worker-id :int16_t)
+      (endpoint "io::network::Endpoint" :capnp-type "Io.Endpoint")))
+  (:response
+   ((registration-successful :bool)
+    (recovery-info "std::experimental::optional<durability::RecoveryInfo>"
+                   :capnp-type "Utils.Optional(Dur.RecoveryInfo)"
+                   :capnp-save (lcp:capnp-save-optional "durability::capnp::RecoveryInfo"
+                                                        "durability::RecoveryInfo")
+                   :capnp-load (lcp:capnp-load-optional "durability::capnp::RecoveryInfo"
+                                                        "durability::RecoveryInfo"))
+    (workers "std::unordered_map<int, io::network::Endpoint>"
+             :capnp-type "Utils.Map(Utils.BoxInt16, Io.Endpoint)"
+             :capnp-save
+             (lambda (builder member)
+               #>cpp
+               utils::SaveMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(${member}, &${builder},
+                              [](auto *builder, const auto &entry) {
+                                auto key_builder = builder->initKey();
+                                key_builder.setValue(entry.first);
+                                auto value_builder = builder->initValue();
+                                entry.second.Save(&value_builder);
+                              });
+               cpp<#)
+             :capnp-load
+             (lambda (reader member)
+               #>cpp
+               utils::LoadMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(&${member}, ${reader},
+                              [](const auto &reader) {
+                                io::network::Endpoint value;
+                                value.Load(reader.getValue());
+                                return std::make_pair(reader.getKey().getValue(), value);
+                              });
+               cpp<#)))))
+
+(lcp:define-rpc cluster-discovery
+    (:request
+     ((worker-id :int16_t)
+      (endpoint "io::network::Endpoint" :capnp-type "Io.Endpoint")))
+  (:response ()))
+
+(lcp:define-rpc stop-worker
+    (:request ())
+  (:response ()))
+
+(lcp:define-rpc notify-worker-recovered
+    (:request ((member :int64_t)))
+  (:response ()))
+
+(lcp:pop-namespace) ;; distributed
+

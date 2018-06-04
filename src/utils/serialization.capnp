@@ -1,10 +1,15 @@
 @0xe7647d63b36c2c65;
 
 using Cxx = import "/capnp/c++.capnp";
+
 $Cxx.namespace("utils::capnp");
 
+# Primitive type wrappers
 
-# Primitive types wrappers.
+struct BoxInt16 {
+  value @0 :Int16;
+}
+
 struct BoxInt32 {
   value @0 :Int32;
 }
@@ -13,12 +18,16 @@ struct BoxInt64 {
   value @0 :Int64;
 }
 
+struct BoxUInt16 {
+  value @0 :UInt16;
+}
+
 struct BoxUInt32 {
   value @0 :UInt32;
 }
 
 struct BoxUInt64 {
-  value @0 :UInt32;
+  value @0 :UInt64;
 }
 
 struct BoxFloat32 {
@@ -33,8 +42,7 @@ struct BoxBool {
   value @0 :Bool;
 }
 
-
-# CPP Types.
+# C++ STL types
 
 struct Optional(T) {
   union {
@@ -62,27 +70,21 @@ struct SharedPtr(T) {
   }
 }
 
-# Our types
-
-struct TypedValue {
-  union {
-    nullType @0 :Void;
-    bool @1 :Bool;
-    integer @2 :Int64;
-    double @3 :Float64;
-    string @4 :Text;
-    list @5 :List(TypedValue);
-    map @6 :List(Entry);
-    # TODO vertex accessor
-    # TODO edge accessor
-    # TODO path
-  }
+struct Map(K, V) {
+  entries @0 :List(Entry);
 
   struct Entry {
-    key @0 :Text;
-    value @1 :TypedValue;
+    key @0 :K;
+    value @1 :V;
   }
 }
+
+struct Pair(First, Second) {
+  first @0 :First;
+  second @1 :Second;
+}
+
+# Our types
 
 struct Bound(T) {
   type @0 :Type;

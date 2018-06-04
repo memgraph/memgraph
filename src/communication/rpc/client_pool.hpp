@@ -14,10 +14,33 @@ namespace communication::rpc {
  */
 class ClientPool {
  public:
-  ClientPool(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
+  explicit ClientPool(const io::network::Endpoint &endpoint)
+      : endpoint_(endpoint) {}
 
-  template <typename TRequestResponse, typename... Args>
-  std::unique_ptr<typename TRequestResponse::Response> Call(Args &&... args) {
+  template <class TRequestResponse, class... Args>
+  std::experimental::optional<typename TRequestResponse::Response> Call(
+      Args &&... args) {
+    return WithUnusedClient([&](const auto &client) {
+      return client->template Call<TRequestResponse>(
+          std::forward<Args>(args)...);
+    });
+  };
+
+  template <class TRequestResponse, class... Args>
+  std::experimental::optional<typename TRequestResponse::Response> CallWithLoad(
+      std::function<typename TRequestResponse::Response(
+          const typename TRequestResponse::Response::Capnp::Reader &)>
+          load,
+      Args &&... args) {
+    return WithUnusedClient([&](const auto &client) {
+      return client->template CallWithLoad<TRequestResponse>(
+          load, std::forward<Args>(args)...);
+    });
+  };
+
+ private:
+  template <class TFun>
+  auto WithUnusedClient(const TFun &fun) {
     std::unique_ptr<Client> client;
 
     std::unique_lock<std::mutex> lock(mutex_);
@@ -29,14 +52,13 @@ class ClientPool {
     }
     lock.unlock();
 
-    auto resp = client->Call<TRequestResponse>(std::forward<Args>(args)...);
+    auto res = fun(client);
 
     lock.lock();
     unused_clients_.push(std::move(client));
-    return resp;
-  };
+    return res;
+  }
 
- private:
   io::network::Endpoint endpoint_;
 
   std::mutex mutex_;

@@ -1,8 +1,6 @@
 #include <mutex>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/export.hpp"
+#include "capnp/serialize.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -18,16 +16,34 @@
 
 namespace distributed {
 
-RPC_NO_MEMBER_MESSAGE(IncrementCounterReq);
-RPC_NO_MEMBER_MESSAGE(IncrementCounterRes);
+struct IncrementCounterReq {
+  using Capnp = ::capnp::AnyPointer;
+  static const communication::rpc::MessageType TypeInfo;
+
+  void Save(::capnp::AnyPointer::Builder *) const {}
+
+  void Load(const ::capnp::AnyPointer::Reader &) {}
+};
+
+const communication::rpc::MessageType IncrementCounterReq::TypeInfo{
+    0, "IncrementCounterReq"};
+
+struct IncrementCounterRes {
+  using Capnp = ::capnp::AnyPointer;
+  static const communication::rpc::MessageType TypeInfo;
+
+  void Save(::capnp::AnyPointer::Builder *) const {}
+
+  void Load(const ::capnp::AnyPointer::Reader &) {}
+};
+
+const communication::rpc::MessageType IncrementCounterRes::TypeInfo{
+    1, "IncrementCounterRes"};
 
 using IncrementCounterRpc =
     communication::rpc::RequestResponse<IncrementCounterReq,
                                         IncrementCounterRes>;
 };  // namespace distributed
-
-BOOST_CLASS_EXPORT(distributed::IncrementCounterReq);
-BOOST_CLASS_EXPORT(distributed::IncrementCounterRes);
 
 class RpcWorkerClientsTest : public ::testing::Test {
  protected:
@@ -51,10 +67,9 @@ class RpcWorkerClientsTest : public ::testing::Test {
       cluster_discovery_.back()->RegisterWorker(i);
 
       workers_server_.back()->Register<distributed::IncrementCounterRpc>(
-          [this, i](const distributed::IncrementCounterReq &) {
+          [this, i](const auto &req_reader, auto *res_builder) {
             std::unique_lock<std::mutex> lock(mutex_);
             workers_cnt_[i]++;
-            return std::make_unique<distributed::IncrementCounterRes>();
           });
     }
   }

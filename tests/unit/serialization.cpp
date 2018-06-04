@@ -361,3 +361,30 @@ TEST(Serialization, CapnpVectorNonCopyable) {
   EXPECT_EQ(*elements[0], 5);
   EXPECT_EQ(*elements[1], 10);
 }
+
+TEST(Serialization, CapnpMap) {
+  std::map<std::string, std::string> map{{"my_key", "my_value"},
+                                         {"other_key", "other_value"}};
+  ::capnp::MallocMessageBuilder message;
+  {
+    auto map_builder =
+        message.initRoot<utils::capnp::Map<capnp::Text, capnp::Text>>();
+    utils::SaveMap<capnp::Text, capnp::Text>(
+        map, &map_builder, [](auto *entry_builder, const auto &entry) {
+          entry_builder->setKey(entry.first);
+          entry_builder->setValue(entry.second);
+        });
+  }
+  std::map<std::string, std::string> new_map;
+  {
+    auto map_reader =
+        message.getRoot<utils::capnp::Map<capnp::Text, capnp::Text>>();
+    utils::LoadMap<capnp::Text, capnp::Text>(
+        &new_map, map_reader, [](const auto &entry_reader) {
+          std::string key = entry_reader.getKey();
+          std::string value = entry_reader.getValue();
+          return std::make_pair(key, value);
+        });
+  }
+  EXPECT_EQ(new_map, map);
+}

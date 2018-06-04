@@ -111,6 +111,7 @@ fi
 mkdir -p ./build
 
 # quicklisp package manager for Common Lisp
+# TODO: We should at some point cache or have a mirror of packages we use.
 quicklisp_install_dir="$HOME/quicklisp"
 if [[ -v QUICKLISP_HOME ]]; then
   quicklisp_install_dir="${QUICKLISP_HOME}"
@@ -121,6 +122,7 @@ if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   "
   (load \"${DIR}/quicklisp.lisp\")
   (quicklisp-quickstart:install :path \"${quicklisp_install_dir}\")
+  (ql:quickload :cl-ppcre :silent t)
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi

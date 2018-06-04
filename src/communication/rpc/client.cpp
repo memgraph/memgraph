@@ -1,12 +1,6 @@
 #include <chrono>
 #include <thread>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/access.hpp"
-#include "boost/serialization/base_object.hpp"
-#include "boost/serialization/export.hpp"
-#include "boost/serialization/unique_ptr.hpp"
 #include "gflags/gflags.h"
 
 #include "communication/rpc/client.hpp"
@@ -19,7 +13,8 @@ namespace communication::rpc {
 
 Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
 
-std::unique_ptr<Message> Client::Call(const Message &request) {
+std::experimental::optional<::capnp::FlatArrayMessageReader> Client::Send(
+    ::capnp::MessageBuilder *message) {
   std::lock_guard<std::mutex> guard(mutex_);
 
   if (FLAGS_rpc_random_latency) {
@@ -39,45 +34,37 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
     if (!client_->Connect(endpoint_)) {
       LOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
       client_ = std::experimental::nullopt;
-      return nullptr;
+      return std::experimental::nullopt;
     }
   }
 
   // Serialize and send request.
-  std::stringstream request_stream(std::ios_base::out | std::ios_base::binary);
-  {
-    boost::archive::binary_oarchive request_archive(request_stream);
-    // Serialize reference as pointer (to serialize the derived class). The
-    // request is read in protocol.cpp.
-    request_archive << &request;
-    // Archive destructor ensures everything is written.
-  }
-
-  const std::string &request_buffer = request_stream.str();
-  CHECK(request_buffer.size() <= std::numeric_limits<MessageSize>::max())
+  auto request_words = ::capnp::messageToFlatArray(*message);
+  auto request_bytes = request_words.asBytes();
+  CHECK(request_bytes.size() <= std::numeric_limits<MessageSize>::max())
       << fmt::format(
              "Trying to send message of size {}, max message size is {}",
-             request_buffer.size(), std::numeric_limits<MessageSize>::max());
+             request_bytes.size(), std::numeric_limits<MessageSize>::max());
 
-  MessageSize request_data_size = request_buffer.size();
+  MessageSize request_data_size = request_bytes.size();
   if (!client_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
                       sizeof(MessageSize), true)) {
     LOG(ERROR) << "Couldn't send request size to " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return nullptr;
+    return std::experimental::nullopt;
   }
 
-  if (!client_->Write(request_buffer)) {
+  if (!client_->Write(request_bytes.begin(), request_bytes.size())) {
     LOG(ERROR) << "Couldn't send request data to " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return nullptr;
+    return std::experimental::nullopt;
   }
 
   // Receive response data size.
   if (!client_->Read(sizeof(MessageSize))) {
     LOG(ERROR) << "Couldn't get response from " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return nullptr;
+    return std::experimental::nullopt;
   }
   MessageSize response_data_size =
       *reinterpret_cast<MessageSize *>(client_->GetData());
@@ -87,22 +74,19 @@ std::unique_ptr<Message> Client::Call(const Message &request) {
   if (!client_->Read(response_data_size)) {
     LOG(ERROR) << "Couldn't get response from " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return nullptr;
+    return std::experimental::nullopt;
   }
 
-  std::unique_ptr<Message> response;
-  {
-    std::stringstream response_stream(std::ios_base::in |
-                                      std::ios_base::binary);
-    response_stream.str(std::string(reinterpret_cast<char *>(client_->GetData()),
-                                    response_data_size));
-    boost::archive::binary_iarchive response_archive(response_stream);
-    response_archive >> response;
-  }
-
+  // Read the response message.
+  auto data = ::kj::arrayPtr(client_->GetData(), response_data_size);
+  // Our data is word aligned and padded to 64bit because we use regular
+  // (non-packed) serialization of Cap'n Proto. So we can use reinterpret_cast.
+  auto data_words =
+      ::kj::arrayPtr(reinterpret_cast<::capnp::word *>(data.begin()),
+                     reinterpret_cast<::capnp::word *>(data.end()));
+  ::capnp::FlatArrayMessageReader response_message(data_words.asConst());
   client_->ShiftData(response_data_size);
-
-  return response;
+  return std::experimental::make_optional(std::move(response_message));
 }
 
 void Client::Abort() {

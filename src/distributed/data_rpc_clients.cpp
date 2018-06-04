@@ -14,7 +14,7 @@ std::unique_ptr<Edge> DataRpcClients::RemoteElement(int worker_id,
   auto response =
       clients_.GetClientPool(worker_id).Call<EdgeRpc>(TxGidPair{tx_id, gid});
   CHECK(response) << "EdgeRpc failed";
-  return std::move(response->name_output_);
+  return std::move(response->edge_output);
 }
 
 template <>
@@ -24,7 +24,7 @@ std::unique_ptr<Vertex> DataRpcClients::RemoteElement(int worker_id,
   auto response =
       clients_.GetClientPool(worker_id).Call<VertexRpc>(TxGidPair{tx_id, gid});
   CHECK(response) << "VertexRpc failed";
-  return std::move(response->name_output_);
+  return std::move(response->vertex_output);
 }
 
 std::unordered_map<int, int64_t> DataRpcClients::VertexCounts(

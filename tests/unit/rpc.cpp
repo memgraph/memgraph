@@ -1,12 +1,6 @@
 #include <thread>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/archive/text_iarchive.hpp"
-#include "boost/archive/text_oarchive.hpp"
-#include "boost/serialization/access.hpp"
-#include "boost/serialization/base_object.hpp"
-#include "boost/serialization/export.hpp"
+#include "capnp/serialize.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -19,63 +13,85 @@
 using namespace communication::rpc;
 using namespace std::literals::chrono_literals;
 
-struct SumReq : public Message {
+struct SumReq {
+  using Capnp = ::capnp::AnyPointer;
+  static const MessageType TypeInfo;
+
+  SumReq() {}  // Needed for serialization.
   SumReq(int x, int y) : x(x), y(y) {}
   int x;
   int y;
 
- private:
-  friend class boost::serialization::access;
-  SumReq() {}  // Needed for serialization.
+  void Save(::capnp::AnyPointer::Builder *builder) const {
+    auto list_builder = builder->initAs<::capnp::List<int>>(2);
+    list_builder.set(0, x);
+    list_builder.set(1, y);
+  }
 
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &boost::serialization::base_object<Message>(*this);
-    ar &x;
-    ar &y;
+  void Load(const ::capnp::AnyPointer::Reader &reader) {
+    auto list_reader = reader.getAs<::capnp::List<int>>();
+    x = list_reader[0];
+    y = list_reader[1];
   }
 };
-BOOST_CLASS_EXPORT(SumReq);
 
-struct SumRes : public Message {
+const MessageType SumReq::TypeInfo{0, "SumReq"};
+
+struct SumRes {
+  using Capnp = ::capnp::AnyPointer;
+  static const MessageType TypeInfo;
+
+  SumRes() {}  // Needed for serialization.
   SumRes(int sum) : sum(sum) {}
+
   int sum;
 
- private:
-  friend class boost::serialization::access;
-  SumRes() {}  // Needed for serialization.
+  void Save(::capnp::AnyPointer::Builder *builder) const {
+    auto list_builder = builder->initAs<::capnp::List<int>>(1);
+    list_builder.set(0, sum);
+  }
 
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &boost::serialization::base_object<Message>(*this);
-    ar &sum;
+  void Load(const ::capnp::AnyPointer::Reader &reader) {
+    auto list_reader = reader.getAs<::capnp::List<int>>();
+    sum = list_reader[0];
   }
 };
-BOOST_CLASS_EXPORT(SumRes);
+
+const MessageType SumRes::TypeInfo{1, "SumRes"};
+
 using Sum = RequestResponse<SumReq, SumRes>;
 
-struct EchoMessage : public Message {
+struct EchoMessage {
+  using Capnp = ::capnp::AnyPointer;
+  static const MessageType TypeInfo;
+
+  EchoMessage() {}  // Needed for serialization.
   EchoMessage(const std::string &data) : data(data) {}
+
   std::string data;
 
- private:
-  friend class boost::serialization::access;
-  EchoMessage() {}  // Needed for serialization.
+  void Save(::capnp::AnyPointer::Builder *builder) const {
+    auto list_builder = builder->initAs<::capnp::List<::capnp::Text>>(1);
+    list_builder.set(0, data);
+  }
 
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &boost::serialization::base_object<Message>(*this);
-    ar &data;
+  void Load(const ::capnp::AnyPointer::Reader &reader) {
+    auto list_reader = reader.getAs<::capnp::List<::capnp::Text>>();
+    data = list_reader[0];
   }
 };
-BOOST_CLASS_EXPORT(EchoMessage);
+
+const MessageType EchoMessage::TypeInfo{2, "EchoMessage"};
 
 using Echo = RequestResponse<EchoMessage, EchoMessage>;
 
 TEST(Rpc, Call) {
   Server server({"127.0.0.1", 0});
-  server.Register<Sum>([](const SumReq &request) {
-    return std::make_unique<SumRes>(request.x + request.y);
+  server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
+    SumReq req;
+    req.Load(req_reader);
+    SumRes res(req.x + req.y);
+    res.Save(res_builder);
   });
   std::this_thread::sleep_for(100ms);
 
@@ -87,9 +103,12 @@ TEST(Rpc, Call) {
 
 TEST(Rpc, Abort) {
   Server server({"127.0.0.1", 0});
-  server.Register<Sum>([](const SumReq &request) {
+  server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
+    SumReq req;
+    req.Load(req_reader);
     std::this_thread::sleep_for(500ms);
-    return std::make_unique<SumRes>(request.x + request.y);
+    SumRes res(req.x + req.y);
+    res.Save(res_builder);
   });
   std::this_thread::sleep_for(100ms);
 
@@ -111,9 +130,12 @@ TEST(Rpc, Abort) {
 
 TEST(Rpc, ClientPool) {
   Server server({"127.0.0.1", 0});
-  server.Register<Sum>([](const SumReq &request) {
+  server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
+    SumReq req;
+    req.Load(req_reader);
     std::this_thread::sleep_for(100ms);
-    return std::make_unique<SumRes>(request.x + request.y);
+    SumRes res(req.x + req.y);
+    res.Save(res_builder);
   });
   std::this_thread::sleep_for(100ms);
 
@@ -161,8 +183,10 @@ TEST(Rpc, ClientPool) {
 
 TEST(Rpc, LargeMessage) {
   Server server({"127.0.0.1", 0});
-  server.Register<Echo>([](const EchoMessage &request) {
-    return std::make_unique<EchoMessage>(request.data);
+  server.Register<Echo>([](const auto &req_reader, auto *res_builder) {
+    EchoMessage res;
+    res.Load(req_reader);
+    res.Save(res_builder);
   });
   std::this_thread::sleep_for(100ms);
 

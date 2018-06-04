@@ -1,0 +1,76 @@
+#>cpp
+#pragma once
+
+#include <memory>
+#include <string>
+
+#include "communication/rpc/messages.hpp"
+#include "distributed/data_rpc_messages.capnp.h"
+#include "distributed/serialization.hpp"
+#include "storage/edge.hpp"
+#include "storage/gid.hpp"
+#include "storage/vertex.hpp"
+#include "transactions/type.hpp"
+cpp<#
+
+(lcp:namespace distributed)
+
+(lcp:capnp-namespace "distributed")
+
+(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'dist "/distributed/serialization.capnp")
+
+(lcp:define-struct tx-gid-pair ()
+  ((tx-id "tx::TransactionId" :capnp-type "UInt64")
+   (gid "gid::Gid" :capnp-type "UInt64"))
+  (:serialize :capnp))
+
+(lcp:define-rpc vertex
+    (:request ((member "TxGidPair")))
+  (:response
+   ((vertex-input "const Vertex *"
+                  :save-fun "SaveVertex(ar, *vertex_input, worker_id);" :load-fun ""
+                  :capnp-type "Dist.Vertex"
+                  :capnp-save
+                  (lambda (builder member)
+                    #>cpp
+                    SaveVertex(*${member}, &${builder}, worker_id);
+                    cpp<#)
+                  :capnp-load
+                  (lambda (reader member)
+                    (declare (ignore member))
+                    #>cpp
+                    vertex_output = LoadVertex<const capnp::Vertex::Reader>(${reader});
+                    cpp<#))
+    (worker-id :int64_t :save-fun "" :load-fun "" :capnp-save :dont-save)
+    (vertex-output "std::unique_ptr<Vertex>" :initarg nil
+                   :save-fun "" :load-fun "vertex_output = LoadVertex(ar);"
+                   :capnp-save :dont-save))))
+
+(lcp:define-rpc edge
+    (:request ((member "TxGidPair")))
+  (:response
+   ((edge-input "const Edge *"
+                :save-fun "SaveEdge(ar, *edge_input, worker_id);" :load-fun ""
+                :capnp-type "Dist.Edge"
+                :capnp-save
+                (lambda (builder member)
+                  #>cpp
+                  SaveEdge(*${member}, &${builder}, worker_id);
+                  cpp<#)
+                :capnp-load
+                (lambda (reader member)
+                  (declare (ignore member))
+                  #>cpp
+                  edge_output = LoadEdge<const capnp::Edge::Reader>(${reader});
+                  cpp<#))
+    (worker-id :int64_t :save-fun "" :load-fun "" :capnp-save :dont-save)
+    (edge-output "std::unique_ptr<Edge>" :initarg nil
+                 :save-fun "" :load-fun "edge_output = LoadEdge(ar);"
+                 :capnp-save :dont-save))))
+
+(lcp:define-rpc vertex-count
+    (:request ((member "tx::TransactionId" :capnp-type "UInt64")))
+  (:response ((member :int64_t))))
+
+(lcp:pop-namespace) ;; distributed
