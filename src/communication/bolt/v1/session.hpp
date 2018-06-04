@@ -77,8 +77,6 @@ class Session {
                                      input_stream_.size());
         return;
       }
-      DLOG(WARNING) << fmt::format("Decoding handshake of size {}",
-                                   input_stream_.size());
       state_ = StateHandshakeRun(*this);
       if (UNLIKELY(state_ == State::Close)) {
         ClientFailureInvalidData();
@@ -121,10 +119,6 @@ class Session {
         ClientFailureInvalidData();
         return;
       }
-
-      DLOG(INFO) << fmt::format("Input stream size: {}", input_stream_.size());
-      DLOG(INFO) << fmt::format("Decoder buffer size: {}",
-                                decoder_buffer_.Size());
     }
   }
 

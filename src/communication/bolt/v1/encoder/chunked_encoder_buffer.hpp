@@ -126,7 +126,6 @@ class ChunkedEncoderBuffer {
     // Flush the whole buffer.
     if (!output_stream_.Write(buffer_.data() + offset_, size_ - offset_))
       return false;
-    DLOG(INFO) << "Flushed << " << size_ << " bytes.";
 
     // Cleanup.
     Clear();
@@ -150,7 +149,6 @@ class ChunkedEncoderBuffer {
 
     // Flush the first chunk
     if (!output_stream_.Write(buffer_.data(), first_chunk_size_)) return false;
-    DLOG(INFO) << "Flushed << " << first_chunk_size_ << " bytes.";
 
     // Cleanup.
     // Here we use offset as a method of deleting from the front of the

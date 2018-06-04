@@ -21,12 +21,9 @@ State StateErrorRun(TSession &session, State state) {
   Marker marker;
   Signature signature;
   if (!session.decoder_.ReadMessageHeader(&signature, &marker)) {
-    DLOG(INFO) << "Missing header data!";
+    DLOG(WARNING) << "Missing header data!";
     return State::Close;
   }
-
-  DLOG(INFO) << fmt::format("Message signature is: 0x{:02X}",
-                            utils::UnderlyingCast(signature));
 
   // Clear the data buffer if it has any leftover data.
   session.encoder_buffer_.Clear();

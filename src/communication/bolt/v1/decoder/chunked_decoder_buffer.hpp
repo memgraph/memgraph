@@ -93,7 +93,6 @@ class ChunkedDecoderBuffer {
     size_t size = buffer_.size();
 
     if (size < 2) {
-      DLOG(WARNING) << "Size < 2";
       return ChunkState::Partial;
     }
 
@@ -108,8 +107,6 @@ class ChunkedDecoderBuffer {
     }
 
     if (size < chunk_size + 2) {
-      DLOG(WARNING) << fmt::format(
-          "Chunk size is {} but only have {} data bytes.", chunk_size, size);
       return ChunkState::Partial;
     }
 

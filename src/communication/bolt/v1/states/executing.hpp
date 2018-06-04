@@ -222,7 +222,6 @@ State HandleRun(TSession &session, State state, Marker marker) {
 // TODO: Get rid of duplications in PullAll/DiscardAll functions.
 template <typename Session>
 State HandlePullAll(Session &session, State state, Marker marker) {
-  DLOG(INFO) << "[PullAll]";
   if (marker != Marker::TinyStruct) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct marker, but received 0x{:02X}!",
@@ -246,7 +245,6 @@ State HandlePullAll(Session &session, State state, Marker marker) {
 
 template <typename Session>
 State HandleDiscardAll(Session &session, State state, Marker marker) {
-  DLOG(INFO) << "[DiscardAll]";
   if (marker != Marker::TinyStruct) {
     DLOG(WARNING) << fmt::format(
         "Expected TinyStruct marker, but received 0x{:02X}!",

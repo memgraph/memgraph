@@ -20,7 +20,6 @@ template <typename Session>
 State StateInitRun(Session &session) {
   DCHECK(!session.encoder_buffer_.HasData())
       << "There should be no data to write in this state";
-  DLOG(INFO) << "Parsing message";
 
   Marker marker;
   Signature signature;
