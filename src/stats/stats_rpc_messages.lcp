@@ -36,7 +36,8 @@ cpp<#
                return std::make_pair(first, second);
              }"))
       (value :double)
-      (timestamp :uint64_t :initarg nil)))
+      (timestamp :uint64_t :initarg nil
+                 :initval "static_cast<uint64_t>(utils::Timestamp::Now().SecSinceTheEpoch())")))
   (:response ()))
 
 (lcp:define-rpc batch-stats
