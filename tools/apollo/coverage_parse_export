@@ -12,9 +12,8 @@ def lines2phabricator(filename, lines):
         for row in f:
             numlines += 1
     for i in range(1, numlines + 1):
-        val = lines[i]
-        if val is None: ret += "N"
-        elif val == 0: ret += "U"
+        if not i in lines: ret += "N"
+        elif lines[i] == 0: ret += "U"
         else: ret += "C"
     return ret
 
@@ -31,14 +30,14 @@ args = parser.parse_args()
 data = json.load(open(args.input, "r"))
 
 totals = defaultdict(lambda: defaultdict(int))
-sources = defaultdict(lambda: defaultdict(lambda: None))
+sources = defaultdict(lambda: defaultdict(int))
 for export in data["data"]:
     for cfile in export["files"]:
         for segment in cfile["segments"]:
             filename = cfile["filename"]
             if not filename in args.files: continue
             line, col, count, has_count, is_region_entry = segment
-            sources[filename][line] = count
+            sources[filename][line] += count
     for function in export["functions"]:
         for region in function["regions"]:
             line_start, column_start, line_end, column_end, execution_count, \
@@ -46,7 +45,7 @@ for export in data["data"]:
             filename = function["filenames"][file_id]
             if filename not in args.files: continue
             for i in range(line_start, line_end + 1):
-                sources[filename][i] = execution_count
+                sources[filename][i] += execution_count
     for total, values in export["totals"].items():
         for key, value in values.items():
             totals[total][key] += value
