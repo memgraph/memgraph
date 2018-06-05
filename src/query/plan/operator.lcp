@@ -751,7 +751,7 @@ property value.
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :reader t :scope :protected)
-   (existing-node :bool :scope :protected :documentation
+   (existing-node :bool :reader t :scope :protected :documentation
                   "If the given node atom refer to a symbol that has already
                   been expanded and should be just validated in the frame.")
    (graph-view "GraphView" :reader t :scope :protected
@@ -1052,7 +1052,7 @@ pulled.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (expression "Expression *"
+   (expression "Expression *" :reader t
                :capnp-type "Ast.Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                :save-fun #'save-pointer :load-fun #'load-pointer))
@@ -1454,8 +1454,8 @@ If a label does not exist on a Vertex, nothing happens.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (expand-symbol "Symbol")
-   (previous-symbols "std::vector<Symbol>"
+   (expand-symbol "Symbol" :reader t)
+   (previous-symbols "std::vector<Symbol>" :reader t
                      :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
                      :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
