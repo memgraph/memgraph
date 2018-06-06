@@ -26,12 +26,12 @@ constexpr int64_t kVersion{6};
 // 3) Vertex generator ID
 // 4) Edge generator ID
 //
-// 5) A list of label+property indices.
-//
 // The following two entries are required when recovering from snapshot combined
 // with WAL to determine record visibility.
-// 6) Transactional ID of the snapshooter
-// 7) Transactional snapshot of the snapshooter
+// 5) Transactional ID of the snapshooter
+// 6) Transactional snapshot of the snapshooter
+//
+// 7) A list of label+property indices.
 //
 // We must inline edges with nodes because some edges might be stored on other
 // worker (edges are always stored only on the worker of the edge source).

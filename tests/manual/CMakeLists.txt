@@ -65,6 +65,9 @@ target_link_libraries(${test_prefix}single_query memgraph_lib kvstore_dummy_lib)
 add_manual_test(sl_position_and_count.cpp)
 target_link_libraries(${test_prefix}sl_position_and_count memgraph_lib kvstore_dummy_lib)
 
+add_manual_test(snapshot_explorer.cpp)
+target_link_libraries(${test_prefix}snapshot_explorer memgraph_lib kvstore_dummy_lib)
+
 add_manual_test(stripped_timing.cpp)
 target_link_libraries(${test_prefix}stripped_timing memgraph_lib kvstore_dummy_lib)
 
@@ -73,6 +76,9 @@ target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
+
+add_manual_test(wal_explorer.cpp)
+target_link_libraries(${test_prefix}wal_explorer memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(xorshift.cpp)
 target_link_libraries(${test_prefix}xorshift mg-utils)
