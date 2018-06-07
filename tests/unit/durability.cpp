@@ -244,14 +244,14 @@ fs::path GetLastFile(fs::path dir) {
   return *std::max_element(files.begin(), files.end());
 }
 
-void MakeDb(database::GraphDbAccessor &dba, int scale,
-            std::vector<int> indices = {}) {
+void MakeDb(durability::WriteAheadLog &wal, database::GraphDbAccessor &dba,
+            int scale, std::vector<int> indices = {}) {
   DbGenerator generator{dba};
   for (int i = 0; i < scale; i++) generator.InsertVertex();
   for (int i = 0; i < scale * 2; i++) generator.InsertEdge();
   for (int i = 0; i < scale / 2; i++) generator.InsertCycleEdge();
-  // Give the WAL some time to flush, we're pumping ops fast here.
-  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  wal.Flush();
+
   for (int i = 0; i < scale * 3; i++) {
     generator.SetVertexProperty();
     generator.SetEdgeProperty();
@@ -273,7 +273,7 @@ void MakeDb(database::GraphDbAccessor &dba, int scale,
 
 void MakeDb(database::GraphDb &db, int scale, std::vector<int> indices = {}) {
   database::GraphDbAccessor dba{db};
-  MakeDb(dba, scale, indices);
+  MakeDb(db.wal(), dba, scale, indices);
   dba.Commit();
 }
 
@@ -337,10 +337,9 @@ TEST_F(Durability, WalEncoding) {
     e0.PropsSet(dba.Property("p0"), std::vector<PropertyValue>{1, 2, 3});
     dba.BuildIndex(dba.Label("l1"), dba.Property("p1"));
     dba.Commit();
-  }
 
-  // Sleep to ensure the WAL gets flushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    db.wal().Flush();
+  }
 
   HashedFileReader reader;
   ASSERT_EQ(DirFiles(wal_dir_).size(), 1);
@@ -545,8 +544,7 @@ TEST_F(Durability, SnapshotAndWalIdRecovery) {
   MakeDb(db, 300);
   MakeSnapshot(db);
   MakeDb(db, 300);
-  // Sleep to ensure the WAL gets flushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  db.wal().Flush();
   ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
   EXPECT_GT(DirFiles(wal_dir_).size(), 1);
   {
@@ -565,8 +563,7 @@ TEST_F(Durability, OnlyWalIdRecovery) {
   config.durability_enabled = true;
   database::SingleNode db{config};
   MakeDb(db, 300);
-  // Sleep to ensure the WAL gets flushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  db.wal().Flush();
   ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
   EXPECT_GT(DirFiles(wal_dir_).size(), 1);
   {
@@ -588,8 +585,7 @@ TEST_F(Durability, WalRecovery) {
   MakeDb(db, 300);
   MakeDb(db, 300, {3, 4});
 
-  // Sleep to ensure the WAL gets flushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  db.wal().Flush();
   ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
   EXPECT_GT(DirFiles(wal_dir_).size(), 1);
 
@@ -612,8 +608,7 @@ TEST_F(Durability, SnapshotAndWalRecovery) {
   MakeDb(db, 300);
   MakeDb(db, 300, {5});
 
-  // Sleep to ensure the WAL gets flushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  db.wal().Flush();
   ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
   EXPECT_GT(DirFiles(wal_dir_).size(), 1);
 
@@ -632,16 +627,16 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
 
   // The first transaction modifies and commits.
   database::GraphDbAccessor dba_1{db};
-  MakeDb(dba_1, 100);
+  MakeDb(db.wal(), dba_1, 100);
   dba_1.Commit();
 
   // The second transaction will commit after snapshot.
   database::GraphDbAccessor dba_2{db};
-  MakeDb(dba_2, 100);
+  MakeDb(db.wal(), dba_2, 100);
 
   // The third transaction modifies and commits.
   database::GraphDbAccessor dba_3{db};
-  MakeDb(dba_3, 100);
+  MakeDb(db.wal(), dba_3, 100);
   dba_3.Commit();
 
   MakeSnapshot(db);  // Snapshooter takes the fourth transaction.
@@ -649,12 +644,12 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
 
   // The fifth transaction starts and commits after snapshot.
   database::GraphDbAccessor dba_5{db};
-  MakeDb(dba_5, 100);
+  MakeDb(db.wal(), dba_5, 100);
   dba_5.Commit();
 
   // The sixth transaction will not commit at all.
   database::GraphDbAccessor dba_6{db};
-  MakeDb(dba_6, 100);
+  MakeDb(db.wal(), dba_6, 100);
 
   auto VisibleVertexCount = [](database::GraphDb &db) {
     database::GraphDbAccessor dba{db};
@@ -663,8 +658,8 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
   };
   ASSERT_EQ(VisibleVertexCount(db), 400);
 
-  // Sleep to ensure the WAL gets flushed.
-  std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  db.wal().Flush();
+
   ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
   EXPECT_GT(DirFiles(wal_dir_).size(), 1);
   {
@@ -684,8 +679,7 @@ TEST_F(Durability, NoWalDuringRecovery) {
     database::SingleNode db{config};
     MakeDb(db, 300, {0, 1, 2});
 
-    // Sleep to ensure the WAL gets flushed.
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    db.wal().Flush();
   }
   wal_files_before = DirFiles(wal_dir_).size();
   ASSERT_GT(wal_files_before, 3);
@@ -730,13 +724,12 @@ TEST_F(Durability, WalRetention) {
     MakeSnapshot(db);
     MakeDb(db, 100);
     EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    db.wal().Flush();
     // 1 current WAL file, plus retained ones
     EXPECT_GT(DirFiles(wal_dir_).size(), 1);
     MakeSnapshot(db);
+    db.wal().Flush();
   }
-  // Flush wal with snapshot transaction tx_id
-  std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
   // only 1 current WAL file
   EXPECT_EQ(DirFiles(snapshot_dir_).size(), 2);
@@ -841,8 +834,7 @@ TEST_F(Durability, SequentialRecovery) {
       MakeSnapshot(db);
     }
 
-    // Sleep to ensure the WAL gets flushed.
-    std::this_thread::sleep_for(std::chrono::milliseconds(25ms));
+    db.wal().Flush();
   };
 
   const std::vector<std::pair<bool, bool>> combinations{{0, 0}, {1, 0}, {0, 1}};

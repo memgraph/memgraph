@@ -66,6 +66,7 @@ void WriteAheadLog::WalFile::Init() {
 }
 
 void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
+  std::lock_guard<std::mutex> flush_lock(flush_mutex_);
   if (current_wal_file_.empty()) {
     LOG(ERROR) << "Write-ahead log file uninitialized, discarding data.";
     buffer.clear();
@@ -92,6 +93,7 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
     return;
   }
 }
+
 void WriteAheadLog::WalFile::RotateFile() {
   writer_.Close();
   std::experimental::filesystem::rename(
@@ -107,5 +109,9 @@ void WriteAheadLog::Emplace(database::StateDelta &&delta) {
 
 void WriteAheadLog::Emplace(const database::StateDelta &delta) {
   if (enabled_ && FLAGS_wal_flush_interval_millis >= 0) deltas_.emplace(delta);
+}
+
+void WriteAheadLog::Flush() {
+  if (enabled_) wal_file_.Flush(deltas_);
 }
 }  // namespace durability

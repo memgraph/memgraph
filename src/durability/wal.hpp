@@ -44,6 +44,9 @@ class WriteAheadLog {
   /// Emplaces the given DeltaState onto the buffer, if the WAL is enabled.
   void Emplace(const database::StateDelta &delta);
 
+  /// Flushes every delta currently in the ring buffer
+  void Flush();
+
  private:
   /** Groups the logic of WAL file handling (flushing, naming, rotating) */
   class WalFile {
@@ -60,6 +63,8 @@ class WriteAheadLog {
     void Flush(RingBuffer<database::StateDelta> &buffer);
 
    private:
+    // Mutex used for flushing wal data
+    std::mutex flush_mutex_;
     int worker_id_;
     const std::experimental::filesystem::path wal_dir_;
     HashedFileWriter writer_;
