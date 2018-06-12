@@ -70,7 +70,7 @@ class StorageGc {
   void CollectGarbage() {
     // main garbage collection logic
     // see wiki documentation for logic explanation
-    LOG(INFO) << "Garbage collector started";
+    VLOG(21) << "Garbage collector started";
     const auto snapshot_gc = tx_engine_.GlobalGcSnapshot();
     {
       // This can be run concurrently
@@ -121,7 +121,7 @@ class StorageGc {
              << vertices_.version_list_deleter_.Count();
     VLOG(21) << "vertices_ size: " << storage_.vertices_.access().size();
     VLOG(21) << "edges_ size: " << storage_.edges_.access().size();
-    LOG(INFO) << "Garbage collector finished.";
+    VLOG(21) << "Garbage collector finished.";
   }
 
  protected:
