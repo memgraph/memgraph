@@ -28,48 +28,45 @@ add_manual_test(binomial.cpp)
 target_link_libraries(${test_prefix}binomial mg-utils)
 
 add_manual_test(bolt_client.cpp)
-target_link_libraries(${test_prefix}bolt_client memgraph_lib)
+target_link_libraries(${test_prefix}bolt_client memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(card_fraud_generate_snapshot.cpp)
-target_link_libraries(${test_prefix}card_fraud_generate_snapshot memgraph_lib)
+target_link_libraries(${test_prefix}card_fraud_generate_snapshot memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(card_fraud_local.cpp)
-target_link_libraries(${test_prefix}card_fraud_local memgraph_lib)
+target_link_libraries(${test_prefix}card_fraud_local memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(distributed_repl.cpp)
-target_link_libraries(${test_prefix}distributed_repl memgraph_lib)
+target_link_libraries(${test_prefix}distributed_repl memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(endinan.cpp)
 
 add_manual_test(generate_snapshot.cpp)
-target_link_libraries(${test_prefix}generate_snapshot memgraph_lib)
+target_link_libraries(${test_prefix}generate_snapshot memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(graph_500_generate_snapshot.cpp)
-target_link_libraries(${test_prefix}graph_500_generate_snapshot memgraph_lib)
-
-add_manual_test(kvstore.cpp)
-target_link_libraries(${test_prefix}kvstore gtest gtest_main memgraph_lib kvstore_lib)
+target_link_libraries(${test_prefix}graph_500_generate_snapshot memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(query_hash.cpp)
-target_link_libraries(${test_prefix}query_hash memgraph_lib)
+target_link_libraries(${test_prefix}query_hash memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(query_planner.cpp)
-target_link_libraries(${test_prefix}query_planner memgraph_lib)
+target_link_libraries(${test_prefix}query_planner memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(raft_rpc.cpp)
-target_link_libraries(${test_prefix}raft_rpc memgraph_lib)
+target_link_libraries(${test_prefix}raft_rpc memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(repl.cpp)
-target_link_libraries(${test_prefix}repl memgraph_lib)
+target_link_libraries(${test_prefix}repl memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(single_query.cpp)
-target_link_libraries(${test_prefix}single_query memgraph_lib)
+target_link_libraries(${test_prefix}single_query memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(sl_position_and_count.cpp)
-target_link_libraries(${test_prefix}sl_position_and_count memgraph_lib)
+target_link_libraries(${test_prefix}sl_position_and_count memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(stripped_timing.cpp)
-target_link_libraries(${test_prefix}stripped_timing memgraph_lib)
+target_link_libraries(${test_prefix}stripped_timing memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(xorshift.cpp)
 target_link_libraries(${test_prefix}xorshift mg-utils)

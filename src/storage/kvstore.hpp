@@ -5,9 +5,6 @@
 #include <memory>
 #include <string>
 
-#include <rocksdb/db.h>
-#include <rocksdb/options.h>
-
 #include "utils/exceptions.hpp"
 
 namespace storage {
@@ -23,6 +20,8 @@ class KVStoreError : public utils::BasicException {
  */
 class KVStore final {
  public:
+  KVStore() = delete;
+
   /**
    * @param storage Path to a directory where the data is persisted.
    *
@@ -30,6 +29,14 @@ class KVStore final {
    *       storage directory because that will lead to undefined behaviour.
    */
   explicit KVStore(std::experimental::filesystem::path storage);
+
+  KVStore(const KVStore &other) = delete;
+  KVStore(KVStore &&other);
+
+  KVStore &operator=(const KVStore &other) = delete;
+  KVStore &operator=(KVStore &&other);
+
+  ~KVStore();
 
   /**
    * Store value under the given key.
@@ -54,7 +61,7 @@ class KVStore final {
       noexcept;
 
   /**
-   * Delete value under the given key.
+   * Deletes the key and corresponding value from storage.
    *
    * @param key
    *
@@ -64,10 +71,89 @@ class KVStore final {
    */
   bool Delete(const std::string &key);
 
+  /**
+   * Delete all (key, value) pairs where key begins with a given prefix.
+   *
+   * @param prefix - prefix of the keys in (key, value) pairs to be deleted.
+   *                 This parameter is optional and is empty by default.
+   *
+   * @return True on success, false on error. The return value is
+   *         true if the key doesn't exist and underlying storage
+   *         didn't encounter any error.
+   */
+  bool DeletePrefix(const std::string &prefix = "");
+
+  /**
+   * Returns total number of stored (key, value) pairs. The function takes an
+   * optional prefix parameter used for filtering keys that start with that
+   * prefix.
+   *
+   * @param prefix - prefix on which the keys should be filtered. This parameter
+   *                 is optional and is empty by default.
+   *
+   * @return - number of stored pairs.
+   */
+  size_t Size(const std::string &prefix = "");
+
+  /**
+   * Custom prefix-based iterator over kvstore.
+   *
+   * It filters all (key, value) pairs where the key has a certain prefix
+   * and behaves as if all of those pairs are stored in a single iterable
+   * collection of std::pair<std::string, std::string>.
+   */
+  class iterator final
+      : public std::iterator<
+            std::input_iterator_tag,                      // iterator_category
+            std::pair<std::string, std::string>,          // value_type
+            long,                                         // difference_type
+            const std::pair<std::string, std::string> *,  // pointer
+            const std::pair<std::string, std::string> &   // reference
+            > {
+   public:
+    explicit iterator(const KVStore *kvstore, const std::string &prefix = "",
+                      bool at_end = false);
+
+    iterator(const iterator &other) = delete;
+
+    iterator(iterator &&other);
+
+    ~iterator();
+
+    iterator &operator=(iterator &&other);
+
+    iterator &operator=(const iterator &other) = delete;
+
+    iterator &operator++();
+
+    bool operator==(const iterator &other) const;
+
+    bool operator!=(const iterator &other) const;
+
+    reference operator*();
+
+    pointer operator->();
+
+    void SetInvalid();
+
+    bool IsValid();
+
+   private:
+    struct impl;
+    std::unique_ptr<impl> pimpl_;
+  };
+
+  iterator begin(const std::string &prefix = "") {
+    return iterator(this, prefix);
+  }
+
+  iterator end(const std::string &prefix = "") {
+    return iterator(this, prefix, true);
+  }
+
  private:
-  std::experimental::filesystem::path storage_;
-  std::unique_ptr<rocksdb::DB> db_;
-  rocksdb::Options options_;
+  struct impl;
+  std::unique_ptr<impl> pimpl_;
 };
 
 }  // namespace storage

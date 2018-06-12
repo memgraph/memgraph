@@ -1,5 +1,6 @@
 #include <vector>
 
+#include "gflags/gflags.h"
 #include "gtest/gtest.h"
 
 #include "storage/property_value.hpp"
@@ -8,9 +9,16 @@
 using std::string;
 using Location = storage::Location;
 
+DECLARE_string(properties_on_disk);
+
 class PropertyValueStoreTest : public ::testing::Test {
  protected:
   PropertyValueStore props_;
+
+  void SetUp() override {
+    // we need this to test the copy constructor
+    FLAGS_properties_on_disk = "not empty";
+  }
 
   void Set(int key, Location location, PropertyValue value) {
     props_.set(storage::Property(key, location), value);
@@ -24,12 +32,15 @@ class PropertyValueStoreTest : public ::testing::Test {
     return props_.erase(storage::Property(key, location));
   }
 
+  auto Begin() { return props_.begin(); }
+
+  auto End() { return props_.end(); }
+
   void TearDown() override { props_.clear(); }
 };
 
-TEST_F(PropertyValueStoreTest, At) {
+TEST_F(PropertyValueStoreTest, AtMemory) {
   std::string some_string = "something";
-  std::string other_string = "something completely different";
 
   EXPECT_EQ(PropertyValue(At(0, Location::Memory)).type(),
             PropertyValue::Type::Null);
@@ -38,10 +49,17 @@ TEST_F(PropertyValueStoreTest, At) {
             some_string);
   Set(120, Location::Memory, 42);
   EXPECT_EQ(PropertyValue(At(120, Location::Memory)).Value<int64_t>(), 42);
+}
 
-  Set(100, Location::Disk, other_string);
-  EXPECT_EQ(PropertyValue(At(100, Location::Disk)).Value<string>(),
-            other_string);
+TEST_F(PropertyValueStoreTest, AtDisk) {
+  std::string some_string = "something";
+
+  EXPECT_EQ(PropertyValue(At(0, Location::Disk)).type(),
+            PropertyValue::Type::Null);
+  Set(0, Location::Disk, some_string);
+  EXPECT_EQ(PropertyValue(At(0, Location::Disk)).Value<string>(), some_string);
+  Set(120, Location::Disk, 42);
+  EXPECT_EQ(PropertyValue(At(120, Location::Disk)).Value<int64_t>(), 42);
 }
 
 TEST_F(PropertyValueStoreTest, AtNull) {
@@ -69,7 +87,7 @@ TEST_F(PropertyValueStoreTest, SetNull) {
   EXPECT_EQ(0, props_.size());
 }
 
-TEST_F(PropertyValueStoreTest, Remove) {
+TEST_F(PropertyValueStoreTest, RemoveMemory) {
   // set some props
   Set(11, Location::Memory, "a");
   Set(30, Location::Memory, "b");
@@ -85,48 +103,59 @@ TEST_F(PropertyValueStoreTest, Remove) {
   EXPECT_EQ(props_.size(), 0);
   EXPECT_EQ(At(30, Location::Memory).type(), PropertyValue::Type::Null);
 
-  EXPECT_EQ(Erase(1000, Location::Memory), 0);
-
-  props_.clear();
-
-  Set(110, Location::Disk, "a");
-  EXPECT_NE(At(110, Location::Disk).type(), PropertyValue::Type::Null);
-  EXPECT_EQ(props_.size(), 1);
-
-  Erase(110, Location::Disk);
-  EXPECT_EQ(props_.size(), 0);
-  EXPECT_EQ(At(110, Location::Disk).type(), PropertyValue::Type::Null);
-  EXPECT_EQ(Erase(1000, Location::Disk), 0);
+  EXPECT_EQ(Erase(1000, Location::Memory), 1);
 }
 
-TEST_F(PropertyValueStoreTest, Clear) {
+TEST_F(PropertyValueStoreTest, RemoveDisk) {
+  // set some props
+  Set(11, Location::Disk, "a");
+  Set(30, Location::Disk, "b");
+  EXPECT_NE(At(11, Location::Disk).type(), PropertyValue::Type::Null);
+  EXPECT_NE(At(30, Location::Disk).type(), PropertyValue::Type::Null);
+  EXPECT_EQ(props_.size(), 2);
+
+  Erase(11, Location::Disk);
+  EXPECT_EQ(props_.size(), 1);
+  EXPECT_EQ(At(11, Location::Disk).type(), PropertyValue::Type::Null);
+
+  EXPECT_EQ(Erase(30, Location::Disk), 1);
+  EXPECT_EQ(props_.size(), 0);
+  EXPECT_EQ(At(30, Location::Disk).type(), PropertyValue::Type::Null);
+
+  EXPECT_EQ(Erase(1000, Location::Disk), 1);
+}
+
+TEST_F(PropertyValueStoreTest, ClearMemory) {
   EXPECT_EQ(props_.size(), 0);
   Set(11, Location::Memory, "a");
   Set(30, Location::Memory, "b");
   EXPECT_EQ(props_.size(), 2);
-  props_.clear();
-  EXPECT_EQ(props_.size(), 0);
-
-  Set(11, Location::Disk, "a");
-  EXPECT_EQ(props_.size(), 1);
-  props_.clear();
-  EXPECT_EQ(props_.size(), 0);
 }
 
-TEST_F(PropertyValueStoreTest, Replace) {
+TEST_F(PropertyValueStoreTest, ClearDisk) {
+  EXPECT_EQ(props_.size(), 0);
+  Set(11, Location::Disk, "a");
+  Set(30, Location::Disk, "b");
+  EXPECT_EQ(props_.size(), 2);
+}
+
+TEST_F(PropertyValueStoreTest, ReplaceMemory) {
   Set(10, Location::Memory, 42);
   EXPECT_EQ(At(10, Location::Memory).Value<int64_t>(), 42);
   Set(10, Location::Memory, 0.25f);
   EXPECT_EQ(At(10, Location::Memory).type(), PropertyValue::Type::Double);
   EXPECT_FLOAT_EQ(At(10, Location::Memory).Value<double>(), 0.25);
-
-  Set(100, Location::Disk, "some text");
-  EXPECT_EQ(At(100, Location::Disk).Value<string>(), "some text");
-  Set(100, Location::Disk, "some other text");
-  EXPECT_EQ(At(100, Location::Disk).Value<string>(), "some other text");
 }
 
-TEST_F(PropertyValueStoreTest, Size) {
+TEST_F(PropertyValueStoreTest, ReplaceDisk) {
+  Set(10, Location::Disk, 42);
+  EXPECT_EQ(At(10, Location::Disk).Value<int64_t>(), 42);
+  Set(10, Location::Disk, 0.25f);
+  EXPECT_EQ(At(10, Location::Disk).type(), PropertyValue::Type::Double);
+  EXPECT_FLOAT_EQ(At(10, Location::Disk).Value<double>(), 0.25);
+}
+
+TEST_F(PropertyValueStoreTest, SizeMemory) {
   EXPECT_EQ(props_.size(), 0);
 
   Set(0, Location::Memory, "something");
@@ -145,17 +174,71 @@ TEST_F(PropertyValueStoreTest, Size) {
   EXPECT_EQ(props_.size(), 101);
   Erase(1, Location::Memory);
   EXPECT_EQ(props_.size(), 100);
+}
 
-  Set(101, Location::Disk, "dalmatians");
+TEST_F(PropertyValueStoreTest, SizeDisk) {
+  EXPECT_EQ(props_.size(), 0);
+
+  Set(0, Location::Disk, "something");
+  EXPECT_EQ(props_.size(), 1);
+  Set(0, Location::Disk, true);
+  EXPECT_EQ(props_.size(), 1);
+  Set(1, Location::Disk, true);
+  EXPECT_EQ(props_.size(), 2);
+
+  for (int i = 0; i < 100; ++i) Set(i + 20, Location::Disk, true);
+  EXPECT_EQ(props_.size(), 102);
+
+  Erase(0, Location::Disk);
   EXPECT_EQ(props_.size(), 101);
-  Erase(101, Location::Disk);
+  Erase(0, Location::Disk);
+  EXPECT_EQ(props_.size(), 101);
+  Erase(1, Location::Disk);
   EXPECT_EQ(props_.size(), 100);
 }
 
-TEST_F(PropertyValueStoreTest, InsertRetrieveList) {
+TEST_F(PropertyValueStoreTest, Size) {
+  EXPECT_EQ(props_.size(), 0);
+
+  for (int i = 0; i < 100; ++i) Set(i, Location::Disk, true);
+  EXPECT_EQ(props_.size(), 100);
+
+  for (int i = 0; i < 200; ++i) Set(i + 100, Location::Memory, true);
+  EXPECT_EQ(props_.size(), 300);
+
+  Erase(0, Location::Disk);
+  EXPECT_EQ(props_.size(), 299);
+  Erase(99, Location::Disk);
+  EXPECT_EQ(props_.size(), 298);
+  Erase(100, Location::Memory);
+  EXPECT_EQ(props_.size(), 297);
+  Erase(299, Location::Memory);
+  EXPECT_EQ(props_.size(), 296);
+}
+
+TEST_F(PropertyValueStoreTest, InsertRetrieveListMemory) {
   Set(0, Location::Memory, std::vector<PropertyValue>{1, true, 2.5, "something",
                                                       PropertyValue::Null});
   auto p = At(0, Location::Memory);
+
+  EXPECT_EQ(p.type(), PropertyValue::Type::List);
+  auto l = p.Value<std::vector<PropertyValue>>();
+  EXPECT_EQ(l.size(), 5);
+  EXPECT_EQ(l[0].type(), PropertyValue::Type::Int);
+  EXPECT_EQ(l[0].Value<int64_t>(), 1);
+  EXPECT_EQ(l[1].type(), PropertyValue::Type::Bool);
+  EXPECT_EQ(l[1].Value<bool>(), true);
+  EXPECT_EQ(l[2].type(), PropertyValue::Type::Double);
+  EXPECT_EQ(l[2].Value<double>(), 2.5);
+  EXPECT_EQ(l[3].type(), PropertyValue::Type::String);
+  EXPECT_EQ(l[3].Value<std::string>(), "something");
+  EXPECT_EQ(l[4].type(), PropertyValue::Type::Null);
+}
+
+TEST_F(PropertyValueStoreTest, InsertRetrieveListDisk) {
+  Set(0, Location::Disk, std::vector<PropertyValue>{1, true, 2.5, "something",
+                                                    PropertyValue::Null});
+  auto p = At(0, Location::Disk);
 
   EXPECT_EQ(p.type(), PropertyValue::Type::List);
   auto l = p.Value<std::vector<PropertyValue>>();
@@ -188,4 +271,90 @@ TEST_F(PropertyValueStoreTest, InsertRetrieveMap) {
   EXPECT_EQ(get("b").Value<bool>(), true);
   EXPECT_EQ(get("c").type(), PropertyValue::Type::String);
   EXPECT_EQ(get("c").Value<std::string>(), "something");
+}
+
+TEST_F(PropertyValueStoreTest, InsertRetrieveMapDisk) {
+  Set(0, Location::Disk, std::map<std::string, PropertyValue>{
+                             {"a", 1}, {"b", true}, {"c", "something"}});
+
+  auto p = At(0, Location::Disk);
+  EXPECT_EQ(p.type(), PropertyValue::Type::Map);
+  auto m = p.Value<std::map<std::string, PropertyValue>>();
+  EXPECT_EQ(m.size(), 3);
+  auto get = [&m](const std::string &prop_name) {
+    return m.find(prop_name)->second;
+  };
+  EXPECT_EQ(get("a").type(), PropertyValue::Type::Int);
+  EXPECT_EQ(get("a").Value<int64_t>(), 1);
+  EXPECT_EQ(get("b").type(), PropertyValue::Type::Bool);
+  EXPECT_EQ(get("b").Value<bool>(), true);
+  EXPECT_EQ(get("c").type(), PropertyValue::Type::String);
+  EXPECT_EQ(get("c").Value<std::string>(), "something");
+}
+
+TEST_F(PropertyValueStoreTest, Iterator) {
+  Set(0, Location::Memory, "a");
+  Set(1, Location::Memory, 1);
+  Set(2, Location::Disk, "b");
+  Set(3, Location::Disk, 2);
+
+  auto it = Begin();
+  ASSERT_TRUE(it != End());
+  EXPECT_EQ(it->first.Id(), 0);
+  EXPECT_EQ((*it).second.Value<std::string>(), "a");
+
+  ++it;
+  ASSERT_TRUE(it != End());
+  EXPECT_EQ((*it).first.Id(), 1);
+  EXPECT_EQ(it->second.Value<int64_t>(), 1);
+
+  ++it;
+  ASSERT_TRUE(it != End());
+  EXPECT_EQ(it->first.Id(), 2);
+  EXPECT_EQ((*it).second.Value<std::string>(), "b");
+
+  ++it;
+  ASSERT_TRUE(it != End());
+  EXPECT_EQ((*it).first.Id(), 3);
+  EXPECT_EQ(it->second.Value<int64_t>(), 2);
+
+  ++it;
+  ASSERT_TRUE(it == End());
+}
+
+TEST_F(PropertyValueStoreTest, CopyConstructor) {
+  PropertyValueStore props;
+  for (int i = 1; i <= 3; ++i)
+    props.set(storage::Property(i, Location::Memory),
+              "mem_" + std::to_string(i));
+  for (int i = 4; i <= 5; ++i)
+    props.set(storage::Property(i, Location::Disk),
+              "disk_" + std::to_string(i));
+
+  PropertyValueStore new_props = props;
+  for (int i = 1; i <= 3; ++i)
+    EXPECT_EQ(
+        new_props.at(storage::Property(i, Location::Memory)).Value<string>(),
+        "mem_" + std::to_string(i));
+  for (int i = 4; i <= 5; ++i)
+    EXPECT_EQ(
+        new_props.at(storage::Property(i, Location::Disk)).Value<string>(),
+        "disk_" + std::to_string(i));
+
+  props.set(storage::Property(1, Location::Memory), "mem_1_update");
+  EXPECT_EQ(
+      new_props.at(storage::Property(1, Location::Memory)).Value<string>(),
+      "mem_1");
+
+  new_props.set(storage::Property(2, Location::Memory), "mem_2_update");
+  EXPECT_EQ(props.at(storage::Property(2, Location::Memory)).Value<string>(),
+            "mem_2");
+
+  props.set(storage::Property(4, Location::Disk), "disk_4_update");
+  EXPECT_EQ(new_props.at(storage::Property(4, Location::Disk)).Value<string>(),
+            "disk_4");
+
+  new_props.set(storage::Property(5, Location::Disk), "disk_5_update");
+  EXPECT_EQ(props.at(storage::Property(5, Location::Disk)).Value<string>(),
+            "disk_5");
 }

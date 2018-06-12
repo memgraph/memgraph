@@ -1,10 +1,10 @@
 # CSV Import Tool Target
 add_executable(mg_import_csv mg_import_csv/main.cpp)
-target_link_libraries(mg_import_csv memgraph_lib)
+target_link_libraries(mg_import_csv memgraph_lib kvstore_dummy_lib)
 
 # StatsD Target
 add_executable(mg_statsd mg_statsd/main.cpp)
-target_link_libraries(mg_statsd memgraph_lib)
+target_link_libraries(mg_statsd memgraph_lib kvstore_dummy_lib)
 
 # Strip the executable in release build.
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)

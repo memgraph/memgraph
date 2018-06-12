@@ -75,3 +75,27 @@ However, these queries are not:
 
     MATCH (n:Node) SET n.property[0] = 0
     MATCH (n:Node) SET n.property.key = "other value"
+
+### Cold data on disk
+
+Although *Memgraph* is an in-memory database by default, it offers an option
+to store a certain amount of data on disk. More precisely, the user can pass
+a list of properties they wish to keep stored on disk via the command line.
+In certain cases, this might result in a significant performance boost due to
+reduced memory usage. It is recommended to use this feature on large,
+cold properties, i.e. properties that are rarely accessed.
+
+For example, a user of a library database might identify author biographies
+and book summaries as cold properties. In that case, the user should run
+*Memgraph* as follows:
+
+```
+/usr/lib/memgraph/memgraph --properties-on-disk biography,summary
+```
+
+Note that the usage of *Memgraph* has not changed, i.e. durability and
+data recovery mechanisms are still in place and the query language remains
+the same. It is also important to note that the user cannot change the storage
+location of a property while *Memgraph* is running. Naturally, the user can
+reload their database from snapshot, provide a different list of properties on
+disk and rest assured that only those properties will be stored on disk.

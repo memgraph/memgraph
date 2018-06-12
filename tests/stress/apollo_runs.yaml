@@ -6,6 +6,10 @@
     - ../../config # directory with config files
     - ../../build_release/tests/stress # stress client binaries
 
+- name: stress_properties_on_disk
+  commands: TIMEOUT=600 ./continuous_integration --properties-on-disk
+  infiles: *STRESS_INFILES
+
 - name: stress_large
   project: release
   commands: TIMEOUT=43200 ./continuous_integration --large-dataset

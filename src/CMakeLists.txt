@@ -213,6 +213,10 @@ add_dependencies(memgraph_lib generate_capnp)
 add_library(kvstore_lib STATIC storage/kvstore.cpp)
 target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib)
 
+# STATIC library for dummy key-value storage
+add_library(kvstore_dummy_lib STATIC storage/kvstore_dummy.cpp)
+target_link_libraries(kvstore_dummy_lib mg-utils)
+
 # Generate a version.hpp file
 set(VERSION_STRING ${memgraph_VERSION})
 configure_file(version.hpp.in version.hpp @ONLY)
@@ -220,7 +224,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # memgraph main executable
 add_executable(memgraph memgraph_bolt.cpp)
-target_link_libraries(memgraph memgraph_lib)
+target_link_libraries(memgraph memgraph_lib kvstore_lib)
 set_target_properties(memgraph PROPERTIES
                       # Set the executable output name to include version information.
                       OUTPUT_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"

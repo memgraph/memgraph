@@ -30,7 +30,7 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
     vertex = vlist->find(*t);
     ASSERT_NE(vertex, nullptr);
     vertex->labels_.push_back(label);
-    vertex->properties_.set(property, 0);
+    vertex->properties_.set(property, PropertyValue(0));
 
     EXPECT_EQ(index.Count(*key), 0);
   }

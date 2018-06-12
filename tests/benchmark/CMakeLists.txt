@@ -24,7 +24,7 @@ foreach(test_cpp ${test_type_cpps})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
     # link libraries
-    target_link_libraries(${target_name} memgraph_lib)
+    target_link_libraries(${target_name} memgraph_lib kvstore_dummy_lib)
     # google-benchmark
     target_link_libraries(${target_name} benchmark Threads::Threads)
 

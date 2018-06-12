@@ -10,7 +10,7 @@
 #include "mvcc/version_list.hpp"
 #include "storage/address.hpp"
 #include "storage/edge.hpp"
-#include "storage/kvstore_mock.hpp"
+#include "storage/kvstore.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/type.hpp"

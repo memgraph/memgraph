@@ -25,6 +25,8 @@
 DECLARE_int32(wal_flush_interval_millis);
 DECLARE_int32(wal_rotate_deltas_count);
 
+DECLARE_string(durability_directory);
+
 namespace fs = std::experimental::filesystem;
 
 // Helper class for performing random CRUD ops on a database.
@@ -309,6 +311,7 @@ class Durability : public ::testing::Test {
     snapshot_dir_ = durability_dir_ / durability::kSnapshotDir;
     wal_dir_ = durability_dir_ / durability::kWalDir;
     FLAGS_wal_rotate_deltas_count = 1000;
+    FLAGS_durability_directory = "MG_test_unit_durability";
     CleanDurability();
   }
 
@@ -818,9 +821,8 @@ TEST_F(Durability, SequentialRecovery) {
     return threads;
   };
 
-  auto make_updates = [&run_updates, this](database::GraphDb &db,
-                                           bool snapshot_during,
-                                           bool snapshot_after) {
+  auto make_updates = [&run_updates, this](
+      database::GraphDb &db, bool snapshot_during, bool snapshot_after) {
     std::atomic<bool> keep_running{true};
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);

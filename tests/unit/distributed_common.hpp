@@ -2,6 +2,7 @@
 #include <memory>
 #include <thread>
 
+#include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
 #include "database/graph_db.hpp"
@@ -10,6 +11,8 @@
 #include "distributed/updates_rpc_server.hpp"
 #include "storage/address_types.hpp"
 #include "transactions/engine_master.hpp"
+
+DECLARE_string(durability_directory);
 
 namespace fs = std::experimental::filesystem;
 
@@ -61,6 +64,9 @@ class DistributedGraphDbTest : public ::testing::Test {
       config.query_execution_time_sec = QueryExecutionTimeSec(worker_id);
       return config;
     };
+
+    // Flag needs to be updated due to props on disk storage.
+    FLAGS_durability_directory = tmp_dir_;
 
     for (int i = 0; i < kWorkerCount; ++i) {
       workers_.emplace_back(std::make_unique<WorkerInThread>(

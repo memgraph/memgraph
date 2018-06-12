@@ -54,7 +54,7 @@ suites = [
     Test(
         name="memgraph_V1_POD",
         test_suite="memgraph_V1",
-        memgraph_params="--properties-on-disk=surname,location",
+        memgraph_params="--properties-on-disk=x,y,z,w,k,v,a,b,c,d,e,f,r,t,o,prop,age,name,surname,location",
         mandatory=True
     ),
     Test(
@@ -62,7 +62,7 @@ suites = [
         test_suite="openCypher_M09",
         memgraph_params="",
         mandatory=False
-    )
+    ),
 ]
 
 results_folder = os.path.join("tck_engine", "results")

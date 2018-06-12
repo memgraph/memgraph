@@ -1,32 +1,33 @@
 #pragma once
-#include <algorithm>
+
 #include <atomic>
 #include <experimental/optional>
-#include <map>
-#include <memory>
+#include <string>
 #include <vector>
 
-#include "glog/logging.h"
-
-#include "storage/kvstore_mock.hpp"
+#include "storage/kvstore.hpp"
 #include "storage/property_value.hpp"
 #include "storage/types.hpp"
+
+const std::string disk_key_separator = "_";
+
+std::string DiskKey(const std::string &version_key,
+                    const std::string &property_id);
+
+std::string DiskKeyPrefix(const std::string &version_key);
+
 /**
  * A collection of properties accessed in a map-like way using a key of type
- * Properties::Property.
+ * Storage::Property.
  *
  * PropertyValueStore handles storage on disk or in memory. Property key defines
  * where the corresponding property should be stored. Each instance of
- * PropertyValueStore contains a disk_key_ member which specifies where on
+ * PropertyValueStore contains a version_key_ member which specifies where on
  * disk should the properties be stored. That key is inferred from a static
- * global counter disk_key_cnt_.
+ * global counter global_key_cnt_.
  *
  * The underlying implementation of in-memory storage is not necessarily
  * std::map.
- *
- * TODO(ipaljak) modify on-disk storage so that each property has its own
- * key for storage. Storage key should, in essence, be an ordered pair
- * (global key, property key).
  */
 class PropertyValueStore {
   using Property = storage::Property;
@@ -38,18 +39,9 @@ class PropertyValueStore {
   static constexpr char IdPropertyName[] = "__id__";
 
   PropertyValueStore() = default;
+  PropertyValueStore(const PropertyValueStore &old);
 
-  PropertyValueStore(const PropertyValueStore &old) {
-    // We need to update disk key and disk key counter when calling a copy
-    // constructor due to mvcc.
-    props_ = old.props_;
-    disk_key_ = disk_key_cnt_++;
-    auto old_value = disk_storage_.Get(std::to_string(old.disk_key_));
-    if (old_value)
-      disk_storage_.Put(std::to_string(disk_key_), old_value.value());
-  }
-
-  ~PropertyValueStore() { disk_storage_.Delete(std::to_string(disk_key_)); }
+  ~PropertyValueStore();
 
   /**
    * Returns a PropertyValue (by reference) at the given key.
@@ -62,39 +54,6 @@ class PropertyValueStore {
    * @return  See above.
    */
   PropertyValue at(const Property &key) const;
-
-  /**
-   * Sets the value for the given key. A new PropertyValue instance
-   * is created for the given value (which is of raw type). If the property
-   * is to be stored on disk then that instance does not represent an additional
-   * memory overhead as it goes out of scope at the end of this method.
-   *
-   * @tparam TValue Type of value. It must be one of the
-   * predefined possible PropertyValue values (bool, string, int...)
-   * @param key  The key for which the property is set. The previous
-   * value at the same key (if there was one) is replaced.
-   * @param value  The value to set.
-   */
-  template <typename TValue>
-  void set(const Property &key, const TValue &value) {
-    auto SetValue = [&key, &value](auto &props) {
-      for (auto &kv : props)
-        if (kv.first == key) {
-          kv.second = value;
-          return;
-        }
-      props.emplace_back(key, value);
-    };
-
-    if (key.Location() == Location::Memory) {
-      SetValue(props_);
-    } else {
-      auto props_on_disk = PropsOnDisk(std::to_string(disk_key_));
-      SetValue(props_on_disk);
-      disk_storage_.Put(std::to_string(disk_key_),
-                        SerializeProps(props_on_disk));
-    }
-  }
 
   /**
    * Set overriding for character constants. Forces conversion
@@ -112,52 +71,74 @@ class PropertyValueStore {
   /**
    * Removes the PropertyValue for the given key.
    *
-   * @param key The key for which to remove the property.
-   * @return  The number of removed properties (0 or 1).
+   * @param key - The key for which to remove the property.
+   *
+   * @return true if the operation was successful and there is nothing stored
+   *         under given key after this operation.
    */
-  size_t erase(const Property &key);
+  bool erase(const Property &key);
 
   /** Removes all the properties (both in-mem and on-disk) from this store. */
   void clear();
 
   /**
+   * Returns a static storage::kvstore instance used for storing properties on
+   * disk. This hack is needed due to statics that are internal to rocksdb and
+   * availability of durability_directory flag.
+   */
+  storage::KVStore &DiskStorage() const;
+
+  /**
    * Custom PVS iterator behaves as if all properties are stored in a single
    * iterable collection of std::pair<Property, PropertyValue>.
-   * */
-  class iterator : public std::iterator<
-                       std::input_iterator_tag,             // iterator_category
-                       std::pair<Property, PropertyValue>,  // value_type
-                       long,                                // difference_type
-                       const std::pair<Property, PropertyValue> *,  // pointer
-                       const std::pair<Property, PropertyValue> &   // reference
-                       > {
+   */
+  class iterator final
+      : public std::iterator<
+            std::input_iterator_tag,                     // iterator_category
+            std::pair<Property, PropertyValue>,          // value_type
+            long,                                        // difference_type
+            const std::pair<Property, PropertyValue> *,  // pointer
+            const std::pair<Property, PropertyValue> &   // reference
+            > {
    public:
-    explicit iterator(const PropertyValueStore *init, int it)
-        : PVS_(init), it_(it) {}
+    iterator() = delete;
+
+    iterator(const PropertyValueStore *PVS,
+             std::vector<std::pair<Property, PropertyValue>>::const_iterator
+                 memory_it,
+             storage::KVStore::iterator disk_it)
+        : PVS_(PVS), memory_it_(memory_it), disk_it_(std::move(disk_it)) {}
+
+    iterator(const iterator &other) = delete;
+
+    iterator(iterator &&other) = default;
+
+    iterator &operator=(iterator &&other) = default;
+
+    iterator &operator=(const iterator &other) = delete;
 
     iterator &operator++() {
-      ++it_;
+      if (memory_it_ != PVS_->props_.end())
+        ++memory_it_;
+      else
+        ++disk_it_;
       return *this;
     }
 
-    iterator operator++(int) {
-      iterator ret = *this;
-      ++(*this);
-      return ret;
-    }
-
     bool operator==(const iterator &other) const {
-      return PVS_ == other.PVS_ && it_ == other.it_;
+      return PVS_ == other.PVS_ && memory_it_ == other.memory_it_ &&
+             disk_it_ == other.disk_it_;
     }
 
-    bool operator!=(const iterator &other) const {
-      return PVS_ != other.PVS_ || it_ != other.it_;
-    }
+    bool operator!=(const iterator &other) const { return !(*this == other); }
 
     reference operator*() {
-      if (it_ < static_cast<int>(PVS_->props_.size())) return PVS_->props_[it_];
-      auto disk_props = PVS_->PropsOnDisk(std::to_string(PVS_->disk_key_));
-      disk_prop_ = disk_props[it_ - PVS_->props_.size()];
+      if (memory_it_ != PVS_->props_.end()) return *memory_it_;
+      std::pair<std::string, std::string> kv = *disk_it_;
+      std::string prop_id =
+          kv.first.substr(kv.first.find(disk_key_separator) + 1);
+      disk_prop_ = {Property(std::stoi(prop_id), Location::Disk),
+                    PVS_->DeserializeProp(kv.second)};
       return disk_prop_.value();
     }
 
@@ -165,33 +146,52 @@ class PropertyValueStore {
 
    private:
     const PropertyValueStore *PVS_;
-    int32_t it_;
+    std::vector<std::pair<Property, PropertyValue>>::const_iterator memory_it_;
+    storage::KVStore::iterator disk_it_;
     std::experimental::optional<std::pair<Property, PropertyValue>> disk_prop_;
   };
 
   size_t size() const {
-    size_t ram_size = props_.size();
-    size_t disk_size = PropsOnDisk(std::to_string(disk_key_)).size();
-    return ram_size + disk_size;
+    return props_.size() +
+           DiskStorage().Size(DiskKeyPrefix(std::to_string(version_key_)));
   }
 
-  auto begin() const { return iterator(this, 0); }
-  auto end() const { return iterator(this, size()); }
+  iterator begin() const {
+    return iterator(
+        this, props_.begin(),
+        DiskStorage().begin(DiskKeyPrefix(std::to_string(version_key_))));
+  }
+
+  iterator end() const {
+    return iterator(
+        this, props_.end(),
+        DiskStorage().end(DiskKeyPrefix(std::to_string(version_key_))));
+  }
 
  private:
-  static std::atomic<uint64_t> disk_key_cnt_;
-  uint64_t disk_key_ = disk_key_cnt_++;
-
-  static storage::KVStore disk_storage_;
+  static std::atomic<uint64_t> global_key_cnt_;
+  uint64_t version_key_ = global_key_cnt_++;
 
   std::vector<std::pair<Property, PropertyValue>> props_;
 
-  std::string SerializeProps(
-      const std::vector<std::pair<Property, PropertyValue>> &props) const;
+  /**
+   * Serializes a single PropertyValue into std::string.
+   *
+   * @param prop - Property to be serialized.
+   *
+   * @return Serialized property.
+   */
+  std::string SerializeProp(const PropertyValue &prop) const;
 
-  std::vector<std::pair<Property, PropertyValue>> Deserialize(
-      const std::string &serialized_props) const;
+  /**
+   * Deserializes a single PropertyValue from std::string.
+   *
+   * @param serialized_prop - Serialized property.
+   *
+   * @return Deserialized property.
+   */
+  PropertyValue DeserializeProp(const std::string &serialized_prop) const;
 
-  std::vector<std::pair<Property, PropertyValue>> PropsOnDisk(
-      const std::string &disk_key) const;
+  storage::KVStore ConstructDiskStorage() const;
 };
+

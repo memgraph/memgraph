@@ -446,7 +446,7 @@ static const char *usage =
     "Create a Memgraph recovery snapshot file from CSV.\n";
 
 // Used only to get the value from memgraph's configuration files.
-DEFINE_HIDDEN_string(durability_directory, "", "Durability directory");
+DECLARE_string(durability_directory);
 
 std::string GetOutputPath() {
   // If we have the 'out' flag, use that.

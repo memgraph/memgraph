@@ -8,6 +8,7 @@
 
 * Dynamic graph partitioner added.
 * Static vertices/edges id generators exposed through the Id Cypher function.
+* Properties on disk added.
 
 ### Bug Fixes and Other Changes
 
