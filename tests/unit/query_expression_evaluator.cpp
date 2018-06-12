@@ -1407,4 +1407,21 @@ TEST(ExpressionEvaluator, FunctionIdGenerateEdgeIds) {
   EXPECT_EQ(EvaluateFunction("ID", {eb}, db).Value<int64_t>(), 1024);
   FLAGS_generate_edge_ids = false;
 }
+
+TEST(ExpressionEvaluator, FunctionWorkerIdException) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  auto va = dba.InsertVertex();
+  EXPECT_THROW(EvaluateFunction("WORKERID", {}, db), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("WORKERID", {va, va}, db),
+               QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionWorkerIdSingleNode) {
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  auto va = dba.InsertVertex();
+  EXPECT_EQ(EvaluateFunction("WORKERID", {va}, db).Value<int64_t>(),
+            db.WorkerId());
+}
 }  // namespace
