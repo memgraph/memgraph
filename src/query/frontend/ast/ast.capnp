@@ -131,6 +131,8 @@ struct Clause {
     merge @10 :Merge;
     unwind @11 :Unwind;
     createIndex @12 :CreateIndex;
+    modifyUser @13 :ModifyUser;
+    dropUser @14 :DropUser;
   }
 }
 
@@ -383,3 +385,12 @@ struct CreateIndex {
   property @1 :Storage.Common;
 }
 
+struct ModifyUser {
+  username @0 :Text;
+  password @1 :Tree;
+  isCreate @2 :Bool;
+}
+
+struct DropUser {
+  usernames @0 :List(Text);
+}

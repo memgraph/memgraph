@@ -60,6 +60,8 @@ class RemoveLabels;
 class Merge;
 class Unwind;
 class CreateIndex;
+class ModifyUser;
+class DropUser;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     Query, SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
@@ -73,8 +75,9 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties,
     SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
 
-using TreeLeafVisitor = ::utils::LeafVisitor<Identifier, PrimitiveLiteral,
-                                             ParameterLookup, CreateIndex>;
+using TreeLeafVisitor =
+    ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup,
+                         CreateIndex, ModifyUser, DropUser>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {
@@ -97,6 +100,6 @@ using TreeVisitor = ::utils::Visitor<
     LabelsTest, Aggregation, Function, Reduce, All, Single, ParameterLookup,
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind, Identifier, PrimitiveLiteral, CreateIndex>;
+    Unwind, Identifier, PrimitiveLiteral, CreateIndex, ModifyUser, DropUser>;
 
 }  // namespace query

@@ -185,12 +185,26 @@ inline void SaveVector(const std::vector<T> &data,
   }
 }
 
+inline void SaveVector(const std::vector<std::string> &data,
+                       ::capnp::List<::capnp::Text>::Builder *list_builder) {
+  for (size_t i = 0; i < data.size(); ++i) {
+    list_builder->set(i, data[i]);
+  }
+}
+
 template <typename T>
 inline void LoadVector(std::vector<T> *data,
                        const typename ::capnp::List<T>::Reader &list_reader) {
   for (const auto e : list_reader) {
     data->emplace_back(e);
   }
+}
+
+inline void LoadVector(
+    std::vector<std::string> *data,
+    const typename ::capnp::List<::capnp::Text>::Reader &list_reader) {
+  for (const auto e : list_reader) {
+    data->emplace_back(e); }
 }
 
 template <typename TCapnp, typename T>

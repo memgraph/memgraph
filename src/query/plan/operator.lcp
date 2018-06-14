@@ -109,6 +109,8 @@ class PullRemote;
 class Synchronize;
 class Cartesian;
 class PullRemoteOrderBy;
+class ModifyUser;
+class DropUser;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -120,7 +122,8 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     OrderBy, Merge, Optional, Unwind, Distinct, Union, PullRemote, Synchronize,
     Cartesian, PullRemoteOrderBy>;
 
-using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
+using LogicalOperatorLeafVisitor =
+    ::utils::LeafVisitor<Once, CreateIndex, ModifyUser, DropUser>;
 
 /**
  * @brief Base class for hierarhical visitors of @c LogicalOperator class
@@ -2435,6 +2438,84 @@ by having only one result from each worker.")
   (:private #>cpp PullRemoteOrderBy() {} cpp<#)
   (:serialize :boost :capnp))
 
+(lcp:define-class modify-user (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (username "std::string" :reader t)
+   (password "Expression *" 
+             :reader t
+             :save-fun #'save-pointer
+             :load-fun #'load-pointer
+             :capnp-type "Ast.Tree" 
+             :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *"))
+   (is-create :bool :reader t))
+  (:documentation
+   "Operator that creates a new database user or modifies an existing one.")
+  (:public
+   #>cpp
+    ModifyUser(std::string username, Expression *password, bool is_create);
+
+    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+    std::unique_ptr<Cursor> MakeCursor(
+        database::GraphDbAccessor &db) const override;
+
+    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+      return std::vector<Symbol>();
+    }
+
+    bool HasSingleInput() const override;
+    std::shared_ptr<LogicalOperator> input() const override;
+    void set_input(std::shared_ptr<LogicalOperator> input) override;
+   cpp<#)
+  (:private
+   #>cpp
+   friend class boost::serialization::access;
+
+   ModifyUser() {}
+   cpp<#)
+  (:serialize :boost :capnp))
+
+(lcp:define-class drop-user (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (usernames "std::vector<std::string>" :reader t
+              :capnp-save (lambda (builder member-name)
+                           #>cpp
+                           utils::SaveVector(${member-name}, &${builder});
+                           cpp<#)
+              :capnp-load (lambda (reader member-name)
+                           #>cpp
+                           utils::LoadVector(&${member-name}, ${reader});
+                           cpp<#)))
+  (:documentation
+   "Operator that deletes one or more existing database users.")
+  (:public
+   #>cpp
+    DropUser(std::vector<std::string> usernames): usernames_(usernames) {}
+
+    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+    std::unique_ptr<Cursor> MakeCursor(
+        database::GraphDbAccessor &db) const override;
+
+    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+      return std::vector<Symbol>();
+    }
+
+    bool HasSingleInput() const override;
+    std::shared_ptr<LogicalOperator> input() const override;
+    void set_input(std::shared_ptr<LogicalOperator> input) override;
+   cpp<#)
+  (:private
+   #>cpp
+    friend class boost::serialization::access;
+    DropUser() {}
+   cpp<#)
+  (:serialize :boost :capnp))
+
 (lcp:pop-namespace) ;; plan
 (lcp:pop-namespace) ;; query
 
@@ -2474,4 +2555,6 @@ BOOST_CLASS_EXPORT_KEY(query::plan::PullRemote);
 BOOST_CLASS_EXPORT_KEY(query::plan::Synchronize);
 BOOST_CLASS_EXPORT_KEY(query::plan::Cartesian);
 BOOST_CLASS_EXPORT_KEY(query::plan::PullRemoteOrderBy);
+BOOST_CLASS_EXPORT_KEY(query::plan::ModifyUser);
+BOOST_CLASS_EXPORT_KEY(query::plan::DropUser);
 cpp<#

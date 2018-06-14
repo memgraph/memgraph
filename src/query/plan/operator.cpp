@@ -413,32 +413,32 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, std::experimental::nullopt,
                       std::experimental::nullopt, false))> {
-        ExpressionEvaluator evaluator(frame, context.parameters_,
-                                      context.symbol_table_, db, graph_view_);
-        auto convert = [&evaluator](const auto &bound)
-            -> std::experimental::optional<utils::Bound<PropertyValue>> {
-              if (!bound) return std::experimental::nullopt;
-              auto value = bound->value()->Accept(evaluator);
-              try {
-                return std::experimental::make_optional(
-                    utils::Bound<PropertyValue>(value, bound->type()));
-              } catch (const TypedValueException &) {
-                throw QueryRuntimeException(
-                    "'{}' cannot be used as a property value.", value.type());
-              }
-            };
-        auto maybe_lower = convert(lower_bound());
-        auto maybe_upper = convert(upper_bound());
-        // If any bound is null, then the comparison would result in nulls. This
-        // is treated as not satisfying the filter, so return no vertices.
-        if (maybe_lower && maybe_lower->value().IsNull())
-          return std::experimental::nullopt;
-        if (maybe_upper && maybe_upper->value().IsNull())
-          return std::experimental::nullopt;
+    ExpressionEvaluator evaluator(frame, context.parameters_,
+                                  context.symbol_table_, db, graph_view_);
+    auto convert = [&evaluator](const auto &bound)
+        -> std::experimental::optional<utils::Bound<PropertyValue>> {
+      if (!bound) return std::experimental::nullopt;
+      auto value = bound->value()->Accept(evaluator);
+      try {
         return std::experimental::make_optional(
-            db.Vertices(label_, property_, maybe_lower, maybe_upper,
-                        graph_view_ == GraphView::NEW));
-      };
+            utils::Bound<PropertyValue>(value, bound->type()));
+      } catch (const TypedValueException &) {
+        throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                    value.type());
+      }
+    };
+    auto maybe_lower = convert(lower_bound());
+    auto maybe_upper = convert(upper_bound());
+    // If any bound is null, then the comparison would result in nulls. This
+    // is treated as not satisfying the filter, so return no vertices.
+    if (maybe_lower && maybe_lower->value().IsNull())
+      return std::experimental::nullopt;
+    if (maybe_upper && maybe_upper->value().IsNull())
+      return std::experimental::nullopt;
+    return std::experimental::make_optional(
+        db.Vertices(label_, property_, maybe_lower, maybe_upper,
+                    graph_view_ == GraphView::NEW));
+  };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -461,18 +461,18 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
   auto vertices = [this, &db](Frame &frame, Context &context)
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, TypedValue::Null, false))> {
-        ExpressionEvaluator evaluator(frame, context.parameters_,
-                                      context.symbol_table_, db, graph_view_);
-        auto value = expression_->Accept(evaluator);
-        if (value.IsNull()) return std::experimental::nullopt;
-        try {
-          return std::experimental::make_optional(db.Vertices(
-              label_, property_, value, graph_view_ == GraphView::NEW));
-        } catch (const TypedValueException &) {
-          throw QueryRuntimeException(
-              "'{}' cannot be used as a property value.", value.type());
-        }
-      };
+    ExpressionEvaluator evaluator(frame, context.parameters_,
+                                  context.symbol_table_, db, graph_view_);
+    auto value = expression_->Accept(evaluator);
+    if (value.IsNull()) return std::experimental::nullopt;
+    try {
+      return std::experimental::make_optional(
+          db.Vertices(label_, property_, value, graph_view_ == GraphView::NEW));
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                  value.type());
+    }
+  };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
@@ -1368,7 +1368,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](
-        EdgeAccessor edge, VertexAccessor vertex, double weight, int depth) {
+                           EdgeAccessor edge, VertexAccessor vertex,
+                           double weight, int depth) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -3827,6 +3828,74 @@ std::unique_ptr<Cursor> PullRemoteOrderBy::MakeCursor(
   return std::make_unique<PullRemoteOrderByCursor>(*this, db);
 }
 
+ModifyUser::ModifyUser(std::string username, Expression *password,
+                       bool is_create)
+    : username_(std::move(username)),
+      password_(password),
+      is_create_(is_create) {}
+
+bool ModifyUser::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  return visitor.Visit(*this);
+}
+
+WITHOUT_SINGLE_INPUT(ModifyUser)
+
+class ModifyUserCursor : public Cursor {
+ public:
+  ModifyUserCursor(const ModifyUser &self, database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw UserModificationInMulticommandTxException();
+    }
+    ExpressionEvaluator evaluator(frame, ctx.parameters_, ctx.symbol_table_,
+                                  db_, GraphView::OLD);
+    throw utils::NotYetImplemented("user auth");
+  }
+
+  void Reset() override { throw utils::NotYetImplemented("user auth"); }
+
+ private:
+  const ModifyUser &self_;
+  database::GraphDbAccessor &db_;
+};
+
+std::unique_ptr<Cursor> ModifyUser::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<ModifyUserCursor>(*this, db);
+}
+
+bool DropUser::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  return visitor.Visit(*this);
+}
+
+WITHOUT_SINGLE_INPUT(DropUser)
+
+class DropUserCursor : public Cursor {
+ public:
+  DropUserCursor(const DropUser &self, database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
+
+  bool Pull(Frame &, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw UserModificationInMulticommandTxException();
+    }
+    throw utils::NotYetImplemented("user auth");
+  }
+
+  void Reset() override { throw utils::NotYetImplemented("user auth"); }
+
+ private:
+  const DropUser &self_;
+  database::GraphDbAccessor &db_;
+};
+
+std::unique_ptr<Cursor> DropUser::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<DropUserCursor>(*this, db);
+}
+
 }  // namespace query::plan
 
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Once);
@@ -3865,3 +3934,5 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemote);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Synchronize);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Cartesian);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemoteOrderBy);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ModifyUser);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::DropUser);

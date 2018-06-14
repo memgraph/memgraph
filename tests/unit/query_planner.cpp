@@ -29,6 +29,8 @@ namespace query {
 }
 }  // namespace query
 
+using std::string_literals::operator""s;
+
 using namespace query::plan;
 using query::AstStorage;
 using query::SingleQuery;
@@ -67,6 +69,12 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(TOp &op) override { \
     CheckOp(op);                    \
     return true;                    \
+  }
+
+#define VISIT(TOp)               \
+  bool Visit(TOp &op) override { \
+    CheckOp(op);                 \
+    return true;                 \
   }
 
   PRE_VISIT(CreateNode);
@@ -111,10 +119,7 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool Visit(CreateIndex &op) override {
-    CheckOp(op);
-    return true;
-  }
+  VISIT(CreateIndex);
 
   PRE_VISIT(PullRemote);
 
@@ -130,7 +135,11 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   }
 
   PRE_VISIT(PullRemoteOrderBy);
+
+  VISIT(ModifyUser);
+  VISIT(DropUser);
 #undef PRE_VISIT
+#undef VISIT
 
   std::list<BaseOpChecker *> checkers_;
 
@@ -482,6 +491,37 @@ class Planner {
 
  private:
   std::unique_ptr<LogicalOperator> plan_;
+};
+
+class ExpectModifyUser : public OpChecker<ModifyUser> {
+ public:
+  ExpectModifyUser(std::string username, bool is_create)
+      : username_(username), is_create_(is_create) {}
+
+  void ExpectOp(ModifyUser &modify_user, const SymbolTable &) override {
+    EXPECT_EQ(username_, modify_user.username());
+    // TODO(mtomic): proper password verification
+    EXPECT_NE(dynamic_cast<query::Expression *>(modify_user.password()),
+              nullptr);
+    EXPECT_EQ(is_create_, modify_user.is_create());
+  }
+
+ private:
+  std::string username_;
+  query::Expression *password_;
+  bool is_create_;
+};
+
+class ExpectDropUser : public OpChecker<DropUser> {
+ public:
+  ExpectDropUser(std::vector<std::string> usernames) : usernames_(usernames) {}
+
+  void ExpectOp(DropUser &drop_user, const SymbolTable &) override {
+    EXPECT_EQ(usernames_, drop_user.usernames());
+  }
+
+ private:
+  std::vector<std::string> usernames_;
 };
 
 class SerializedPlanner {
@@ -2171,6 +2211,43 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   for (const auto &name : {"n", "r", "m"}) {
     EXPECT_TRUE(utils::Contains(outputs, name));
   }
+}
+
+TYPED_TEST(TestPlanner, ModifyUser) {
+  {
+    // Test CREATE USER user WITH PASSWORD 'password'
+    database::SingleNode db;
+    database::GraphDbAccessor dba(db);
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(CREATE_USER("user", "password")));
+    CheckPlan<TypeParam>(storage, ExpectModifyUser("user", true));
+    auto expected =
+        ExpectDistributed(MakeCheckers(ExpectModifyUser("user", true)));
+    CheckDistributedPlan<TypeParam>(storage, expected);
+  }
+  {
+    // Test ALTER USER user WITH PASSWORD 'password'
+    database::SingleNode db;
+    database::GraphDbAccessor dba(db);
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(ALTER_USER("user", "password")));
+    CheckPlan<TypeParam>(storage, ExpectModifyUser("user", false));
+    auto expected =
+        ExpectDistributed(MakeCheckers(ExpectModifyUser("user", false)));
+    CheckDistributedPlan<TypeParam>(storage, expected);
+  }
+}
+
+TYPED_TEST(TestPlanner, DropUser) {
+  // Test DROP USER user1, user2, user3
+  database::SingleNode db;
+  database::GraphDbAccessor dba(db);
+  AstStorage storage;
+  std::vector<std::string> usernames({"user1", "user2", "user3"});
+  QUERY(SINGLE_QUERY(DROP_USER(usernames)));
+  CheckPlan<TypeParam>(storage, ExpectDropUser(usernames));
+  auto expected = ExpectDistributed(MakeCheckers(ExpectDropUser(usernames)));
+  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedAvg) {

@@ -62,8 +62,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kUnwindNoLiteral{10.0};
   };
 
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
 
   CostEstimator(const TDbAccessor &db_accessor, const Parameters &parameters)
       : db_accessor_(db_accessor), parameters(parameters) {}
@@ -185,6 +185,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool Visit(Once &) override { return true; }
   bool Visit(CreateIndex &) override { return true; }
+  bool Visit(ModifyUser &) override { return true; }
+  bool Visit(DropUser &) override { return true; }
 
   // TODO: Cost estimate PullRemote and ProduceRemote?
 

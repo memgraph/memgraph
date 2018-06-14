@@ -48,7 +48,7 @@ cpp<#
       (symbol-table "query::SymbolTable" :capnp-type "Sem.SymbolTable")
       (storage "query::AstStorage" :initarg nil
                :save-fun ""
-               :load-fun "storage = std::move(ar.template get_helper<query::AstTreeStorage>(query::AstTreeStorage::kHelperId));"
+               :load-fun "storage = std::move(ar.template get_helper<query::AstStorage>(query::AstStorage::kHelperId));"
                :capnp-save :dont-save)))
   (:response ()))
 

@@ -1858,4 +1858,72 @@ TYPED_TEST(CypherMainVisitorTest, UnionAll) {
   ASSERT_FALSE(return_clause->body_.distinct);
 }
 
+TYPED_TEST(CypherMainVisitorTest, ModifyUser) {
+  auto check_modify_user = [](std::string input, std::string username,
+                              std::experimental::optional<TypedValue> password,
+                              bool is_create) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *create_user = dynamic_cast<ModifyUser *>(single_query->clauses_[0]);
+    ASSERT_TRUE(create_user);
+    EXPECT_EQ(create_user->username_, username);
+    if (password) {
+      ASSERT_NE(create_user->password_, nullptr);
+      CheckLiteral(ast_generator.context_, create_user->password_, *password);
+    } else {
+      EXPECT_EQ(create_user->password_, nullptr);
+    }
+    EXPECT_EQ(create_user->is_create_, is_create);
+  };
+
+  check_modify_user("CreaTE UsEr dominik", "dominik",
+                    std::experimental::nullopt, true);
+  check_modify_user("CreaTE UsEr dominik WIth PaSSWORD 'spomenik'", "dominik",
+                    "spomenik", true);
+  check_modify_user("CreaTE UsEr dominik WIth PaSSWORD NULL", "dominik",
+                    TypedValue::Null, true);
+  check_modify_user("AlTeR UsEr dominik", "dominik", std::experimental::nullopt,
+                    false);
+  check_modify_user("ALtEr UsEr dominik", "dominik", std::experimental::nullopt,
+                    false);
+  check_modify_user("ALtEr UsEr dominik WIth PaSSWORD 'spomenik'", "dominik",
+                    "spomenik", false);
+  check_modify_user("ALtEr UsEr dominik WIth PaSSWORD NULL", "dominik",
+                    TypedValue::Null, false);
+  EXPECT_THROW(
+      check_modify_user(
+          "CreaTE UsEr dominik WIth PaSSWORD 'spomenik' PaSSwoRD 'u muzeju'",
+          "dominik", "spomenik", true),
+      QueryException);
+  EXPECT_THROW(check_modify_user("CreaTE UsEr dominik WIth PaSSWORD 12345",
+                                 "dominik", "spomenik", true),
+               SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, DropUser) {
+  auto check_drop_user = [](std::string input,
+                            const std::vector<std::string> &usernames) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *drop_user = dynamic_cast<DropUser *>(single_query->clauses_[0]);
+    ASSERT_TRUE(drop_user);
+    EXPECT_EQ(drop_user->usernames_, usernames);
+  };
+
+  EXPECT_THROW(check_drop_user("DrOp USER", {}), SyntaxException);
+  check_drop_user("DrOP UsEr dominik", {"dominik"});
+  check_drop_user("DrOP USER dominik  ,   spomenik", {"dominik", "spomenik"});
+  EXPECT_THROW(
+      check_drop_user("DrOP USER dominik, , spomenik", {"dominik", "spomenik"}),
+      SyntaxException);
+  check_drop_user("DrOP USER dominik , spomenik    ,   jackie, jackie , johnny",
+                  {"dominik", "spomenik", "jackie", "jackie", "johnny"});
+}
+
 }  // namespace

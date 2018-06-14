@@ -182,6 +182,15 @@ class RuleBasedPlanner {
           DCHECK(!input_op) << "Unexpected operator before CreateIndex";
           input_op = std::make_unique<plan::CreateIndex>(
               create_index->label_, create_index->property_);
+        } else if (auto *modify_user =
+                       dynamic_cast<query::ModifyUser *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before ModifyUser";
+          input_op = std::make_unique<plan::ModifyUser>(
+              modify_user->username_, modify_user->password_,
+              modify_user->is_create_);
+        } else if (auto *drop_user = dynamic_cast<query::DropUser *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before DropUser";
+          input_op = std::make_unique<plan::DropUser>(drop_user->usernames_);
         } else {
           throw utils::NotYetImplemented("clause conversion to operator(s)");
         }

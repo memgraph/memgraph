@@ -115,4 +115,11 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
             "connections. Consider using DETACH DELETE.") {}
 };
 
+class UserModificationInMulticommandTxException : public QueryException {
+ public:
+  UserModificationInMulticommandTxException()
+      : QueryException(
+            "User modification not allowed in multicommand transactions") {}
+};
+
 }  // namespace query

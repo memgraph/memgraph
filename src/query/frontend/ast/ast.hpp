@@ -3499,6 +3499,100 @@ class CreateIndex : public Clause {
                                                         const unsigned int);
 };
 
+class ModifyUser : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  ModifyUser *Clone(AstStorage &storage) const override {
+    return storage.Create<ModifyUser>(
+        username_, password_ ? password_->Clone(storage) : nullptr, is_create_);
+  }
+
+  static ModifyUser *Construct(const capnp::ModifyUser::Reader &reader,
+                               AstStorage *storage);
+  using Clause::Save;
+
+  std::string username_;
+  Expression *password_;
+  bool is_create_;
+
+ protected:
+  explicit ModifyUser(int uid) : Clause(uid) {}
+  ModifyUser(int uid, std::string username, Expression *password,
+             bool is_create)
+      : Clause(uid),
+        username_(std::move(username)),
+        password_(password),
+        is_create_(is_create) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::ModifyUser::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+    ar &username_ &password_ &is_create_;
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        ModifyUser *,
+                                                        const unsigned int);
+};
+
+class DropUser : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  DropUser *Clone(AstStorage &storage) const override {
+    return storage.Create<DropUser>(usernames_);
+  }
+
+  static DropUser *Construct(const capnp::DropUser::Reader &reader,
+                             AstStorage *storage);
+  using Clause::Save;
+
+  std::vector<std::string> usernames_;
+
+ protected:
+  explicit DropUser(int uid) : Clause(uid) {}
+  DropUser(int uid, std::vector<std::string> usernames)
+      : Clause(uid), usernames_(usernames) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::DropUser::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+    ar &usernames_;
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &, DropUser *,
+                                                        const unsigned int);
+};
+
 #undef CLONE_BINARY_EXPRESSION
 #undef CLONE_UNARY_EXPRESSION
 #undef SERIALIZE_USING_BASE
@@ -3573,6 +3667,8 @@ LOAD_AND_CONSTRUCT(query::RemoveLabels, 0);
 LOAD_AND_CONSTRUCT(query::Merge, 0);
 LOAD_AND_CONSTRUCT(query::Unwind, 0);
 LOAD_AND_CONSTRUCT(query::CreateIndex, 0);
+LOAD_AND_CONSTRUCT(query::ModifyUser, 0);
+LOAD_AND_CONSTRUCT(query::DropUser, 0);
 
 }  // namespace boost::serialization
 
@@ -3633,3 +3729,5 @@ BOOST_CLASS_EXPORT_KEY(query::Unwind);
 BOOST_CLASS_EXPORT_KEY(query::Identifier);
 BOOST_CLASS_EXPORT_KEY(query::PrimitiveLiteral);
 BOOST_CLASS_EXPORT_KEY(query::CreateIndex);
+BOOST_CLASS_EXPORT_KEY(query::ModifyUser);
+BOOST_CLASS_EXPORT_KEY(query::DropUser);

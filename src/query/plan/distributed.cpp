@@ -55,6 +55,8 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   // These don't use any symbols
   bool Visit(Once &) override { return true; }
   bool Visit(CreateIndex &) override { return true; }
+  bool Visit(ModifyUser &) override { return true; }
+  bool Visit(DropUser &) override { return true; }
 
   bool PostVisit(ScanAll &scan) override { return true; }
   bool PostVisit(ScanAllByLabel &scan) override { return true; }
@@ -682,6 +684,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool Visit(Once &) override { return true; }
 
   bool Visit(CreateIndex &) override { return true; }
+
+  bool Visit(ModifyUser &) override { return true; }
+
+  bool Visit(DropUser &) override { return true; }
 
   // Accumulate is used only if the query performs any writes. In such a case,
   // we need to synchronize the work done on master and all workers.

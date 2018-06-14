@@ -1249,6 +1249,14 @@ Clause *Clause::Construct(const capnp::Clause::Reader &reader,
       auto with_reader = reader.getWith();
       return With::Construct(with_reader, storage);
     }
+    case capnp::Clause::MODIFY_USER: {
+      auto mu_reader = reader.getModifyUser();
+      return ModifyUser::Construct(mu_reader, storage);
+    }
+    case capnp::Clause::DROP_USER: {
+      auto du_reader = reader.getDropUser();
+      return DropUser::Construct(du_reader, storage);
+    }
   }
 }
 
@@ -1804,6 +1812,71 @@ void With::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
 With *With::Construct(const capnp::With::Reader &reader,
                       AstStorage *storage) {
   return storage->Create<With>();
+}
+
+// ModifyUser.
+void ModifyUser::Save(capnp::Clause::Builder *clause_builder,
+                      std::vector<int> *saved_uids) {
+  Clause::Save(clause_builder, saved_uids);
+  auto builder = clause_builder->initModifyUser();
+  ModifyUser::Save(&builder, saved_uids);
+}
+
+void ModifyUser::Save(capnp::ModifyUser::Builder *builder,
+                      std::vector<int> *saved_uids) {
+  builder->setUsername(username_);
+  if (password_) {
+    auto password_builder = builder->getPassword();
+    password_->Save(&password_builder, saved_uids);
+  }
+  builder->setIsCreate(is_create_);
+}
+
+void ModifyUser::Load(const capnp::Tree::Reader &base_reader,
+                      AstStorage *storage, std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getClause().getModifyUser();
+  username_ = reader.getUsername();
+  if (reader.hasPassword()) {
+    const auto password_reader = reader.getPassword();
+    password_ =
+        dynamic_cast<Expression *>(storage->Load(password_reader, loaded_uids));
+  } else {
+    password_ = nullptr;
+  }
+  is_create_ = reader.getIsCreate();
+}
+
+ModifyUser *ModifyUser::Construct(const capnp::ModifyUser::Reader &reader,
+                                  AstStorage *storage) {
+  return storage->Create<ModifyUser>();
+}
+
+// DropUser.
+void DropUser::Save(capnp::Clause::Builder *clause_builder,
+                    std::vector<int> *saved_uids) {
+  Clause::Save(clause_builder, saved_uids);
+  auto builder = clause_builder->initDropUser();
+  DropUser::Save(&builder, saved_uids);
+}
+
+void DropUser::Save(capnp::DropUser::Builder *builder,
+                    std::vector<int> *saved_uids) {
+  auto usernames_builder = builder->initUsernames(usernames_.size());
+  utils::SaveVector(usernames_, &usernames_builder);
+}
+
+void DropUser::Load(const capnp::Tree::Reader &base_reader,
+                    AstStorage *storage, std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getClause().getDropUser();
+  usernames_.clear();
+  utils::LoadVector(&usernames_, reader.getUsernames());
+}
+
+DropUser *DropUser::Construct(const capnp::DropUser::Reader &reader,
+                              AstStorage *storage) {
+  return storage->Create<DropUser>();
 }
 
 // CypherUnion
@@ -2367,3 +2440,5 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::Unwind);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::Identifier);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::PrimitiveLiteral);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::CreateIndex);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::ModifyUser);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::DropUser);

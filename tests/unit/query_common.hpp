@@ -607,3 +607,8 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::Reduce>(                                   \
       storage.Create<query::Identifier>(accumulator), initializer, \
       storage.Create<query::Identifier>(variable), list, expr)
+#define CREATE_USER(username, password) \
+  storage.Create<query::ModifyUser>((username), LITERAL(password), true)
+#define ALTER_USER(username, password) \
+  storage.Create<query::ModifyUser>((username), LITERAL(password), false)
+#define DROP_USER(usernames) storage.Create<query::DropUser>((usernames))
