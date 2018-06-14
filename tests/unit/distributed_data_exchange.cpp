@@ -9,6 +9,7 @@
 #include "distributed_common.hpp"
 
 using namespace database;
+using namespace std::literals::chrono_literals;
 
 TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
   // Only old data is visible remotely, so create and commit some data.

@@ -19,6 +19,7 @@ DECLARE_int32(skiplist_gc_interval);
 
 using namespace distributed;
 using namespace database;
+using namespace std::literals::chrono_literals;
 
 class DistributedInterpretationTest : public DistributedGraphDbTest {
  protected:

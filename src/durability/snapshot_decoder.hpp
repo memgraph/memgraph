@@ -7,18 +7,18 @@
 
 namespace durability {
 
-using namespace communication::bolt;
-
 template <typename Buffer>
-class SnapshotDecoder : public Decoder<Buffer> {
+class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
  public:
-  explicit SnapshotDecoder(Buffer &buffer) : Decoder<Buffer>(buffer) {}
+  explicit SnapshotDecoder(Buffer &buffer)
+      : communication::bolt::Decoder<Buffer>(buffer) {}
 
   std::experimental::optional<DecodedSnapshotVertex> ReadSnapshotVertex() {
-    DecodedValue dv;
+    communication::bolt::DecodedValue dv;
     DecodedSnapshotVertex vertex;
 
-    if (!Decoder<Buffer>::ReadValue(&dv, DecodedValue::Type::Vertex)) {
+    if (!communication::bolt::Decoder<Buffer>::ReadValue(
+            &dv, communication::bolt::DecodedValue::Type::Vertex)) {
       DLOG(WARNING) << "Unable to read snapshot vertex";
       return std::experimental::nullopt;
     }
@@ -28,7 +28,8 @@ class SnapshotDecoder : public Decoder<Buffer> {
     vertex.labels = read_vertex.labels;
     vertex.properties = read_vertex.properties;
 
-    if (!Decoder<Buffer>::ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!communication::bolt::Decoder<Buffer>::ReadValue(
+            &dv, communication::bolt::DecodedValue::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotVertex] Couldn't read number of in "
                        "edges in vertex!";
       return std::experimental::nullopt;
@@ -40,7 +41,8 @@ class SnapshotDecoder : public Decoder<Buffer> {
       vertex.in.emplace_back(*edge);
     }
 
-    if (!Decoder<Buffer>::ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!communication::bolt::Decoder<Buffer>::ReadValue(
+            &dv, communication::bolt::DecodedValue::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotVertex] Couldn't read number of out "
                        "edges in vertex!";
       return std::experimental::nullopt;
@@ -58,27 +60,30 @@ class SnapshotDecoder : public Decoder<Buffer> {
 
  private:
   std::experimental::optional<DecodedInlinedVertexEdge> ReadSnapshotEdge() {
-    DecodedValue dv;
+    communication::bolt::DecodedValue dv;
     DecodedInlinedVertexEdge edge;
 
     VLOG(20) << "[ReadSnapshotEdge] Start";
 
     // read ID
-    if (!Decoder<Buffer>::ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!communication::bolt::Decoder<Buffer>::ReadValue(
+            &dv, communication::bolt::DecodedValue::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read ID!";
       return std::experimental::nullopt;
     }
 
     edge.address = dv.ValueInt();
     // read other side
-    if (!Decoder<Buffer>::ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!communication::bolt::Decoder<Buffer>::ReadValue(
+            &dv, communication::bolt::DecodedValue::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read from address!";
       return std::experimental::nullopt;
     }
     edge.vertex = dv.ValueInt();
 
     // read type
-    if (!Decoder<Buffer>::ReadValue(&dv, DecodedValue::Type::String)) {
+    if (!communication::bolt::Decoder<Buffer>::ReadValue(
+            &dv, communication::bolt::DecodedValue::Type::String)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read type!";
       return std::experimental::nullopt;
     }

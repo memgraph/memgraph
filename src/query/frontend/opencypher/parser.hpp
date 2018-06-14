@@ -11,9 +11,6 @@ namespace query {
 namespace frontend {
 namespace opencypher {
 
-using namespace antlropencypher;
-using namespace antlr4;
-
 /**
  * Generates openCypher AST
  * This thing must me a class since parser.cypher() returns pointer and there is
@@ -38,8 +35,9 @@ class Parser {
 
  private:
   class FirstMessageErrorListener : public antlr4::BaseErrorListener {
-    void syntaxError(IRecognizer *, Token *, size_t line, size_t position,
-                     const std::string &message, std::exception_ptr) override {
+    void syntaxError(antlr4::IRecognizer *, antlr4::Token *, size_t line,
+                     size_t position, const std::string &message,
+                     std::exception_ptr) override {
       if (error_.empty()) {
         error_ = "line " + std::to_string(line) + ":" +
                  std::to_string(position + 1) + " " + message;
@@ -52,13 +50,13 @@ class Parser {
 
   FirstMessageErrorListener error_listener_;
   std::string query_;
-  ANTLRInputStream input_{query_.c_str()};
-  CypherLexer lexer_{&input_};
-  CommonTokenStream tokens_{&lexer_};
+  antlr4::ANTLRInputStream input_{query_.c_str()};
+  antlropencypher::CypherLexer lexer_{&input_};
+  antlr4::CommonTokenStream tokens_{&lexer_};
 
   // generate ast
-  CypherParser parser_{&tokens_};
-  tree::ParseTree *tree_ = nullptr;
+  antlropencypher::CypherParser parser_{&tokens_};
+  antlr4::tree::ParseTree *tree_ = nullptr;
 };
 }  // namespace opencypher
 }  // namespace frontend

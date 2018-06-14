@@ -14,6 +14,8 @@
 #include "distributed/serialization.hpp"
 #include "io/network/endpoint.hpp"
 
+using namespace std::literals::chrono_literals;
+
 namespace distributed {
 
 struct IncrementCounterReq {

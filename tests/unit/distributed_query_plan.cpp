@@ -30,6 +30,7 @@ DECLARE_int32(query_execution_time_sec);
 
 using namespace distributed;
 using namespace database;
+using namespace std::literals::chrono_literals;
 
 TEST_F(DistributedGraphDbTest, PullProduceRpc) {
   GraphDbAccessor dba{master()};

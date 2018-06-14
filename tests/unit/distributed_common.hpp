@@ -41,6 +41,7 @@ class DistributedGraphDbTest : public ::testing::Test {
 
   void Initialize(
       std::function<database::Config(database::Config config)> modify_config) {
+    using namespace std::literals::chrono_literals;
     const auto kInitTime = 200ms;
 
     database::Config master_config;
@@ -158,6 +159,7 @@ enum class TestType { SINGLE_NODE, DISTRIBUTED };
 class Cluster {
  public:
   Cluster(TestType test_type, int num_workers = 0) : test_type_(test_type) {
+    using namespace std::literals::chrono_literals;
     switch (test_type) {
       case TestType::SINGLE_NODE:
         master_ = std::make_unique<database::SingleNode>(database::Config{});

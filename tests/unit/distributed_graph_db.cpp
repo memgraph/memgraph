@@ -28,6 +28,7 @@
 
 using namespace distributed;
 using namespace database;
+using namespace std::literals::chrono_literals;
 
 TEST_F(DistributedGraphDbTest, Coordination) {
   EXPECT_NE(master().endpoint().port(), 0);

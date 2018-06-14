@@ -27,6 +27,8 @@ DECLARE_int32(wal_rotate_deltas_count);
 
 DECLARE_string(durability_directory);
 
+using namespace std::literals::chrono_literals;
+
 namespace fs = std::experimental::filesystem;
 
 // Helper class for performing random CRUD ops on a database.

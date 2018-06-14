@@ -11,8 +11,6 @@
 
 #include "glog/logging.h"
 
-using namespace std::literals::chrono_literals;
-
 // Thread safe queue. Probably doesn't perform very well, but it works.
 template <typename T>
 class Queue {

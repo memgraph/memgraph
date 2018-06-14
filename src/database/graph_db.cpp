@@ -40,6 +40,7 @@
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 
+using namespace std::literals::chrono_literals;
 using namespace storage;
 
 namespace database {

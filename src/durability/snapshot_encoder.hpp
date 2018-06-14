@@ -4,14 +4,13 @@
 
 namespace durability {
 
-using namespace communication::bolt;
-
 template <typename Buffer>
-class SnapshotEncoder : public BaseEncoder<Buffer> {
+class SnapshotEncoder : public communication::bolt::BaseEncoder<Buffer> {
  public:
-  explicit SnapshotEncoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
+  explicit SnapshotEncoder(Buffer &buffer)
+      : communication::bolt::BaseEncoder<Buffer>(buffer) {}
   void WriteSnapshotVertex(const VertexAccessor &vertex) {
-    BaseEncoder<Buffer>::WriteVertex(vertex);
+    communication::bolt::BaseEncoder<Buffer>::WriteVertex(vertex);
 
     // write in edges without properties
     this->WriteUInt(vertex.in_degree());
