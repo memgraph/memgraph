@@ -1,3 +1,5 @@
+#include <unistd.h>
+
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
@@ -13,7 +15,9 @@ class KVStore : public ::testing::Test {
 
   virtual void TearDown() { fs::remove_all(test_folder_); }
 
-  fs::path test_folder_{fs::path("kvstore_test")};
+  fs::path test_folder_{
+      fs::temp_directory_path() /
+      ("unit_kvstore_test_" + std::to_string(static_cast<int>(getpid())))};
 };
 
 TEST_F(KVStore, PutGet) {

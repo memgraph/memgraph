@@ -1,3 +1,4 @@
+#include <unistd.h>
 #include <vector>
 
 #include "gflags/gflags.h"
@@ -5,10 +6,13 @@
 
 #include "storage/property_value.hpp"
 #include "storage/property_value_store.hpp"
+#include "utils/file.hpp"
 
-using std::string;
 using Location = storage::Location;
 
+namespace fs = std::experimental::filesystem;
+
+DECLARE_string(durability_directory);
 DECLARE_string(properties_on_disk);
 
 class PropertyValueStoreTest : public ::testing::Test {
@@ -18,6 +22,12 @@ class PropertyValueStoreTest : public ::testing::Test {
   void SetUp() override {
     // we need this to test the copy constructor
     FLAGS_properties_on_disk = "not empty";
+
+    auto durability_path = fs::temp_directory_path() /
+                           ("unit_property_value_store_durability_" +
+                            std::to_string(static_cast<int>(getpid())));
+    FLAGS_durability_directory = durability_path.string();
+    utils::EnsureDir(fs::path(FLAGS_durability_directory));
   }
 
   void Set(int key, Location location, PropertyValue value) {
@@ -36,7 +46,10 @@ class PropertyValueStoreTest : public ::testing::Test {
 
   auto End() { return props_.end(); }
 
-  void TearDown() override { props_.clear(); }
+  void TearDown() override {
+    props_.clear();
+    fs::remove_all(fs::path(FLAGS_durability_directory));
+  }
 };
 
 TEST_F(PropertyValueStoreTest, AtMemory) {
@@ -45,7 +58,7 @@ TEST_F(PropertyValueStoreTest, AtMemory) {
   EXPECT_EQ(PropertyValue(At(0, Location::Memory)).type(),
             PropertyValue::Type::Null);
   Set(0, Location::Memory, some_string);
-  EXPECT_EQ(PropertyValue(At(0, Location::Memory)).Value<string>(),
+  EXPECT_EQ(PropertyValue(At(0, Location::Memory)).Value<std::string>(),
             some_string);
   Set(120, Location::Memory, 42);
   EXPECT_EQ(PropertyValue(At(120, Location::Memory)).Value<int64_t>(), 42);
@@ -57,7 +70,8 @@ TEST_F(PropertyValueStoreTest, AtDisk) {
   EXPECT_EQ(PropertyValue(At(0, Location::Disk)).type(),
             PropertyValue::Type::Null);
   Set(0, Location::Disk, some_string);
-  EXPECT_EQ(PropertyValue(At(0, Location::Disk)).Value<string>(), some_string);
+  EXPECT_EQ(PropertyValue(At(0, Location::Disk)).Value<std::string>(),
+            some_string);
   Set(120, Location::Disk, 42);
   EXPECT_EQ(PropertyValue(At(120, Location::Disk)).Value<int64_t>(), 42);
 }
@@ -333,28 +347,30 @@ TEST_F(PropertyValueStoreTest, CopyConstructor) {
 
   PropertyValueStore new_props = props;
   for (int i = 1; i <= 3; ++i)
-    EXPECT_EQ(
-        new_props.at(storage::Property(i, Location::Memory)).Value<string>(),
-        "mem_" + std::to_string(i));
+    EXPECT_EQ(new_props.at(storage::Property(i, Location::Memory))
+                  .Value<std::string>(),
+              "mem_" + std::to_string(i));
   for (int i = 4; i <= 5; ++i)
     EXPECT_EQ(
-        new_props.at(storage::Property(i, Location::Disk)).Value<string>(),
+        new_props.at(storage::Property(i, Location::Disk)).Value<std::string>(),
         "disk_" + std::to_string(i));
 
   props.set(storage::Property(1, Location::Memory), "mem_1_update");
   EXPECT_EQ(
-      new_props.at(storage::Property(1, Location::Memory)).Value<string>(),
+      new_props.at(storage::Property(1, Location::Memory)).Value<std::string>(),
       "mem_1");
 
   new_props.set(storage::Property(2, Location::Memory), "mem_2_update");
-  EXPECT_EQ(props.at(storage::Property(2, Location::Memory)).Value<string>(),
-            "mem_2");
+  EXPECT_EQ(
+      props.at(storage::Property(2, Location::Memory)).Value<std::string>(),
+      "mem_2");
 
   props.set(storage::Property(4, Location::Disk), "disk_4_update");
-  EXPECT_EQ(new_props.at(storage::Property(4, Location::Disk)).Value<string>(),
-            "disk_4");
+  EXPECT_EQ(
+      new_props.at(storage::Property(4, Location::Disk)).Value<std::string>(),
+      "disk_4");
 
   new_props.set(storage::Property(5, Location::Disk), "disk_5_update");
-  EXPECT_EQ(props.at(storage::Property(5, Location::Disk)).Value<string>(),
+  EXPECT_EQ(props.at(storage::Property(5, Location::Disk)).Value<std::string>(),
             "disk_5");
 }
