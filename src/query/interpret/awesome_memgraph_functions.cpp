@@ -655,6 +655,29 @@ TypedValue Id(const std::vector<TypedValue> &args,
   }
 }
 
+TypedValue ToString(const std::vector<TypedValue> &args,
+                    database::GraphDbAccessor &) {
+  if (args.size() != 1U) {
+    throw QueryRuntimeException("toString takes one argument");
+  }
+  auto &arg = args[0];
+  switch (arg.type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::String:
+      return arg;
+    case TypedValue::Type::Int:
+      return std::to_string(arg.ValueInt());
+    case TypedValue::Type::Double:
+      return std::to_string(arg.ValueDouble());
+    case TypedValue::Type::Bool:
+      return arg.ValueBool() ? "true" : "false";
+    default:
+      throw QueryRuntimeException(
+          "toString argument must be a number, string or boolean");
+  }
+}
+
 }  // namespace
 
 std::function<TypedValue(const std::vector<TypedValue> &,
@@ -706,6 +729,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "INDEXINFO") return IndexInfo;
   if (function_name == "WORKERID") return WorkerId;
   if (function_name == "ID") return Id;
+  if (function_name == "TOSTRING") return ToString;
   return nullptr;
 }
 }  // namespace query

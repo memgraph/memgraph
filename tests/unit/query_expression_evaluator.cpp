@@ -1424,4 +1424,48 @@ TEST(ExpressionEvaluator, FunctionWorkerIdSingleNode) {
   EXPECT_EQ(EvaluateFunction("WORKERID", {va}, db).Value<int64_t>(),
             db.WorkerId());
 }
+
+TEST(ExpressionEvaluator, FunctionToStringNull) {
+  database::SingleNode db;
+  EXPECT_TRUE(EvaluateFunction("TOSTRING", {TypedValue::Null}, db).IsNull());
+}
+
+TEST(ExpressionEvaluator, FunctionToStringString) {
+  database::SingleNode db;
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {""}, db).ValueString(), "");
+  EXPECT_EQ(
+      EvaluateFunction("TOSTRING", {"this is a string"}, db).ValueString(),
+      "this is a string");
+}
+
+TEST(ExpressionEvaluator, FunctionToStringInteger) {
+  database::SingleNode db;
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {-23321312}, db).ValueString(),
+            "-23321312");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {0}, db).ValueString(), "0");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {42}, db).ValueString(), "42");
+}
+
+TEST(ExpressionEvaluator, FunctionToStringDouble) {
+  database::SingleNode db;
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {-42.42}, db).ValueString(),
+            "-42.420000");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {0.0}, db).ValueString(), "0.000000");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {238910.2313217}, db).ValueString(),
+            "238910.231322");
+}
+
+TEST(ExpressionEvaluator, FunctionToStringBool) {
+  database::SingleNode db;
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {true}, db).ValueString(), "true");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {false}, db).ValueString(), "false");
+}
+
+TEST(ExpressionEvaluator, FunctionToStringExceptions) {
+  database::SingleNode db;
+  EXPECT_THROW(EvaluateFunction("TOSTRING", {1, 2, 3}, db),
+               QueryRuntimeException);
+  std::vector<TypedValue> l{1, 2, 3};
+  EXPECT_THROW(EvaluateFunction("TOSTRING", l, db), QueryRuntimeException);
+}
 }  // namespace
