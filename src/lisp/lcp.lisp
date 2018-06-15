@@ -908,13 +908,17 @@ used for outside definition."
             (let ((first-parent (first parents)))
               (format s " ~A::Save(base_builder~{, ~A~});~%"
                       (cpp-type-name first-parent) (parent-args first-parent)))
-            (when (or compose-parents (cpp-class-members cpp-class))
-              (format s "  auto ~A_builder = base_builder->~{get~A().~}init~A();~%"
-                      (cpp-variable-name (cpp-type-base-name cpp-class))
+            (if (or compose-parents (cpp-class-members cpp-class))
+              (progn
+                (format s "  auto ~A_builder = base_builder->~{get~A().~}init~A();~%"
+                        (cpp-variable-name (cpp-type-base-name cpp-class))
+                        (mapcar #'cpp-type-name (cdr (reverse parents)))
+                        (cpp-type-name cpp-class))
+                (format s "  auto *builder = &~A_builder;~%"
+                        (cpp-variable-name (cpp-type-base-name cpp-class))))
+              (format s "  base_builder->~{get~A().~}init~A();~%"
                       (mapcar #'cpp-type-name (cdr (reverse parents)))
-                      (cpp-type-name cpp-class))
-              (format s "  auto *builder = &~A_builder;~%"
-                      (cpp-variable-name (cpp-type-base-name cpp-class))))
+                      (cpp-type-name cpp-class)))
             (when (capnp-union-subclasses cpp-class)
               ;; We are in the middle of inheritance hierarchy, so set our
               ;; union Void field.

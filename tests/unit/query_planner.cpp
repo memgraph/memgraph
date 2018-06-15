@@ -136,6 +136,18 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
 
   VISIT(ModifyUser);
   VISIT(DropUser);
+
+  VISIT(CreateStream);
+  VISIT(DropStream);
+
+  bool Visit(ShowStreams &op) override {
+    CheckOp(op);
+    return true;
+  }
+
+  VISIT(StartStopStream);
+  VISIT(StartStopAllStreams);
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -184,6 +196,7 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
+using ExpectShowStreams = OpChecker<ShowStreams>;
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
  public:
@@ -468,6 +481,92 @@ class ExpectPullRemoteOrderBy : public OpChecker<PullRemoteOrderBy> {
 
  private:
   std::vector<Symbol> symbols_;
+};
+
+class ExpectCreateStream : public OpChecker<CreateStream> {
+ public:
+  ExpectCreateStream(std::string stream_name, query::Expression *stream_uri,
+                     query::Expression *transform_uri,
+                     query::Expression *batch_interval)
+      : stream_name_(stream_name),
+        stream_uri_(stream_uri),
+        transform_uri_(transform_uri),
+        batch_interval_(batch_interval) {}
+
+  void ExpectOp(CreateStream &create_stream, const SymbolTable &) override {
+    EXPECT_EQ(create_stream.stream_name(), stream_name_);
+    // TODO: Proper expression equality
+    EXPECT_EQ(typeid(create_stream.stream_uri()).hash_code(),
+              typeid(stream_uri_).hash_code());
+    EXPECT_EQ(typeid(create_stream.transform_uri()).hash_code(),
+              typeid(transform_uri_).hash_code());
+    if (batch_interval_ && create_stream.batch_interval()) {
+      EXPECT_EQ(typeid(create_stream.batch_interval()).hash_code(),
+                typeid(batch_interval_).hash_code());
+    } else {
+      EXPECT_TRUE(batch_interval_ == nullptr &&
+                  create_stream.batch_interval() == nullptr);
+    }
+  }
+
+ private:
+  std::string stream_name_;
+  query::Expression *stream_uri_;
+  query::Expression *transform_uri_;
+  query::Expression *batch_interval_;
+};
+
+class ExpectDropStream : public OpChecker<DropStream> {
+ public:
+  ExpectDropStream(std::string stream_name) : stream_name_(stream_name) {}
+
+  void ExpectOp(DropStream &drop_stream, const SymbolTable &) override {
+    EXPECT_EQ(drop_stream.stream_name(), stream_name_);
+  }
+
+ private:
+  std::string stream_name_;
+};
+
+class ExpectStartStopStream : public OpChecker<StartStopStream> {
+ public:
+  ExpectStartStopStream(std::string stream_name, bool is_start,
+                        query::Expression *limit_batches)
+      : stream_name_(stream_name),
+        is_start_(is_start),
+        limit_batches_(limit_batches) {}
+
+  void ExpectOp(StartStopStream &start_stop_stream,
+                const SymbolTable &) override {
+    EXPECT_EQ(start_stop_stream.stream_name(), stream_name_);
+    EXPECT_EQ(start_stop_stream.is_start(), is_start_);
+    // TODO: Proper expression equality
+    if (limit_batches_ && start_stop_stream.limit_batches()) {
+      EXPECT_EQ(typeid(start_stop_stream.limit_batches()).hash_code(),
+                typeid(limit_batches_).hash_code());
+    } else {
+      EXPECT_TRUE(limit_batches_ == nullptr &&
+                  start_stop_stream.limit_batches() == nullptr);
+    }
+  }
+
+ private:
+  std::string stream_name_;
+  bool is_start_;
+  query::Expression *limit_batches_;
+};
+
+class ExpectStartStopAllStreams : public OpChecker<StartStopAllStreams> {
+ public:
+  ExpectStartStopAllStreams(bool is_start) : is_start_(is_start) {}
+
+  void ExpectOp(StartStopAllStreams &start_stop_all_streams,
+                const SymbolTable &) override {
+    EXPECT_EQ(start_stop_all_streams.is_start(), is_start_);
+  }
+
+ private:
+  bool is_start_;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -1971,9 +2070,8 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
   AstStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto check_planned_range = [&label, &property, &dba](const auto &rel_expr,
-                                                       auto lower_bound,
-                                                       auto upper_bound) {
+  auto check_planned_range = [&label, &property, &dba](
+      const auto &rel_expr, auto lower_bound, auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
     AstStorage storage;
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr),
@@ -2245,6 +2343,121 @@ TYPED_TEST(TestPlanner, DropUser) {
   CheckPlan<TypeParam>(storage, ExpectDropUser(usernames));
   auto expected = ExpectDistributed(MakeCheckers(ExpectDropUser(usernames)));
   CheckDistributedPlan<TypeParam>(storage, expected);
+}
+
+TYPED_TEST(TestPlanner, CreateStream) {
+  std::string stream_name("kafka"), stream_uri("localhost:1234"),
+      transform_uri("localhost:1234/file.py");
+  int64_t batch_interval = 100;
+
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(
+        CREATE_STREAM(stream_name, stream_uri, transform_uri, nullptr)));
+    auto expected = ExpectCreateStream(stream_name, LITERAL(stream_uri),
+                                       LITERAL(transform_uri), nullptr);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed = ExpectDistributed(
+        MakeCheckers(ExpectCreateStream(stream_name, LITERAL(stream_uri),
+                                        LITERAL(transform_uri), nullptr)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(CREATE_STREAM(stream_name, stream_uri, transform_uri,
+                                     LITERAL(batch_interval))));
+    auto expected =
+        ExpectCreateStream(stream_name, LITERAL(stream_uri),
+                           LITERAL(transform_uri), LITERAL(batch_interval));
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed = ExpectDistributed(MakeCheckers(
+        ExpectCreateStream(stream_name, LITERAL(stream_uri),
+                           LITERAL(transform_uri), LITERAL(batch_interval))));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+}
+
+TYPED_TEST(TestPlanner, DropStream) {
+  std::string stream_name("kafka");
+  FakeDbAccessor dba;
+  AstStorage storage;
+  QUERY(SINGLE_QUERY(DROP_STREAM(stream_name)));
+  auto expected = ExpectDropStream(stream_name);
+  CheckPlan<TypeParam>(storage, expected);
+  auto expected_distributed =
+      ExpectDistributed(MakeCheckers(ExpectDropStream(stream_name)));
+  CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+}
+
+TYPED_TEST(TestPlanner, ShowStreams) {
+  FakeDbAccessor dba;
+  AstStorage storage;
+  QUERY(SINGLE_QUERY(SHOW_STREAMS));
+  auto expected = ExpectShowStreams();
+  CheckPlan<TypeParam>(storage, expected);
+  auto expected_distributed =
+      ExpectDistributed(MakeCheckers(ExpectShowStreams()));
+  CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+}
+
+TYPED_TEST(TestPlanner, StartStopStream) {
+  std::string stream_name("kafka");
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(START_STREAM(stream_name, nullptr)));
+    auto expected = ExpectStartStopStream(stream_name, true, nullptr);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed = ExpectDistributed(
+        MakeCheckers(ExpectStartStopStream(stream_name, true, nullptr)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    auto limit_batches = LITERAL(10);
+    QUERY(SINGLE_QUERY(START_STREAM(stream_name, limit_batches)));
+    auto expected = ExpectStartStopStream(stream_name, true, limit_batches);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed = ExpectDistributed(
+        MakeCheckers(ExpectStartStopStream(stream_name, true, limit_batches)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(STOP_STREAM(stream_name)));
+    auto expected = ExpectStartStopStream(stream_name, false, nullptr);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed = ExpectDistributed(
+        MakeCheckers(ExpectStartStopStream(stream_name, false, nullptr)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+}
+
+TYPED_TEST(TestPlanner, StartStopAllStreams) {
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(START_ALL_STREAMS));
+    auto expected = ExpectStartStopAllStreams(true);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed =
+        ExpectDistributed(MakeCheckers(ExpectStartStopAllStreams(true)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(STOP_ALL_STREAMS));
+    auto expected = ExpectStartStopAllStreams(false);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed =
+        ExpectDistributed(MakeCheckers(ExpectStartStopAllStreams(false)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
 }
 
 TYPED_TEST(TestPlanner, DistributedAvg) {

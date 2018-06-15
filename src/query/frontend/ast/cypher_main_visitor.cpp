@@ -82,6 +82,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_optional_match = false;
   bool has_create_index = false;
   bool has_modify_user = false;
+  bool has_stream_clause = false;
+
   for (Clause *clause : single_query->clauses_) {
     if (dynamic_cast<Unwind *>(clause)) {
       if (has_update || has_return) {
@@ -136,14 +138,25 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       if (single_query->clauses_.size() != 1U) {
         throw SemanticException("DropUser must be only clause in the query.");
       }
+    } else if (dynamic_cast<CreateStream *>(clause) ||
+               dynamic_cast<DropStream *>(clause) ||
+               dynamic_cast<ShowStreams *>(clause) ||
+               dynamic_cast<StartStopStream *>(clause) ||
+               dynamic_cast<StartStopAllStreams *>(clause)) {
+      // If there is stream clause then there shouldn't be anything else.
+      if (single_query->clauses_.size() != 1U) {
+        throw SemanticException(
+            "Stream clause must be the only clause in the query.");
+      }
+      has_stream_clause = true;
     } else {
       DLOG(FATAL) << "Can't happen";
     }
   }
-  if (!has_update && !has_return && !has_create_index && !has_modify_user) {
+  if (!has_update && !has_return && !has_create_index && !has_modify_user &&
+      !has_stream_clause) {
     throw SemanticException(
-        "Query should either update something, return results or create an "
-        "index");
+        "Query should either create or update something, or return results!");
   }
 
   // Construct unique names for anonymous identifiers;
@@ -204,6 +217,26 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (ctx->dropUser()) {
     return static_cast<Clause *>(
         ctx->dropUser()->accept(this).as<DropUser *>());
+  }
+  if (ctx->createStream()) {
+    return static_cast<Clause *>(
+        ctx->createStream()->accept(this).as<CreateStream *>());
+  }
+  if (ctx->dropStream()) {
+    return static_cast<Clause *>(
+        ctx->dropStream()->accept(this).as<DropStream *>());
+  }
+  if (ctx->showStreams()) {
+    return static_cast<Clause *>(
+        ctx->showStreams()->accept(this).as<ShowStreams *>());
+  }
+  if (ctx->startStopStream()) {
+    return static_cast<Clause *>(
+        ctx->startStopStream()->accept(this).as<StartStopStream *>());
+  }
+  if (ctx->startStopAllStreams()) {
+    return static_cast<Clause *>(
+        ctx->startStopAllStreams()->accept(this).as<StartStopAllStreams *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
@@ -279,6 +312,97 @@ antlrcpp::Any CypherMainVisitor::visitDropUser(
   for (auto username_ptr : ctx->userName())
     usernames.emplace_back(username_ptr->getText());
   return storage_.Create<DropUser>(usernames);
+}
+
+/**
+ * @return CreateStream*
+ */
+antlrcpp::Any CypherMainVisitor::visitCreateStream(
+    CypherParser::CreateStreamContext *ctx) {
+  std::string stream_name(ctx->streamName()->getText());
+  if (!ctx->streamUri->StringLiteral()) {
+    throw SyntaxException("Stream URI should be a string literal!");
+  }
+  Expression *stream_uri = ctx->streamUri->accept(this);
+  if (!ctx->transformUri->StringLiteral()) {
+    throw SyntaxException("Transform URI should be a string literal!");
+  }
+  Expression *transform_uri = ctx->transformUri->accept(this);
+  Expression *batch_interval = nullptr;
+
+  if (ctx->batchIntervalOption()) {
+    batch_interval = ctx->batchIntervalOption()->accept(this);
+  }
+  return storage_.Create<CreateStream>(stream_name, stream_uri, transform_uri,
+                                       batch_interval);
+}
+
+/**
+ * @return Expression*
+ */
+antlrcpp::Any CypherMainVisitor::visitBatchIntervalOption(
+    CypherParser::BatchIntervalOptionContext *ctx) {
+  if (!ctx->literal()->numberLiteral() ||
+      !ctx->literal()->numberLiteral()->integerLiteral()) {
+    throw SyntaxException("Batch interval should be an integer literal!");
+  }
+  return ctx->literal()->accept(this);
+}
+
+/**
+ * @return DropStream*
+ */
+antlrcpp::Any CypherMainVisitor::visitDropStream(
+    CypherParser::DropStreamContext *ctx) {
+  return storage_.Create<DropStream>(std::string(ctx->streamName()->getText()));
+}
+
+/**
+ * @return ShowStreams*
+ */
+antlrcpp::Any CypherMainVisitor::visitShowStreams(
+    CypherParser::ShowStreamsContext *ctx) {
+  return storage_.Create<ShowStreams>();
+}
+
+/**
+ * @return StartStopStream*
+ */
+antlrcpp::Any CypherMainVisitor::visitStartStopStream(
+    CypherParser::StartStopStreamContext *ctx) {
+  std::string stream_name(std::string(ctx->streamName()->getText()));
+  bool is_start = static_cast<bool>(ctx->START());
+  Expression *limit_batches = nullptr;
+
+  if (ctx->limitBatchesOption()) {
+    if (!is_start) {
+      throw SyntaxException("Stop stream clause can't set batch limit!");
+    }
+    limit_batches = ctx->limitBatchesOption()->accept(this);
+  }
+
+  return storage_.Create<StartStopStream>(stream_name, is_start, limit_batches);
+}
+
+/**
+ * @return Expression*
+ */
+antlrcpp::Any CypherMainVisitor::visitLimitBatchesOption(
+    CypherParser::LimitBatchesOptionContext *ctx) {
+  if (!ctx->literal()->numberLiteral() ||
+      !ctx->literal()->numberLiteral()->integerLiteral()) {
+    throw SyntaxException("Batch limit should be an integer literal!");
+  }
+  return ctx->literal()->accept(this);
+}
+
+/*
+ * @return StartStopAllStreams*
+ */
+antlrcpp::Any CypherMainVisitor::visitStartStopAllStreams(
+    CypherParser::StartStopAllStreamsContext *ctx) {
+  bool is_start = static_cast<bool>(ctx->START());
+  return storage_.Create<StartStopAllStreams>(is_start);
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(

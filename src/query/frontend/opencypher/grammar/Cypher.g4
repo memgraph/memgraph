@@ -49,6 +49,11 @@ clause : cypherMatch
        | createIndex
        | modifyUser 
        | dropUser
+       | createStream
+       | dropStream
+       | showStreams
+       | startStopStream
+       | startStopAllStreams
        ;
 
 cypherMatch : ( OPTIONAL SP )? MATCH SP? pattern ( SP? where )? ;
@@ -293,6 +298,22 @@ passwordOption : PASSWORD SP literal;
 
 dropUser : DROP SP USER SP userName ( SP? ',' SP? userName )* ;
 
+streamName : UnescapedSymbolicName ;
+
+createStream : CREATE SP STREAM SP streamName SP AS SP LOAD SP DATA SP KAFKA SP streamUri=literal SP WITH SP TRANSFORM SP transformUri=literal ( SP batchIntervalOption )? ;
+
+batchIntervalOption : BATCH SP INTERVAL SP literal ;
+
+dropStream : DROP SP STREAM SP streamName ;
+
+showStreams : SHOW SP STREAMS ; 
+
+startStopStream : ( START | STOP ) SP STREAM SP streamName ( SP limitBatchesOption )? ;
+
+limitBatchesOption : LIMIT SP limitBatches=literal SP BATCHES ;
+
+startStopAllStreams : ( START | STOP ) SP ALL SP STREAMS ;
+
 HexInteger : '0x' ( HexDigit )+ ;
 
 DecimalInteger : ZeroDigit
@@ -396,6 +417,21 @@ symbolicName : UnescapedSymbolicName
              | SINGLE
              | TRUE
              | FALSE
+             | USER
+             | PASSWORD
+             | ALTER
+             | DROP
+             | STREAM
+             | STREAMS
+             | LOAD
+             | DATA
+             | KAFKA
+             | TRANSFORM
+             | BATCH
+             | INTERVAL
+             | SHOW
+             | START
+             | STOP
              | HexLetter
              ;
 
@@ -510,6 +546,30 @@ PASSWORD : ( 'P' | 'p' ) ( 'A' | 'a' ) ( 'S' | 's' ) ( 'S' | 's' ) ( 'W' | 'w' )
 ALTER : ( 'A' | 'a' ) ( 'L' | 'l' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ;
 
 DROP : ( 'D' | 'd' ) ( 'R' | 'r' ) ( 'O' | 'o' ) ( 'P' | 'p' ) ;
+
+STREAM : ( 'S' | 's' ) ( 'T' | 't' ) ( 'R' | 'r' ) ( 'E' | 'e' ) ( 'A' | 'a' ) ( 'M' | 'm' ) ;
+
+STREAMS : ( 'S' | 's' ) ( 'T' | 't' ) ( 'R' | 'r' ) ( 'E' | 'e' ) ( 'A' | 'a' ) ( 'M' | 'm' ) ( 'S' | 's' ) ;
+
+LOAD : ( 'L' | 'l' ) ( 'O' | 'o' ) ( 'A' | 'a' ) ( 'D' | 'd' ) ;
+
+DATA : ( 'D' | 'd' ) ( 'A' | 'a' ) ( 'T' | 't' ) ( 'A' | 'a' ) ;
+
+KAFKA : ( 'K' | 'k' ) ( 'A' | 'a' ) ( 'F' | 'f' ) ( 'K' | 'k' ) ( 'A' | 'a' ) ;
+
+TRANSFORM : ( 'T' | 't' ) ( 'R' | 'r' ) ( 'A' | 'a' ) ( 'N' | 'n' ) ( 'S' | 's') ( 'F' | 'f' ) ( 'O' | 'o' ) ( 'R' | 'r' ) ( 'M' | 'm' ) ;
+
+BATCH : ( 'B' | 'b' ) ( 'A' | 'a' ) ( 'T' | 't' ) ( 'C' | 'c' ) ( 'H' | 'h' ) ;
+
+INTERVAL : ( 'I' | 'i' ) ( 'N' | 'n' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ( 'V' | 'v' ) ( 'A' | 'a' ) ( 'L' | 'l' ) ;
+
+SHOW : ( 'S' | 's' ) ( 'H' | 'h' ) ( 'O' | 'o' ) ( 'W' | 'w' ) ;
+
+START : ( 'S' | 's' ) ( 'T' | 't' ) ( 'A' | 'a' ) ( 'R' | 'r' ) ( 'T' | 't' ) ;
+
+STOP : ( 'S' | 's' ) ( 'T' | 't' ) ( 'O' | 'o' ) ( 'P' | 'p' ) ;
+
+BATCHES : ( 'B' | 'b' )  ( 'A' | 'a' ) ( 'T' | 't' ) ( 'C' | 'c' ) ( 'H' | 'h' ) ( 'E' | 'e' ) ( 'S' | 's' ) ;
 
 UnescapedSymbolicName : IdentifierStart ( IdentifierPart )* ;
 

@@ -524,6 +524,31 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool Visit(query::plan::CreateStream &op) override {
+    WithPrintLn([](auto &out) { out << "* CreateStream"; });
+    return true;
+  }
+
+  bool Visit(query::plan::DropStream &op) override {
+    WithPrintLn([](auto &out) { out << "* DropStream"; });
+    return true;
+  }
+
+  bool Visit(query::plan::ShowStreams &op) override {
+    WithPrintLn([](auto &out) { out << "* ShowStreams"; });
+    return true;
+  }
+
+  bool Visit(query::plan::StartStopStream &op) override {
+    WithPrintLn([](auto &out) { out << "* StartStopStream"; });
+    return true;
+  }
+
+  bool Visit(query::plan::StartStopAllStreams &op) override {
+    WithPrintLn([](auto &out) { out << "* StartStopAllStreams"; });
+    return true;
+  }
+
   bool PreVisit(query::plan::PullRemote &op) override {
     WithPrintLn([&op](auto &out) {
       out << "* PullRemote [" << op.plan_id() << "] {";

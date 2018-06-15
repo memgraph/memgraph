@@ -1960,4 +1960,176 @@ TYPED_TEST(CypherMainVisitorTest, DropUser) {
                   {"dominik", "spomenik", "jackie", "jackie", "johnny"});
 }
 
+TYPED_TEST(CypherMainVisitorTest, CreateStream) {
+  auto check_create_stream = [](
+      std::string input, const std::string &stream_name,
+      const std::string &stream_uri, const std::string &transform_uri,
+      std::experimental::optional<int64_t> batch_interval) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *create_stream =
+        dynamic_cast<CreateStream *>(single_query->clauses_[0]);
+    ASSERT_TRUE(create_stream);
+    EXPECT_EQ(create_stream->stream_name_, stream_name);
+    ASSERT_TRUE(create_stream->stream_uri_);
+    CheckLiteral(ast_generator.context_, create_stream->stream_uri_,
+                 TypedValue(stream_uri));
+    ASSERT_TRUE(create_stream->transform_uri_);
+    CheckLiteral(ast_generator.context_, create_stream->transform_uri_,
+                 TypedValue(transform_uri));
+    if (batch_interval) {
+      ASSERT_TRUE(create_stream->batch_interval_);
+      CheckLiteral(ast_generator.context_, create_stream->batch_interval_,
+                   TypedValue(*batch_interval));
+    } else {
+      EXPECT_EQ(create_stream->batch_interval_, nullptr);
+    }
+  };
+
+  check_create_stream(
+      "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+      "WITH TRANSFORM 'localhost/test.py'",
+      "strim", "localhost", "localhost/test.py", std::experimental::nullopt);
+  check_create_stream(
+      "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
+      "WITH TRAnsFORM 'localhost/test.py' bAtCH inTErvAL 168",
+      "strim", "localhost", "localhost/test.py", 168);
+
+  EXPECT_THROW(check_create_stream(
+                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 'jedan' ",
+                   "strim", "localhost", "localhost/test.py", 168),
+               SyntaxException);
+  EXPECT_THROW(check_create_stream(
+                   "CREATE STREAM 123 AS LOAD DATA KAFKA 'localhost' "
+                   "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 168 ",
+                   "strim", "localhost", "localhost/test.py", 168),
+               SyntaxException);
+  EXPECT_THROW(
+      check_create_stream("CREATE STREAM strim AS LOAD DATA KAFKA localhost "
+                          "WITH TRANSFORM 'localhost/test.py'",
+                          "strim", "localhost", "localhost/test.py",
+                          std::experimental::nullopt),
+      SyntaxException);
+  EXPECT_THROW(check_create_stream(
+                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
+                   "strim", "localhost", "localhost/test.py", 168),
+               SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, DropStream) {
+  auto check_drop_stream = [](std::string input,
+                              const std::string &stream_name) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *drop_stream = dynamic_cast<DropStream *>(single_query->clauses_[0]);
+    ASSERT_TRUE(drop_stream);
+    EXPECT_EQ(drop_stream->stream_name_, stream_name);
+  };
+
+  check_drop_stream("DRop stREAm strim", "strim");
+
+  EXPECT_THROW(check_drop_stream("DROp sTREAM", ""), SyntaxException);
+
+  EXPECT_THROW(check_drop_stream("DROP STreAM 123", "123"), SyntaxException);
+
+  EXPECT_THROW(check_drop_stream("DroP STREAM '123'", "123"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, ShowStreams) {
+  auto check_show_streams = [](std::string input) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *show_streams = dynamic_cast<ShowStreams *>(single_query->clauses_[0]);
+    EXPECT_TRUE(show_streams);
+  };
+
+  check_show_streams("SHOW STREAMS");
+
+  EXPECT_THROW(check_show_streams("SHOW STREAMS lololo"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, StartStopStream) {
+  auto check_start_stop_stream = [](
+      std::string input, const std::string &stream_name, bool is_start,
+      std::experimental::optional<int64_t> limit_batches) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *start_stop_stream =
+        dynamic_cast<StartStopStream *>(single_query->clauses_[0]);
+    EXPECT_TRUE(start_stop_stream);
+
+    EXPECT_EQ(start_stop_stream->stream_name_, stream_name);
+    EXPECT_EQ(start_stop_stream->is_start_, is_start);
+
+    if (limit_batches) {
+      ASSERT_TRUE(is_start);
+      ASSERT_TRUE(start_stop_stream->limit_batches_);
+      CheckLiteral(ast_generator.context_, start_stop_stream->limit_batches_,
+                   TypedValue(*limit_batches));
+    } else {
+      EXPECT_EQ(start_stop_stream->limit_batches_, nullptr);
+    }
+  };
+
+  check_start_stop_stream("stARt STreaM strim", "strim", true,
+                          std::experimental::nullopt);
+  check_start_stop_stream("StARt STreAM strim LimIT 10 BATchES", "strim", true,
+                          10);
+
+  check_start_stop_stream("StoP StrEAM strim", "strim", false,
+                          std::experimental::nullopt);
+
+  EXPECT_THROW(check_start_stop_stream("staRT STReaM 'strim'", "strim", true,
+                                       std::experimental::nullopt),
+               SyntaxException);
+  EXPECT_THROW(check_start_stop_stream("sTART STReaM strim LImiT 'dva' BATCheS",
+                                       "strim", true, 2),
+               SyntaxException);
+  EXPECT_THROW(check_start_stop_stream("StoP STreAM 'strim'", "strim", false,
+                                       std::experimental::nullopt),
+               SyntaxException);
+  EXPECT_THROW(check_start_stop_stream("STOp sTREAM strim LIMit 2 baTCHES",
+                                       "strim", false, 2),
+               SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, StartStopAllStreams) {
+  auto check_start_stop_all_streams = [](std::string input, bool is_start) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *start_stop_all_streams =
+        dynamic_cast<StartStopAllStreams *>(single_query->clauses_[0]);
+    EXPECT_TRUE(start_stop_all_streams);
+
+    EXPECT_EQ(start_stop_all_streams->is_start_, is_start);
+  };
+
+  check_start_stop_all_streams("STarT AlL StreAMs", true);
+
+  check_start_stop_all_streams("StoP aLL STrEAMs", false);
+
+  EXPECT_THROW(check_start_stop_all_streams("StaRT aLL STreAM", true),
+               SyntaxException);
+
+  EXPECT_THROW(check_start_stop_all_streams("SToP AlL STREaM", false),
+               SyntaxException);
+}
+
 }  // namespace

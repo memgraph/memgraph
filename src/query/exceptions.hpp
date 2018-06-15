@@ -122,4 +122,11 @@ class UserModificationInMulticommandTxException : public QueryException {
             "User modification not allowed in multicommand transactions") {}
 };
 
+class StreamClauseInMulticommandTxException : public QueryException {
+ public:
+  StreamClauseInMulticommandTxException()
+      : QueryException(
+            "Stream clause not allowed in multicommand transactions") {}
+};
+
 }  // namespace query

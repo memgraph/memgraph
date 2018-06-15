@@ -134,6 +134,11 @@ struct Clause {
     createIndex @12 :CreateIndex;
     modifyUser @13 :ModifyUser;
     dropUser @14 :DropUser;
+    createStream @15 :CreateStream;
+    dropStream @16 :DropStream;
+    showStreams @17 :ShowStreams;
+    startStopStream @18 :StartStopStream;
+    startStopAllStreams @19 :StartStopAllStreams;
   }
 }
 
@@ -400,4 +405,27 @@ struct ModifyUser {
 
 struct DropUser {
   usernames @0 :List(Text);
+}
+
+struct CreateStream {
+  streamName @0 :Text;
+  streamUri @1 :Tree;
+  transformUri @2 :Tree;
+  batchInterval @3 :Tree;
+}
+
+struct DropStream {
+  streamName @0: Text;
+}
+
+struct ShowStreams {}
+
+struct StartStopStream {
+  streamName @0 :Text;
+  isStart @1 :Bool;
+  limitBatches @2: Tree;
+}
+
+struct StartStopAllStreams {
+  isStart @0 :Bool;
 }

@@ -191,6 +191,31 @@ class RuleBasedPlanner {
         } else if (auto *drop_user = dynamic_cast<query::DropUser *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before DropUser";
           input_op = std::make_unique<plan::DropUser>(drop_user->usernames_);
+        } else if (auto *create_stream =
+                       dynamic_cast<query::CreateStream *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before CreateStream";
+          input_op = std::make_unique<plan::CreateStream>(
+              create_stream->stream_name_, create_stream->stream_uri_,
+              create_stream->transform_uri_, create_stream->batch_interval_);
+        } else if (auto *drop_stream =
+                       dynamic_cast<query::DropStream *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before DropStream";
+          input_op =
+              std::make_unique<plan::DropStream>(drop_stream->stream_name_);
+        } else if (dynamic_cast<query::ShowStreams *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before ShowStreams";
+          input_op = std::make_unique<plan::ShowStreams>();
+        } else if (auto *start_stop_stream =
+                       dynamic_cast<query::StartStopStream *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before StartStopStream";
+          input_op = std::make_unique<plan::StartStopStream>(
+              start_stop_stream->stream_name_, start_stop_stream->is_start_,
+              start_stop_stream->limit_batches_);
+        } else if (auto *start_stop_all_streams =
+                       dynamic_cast<query::StartStopAllStreams *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before StartStopAllStreams";
+          input_op = std::make_unique<plan::StartStopAllStreams>(
+              start_stop_all_streams->is_start_);
         } else {
           throw utils::NotYetImplemented("clause conversion to operator(s)");
         }

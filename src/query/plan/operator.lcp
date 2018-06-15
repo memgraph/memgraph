@@ -111,6 +111,11 @@ class Cartesian;
 class PullRemoteOrderBy;
 class ModifyUser;
 class DropUser;
+class CreateStream;
+class DropStream;
+class ShowStreams;
+class StartStopStream;
+class StartStopAllStreams;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -123,7 +128,9 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Cartesian, PullRemoteOrderBy>;
 
 using LogicalOperatorLeafVisitor =
-    ::utils::LeafVisitor<Once, CreateIndex, ModifyUser, DropUser>;
+    ::utils::LeafVisitor<Once, CreateIndex, ModifyUser, DropUser,
+                         CreateStream, DropStream, ShowStreams,
+                         StartStopStream, StartStopAllStreams>;
 
 /**
  * @brief Base class for hierarhical visitors of @c LogicalOperator class
@@ -2510,6 +2517,153 @@ by having only one result from each worker.")
    cpp<#)
   (:serialize :boost :capnp))
 
+(lcp:define-class create-stream (logical-operator)
+  ((stream-name "std::string" :reader t)
+    (stream-uri "Expression *"
+             :reader t
+             :save-fun #'save-pointer
+             :load-fun #'load-pointer
+             :capnp-type "Ast.Tree"
+             :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *"))
+    (transform-uri "Expression *"
+             :reader t
+             :save-fun #'save-pointer
+             :load-fun #'load-pointer
+             :capnp-type "Ast.Tree"
+             :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *"))
+    (batch-interval "Expression *"
+             :reader t
+             :save-fun #'save-pointer
+             :load-fun #'load-pointer
+             :capnp-type "Ast.Tree"
+             :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *")))
+  (:documentation
+   "Creates a new stream with given parameters that imports data.")
+  (:public
+   #>cpp
+   CreateStream(std::string stream_name, Expression* stream_uri,
+             Expression* transform_uri, Expression* batch_interval);
+   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+     return {};
+   }
+
+   bool HasSingleInput() const override;
+   std::shared_ptr<LogicalOperator> input() const override;
+   void set_input(std::shared_ptr<LogicalOperator>) override;
+   cpp<#)
+  (:private
+    #>cpp CreateStream() {} cpp<#)
+  (:serialize :boost :capnp))
+
+(lcp:define-class drop-stream (logical-operator)
+  ((stream-name "std::string" :reader t))
+  (:documentation
+   "Stops and deletes a stream if it exists.")
+  (:public
+   #>cpp
+   explicit DropStream(std::string stream_name);
+   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+     return {};
+   }
+
+   bool HasSingleInput() const override;
+   std::shared_ptr<LogicalOperator> input() const override;
+   void set_input(std::shared_ptr<LogicalOperator>) override;
+   cpp<#)
+  (:private
+    #>cpp DropStream() {} cpp<#)
+  (:serialize :boost :capnp))
+
+(lcp:define-class show-streams (logical-operator)
+  ()
+  (:documentation
+   "Shows all streams, started and stopped, that were configured.")
+  (:public
+   #>cpp
+   ShowStreams() {}
+   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+     return {};
+   }
+
+   bool HasSingleInput() const override;
+   std::shared_ptr<LogicalOperator> input() const override;
+   void set_input(std::shared_ptr<LogicalOperator>) override;
+   cpp<#)
+  (:serialize :boost :capnp))
+
+(lcp:define-class start-stop-stream (logical-operator)
+  ((stream-name "std::string" :reader t)
+   (is-start :bool :reader t)
+   (limit-batches "Expression *"
+             :reader t
+             :save-fun #'save-pointer
+             :load-fun #'load-pointer
+             :capnp-type "Ast.Tree"
+             :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *")))
+  (:documentation
+   "Starts or stops a stream.
+When starting a stream import, it can be limited by number of batches
+If a stream is already running, it wont limit the number of batches that this
+stream is importing.")
+  (:public
+   #>cpp
+   StartStopStream(std::string stream_name, bool is_start,
+                   Expression *limit_batches);
+   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+     return {};
+   }
+
+   bool HasSingleInput() const override;
+   std::shared_ptr<LogicalOperator> input() const override;
+   void set_input(std::shared_ptr<LogicalOperator>) override;
+   cpp<#)
+  (:private
+    #>cpp StartStopStream() {} cpp<#)
+  (:serialize :boost :capnp))
+
+(lcp:define-class start-stop-all-streams (logical-operator)
+  ((stream-name "std::string" :reader t)
+   (is-start :bool :reader t))
+  (:documentation
+   "Starts or stops all stream.")
+  (:public
+   #>cpp
+   explicit StartStopAllStreams(bool is_start);
+   DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
+     return {};
+   }
+
+   bool HasSingleInput() const override;
+   std::shared_ptr<LogicalOperator> input() const override;
+   void set_input(std::shared_ptr<LogicalOperator>) override;
+   cpp<#)
+  (:private
+    #>cpp StartStopAllStreams() {} cpp<#)
+  (:serialize :boost :capnp))
+
 (lcp:pop-namespace) ;; plan
 (lcp:pop-namespace) ;; query
 
@@ -2551,4 +2705,9 @@ BOOST_CLASS_EXPORT_KEY(query::plan::Cartesian);
 BOOST_CLASS_EXPORT_KEY(query::plan::PullRemoteOrderBy);
 BOOST_CLASS_EXPORT_KEY(query::plan::ModifyUser);
 BOOST_CLASS_EXPORT_KEY(query::plan::DropUser);
+BOOST_CLASS_EXPORT_KEY(query::plan::CreateStream);
+BOOST_CLASS_EXPORT_KEY(query::plan::DropStream);
+BOOST_CLASS_EXPORT_KEY(query::plan::ShowStreams);
+BOOST_CLASS_EXPORT_KEY(query::plan::StartStopStream);
+BOOST_CLASS_EXPORT_KEY(query::plan::StartStopAllStreams);
 cpp<#

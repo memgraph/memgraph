@@ -503,11 +503,11 @@ Feature: Match
         Given an empty graph
         And having executed:
             """
-            CREATE (:start)-[:type]->()
+            CREATE (:starting)-[:type]->()
             """
         When executing query:
             """
-            MATCH path = (:start) -[*0..1]-> () RETURN size(path)
+            MATCH path = (:starting) -[*0..1]-> () RETURN size(path)
             """
         Then the result should be:
             | size(path) |

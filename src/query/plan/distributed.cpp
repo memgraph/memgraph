@@ -77,6 +77,11 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   bool Visit(CreateIndex &) override { return true; }
   bool Visit(ModifyUser &) override { return true; }
   bool Visit(DropUser &) override { return true; }
+  bool Visit(CreateStream &) override { return true; }
+  bool Visit(DropStream &) override { return true; }
+  bool Visit(ShowStreams &) override { return true; }
+  bool Visit(StartStopStream &) override { return true; }
+  bool Visit(StartStopAllStreams &) override { return true; }
 
   bool PreVisit(ScanAll &scan) override {
     prev_ops_.push_back(&scan);
@@ -1000,10 +1005,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // Shallow copy Distinct
       auto pull_id = AddWorkerPlan(std::make_shared<Distinct>(distinct));
       auto input = distinct.input();
-      Split(distinct,
-            std::make_shared<PullRemote>(
-                input, pull_id,
-                input->OutputSymbols(distributed_plan_.symbol_table)));
+      Split(distinct, std::make_shared<PullRemote>(
+                          input, pull_id, input->OutputSymbols(
+                                              distributed_plan_.symbol_table)));
     }
     return true;
   }
@@ -1207,6 +1211,16 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool Visit(ModifyUser &) override { return true; }
 
   bool Visit(DropUser &) override { return true; }
+
+  bool Visit(CreateStream &) override { return true; }
+
+  bool Visit(DropStream &) override { return true; }
+
+  bool Visit(ShowStreams &) override { return true; }
+
+  bool Visit(StartStopStream &) override { return true; }
+
+  bool Visit(StartStopAllStreams &) override { return true; }
 
   // Accumulate is used only if the query performs any writes. In such a case,
   // we need to synchronize the work done on master and all workers.

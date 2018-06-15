@@ -1267,7 +1267,6 @@ Clause *Clause::Construct(const capnp::Clause::Reader &reader,
     case capnp::Clause::SET_LABELS: {
       auto sl_reader = reader.getSetLabels();
       return SetLabels::Construct(sl_reader, storage);
-      break;
     }
     case capnp::Clause::SET_PROPERTY: {
       auto sp_reader = reader.getSetProperty();
@@ -1292,6 +1291,26 @@ Clause *Clause::Construct(const capnp::Clause::Reader &reader,
     case capnp::Clause::DROP_USER: {
       auto du_reader = reader.getDropUser();
       return DropUser::Construct(du_reader, storage);
+    }
+    case capnp::Clause::CREATE_STREAM: {
+      auto cs_reader = reader.getCreateStream();
+      return CreateStream::Construct(cs_reader, storage);
+    }
+    case capnp::Clause::DROP_STREAM: {
+      auto ds_reader = reader.getDropStream();
+      return DropStream::Construct(ds_reader, storage);
+    }
+    case capnp::Clause::SHOW_STREAMS: {
+      auto ss_reader = reader.getShowStreams();
+      return ShowStreams::Construct(ss_reader, storage);
+    }
+    case capnp::Clause::START_STOP_STREAM: {
+      auto sss_reader = reader.getStartStopStream();
+      return StartStopStream::Construct(sss_reader, storage);
+    }
+    case capnp::Clause::START_STOP_ALL_STREAMS: {
+      auto ssas_reader = reader.getStartStopAllStreams();
+      return StartStopAllStreams::Construct(ssas_reader, storage);
     }
   }
 }
@@ -1354,6 +1373,165 @@ CreateIndex *CreateIndex::Construct(const capnp::CreateIndex::Reader &reader,
   storage::Property property;
   property.Load(property_reader);
   return storage->Create<CreateIndex>(label, property);
+}
+
+// CreateStream.
+void CreateStream::Save(capnp::Clause::Builder *builder,
+                        std::vector<int> *saved_uids) {
+  Clause::Save(builder, saved_uids);
+  auto create_builder = builder->initCreateStream();
+  CreateStream::Save(&create_builder, saved_uids);
+}
+
+void CreateStream::Save(capnp::CreateStream::Builder *builder,
+                        std::vector<int> *saved_uids) {
+  builder->setStreamName(stream_name_);
+
+  auto stream_uri_builder = builder->getStreamUri();
+  stream_uri_->Save(&stream_uri_builder, saved_uids);
+
+  auto transform_uri_builder = builder->getTransformUri();
+  transform_uri_->Save(&transform_uri_builder, saved_uids);
+
+  if (batch_interval_) {
+    auto batch_interval_builder = builder->getBatchInterval();
+    batch_interval_->Save(&batch_interval_builder, saved_uids);
+  }
+}
+
+void CreateStream::Load(const capnp::Tree::Reader &base_reader,
+                        AstStorage *storage, std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getClause().getCreateStream();
+  stream_name_ = reader.getStreamName();
+
+  const auto stream_uri_reader = reader.getStreamUri();
+  stream_uri_ =
+      dynamic_cast<Expression *>(storage->Load(stream_uri_reader, loaded_uids));
+  const auto transform_uri_reader = reader.getTransformUri();
+  transform_uri_ = dynamic_cast<Expression *>(
+      storage->Load(transform_uri_reader, loaded_uids));
+
+  batch_interval_ = nullptr;
+  if (reader.hasBatchInterval()) {
+    const auto batch_interval_reader = reader.getBatchInterval();
+    batch_interval_ = dynamic_cast<Expression *>(
+        storage->Load(batch_interval_reader, loaded_uids));
+  }
+}
+
+CreateStream *CreateStream::Construct(const capnp::CreateStream::Reader &reader,
+                                      AstStorage *storage) {
+  return storage->Create<CreateStream>();
+}
+
+// DropStream.
+void DropStream::Save(capnp::Clause::Builder *builder,
+                      std::vector<int> *saved_uids) {
+  Clause::Save(builder, saved_uids);
+  auto drop_builder = builder->initDropStream();
+  DropStream::Save(&drop_builder, saved_uids);
+}
+
+void DropStream::Save(capnp::DropStream::Builder *builder,
+                      std::vector<int> *saved_uids) {
+  builder->setStreamName(stream_name_);
+}
+
+void DropStream::Load(const capnp::Tree::Reader &base_reader,
+                      AstStorage *storage, std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getClause().getDropStream();
+  stream_name_ = reader.getStreamName();
+}
+
+DropStream *DropStream::Construct(const capnp::DropStream::Reader &reader,
+                                  AstStorage *storage) {
+  return storage->Create<DropStream>();
+}
+
+// ShowStreams.
+void ShowStreams::Save(capnp::Clause::Builder *builder,
+                       std::vector<int> *saved_uids) {
+  Clause::Save(builder, saved_uids);
+  auto show_builder = builder->initShowStreams();
+  ShowStreams::Save(&show_builder, saved_uids);
+}
+
+void ShowStreams::Save(capnp::ShowStreams::Builder *builder,
+                       std::vector<int> *saved_uids) {}
+
+void ShowStreams::Load(const capnp::Tree::Reader &base_reader,
+                       AstStorage *storage, std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+}
+
+ShowStreams *ShowStreams::Construct(const capnp::ShowStreams::Reader &reader,
+                                    AstStorage *storage) {
+  return storage->Create<ShowStreams>();
+}
+
+// StartStopStream.
+void StartStopStream::Save(capnp::Clause::Builder *builder,
+                           std::vector<int> *saved_uids) {
+  Clause::Save(builder, saved_uids);
+  auto start_stop_builder = builder->initStartStopStream();
+  StartStopStream::Save(&start_stop_builder, saved_uids);
+}
+
+void StartStopStream::Save(capnp::StartStopStream::Builder *builder,
+                           std::vector<int> *saved_uids) {
+  builder->setStreamName(stream_name_);
+  builder->setIsStart(is_start_);
+  if (limit_batches_) {
+    auto limit_batches_builder = builder->getLimitBatches();
+    limit_batches_->Save(&limit_batches_builder, saved_uids);
+  }
+}
+
+void StartStopStream::Load(const capnp::Tree::Reader &base_reader,
+                           AstStorage *storage, std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getClause().getStartStopStream();
+  stream_name_ = reader.getStreamName();
+  is_start_ = reader.getIsStart();
+  limit_batches_ = nullptr;
+  if (reader.hasLimitBatches()) {
+    const auto limit_batches_reader = reader.getLimitBatches();
+    limit_batches_ = dynamic_cast<Expression *>(
+        storage->Load(limit_batches_reader, loaded_uids));
+  }
+}
+
+StartStopStream *StartStopStream::Construct(
+    const capnp::StartStopStream::Reader &reader, AstStorage *storage) {
+  return storage->Create<StartStopStream>();
+}
+
+// StartStopAllStreams.
+void StartStopAllStreams::Save(capnp::Clause::Builder *builder,
+                               std::vector<int> *saved_uids) {
+  Clause::Save(builder, saved_uids);
+  auto start_stop_all_builder = builder->initStartStopAllStreams();
+  StartStopAllStreams::Save(&start_stop_all_builder, saved_uids);
+}
+
+void StartStopAllStreams::Save(capnp::StartStopAllStreams::Builder *builder,
+                               std::vector<int> *saved_uids) {
+  builder->setIsStart(is_start_);
+}
+
+void StartStopAllStreams::Load(const capnp::Tree::Reader &base_reader,
+                               AstStorage *storage,
+                               std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getClause().getStartStopAllStreams();
+  is_start_ = reader.getIsStart();
+}
+
+StartStopAllStreams *StartStopAllStreams::Construct(
+    const capnp::StartStopAllStreams::Reader &reader, AstStorage *storage) {
+  return storage->Create<StartStopAllStreams>();
 }
 
 // Delete.
@@ -2474,3 +2652,8 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::PrimitiveLiteral);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::CreateIndex);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::ModifyUser);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::DropUser);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::CreateStream);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::DropStream);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::ShowStreams);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::StartStopStream);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::StartStopAllStreams);

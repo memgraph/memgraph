@@ -187,6 +187,41 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitDropUser(CypherParser::DropUserContext *ctx) override;
 
   /**
+   * @return CreateStream*
+   */
+  antlrcpp::Any visitCreateStream(
+      CypherParser::CreateStreamContext *ctx) override;
+
+  antlrcpp::Any visitBatchIntervalOption(
+      CypherParser::BatchIntervalOptionContext *ctx) override;
+
+  /**
+   * @return DropStream*
+   */
+  antlrcpp::Any visitDropStream(CypherParser::DropStreamContext *ctx) override;
+
+  /**
+   * @return ShowStreams*
+   */
+  antlrcpp::Any visitShowStreams(
+      CypherParser::ShowStreamsContext *ctx) override;
+
+  /**
+   * @return StartStopStream*
+   */
+  antlrcpp::Any visitStartStopStream(
+      CypherParser::StartStopStreamContext *ctx) override;
+
+  /**
+   * @return StartStopAllStreams*
+   */
+  antlrcpp::Any visitStartStopAllStreams(
+      CypherParser::StartStopAllStreamsContext *ctx) override;
+
+  antlrcpp::Any visitLimitBatchesOption(
+      CypherParser::LimitBatchesOptionContext *ctx) override;
+
+  /**
    * @return Return*
    */
   antlrcpp::Any visitCypherReturn(

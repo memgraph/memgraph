@@ -3663,6 +3663,245 @@ class DropUser : public Clause {
                                                         const unsigned int);
 };
 
+class CreateStream : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  CreateStream *Clone(AstStorage &storage) const override {
+    return storage.Create<CreateStream>(
+        stream_name_, stream_uri_->Clone(storage),
+        transform_uri_->Clone(storage),
+        batch_interval_ ? batch_interval_->Clone(storage) : nullptr);
+  }
+
+  static CreateStream *Construct(const capnp::CreateStream::Reader &reader,
+                                 AstStorage *storage);
+  using Clause::Save;
+
+  std::string stream_name_;
+  Expression *stream_uri_;
+  Expression *transform_uri_;
+  Expression *batch_interval_;
+
+ protected:
+  explicit CreateStream(int uid) : Clause(uid) {}
+  CreateStream(int uid, std::string stream_name, Expression *stream_uri,
+               Expression *transform_uri, Expression *batch_interval)
+      : Clause(uid),
+        stream_name_(std::move(stream_name)),
+        stream_uri_(stream_uri),
+        transform_uri_(transform_uri),
+        batch_interval_(batch_interval) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::CreateStream::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+    ar &stream_name_;
+    ar &stream_uri_;
+    ar &transform_uri_;
+    ar &batch_interval_;
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        CreateStream *,
+                                                        const unsigned int);
+};
+
+class DropStream : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  DropStream *Clone(AstStorage &storage) const override {
+    return storage.Create<DropStream>(stream_name_);
+  }
+
+  static DropStream *Construct(const capnp::DropStream::Reader &reader,
+                               AstStorage *storage);
+  using Clause::Save;
+
+  std::string stream_name_;
+
+ protected:
+  explicit DropStream(int uid) : Clause(uid) {}
+  DropStream(int uid, std::string stream_name)
+      : Clause(uid), stream_name_(std::move(stream_name)) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::DropStream::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+    ar &stream_name_;
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        DropStream *,
+                                                        const unsigned int);
+};
+
+class ShowStreams : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  ShowStreams *Clone(AstStorage &storage) const override {
+    return storage.Create<ShowStreams>();
+  }
+
+  static ShowStreams *Construct(const capnp::ShowStreams::Reader &reader,
+                                AstStorage *storage);
+  using Clause::Save;
+
+ protected:
+  explicit ShowStreams(int uid) : Clause(uid) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::ShowStreams::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        ShowStreams *,
+                                                        const unsigned int);
+};
+
+class StartStopStream : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  StartStopStream *Clone(AstStorage &storage) const override {
+    return storage.Create<StartStopStream>(
+        stream_name_, is_start_,
+        limit_batches_ ? limit_batches_->Clone(storage) : nullptr);
+  }
+
+  static StartStopStream *Construct(
+      const capnp::StartStopStream::Reader &reader, AstStorage *storage);
+  using Clause::Save;
+
+  std::string stream_name_;
+  bool is_start_;
+  Expression *limit_batches_;
+
+ protected:
+  explicit StartStopStream(int uid) : Clause(uid) {}
+  StartStopStream(int uid, std::string stream_name, bool is_start,
+                  Expression *limit_batches)
+      : Clause(uid),
+        stream_name_(std::move(stream_name)),
+        is_start_(is_start),
+        limit_batches_(limit_batches) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::StartStopStream::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+    ar &stream_name_;
+    ar &is_start_;
+    ar &limit_batches_;
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        StartStopStream *,
+                                                        const unsigned int);
+};
+
+class StartStopAllStreams : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  StartStopAllStreams *Clone(AstStorage &storage) const override {
+    return storage.Create<StartStopAllStreams>(is_start_);
+  }
+
+  static StartStopAllStreams *Construct(
+      const capnp::StartStopAllStreams::Reader &reader, AstStorage *storage);
+  using Clause::Save;
+
+  bool is_start_;
+
+ protected:
+  explicit StartStopAllStreams(int uid) : Clause(uid) {}
+  StartStopAllStreams(int uid, bool is_start)
+      : Clause(uid), is_start_(is_start) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::StartStopAllStreams::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+    ar &is_start_;
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        StartStopAllStreams *,
+                                                        const unsigned int);
+};
+
 #undef CLONE_BINARY_EXPRESSION
 #undef CLONE_UNARY_EXPRESSION
 #undef SERIALIZE_USING_BASE
@@ -3740,6 +3979,11 @@ LOAD_AND_CONSTRUCT(query::Unwind, 0);
 LOAD_AND_CONSTRUCT(query::CreateIndex, 0);
 LOAD_AND_CONSTRUCT(query::ModifyUser, 0);
 LOAD_AND_CONSTRUCT(query::DropUser, 0);
+LOAD_AND_CONSTRUCT(query::CreateStream, 0);
+LOAD_AND_CONSTRUCT(query::DropStream, 0);
+LOAD_AND_CONSTRUCT(query::ShowStreams, 0);
+LOAD_AND_CONSTRUCT(query::StartStopStream, 0);
+LOAD_AND_CONSTRUCT(query::StartStopAllStreams, 0);
 
 }  // namespace boost::serialization
 
@@ -3803,3 +4047,8 @@ BOOST_CLASS_EXPORT_KEY(query::PrimitiveLiteral);
 BOOST_CLASS_EXPORT_KEY(query::CreateIndex);
 BOOST_CLASS_EXPORT_KEY(query::ModifyUser);
 BOOST_CLASS_EXPORT_KEY(query::DropUser);
+BOOST_CLASS_EXPORT_KEY(query::CreateStream);
+BOOST_CLASS_EXPORT_KEY(query::DropStream);
+BOOST_CLASS_EXPORT_KEY(query::ShowStreams);
+BOOST_CLASS_EXPORT_KEY(query::StartStopStream);
+BOOST_CLASS_EXPORT_KEY(query::StartStopAllStreams);

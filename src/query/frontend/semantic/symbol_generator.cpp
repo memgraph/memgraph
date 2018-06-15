@@ -224,6 +224,16 @@ bool SymbolGenerator::Visit(ModifyUser &) { return true; }
 
 bool SymbolGenerator::Visit(DropUser &) { return true; }
 
+bool SymbolGenerator::Visit(CreateStream &) { return true; }
+
+bool SymbolGenerator::Visit(DropStream &) { return true; }
+
+bool SymbolGenerator::Visit(ShowStreams &) { return true; }
+
+bool SymbolGenerator::Visit(StartStopStream &) { return true; }
+
+bool SymbolGenerator::Visit(StartStopAllStreams &) { return true; }
+
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {

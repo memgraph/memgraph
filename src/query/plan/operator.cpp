@@ -1349,8 +1349,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](
-                           EdgeAccessor edge, VertexAccessor vertex,
-                           double weight, int depth) {
+        EdgeAccessor edge, VertexAccessor vertex, double weight, int depth) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -3852,6 +3851,139 @@ std::unique_ptr<Cursor> DropUser::MakeCursor(
   return std::make_unique<DropUserCursor>();
 }
 
+CreateStream::CreateStream(std::string stream_name, Expression *stream_uri,
+                           Expression *transform_uri,
+                           Expression *batch_interval)
+    : stream_name_(std::move(stream_name)),
+      stream_uri_(stream_uri),
+      transform_uri_(transform_uri),
+      batch_interval_(batch_interval) {}
+
+WITHOUT_SINGLE_INPUT(CreateStream)
+
+class CreateStreamCursor : public Cursor {
+ public:
+  CreateStreamCursor(const CreateStream &, database::GraphDbAccessor &) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw StreamClauseInMulticommandTxException();
+    }
+
+    throw utils::NotYetImplemented("Create Stream");
+  }
+
+  void Reset() override { throw utils::NotYetImplemented("Create Stream"); }
+};
+
+std::unique_ptr<Cursor> CreateStream::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<CreateStreamCursor>(*this, db);
+}
+
+DropStream::DropStream(std::string stream_name)
+    : stream_name_(std::move(stream_name)) {}
+
+WITHOUT_SINGLE_INPUT(DropStream)
+
+class DropStreamCursor : public Cursor {
+ public:
+  DropStreamCursor(const DropStream &, database::GraphDbAccessor &) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw StreamClauseInMulticommandTxException();
+    }
+
+    throw utils::NotYetImplemented("Drop Stream");
+  }
+
+  void Reset() override { throw utils::NotYetImplemented("Drop Stream"); }
+};
+
+std::unique_ptr<Cursor> DropStream::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<DropStreamCursor>(*this, db);
+}
+
+WITHOUT_SINGLE_INPUT(ShowStreams)
+
+class ShowStreamsCursor : public Cursor {
+ public:
+  ShowStreamsCursor(const ShowStreams &, database::GraphDbAccessor &) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw StreamClauseInMulticommandTxException();
+    }
+
+    throw utils::NotYetImplemented("Show Streams");
+  }
+
+  void Reset() override { throw utils::NotYetImplemented("Show Streams"); }
+};
+
+std::unique_ptr<Cursor> ShowStreams::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<ShowStreamsCursor>(*this, db);
+}
+
+StartStopStream::StartStopStream(std::string stream_name, bool is_start,
+                                 Expression *limit_batches)
+    : stream_name_(stream_name),
+      is_start_(is_start),
+      limit_batches_(limit_batches) {}
+
+WITHOUT_SINGLE_INPUT(StartStopStream)
+
+class StartStopStreamCursor : public Cursor {
+ public:
+  StartStopStreamCursor(const StartStopStream &,
+                        database::GraphDbAccessor &db) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw StreamClauseInMulticommandTxException();
+    }
+
+    throw utils::NotYetImplemented("Start/Stop Stream");
+  }
+
+  void Reset() override { throw utils::NotYetImplemented("Start/Stop Stream"); }
+};
+
+std::unique_ptr<Cursor> StartStopStream::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<StartStopStreamCursor>(*this, db);
+}
+
+StartStopAllStreams::StartStopAllStreams(bool is_start) : is_start_(is_start) {}
+
+WITHOUT_SINGLE_INPUT(StartStopAllStreams)
+
+class StartStopAllStreamsCursor : public Cursor {
+ public:
+  StartStopAllStreamsCursor(const StartStopAllStreams &,
+                            database::GraphDbAccessor &) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw StreamClauseInMulticommandTxException();
+    }
+
+    throw utils::NotYetImplemented("Start/Stop All Streams");
+  }
+
+  void Reset() override {
+    throw utils::NotYetImplemented("Start/Stop All Streams");
+  }
+};
+
+std::unique_ptr<Cursor> StartStopAllStreams::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<StartStopAllStreamsCursor>(*this, db);
+}
+
 }  // namespace query::plan
 
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Once);
@@ -3892,3 +4024,8 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Cartesian);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemoteOrderBy);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ModifyUser);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::DropUser);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateStream);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::DropStream);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ShowStreams);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::StartStopStream);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::StartStopAllStreams);
