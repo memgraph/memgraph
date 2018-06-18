@@ -1,16 +1,5 @@
 ## Bolt Drivers
 
-Clients connect to Memgraph using the
-[Bolt protocol](https://boltprotocol.org/). Bolt was designed for efficient
-communication with graph databases. Memgraph supports
-[Version 1](https://boltprotocol.org/v1/) of the protocol. Official Bolt
-protocol drivers are provided for multiple programming languages:
-
-  * [Java](https://github.com/neo4j/neo4j-java-driver)
-  * [Python](https://github.com/neo4j/neo4j-python-driver)
-  * [Javascript](https://github.com/neo4j/neo4j-javascript-driver)
-  * [C#](https://github.com/neo4j/neo4j-dotnet-driver)
-
 ### Python Driver Example
 
 Neo4j officially supports Python for interacting with an openCypher and Bolt
@@ -19,7 +8,7 @@ compliant database. For details consult the
 [GitHub project](https://github.com/neo4j/neo4j-python-driver).  Following is
 a basic usage example:
 
-```
+```python
 from neo4j.v1 import GraphDatabase, basic_auth
 
 # Initialize and configure the driver.
@@ -66,7 +55,7 @@ The example below is equivalent to Python example. Major difference is that
 has to be disabled by calling `withoutEncryption` method against the `Config`
 builder.
 
-```
+```java
 import org.neo4j.driver.v1.*;
 import org.neo4j.driver.v1.types.*;
 import static org.neo4j.driver.v1.Values.parameters;
@@ -117,7 +106,7 @@ is needed to handle the overhead. The proxy has to be configured to point out
 to Memgraph's Bolt port and web browser driver has to send requests to the
 proxy port.
 
-```
+```javascript
 var neo4j = require('neo4j-driver').v1;
 var driver = neo4j.driver("bolt://localhost:7687",
                           neo4j.auth.basic("neo4j", "1234"),
@@ -160,7 +149,7 @@ The C# driver is hosted
 performs the same work as all of the previous examples. Encryption is disabled
 by setting `EncryptionLevel.NONE` on the `Config`.
 
-```
+```csh
 using System;
 using System.Linq;
 using Neo4j.Driver.V1;

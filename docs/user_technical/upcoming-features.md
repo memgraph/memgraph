@@ -43,14 +43,19 @@ manipulating values which are collected into a list.
 
 For example, getting numbers between 0 and 10 and squaring them:
 
-    RETURN [x IN range(0, 10) | x^2] AS squares
+```opencypher
+RETURN [x IN range(0, 10) | x^2] AS squares
+```
 
 Another example, to collect `:Person` nodes with `age` less than 42, without
 list comprehensions can be achieved with:
 
-    MATCH (n :Person) WHERE n.age < 42 RETURN collect(n)
+```opencypher
+MATCH (n :Person) WHERE n.age < 42 RETURN collect(n)
+```
 
 Using list comprehensions, the same can be done with the query:
 
-    MATCH (n :Person) RETURN [n IN collect(n) WHERE n.age < 42]
-
+```opencypher
+MATCH (n :Person) RETURN [n IN collect(n) WHERE n.age < 42]
+```

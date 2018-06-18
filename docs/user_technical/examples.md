@@ -34,7 +34,7 @@ talk and rating nodes.
 We have prepared a database snapshot for this example, so you can easily import
 it when starting Memgraph using the `--durability-directory` option.
 
-```
+```bash
 /usr/lib/memgraph/memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk \
   --durability-enabled=false --snapshot-on-exit=false
 ```
@@ -43,13 +43,13 @@ When using Memgraph installed from DEB or RPM package, you may need to stop
 the currently running Memgraph server before you can import the example. Use
 the following command:
 
-```
+```bash
 systemctl stop memgraph
 ```
 
 When using Docker, you can import the example with the following command:
 
-```
+```bash
 docker run -p 7687:7687 \
   -v mg_lib:/var/lib/memgraph -v mg_log:/var/log/memgraph -v mg_etc:/etc/memgraph \
   memgraph --durability-directory /usr/share/memgraph/examples/TEDTalk \
@@ -62,30 +62,33 @@ NOTE: If you modify the dataset, the changes will stay only during this run of
 Memgraph.
 
 1) Find all talks given by specific speaker:
-```
+
+```opencypher
 MATCH (n:Speaker {name: "Hans Rosling"})-[:Gave]->(m:Talk)
 RETURN m.title;
 ```
 
-
 2) Find the top 20 speakers with most talks given:
 
-```
+```opencypher
 MATCH (n:Speaker)-[:Gave]->(m)
 RETURN n.name, COUNT(m) as TalksGiven
 ORDER BY TalksGiven DESC LIMIT 20;
 ```
 
 3) Find talks related by tag to specific talk and count them:
-```
-MATCH (n:Talk {name: "Michael Green: Why we should build wooden skyscrapers"})-[:HasTag]->(t:Tag)<-[:HasTag]-(m:Talk)
+
+```opencypher
+MATCH (n:Talk {name: "Michael Green: Why we should build wooden skyscrapers"})
+      -[:HasTag]->(t:Tag)<-[:HasTag]-(m:Talk)
 WITH * ORDER BY m.name
 RETURN t.name, COLLECT(m.name), COUNT(m) AS TalksCount
 ORDER BY TalksCount DESC;
 ```
 
 4) Find 20 most frequently used tags:
-```
+
+```opencypher
 MATCH (t:Tag)<-[:HasTag]-(n:Talk)
 RETURN t.name as Tag, COUNT(n) AS TalksCount
 ORDER BY TalksCount DESC, Tag LIMIT 20;
@@ -95,13 +98,15 @@ ORDER BY TalksCount DESC, Tag LIMIT 20;
 possible values are: Obnoxious, Jaw-dropping, OK, Persuasive, Beautiful,
 Confusing, Longwinded, Unconvincing, Fascinating, Ingenious, Courageous, Funny,
 Informative and Inspiring.
-```
+
+```opencypher
 MATCH (r:Rating{name:"Funny"})<-[e:HasRating]-(m:Talk)
 RETURN m.name, e.user_count ORDER BY e.user_count DESC LIMIT 20;
 ```
 
 6) Find inspiring talks and their speakers from the field of technology:
-```
+
+```opencypher
 MATCH (n:Talk)-[:HasTag]->(m:Tag {name: "technology"})
 MATCH (n)-[r:HasRating]->(p:Rating {name: "Inspiring"})
 MATCH (n)<-[:Gave]-(s:Speaker)
@@ -114,7 +119,7 @@ recommendation. If you've just watched a talk from a certain
 speaker (e.g. Hans Rosling) you might be interested in finding more talks from
 the same speaker on a similar topic:
 
-```
+```opencypher
 MATCH (n:Speaker {name: "Hans Rosling"})-[:Gave]->(m:Talk)
 MATCH (t:Talk {title: "New insights on poverty"})-[:HasTag]->(tag:Tag)<-[:HasTag]-(m)
 WITH * ORDER BY tag.name
@@ -126,7 +131,8 @@ The following few queries are focused on extracting information about
 TED events.
 
 8) Find how many talks were given per event:
-```
+
+```opencypher
 MATCH (n:Event)<-[:InEvent]-(t:Talk)
 RETURN n.name as Event, COUNT(t) AS TalksCount
 ORDER BY TalksCount DESC, Event
@@ -134,7 +140,8 @@ LIMIT 20;
 ```
 
 9) Find the most popular tags in the specific event:
-```
+
+```opencypher
 MATCH (n:Event {name:"TED2006"})<-[:InEvent]-(t:Talk)-[:HasTag]->(tag:Tag)
 RETURN tag.name as Tag, COUNT(t) AS TalksCount
 ORDER BY TalksCount DESC, Tag
@@ -142,7 +149,8 @@ LIMIT 20;
 ```
 
 10) Discover which speakers participated in more than 2 events:
-```
+
+```opencypher
 MATCH (n:Speaker)-[:Gave]->(t:Talk)-[:InEvent]->(e:Event)
 WITH n, COUNT(e) AS EventsCount WHERE EventsCount > 2
 RETURN n.name as Speaker, EventsCount
@@ -151,7 +159,8 @@ ORDER BY EventsCount DESC, Speaker;
 
 11) For each speaker search for other speakers that participated in same
 events:
-```
+
+```opencypher
 MATCH (n:Speaker)-[:Gave]->()-[:InEvent]->(e:Event)<-[:InEvent]-()<-[:Gave]-(m:Speaker)
 WHERE n.name != m.name
 WITH DISTINCT n, m ORDER BY m.name
@@ -208,14 +217,14 @@ sketch below shows how this game is being modeled in our database.
 We have prepared a database snapshot for this example, so you can easily import
 it when starting Memgraph using the `--durability-directory` option.
 
-```
+```bash
 /usr/lib/memgraph/memgraph --durability-directory /usr/share/memgraph/examples/football \
   --durability-enabled=false --snapshot-on-exit=false
 ```
 
 When using Docker, you can import the example with the following command:
 
-```
+```bash
 docker run -p 7687:7687 \
   -v mg_lib:/var/lib/memgraph -v mg_log:/var/log/memgraph -v mg_etc:/etc/memgraph \
   memgraph --durability-directory /usr/share/memgraph/examples/football \
@@ -229,7 +238,7 @@ Memgraph.
 
 1) You might wonder, what leagues are supported?
 
-```
+```opencypher
 MATCH (n:Game)
 RETURN DISTINCT n.league AS League
 ORDER BY League;
@@ -238,7 +247,7 @@ ORDER BY League;
 2) We have stored a certain number of seasons for each league. What is the
 oldest/newest season we have included?
 
-```
+```opencypher
 MATCH (n:Game)
 RETURN DISTINCT n.league AS League, MIN(n.season) AS Oldest, MAX(n.season) AS Newest
 ORDER BY League;
@@ -247,7 +256,7 @@ ORDER BY League;
 3) You have already seen one game between Chelsea and Arsenal, let's list all of
 them in chronological order.
 
-```
+```opencypher
 MATCH (n:Team {name: "Chelsea"})-[e:Played]->(w:Game)<-[f:Played]-(m:Team {name: "Arsenal"})
 RETURN w.date AS Date, e.side AS Chelsea, f.side AS Arsenal,
        w.FT_home_score AS home_score, w.FT_away_score AS away_score
@@ -256,7 +265,7 @@ ORDER BY Date;
 
 4) How about filtering games in which Chelsea won?
 
-```
+```opencypher
 MATCH (n:Team {name: "Chelsea"})-[e:Played {outcome: "won"}]->
       (w:Game)<-[f:Played]-(m:Team {name: "Arsenal"})
 RETURN w.date AS Date, e.side AS Chelsea, f.side AS Arsenal,
@@ -267,7 +276,7 @@ ORDER BY Date;
 5) Home field advantage is a thing in football. Let's list the number of home
 defeats for each Premier League team in the 2016/2017 season.
 
-```
+```opencypher
 MATCH (n:Team)-[:Played {side: "home", outcome: "lost"}]->
       (w:Game {league: "ENG-Premier League", season: 2016})
 RETURN n.name AS Team, count(w) AS home_defeats
@@ -279,7 +288,7 @@ each victory, a team is awarded 3 points and for each draw it is awarded
 1 point. Let's find out how many points did reigning champions (Chelsea) have
 at the end of 2016/2017 season.
 
-```
+```opencypher
 MATCH (n:Team {name: "Chelsea"})-[:Played {outcome: "drew"}]->(w:Game {season: 2016})
 WITH n, COUNT(w) AS draw_points
 MATCH (n)-[:Played {outcome: "won"}]->(w:Game {season: 2016})
@@ -288,7 +297,7 @@ RETURN draw_points + 3 * COUNT(w) AS total_points;
 
 7) In fact, why not retrieve the whole table?
 
-```
+```opencypher
 MATCH (n)-[:Played {outcome: "drew"}]->(w:Game {league: "ENG-Premier League", season: 2016})
 WITH n, COUNT(w) AS draw_points
 MATCH (n)-[:Played {outcome: "won"}]->(w:Game {league: "ENG-Premier League", season: 2016})
@@ -300,7 +309,7 @@ ORDER BY total_points DESC;
 One basic metric is the average number of goals per game. Let's see the results
 at the end of the 2016/2017 season. WARNING: This might shock you.
 
-```
+```opencypher
 MATCH (w:Game {season: 2016})
 RETURN w.league, AVG(w.FT_home_score) + AVG(w.FT_away_score) AS avg_goals_per_game
 ORDER BY avg_goals_per_game DESC;
@@ -311,7 +320,7 @@ was winning at half time but were overthrown by the other side by the end
 of the match. Let's count such occurrences during all supported seasons across
 all supported leagues.
 
-```
+```opencypher
 MATCH (g:Game) WHERE
 (g.HT_result = "H" AND g.FT_result = "A") OR
 (g.HT_result = "A" AND g.FT_result = "H")
@@ -323,7 +332,7 @@ ORDER BY Comebacks DESC;
 all triplets of teams where, during the course of one season, team A won against
 team B, team B won against team C and team C won against team A.
 
-```
+```opencypher
 MATCH (a)-[:Played {outcome: "won"}]->(p:Game {league: "ENG-Premier League", season: 2016})<--
       (b)-[:Played {outcome: "won"}]->(q:Game {league: "ENG-Premier League", season: 2016})<--
       (c)-[:Played {outcome: "won"}]->(r:Game {league: "ENG-Premier League", season: 2016})<--(a)
@@ -407,7 +416,7 @@ breadth-first search (BFS) algorithm.
 ```opencypher
 MATCH p = (:City {name: "Zagreb"})
           -[:Road * bfs]->
-          (:City {name: "Paris"}) 
+          (:City {name: "Paris"})
 RETURN nodes(p);
 ```
 
@@ -505,6 +514,6 @@ A nice looking set of small graph examples can be found
 execute the queries against Memgraph. To clear the database between trying out
 examples, execute the query:
 
-```
+```opencypher
 MATCH (n) DETACH DELETE n;
 ```

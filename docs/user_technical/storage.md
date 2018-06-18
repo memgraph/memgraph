@@ -68,13 +68,17 @@ types. Following is a table of supported data types.
 
  Note that even though it's possible to store `List` and `Map` property values, it is not possible to modify them. It is however possible to replace them completely. So, the following queries are legal:
 
-    CREATE (:Node {property: [1, 2, 3]})
-    CREATE (:Node {property: {key: "value"}})
+```opencypher
+CREATE (:Node {property: [1, 2, 3]})
+CREATE (:Node {property: {key: "value"}})
+```
 
 However, these queries are not:
 
-    MATCH (n:Node) SET n.property[0] = 0
-    MATCH (n:Node) SET n.property.key = "other value"
+```opencypher
+MATCH (n:Node) SET n.property[0] = 0
+MATCH (n:Node) SET n.property.key = "other value"
+```
 
 ### Cold data on disk
 
@@ -89,7 +93,7 @@ For example, a user of a library database might identify author biographies
 and book summaries as cold properties. In that case, the user should run
 *Memgraph* as follows:
 
-```
+```bash
 /usr/lib/memgraph/memgraph --properties-on-disk biography,summary
 ```
 

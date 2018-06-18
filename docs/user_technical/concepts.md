@@ -17,7 +17,9 @@ complexity of the algorithm.
 
 A sample query that finds a shortest path between two nodes can look like this:
 
-      MATCH (a {id: 723})-[le *wShortest 10 (e, n | e.weight) total_weight]-(b {id: 882}) RETURN *
+```opencypher
+MATCH (a {id: 723})-[edge_list *wShortest 10 (e, n | e.weight) total_weight]-(b {id: 882}) RETURN *
+```
 
 This query has an upper bound length restriction set to `10`. This means that no
 path that traverses more than `10` edges will be considered as a valid result.
@@ -42,10 +44,13 @@ Lets take a look at the following graph and queries.
       3      3     3
 ```
 
-      MATCH (a {id: 0})-[le *wShortest 3 (e, n | e.weight) total_weight]-(b {id: 5}) RETURN *
+```opencypher
+MATCH (a {id: 0})-[edge_list *wShortest 3 (e, n | e.weight) total_weight]-(b {id: 5}) RETURN *
+```
 
-      MATCH (a {id: 0})-[le *wShortest   (e, n | e.weight) total_weight]-(b {id: 5}) RETURN *
-
+```opencypher
+MATCH (a {id: 0})-[edge_list *wShortest   (e, n | e.weight) total_weight]-(b {id: 5}) RETURN *
+```
 
 The first query will try to find the weighted shortest path between nodes `0`
 and `5` with the restriction on the path length set to `3`, and the second query
@@ -65,4 +70,3 @@ graph.
 
 Because of this, one should always try to narrow down the upper bound limit to
 be as precise as possible in order to have a more performant query.
-

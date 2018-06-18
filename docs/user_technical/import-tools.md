@@ -15,7 +15,7 @@ The import tool is run from the console, using the `mg_import_csv` command.
 If you installed Memgraph using Docker, you will need to run the importer
 using the following command:
 
-```
+```bash
 docker run -v mg_lib:/var/lib/memgraph -v mg_etc:/etc/memgraph -v mg_import:/import-data \
   --entrypoint=mg_import_csv memgraph
 ```
@@ -38,13 +38,13 @@ durability directory.
 
 For information on other options, run:
 
-```
+```bash
 mg_import_csv --help
 ```
 
 When using Docker, this translates to:
 
-```
+```bash
 docker run --entrypoint=mg_import_csv memgraph --help
 ```
 
@@ -93,21 +93,21 @@ will load the new dataset.
 
 Use the following command:
 
-```
+```bash
 mg_import_csv --nodes=comment_nodes.csv --nodes=forum_nodes.csv --relationships=relationships.csv
 ```
 
 If using Docker, things are a bit more complicated. First you need to move the
 CSV files where the Docker image can see them:
 
-```
+```bash
 mkdir -p /var/lib/docker/volumes/mg_import/_data
 cp comment_nodes.csv forum_nodes.csv relationships.csv /var/lib/docker/volumes/mg_import/_data
 ```
 
 Then, run the importer with the following:
 
-```
+```bash
 docker run -v mg_lib:/var/lib/memgraph -v mg_etc:/etc/memgraph -v mg_import:/import-data \
   --entrypoint=mg_import_csv memgraph \
   --nodes=/import-data/comment_nodes.csv --nodes=/import-data/forum_nodes.csv \
@@ -115,4 +115,3 @@ docker run -v mg_lib:/var/lib/memgraph -v mg_etc:/etc/memgraph -v mg_import:/imp
 ```
 
 Next time you run Memgraph, the dataset will be loaded.
-

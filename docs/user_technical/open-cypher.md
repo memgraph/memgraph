@@ -31,22 +31,30 @@ This clause is used to obtain data from Memgraph by matching it to a given
 pattern. For example, to find each node in the database, you can use the
 following query.
 
-    MATCH (node) RETURN node
+```opencypher
+MATCH (node) RETURN node
+```
 
 Finding connected nodes can be achieved by using the query:
 
-    MATCH (node1)-[connection]-(node2) RETURN node1, connection, node2
+```opencypher
+MATCH (node1)-[connection]-(node2) RETURN node1, connection, node2
+```
 
 In addition to general pattern matching, you can narrow the search down by
 specifying node labels and properties. Similarly, edge types and properties
 can also be specified. For example, finding each node labeled as `Person` and
 with property `age` being 42, is done with the following query.
 
-    MATCH (n :Person {age: 42}) RETURN n
+```opencypher
+MATCH (n :Person {age: 42}) RETURN n
+```
 
 While their friends can be found with the following.
 
-    MATCH (n :Person {age: 42})-[:FriendOf]-(friend) RETURN friend
+```opencypher
+MATCH (n :Person {age: 42})-[:FriendOf]-(friend) RETURN friend
+```
 
 There are cases when a user needs to find data which is connected by
 traversing a path of connections, but the user doesn't know how many
@@ -56,18 +64,24 @@ with *variable path lengths*. Matching such a path is achieved by using the
 traversing from `node1` to `node2` by following any number of connections in a
 single direction can be achieved with:
 
-    MATCH (node1)-[r*]->(node2) RETURN node1, r, node2
+```opencypher
+MATCH (node1)-[r*]->(node2) RETURN node1, r, node2
+```
 
 If paths are very long, finding them could take a long time. To prevent that,
 a user can provide the minimum and maximum length of the path. For example,
 paths of length between 2 and 4 can be obtained with a query like:
 
-    MATCH (node1)-[r*2..4]->(node2) RETURN node1, r, node2
+```opencypher
+MATCH (node1)-[r*2..4]->(node2) RETURN node1, r, node2
+```
 
 It is possible to name patterns in the query and return the resulting paths.
 This is especially useful when matching variable length paths:
 
-    MATCH path = ()-[r*2..4]->() RETURN path
+```opencypher
+MATCH path = ()-[r*2..4]->() RETURN path
+```
 
 More details on how `MATCH` works can be found
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/match/).
@@ -85,7 +99,9 @@ and properties in `MATCH` patterns. When more complex filtering is desired,
 you can use `WHERE` paired with `MATCH` or `OPTIONAL MATCH`. For example,
 finding each person older than 20 is done with the this query.
 
-    MATCH (n :Person) WHERE n.age > 20 RETURN n
+```opencypher
+MATCH (n :Person) WHERE n.age > 20 RETURN n
+```
 
 Additional examples can be found
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/where/).
@@ -99,7 +115,9 @@ keyword.
 
 Example.
 
-    MATCH (n :Person) RETURN n AS people
+```opencypher
+MATCH (n :Person) RETURN n AS people
+```
 
 That query would display all nodes under the header named `people` instead of
 `n`.
@@ -109,17 +127,23 @@ When you want to get everything that was matched, you can use the `*`
 
 This query:
 
-    MATCH (node1)-[connection]-(node2) RETURN *
+```opencypher
+MATCH (node1)-[connection]-(node2) RETURN *
+```
 
 is equivalent to:
 
-    MATCH (node1)-[connection]-(node2) RETURN node1, connection, node2
+```opencypher
+MATCH (node1)-[connection]-(node2) RETURN node1, connection, node2
+```
 
 `RETURN` can be followed by the `DISTINCT` operator, which will remove
 duplicate results. For example, getting unique names of people can be achieved
 with:
 
-    MATCH (n :Person) RETURN DISTINCT n.name
+```opencypher
+MATCH (n :Person) RETURN DISTINCT n.name
+```
 
 Besides choosing what will be the result and how it will be named, the
 `RETURN` clause can also be used to:
@@ -137,17 +161,23 @@ More details on `RETURN` can be found
 These sub-clauses take a number of how many results to skip or limit.
 For example, to get the first 3 results you can use this query.
 
-    MATCH (n :Person) RETURN n LIMIT 3
+```opencypher
+MATCH (n :Person) RETURN n LIMIT 3
+```
 
 If you want to get all the results after the first 3, you can use the
 following.
 
-    MATCH (n :Person) RETURN n SKIP 3
+```opencypher
+MATCH (n :Person) RETURN n SKIP 3
+```
 
 The `SKIP` and `LIMIT` can be combined. So for example, to get the 2nd result,
 you can do:
 
-    MATCH (n :Person) RETURN n SKIP 1 LIMIT 1
+```opencypher
+MATCH (n :Person) RETURN n SKIP 1 LIMIT 1
+```
 
 ##### ORDER BY
 
@@ -158,14 +188,18 @@ use the `ORDER BY` sub-clause.
 For example, the following query will get all `:Person` nodes and order them
 by their names.
 
-    MATCH (n :Person) RETURN n ORDER BY n.name
+```opencypher
+MATCH (n :Person) RETURN n ORDER BY n.name
+```
 
 By default, ordering will be in the ascending order. To change the order to be
 descending, you should append `DESC`.
 
 For example, to order people by their name descending, you can use this query.
 
-    MATCH (n :Person) RETURN n ORDER BY n.name DESC
+```opencypher
+MATCH (n :Person) RETURN n ORDER BY n.name DESC
+```
 
 You can also order by multiple variables. The results will be sorted by the
 first variable listed. If the values are equal, the results are sorted by the
@@ -173,21 +207,29 @@ second variable, and so on.
 
 Example. Ordering by first name descending and last name ascending.
 
-    MATCH (n :Person) RETURN n ORDER BY n.name DESC, n.lastName
+```opencypher
+MATCH (n :Person) RETURN n ORDER BY n.name DESC, n.lastName
+```
 
 Note that `ORDER BY` sees only the variable names as carried over by `RETURN`.
 This means that the following will result in an error.
 
-    MATCH (n :Person) RETURN old AS new ORDER BY old.name
+```opencypher
+MATCH (n :Person) RETURN old AS new ORDER BY old.name
+```
 
 Instead, the `new` variable must be used:
 
-    MATCH (n: Person) RETURN old AS new ORDER BY new.name
+```opencypher
+MATCH (n: Person) RETURN old AS new ORDER BY new.name
+```
 
 The `ORDER BY` sub-clause may come in handy with `SKIP` and/or `LIMIT`
 sub-clauses. For example, to get the oldest person you can use the following.
 
-    MATCH (n :Person) RETURN n ORDER BY n.age DESC LIMIT 1
+```opencypher
+MATCH (n :Person) RETURN n ORDER BY n.age DESC LIMIT 1
+```
 
 ##### Aggregating
 
@@ -203,15 +245,21 @@ the following aggregating functions.
 
 Example, calculating the average age:
 
-    MATCH (n :Person) RETURN avg(n.age) AS averageAge
+```opencypher
+MATCH (n :Person) RETURN avg(n.age) AS averageAge
+```
 
 Collecting items into a list:
 
-    MATCH (n :Person) RETURN collect(n.name) AS list_of_names
+```opencypher
+MATCH (n :Person) RETURN collect(n.name) AS list_of_names
+```
 
 Collecting items into a map:
 
-    MATCH (n :Person) RETURN collect(n.name, n.age) AS map_name_to_age
+```opencypher
+MATCH (n :Person) RETURN collect(n.name, n.age) AS map_name_to_age
+```
 
 Click
 [here](https://neo4j.com/docs/developer-manual/current/cypher/functions/aggregating/)
@@ -229,16 +277,20 @@ rows from all given queries.
 Restrictions when using `UNION` or `UNION ALL`:
   * The number and the names of columns returned by queries must be the same
     for all of them.
-  * There can be only one union type between single queries, ie. a query can't
+  * There can be only one union type between single queries, i.e. a query can't
     contain both `UNION` and `UNION ALL`.
 
 Example, get distinct names that are shared between persons and movies:
 
-    MATCH(n: Person) RETURN n.name as name UNION MATCH(n: Movie) RETURN n.name as name
+```opencypher
+MATCH(n: Person) RETURN n.name as name UNION MATCH(n: Movie) RETURN n.name as name
+```
 
 Example, get all names that are shared between persons and movies (including duplicates):
 
-    MATCH(n: Person) RETURN n.name as name UNION ALL MATCH(n: Movie) RETURN n.name as name
+```opencypher
+MATCH(n: Person) RETURN n.name as name UNION ALL MATCH(n: Movie) RETURN n.name as name
+```
 
 ### Writing New Data
 
@@ -262,13 +314,17 @@ is done by providing a pattern, similarly to `MATCH` clause.
 
 For example, to create 2 new nodes connected with a new edge, use this query.
 
-    CREATE (node1)-[:edge_type]->(node2)
+```opencypher
+CREATE (node1)-[:edge_type]->(node2)
+```
 
 Labels and properties can be set during creation using the same syntax as in
 [MATCH](#match) patterns. For example, creating a node with a label and a
 property:
 
-    CREATE (node :Label {property: "my property value"}
+```opencypher
+CREATE (node :Label {property: "my property value"}
+```
 
 Additional information on `CREATE` is
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/create/).
@@ -280,7 +336,9 @@ data.
 
 Example. Incrementing everyone's age by 1.
 
-    MATCH (n :Person) SET n.age = n.age + 1
+```opencypher
+MATCH (n :Person) SET n.age = n.age + 1
+```
 
 Click
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/create/)
@@ -292,20 +350,26 @@ This clause is used to delete nodes and edges from the database.
 
 Example. Removing all edges of a single type.
 
-    MATCH ()-[edge :type]-() DELETE edge
+```opencypher
+MATCH ()-[edge :type]-() DELETE edge
+```
 
 When testing the database, you want to often have a clean start by deleting
 every node and edge in the database. It is reasonable that deleting each node
 should delete all edges coming into or out of that node.
 
-    MATCH (node) DELETE node
+```opencypher
+MATCH (node) DELETE node
+```
 
 But, openCypher prevents accidental deletion of edges. Therefore, the above
 query will report an error. Instead, you need to use the `DETACH` keyword,
 which will remove edges from a node you are deleting. The following should
 work and *delete everything* in the database.
 
-    MATCH (node) DETACH DELETE node
+```opencypher
+MATCH (node) DETACH DELETE node
+```
 
 More examples are
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/delete/).
@@ -317,7 +381,9 @@ edges.
 
 Example.
 
-    MATCH (n :WrongLabel) REMOVE n :WrongLabel, n.property
+```opencypher
+MATCH (n :WrongLabel) REMOVE n :WrongLabel, n.property
+```
 
 ### Reading & Writing
 
@@ -333,8 +399,10 @@ establishes are transferred from one part to another.
 
 For example, creating a node and finding all nodes with the same property.
 
-    CREATE (node {property: 42}) WITH node.property AS propValue
-    MATCH (n {property: propValue}) RETURN n
+```opencypher
+CREATE (node {property: 42}) WITH node.property AS propValue
+MATCH (n {property: propValue}) RETURN n
+```
 
 Note that the `node` is not visible after `WITH`, since only `node.property`
 was carried over.
@@ -351,7 +419,9 @@ created. In a way, this clause is like a combination of `MATCH` and `CREATE`.
 
 Example. Ensure that a person has at least one friend.
 
-    MATCH (n :Person) MERGE (n)-[:FriendOf]->(m)
+```opencypher
+MATCH (n :Person) MERGE (n)-[:FriendOf]->(m)
+```
 
 The clause also provides additional features for updating the values depending
 on whether the pattern was created or matched. This is achieved with `ON
@@ -359,8 +429,10 @@ CREATE` and `ON MATCH` sub clauses.
 
 Example. Set a different properties depending on what `MERGE` did.
 
-    MATCH (n :Person) MERGE (n)-[:FriendOf]->(m)
-    ON CREATE SET m.prop = "created" ON MATCH SET m.prop = "existed"
+```opencypher
+MATCH (n :Person) MERGE (n)-[:FriendOf]->(m)
+ON CREATE SET m.prop = "created" ON MATCH SET m.prop = "existed"
+```
 
 For more details, click [this
 link](https://neo4j.com/docs/developer-manual/current/cypher/clauses/merge/).
@@ -379,7 +451,9 @@ efficiency, and thus make index downsides negligible.
 Memgraph automatically indexes labeled data. This improves queries
 which fetch nodes by label:
 
-    MATCH (n :Label) ... RETURN n
+```opencypher
+MATCH (n :Label) ... RETURN n
+```
 
 Indexing can also be applied to data with a specific combination of label and
 property. These are not automatically created, instead a user needs to create
@@ -389,20 +463,26 @@ them explicitly. Creation is done using a special
 For example, to index nodes which is labeled as `:Person` and has a property
 named `age`:
 
-    CREATE INDEX ON :Person(age)
+```opencypher
+CREATE INDEX ON :Person(age)
+```
 
 After the index is created, retrieving those nodes will become more efficient.
 For example, the following query will retrieve all nodes which have an `age`
 property, instead of fetching each `:Person` node and checking whether the
 property exists.
 
-    MATCH (n :Person {age: 42}) RETURN n
+```opencypher
+MATCH (n :Person {age: 42}) RETURN n
+```
 
 Using index based retrieval also works when filtering labels and properties
 with `WHERE`. For example, the same effect as in the previous example can be
 done with:
 
-    MATCH (n) WHERE n:Person AND n.age = 42 RETURN n
+```opencypher
+MATCH (n) WHERE n:Person AND n.age = 42 RETURN n
+```
 
 Since the filter inside `WHERE` can contain any kind of an expression, the
 expression can be complicated enough so that the index does not get used. We
@@ -423,16 +503,22 @@ The following sections describe some of the other supported features.
 OpenCypher supports only simple filtering when matching variable length paths.
 For example:
 
-    MATCH (n)-[r:Type * {x: 42}]-(m)
+```opencypher
+MATCH (n)-[edge_list:Type * {x: 42}]-(m)
+```
 
 This will produce only those paths whose edges have the required `Type` and `x`
-property value.
+property value. Edges that compose the produced paths are stored in a symbol
+named `edge_list`. Naturally, the user could have specified any other symbol
+name.
 
 Memgraph extends openCypher with a syntax for arbitrary filter expressions
 during path matching. The next example filters edges which have property `x`
 between `0` and `10`.
 
-    MATCH (n)-[r * (edge, node | 0 < edge.x < 10)]-(m)
+```opencypher
+MATCH (n)-[edge_list * (edge, node | 0 < edge.x < 10)]-(m)
+```
 
 Here we introduce a lambda function with parentheses, where the first two
 arguments, `edge` and `node`, correspond to each edge and node during path
@@ -443,7 +529,9 @@ value.  If `True`, matching continues, otherwise the path is discarded.
 
 The previous example can be written using the `all` function:
 
-    MATCH (n)-[r *]-(m) WHERE all(edge IN r WHERE 0 < edge.x < 10)
+```opencypher
+MATCH (n)-[edge_list *]-(m) WHERE all(edge IN r WHERE 0 < edge.x < 10)
+```
 
 However, filtering using a lambda function is more efficient because paths
 may be discarded earlier in the traversal. Furthermore, it provides more
@@ -460,7 +548,9 @@ a custom implementation, based on the edge expansion syntax.
 Finding the shortest path between nodes can be done using breadth-first
 expansion:
 
-    MATCH (a {id: 723})-[r:Type *bfs..10]-(b {id: 882}) RETURN *
+```opencypher
+MATCH (a {id: 723})-[edge_list:Type *bfs..10]-(b {id: 882}) RETURN *
+```
 
 The above query will find all paths of length up to 10 between nodes `a` and `b`.
 The edge type and maximum path length are used in the same way like in variable
@@ -468,17 +558,23 @@ length expansion.
 
 To find only the shortest path, simply append `LIMIT 1` to the `RETURN` clause.
 
-    MATCH (a {id: 723})-[r:Type *bfs..10]-(b {id: 882}) RETURN * LIMIT 1
+```opencypher
+MATCH (a {id: 723})-[edge_list:Type *bfs..10]-(b {id: 882}) RETURN * LIMIT 1
+```
 
 Breadth-first expansion allows an arbitrary expression filter that determines
 if an expansion is allowed. Following is an example in which expansion is
 allowed only over edges whose `x` property is greater than `12` and nodes `y`
 whose property is less than `3`:
 
-    MATCH (a {id: 723})-[*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
+```opencypher
+MATCH (a {id: 723})-[*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
+```
 
 The filter is defined as a lambda function over `e` and `n`, which denote the edge
-and node being expanded over in the breadth first search.
+and node being expanded over in the breadth first search. Note that if the user
+omits the edge list symbol (`edge_list` in previous examples) it will not be included
+in the result.
 
 There are a few benefits of the breadth-first expansion approach, as opposed to
 a specialized `shortestPath` function. For one, it is possible to inject
@@ -499,7 +595,12 @@ Memgraph provides a custom implementation, based on the edge expansion syntax.
 Finding the weighted shortest path between nodes is done using the weighted
 shortest path expansion:
 
-    MATCH (a {id: 723})-[le *wShortest 10 (e, n | e.weight) total_weight]-(b {id: 882}) RETURN *
+```opencypher
+MATCH (a {id: 723})-[
+        edge_list *wShortest 10 (e, n | e.weight) total_weight
+    ]-(b {id: 882})
+RETURN *
+```
 
 The above query will find the shortest path of length up to 10 nodes between
 nodes `a`  and `b`. The length restriction parameter is optional.
@@ -510,15 +611,24 @@ the sum of all weights on the path between two nodes. Following is an example in
 which the weight between nodes is defined as the product of edge weights
 (instead of sum), assuming all weights are greater than '1':
 
-    MATCH (a {id: 723})-[le *wShortest 10 (e, n | log(e.weight)) total_weight]-(b {id: 882}) RETURN exp(total_weight)
-
+```opencypher
+MATCH (a {id: 723})-[
+        edge_list *wShortest 10 (e, n | log(e.weight)) total_weight
+    ]-(b {id: 882})
+RETURN exp(total_weight)
+```
 
 Weighted Shortest Path expansions also allows an arbitrary expression filter
 that determines if an expansion is allowed. Following is an example in which
 expansion is allowed only over edges whose `x` property is greater than `12`
 and nodes `y` whose property is less than `3`:
 
-    MATCH (a {id: 723})-[le *wShortest 10 (e, n | e.weight) total_weight (e, n | e.x > 12 and n.y < 3)]-(b {id: 882}) RETURN exp(total_weight)
+```opencypher
+MATCH (a {id: 723})-[
+        edge_list *wShortest 10 (e, n | e.weight) total_weight (e, n | e.x > 12 and n.y < 3)
+    ]-(b {id: 882})
+RETURN exp(total_weight)
+```
 
 Both weight and filter expression are defined as lambda functions over `e` and
 `n`, which denote the edge and the node being expanded over in the weighted
@@ -530,7 +640,9 @@ The `UNWIND` clause is used to unwind a list of values as individual rows.
 
 Example. Produce rows out of a single list.
 
-    UNWIND [1,2,3] AS listElement RETURN listElement
+```opencypher
+UNWIND [1,2,3] AS listElement RETURN listElement
+```
 
 More examples are
 [here](https://neo4j.com/docs/developer-manual/current/cypher/clauses/unwind/).
@@ -613,24 +725,32 @@ The syntax uses the `$` symbol to designate a parameter name. We don't allow
 old Cypher parameter syntax using curly braces. For example, you can parameterize
 filtering a node property:
 
-    MATCH (node1 {property: $propertyValue}) RETURN node1
+```opencypher
+MATCH (node1 {property: $propertyValue}) RETURN node1
+```
 
 You can use parameters instead of any literal in the query, but not instead of
 property maps even though that is allowed in standard openCypher. Following
 example is illegal in Memgraph:
 
-    MATCH (node1 $propertyValue) RETURN node1
+```opencypher
+MATCH (node1 $propertyValue) RETURN node1
+```
 
 To use parameters with Python driver use following syntax:
 
-    session.run('CREATE (alice:Person {name: $name, age: $ageValue}',
-                name='Alice', ageValue=22)).consume()
+```python
+session.run('CREATE (alice:Person {name: $name, age: $ageValue}',
+            name='Alice', ageValue=22)).consume()
+```
 
 To use parameters which names are integers you will need to wrap parameters in
 a dictionary and convert them to strings before running a query:
 
-    session.run('CREATE (alice:Person {name: $0, age: $1}',
-                {'0': "Alice", '1': 22})).consume()
+```python
+session.run('CREATE (alice:Person {name: $0, age: $1}',
+            {'0': "Alice", '1': 22})).consume()
+```
 
 To use parameters with some other driver please consult appropriate
 documentation.
@@ -644,15 +764,19 @@ expression provided after the `THEN` keyword is returned.  If no expression is
 matched value following `ELSE` is returned is provided, or `null` if `ELSE` is not
 used:
 
-    MATCH (n)
-    RETURN CASE n.currency WHEN "DOLLAR" THEN "$" WHEN "EURO" THEN "€" ELSE "UNKNOWN" END
+```opencypher
+MATCH (n)
+RETURN CASE n.currency WHEN "DOLLAR" THEN "$" WHEN "EURO" THEN "€" ELSE "UNKNOWN" END
+```
 
 In generic form, you don't need to provide an expression whose value is compared to
 predicates, but you can list multiple predicates and the first one that evaluates
 to true is matched:
 
-    MATCH (n)
-    RETURN CASE WHEN n.height < 30 THEN "short" WHEN n.height > 300 THEN "tall" END
+```opencypher
+MATCH (n)
+RETURN CASE WHEN n.height < 30 THEN "short" WHEN n.height > 300 THEN "tall" END
+```
 
 ### Differences
 
