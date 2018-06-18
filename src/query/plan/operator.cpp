@@ -3842,8 +3842,7 @@ WITHOUT_SINGLE_INPUT(ModifyUser)
 
 class ModifyUserCursor : public Cursor {
  public:
-  ModifyUserCursor(const ModifyUser &self, database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+  ModifyUserCursor(database::GraphDbAccessor &db) : db_(db) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -3857,13 +3856,12 @@ class ModifyUserCursor : public Cursor {
   void Reset() override { throw utils::NotYetImplemented("user auth"); }
 
  private:
-  const ModifyUser &self_;
   database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> ModifyUser::MakeCursor(
     database::GraphDbAccessor &db) const {
-  return std::make_unique<ModifyUserCursor>(*this, db);
+  return std::make_unique<ModifyUserCursor>(db);
 }
 
 bool DropUser::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
@@ -3874,8 +3872,7 @@ WITHOUT_SINGLE_INPUT(DropUser)
 
 class DropUserCursor : public Cursor {
  public:
-  DropUserCursor(const DropUser &self, database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+  DropUserCursor() {}
 
   bool Pull(Frame &, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -3885,15 +3882,11 @@ class DropUserCursor : public Cursor {
   }
 
   void Reset() override { throw utils::NotYetImplemented("user auth"); }
-
- private:
-  const DropUser &self_;
-  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> DropUser::MakeCursor(
     database::GraphDbAccessor &db) const {
-  return std::make_unique<DropUserCursor>(*this, db);
+  return std::make_unique<DropUserCursor>();
 }
 
 }  // namespace query::plan
