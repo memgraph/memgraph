@@ -550,7 +550,17 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
   }
 
   bool PreVisit(query::plan::Cartesian &op) override {
-    WithPrintLn([](auto &out) { out << "* Cartesian"; });
+    WithPrintLn([&op](auto &out) {
+      out << "* Cartesian {";
+      utils::PrintIterable(
+          out, op.left_symbols(), ", ",
+          [](auto &out, const auto &sym) { out << sym.name(); });
+      out << " : ";
+      utils::PrintIterable(
+          out, op.right_symbols(), ", ",
+          [](auto &out, const auto &sym) { out << sym.name(); });
+      out << "}";
+    });
     Branch(*op.right_op());
     op.left_op()->Accept(*this);
     return false;

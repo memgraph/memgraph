@@ -3142,7 +3142,9 @@ std::vector<Symbol> Synchronize::ModifiedSymbols(
 
 bool Synchronize::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    input_->Accept(visitor) && pull_remote_->Accept(visitor);
+    // pull_remote_ is optional here, so visit it only if we continue visiting
+    // and pull_remote_ does exist.
+    input_->Accept(visitor) && pull_remote_ && pull_remote_->Accept(visitor);
   }
   return visitor.PostVisit(*this);
 }

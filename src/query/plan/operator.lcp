@@ -365,7 +365,7 @@ and false on every following Pull.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (node-atom "NodeAtom *" :initval "nullptr"
+   (node-atom "NodeAtom *" :initval "nullptr" :reader t
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *")
               :save-fun #'save-pointer :load-fun #'load-pointer)
@@ -426,10 +426,12 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 (lcp:define-class create-expand (logical-operator)
   (
    ;; info on what's getting expanded
-   (node-atom "NodeAtom *" :save-fun #'save-pointer :load-fun #'load-pointer
+   (node-atom "NodeAtom *" :reader t
+              :save-fun #'save-pointer :load-fun #'load-pointer
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
-   (edge-atom "EdgeAtom *" :save-fun #'save-pointer :load-fun #'load-pointer
+   (edge-atom "EdgeAtom *" :reader t
+              :save-fun #'save-pointer :load-fun #'load-pointer
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "EdgeAtom *"))
    ;; the input op and the symbol under which the op's result
@@ -437,7 +439,7 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    (input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (input-symbol "Symbol")
+   (input-symbol "Symbol" :reader t)
    (existing-node :bool :documentation
                   "if the given node atom refers to an existing node (either matched or created)"))
   (:documentation
@@ -1157,7 +1159,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (expressions "std::vector<Expression *>"
+   (expressions "std::vector<Expression *>" :reader t
                 :capnp-type "List(Ast.Tree)"
                 :capnp-save (save-ast-vector "Expression *")
                 :capnp-load (load-ast-vector "Expression *")
@@ -1206,11 +1208,11 @@ Has a flag for using DETACH DELETE when deleting vertices.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (lhs "PropertyLookup *"
+   (lhs "PropertyLookup *" :reader t
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "PropertyLookup *")
         :save-fun #'save-pointer :load-fun #'load-pointer)
-   (rhs "Expression *"
+   (rhs "Expression *" :reader t
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
         :save-fun #'save-pointer :load-fun #'load-pointer))
@@ -1256,8 +1258,8 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (input-symbol "Symbol")
-   (rhs "Expression *"
+   (input-symbol "Symbol" :reader t)
+   (rhs "Expression *" :reader t
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
         :save-fun #'save-pointer :load-fun #'load-pointer)
@@ -1327,7 +1329,7 @@ that the old props are discarded and replaced with new ones.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (input-symbol "Symbol")
+   (input-symbol "Symbol" :reader t)
    (labels "std::vector<storage::Label>"
      :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
      :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
@@ -1371,7 +1373,7 @@ It does NOT remove labels that are already set on that Vertex.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (lhs "PropertyLookup *"
+   (lhs "PropertyLookup *" :reader t
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "PropertyLookup *")
         :save-fun #'save-pointer :load-fun #'load-pointer))
@@ -1415,7 +1417,7 @@ It does NOT remove labels that are already set on that Vertex.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (input-symbol "Symbol")
+   (input-symbol "Symbol" :reader t)
    (labels "std::vector<storage::Label>"
      :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
      :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
@@ -1763,7 +1765,7 @@ elements are in an undefined state after aggregation.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (expression "Expression *"
+   (expression "Expression *" :reader t
                :capnp-type "Ast.Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                :save-fun #'save-pointer :load-fun #'load-pointer))
@@ -1820,7 +1822,7 @@ operator's implementation does not expect this.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (expression "Expression *"
+   (expression "Expression *" :reader t
                :capnp-type "Ast.Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                :save-fun #'save-pointer :load-fun #'load-pointer))
@@ -2124,7 +2126,7 @@ Input is optional (unwind can be the first clause in a query).")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (value-symbols "std::vector<Symbol>"
+   (value-symbols "std::vector<Symbol>" :reader t
                   :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
                   :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation

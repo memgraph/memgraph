@@ -219,6 +219,163 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(Optional &optional) override {
+    throw utils::NotYetImplemented("distributed Cartesian planning");
+  }
+
+  bool PostVisit(Unwind &unwind) override {
+    if (subtree_) return true;
+    UsedSymbolsCollector collector(*symbol_table_);
+    unwind.input_expression()->Accept(collector);
+    if (auto found = ContainsForbidden(collector.symbols_)) {
+      subtree_ = unwind.input();
+      parent_ = &unwind;
+      depends_on_ = found;
+    }
+    return true;
+  }
+
+  // Remaining operators can only appear if they don't contain any forbidden
+  // symbols. This is the case when we are planning *another* Cartesian after
+  // Produce.
+
+  bool PostVisit(CreateNode &op) override {
+    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom()->identifier_))));
+    for (auto &kv : op.node_atom()->properties_) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      kv.second->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    return true;
+  }
+
+  bool PostVisit(CreateExpand &op) override {
+    CHECK(!FindForbidden(op.input_symbol()));
+    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom()->identifier_))));
+    CHECK(!FindForbidden(symbol_table_->at(*(op.edge_atom()->identifier_))));
+    for (auto &kv : op.node_atom()->properties_) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      kv.second->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    for (auto &kv : op.edge_atom()->properties_) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      kv.second->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    return true;
+  }
+
+  bool PostVisit(Delete &op) override {
+    for (auto *expr : op.expressions()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      expr->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    return true;
+  }
+
+  bool PostVisit(SetProperty &op) override {
+    UsedSymbolsCollector collector(*symbol_table_);
+    op.lhs()->Accept(collector);
+    op.rhs()->Accept(collector);
+    CHECK(!ContainsForbidden(collector.symbols_));
+    return true;
+  }
+
+  bool PostVisit(SetProperties &op) override {
+    CHECK(!FindForbidden(op.input_symbol()));
+    UsedSymbolsCollector collector(*symbol_table_);
+    op.rhs()->Accept(collector);
+    CHECK(!ContainsForbidden(collector.symbols_));
+    return true;
+  }
+
+  bool PostVisit(SetLabels &op) override {
+    CHECK(!FindForbidden(op.input_symbol()));
+    return true;
+  }
+
+  bool PostVisit(RemoveProperty &op) override {
+    UsedSymbolsCollector collector(*symbol_table_);
+    op.lhs()->Accept(collector);
+    CHECK(!ContainsForbidden(collector.symbols_));
+    return true;
+  }
+
+  bool PostVisit(RemoveLabels &op) override {
+    CHECK(!FindForbidden(op.input_symbol()));
+    return true;
+  }
+
+  bool PostVisit(Aggregate &aggr) override {
+    CHECK(!ContainsForbidden(aggr.remember()));
+    for (auto &elem : aggr.aggregations()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      if (elem.value) elem.value->Accept(collector);
+      if (elem.key) elem.key->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    for (auto *expr : aggr.group_by()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      expr->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    return true;
+  }
+
+  bool PostVisit(Skip &skip) override {
+    UsedSymbolsCollector collector(*symbol_table_);
+    skip.expression()->Accept(collector);
+    CHECK(!ContainsForbidden(collector.symbols_));
+    return true;
+  }
+
+  bool PostVisit(Limit &limit) override {
+    UsedSymbolsCollector collector(*symbol_table_);
+    limit.expression()->Accept(collector);
+    CHECK(!ContainsForbidden(collector.symbols_));
+    return true;
+  }
+
+  bool PostVisit(OrderBy &order_by) override {
+    CHECK(!ContainsForbidden(order_by.output_symbols()));
+    for (auto *expr : order_by.order_by()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      expr->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    return true;
+  }
+
+  bool PostVisit(Distinct &distinct) override {
+    CHECK(!ContainsForbidden(distinct.value_symbols()));
+    return true;
+  }
+
+  bool PostVisit(Cartesian &cart) override {
+    CHECK(!ContainsForbidden(cart.left_symbols()) &&
+          !ContainsForbidden(cart.right_symbols()));
+    return true;
+  }
+
+  bool PostVisit(Synchronize &op) override { return true; }
+
+  bool PostVisit(PullRemote &pull) override {
+    CHECK(!ContainsForbidden(pull.symbols()));
+    return true;
+  }
+
+  bool PostVisit(PullRemoteOrderBy &pull) override {
+    CHECK(!ContainsForbidden(pull.symbols()));
+    for (auto *expr : pull.order_by()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      expr->Accept(collector);
+      CHECK(!ContainsForbidden(collector.symbols_));
+    }
+    return true;
+  }
+
   // Independent subtree
   std::shared_ptr<LogicalOperator> subtree_;
   // Immediate parent of `subtree_`.
@@ -230,6 +387,10 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   bool DefaultPostVisit() override {
     throw utils::NotYetImplemented("distributed Cartesian planning");
   }
+
+ private:
+  std::vector<std::vector<Symbol>> forbidden_symbols_;
+  const SymbolTable *symbol_table_;
 
   template <class TCollection>
   std::experimental::optional<int64_t> ContainsForbidden(
@@ -252,10 +413,6 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
     }
     return std::experimental::nullopt;
   }
-
- private:
-  std::vector<std::vector<Symbol>> forbidden_symbols_;
-  const SymbolTable *symbol_table_;
 };
 
 // Find the subtree parent, below which no operator uses symbols found in the
@@ -788,13 +945,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // TODO: It might be better to plan Cartesians later if this Produce isn't
       // the last one and is not followed by an operator which requires a merge
       // point (Skip, OrderBy, etc.).
-      if (!on_master_) {
-        Split(produce, PlanCartesian(produce.input()));
-      } else {
-        // We are on master, so our produce input must come on the left hand
-        // side.
-        throw utils::NotYetImplemented("distributed planning");
-      }
+      Split(produce, PlanCartesian(produce.input()));
     }
     return true;
   }
@@ -992,6 +1143,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // which contains that dependency.
       branch.parent_start = input;
     }
+    if (on_master_ && cartesian_branches_.empty()) {
+      // Since we are planning a new Cartesian, the first CartesianBranch must
+      // not be sent to workers if we are executing on master.
+      return branch;
+    }
     // Send the independent subtree to workers and wire it in PullRemote
     auto id = AddWorkerPlan(branch.subtree);
     branch.subtree = std::make_shared<PullRemote>(
@@ -1018,7 +1174,6 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   // Sets the master_op input to be merge_op. Afterwards, on_master_ is true.
   template <class TOp>
   void Split(TOp &master_op, std::shared_ptr<LogicalOperator> merge_op) {
-    if (on_master_) throw utils::NotYetImplemented("distributed planning");
     on_master_ = true;
     master_op.set_input(merge_op);
   }

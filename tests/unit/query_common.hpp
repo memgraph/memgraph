@@ -1,12 +1,13 @@
-///
 /// @file
 /// This file provides macros for easier construction of openCypher query AST.
 /// The usage of macros is very similar to how one would write openCypher. For
 /// example:
 ///
 ///     AstStorage storage;  // Macros rely on storage being in scope.
-///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros rely on database::SingleNode
+///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros
+///     // rely on a DbAccessor named dba.
 ///     database::SingleNode db;
+///     database::GraphDbAccessor dba(db);
 ///
 ///     QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
 ///           WHERE(LESS(PROPERTY_LOOKUP("e", edge_prop), LITERAL(3))),
@@ -18,7 +19,6 @@
 /// resolution and template magic to provide a type safe way of constructing
 /// queries. Although the functions can be used by themselves, it is more
 /// convenient to use the macros.
-///
 
 #pragma once
 
@@ -28,10 +28,7 @@
 #include <utility>
 #include <vector>
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "storage/types.hpp"
 #include "utils/string.hpp"
 
@@ -91,12 +88,10 @@ auto FillOrderBy(OrderBy &order_by, Expression *expression, T... rest) {
   FillOrderBy(order_by, rest...);
 }
 
-///
 /// Create OrderBy expressions.
 ///
 /// The supported combination of arguments is: (Expression, [Ordering])+
 /// Since the Ordering is optional, by default it is ascending.
-///
 template <class... T>
 auto GetOrderBy(T... exprs) {
   OrderBy order_by;
@@ -104,41 +99,42 @@ auto GetOrderBy(T... exprs) {
   return order_by;
 }
 
-///
 /// Create PropertyLookup with given name and property.
 ///
 /// Name is used to create the Identifier which is used for property lookup.
-///
-auto GetPropertyLookup(AstStorage &storage, database::GraphDb &db,
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba,
                        const std::string &name, storage::Property property) {
-  database::GraphDbAccessor dba(db);
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         dba.PropertyName(property), property);
 }
-auto GetPropertyLookup(AstStorage &storage, database::GraphDb &db,
-                       Expression *expr, storage::Property property) {
-  database::GraphDbAccessor dba(db);
+
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       storage::Property property) {
   return storage.Create<PropertyLookup>(expr, dba.PropertyName(property),
                                         property);
 }
+
+template <class TDbAccessor>
 auto GetPropertyLookup(
-    AstStorage &storage, database::GraphDb &, const std::string &name,
+    AstStorage &storage, TDbAccessor &, const std::string &name,
     const std::pair<std::string, storage::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
                                         prop_pair.first, prop_pair.second);
 }
+
+template <class TDbAccessor>
 auto GetPropertyLookup(
-    AstStorage &storage, database::GraphDb &, Expression *expr,
+    AstStorage &storage, TDbAccessor &, Expression *expr,
     const std::pair<std::string, storage::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(expr, prop_pair.first,
                                         prop_pair.second);
 }
 
-///
 /// Create an EdgeAtom with given name, direction and edge_type.
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
-///
 auto GetEdge(AstStorage &storage, const std::string &name,
              EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
              const std::vector<storage::EdgeType> &edge_types = {}) {
@@ -146,12 +142,10 @@ auto GetEdge(AstStorage &storage, const std::string &name,
                                   EdgeAtom::Type::SINGLE, dir, edge_types);
 }
 
-///
 /// Create a variable length expansion EdgeAtom with given name, direction and
 /// edge_type.
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
-///
 auto GetEdgeVariable(AstStorage &storage, const std::string &name,
                      EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
                      const std::vector<storage::EdgeType> &edge_types = {},
@@ -169,11 +163,9 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name,
   return r_val;
 }
 
-///
 /// Create a NodeAtom with given name and label.
 ///
 /// Name is used to create the Identifier which is assigned to the node.
-///
 auto GetNode(AstStorage &storage, const std::string &name,
              std::experimental::optional<storage::Label> label =
                  std::experimental::nullopt) {
@@ -182,9 +174,7 @@ auto GetNode(AstStorage &storage, const std::string &name,
   return node;
 }
 
-///
 /// Create a Pattern with given atoms.
-///
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
   auto pattern = storage.Create<Pattern>();
   pattern->identifier_ =
@@ -193,9 +183,7 @@ auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
   return pattern;
 }
 
-///
 /// Create a Pattern with given name and atoms.
-///
 auto GetPattern(AstStorage &storage, const std::string &name,
                 std::vector<PatternAtom *> atoms) {
   auto pattern = storage.Create<Pattern>();
@@ -204,11 +192,9 @@ auto GetPattern(AstStorage &storage, const std::string &name,
   return pattern;
 }
 
-///
 /// This function fills an AST node which with given patterns.
 ///
 /// The function is most commonly used to create Match and Create clauses.
-///
 template <class TWithPatterns>
 auto GetWithPatterns(TWithPatterns *with_patterns,
                      std::vector<Pattern *> patterns) {
@@ -217,9 +203,7 @@ auto GetWithPatterns(TWithPatterns *with_patterns,
   return with_patterns;
 }
 
-///
 /// Create a query with given clauses.
-///
 
 auto GetSingleQuery(SingleQuery *single_query, Clause *clause) {
   single_query->clauses_.emplace_back(clause);
@@ -351,7 +335,6 @@ void FillReturnBody(AstStorage &storage, ReturnBody &body,
   FillReturnBody(storage, body, rest...);
 }
 
-///
 /// Create the return clause with given expressions.
 ///
 /// The supported expression combination of arguments is:
@@ -373,7 +356,6 @@ auto GetReturn(AstStorage &storage, bool distinct, T... exprs) {
   return ret;
 }
 
-///
 /// Create the with clause with given expressions.
 ///
 /// The supported expression combination is the same as for @c GetReturn.
@@ -387,9 +369,7 @@ auto GetWith(AstStorage &storage, bool distinct, T... exprs) {
   return with;
 }
 
-///
 /// Create the UNWIND clause with given named expression.
-///
 auto GetUnwind(AstStorage &storage, NamedExpression *named_expr) {
   return storage.Create<query::Unwind>(named_expr);
 }
@@ -398,9 +378,7 @@ auto GetUnwind(AstStorage &storage, Expression *expr, NamedExpression *as) {
   return GetUnwind(storage, as);
 }
 
-///
 /// Create the delete clause with given named expressions.
-///
 auto GetDelete(AstStorage &storage, std::vector<Expression *> exprs,
                bool detach = false) {
   auto del = storage.Create<Delete>();
@@ -410,52 +388,40 @@ auto GetDelete(AstStorage &storage, std::vector<Expression *> exprs,
   return del;
 }
 
-///
 /// Create a set property clause for given property lookup and the right hand
 /// side expression.
-///
 auto GetSet(AstStorage &storage, PropertyLookup *prop_lookup,
             Expression *expr) {
   return storage.Create<SetProperty>(prop_lookup, expr);
 }
 
-///
 /// Create a set properties clause for given identifier name and the right hand
 /// side expression.
-///
 auto GetSet(AstStorage &storage, const std::string &name, Expression *expr,
             bool update = false) {
   return storage.Create<SetProperties>(storage.Create<Identifier>(name), expr,
                                        update);
 }
 
-///
 /// Create a set labels clause for given identifier name and labels.
-///
 auto GetSet(AstStorage &storage, const std::string &name,
             std::vector<storage::Label> labels) {
   return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
 }
 
-///
 /// Create a remove property clause for given property lookup
-///
 auto GetRemove(AstStorage &storage, PropertyLookup *prop_lookup) {
   return storage.Create<RemoveProperty>(prop_lookup);
 }
 
-///
 /// Create a remove labels clause for given identifier name and labels.
-///
 auto GetRemove(AstStorage &storage, const std::string &name,
                std::vector<storage::Label> labels) {
   return storage.Create<RemoveLabels>(storage.Create<Identifier>(name), labels);
 }
 
-///
 /// Create a Merge clause for given Pattern with optional OnMatch and OnCreate
 /// parts.
-///
 auto GetMerge(AstStorage &storage, Pattern *pattern,
               OnCreate on_create = OnCreate{}) {
   auto *merge = storage.Create<query::Merge>();
@@ -476,7 +442,6 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 
 }  // namespace query
 
-///
 /// All the following macros implicitly pass `storage` variable to functions.
 /// You need to have `AstStorage storage;` somewhere in scope to use them.
 /// Refer to function documentation to see what the macro does.
@@ -487,7 +452,6 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 ///   AstStorage storage;
 ///   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
 ///                      RETURN(NEXPR("new_name"), IDENT("m")));
-///
 #define NODE(...) query::test_common::GetNode(storage, __VA_ARGS__)
 #define EDGE(...) query::test_common::GetEdge(storage, __VA_ARGS__)
 #define EDGE_VARIABLE(...) \
@@ -515,10 +479,9 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
       std::unordered_map<std::pair<std::string, storage::Property>, \
                          query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) \
-  std::make_pair(property_name,      \
-                 database::GraphDbAccessor(db).Property(property_name))
+  std::make_pair(property_name, dba.Property(property_name))
 #define PROPERTY_LOOKUP(...) \
-  query::test_common::GetPropertyLookup(storage, db, __VA_ARGS__)
+  query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:
