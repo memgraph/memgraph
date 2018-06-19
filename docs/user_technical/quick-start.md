@@ -56,6 +56,36 @@ Linux systems it should be in
 `/var/lib/docker/volumes/mg_etc/_data/memgraph.conf`. After changing the
 configuration, Memgraph needs to be restarted.
 
+##### Note for OS X/macOS Users
+
+Although unlikely, some OS X/macOS users might experience minor difficulties
+after following the Docker installation instructions. Instead of running on
+`localhost`, a Docker container for Memgraph might be running on a custom IP
+address. Fortunately, that IP address can be found using the following algorithm:
+
+1) Find out the container ID of the Memgraph container
+
+By issuing the command `docker ls` the user should get an output similar to the
+following:
+
+```bash
+CONTAINER ID        IMAGE               COMMAND                  CREATED        ...
+9397623cd87e        memgraph            "/usr/lib/memgraph/m…"   2 seconds ago  ...
+```
+
+At this point, it is important to remember the container ID of the Memgraph image.
+In our case, that is `9397623cd87e`.
+
+2) Use the container ID to retrieve an IP of the container
+
+```bash
+docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' 9397623cd87e
+```
+
+The command above should yield the sought IP. If that IP does not correspond to
+`localhost`, it should be used instead of `localhost` when firing up the
+`neo4j-client` in the [querying](#querying) section.
+
 #### Debian Package Installation
 
 After downloading Memgraph as a Debian package, install it by running the
@@ -182,7 +212,7 @@ To find created nodes and relationships, execute the following query:
 MATCH (u:User)-[r]->(x) RETURN u, r, x;
 ```
 
-#### Supported languages
+#### Supported Languages
 
 If users wish to query Memgraph programmatically, they can do so using the
 [Bolt protocol](https://boltprotocol.org). Bolt was designed for efficient
