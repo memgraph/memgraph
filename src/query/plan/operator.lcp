@@ -911,16 +911,18 @@ pulled.")
                                           '(single depth-first breadth-first weighted-shortest-path)))
    (is-reverse :bool :documentation
                "True if the path should be written as expanding from node_symbol to input_symbol.")
-   (lower-bound "Expression *" :save-fun #'save-pointer :load-fun #'load-pointer
+   (lower-bound "Expression *" :reader t
+                :save-fun #'save-pointer :load-fun #'load-pointer
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Optional lower bound of the variable length expansion, defaults are (1, inf)")
-   (upper-bound "Expression *" :save-fun #'save-pointer :load-fun #'load-pointer
+   (upper-bound "Expression *" :reader t
+                :save-fun #'save-pointer :load-fun #'load-pointer
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Optional upper bound of the variable length expansion, defaults are (1, inf)")
-   (filter-lambda "Lambda")
-   (weight-lambda "std::experimental::optional<Lambda>"
+   (filter-lambda "Lambda" :reader t)
+   (weight-lambda "std::experimental::optional<Lambda>" :reader t
                   :capnp-save (lcp:capnp-save-optional
                                "capnp::ExpandVariable::Lambda" "Lambda"
                                "[helper](auto *builder, const auto &val) { val.Save(builder, helper); }")

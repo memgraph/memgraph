@@ -39,7 +39,7 @@ def _base_classes(value):
 
 def _is_instance(value, type_):
     '''Return True if value is an instance of type.'''
-    return value.type == type_ or \
+    return value.type.unqualified() == type_ or \
             type_ in [base.type for base in _base_classes(value)]
 
 
@@ -49,9 +49,10 @@ _SMART_PTR_TYPE_PATTERN = \
 
 
 def _is_smart_ptr(maybe_smart_ptr, type_name=None):
-    if maybe_smart_ptr.type.name is None:
+    type_ = maybe_smart_ptr.type.unqualified()
+    if type_.name is None:
         return False
-    match = _SMART_PTR_TYPE_PATTERN.match(maybe_smart_ptr.type.name)
+    match = _SMART_PTR_TYPE_PATTERN.match(type_.name)
     if match is None or type_name is None:
         return bool(match)
     return type_name == match.group('pointee_type')
@@ -64,10 +65,14 @@ def _smart_ptr_pointee(smart_ptr):
     if _has_field(smart_ptr, '_M_ptr'):
         # shared_ptr
         return smart_ptr['_M_ptr']
-    if _has_field(smart_ptr, '_M_t') and \
-            _has_field(smart_ptr['_M_t'], '_M_head_impl'):
+    if _has_field(smart_ptr, '_M_t'):
         # unique_ptr
-        return smart_ptr['_M_t']['_M_head_impl']
+        smart_ptr = smart_ptr['_M_t']
+        if _has_field(smart_ptr, '_M_t'):
+            # Check for one more level of _M_t
+            smart_ptr = smart_ptr['_M_t']
+        if _has_field(smart_ptr, '_M_head_impl'):
+            return smart_ptr['_M_head_impl']
 
 
 def _get_operator_input(operator):
@@ -91,10 +96,10 @@ class PrintOperatorTree(gdb.Command):
         except gdb.error as e:
             raise gdb.GdbError(*e.args)
         logical_operator_type = _logical_operator_type()
+        if operator.type.code in (gdb.TYPE_CODE_PTR, gdb.TYPE_CODE_REF):
+            operator = operator.referenced_value()
         if _is_smart_ptr(operator, 'query::plan::LogicalOperator'):
             operator = _smart_ptr_pointee(operator).dereference()
-        elif operator.type.code == gdb.TYPE_CODE_PTR:
-            operator = operator.dereference()
         if not _is_instance(operator, logical_operator_type):
             raise gdb.GdbError("Expected a '%s', but got '%s'" %
                                (logical_operator_type, operator.type))

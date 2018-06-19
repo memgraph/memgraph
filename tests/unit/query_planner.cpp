@@ -508,7 +508,6 @@ class ExpectModifyUser : public OpChecker<ModifyUser> {
 
  private:
   std::string username_;
-  query::Expression *password_;
   bool is_create_;
 };
 
@@ -2345,6 +2344,110 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreate) {
       MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
                    ExpectCreateExpand(), ExpectSynchronize(false),
                    ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
+  auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianExpand) {
+  // Test MATCH (a), (b)-[e]-(c) RETURN c
+  AstStorage storage;
+  database::Master db;
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b");
+  auto *edge_e = EDGE("e");
+  auto *node_c = NODE("c");
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b, edge_e, node_c)),
+                     RETURN("c")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto sym_e = symbol_table.at(*edge_e->identifier_);
+  auto sym_c = symbol_table.at(*node_c->identifier_);
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectExpand(),
+                                 ExpectPullRemote({sym_b, sym_e, sym_c}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectProduce()),
+      MakeCheckers(ExpectScanAll()),
+      MakeCheckers(ExpectScanAll(), ExpectExpand()));
+  auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianExpandToExisting) {
+  // Test MATCH (a), (b)-[e]-(a) RETURN e
+  AstStorage storage;
+  database::Master db;
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b");
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(node_a), PATTERN(node_b, EDGE("e"), NODE("a"))),
+      RETURN("e")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectExpand(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
+  auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianExpandFromExisting) {
+  // Test MATCH (a), (b), (a)-[e]-(b) RETURN e
+  AstStorage storage;
+  database::Master db;
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b");
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b),
+                           PATTERN(NODE("a"), EDGE("e"), NODE("b"))),
+                     RETURN("e")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectExpand(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
+  auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
+  // Test MATCH (a), (b), (c) WHERE a = 42 AND b = a AND c = b RETURN c
+  AstStorage storage;
+  database::Master db;
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b");
+  auto *node_c = NODE("c");
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(node_a), PATTERN(node_b), PATTERN(node_c)),
+      WHERE(AND(AND(EQ(IDENT("a"), LITERAL(42)), EQ(IDENT("b"), IDENT("a"))),
+                EQ(IDENT("c"), IDENT("b")))),
+      RETURN("c")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto sym_c = symbol_table.at(*node_c->identifier_);
+  auto left_cart =
+      MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectPullRemote({sym_a}));
+  auto mid_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
+  auto mid_right_cart =
+      MakeCheckers(ExpectCartesian(std::move(mid_cart), std::move(right_cart)),
+                   ExpectFilter());
+  auto expected = ExpectDistributed(
+      MakeCheckers(
+          ExpectCartesian(std::move(left_cart), std::move(mid_right_cart)),
+          ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll(), ExpectFilter()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   auto planner = MakePlanner<TypeParam>(db, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);

@@ -44,8 +44,9 @@ int64_t AddWorkerPlan(DistributedPlan &distributed_plan,
 // `forbidden_symbols` set.
 class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndependentSubtreeFinder(const std::vector<Symbol> &forbidden_symbols,
-                           const SymbolTable *symbol_table)
+  IndependentSubtreeFinder(
+      const std::vector<std::vector<Symbol>> &forbidden_symbols,
+      const SymbolTable *symbol_table)
       : forbidden_symbols_(forbidden_symbols), symbol_table_(symbol_table) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
@@ -92,24 +93,101 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(Expand &exp) override {
     if (subtree_) return true;
-    if (IsForbidden(exp.input_symbol())) {
+    if (auto found = FindForbidden(exp.input_symbol())) {
       subtree_ = exp.input();
       parent_ = &exp;
-    } else if (exp.existing_node() && IsForbidden(exp.node_symbol())) {
-      subtree_ = exp.input();
-      parent_ = &exp;
+      depends_on_ = found;
     }
-    CHECK(!IsForbidden(exp.edge_symbol()))
+    if (exp.existing_node()) {
+      if (auto found = FindForbidden(exp.node_symbol())) {
+        subtree_ = exp.input();
+        parent_ = &exp;
+        if (depends_on_) {
+          depends_on_ = std::min(*found, *depends_on_);
+        } else {
+          depends_on_ = found;
+        }
+      }
+    }
+    CHECK(!FindForbidden(exp.edge_symbol()))
         << "Expand uses an already used edge symbol.";
+    return true;
+  }
+
+  bool PostVisit(ExpandVariable &exp) override {
+    if (subtree_) return true;
+    if (auto found = FindForbidden(exp.input_symbol())) {
+      subtree_ = exp.input();
+      parent_ = &exp;
+      depends_on_ = found;
+    }
+    if (exp.existing_node()) {
+      if (auto found = FindForbidden(exp.node_symbol())) {
+        subtree_ = exp.input();
+        parent_ = &exp;
+        if (depends_on_) {
+          depends_on_ = std::min(*found, *depends_on_);
+        } else {
+          depends_on_ = found;
+        }
+      }
+    }
+    CHECK(!FindForbidden(exp.edge_symbol()))
+        << "Expand uses an already used edge symbol.";
+    // Check for bounding expressions.
+    if (exp.lower_bound()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      exp.lower_bound()->Accept(collector);
+      // TODO: Figure out what do to here. Perhaps we shouldn't allow variables
+      // in bound expressions.
+      if (ContainsForbidden(collector.symbols_)) {
+        throw utils::NotYetImplemented("distributed Cartesian planning");
+      }
+    }
+    if (exp.upper_bound()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      exp.upper_bound()->Accept(collector);
+      if (ContainsForbidden(collector.symbols_)) {
+        throw utils::NotYetImplemented("distributed Cartesian planning");
+      }
+    }
+    // Check for lambda expressions
+    if (exp.filter_lambda().expression) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      exp.filter_lambda().expression->Accept(collector);
+      // TODO: Extract filters or have them be inlined later in the planning.
+      if (ContainsForbidden(collector.symbols_)) {
+        throw utils::NotYetImplemented("distributed Cartesian planning");
+      }
+    }
+    if (exp.weight_lambda()) {
+      CHECK(exp.weight_lambda()->expression)
+          << "Unexpected nullptr expression in lambda";
+      UsedSymbolsCollector collector(*symbol_table_);
+      exp.weight_lambda()->expression->Accept(collector);
+      // TODO: Figure out what to do here
+      if (ContainsForbidden(collector.symbols_)) {
+        throw utils::NotYetImplemented("distributed Cartesian planning");
+      }
+    }
     return true;
   }
 
   bool PostVisit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
     if (subtree_) return true;
-    if (IsForbidden(op.expand_symbol()) ||
-        ContainsForbidden(op.previous_symbols())) {
+    if (auto found = FindForbidden(op.expand_symbol())) {
       subtree_ = op.input();
       parent_ = &op;
+      depends_on_ = found;
+    }
+    if (auto found = ContainsForbidden(op.previous_symbols())) {
+      subtree_ = op.input();
+      parent_ = &op;
+      if (depends_on_) {
+        depends_on_ = std::min(*found, *depends_on_);
+      } else {
+        depends_on_ = found;
+      }
     }
     return true;
   }
@@ -118,9 +196,10 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
     if (subtree_) return true;
     UsedSymbolsCollector collector(*symbol_table_);
     op.expression()->Accept(collector);
-    if (ContainsForbidden(collector.symbols_)) {
+    if (auto found = ContainsForbidden(collector.symbols_)) {
       subtree_ = op.input();
       parent_ = &op;
+      depends_on_ = found;
     }
     return true;
   }
@@ -130,9 +209,10 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
     for (auto *named_expr : produce.named_expressions()) {
       UsedSymbolsCollector collector(*symbol_table_);
       named_expr->expression_->Accept(collector);
-      if (ContainsForbidden(collector.symbols_)) {
+      if (auto found = ContainsForbidden(collector.symbols_)) {
         subtree_ = produce.input();
         parent_ = &produce;
+        depends_on_ = found;
         break;
       }
     }
@@ -143,6 +223,8 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   std::shared_ptr<LogicalOperator> subtree_;
   // Immediate parent of `subtree_`.
   LogicalOperator *parent_{nullptr};
+  // Minimum index into forbidden_symbols_
+  std::experimental::optional<int64_t> depends_on_;
 
  protected:
   bool DefaultPostVisit() override {
@@ -150,36 +232,49 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   }
 
   template <class TCollection>
-  bool ContainsForbidden(const TCollection &symbols) {
-    for (const auto &symbol : symbols) {
-      if (IsForbidden(symbol)) {
-        return true;
+  std::experimental::optional<int64_t> ContainsForbidden(
+      const TCollection &symbols) {
+    for (int64_t i = 0; i < forbidden_symbols_.size(); ++i) {
+      for (const auto &symbol : symbols) {
+        if (utils::Contains(forbidden_symbols_[i], symbol)) {
+          return std::experimental::make_optional(i);
+        }
       }
     }
-    return false;
+    return std::experimental::nullopt;
   }
 
-  bool IsForbidden(const Symbol &symbol) {
-    return utils::Contains(forbidden_symbols_, symbol);
+  std::experimental::optional<int64_t> FindForbidden(const Symbol &symbol) {
+    for (int64_t i = 0; i < forbidden_symbols_.size(); ++i) {
+      if (utils::Contains(forbidden_symbols_[i], symbol)) {
+        return std::experimental::make_optional(i);
+      }
+    }
+    return std::experimental::nullopt;
   }
 
  private:
-  std::vector<Symbol> forbidden_symbols_;
+  std::vector<std::vector<Symbol>> forbidden_symbols_;
   const SymbolTable *symbol_table_;
 };
 
 // Find the subtree parent, below which no operator uses symbols found in the
 // `forbidden_symbols` set.
 //
-// A pair is returned (subtree, parent), where the parent may be nullptr if the
-// given `op` is already a subtree which doesn't use `forbidden_symbols`.
-auto FindIndependentSubtree(const std::shared_ptr<LogicalOperator> &op,
-                            const std::vector<Symbol> &forbidden_symbols,
-                            const SymbolTable *symbol_table) {
+// A tuple is returned (subtree, parent, depends_on), where the parent may be
+// nullptr if the given `op` is already a subtree which doesn't use
+// `forbidden_symbols`. `depends_on` is set to the minimum index of the
+// `forbidden_symbols` that the operators above the `subtree` depend on. The
+// returned `parent` is therefore the last operator which depends on
+// `forbidden_symbols`.
+auto FindIndependentSubtree(
+    const std::shared_ptr<LogicalOperator> &op,
+    const std::vector<std::vector<Symbol>> &forbidden_symbols,
+    const SymbolTable *symbol_table) {
   IndependentSubtreeFinder finder(forbidden_symbols, symbol_table);
   op->Accept(finder);
   auto subtree = finder.subtree_ ? finder.subtree_ : op;
-  return std::make_pair(subtree, finder.parent_);
+  return std::make_tuple(subtree, finder.parent_, finder.depends_on_);
 }
 
 class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
@@ -214,7 +309,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   //  * ScanAll(m) \                                   + Cartesian
   //                +- PullRemote(m) \                /
   //                                  + Cartesian - -
-  //                +- PullRemote(n) /
+  //                +- PullRemote(l) /
   //  * ScanAll(l) /
   //
   // Things get more complicated if any branch of the Cartesian has a Filter
@@ -235,42 +330,72 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   //    workers to evaluate the second; or
   //  * move the Filter after the Cartesian (or maybe inline it inside).
   //
+  // This implementation goes with the 2nd approach, by tracking dependent
+  // branches and putting them after Cartesian. We should probably redesign the
+  // planning so that cost estimation can estimate Cartesian products and
+  // influence the distributed planner. Therefore, the above example would turn
+  // into:
+  //
+  //    workers        |    master
+  //
+  //  * ScanAll(n) - - \
+  //                    + PullRemote(n) \
+  //                                     + Cartesian - Filter (m.prop = n.prop)
+  //                    + PullRemote(m) /
+  //  * ScanAll(m) - - /
+  //
   // Inserting the Cartesian operator is done through PlanCartesian while
   // post-visiting Produce, Aggregate or write operators.
   //
-  // TODO: Consider planning Cartesian during regular planning in
-  // RuleBasedPlanner.
   // TODO: Finish Cartesian planning:
-  //  * checking Filters can be used;
-  //  * checking ExpandUniquenessFilter can be used;
-  //  * checking indexed ScanAll can be used;
-  //  * checking Expand into existing can be used;
+  //  * splitting indexed ScanAll;
   //  * allowing Cartesian after Produce (i.e. after WITH clause);
   //  * ...
   auto PlanCartesian(const std::shared_ptr<LogicalOperator> &rhs_input) {
     std::shared_ptr<LogicalOperator> cartesian;
     auto right_branch = MakeCartesianBranch(rhs_input);
     auto right_op = right_branch.subtree;
+    std::vector<CartesianBranch> dependent_branches;
+    dependent_branches.reserve(cartesian_branches_.size() + 1);
+    if (right_branch.parent_start) {
+      dependent_branches.push_back(right_branch);
+    }
+    auto append_dependants = [&dependent_branches](auto op, int64_t branch_ix) {
+      // Append dependent parents, iteration is in reverse because we want
+      // LIFO behaviour.
+      for (auto it = dependent_branches.rbegin();
+           it != dependent_branches.rend(); ++it) {
+        if (it->depends_on.value() != branch_ix) continue;
+        it->parent_end->set_input(op);
+        op = it->parent_start;
+      }
+      dependent_branches.erase(
+          std::remove_if(dependent_branches.begin(), dependent_branches.end(),
+                         [branch_ix](const auto &branch) {
+                           return branch.depends_on.value() == branch_ix;
+                         }),
+          dependent_branches.end());
+      return op;
+    };
     // We use this ordering of operators, so that left hand side can be
-    // accumulated without having whole product accumulations. This (obviously)
-    // relies on the fact that Cartesian accumulation strategy accumulates the
-    // left operator input.
+    // accumulated without having whole product accumulations. This relies on
+    // the fact that Cartesian accumulation strategy accumulates the left
+    // operator input.
     while (!cartesian_branches_.empty()) {
       auto left_branch = cartesian_branches_.back();
-      if (left_branch.parent_start) {
-        throw utils::NotYetImplemented("distributed Cartesian planning");
-      }
       cartesian_branches_.pop_back();
+      if (left_branch.parent_start) {
+        dependent_branches.push_back(left_branch);
+      }
       cartesian = std::make_shared<Cartesian>(
           left_branch.subtree,
           left_branch.subtree->ModifiedSymbols(distributed_plan_.symbol_table),
           right_op, right_op->ModifiedSymbols(distributed_plan_.symbol_table));
+      cartesian = append_dependants(cartesian, cartesian_branches_.size());
       right_op = cartesian;
     }
-    if (right_branch.parent_start) {
-      right_branch.parent_end->set_input(cartesian);
-      cartesian = right_branch.parent_start;
-    }
+    CHECK(dependent_branches.empty())
+        << "Expected to fill all Cartesian branches.";
     cartesian_symbols_.clear();
     return cartesian;
   }
@@ -279,10 +404,8 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     cartesian_branches_.emplace_back(MakeCartesianBranch(scan->input()));
     // Collect modified symbols of the whole branch (independent subtree +
     // parent subtree).
-    auto modified_symbols =
-        scan->input()->ModifiedSymbols(distributed_plan_.symbol_table);
-    cartesian_symbols_.insert(cartesian_symbols_.end(),
-                              modified_symbols.begin(), modified_symbols.end());
+    cartesian_symbols_.emplace_back(
+        scan->input()->ModifiedSymbols(distributed_plan_.symbol_table));
     // Rewire the scan to be cut from the branch.
     scan->set_input(std::make_shared<Once>());
   }
@@ -855,19 +978,19 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // parent_end is pointer, because we may only change its input.
     LogicalOperator *parent_end{nullptr};
     // Minimum index of the branch this parent depends on.
-    int64_t depends_on{-1};
+    std::experimental::optional<int64_t> depends_on;
   };
 
   CartesianBranch MakeCartesianBranch(
       const std::shared_ptr<LogicalOperator> &input) {
     CartesianBranch branch;
-    std::tie(branch.subtree, branch.parent_end) = FindIndependentSubtree(
-        input, cartesian_symbols_, &distributed_plan_.symbol_table);
+    std::tie(branch.subtree, branch.parent_end, branch.depends_on) =
+        FindIndependentSubtree(input, cartesian_symbols_,
+                               &distributed_plan_.symbol_table);
     if (branch.parent_end) {
-      // This branch depends on another, so we need to set on which one and
-      // store the parent subtree which contains that dependency.
+      // This branch depends on another, so we need store the parent subtree
+      // which contains that dependency.
       branch.parent_start = input;
-      branch.depends_on = cartesian_branches_.size();
     }
     // Send the independent subtree to workers and wire it in PullRemote
     auto id = AddWorkerPlan(branch.subtree);
@@ -882,8 +1005,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   std::vector<LogicalOperator *> prev_ops_;
   // Operators that still need to be wired into Cartesian.
   std::vector<CartesianBranch> cartesian_branches_;
-  // Symbols modified by the currently stored Cartesian branches.
-  std::vector<Symbol> cartesian_symbols_;
+  // Symbols modified by the currently stored Cartesian branches. Each vector
+  // corresponds to the above CartesianBranch.
+  std::vector<std::vector<Symbol>> cartesian_symbols_;
   bool has_scan_all_ = false;
   bool needs_synchronize_ = false;
   bool should_split_ = false;
