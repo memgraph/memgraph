@@ -300,9 +300,13 @@ dropUser : DROP SP USER SP userName ( SP? ',' SP? userName )* ;
 
 streamName : UnescapedSymbolicName ;
 
-createStream : CREATE SP STREAM SP streamName SP AS SP LOAD SP DATA SP KAFKA SP streamUri=literal SP WITH SP TRANSFORM SP transformUri=literal ( SP batchIntervalOption )? ;
+createStream : CREATE SP STREAM SP streamName SP AS SP LOAD SP DATA SP KAFKA SP
+streamUri=literal SP WITH SP TOPIC SP streamTopic=literal SP WITH SP TRANSFORM
+SP transformUri=literal ( SP batchIntervalOption )? (SP batchSizeOption )? ;
 
-batchIntervalOption : BATCH SP INTERVAL SP literal ;
+batchIntervalOption : BATCH_INTERVAL SP literal ;
+
+batchSizeOption : BATCH_SIZE SP literal ;
 
 dropStream : DROP SP STREAM SP streamName ;
 
@@ -427,8 +431,8 @@ symbolicName : UnescapedSymbolicName
              | DATA
              | KAFKA
              | TRANSFORM
-             | BATCH
-             | INTERVAL
+             | BATCH_SIZE
+             | BATCH_INTERVAL
              | SHOW
              | START
              | STOP
@@ -559,9 +563,9 @@ KAFKA : ( 'K' | 'k' ) ( 'A' | 'a' ) ( 'F' | 'f' ) ( 'K' | 'k' ) ( 'A' | 'a' ) ;
 
 TRANSFORM : ( 'T' | 't' ) ( 'R' | 'r' ) ( 'A' | 'a' ) ( 'N' | 'n' ) ( 'S' | 's') ( 'F' | 'f' ) ( 'O' | 'o' ) ( 'R' | 'r' ) ( 'M' | 'm' ) ;
 
-BATCH : ( 'B' | 'b' ) ( 'A' | 'a' ) ( 'T' | 't' ) ( 'C' | 'c' ) ( 'H' | 'h' ) ;
+BATCH_SIZE : ( 'B' | 'b' ) ( 'A' | 'a' ) ( 'T' | 't' ) ( 'C' | 'c' ) ( 'H' | 'h') '_' ( 'S' | 's' ) ( 'I' | 'i' ) ( 'Z' | 'z' ) ( 'E' | 'e' ) ;
 
-INTERVAL : ( 'I' | 'i' ) ( 'N' | 'n' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ( 'V' | 'v' ) ( 'A' | 'a' ) ( 'L' | 'l' ) ;
+BATCH_INTERVAL : ( 'B' | 'b' ) ( 'A' | 'a' ) ( 'T' | 't' ) ( 'C' | 'c' ) ( 'H' | 'h' ) '_' ( 'I' | 'i' ) ( 'N' | 'n' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ( 'V' | 'v' ) ( 'A' | 'a' ) ( 'L' | 'l' ) ;
 
 SHOW : ( 'S' | 's' ) ( 'H' | 'h' ) ( 'O' | 'o' ) ( 'W' | 'w' ) ;
 
@@ -570,6 +574,8 @@ START : ( 'S' | 's' ) ( 'T' | 't' ) ( 'A' | 'a' ) ( 'R' | 'r' ) ( 'T' | 't' ) ;
 STOP : ( 'S' | 's' ) ( 'T' | 't' ) ( 'O' | 'o' ) ( 'P' | 'p' ) ;
 
 BATCHES : ( 'B' | 'b' )  ( 'A' | 'a' ) ( 'T' | 't' ) ( 'C' | 'c' ) ( 'H' | 'h' ) ( 'E' | 'e' ) ( 'S' | 's' ) ;
+
+TOPIC : ( 'T' | 't' ) ( 'O' | 'o' ) ( 'P' | 'p' ) ( 'I' | 'i' ) ( 'C' | 'c' ) ;
 
 UnescapedSymbolicName : IdentifierStart ( IdentifierPart )* ;
 

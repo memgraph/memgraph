@@ -195,6 +195,9 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
   antlrcpp::Any visitBatchIntervalOption(
       CypherParser::BatchIntervalOptionContext *ctx) override;
 
+  antlrcpp::Any visitBatchSizeOption(
+      CypherParser::BatchSizeOptionContext *ctx) override;
+
   /**
    * @return DropStream*
    */

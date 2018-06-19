@@ -410,8 +410,10 @@ struct DropUser {
 struct CreateStream {
   streamName @0 :Text;
   streamUri @1 :Tree;
-  transformUri @2 :Tree;
-  batchInterval @3 :Tree;
+  streamTopic @2 :Tree;
+  transformUri @3 :Tree;
+  batchIntervalInMs @4 :Tree;
+  batchSize @5 :Tree;
 }
 
 struct DropStream {

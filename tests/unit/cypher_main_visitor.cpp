@@ -1963,8 +1963,10 @@ TYPED_TEST(CypherMainVisitorTest, DropUser) {
 TYPED_TEST(CypherMainVisitorTest, CreateStream) {
   auto check_create_stream = [](
       std::string input, const std::string &stream_name,
-      const std::string &stream_uri, const std::string &transform_uri,
-      std::experimental::optional<int64_t> batch_interval) {
+      const std::string &stream_uri, const std::string &stream_topic,
+      const std::string &transform_uri,
+      std::experimental::optional<int64_t> batch_interval_in_ms,
+      std::experimental::optional<int64_t> batch_size) {
     TypeParam ast_generator(input);
     auto *query = ast_generator.query_;
     ASSERT_TRUE(query->single_query_);
@@ -1977,47 +1979,95 @@ TYPED_TEST(CypherMainVisitorTest, CreateStream) {
     ASSERT_TRUE(create_stream->stream_uri_);
     CheckLiteral(ast_generator.context_, create_stream->stream_uri_,
                  TypedValue(stream_uri));
+    ASSERT_TRUE(create_stream->stream_topic_);
+    CheckLiteral(ast_generator.context_, create_stream->stream_topic_,
+                 TypedValue(stream_topic));
     ASSERT_TRUE(create_stream->transform_uri_);
     CheckLiteral(ast_generator.context_, create_stream->transform_uri_,
                  TypedValue(transform_uri));
-    if (batch_interval) {
-      ASSERT_TRUE(create_stream->batch_interval_);
-      CheckLiteral(ast_generator.context_, create_stream->batch_interval_,
-                   TypedValue(*batch_interval));
+    if (batch_interval_in_ms) {
+      ASSERT_TRUE(create_stream->batch_interval_in_ms_);
+      CheckLiteral(ast_generator.context_, create_stream->batch_interval_in_ms_,
+                   TypedValue(*batch_interval_in_ms));
     } else {
-      EXPECT_EQ(create_stream->batch_interval_, nullptr);
+      EXPECT_EQ(create_stream->batch_interval_in_ms_, nullptr);
+    }
+    if (batch_size) {
+      ASSERT_TRUE(create_stream->batch_size_);
+      CheckLiteral(ast_generator.context_, create_stream->batch_size_,
+                   TypedValue(*batch_size));
+    } else {
+      EXPECT_EQ(create_stream->batch_size_, nullptr);
     }
   };
 
   check_create_stream(
       "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+      "WITH TOPIC 'tropika' "
       "WITH TRANSFORM 'localhost/test.py'",
-      "strim", "localhost", "localhost/test.py", std::experimental::nullopt);
+      "strim", "localhost", "tropika", "localhost/test.py",
+      std::experimental::nullopt, std::experimental::nullopt);
+
   check_create_stream(
       "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
-      "WITH TRAnsFORM 'localhost/test.py' bAtCH inTErvAL 168",
-      "strim", "localhost", "localhost/test.py", 168);
+      "WitH TopIC 'tropika' "
+      "WITH TRAnsFORM 'localhost/test.py' bAtCH_inTErvAL 168",
+      "strim", "localhost", "tropika", "localhost/test.py", 168,
+      std::experimental::nullopt);
+
+  check_create_stream(
+      "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
+      "WITH TopIC 'tropika' "
+      "WITH TRAnsFORM 'localhost/test.py' bAtCH_SizE 17",
+      "strim", "localhost", "tropika", "localhost/test.py",
+      std::experimental::nullopt, 17);
+
+  check_create_stream(
+      "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
+      "WitH TOPic 'tropika' "
+      "WITH TRAnsFORM 'localhost/test.py' bAtCH_inTErvAL 168 Batch_SIze 17",
+      "strim", "localhost", "tropika", "localhost/test.py", 168, 17);
 
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
-                   "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 'jedan' ",
-                   "strim", "localhost", "localhost/test.py", 168),
+                   "WITH TRANSFORM 'localhost/test.py' BATCH_INTERVAL 'jedan' ",
+                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   std::experimental::nullopt),
+               SyntaxException);
+  EXPECT_THROW(check_create_stream(
+                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "WITH TOPIC 'tropika' "
+                   "WITH TRANSFORM 'localhost/test.py' BATCH_SIZE 'jedan' ",
+                   "strim", "localhost", "tropika", "localhost/test.py",
+                   std::experimental::nullopt, 17),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM 123 AS LOAD DATA KAFKA 'localhost' "
-                   "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 168 ",
-                   "strim", "localhost", "localhost/test.py", 168),
+                   "WITH TOPIC 'tropika' "
+                   "WITH TRANSFORM 'localhost/test.py' BATCH_INTERVAL 168 ",
+                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   std::experimental::nullopt),
                SyntaxException);
-  EXPECT_THROW(
-      check_create_stream("CREATE STREAM strim AS LOAD DATA KAFKA localhost "
-                          "WITH TRANSFORM 'localhost/test.py'",
-                          "strim", "localhost", "localhost/test.py",
-                          std::experimental::nullopt),
-      SyntaxException);
+  EXPECT_THROW(check_create_stream(
+                   "CREATE STREAM strim AS LOAD DATA KAFKA localhost "
+                   "WITH TOPIC 'tropika' "
+                   "WITH TRANSFORM 'localhost/test.py'",
+                   "strim", "localhost", "tropika", "localhost/test.py",
+                   std::experimental::nullopt, std::experimental::nullopt),
+               SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
-                   "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
-                   "strim", "localhost", "localhost/test.py", 168),
+                   "WITH TOPIC 2"
+                   "WITH TRANSFORM localhost/test.py BATCH_INTERVAL 168 ",
+                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   std::experimental::nullopt),
+               SyntaxException);
+  EXPECT_THROW(check_create_stream(
+                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "WITH TOPIC 'tropika'"
+                   "WITH TRANSFORM localhost/test.py BATCH_INTERVAL 168 ",
+                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   std::experimental::nullopt),
                SyntaxException);
 }
 

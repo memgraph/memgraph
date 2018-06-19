@@ -1,7 +1,8 @@
 # CMake configuration for the main memgraph library and executable
 
-# add memgraph sub libraries
+# add memgraph sub libraries, ordered by dependency
 add_subdirectory(utils)
+add_subdirectory(integrations)
 add_subdirectory(io)
 add_subdirectory(telemetry)
 
@@ -196,7 +197,7 @@ set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     ${OPENSSL_LIBRARIES}
     ${Boost_IOSTREAMS_LIBRARY_RELEASE}
     ${Boost_SERIALIZATION_LIBRARY_RELEASE}
-    mg-utils mg-io)
+    mg-utils mg-io mg-integrations)
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
@@ -218,7 +219,7 @@ add_dependencies(memgraph_lib generate_capnp)
 
 # STATIC library used to store key-value pairs
 add_library(kvstore_lib STATIC storage/kvstore.cpp)
-target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib)
+target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib glog gflags)
 
 # STATIC library for dummy key-value storage
 add_library(kvstore_dummy_lib STATIC storage/kvstore_dummy.cpp)

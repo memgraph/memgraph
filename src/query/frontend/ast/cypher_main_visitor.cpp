@@ -324,17 +324,30 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(
     throw SyntaxException("Stream URI should be a string literal!");
   }
   Expression *stream_uri = ctx->streamUri->accept(this);
+
+  if (!ctx->streamTopic->StringLiteral()) {
+    throw SyntaxException("Topic should be a string literal!");
+  }
+  Expression *stream_topic = ctx->streamTopic->accept(this);
+
   if (!ctx->transformUri->StringLiteral()) {
     throw SyntaxException("Transform URI should be a string literal!");
   }
   Expression *transform_uri = ctx->transformUri->accept(this);
-  Expression *batch_interval = nullptr;
 
+  Expression *batch_interval_in_ms = nullptr;
   if (ctx->batchIntervalOption()) {
-    batch_interval = ctx->batchIntervalOption()->accept(this);
+    batch_interval_in_ms = ctx->batchIntervalOption()->accept(this);
   }
-  return storage_.Create<CreateStream>(stream_name, stream_uri, transform_uri,
-                                       batch_interval);
+
+  Expression *batch_size = nullptr;
+  if (ctx->batchSizeOption()) {
+    batch_size = ctx->batchSizeOption()->accept(this);
+  }
+
+  return storage_.Create<CreateStream>(stream_name, stream_uri, stream_topic,
+                                       transform_uri, batch_interval_in_ms,
+                                       batch_size);
 }
 
 /**
@@ -345,6 +358,18 @@ antlrcpp::Any CypherMainVisitor::visitBatchIntervalOption(
   if (!ctx->literal()->numberLiteral() ||
       !ctx->literal()->numberLiteral()->integerLiteral()) {
     throw SyntaxException("Batch interval should be an integer literal!");
+  }
+  return ctx->literal()->accept(this);
+}
+
+/**
+ * @return Expression*
+ */
+antlrcpp::Any CypherMainVisitor::visitBatchSizeOption(
+    CypherParser::BatchSizeOptionContext *ctx) {
+  if (!ctx->literal()->numberLiteral() ||
+      !ctx->literal()->numberLiteral()->integerLiteral()) {
+    throw SyntaxException("Batch size should be an integer literal!");
   }
   return ctx->literal()->accept(this);
 }

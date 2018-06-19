@@ -134,7 +134,7 @@ add_unit_test(interpreter.cpp)
 target_link_libraries(${test_prefix}interpreter memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(kvstore.cpp)
-target_link_libraries(${test_prefix}kvstore gtest gtest_main memgraph_lib kvstore_lib)
+target_link_libraries(${test_prefix}kvstore kvstore_lib memgraph_lib glog)
 
 add_unit_test(metrics.cpp)
 target_link_libraries(${test_prefix}metrics memgraph_lib kvstore_dummy_lib)
@@ -161,7 +161,7 @@ add_unit_test(pod_buffer.cpp)
 target_link_libraries(${test_prefix}pod_buffer memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(property_value_store.cpp)
-target_link_libraries(${test_prefix}property_value_store memgraph_lib kvstore_lib)
+target_link_libraries(${test_prefix}property_value_store kvstore_lib memgraph_lib)
 
 add_unit_test(query_cost_estimator.cpp)
 target_link_libraries(${test_prefix}query_cost_estimator memgraph_lib kvstore_dummy_lib)

@@ -1390,12 +1390,20 @@ void CreateStream::Save(capnp::CreateStream::Builder *builder,
   auto stream_uri_builder = builder->getStreamUri();
   stream_uri_->Save(&stream_uri_builder, saved_uids);
 
+  auto stream_topic_builder = builder->getStreamTopic();
+  stream_topic_->Save(&stream_topic_builder, saved_uids);
+
   auto transform_uri_builder = builder->getTransformUri();
   transform_uri_->Save(&transform_uri_builder, saved_uids);
 
-  if (batch_interval_) {
-    auto batch_interval_builder = builder->getBatchInterval();
-    batch_interval_->Save(&batch_interval_builder, saved_uids);
+  if (batch_interval_in_ms_) {
+    auto batch_interval_builder = builder->getBatchIntervalInMs();
+    batch_interval_in_ms_->Save(&batch_interval_builder, saved_uids);
+  }
+
+  if (batch_size_) {
+    auto batch_size_builder = builder->getBatchSize();
+    batch_size_->Save(&batch_size_builder, saved_uids);
   }
 }
 
@@ -1408,15 +1416,27 @@ void CreateStream::Load(const capnp::Tree::Reader &base_reader,
   const auto stream_uri_reader = reader.getStreamUri();
   stream_uri_ =
       dynamic_cast<Expression *>(storage->Load(stream_uri_reader, loaded_uids));
+
+  const auto stream_topic_reader = reader.getStreamTopic();
+  stream_topic_ = dynamic_cast<Expression *>(
+      storage->Load(stream_topic_reader, loaded_uids));
+
   const auto transform_uri_reader = reader.getTransformUri();
   transform_uri_ = dynamic_cast<Expression *>(
       storage->Load(transform_uri_reader, loaded_uids));
 
-  batch_interval_ = nullptr;
-  if (reader.hasBatchInterval()) {
-    const auto batch_interval_reader = reader.getBatchInterval();
-    batch_interval_ = dynamic_cast<Expression *>(
+  batch_interval_in_ms_ = nullptr;
+  if (reader.hasBatchIntervalInMs()) {
+    const auto batch_interval_reader = reader.getBatchIntervalInMs();
+    batch_interval_in_ms_ = dynamic_cast<Expression *>(
         storage->Load(batch_interval_reader, loaded_uids));
+  }
+
+  batch_size_ = nullptr;
+  if (reader.hasBatchSize()) {
+    const auto batch_size_reader = reader.getBatchSize();
+    batch_size_ = dynamic_cast<Expression *>(
+        storage->Load(batch_size_reader, loaded_uids));
   }
 }
 

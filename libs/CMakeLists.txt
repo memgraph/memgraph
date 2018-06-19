@@ -233,3 +233,19 @@ set(CAPNP_EXE ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local/bin/capnp
 set(CAPNP_CXX_EXE ${CMAKE_CURRENT_SOURCE_DIR}/capnproto/local/bin/capnpc-c++
     CACHE FILEPATH "Path to capnproto c++ plugin executable" FORCE)
 mark_as_advanced(CAPNP_INCLUDE_DIR CAPNP_LIBRARY KJ_LIBRARY CAPNP_EXE CAPNP_CXX_EXE)
+
+# Setup librdkafka.
+import_external_library(librdkafka STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include/librdkafka
+  CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
+             -DRDKAFKA_BUILD_EXAMPLES=OFF
+             -DRDKAFKA_BUILD_TESTS=OFF
+             -DCMAKE_INSTALL_LIBDIR=lib
+             -DWITH_SSL=ON
+             # If we want SASL, we need to install it on build machines
+             -DWITH_SASL=OFF)
+
+import_library(librdkafka++ STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
+  librdkafka-proj)

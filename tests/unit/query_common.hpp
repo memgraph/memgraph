@@ -578,9 +578,11 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define ALTER_USER(username, password) \
   storage.Create<query::ModifyUser>((username), LITERAL(password), false)
 #define DROP_USER(usernames) storage.Create<query::DropUser>((usernames))
-#define CREATE_STREAM(stream_name, stream_uri, transform_uri, batch_interval) \
-  storage.Create<query::CreateStream>((stream_name), LITERAL(stream_uri),     \
-                                      LITERAL(transform_uri), batch_interval)
+#define CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri, \
+                      batch_interval, batch_size)                           \
+  storage.Create<query::CreateStream>(                                      \
+      (stream_name), LITERAL(stream_uri), LITERAL(stream_topic),            \
+      LITERAL(transform_uri), (batch_interval), (batch_size))
 #define DROP_STREAM(stream_name) \
   storage.Create<query::DropStream>((stream_name))
 #define SHOW_STREAMS storage.Create<query::ShowStreams>()

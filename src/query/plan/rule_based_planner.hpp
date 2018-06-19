@@ -196,7 +196,8 @@ class RuleBasedPlanner {
           DCHECK(!input_op) << "Unexpected operator before CreateStream";
           input_op = std::make_unique<plan::CreateStream>(
               create_stream->stream_name_, create_stream->stream_uri_,
-              create_stream->transform_uri_, create_stream->batch_interval_);
+              create_stream->stream_topic_, create_stream->transform_uri_,
+              create_stream->batch_interval_in_ms_, create_stream->batch_size_);
         } else if (auto *drop_stream =
                        dynamic_cast<query::DropStream *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before DropStream";
@@ -204,7 +205,14 @@ class RuleBasedPlanner {
               std::make_unique<plan::DropStream>(drop_stream->stream_name_);
         } else if (dynamic_cast<query::ShowStreams *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before ShowStreams";
-          input_op = std::make_unique<plan::ShowStreams>();
+          // Create symbols for ShowStreams results
+          auto &symbol_table = context.symbol_table;
+          input_op = std::make_unique<plan::ShowStreams>(
+              symbol_table.CreateSymbol("name", false),
+              symbol_table.CreateSymbol("uri", false),
+              symbol_table.CreateSymbol("topic", false),
+              symbol_table.CreateSymbol("transform", false),
+              symbol_table.CreateSymbol("is running", false));
         } else if (auto *start_stop_stream =
                        dynamic_cast<query::StartStopStream *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before StartStopStream";

@@ -21,6 +21,7 @@
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
+#include "integrations/kafka/exceptions.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -3871,28 +3872,67 @@ std::unique_ptr<Cursor> DropUser::MakeCursor(
 }
 
 CreateStream::CreateStream(std::string stream_name, Expression *stream_uri,
-                           Expression *transform_uri,
-                           Expression *batch_interval)
+                           Expression *stream_topic, Expression *transform_uri,
+                           Expression *batch_interval_in_ms,
+                           Expression *batch_size)
     : stream_name_(std::move(stream_name)),
       stream_uri_(stream_uri),
+      stream_topic_(stream_topic),
       transform_uri_(transform_uri),
-      batch_interval_(batch_interval) {}
+      batch_interval_in_ms_(batch_interval_in_ms),
+      batch_size_(batch_size) {}
 
 WITHOUT_SINGLE_INPUT(CreateStream)
 
 class CreateStreamCursor : public Cursor {
+  using StreamInfo = integrations::kafka::StreamInfo;
+
  public:
-  CreateStreamCursor(const CreateStream &, database::GraphDbAccessor &) {}
+  CreateStreamCursor(const CreateStream &self, database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
       throw StreamClauseInMulticommandTxException();
     }
+    ExpressionEvaluator evaluator(frame, &ctx, GraphView::OLD);
 
-    throw utils::NotYetImplemented("Create Stream");
+    TypedValue stream_uri = self_.stream_uri()->Accept(evaluator);
+    TypedValue stream_topic = self_.stream_topic()->Accept(evaluator);
+    TypedValue transform_uri = self_.transform_uri()->Accept(evaluator);
+
+    std::experimental::optional<int64_t> batch_interval_in_ms, batch_size;
+
+    if (self_.batch_interval_in_ms()) {
+      batch_interval_in_ms =
+          self_.batch_interval_in_ms()->Accept(evaluator).Value<int64_t>();
+    }
+    if (self_.batch_size()) {
+      batch_size = self_.batch_size()->Accept(evaluator).Value<int64_t>();
+    }
+
+    try {
+      StreamInfo info;
+      info.stream_name = self_.stream_name();
+      info.stream_uri = stream_uri.Value<std::string>();
+      info.stream_topic = stream_topic.Value<std::string>();
+      info.transform_uri = transform_uri.Value<std::string>();
+      info.batch_interval_in_ms = batch_interval_in_ms;
+      info.batch_size = batch_size;
+
+      db_.db().kafka_streams().CreateStream(info);
+    } catch (const KafkaStreamException &e) {
+      throw QueryRuntimeException(e.what());
+    }
+
+    return false;
   }
 
   void Reset() override { throw utils::NotYetImplemented("Create Stream"); }
+
+ private:
+  const CreateStream &self_;
+  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> CreateStream::MakeCursor(
@@ -3907,17 +3947,27 @@ WITHOUT_SINGLE_INPUT(DropStream)
 
 class DropStreamCursor : public Cursor {
  public:
-  DropStreamCursor(const DropStream &, database::GraphDbAccessor &) {}
+  DropStreamCursor(const DropStream &self, database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
       throw StreamClauseInMulticommandTxException();
     }
 
-    throw utils::NotYetImplemented("Drop Stream");
+    try {
+      db_.db().kafka_streams().DropStream(self_.stream_name());
+    } catch (const KafkaStreamException &e) {
+      throw QueryRuntimeException(e.what());
+    }
+    return false;
   }
 
   void Reset() override { throw utils::NotYetImplemented("Drop Stream"); }
+
+ private:
+  const DropStream &self_;
+  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> DropStream::MakeCursor(
@@ -3925,21 +3975,61 @@ std::unique_ptr<Cursor> DropStream::MakeCursor(
   return std::make_unique<DropStreamCursor>(*this, db);
 }
 
+ShowStreams::ShowStreams(Symbol name_symbol, Symbol uri_symbol,
+                         Symbol topic_symbol, Symbol transform_symbol,
+                         Symbol status_symbol)
+    : name_symbol_(name_symbol),
+      uri_symbol_(uri_symbol),
+      topic_symbol_(topic_symbol),
+      transform_symbol_(transform_symbol),
+      status_symbol_(status_symbol) {}
+
 WITHOUT_SINGLE_INPUT(ShowStreams)
+
+std::vector<Symbol> ShowStreams::OutputSymbols(const SymbolTable &) const {
+  return {name_symbol_, uri_symbol_, topic_symbol_, transform_symbol_,
+          status_symbol_};
+}
 
 class ShowStreamsCursor : public Cursor {
  public:
-  ShowStreamsCursor(const ShowStreams &, database::GraphDbAccessor &) {}
+  ShowStreamsCursor(const ShowStreams &self, database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
       throw StreamClauseInMulticommandTxException();
     }
 
-    throw utils::NotYetImplemented("Show Streams");
+    if (!is_initialized_) {
+      streams_ = db_.db().kafka_streams().ShowStreams();
+      streams_it_ = streams_.begin();
+      is_initialized_ = true;
+    }
+
+    if (streams_it_ == streams_.end()) return false;
+
+    frame[self_.name_symbol()] = streams_it_->stream_name;
+    frame[self_.uri_symbol()] = streams_it_->stream_uri;
+    frame[self_.topic_symbol()] = streams_it_->stream_topic;
+    frame[self_.transform_symbol()] = streams_it_->transform_uri;
+    frame[self_.status_symbol()] = streams_it_->is_running;
+
+    streams_it_++;
+
+    return true;
   }
 
   void Reset() override { throw utils::NotYetImplemented("Show Streams"); }
+
+ private:
+  const ShowStreams &self_;
+  database::GraphDbAccessor &db_;
+
+  bool is_initialized_ = false;
+  using StreamInfo = integrations::kafka::StreamInfo;
+  std::vector<StreamInfo> streams_;
+  std::vector<StreamInfo>::iterator streams_it_ = streams_.begin();
 };
 
 std::unique_ptr<Cursor> ShowStreams::MakeCursor(
@@ -3957,18 +4047,33 @@ WITHOUT_SINGLE_INPUT(StartStopStream)
 
 class StartStopStreamCursor : public Cursor {
  public:
-  StartStopStreamCursor(const StartStopStream &,
-                        database::GraphDbAccessor &db) {}
+  StartStopStreamCursor(const StartStopStream &self,
+                        database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
       throw StreamClauseInMulticommandTxException();
     }
 
-    throw utils::NotYetImplemented("Start/Stop Stream");
+    try {
+      if (self_.is_start()) {
+        db_.db().kafka_streams().StartStream(self_.stream_name());
+      } else {
+        db_.db().kafka_streams().StopStream(self_.stream_name());
+      }
+    } catch (const KafkaStreamException &e) {
+      throw QueryRuntimeException(e.what());
+    }
+
+    return false;
   }
 
   void Reset() override { throw utils::NotYetImplemented("Start/Stop Stream"); }
+
+ private:
+  const StartStopStream &self_;
+  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> StartStopStream::MakeCursor(
@@ -3982,20 +4087,35 @@ WITHOUT_SINGLE_INPUT(StartStopAllStreams)
 
 class StartStopAllStreamsCursor : public Cursor {
  public:
-  StartStopAllStreamsCursor(const StartStopAllStreams &,
-                            database::GraphDbAccessor &) {}
+  StartStopAllStreamsCursor(const StartStopAllStreams &self,
+                            database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
       throw StreamClauseInMulticommandTxException();
     }
 
-    throw utils::NotYetImplemented("Start/Stop All Streams");
+    try {
+      if (self_.is_start()) {
+        db_.db().kafka_streams().StartAllStreams();
+      } else {
+        db_.db().kafka_streams().StopAllStreams();
+      }
+    } catch (const KafkaStreamException &e) {
+      throw QueryRuntimeException(e.what());
+    }
+
+    return false;
   }
 
   void Reset() override {
     throw utils::NotYetImplemented("Start/Stop All Streams");
   }
+
+ private:
+  const StartStopAllStreams &self_;
+  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> StartStopAllStreams::MakeCursor(

@@ -127,3 +127,8 @@ tar -xzf capnproto.tar.gz
 rm -rf capnproto
 mv capnproto-c++-0.6.1 capnproto
 rm capnproto.tar.gz
+
+# kafka
+kafka_tag="c319b4e987d0bc4fe4f01cf91419d90b62061655" # Mar 8, 2018
+# git clone https://github.com/edenhill/librdkafka.git
+clone git://deps.memgraph.io/librdkafka.git librdkafka $kafka_tag

@@ -2527,6 +2527,14 @@ by having only one result from each worker.")
              :capnp-init nil
              :capnp-save #'save-ast-pointer
              :capnp-load (load-ast-pointer "Expression *"))
+    (stream-topic "Expression *"
+             :reader t
+             :save-fun #'save-pointer
+             :load-fun #'load-pointer
+             :capnp-type "Ast.Tree"
+             :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *"))
     (transform-uri "Expression *"
              :reader t
              :save-fun #'save-pointer
@@ -2535,7 +2543,15 @@ by having only one result from each worker.")
              :capnp-init nil
              :capnp-save #'save-ast-pointer
              :capnp-load (load-ast-pointer "Expression *"))
-    (batch-interval "Expression *"
+    (batch-interval-in-ms "Expression *"
+             :reader t
+             :save-fun #'save-pointer
+             :load-fun #'load-pointer
+             :capnp-type "Ast.Tree"
+             :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *"))
+    (batch-size "Expression *"
              :reader t
              :save-fun #'save-pointer
              :load-fun #'load-pointer
@@ -2547,8 +2563,9 @@ by having only one result from each worker.")
    "Creates a new stream with given parameters that imports data.")
   (:public
    #>cpp
-   CreateStream(std::string stream_name, Expression* stream_uri,
-             Expression* transform_uri, Expression* batch_interval);
+   CreateStream(std::string stream_name, Expression *stream_uri,
+             Expression *stream_topic, Expression *transform_uri,
+             Expression *batch_interval_in_ms, Expression *batch_size);
    DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
@@ -2587,15 +2604,21 @@ by having only one result from each worker.")
   (:serialize :boost :capnp))
 
 (lcp:define-class show-streams (logical-operator)
-  ()
+  ((name-symbol "Symbol" :reader t)
+   (uri-symbol "Symbol" :reader t)
+   (topic-symbol "Symbol" :reader t)
+   (transform-symbol "Symbol" :reader t)
+   (status-symbol "Symbol" :reader t))
   (:documentation
    "Shows all streams, started and stopped, that were configured.")
   (:public
    #>cpp
-   ShowStreams() {}
+   ShowStreams(Symbol name_symbol, Symbol endpoint_symbol, Symbol topic_symbol,
+               Symbol transform_symbol, Symbol status_symbol);
    DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
      return {};
    }
@@ -2604,6 +2627,8 @@ by having only one result from each worker.")
    std::shared_ptr<LogicalOperator> input() const override;
    void set_input(std::shared_ptr<LogicalOperator>) override;
    cpp<#)
+  (:private
+   #>cpp ShowStreams() {} cpp<#)
   (:serialize :boost :capnp))
 
 (lcp:define-class start-stop-stream (logical-operator)

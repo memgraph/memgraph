@@ -35,6 +35,7 @@ BASE_FLAGS = [
     '-I./libs/bzip2',
     '-I./libs/zlib',
     '-I./libs/rocksdb/include',
+    '-I./libs/librdkafka/include/librdkafka',
     '-I./build/include'
 ]
 

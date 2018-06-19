@@ -42,14 +42,14 @@ namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
   auto Clone(AstStorage &storage) const->std::remove_const<                  \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
+      std::remove_pointer<decltype(this)>::type>::type * override {          \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
   auto Clone(AstStorage &storage) const->std::remove_const<                  \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
+      std::remove_pointer<decltype(this)>::type>::type * override {          \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression_->Clone(storage));                                        \
@@ -801,8 +801,8 @@ class SubscriptOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
-  static SubscriptOperator *Construct(
-      capnp::SubscriptOperator::Reader &reader, AstStorage *storage);
+  static SubscriptOperator *Construct(capnp::SubscriptOperator::Reader &reader,
+                                      AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -813,8 +813,9 @@ class SubscriptOperator : public BinaryOperator {
   friend class boost::serialization::access;
   SERIALIZE_USING_BASE(BinaryOperator);
   template <class TArchive>
-  friend void boost::serialization::load_construct_data(
-      TArchive &, SubscriptOperator *, const unsigned int);
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        SubscriptOperator *,
+                                                        const unsigned int);
 };
 
 class ListSlicingOperator : public Expression {
@@ -3673,8 +3674,9 @@ class CreateStream : public Clause {
   CreateStream *Clone(AstStorage &storage) const override {
     return storage.Create<CreateStream>(
         stream_name_, stream_uri_->Clone(storage),
-        transform_uri_->Clone(storage),
-        batch_interval_ ? batch_interval_->Clone(storage) : nullptr);
+        stream_topic_->Clone(storage), transform_uri_->Clone(storage),
+        batch_interval_in_ms_ ? batch_interval_in_ms_->Clone(storage) : nullptr,
+        batch_size_ ? batch_size_->Clone(storage) : nullptr);
   }
 
   static CreateStream *Construct(const capnp::CreateStream::Reader &reader,
@@ -3683,18 +3685,23 @@ class CreateStream : public Clause {
 
   std::string stream_name_;
   Expression *stream_uri_;
+  Expression *stream_topic_;
   Expression *transform_uri_;
-  Expression *batch_interval_;
+  Expression *batch_interval_in_ms_;
+  Expression *batch_size_;
 
  protected:
   explicit CreateStream(int uid) : Clause(uid) {}
   CreateStream(int uid, std::string stream_name, Expression *stream_uri,
-               Expression *transform_uri, Expression *batch_interval)
+               Expression *stream_topic, Expression *transform_uri,
+               Expression *batch_interval_in_ms, Expression *batch_size)
       : Clause(uid),
         stream_name_(std::move(stream_name)),
         stream_uri_(stream_uri),
+        stream_topic_(stream_topic),
         transform_uri_(transform_uri),
-        batch_interval_(batch_interval) {}
+        batch_interval_in_ms_(batch_interval_in_ms),
+        batch_size_(batch_size) {}
 
   void Save(capnp::Clause::Builder *builder,
             std::vector<int> *saved_uids) override;
@@ -3711,8 +3718,10 @@ class CreateStream : public Clause {
     ar &boost::serialization::base_object<Clause>(*this);
     ar &stream_name_;
     ar &stream_uri_;
+    ar &stream_topic_;
     ar &transform_uri_;
-    ar &batch_interval_;
+    ar &batch_interval_in_ms_;
+    ar &batch_size_;
   }
 
   template <class TArchive>
