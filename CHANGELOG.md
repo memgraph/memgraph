@@ -2,15 +2,19 @@
 
 ## v0.11.0
 
-### Breaking Changes
-
 ### Major Features and Improvements
 
-* Dynamic graph partitioner added.
+* [Enterprise Ed.] Improve Cartesian support in distributed queries
+* [Enterprise Ed.] Improve distributed execution of BFS
+* [Enterprise Ed.] Dynamic graph partitioner added.
 * Static vertices/edges id generators exposed through the Id Cypher function.
 * Properties on disk added.
+* Add `toString` function to openCypher
 
 ### Bug Fixes and Other Changes
+
+* Document issues with Docker on OS X
+* Add BFS and Dijkstra's algorithm examples to documentation
 
 ## v0.10.0
 

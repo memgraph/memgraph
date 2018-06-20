@@ -42,7 +42,7 @@ string(STRIP ${COMMIT_HASH} COMMIT_HASH)
 
 # -----------------------------------------------------------------------------
 
-project(memgraph VERSION 0.10.0)
+project(memgraph VERSION 0.11.0)
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
