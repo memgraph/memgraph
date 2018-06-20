@@ -71,6 +71,16 @@ chown memgraph:adm /var/log/memgraph || exit 1
 chmod 750 /var/log/memgraph || exit 1
 # Make examples directory immutable (optional)
 chattr +i -R /usr/share/memgraph/examples || true
+
+# Generate SSL certificates
+if [ ! -d /etc/memgraph/ssl ]; then
+    mkdir /etc/memgraph/ssl || exit 1
+    openssl req -x509 -newkey rsa:4096 -days 3650 -nodes \
+        -keyout /etc/memgraph/ssl/key.pem -out /etc/memgraph/ssl/cert.pem \
+        -subj "/C=GB/ST=London/L=London/O=Memgraph Ltd./CN=Memgraph DB" || exit 1
+    chown memgraph:memgraph /etc/memgraph/ssl/* || exit 1
+    chmod 400 /etc/memgraph/ssl/* || exit 1
+fi
 @RPM_SYMLINK_POSTINSTALL@
 @CPACK_RPM_SPEC_POSTINSTALL@
 

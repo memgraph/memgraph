@@ -73,6 +73,8 @@ BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
 BUILD_DIR = os.path.join(BASE_DIR, "build")
 CONFIG_DIR = os.path.join(BASE_DIR, "config")
 MEASUREMENTS_FILE = os.path.join(SCRIPT_DIR, ".apollo_measurements")
+KEY_FILE = os.path.join(SCRIPT_DIR, ".key.pem")
+CERT_FILE = os.path.join(SCRIPT_DIR, ".cert.pem")
 
 # long running stats file
 STATS_FILE = os.path.join(SCRIPT_DIR, ".long_running_stats")
@@ -132,6 +134,8 @@ parser.add_argument("--python", default = os.path.join(SCRIPT_DIR,
         "ve3", "bin", "python3"), type = str)
 parser.add_argument("--large-dataset", action = "store_const",
         const = True, default = False)
+parser.add_argument("--use-ssl", action = "store_const",
+        const = True, default = False)
 parser.add_argument("--verbose", action = "store_const",
         const = True, default = False)
 args = parser.parse_args()
@@ -139,6 +143,14 @@ args = parser.parse_args()
 # find memgraph binary
 if not os.path.exists(args.memgraph):
     args.memgraph = os.path.join(BASE_DIR, "build_release", "memgraph")
+
+# generate temporary SSL certs
+if args.use_ssl:
+    # https://unix.stackexchange.com/questions/104171/create-ssl-certificate-non-interactively
+    subj = "/C=HR/ST=Zagreb/L=Zagreb/O=Memgraph/CN=db.memgraph.com"
+    subprocess.run(["openssl", "req", "-new", "-newkey", "rsa:4096",
+            "-days", "365", "-nodes", "-x509", "-subj", subj,
+            "-keyout", KEY_FILE, "-out", CERT_FILE], check=True)
 
 # start memgraph
 cwd = os.path.dirname(args.memgraph)
@@ -151,6 +163,8 @@ if args.durability_directory:
     cmd += ["--durability-directory", args.durability_directory]
 if args.properties_on_disk:
     cmd += ["--properties-on-disk", "id,x"]
+if args.use_ssl:
+    cmd += ["--cert-file", CERT_FILE, "--key-file", KEY_FILE]
 proc_mg = subprocess.Popen(cmd, cwd = cwd,
         env = {"MEMGRAPH_CONFIG": args.config})
 time.sleep(1.0)
@@ -167,6 +181,8 @@ def cleanup():
 runtimes = {}
 dataset = LARGE_DATASET if args.large_dataset else SMALL_DATASET
 for test in dataset:
+    if args.use_ssl:
+        test["options"] += ["--use-ssl"]
     runtime = run_test(args, **test)
     runtimes[os.path.splitext(test["test"])[0]] = runtime
 
@@ -175,6 +191,11 @@ proc_mg.terminate()
 ret_mg = proc_mg.wait()
 if ret_mg != 0:
     raise Exception("Memgraph binary returned non-zero ({})!".format(ret_mg))
+
+# cleanup certificates
+if args.use_ssl:
+    os.remove(KEY_FILE)
+    os.remove(CERT_FILE)
 
 # measurements
 measurements = ""

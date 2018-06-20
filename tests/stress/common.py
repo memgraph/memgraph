@@ -146,14 +146,14 @@ def connection_argument_parser():
     '''
     parser = ArgumentParser(description=__doc__)
 
-    parser.add_argument('--endpoint', type=str, default='localhost:7687',
+    parser.add_argument('--endpoint', type=str, default='127.0.0.1:7687',
                         help='DBMS instance endpoint. '
                              'Bolt protocol is the only option.')
     parser.add_argument('--username', type=str, default='neo4j',
                         help='DBMS instance username.')
     parser.add_argument('--password', type=int, default='1234',
                         help='DBMS instance password.')
-    parser.add_argument('--ssl-enabled', action='store_true',
+    parser.add_argument('--use-ssl', action='store_true',
                         help="Is SSL enabled?")
     return parser
 
@@ -163,7 +163,7 @@ def bolt_session(url, auth, ssl=False):
     '''
     with wrapper around Bolt session.
 
-    :param url: str, e.g. "bolt://localhost:7687"
+    :param url: str, e.g. "bolt://127.0.0.1:7687"
     :param auth: auth method, goes directly to the Bolt driver constructor
     :param ssl: bool, is ssl enabled
     '''
@@ -183,14 +183,15 @@ def argument_session(args):
     :return: Bolt session context manager based on program arguments
     '''
     return bolt_session('bolt://' + args.endpoint,
-                        (args.username, str(args.password)))
+                        (args.username, str(args.password)),
+                        args.use_ssl)
 
 
-def argument_driver(args, ssl=False):
+def argument_driver(args):
     return GraphDatabase.driver(
         'bolt://' + args.endpoint,
         auth=(args.username, str(args.password)),
-        encrypted=ssl)
+        encrypted=args.use_ssl)
 
 # This class is used to create and cache sessions. Session is cached by args
 # used to create it and process' pid in which it was created. This makes it easy

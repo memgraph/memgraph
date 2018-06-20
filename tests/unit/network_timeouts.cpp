@@ -52,8 +52,9 @@ bool QueryServer(io::network::Socket &socket) {
 TEST(NetworkTimeouts, InactiveSession) {
   // Instantiate the server and set the session timeout to 2 seconds.
   TestData test_data;
+  communication::ServerContext context;
   communication::Server<TestSession, TestData> server{
-      {"127.0.0.1", 0}, test_data, 2, "Test", 1};
+      {"127.0.0.1", 0}, test_data, &context, 2, "Test", 1};
 
   // Create the client and connect to the server.
   io::network::Socket client;

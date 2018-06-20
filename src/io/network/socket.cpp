@@ -11,6 +11,7 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#include <poll.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -219,8 +220,13 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
         // Terminal error, return failure.
         return false;
       }
-      // Non-fatal error, retry.
-      continue;
+      // Non-fatal error, retry after the socket is ready. This is here to
+      // implement a non-busy wait. If we just continue with the loop we have a
+      // busy wait.
+      if (!WaitForReadyWrite()) return false;
+    } else if (written == 0) {
+      // The client closed the connection.
+      return false;
     } else {
       len -= written;
       data += written;
@@ -234,7 +240,32 @@ bool Socket::Write(const std::string &s, bool have_more) {
                have_more);
 }
 
-int Socket::Read(void *buffer, size_t len, bool nonblock) {
+ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
+
+bool Socket::WaitForReadyRead() {
+  struct pollfd p;
+  p.fd = socket_;
+  p.events = POLLIN;
+  // We call poll with one element in the poll fds array (first and second
+  // arguments), also we set the timeout to -1 to block indefinitely until an
+  // event occurs.
+  int ret = poll(&p, 1, -1);
+  if (ret < 1) return false;
+  return p.revents & POLLIN;
+}
+
+bool Socket::WaitForReadyWrite() {
+  struct pollfd p;
+  p.fd = socket_;
+  p.events = POLLOUT;
+  // We call poll with one element in the poll fds array (first and second
+  // arguments), also we set the timeout to -1 to block indefinitely until an
+  // event occurs.
+  int ret = poll(&p, 1, -1);
+  if (ret < 1) return false;
+  return p.revents & POLLOUT;
+}
+
 }  // namespace io::network

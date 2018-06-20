@@ -78,6 +78,8 @@ class Server {
   ConcurrentMap<uint64_t, RpcCallback> callbacks_;
 
   std::mutex mutex_;
+  // TODO (mferencevic): currently the RPC server is hardcoded not to use SSL
+  communication::ServerContext context_;
   communication::Server<Session, Server> server_;
 };  // namespace communication::rpc
 

@@ -183,7 +183,7 @@ After installing `neo4j-client`, connect to the running Memgraph instance by
 issuing the following shell command.
 
 ```bash
-neo4j-client --insecure -u "" -p ""  localhost 7687
+neo4j-client -u "" -p ""  localhost 7687
 ```
 
 After the client has started it should present a command prompt similar to:
@@ -191,7 +191,7 @@ After the client has started it should present a command prompt similar to:
 ```bash
 neo4j-client 2.1.3
 Enter `:help` for usage hints.
-Connected to 'neo4j://@localhost:7687' (insecure)
+Connected to 'neo4j://@localhost:7687'
 neo4j>
 ```
 

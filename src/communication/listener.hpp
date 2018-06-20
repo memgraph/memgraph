@@ -13,6 +13,7 @@
 #include "communication/session.hpp"
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
+#include "utils/signals.hpp"
 #include "utils/thread.hpp"
 #include "utils/thread/sync.hpp"
 
@@ -28,7 +29,7 @@ namespace communication {
  * expired.
  */
 template <class TSession, class TSessionData>
-class Listener {
+class Listener final {
  private:
   // The maximum number of events handled per execution thread is 1. This is
   // because each event represents the start of a network request and it doesn't
@@ -39,14 +40,27 @@ class Listener {
   using SessionHandler = Session<TSession, TSessionData>;
 
  public:
-  Listener(TSessionData &data, int inactivity_timeout_sec,
-           const std::string &service_name)
+  Listener(TSessionData &data, ServerContext *context,
+           int inactivity_timeout_sec, const std::string &service_name,
+           size_t workers_count)
       : data_(data),
         alive_(true),
+        context_(context),
         inactivity_timeout_sec_(inactivity_timeout_sec),
         service_name_(service_name) {
+    std::cout << "Starting " << workers_count << " " << service_name_
+              << " workers" << std::endl;
+    for (size_t i = 0; i < workers_count; ++i) {
+      worker_threads_.emplace_back([this, service_name, i]() {
+        utils::ThreadSetName(fmt::format("{} worker {}", service_name, i + 1));
+        while (alive_) {
+          WaitAndProcessEvents();
+        }
+      });
+    }
+
     if (inactivity_timeout_sec_ > 0) {
-      thread_ = std::thread([this, service_name]() {
+      timeout_thread_ = std::thread([this, service_name]() {
         utils::ThreadSetName(fmt::format("{} timeout", service_name));
         while (alive_) {
           {
@@ -72,7 +86,10 @@ class Listener {
 
   ~Listener() {
     alive_.store(false);
-    if (thread_.joinable()) thread_.join();
+    if (timeout_thread_.joinable()) timeout_thread_.join();
+    for (auto &worker_thread : worker_threads_) {
+      worker_thread.join();
+    }
   }
 
   Listener(const Listener &) = delete;
@@ -88,20 +105,12 @@ class Listener {
   void AddConnection(io::network::Socket &&connection) {
     std::unique_lock<utils::SpinLock> guard(lock_);
 
-    // Set connection options.
-    // The socket is left to be a blocking socket, but when `Read` is called
-    // then a flag is manually set to enable non-blocking read that is used in
-    // conjunction with `EPOLLET`. That means that the socket is used in a
-    // non-blocking fashion for reads and a blocking fashion for writes.
-    connection.SetKeepAlive();
-    connection.SetNoDelay();
-
     // Remember fd before moving connection into Session.
     int fd = connection.fd();
 
     // Create a new Session for the connection.
     sessions_.push_back(std::make_unique<SessionHandler>(
-        std::move(connection), data_, inactivity_timeout_sec_));
+        std::move(connection), data_, context_, inactivity_timeout_sec_));
 
     // Register the connection in Epoll.
     // We want to listen to an incoming event which is edge triggered and
@@ -113,6 +122,7 @@ class Listener {
                sessions_.back().get());
   }
 
+ private:
   /**
    * This function polls the event queue and processes incoming data.
    * It is thread safe and is intended to be called from multiple threads and
@@ -168,7 +178,6 @@ class Listener {
     }
   }
 
- private:
   bool ExecuteSession(SessionHandler &session) {
     try {
       if (session.Execute()) {
@@ -223,8 +232,11 @@ class Listener {
   utils::SpinLock lock_;
   std::vector<std::unique_ptr<SessionHandler>> sessions_;
 
-  std::thread thread_;
+  std::thread timeout_thread_;
+  std::vector<std::thread> worker_threads_;
   std::atomic<bool> alive_;
+
+  ServerContext *context_;
   const int inactivity_timeout_sec_;
   const std::string service_name_;
 };

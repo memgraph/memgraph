@@ -10,6 +10,7 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include "communication/init.hpp"
 #include "communication/listener.hpp"
 #include "io/network/socket.hpp"
 #include "utils/thread.hpp"
@@ -27,6 +28,9 @@ namespace communication {
  * Current Server achitecture:
  * incoming connection -> server -> listener -> session
  *
+ * NOTE: If you use this server you **must** call `communication::Init()` from
+ * the `main` function before using the server!
+ *
  * @tparam TSession the server can handle different Sessions, each session
  *         represents a different protocol so the same network infrastructure
  *         can be used for handling different protocols
@@ -34,7 +38,7 @@ namespace communication {
  *         session
  */
 template <typename TSession, typename TSessionData>
-class Server {
+class Server final {
  public:
   using Socket = io::network::Socket;
 
@@ -43,9 +47,11 @@ class Server {
    * invokes workers_count workers
    */
   Server(const io::network::Endpoint &endpoint, TSessionData &session_data,
-         int inactivity_timeout_sec, const std::string &service_name,
+         ServerContext *context, int inactivity_timeout_sec,
+         const std::string &service_name,
          size_t workers_count = std::thread::hardware_concurrency())
-      : listener_(session_data, inactivity_timeout_sec, service_name),
+      : listener_(session_data, context, inactivity_timeout_sec, service_name,
+                  workers_count),
         service_name_(service_name) {
     // Without server we can't continue with application so we can just
     // terminate here.
@@ -58,18 +64,7 @@ class Server {
     }
 
     thread_ = std::thread([this, workers_count, service_name]() {
-      std::cout << "Starting " << workers_count << " " << service_name
-                << " workers" << std::endl;
       utils::ThreadSetName(fmt::format("{} server", service_name));
-      for (size_t i = 0; i < workers_count; ++i) {
-        worker_threads_.emplace_back([this, service_name, i]() {
-          utils::ThreadSetName(
-              fmt::format("{} worker {}", service_name, i + 1));
-          while (alive_) {
-            listener_.WaitAndProcessEvents();
-          }
-        });
-      }
 
       std::cout << service_name << " server is fully armed and operational"
                 << std::endl;
@@ -81,9 +76,6 @@ class Server {
       }
 
       std::cout << service_name << " shutting down..." << std::endl;
-      for (auto &worker_thread : worker_threads_) {
-        worker_thread.join();
-      }
     });
   }
 
@@ -128,7 +120,6 @@ class Server {
 
   std::atomic<bool> alive_{true};
   std::thread thread_;
-  std::vector<std::thread> worker_threads_;
 
   Socket socket_;
   Listener<TSession, TSessionData> listener_;

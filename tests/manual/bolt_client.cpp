@@ -10,15 +10,20 @@ DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
+DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
+  communication::Init();
+
   // TODO: handle endpoint exception
   io::network::Endpoint endpoint(io::network::ResolveHostname(FLAGS_address),
                                  FLAGS_port);
-  communication::bolt::Client client;
+
+  communication::ClientContext context(FLAGS_use_ssl);
+  communication::bolt::Client client(&context);
 
   if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) return 1;
 

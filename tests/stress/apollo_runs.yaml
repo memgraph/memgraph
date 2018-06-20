@@ -10,6 +10,10 @@
   commands: TIMEOUT=600 ./continuous_integration --properties-on-disk
   infiles: *STRESS_INFILES
 
+- name: stress_ssl
+  commands: TIMEOUT=600 ./continuous_integration --use-ssl
+  infiles: *STRESS_INFILES
+
 - name: stress_large
   project: release
   commands: TIMEOUT=43200 ./continuous_integration --large-dataset

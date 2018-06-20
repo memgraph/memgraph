@@ -6,3 +6,11 @@
     - server.py # server script
     - ../../../build_debug/tests/integration/telemetry/client # client binary
     - ../../../build_debug/tests/manual/kvstore_console # kvstore console binary
+
+- name: integration__ssl
+  cd: ssl
+  commands: ./runner.sh
+  infiles:
+    - runner.sh # runner script
+    - ../../../build_debug/tests/integration/ssl/tester # tester binary
+  enable_network: true

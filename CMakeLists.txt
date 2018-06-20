@@ -140,6 +140,9 @@ endif()
 set(Boost_USE_STATIC_LIBS ON)
 find_package(Boost 1.62 REQUIRED COMPONENTS iostreams serialization)
 
+# OpenSSL
+find_package(OpenSSL REQUIRED)
+
 set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
@@ -320,6 +323,8 @@ set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "${CPACK_PACKAGE_DESCRIPTION_SUMMARY}
  Contains Memgraph, the graph database. It aims to deliver developers the
  speed, simplicity and scale required to build the next generation of
  applications driver by real-time connected data.")
+# Add `openssl` package to dependencies list. Used to generate SSL certificates.
+set(CPACK_DEBIAN_memgraph_PACKAGE_DEPENDS "openssl (>= 1.1.0)")
 
 # RPM specific
 set(CPACK_RPM_PACKAGE_URL https://memgraph.com)
@@ -335,6 +340,8 @@ set(CPACK_RPM_USER_BINARY_SPECFILE "${CMAKE_SOURCE_DIR}/release/rpm/memgraph.spe
 set(CPACK_RPM_PACKAGE_DESCRIPTION "Contains Memgraph, the graph database.
 It aims to deliver developers the speed, simplicity and scale required to build
 the next generation of applications driver by real-time connected data.")
+# Add `openssl` package to dependencies list. Used to generate SSL certificates.
+set(CPACK_RPM_memgraph_PACKAGE_REQUIRES "openssl >= 1.0.0")
 
 # All variables must be set before including.
 include(CPack)

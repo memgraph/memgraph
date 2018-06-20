@@ -16,6 +16,7 @@ DEFINE_int32(num_workers, 1, "Number of workers");
 DEFINE_string(output, "", "Output file");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
+DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 DEFINE_int32(duration, 30, "Number of seconds to execute benchmark");
 
 DEFINE_string(group, "unknown", "Test group name");
@@ -97,7 +98,8 @@ class TestClient {
   std::thread runner_thread_;
 
  private:
-  Client client_;
+  communication::ClientContext context_{FLAGS_use_ssl};
+  Client client_{&context_};
 };
 
 void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {

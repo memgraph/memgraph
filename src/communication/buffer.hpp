@@ -20,13 +20,18 @@ namespace communication {
  * stack where all execution when it is being done is being done on a single
  * thread.
  */
-class Buffer {
+class Buffer final {
  private:
   // Initial capacity of the internal buffer.
   const size_t kBufferInitialSize = 65536;
 
  public:
   Buffer();
+
+  Buffer(const Buffer &) = delete;
+  Buffer(Buffer &&) = delete;
+  Buffer &operator=(const Buffer &) = delete;
+  Buffer &operator=(Buffer &&) = delete;
 
   /**
    * This class provides all functions from the buffer that are needed to allow
@@ -35,6 +40,11 @@ class Buffer {
   class ReadEnd {
    public:
     ReadEnd(Buffer &buffer);
+
+    ReadEnd(const ReadEnd &) = delete;
+    ReadEnd(ReadEnd &&) = delete;
+    ReadEnd &operator=(const ReadEnd &) = delete;
+    ReadEnd &operator=(ReadEnd &&) = delete;
 
     uint8_t *data();
 
@@ -57,6 +67,11 @@ class Buffer {
   class WriteEnd {
    public:
     WriteEnd(Buffer &buffer);
+
+    WriteEnd(const WriteEnd &) = delete;
+    WriteEnd(WriteEnd &&) = delete;
+    WriteEnd &operator=(const WriteEnd &) = delete;
+    WriteEnd &operator=(WriteEnd &&) = delete;
 
     io::network::StreamBuffer Allocate();
 

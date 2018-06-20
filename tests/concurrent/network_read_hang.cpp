@@ -32,8 +32,8 @@ class TestSession {
     output_stream_.Write(input_stream_.data(), input_stream_.size());
   }
 
-  communication::InputStream input_stream_;
-  communication::OutputStream output_stream_;
+  communication::InputStream &input_stream_;
+  communication::OutputStream &output_stream_;
 };
 
 std::atomic<bool> run{true};
@@ -63,8 +63,9 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   TestData data;
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   int Nc = N * 3;
-  communication::Server<TestSession, TestData> server(endpoint, data, -1,
-                                                      "Test", N);
+  communication::ServerContext context;
+  communication::Server<TestSession, TestData> server(endpoint, data, &context,
+                                                      -1, "Test", N);
 
   const auto &ep = server.endpoint();
   // start clients

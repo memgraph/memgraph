@@ -30,7 +30,7 @@ std::experimental::optional<::capnp::FlatArrayMessageReader> Client::Send(
 
   // Connect to the remote server.
   if (!client_) {
-    client_.emplace();
+    client_.emplace(&context_);
     if (!client_->Connect(endpoint_)) {
       LOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
       client_ = std::experimental::nullopt;

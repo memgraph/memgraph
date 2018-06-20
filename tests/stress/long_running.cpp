@@ -8,6 +8,7 @@
 #include "utils/timer.hpp"
 
 using EndpointT = io::network::Endpoint;
+using ClientContextT = communication::ClientContext;
 using ClientT = communication::bolt::Client;
 using DecodedValueT = communication::bolt::DecodedValue;
 using QueryDataT = communication::bolt::QueryData;
@@ -17,6 +18,7 @@ DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
+DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
 DEFINE_int32(vertex_count, 0,
              "The average number of vertices in the graph per worker");
@@ -51,7 +53,7 @@ class GraphSession {
     }
 
     EndpointT endpoint(FLAGS_address, FLAGS_port);
-    client_ = std::make_unique<ClientT>();
+    client_ = std::make_unique<ClientT>(&context_);
 
     if (!client_->Connect(endpoint, FLAGS_username, FLAGS_password)) {
       throw utils::BasicException("Couldn't connect to server!");
@@ -60,6 +62,7 @@ class GraphSession {
 
  private:
   uint64_t id_;
+  ClientContextT context_{FLAGS_use_ssl};
   std::unique_ptr<ClientT> client_;
 
   std::set<uint64_t> vertices_;
@@ -362,6 +365,8 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
+  communication::Init();
+
   CHECK(FLAGS_vertex_count > 0) << "Vertex count must be greater than 0!";
   CHECK(FLAGS_edge_count > 0) << "Edge count must be greater than 0!";
 
@@ -369,7 +374,8 @@ int main(int argc, char **argv) {
 
   // create client
   EndpointT endpoint(FLAGS_address, FLAGS_port);
-  ClientT client;
+  ClientContextT context(FLAGS_use_ssl);
+  ClientT client(&context);
   if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
     throw utils::BasicException("Couldn't connect to server!");
   }

@@ -8,6 +8,10 @@ add_subdirectory(telemetry)
 # all memgraph src files
 set(memgraph_src_files
     communication/buffer.cpp
+    communication/client.cpp
+    communication/context.cpp
+    communication/helpers.cpp
+    communication/init.cpp
     communication/bolt/v1/decoder/decoded_value.cpp
     communication/rpc/client.cpp
     communication/rpc/protocol.cpp
@@ -189,6 +193,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
+    ${OPENSSL_LIBRARIES}
     ${Boost_IOSTREAMS_LIBRARY_RELEASE}
     ${Boost_SERIALIZATION_LIBRARY_RELEASE}
     mg-utils mg-io)
@@ -206,6 +211,7 @@ endif()
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
+target_include_directories(memgraph_lib PRIVATE ${OPENSSL_INCLUDE_DIR})
 add_dependencies(memgraph_lib generate_opencypher_parser)
 add_dependencies(memgraph_lib generate_lcp)
 add_dependencies(memgraph_lib generate_capnp)

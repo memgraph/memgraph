@@ -271,12 +271,15 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
+  communication::Init();
+
   nlohmann::json config;
   std::cin >> config;
 
   auto independent_nodes_ids = [&] {
     Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
-    Client client;
+    ClientContext context(FLAGS_use_ssl);
+    Client client(&context);
     if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
       LOG(FATAL) << "Couldn't connect to " << endpoint;
     }

@@ -71,6 +71,12 @@ target_link_libraries(${test_prefix}sl_position_and_count memgraph_lib kvstore_d
 add_manual_test(stripped_timing.cpp)
 target_link_libraries(${test_prefix}stripped_timing memgraph_lib kvstore_dummy_lib)
 
+add_manual_test(ssl_client.cpp)
+target_link_libraries(${test_prefix}ssl_client memgraph_lib kvstore_dummy_lib)
+
+add_manual_test(ssl_server.cpp)
+target_link_libraries(${test_prefix}ssl_server memgraph_lib kvstore_dummy_lib)
+
 add_manual_test(xorshift.cpp)
 target_link_libraries(${test_prefix}xorshift mg-utils)
 

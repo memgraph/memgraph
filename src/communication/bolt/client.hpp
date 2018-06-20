@@ -32,9 +32,9 @@ struct QueryData {
   std::map<std::string, DecodedValue> metadata;
 };
 
-class Client {
+class Client final {
  public:
-  Client() {}
+  explicit Client(communication::ClientContext *context) : client_(context) {}
 
   Client(const Client &) = delete;
   Client(Client &&) = delete;

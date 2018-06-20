@@ -28,6 +28,7 @@ using communication::bolt::SessionData;
 using SessionT = communication::bolt::Session<communication::InputStream,
                                               communication::OutputStream>;
 using ServerT = communication::Server<SessionT, SessionData>;
+using communication::ServerContext;
 
 // General purpose flags.
 DEFINE_string(interface, "0.0.0.0",
@@ -41,6 +42,8 @@ DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
                        "Time in seconds after which inactive sessions will be "
                        "closed.",
                        FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_string(cert_file, "", "Certificate file to use.");
+DEFINE_string(key_file, "", "Key file to use.");
 DEFINE_string(log_file, "", "Path to where the log should be stored.");
 DEFINE_HIDDEN_string(
     log_link_basename, "",
@@ -142,6 +145,9 @@ int WithInit(int argc, char **argv,
   stats::InitStatsLogging(get_stats_prefix());
   utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
 
+  // Initialize the communication library.
+  communication::Init();
+
   // Start memory warning logger.
   utils::Scheduler mem_log_scheduler;
   if (FLAGS_memory_warning_threshold > 0) {
@@ -160,9 +166,17 @@ void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
   database::SingleNode db;
   SessionData session_data{db};
+
+  ServerContext context;
+  std::string service_name = "Bolt";
+  if (FLAGS_key_file != "" && FLAGS_cert_file != "") {
+    context = ServerContext(FLAGS_key_file, FLAGS_cert_file);
+    service_name = "BoltS";
+  }
+
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, FLAGS_session_inactivity_timeout, "Bolt",
-                 FLAGS_num_workers);
+                 session_data, &context, FLAGS_session_inactivity_timeout,
+                 service_name, FLAGS_num_workers);
 
   // Setup telemetry
   std::experimental::optional<telemetry::Telemetry> telemetry;
@@ -214,9 +228,17 @@ void MasterMain() {
 
   database::Master db;
   SessionData session_data{db};
+
+  ServerContext context;
+  std::string service_name = "Bolt";
+  if (FLAGS_key_file != "" && FLAGS_cert_file != "") {
+    context = ServerContext(FLAGS_key_file, FLAGS_cert_file);
+    service_name = "BoltS";
+  }
+
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, FLAGS_session_inactivity_timeout, "Bolt",
-                 FLAGS_num_workers);
+                 session_data, &context, FLAGS_session_inactivity_timeout,
+                 service_name, FLAGS_num_workers);
 
   // Handler for regular termination signals
   auto shutdown = [&server] {

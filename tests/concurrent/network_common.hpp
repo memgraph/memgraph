@@ -42,10 +42,11 @@ class TestSession {
     input_stream_.Shift(size + 2);
   }
 
-  communication::InputStream input_stream_;
-  communication::OutputStream output_stream_;
+  communication::InputStream &input_stream_;
+  communication::OutputStream &output_stream_;
 };
 
+using ContextT = communication::ServerContext;
 using ServerT = communication::Server<TestSession, TestData>;
 
 void client_run(int num, const char *interface, uint16_t port,

@@ -1,6 +1,12 @@
 #pragma once
 
+#include <openssl/bio.h>
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+
 #include "communication/buffer.hpp"
+#include "communication/context.hpp"
+#include "communication/init.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/socket.hpp"
 
@@ -10,106 +16,115 @@ namespace communication {
  * This class implements a generic network Client.
  * It uses blocking sockets and provides an API that can be used to receive/send
  * data over the network connection.
+ *
+ * NOTE: If you use this client you **must** call `communication::Init()` from
+ * the `main` function before using the client!
  */
-class Client {
+class Client final {
  public:
+  explicit Client(ClientContext *context);
+
+  ~Client();
+
+  Client(const Client &) = delete;
+  Client(Client &&) = delete;
+  Client &operator=(const Client &) = delete;
+  Client &operator=(Client &&) = delete;
+
   /**
    * This function connects to a remote server and returns whether the connect
    * succeeded.
    */
-  bool Connect(const io::network::Endpoint &endpoint) {
-    if (!socket_.Connect(endpoint)) return false;
-    socket_.SetKeepAlive();
-    socket_.SetNoDelay();
-    return true;
-  }
+  bool Connect(const io::network::Endpoint &endpoint);
 
   /**
    * This function returns `true` if the socket is in an error state.
    */
-  bool ErrorStatus() { return socket_.ErrorStatus(); }
+  bool ErrorStatus();
 
   /**
    * This function shuts down the socket.
    */
-  void Shutdown() { socket_.Shutdown(); }
+  void Shutdown();
 
   /**
    * This function closes the socket.
    */
-  void Close() { socket_.Close(); }
+  void Close();
 
   /**
    * This function is used to receive `len` bytes from the socket and stores it
    * in an internal buffer. It returns `true` if the read succeeded and `false`
    * if it didn't.
    */
-  bool Read(size_t len) {
-    size_t received = 0;
-    buffer_.write_end().Resize(buffer_.read_end().size() + len);
-    while (received < len) {
-      auto buff = buffer_.write_end().Allocate();
-      int got = socket_.Read(buff.data, len - received);
-      if (got <= 0) return false;
-      buffer_.write_end().Written(got);
-      received += got;
-    }
-    return true;
-  }
+  bool Read(size_t len);
 
   /**
    * This function returns a pointer to the read data that is currently stored
    * in the client.
    */
-  uint8_t *GetData() { return buffer_.read_end().data(); }
+  uint8_t *GetData();
 
   /**
    * This function returns the size of the read data that is currently stored in
    * the client.
    */
-  size_t GetDataSize() { return buffer_.read_end().size(); }
+  size_t GetDataSize();
 
   /**
    * This function removes first `len` bytes from the data buffer.
    */
-  void ShiftData(size_t len) { buffer_.read_end().Shift(len); }
+  void ShiftData(size_t len);
 
   /**
    * This function clears the data buffer.
    */
-  void ClearData() { buffer_.read_end().Clear(); }
+  void ClearData();
 
-  // Write end
-  bool Write(const uint8_t *data, size_t len, bool have_more = false) {
-    return socket_.Write(data, len, have_more);
-  }
-  bool Write(const std::string &str, bool have_more = false) {
-    return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(),
-                 have_more);
-  }
+  /**
+   * This function writes data to the socket.
+   * TODO (mferencevic): the `have_more` flag currently isn't supported when
+   * using OpenSSL
+   */
+  bool Write(const uint8_t *data, size_t len, bool have_more = false);
 
-  const io::network::Endpoint &endpoint() { return socket_.endpoint(); }
+  /**
+   * This function writes data to the socket.
+   */
+  bool Write(const std::string &str, bool have_more = false);
+
+  const io::network::Endpoint &endpoint();
 
  private:
-  io::network::Socket socket_;
+  void ReleaseSslObjects();
 
+  io::network::Socket socket_;
   Buffer buffer_;
+
+  ClientContext *context_;
+  SSL *ssl_{nullptr};
+  BIO *bio_{nullptr};
 };
 
 /**
  * This class provides a stream-like input side object to the client.
  */
-class ClientInputStream {
+class ClientInputStream final {
  public:
-  ClientInputStream(Client &client) : client_(client) {}
+  ClientInputStream(Client &client);
 
-  uint8_t *data() { return client_.GetData(); }
+  ClientInputStream(const ClientInputStream &) = delete;
+  ClientInputStream(ClientInputStream &&) = delete;
+  ClientInputStream &operator=(const ClientInputStream &) = delete;
+  ClientInputStream &operator=(ClientInputStream &&) = delete;
 
-  size_t size() const { return client_.GetDataSize(); }
+  uint8_t *data();
 
-  void Shift(size_t len) { client_.ShiftData(len); }
+  size_t size() const;
 
-  void Clear() { client_.ClearData(); }
+  void Shift(size_t len);
+
+  void Clear();
 
  private:
   Client &client_;
@@ -118,16 +133,18 @@ class ClientInputStream {
 /**
  * This class provides a stream-like output side object to the client.
  */
-class ClientOutputStream {
+class ClientOutputStream final {
  public:
-  ClientOutputStream(Client &client) : client_(client) {}
+  ClientOutputStream(Client &client);
 
-  bool Write(const uint8_t *data, size_t len, bool have_more = false) {
-    return client_.Write(data, len, have_more);
-  }
-  bool Write(const std::string &str, bool have_more = false) {
-    return client_.Write(str, have_more);
-  }
+  ClientOutputStream(const ClientOutputStream &) = delete;
+  ClientOutputStream(ClientOutputStream &&) = delete;
+  ClientOutputStream &operator=(const ClientOutputStream &) = delete;
+  ClientOutputStream &operator=(ClientOutputStream &&) = delete;
+
+  bool Write(const uint8_t *data, size_t len, bool have_more = false);
+
+  bool Write(const std::string &str, bool have_more = false);
 
  private:
   Client &client_;

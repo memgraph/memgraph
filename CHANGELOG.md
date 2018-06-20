@@ -10,6 +10,7 @@
 * Static vertices/edges id generators exposed through the Id Cypher function.
 * Properties on disk added.
 * Telemetry added.
+* SSL support added.
 * Add `toString` function to openCypher
 
 ### Bug Fixes and Other Changes

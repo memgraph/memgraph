@@ -153,7 +153,41 @@ class Socket {
    *             == 0 if the client closed the connection
    *             < 0 if an error has occurred
    */
-  int Read(void *buffer, size_t len, bool nonblock = false);
+  ssize_t Read(void *buffer, size_t len, bool nonblock = false);
+
+  /**
+   * Wait until the socket becomes ready for a `Read` operation.
+   * This function blocks indefinitely waiting for the socket to change its
+   * state. This function is useful when you need a blocking operation on a
+   * non-blocking socket, you can call this function to ensure that your next
+   * `Read` operation will succeed.
+   *
+   * The function returns `true` if the wait succeded (there is data waiting to
+   * be read from the socket) and returns `false` if the wait failed (the socket
+   * was closed or something else bad happened).
+   *
+   * @return wait success status:
+   *             true if the wait succeeded
+   *             false if the wait failed
+   */
+  bool WaitForReadyRead();
+
+  /**
+   * Wait until the socket becomes ready for a `Write` operation.
+   * This function blocks indefinitely waiting for the socket to change its
+   * state. This function is useful when you need a blocking operation on a
+   * non-blocking socket, you can call this function to ensure that your next
+   * `Write` operation will succeed.
+   *
+   * The function returns `true` if the wait succeded (the socket can be written
+   * to) and returns `false` if the wait failed (the socket was closed or
+   * something else bad happened).
+   *
+   * @return wait success status:
+   *             true if the wait succeeded
+   *             false if the wait failed
+   */
+  bool WaitForReadyWrite();
 
  private:
   Socket(int fd, const Endpoint &endpoint) : socket_(fd), endpoint_(endpoint) {}

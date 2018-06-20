@@ -11,6 +11,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/timer.hpp"
 
+using communication::ClientContext;
 using communication::bolt::Client;
 using communication::bolt::DecodedValue;
 using io::network::Endpoint;

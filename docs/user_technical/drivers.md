@@ -13,11 +13,9 @@ from neo4j.v1 import GraphDatabase, basic_auth
 
 # Initialize and configure the driver.
 #   * provide the correct URL where Memgraph is reachable;
-#   * use an empty user name and password, and
-#   * disable encryption (not supported).
+#   * use an empty user name and password.
 driver = GraphDatabase.driver("bolt://localhost:7687",
-                              auth=basic_auth("", ""),
-                              encrypted=False)
+                              auth=basic_auth("", ""))
 
 # Start a session in which queries are executed.
 session = driver.session()
@@ -51,9 +49,7 @@ The details about Java driver can be found
 [on GitHub](https://github.com/neo4j/neo4j-java-driver).
 
 The example below is equivalent to Python example. Major difference is that
-`Config` object has to be created before the driver construction.  Encryption
-has to be disabled by calling `withoutEncryption` method against the `Config`
-builder.
+`Config` object has to be created before the driver construction.
 
 ```java
 import org.neo4j.driver.v1.*;
@@ -64,7 +60,7 @@ import java.util.*;
 public class JavaQuickStart {
     public static void main(String[] args) {
         // Initialize driver.
-        Config config = Config.build().withoutEncryption().toConfig();
+        Config config = Config.build().toConfig();
         Driver driver = GraphDatabase.driver("bolt://localhost:7687",
                                              AuthTokens.basic("",""),
                                              config);
@@ -93,9 +89,7 @@ public class JavaQuickStart {
 The details about Javascript driver can be found
 [on GitHub](https://github.com/neo4j/neo4j-javascript-driver).
 
-The Javascript example below is equivalent to Python and Java examples. SSL
-can be disabled by passing `{encrypted: 'ENCRYPTION_OFF'}` during the driver
-construction.
+The Javascript example below is equivalent to Python and Java examples.
 
 Here is an example related to `Node.js`. Memgraph doesn't have integrated
 support for `WebSocket` which is required during the execution in any web
@@ -109,8 +103,7 @@ proxy port.
 ```javascript
 var neo4j = require('neo4j-driver').v1;
 var driver = neo4j.driver("bolt://localhost:7687",
-                          neo4j.auth.basic("neo4j", "1234"),
-                          {encrypted: 'ENCRYPTION_OFF'});
+                          neo4j.auth.basic("neo4j", "1234"));
 var session = driver.session();
 
 function die() {
@@ -146,8 +139,7 @@ run_query("MATCH (n) DETACH DELETE n", function (result) {
 
 The C# driver is hosted
 [on GitHub](https://github.com/neo4j/neo4j-dotnet-driver). The example below
-performs the same work as all of the previous examples. Encryption is disabled
-by setting `EncryptionLevel.NONE` on the `Config`.
+performs the same work as all of the previous examples.
 
 ```csh
 using System;
@@ -158,7 +150,6 @@ public class Basic {
   public static void Main(string[] args) {
     // Initialize the driver.
     var config = Config.DefaultConfig;
-    config.EncryptionLevel = EncryptionLevel.None;
     using(var driver = GraphDatabase.Driver("bolt://localhost:7687", AuthTokens.None, config))
       using(var session = driver.Session())
       {
@@ -176,6 +167,18 @@ public class Basic {
 }
 ```
 
+### Secure Sockets Layer (SSL)
+
+Secure connections are supported and enabled by default. The server initially
+ships with a self-signed testing certificate. The certificate can be replaced
+by editing the following parameters in `/etc/memgraph/memgraph.conf`:
+```
+--cert-file=/path/to/ssl/certificate.pem
+--key-file=/path/to/ssl/privatekey.pem
+```
+To disable SSL support and use insecure connections to the database you should
+set both parameters (`--cert-file` and `--key-file`) to empty values.
+
 ### Limitations
 
 Memgraph is currently in early stage, and has a number of limitations we plan
@@ -186,9 +189,3 @@ to remove in future versions.
 Memgraph is currently single-user only. There is no way to control user
 privileges. The default user has read and write privileges over the whole
 database.
-
-#### Secure Sockets Layer (SSL)
-
-Secure connections are not supported. For this reason each client
-driver needs to be configured not to use encryption. Consult driver-specific
-guides for details.

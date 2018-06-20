@@ -86,6 +86,8 @@ class Client {
       ::capnp::MessageBuilder *message);
 
   io::network::Endpoint endpoint_;
+  // TODO (mferencevic): currently the RPC client is hardcoded not to use SSL
+  communication::ClientContext context_;
   std::experimental::optional<communication::Client> client_;
 
   std::mutex mutex_;

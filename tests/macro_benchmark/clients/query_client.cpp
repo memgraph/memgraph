@@ -19,6 +19,7 @@ DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
+DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
 using communication::bolt::DecodedValue;
 
@@ -58,7 +59,8 @@ void ExecuteQueries(const std::vector<std::string> &queries,
   for (int i = 0; i < FLAGS_num_workers; ++i) {
     threads.push_back(std::thread([&]() {
       Endpoint endpoint(FLAGS_address, FLAGS_port);
-      Client client;
+      ClientContext context(FLAGS_use_ssl);
+      Client client(&context);
       if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
         LOG(FATAL) << "Couldn't connect to " << endpoint;
       }
@@ -99,6 +101,8 @@ void ExecuteQueries(const std::vector<std::string> &queries,
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
+
+  communication::Init();
 
   std::ifstream ifile;
   std::istream *istream{&std::cin};
