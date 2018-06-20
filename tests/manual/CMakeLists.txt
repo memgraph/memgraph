@@ -47,6 +47,9 @@ target_link_libraries(${test_prefix}generate_snapshot memgraph_lib kvstore_dummy
 add_manual_test(graph_500_generate_snapshot.cpp)
 target_link_libraries(${test_prefix}graph_500_generate_snapshot memgraph_lib kvstore_dummy_lib)
 
+add_manual_test(kvstore_console.cpp)
+target_link_libraries(${test_prefix}kvstore_console kvstore_lib gflags glog)
+
 add_manual_test(query_hash.cpp)
 target_link_libraries(${test_prefix}query_hash memgraph_lib kvstore_dummy_lib)
 

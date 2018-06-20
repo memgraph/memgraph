@@ -47,6 +47,8 @@ std::vector<fs::path> LoadFilePaths(const fs::path &directory,
 std::vector<std::string> ReadLines(const fs::path &path) {
   std::vector<std::string> lines;
 
+  if (!fs::exists(path)) return lines;
+
   std::ifstream stream(path.c_str());
   std::string line;
   while (std::getline(stream, line)) {

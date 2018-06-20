@@ -3,6 +3,7 @@
 # add memgraph sub libraries
 add_subdirectory(utils)
 add_subdirectory(io)
+add_subdirectory(telemetry)
 
 # all memgraph src files
 set(memgraph_src_files
@@ -224,7 +225,7 @@ include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # memgraph main executable
 add_executable(memgraph memgraph_bolt.cpp)
-target_link_libraries(memgraph memgraph_lib kvstore_lib)
+target_link_libraries(memgraph memgraph_lib kvstore_lib telemetry_lib)
 set_target_properties(memgraph PROPERTIES
                       # Set the executable output name to include version information.
                       OUTPUT_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"

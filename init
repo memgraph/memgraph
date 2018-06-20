@@ -11,6 +11,7 @@ required_pkgs=(git arcanist # source code control
                libboost-iostreams-dev
                libboost-serialization-dev
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+               uuid-dev libcurl4-openssl-dev # for telemetry
                sbcl # for custom Lisp C++ preprocessing
               )
 

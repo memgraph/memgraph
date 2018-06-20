@@ -9,6 +9,7 @@
 * [Enterprise Ed.] Dynamic graph partitioner added.
 * Static vertices/edges id generators exposed through the Id Cypher function.
 * Properties on disk added.
+* Telemetry added.
 * Add `toString` function to openCypher
 
 ### Bug Fixes and Other Changes

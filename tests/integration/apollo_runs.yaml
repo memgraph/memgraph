@@ -1,0 +1,8 @@
+- name: integration__telemetry
+  cd: telemetry
+  commands: TIMEOUT=200 ./runner.py
+  infiles:
+    - runner.py # runner script
+    - server.py # server script
+    - ../../../build_debug/tests/integration/telemetry/client # client binary
+    - ../../../build_debug/tests/manual/kvstore_console # kvstore console binary

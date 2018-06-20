@@ -15,6 +15,7 @@
 #include "config.hpp"
 #include "database/graph_db.hpp"
 #include "stats/stats.hpp"
+#include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
@@ -48,6 +49,12 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "Memory warning threshold, in MB. If Memgraph detects there is "
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
+DEFINE_bool(telemetry_enabled, false,
+            "Set to true to enable telemetry. We collect information about the "
+            "running system (CPU and memory information) and information about "
+            "the database runtime (vertex and edge counts and resource usage) "
+            "to allow for easier improvement of the product.");
+DECLARE_string(durability_directory);
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
@@ -156,6 +163,21 @@ void SingleNodeMain() {
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
                  session_data, FLAGS_session_inactivity_timeout, "Bolt",
                  FLAGS_num_workers);
+
+  // Setup telemetry
+  std::experimental::optional<telemetry::Telemetry> telemetry;
+  if (FLAGS_telemetry_enabled) {
+    telemetry::Init();
+    telemetry.emplace(
+        "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
+        std::experimental::filesystem::path(FLAGS_durability_directory) /
+            "telemetry",
+        std::chrono::minutes(10));
+    telemetry->AddCollector("db", [&db]() -> nlohmann::json {
+      database::GraphDbAccessor dba(db);
+      return {{"vertices", dba.VerticesCount()}, {"edges", dba.EdgesCount()}};
+    });
+  }
 
   // Handler for regular termination signals
   auto shutdown = [&server] {

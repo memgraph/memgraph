@@ -26,13 +26,37 @@ inline std::string Trim(const std::string &s) {
   auto begin = s.begin();
   auto end = s.end();
   if (begin == end) {
-    // Need to check this to be sure that prev(end) exists.
+    // Need to check this to be sure that std::prev(end) exists.
     return s;
   }
   while (begin < end && isspace(*begin)) {
     ++begin;
   }
-  while (end > begin && isspace(*prev(end))) {
+  while (end > begin && isspace(*std::prev(end))) {
+    --end;
+  }
+  return std::string(begin, end);
+}
+
+/**
+ * Removes characters contained in chars from the start and the end of a string.
+ *
+ * @param s string that is going to be trimmed
+ * @param chars string that contains chars that are to be removed
+ *
+ * @return trimmed string
+ */
+inline std::string Trim(const std::string &s, const std::string &chars) {
+  auto begin = s.begin();
+  auto end = s.end();
+  if (begin == end) {
+    // Need to check this to be sure that std::prev(end) exists.
+    return s;
+  }
+  while (begin < end && chars.find(*begin) != std::string::npos) {
+    ++begin;
+  }
+  while (end > begin && chars.find(*std::prev(end)) != std::string::npos) {
     --end;
   }
   return std::string(begin, end);

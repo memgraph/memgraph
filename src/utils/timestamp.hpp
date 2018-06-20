@@ -40,6 +40,10 @@ class Timestamp : public TotalOrdering<Timestamp> {
 
   auto SecSinceTheEpoch() const { return unix_time; }
 
+  double SecWithNsecSinceTheEpoch() const {
+    return (double)unix_time + (double)nsec / 1e9;
+  }
+
   auto NanoSec() const { return nsec; }
 
   long Year() const { return time.tm_year + 1900; }
