@@ -231,6 +231,21 @@ for some popular programming languages are listed below:
 We have included some basic usage examples for some of the supported languages
 in the **Drivers** section.
 
+### Telemetry
+
+Telemetry is an automated process by which some useful data is collected at
+a remote point. At Memgraph, we use telemetry for the sole purpose of improving
+our product, thereby collecting some data about the machine that executes the
+database (CPU, memory, OS and kernel information) as well as some data about the
+database runtime (CPU usage, memory usage, vertices and edges count).
+
+Here at Memgraph, we deeply care about the privacy of our users and do not
+collect any sensitive information. If users wish to disable Memgraph's telemetry
+features, they can easily do so by either altering the line in
+`/etc/memgraph/memgraph.conf` that enables telemetry (`--telemetry-enabled=true`)
+into `--telemetry-enabled=false`, or by including the `--telemetry-enabled=false`
+as a command-line argument when running the executable.
+
 ### Where to Next
 
 To learn more about the openCypher language, visit **openCypher Query
