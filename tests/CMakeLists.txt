@@ -25,8 +25,5 @@ add_subdirectory(unit)
 # property based test binaries
 add_subdirectory(property_based)
 
-# raft binaries
-add_subdirectory(distributed/raft)
-
 # integration test binaries
 add_subdirectory(integration)

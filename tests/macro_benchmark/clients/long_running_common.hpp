@@ -1,9 +1,9 @@
 #pragma once
 
+#include <memory>
+
 #include "json/json.hpp"
 
-#include "stats/metrics.hpp"
-#include "stats/stats.hpp"
 #include "utils/timer.hpp"
 
 #include "common.hpp"
@@ -22,8 +22,8 @@ DEFINE_int32(duration, 30, "Number of seconds to execute benchmark");
 DEFINE_string(group, "unknown", "Test group name");
 DEFINE_string(scenario, "unknown", "Test scenario name");
 
-auto &executed_queries = stats::GetCounter("executed_queries");
-auto &serialization_errors = stats::GetCounter("serialization_errors");
+std::atomic<uint64_t> executed_queries{0};
+std::atomic<uint64_t> serialization_errors{0};
 
 class TestClient {
  public:
@@ -70,7 +70,7 @@ class TestClient {
       std::tie(result, retries) =
           ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
     } catch (const utils::BasicException &e) {
-      serialization_errors.Bump(MAX_RETRIES);
+      serialization_errors += MAX_RETRIES;
       return std::experimental::nullopt;
     }
     auto wall_time = timer.Elapsed();
@@ -84,8 +84,8 @@ class TestClient {
         stats_[query].push_back(std::move(metadata));
       }
     }
-    executed_queries.Bump();
-    serialization_errors.Bump(retries);
+    ++executed_queries;
+    serialization_errors += retries;
     return result;
   }
 
@@ -168,15 +168,10 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
                       .first;
         it->second = (it->second.ValueDouble() * old_count + stat.second) /
                      (old_count + new_count);
-        stats::LogStat(
-            fmt::format("queries.{}.{}", query_stats.first, stat.first),
-            (stat.second / new_count));
       }
-      stats::LogStat(fmt::format("queries.{}.count", query_stats.first),
-                     new_count);
     }
 
-    out << "{\"num_executed_queries\": " << executed_queries.Value() << ", "
+    out << "{\"num_executed_queries\": " << executed_queries << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
     utils::PrintIterable(

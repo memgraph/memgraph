@@ -607,22 +607,6 @@ TypedValue IndexInfo(const std::vector<TypedValue> &args,
   return std::vector<TypedValue>(info.begin(), info.end());
 }
 
-TypedValue WorkerId(const std::vector<TypedValue> &args,
-                    database::GraphDbAccessor &) {
-  if (args.size() != 1U) {
-    throw QueryRuntimeException("workerId takes one argument");
-  }
-  auto &arg = args[0];
-  switch (arg.type()) {
-    case TypedValue::Type::Vertex:
-      return arg.ValueVertex().GlobalAddress().worker_id();
-    case TypedValue::Type::Edge:
-      return arg.ValueEdge().GlobalAddress().worker_id();
-    default:
-      throw QueryRuntimeException("workerId argument must be a vertex or edge");
-  }
-}
-
 TypedValue Id(const std::vector<TypedValue> &args,
               database::GraphDbAccessor &dba) {
   if (args.size() != 1U) {
@@ -727,7 +711,6 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "COUNTER") return Counter;
   if (function_name == "COUNTERSET") return CounterSet;
   if (function_name == "INDEXINFO") return IndexInfo;
-  if (function_name == "WORKERID") return WorkerId;
   if (function_name == "ID") return Id;
   if (function_name == "TOSTRING") return ToString;
   return nullptr;

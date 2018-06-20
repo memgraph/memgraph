@@ -40,9 +40,6 @@ target_link_libraries(${test_prefix}bolt_session memgraph_lib kvstore_dummy_lib)
 add_unit_test(communication_buffer.cpp)
 target_link_libraries(${test_prefix}communication_buffer memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(concurrent_id_mapper_distributed.cpp)
-target_link_libraries(${test_prefix}concurrent_id_mapper_distributed memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(concurrent_id_mapper_single_node.cpp)
 target_link_libraries(${test_prefix}concurrent_id_mapper_single_node memgraph_lib kvstore_dummy_lib)
 
@@ -51,9 +48,6 @@ target_link_libraries(${test_prefix}concurrent_map_access memgraph_lib kvstore_d
 
 add_unit_test(concurrent_map.cpp)
 target_link_libraries(${test_prefix}concurrent_map memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(counters.cpp)
-target_link_libraries(${test_prefix}counters memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor memgraph_lib kvstore_dummy_lib)
@@ -64,9 +58,6 @@ target_link_libraries(${test_prefix}database_key_index memgraph_lib kvstore_dumm
 add_unit_test(database_label_property_index.cpp)
 target_link_libraries(${test_prefix}database_label_property_index memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(database_master.cpp)
-target_link_libraries(${test_prefix}database_master memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(database_transaction_timeout.cpp)
 target_link_libraries(${test_prefix}database_transaction_timeout memgraph_lib kvstore_dummy_lib)
 
@@ -75,36 +66,6 @@ target_link_libraries(${test_prefix}datastructure_union_find memgraph_lib kvstor
 
 add_unit_test(deferred_deleter.cpp)
 target_link_libraries(${test_prefix}deferred_deleter memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_bfs.cpp)
-target_link_libraries(${test_prefix}distributed_bfs memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_coordination.cpp)
-target_link_libraries(${test_prefix}distributed_coordination memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_data_exchange.cpp)
-target_link_libraries(${test_prefix}distributed_data_exchange memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_durability.cpp)
-target_link_libraries(${test_prefix}distributed_durability memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_gc.cpp)
-target_link_libraries(${test_prefix}distributed_gc memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_graph_db.cpp)
-target_link_libraries(${test_prefix}distributed_graph_db memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_interpretation.cpp)
-target_link_libraries(${test_prefix}distributed_interpretation memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_query_plan.cpp)
-target_link_libraries(${test_prefix}distributed_query_plan memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_serialization.cpp)
-target_link_libraries(${test_prefix}distributed_serialization memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(distributed_updates.cpp)
-target_link_libraries(${test_prefix}distributed_updates memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(durability.cpp)
 target_link_libraries(${test_prefix}durability memgraph_lib kvstore_dummy_lib)
@@ -129,9 +90,6 @@ target_link_libraries(${test_prefix}interpreter memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(kvstore.cpp)
 target_link_libraries(${test_prefix}kvstore gtest gtest_main memgraph_lib kvstore_lib)
-
-add_unit_test(metrics.cpp)
-target_link_libraries(${test_prefix}metrics memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(mvcc.cpp)
 target_link_libraries(${test_prefix}mvcc memgraph_lib kvstore_dummy_lib)
@@ -190,23 +148,8 @@ target_link_libraries(${test_prefix}query_variable_start_planner memgraph_lib kv
 add_unit_test(queue.cpp)
 target_link_libraries(${test_prefix}queue memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(raft.cpp)
-target_link_libraries(${test_prefix}raft memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(raft_storage.cpp)
-target_link_libraries(${test_prefix}raft_storage memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(record_edge_vertex_accessor.cpp)
 target_link_libraries(${test_prefix}record_edge_vertex_accessor memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(rpc_worker_clients.cpp)
-target_link_libraries(${test_prefix}rpc_worker_clients memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(serialization.cpp)
-target_link_libraries(${test_prefix}serialization memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(skiplist_access.cpp)
 target_link_libraries(${test_prefix}skiplist_access memgraph_lib kvstore_dummy_lib)
@@ -234,9 +177,6 @@ target_link_libraries(${test_prefix}storage_address memgraph_lib kvstore_dummy_l
 
 add_unit_test(stripped.cpp)
 target_link_libraries(${test_prefix}stripped memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(transaction_engine_distributed.cpp)
-target_link_libraries(${test_prefix}transaction_engine_distributed memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(transaction_engine_single_node.cpp)
 target_link_libraries(${test_prefix}transaction_engine_single_node memgraph_lib kvstore_dummy_lib)

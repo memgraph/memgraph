@@ -33,12 +33,6 @@ target_link_libraries(${test_prefix}bolt_client memgraph_lib kvstore_dummy_lib)
 add_manual_test(card_fraud_generate_snapshot.cpp)
 target_link_libraries(${test_prefix}card_fraud_generate_snapshot memgraph_lib kvstore_dummy_lib)
 
-add_manual_test(card_fraud_local.cpp)
-target_link_libraries(${test_prefix}card_fraud_local memgraph_lib kvstore_dummy_lib)
-
-add_manual_test(distributed_repl.cpp)
-target_link_libraries(${test_prefix}distributed_repl memgraph_lib kvstore_dummy_lib)
-
 add_manual_test(endinan.cpp)
 
 add_manual_test(generate_snapshot.cpp)
@@ -55,9 +49,6 @@ target_link_libraries(${test_prefix}query_hash memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(query_planner.cpp)
 target_link_libraries(${test_prefix}query_planner memgraph_lib kvstore_dummy_lib)
-
-add_manual_test(raft_rpc.cpp)
-target_link_libraries(${test_prefix}raft_rpc memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(repl.cpp)
 target_link_libraries(${test_prefix}repl memgraph_lib kvstore_dummy_lib)

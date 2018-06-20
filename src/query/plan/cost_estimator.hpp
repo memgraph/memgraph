@@ -185,8 +185,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool Visit(Once &) override { return true; }
   bool Visit(CreateIndex &) override { return true; }
-  bool Visit(ModifyUser &) override { return true; }
-  bool Visit(DropUser &) override { return true; }
 
   // TODO: Cost estimate PullRemote and ProduceRemote?
 

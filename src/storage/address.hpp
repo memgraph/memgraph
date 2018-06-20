@@ -4,7 +4,6 @@
 
 #include "glog/logging.h"
 
-#include "storage/serialization.capnp.h"
 #include "storage/gid.hpp"
 
 namespace storage {
@@ -87,14 +86,6 @@ class Address {
 
   bool operator==(const Address<TLocalObj> &other) const {
     return storage_ == other.storage_;
-  }
-
-  void Save(capnp::Address::Builder *builder) const {
-    builder->setStorage(storage_);
-  }
-
-  void Load(const capnp::Address::Reader &reader) {
-    storage_ = reader.getStorage();
   }
 
  private:

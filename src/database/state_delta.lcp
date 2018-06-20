@@ -3,21 +3,16 @@
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/primitive_encoder.hpp"
-#include "database/state_delta.capnp.h"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "storage/address_types.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
-#include "utils/serialization.hpp"
 cpp<#
 
 (lcp:namespace database)
 
 (lcp:capnp-namespace "database")
-
-(lcp:capnp-import 'storage "/storage/serialization.capnp")
-(lcp:capnp-import 'dis "/distributed/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 (lcp:capnp-type-conversion "gid::Gid" "UInt64")
@@ -108,7 +103,7 @@ in StateDeltas.")
       "Defines StateDelta type. For each type the comment indicates which values
 need to be stored. All deltas have the transaction_id member, so that's
 omitted in the comment.")
-     (:serialize :capnp))
+     (:serialize))
      #>cpp
      StateDelta() = default;
      StateDelta(const enum Type &type, tx::TransactionId tx_id)
@@ -174,6 +169,6 @@ omitted in the comment.")
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;
      cpp<#)
-  (:serialize :capnp))
+  (:serialize))
 
 (lcp:pop-namespace) ;; database

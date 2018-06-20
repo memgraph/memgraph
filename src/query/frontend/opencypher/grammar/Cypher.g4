@@ -47,8 +47,6 @@ clause : cypherMatch
        | with
        | cypherReturn
        | createIndex
-       | modifyUser 
-       | dropUser
        ;
 
 cypherMatch : ( OPTIONAL SP )? MATCH SP? pattern ( SP? where )? ;
@@ -276,20 +274,6 @@ integerLiteral : HexInteger
 
 createIndex : CREATE SP INDEX SP ON SP? ':' SP? labelName SP? '(' SP? propertyKeyName SP? ')' ;
 
-userName : UnescapedSymbolicName ;
-
-createUser : CREATE SP USER ; 
-
-alterUser : ALTER SP USER ; 
-
-modifyUser : ( createUser | alterUser ) SP userName ( SP WITH ( SP modifyUserOption )+ )? ;
-
-modifyUserOption : passwordOption ;
-
-passwordOption : PASSWORD SP literal;
-
-dropUser : DROP SP USER SP userName ( SP? ',' SP? userName )* ;
-
 HexInteger : '0x' ( HexDigit )+ ;
 
 DecimalInteger : ZeroDigit
@@ -499,14 +483,6 @@ INDEX : ( 'I' | 'i') ( 'N' | 'n' ) ( 'D' | 'd' ) ( 'E' | 'e' ) ( 'X' | 'x' ) ;
 BFS : ( 'B' | 'b' ) ( 'F' | 'f' ) ( 'S' | 's' ) ;
 
 WSHORTEST : ( 'W' | 'w' ) ( 'S' | 's' ) ( 'H' | 'h' ) ( 'O' | 'o' ) ( 'R' | 'r' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'S' | 's' ) ( 'T' | 't' ) ;
-
-USER : ( 'U' | 'u' ) ( 'S' | 's' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ;
-
-PASSWORD : ( 'P' | 'p' ) ( 'A' | 'a' ) ( 'S' | 's' ) ( 'S' | 's' ) ( 'W' | 'w' ) ( 'O' | 'o' ) ( 'R' | 'r' ) ( 'D' | 'd' ) ;
-
-ALTER : ( 'A' | 'a' ) ( 'L' | 'l' ) ( 'T' | 't' ) ( 'E' | 'e' ) ( 'R' | 'r' ) ;
-
-DROP : ( 'D' | 'd' ) ( 'R' | 'r' ) ( 'O' | 'o' ) ( 'P' | 'p' ) ;
 
 UnescapedSymbolicName : IdentifierStart ( IdentifierPart )* ;
 

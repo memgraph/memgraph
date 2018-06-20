@@ -3,11 +3,8 @@
 #include <cstdint>
 #include <string>
 
-#include "boost/serialization/serialization.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
-
-#include "query/common.capnp.h"
 
 namespace query {
 
@@ -49,18 +46,9 @@ class TypedValueVectorCompare final {
 
   const auto &ordering() const { return ordering_; }
 
-  void Save(capnp::TypedValueVectorCompare::Builder *builder) const;
-  void Load(const capnp::TypedValueVectorCompare::Reader &reader);
-
  private:
   std::vector<Ordering> ordering_;
 
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &ordering_;
-  }
   // Custom comparison for TypedValue objects.
   //
   // Behaves generally like Neo's ORDER BY comparison operator:

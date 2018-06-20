@@ -29,8 +29,7 @@ class Interpreter {
   class CachedPlan {
    public:
     /// Creates a cached plan and sends it to all the workers.
-    CachedPlan(plan::DistributedPlan distributed_plan, double cost,
-               distributed::PlanDispatcher *plan_dispatcher);
+    CachedPlan(plan::DistributedPlan distributed_plan, double cost);
 
     /// Removes the cached plan from all the workers.
     ~CachedPlan();
@@ -49,9 +48,6 @@ class Interpreter {
     plan::DistributedPlan distributed_plan_;
     double cost_;
     utils::Timer cache_timer_;
-
-    // Optional, only available in a distributed master.
-    distributed::PlanDispatcher *plan_dispatcher_{nullptr};
   };
 
   using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
@@ -174,9 +170,6 @@ class Interpreter {
   // developers introduce more bugs in each version. Fortunately, we have cache
   // so this lock probably won't impact performance much...
   utils::SpinLock antlr_lock_;
-
-  // Optional, not null only in a distributed master.
-  distributed::PlanDispatcher *plan_dispatcher_{nullptr};
 
   // stripped query -> CachedPlan
   std::shared_ptr<CachedPlan> QueryToPlan(const StrippedQuery &stripped,

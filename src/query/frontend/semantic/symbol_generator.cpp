@@ -220,10 +220,6 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::Visit(CreateIndex &) { return true; }
 
-bool SymbolGenerator::Visit(ModifyUser &) { return true; }
-
-bool SymbolGenerator::Visit(DropUser &) { return true; }
-
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {

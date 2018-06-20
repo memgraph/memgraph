@@ -5,7 +5,6 @@
 #include <iostream>
 #include <string>
 
-#include "io/network/endpoint.capnp.h"
 #include "utils/exceptions.hpp"
 
 namespace io::network {
@@ -26,9 +25,6 @@ class Endpoint {
 
   bool operator==(const Endpoint &other) const;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
-
-  void Save(capnp::Endpoint::Builder *builder) const;
-  void Load(const capnp::Endpoint::Reader &reader);
 
  private:
   std::string address_;

@@ -4,7 +4,6 @@
 #include "glog/logging.h"
 
 #include "database/state_delta.hpp"
-#include "transactions/engine_rpc_messages.hpp"
 #include "transactions/engine_single_node.hpp"
 
 namespace tx {

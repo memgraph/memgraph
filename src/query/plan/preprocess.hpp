@@ -53,8 +53,6 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
   bool Visit(query::CreateIndex &) override { return true; }
-  bool Visit(query::ModifyUser &) override { return true; }
-  bool Visit(query::DropUser &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
