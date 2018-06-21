@@ -4,19 +4,19 @@
 
 ### Major Features and Improvements
 
-* [Enterprise Ed.] Improve Cartesian support in distributed queries
-* [Enterprise Ed.] Improve distributed execution of BFS
+* [Enterprise Ed.] Improve Cartesian support in distributed queries.
+* [Enterprise Ed.] Improve distributed execution of BFS.
 * [Enterprise Ed.] Dynamic graph partitioner added.
 * Static vertices/edges id generators exposed through the Id Cypher function.
 * Properties on disk added.
 * Telemetry added.
 * SSL support added.
-* Add `toString` function to openCypher
+* Add `toString` function to openCypher.
 
 ### Bug Fixes and Other Changes
 
-* Document issues with Docker on OS X
-* Add BFS and Dijkstra's algorithm examples to documentation
+* Document issues with Docker on OS X.
+* Add BFS and Dijkstra's algorithm examples to documentation.
 
 ## v0.10.0
 
@@ -26,7 +26,7 @@
 
 ### Major Features and Improvements
 
-* [Enterprise Ed.] Distributed storage and execution
+* [Enterprise Ed.] Distributed storage and execution.
 * `reduce` and `single` functions added to openCypher.
 * `wShortest` edge expansion added to openCypher.
 * Support packaging RPM on CentOS 7.
