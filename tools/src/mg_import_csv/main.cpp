@@ -470,6 +470,26 @@ std::string GetOutputPath() {
   } catch (const std::experimental::filesystem::filesystem_error &error) {
     LOG(FATAL) << error.what();
   }
+  // TODO: Remove this stupid hack which deletes WAL files just to make snapshot
+  // recovery work. Newest snapshot without accompanying WAL files should be
+  // detected in memgraph and correctly recovered (or error reported).
+  try {
+    auto wal_dir = durability_dir + "/wal";
+    if (std::experimental::filesystem::exists(wal_dir)) {
+      for (const auto &wal_file :
+           std::experimental::filesystem::directory_iterator(wal_dir)) {
+        if (!FLAGS_overwrite) {
+          LOG(FATAL) << "Durability directory isn't empty. Pass --overwrite to "
+                        "remove the old recovery data";
+        }
+        break;
+      }
+      LOG(WARNING) << "Removing old recovery data!";
+      std::experimental::filesystem::remove_all(wal_dir);
+    }
+  } catch (const std::experimental::filesystem::filesystem_error &error) {
+    LOG(FATAL) << error.what();
+  }
   int worker_id = 0;
   // TODO(dgleich): Remove this transaction id hack
   return std::string(
