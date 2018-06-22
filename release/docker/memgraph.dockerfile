@@ -2,6 +2,10 @@ FROM debian:stretch
 
 ARG deb_release
 
+RUN apt-get update && apt-get install -y \
+    openssl libcurl3 libssl1.1 \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
 COPY ${deb_release} /
 
 # Install memgraph package
