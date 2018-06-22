@@ -9,13 +9,6 @@
 #include "storage/property_value.hpp"
 #include "storage/types.hpp"
 
-const std::string disk_key_separator = "_";
-
-std::string DiskKey(const std::string &version_key,
-                    const std::string &property_id);
-
-std::string DiskKeyPrefix(const std::string &version_key);
-
 /**
  * A collection of properties accessed in a map-like way using a key of type
  * Storage::Property.
@@ -103,11 +96,14 @@ class PropertyValueStore {
    public:
     iterator() = delete;
 
-    iterator(const PropertyValueStore *PVS,
+    iterator(const PropertyValueStore *pvs,
+             std::vector<std::pair<Property, PropertyValue>>::const_iterator
+                 memory_it);
+
+    iterator(const PropertyValueStore *pvs,
              std::vector<std::pair<Property, PropertyValue>>::const_iterator
                  memory_it,
-             storage::KVStore::iterator disk_it)
-        : PVS_(PVS), memory_it_(memory_it), disk_it_(std::move(disk_it)) {}
+             storage::KVStore::iterator disk_it);
 
     iterator(const iterator &other) = delete;
 
@@ -117,56 +113,28 @@ class PropertyValueStore {
 
     iterator &operator=(const iterator &other) = delete;
 
-    iterator &operator++() {
-      if (memory_it_ != PVS_->props_.end())
-        ++memory_it_;
-      else
-        ++disk_it_;
-      return *this;
-    }
+    iterator &operator++();
 
-    bool operator==(const iterator &other) const {
-      return PVS_ == other.PVS_ && memory_it_ == other.memory_it_ &&
-             disk_it_ == other.disk_it_;
-    }
+    bool operator==(const iterator &other) const;
 
-    bool operator!=(const iterator &other) const { return !(*this == other); }
+    bool operator!=(const iterator &other) const;
 
-    reference operator*() {
-      if (memory_it_ != PVS_->props_.end()) return *memory_it_;
-      std::pair<std::string, std::string> kv = *disk_it_;
-      std::string prop_id =
-          kv.first.substr(kv.first.find(disk_key_separator) + 1);
-      disk_prop_ = {Property(std::stoi(prop_id), Location::Disk),
-                    PVS_->DeserializeProp(kv.second)};
-      return disk_prop_.value();
-    }
+    reference operator*();
 
-    pointer operator->() { return &**this; }
+    pointer operator->();
 
    private:
-    const PropertyValueStore *PVS_;
+    const PropertyValueStore *pvs_;
     std::vector<std::pair<Property, PropertyValue>>::const_iterator memory_it_;
-    storage::KVStore::iterator disk_it_;
+    std::experimental::optional<storage::KVStore::iterator> disk_it_;
     std::experimental::optional<std::pair<Property, PropertyValue>> disk_prop_;
   };
 
-  size_t size() const {
-    return props_.size() +
-           DiskStorage().Size(DiskKeyPrefix(std::to_string(version_key_)));
-  }
+  size_t size() const;
 
-  iterator begin() const {
-    return iterator(
-        this, props_.begin(),
-        DiskStorage().begin(DiskKeyPrefix(std::to_string(version_key_))));
-  }
+  iterator begin() const;
 
-  iterator end() const {
-    return iterator(
-        this, props_.end(),
-        DiskStorage().end(DiskKeyPrefix(std::to_string(version_key_))));
-  }
+  iterator end() const;
 
  private:
   static std::atomic<uint64_t> global_key_cnt_;
@@ -194,4 +162,3 @@ class PropertyValueStore {
 
   storage::KVStore ConstructDiskStorage() const;
 };
-

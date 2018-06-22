@@ -10,6 +10,8 @@ namespace fs = std::experimental::filesystem;
 
 using namespace communication::bolt;
 
+const std::string kDiskKeySeparator = "_";
+
 std::atomic<uint64_t> PropertyValueStore::global_key_cnt_ = {0};
 
 // properties on disk are stored in a directory named properties within the
@@ -18,7 +20,7 @@ DECLARE_string(durability_directory);
 DECLARE_string(properties_on_disk);
 
 std::string DiskKeyPrefix(const std::string &version_key) {
-  return version_key + disk_key_separator;
+  return version_key + kDiskKeySeparator;
 }
 
 std::string DiskKey(const std::string &version_key,
@@ -44,8 +46,9 @@ PropertyValueStore::PropertyValueStore(const PropertyValueStore &old)
 }
 
 PropertyValueStore::~PropertyValueStore() {
-  if (!FLAGS_properties_on_disk.empty())
+  if (!FLAGS_properties_on_disk.empty()) {
     DiskStorage().DeletePrefix(DiskKeyPrefix(std::to_string(version_key_)));
+  }
 }
 
 PropertyValue PropertyValueStore::at(const Property &key) const {
@@ -56,6 +59,10 @@ PropertyValue PropertyValueStore::at(const Property &key) const {
   };
 
   if (key.Location() == Location::Memory) return GetValue(props_);
+
+  CHECK(!FLAGS_properties_on_disk.empty()) << "Trying to read property from "
+                                              "disk storage with properties on "
+                                              "disk disabled!";
 
   std::string disk_key =
       DiskKey(std::to_string(version_key_), std::to_string(key.Id()));
@@ -86,6 +93,9 @@ void PropertyValueStore::set(const Property &key, const PropertyValue &value) {
   if (key.Location() == Location::Memory) {
     SetValue(props_);
   } else {
+    CHECK(!FLAGS_properties_on_disk.empty()) << "Trying to read property from "
+                                                "disk storage with properties "
+                                                "on disk disabled!";
     std::string disk_key =
         DiskKey(std::to_string(version_key_), std::to_string(key.Id()));
     DiskStorage().Put(disk_key, SerializeProp(value));
@@ -104,6 +114,10 @@ bool PropertyValueStore::erase(const Property &key) {
 
   if (key.Location() == Location::Memory) return EraseKey(props_);
 
+  CHECK(!FLAGS_properties_on_disk.empty()) << "Trying to read property from "
+                                              "disk storage with properties on "
+                                              "disk disabled!";
+
   std::string disk_key =
       DiskKey(std::to_string(version_key_), std::to_string(key.Id()));
   return DiskStorage().Delete(disk_key);
@@ -111,13 +125,87 @@ bool PropertyValueStore::erase(const Property &key) {
 
 void PropertyValueStore::clear() {
   props_.clear();
-  if (!FLAGS_properties_on_disk.empty())
+  if (!FLAGS_properties_on_disk.empty()) {
     DiskStorage().DeletePrefix(DiskKeyPrefix(std::to_string(version_key_)));
+  }
 }
 
 storage::KVStore &PropertyValueStore::DiskStorage() const {
   static auto disk_storage = ConstructDiskStorage();
   return disk_storage;
+}
+
+PropertyValueStore::iterator::iterator(
+    const PropertyValueStore *pvs,
+    std::vector<std::pair<Property, PropertyValue>>::const_iterator memory_it)
+    : pvs_(pvs), memory_it_(memory_it) {}
+
+PropertyValueStore::iterator::iterator(
+    const PropertyValueStore *pvs,
+    std::vector<std::pair<Property, PropertyValue>>::const_iterator memory_it,
+    storage::KVStore::iterator disk_it)
+    : pvs_(pvs), memory_it_(memory_it), disk_it_(std::move(disk_it)) {}
+
+PropertyValueStore::iterator &PropertyValueStore::iterator::operator++() {
+  if (memory_it_ != pvs_->props_.end()) {
+    ++memory_it_;
+  } else if (disk_it_) {
+    ++(*disk_it_);
+  }
+  return *this;
+}
+
+bool PropertyValueStore::iterator::operator==(const iterator &other) const {
+  return pvs_ == other.pvs_ && memory_it_ == other.memory_it_ &&
+         disk_it_ == other.disk_it_;
+}
+
+bool PropertyValueStore::iterator::operator!=(const iterator &other) const {
+  return !(*this == other);
+}
+
+PropertyValueStore::iterator::reference PropertyValueStore::iterator::operator
+    *() {
+  if (memory_it_ != pvs_->props_.end() || !disk_it_) return *memory_it_;
+  std::pair<std::string, std::string> kv = *(*disk_it_);
+  std::string prop_id = kv.first.substr(kv.first.find(kDiskKeySeparator) + 1);
+  disk_prop_ = {Property(std::stoi(prop_id), Location::Disk),
+                pvs_->DeserializeProp(kv.second)};
+  return disk_prop_.value();
+}
+
+PropertyValueStore::iterator::pointer PropertyValueStore::iterator::
+operator->() {
+  return &**this;
+}
+
+size_t PropertyValueStore::size() const {
+  if (FLAGS_properties_on_disk.empty()) {
+    return props_.size();
+  } else {
+    return props_.size() +
+           DiskStorage().Size(DiskKeyPrefix(std::to_string(version_key_)));
+  }
+}
+
+PropertyValueStore::iterator PropertyValueStore::begin() const {
+  if (FLAGS_properties_on_disk.empty()) {
+    return iterator(this, props_.begin());
+  } else {
+    return iterator(
+        this, props_.begin(),
+        DiskStorage().begin(DiskKeyPrefix(std::to_string(version_key_))));
+  }
+}
+
+PropertyValueStore::iterator PropertyValueStore::end() const {
+  if (FLAGS_properties_on_disk.empty()) {
+    return iterator(this, props_.end());
+  } else {
+    return iterator(
+        this, props_.end(),
+        DiskStorage().end(DiskKeyPrefix(std::to_string(version_key_))));
+  }
 }
 
 std::string PropertyValueStore::SerializeProp(const PropertyValue &prop) const {
