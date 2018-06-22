@@ -56,16 +56,36 @@ Linux systems it should be in
 `/var/lib/docker/volumes/mg_etc/_data/memgraph.conf`. After changing the
 configuration, Memgraph needs to be restarted.
 
+##### Note about named volumes
+
+In case named volumes are reused between different versions of Memgraph, a user
+has to be careful because Docker will overwrite a folder within the container
+with existing data from the host machine. In the case where a new file is
+introduced, or two versions of Memgraph are not compatible, the new feature
+won't work or Memgraph won't be able to work correctly. The easiest way to
+solve the issue is to use another named volume or to remove existing named
+volume from the host with the following command.
+
+```bash
+docker volume rm <volume_name>
+```
+
+Named Docker volumes used in this documentation are: `mg_etc`, `mg_log` and
+`mg_lib`. Another valid option is to try to migrate your existing volume to a
+newer version of Memgraph. In case of any issues, send an email to
+`tech@memgraph.com`.
+
 ##### Note for OS X/macOS Users
 
 Although unlikely, some OS X/macOS users might experience minor difficulties
 after following the Docker installation instructions. Instead of running on
 `localhost`, a Docker container for Memgraph might be running on a custom IP
-address. Fortunately, that IP address can be found using the following algorithm:
+address. Fortunately, that IP address can be found using the following
+algorithm:
 
 1) Find out the container ID of the Memgraph container
 
-By issuing the command `docker ls` the user should get an output similar to the
+By issuing the command `docker ps` the user should get an output similar to the
 following:
 
 ```bash
@@ -73,8 +93,8 @@ CONTAINER ID        IMAGE               COMMAND                  CREATED        
 9397623cd87e        memgraph            "/usr/lib/memgraph/m…"   2 seconds ago  ...
 ```
 
-At this point, it is important to remember the container ID of the Memgraph image.
-In our case, that is `9397623cd87e`.
+At this point, it is important to remember the container ID of the Memgraph
+image.  In our case, that is `9397623cd87e`.
 
 2) Use the container ID to retrieve an IP of the container
 
@@ -111,9 +131,9 @@ journalctl --unit memgraph
 It is expected to see something like the following output.
 
 ```bash
-Nov 23 13:40:13 hostname memgraph[14654]: Starting 8 workers
-Nov 23 13:40:13 hostname memgraph[14654]: Server is fully armed and operational
-Nov 23 13:40:13 hostname memgraph[14654]: Listening on 0.0.0.0 at 7687
+Nov 23 13:40:13 hostname memgraph[14654]: Starting 8 BoltS workers
+Nov 23 13:40:13 hostname memgraph[14654]: BoltS server is fully armed and operational
+Nov 23 13:40:13 hostname memgraph[14654]: BoltS listening on 0.0.0.0 at 7687
 ```
 
 Memgraph is now ready to process queries, you may now proceed to
@@ -152,9 +172,9 @@ journalctl --unit memgraph
 It is expected to see something like the following output.
 
 ```bash
-Nov 23 13:40:13 hostname memgraph[14654]: Starting 8 workers
-Nov 23 13:40:13 hostname memgraph[14654]: Server is fully armed and operational
-Nov 23 13:40:13 hostname memgraph[14654]: Listening on 0.0.0.0 at 7687
+Nov 23 13:40:13 hostname memgraph[14654]: Starting 8 BoltS workers
+Nov 23 13:40:13 hostname memgraph[14654]: BoltS server is fully armed and operational
+Nov 23 13:40:13 hostname memgraph[14654]: BoltS listening on 0.0.0.0 at 7687
 ```
 
 Memgraph is now ready to process queries, you may now proceed to

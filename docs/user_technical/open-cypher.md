@@ -702,6 +702,7 @@ functions.
  `counter`       | Generates integers that are guaranteed to be unique on the database level, for the given counter name.
  `counterSet`    | Sets the counter with the given name to the given value.
  `indexInfo`     | Returns a list of all the indexes available in the database. The list includes indexes that are not yet ready for use (they are concurrently being built by another transaction).
+ `id`            | Returns identifier for a given node or edge. To enable automatic generation of the identifiers, `--generate-vertex-ids` and `--generate-edge-ids` parameters have to be set on `true` (enabled in the configuration by default).
 
 #### String Operators
 
@@ -821,7 +822,6 @@ here (especially subtle semantic ones).
 #### Unsupported Functions
 
 General purpose functions:
-* `id()` - Memgraph does not expose a public unique node identifier.
 * `exists(n.property)` - This can be expressed using `n.property IS NOT NULL`.
 * `length()` is named `size()` in Memgraph.
 
