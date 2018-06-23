@@ -71,7 +71,11 @@ docker volume rm <volume_name>
 ```
 
 Named Docker volumes used in this documentation are: `mg_etc`, `mg_log` and
-`mg_lib`. Another valid option is to try to migrate your existing volume to a
+`mg_lib`. E.g. to avoid any configuration issues between different Memgraph
+versions, `docker volume rm mg_etc` can be executed before running a new
+container.
+
+Another valid option is to try to migrate your existing volume to a
 newer version of Memgraph. In case of any issues, send an email to
 `tech@memgraph.com`.
 
