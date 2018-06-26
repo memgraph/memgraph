@@ -1,4 +1,5 @@
 ## Dynamic Graph Partitioning
+
 Memgraph supports dynamic graph partitioning similar to the Spinner algorithm, 
 mentioned in this paper: [https://arxiv.org/pdf/1404.3861.pdf].
 
@@ -7,6 +8,7 @@ it tries to keep closely connected data on one worker. It tries to avoid jumps
 across workers when querying/traversing the distributed graph.
 
 ### Our implementation
+
 It works independently on each worker but it is always running the migration 
 on only one worker at the same time. It achieves that by sharing a token 
 between workers, and the token ownership is transferred to the next worker 
@@ -18,6 +20,7 @@ migrations, which might cause an update of some vertex from two or more
 different transactions.
 
 ### Migrations
+
 For each vertex and workerid (label in the context of Dgp algorithm) we define  
 a score function. Score function takes into account labels of surrounding 
 endpoints of vertex edges (in/out) and the capacity of the worker with said 
