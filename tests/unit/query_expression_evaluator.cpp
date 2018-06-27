@@ -9,6 +9,7 @@
 #include "gtest/gtest.h"
 
 #include "database/graph_db_accessor.hpp"
+#include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -33,24 +34,18 @@ namespace {
 struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
   Frame frame{128};
-  SymbolTable symbol_table;
   database::SingleNode db;
   database::GraphDbAccessor dba{db};
-  Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, dba,
-                           GraphView::OLD};
+  Context ctx{dba};
+  ExpressionEvaluator eval{frame, &ctx, GraphView::OLD};
 };
 
 TypedValue EvaluateFunction(const std::string &function_name,
                             const std::vector<TypedValue> &args,
-                            database::GraphDb &db) {
+                            Context *context) {
   AstStorage storage;
-  SymbolTable symbol_table;
-  database::GraphDbAccessor dba(db);
   Frame frame{128};
-  Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, dba,
-                           GraphView::OLD};
+  ExpressionEvaluator eval{frame, context, GraphView::OLD};
 
   std::vector<Expression *> expressions;
   for (const auto &arg : args) {
@@ -63,7 +58,9 @@ TypedValue EvaluateFunction(const std::string &function_name,
 TypedValue EvaluateFunction(const std::string &function_name,
                             const std::vector<TypedValue> &args) {
   database::SingleNode db;
-  return EvaluateFunction(function_name, args, db);
+  database::GraphDbAccessor dba{db};
+  Context ctx{dba};
+  return EvaluateFunction(function_name, args, &ctx);
 }
 
 TEST(ExpressionEvaluator, OrOperator) {
@@ -635,9 +632,9 @@ class ExpressionEvaluatorPropertyLookup : public testing::Test {
   std::pair<std::string, storage::Property> prop_height =
       PROPERTY_PAIR("height");
   Expression *identifier = storage.Create<Identifier>("element");
-  Symbol symbol = eval.symbol_table.CreateSymbol("element", true);
+  Symbol symbol = eval.ctx.symbol_table_.CreateSymbol("element", true);
 
-  void SetUp() { eval.symbol_table[*identifier] = symbol; }
+  void SetUp() { eval.ctx.symbol_table_[*identifier] = symbol; }
 
   auto Value(std::pair<std::string, storage::Property> property) {
     auto *op = storage.Create<PropertyLookup>(identifier, property);
@@ -684,8 +681,8 @@ TEST(ExpressionEvaluator, LabelsTest) {
   v1.add_label(dba.Label("DOG"));
   v1.add_label(dba.Label("NICE_DOG"));
   auto *identifier = storage.Create<Identifier>("n");
-  auto node_symbol = eval.symbol_table.CreateSymbol("n", true);
-  eval.symbol_table[*identifier] = node_symbol;
+  auto node_symbol = eval.ctx.symbol_table_.CreateSymbol("n", true);
+  eval.ctx.symbol_table_[*identifier] = node_symbol;
   eval.frame[node_symbol] = v1;
   {
     auto *op = storage.Create<LabelsTest>(
@@ -717,16 +714,15 @@ TEST(ExpressionEvaluator, Aggregation) {
   AstStorage storage;
   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),
                                           nullptr, Aggregation::Op::COUNT);
-  SymbolTable symbol_table;
-  auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
-  symbol_table[*aggr] = aggr_sym;
-  Frame frame{symbol_table.max_position()};
-  frame[aggr_sym] = TypedValue(1);
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
+  Context ctx(dba);
+  auto aggr_sym = ctx.symbol_table_.CreateSymbol("aggr", true);
+  ctx.symbol_table_[*aggr] = aggr_sym;
+  Frame frame{ctx.symbol_table_.max_position()};
+  frame[aggr_sym] = TypedValue(1);
   Parameters parameters;
-  ExpressionEvaluator eval{frame, parameters, symbol_table, dba,
-                           GraphView::OLD};
+  ExpressionEvaluator eval{frame, &ctx, GraphView::OLD};
   auto value = aggr->Accept(eval);
   EXPECT_EQ(value.Value<int64_t>(), 1);
 }
@@ -790,8 +786,8 @@ TEST(ExpressionEvaluator, FunctionProperties) {
   ASSERT_THROW(EvaluateFunction("PROPERTIES", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("PROPERTIES", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -808,13 +804,16 @@ TEST(ExpressionEvaluator, FunctionProperties) {
     return properties;
   };
 
-  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {v1}, db)),
-              UnorderedElementsAre(testing::Pair("height", 5),
-                                   testing::Pair("age", 10)));
-  ASSERT_THAT(prop_values_to_int(EvaluateFunction("PROPERTIES", {e}, db)),
-              UnorderedElementsAre(testing::Pair("height", 3),
-                                   testing::Pair("age", 15)));
-  ASSERT_THROW(EvaluateFunction("PROPERTIES", {2}, db), QueryRuntimeException);
+  ASSERT_THAT(
+      prop_values_to_int(EvaluateFunction("PROPERTIES", {v1}, &eval.ctx)),
+      UnorderedElementsAre(testing::Pair("height", 5),
+                           testing::Pair("age", 10)));
+  ASSERT_THAT(
+      prop_values_to_int(EvaluateFunction("PROPERTIES", {e}, &eval.ctx)),
+      UnorderedElementsAre(testing::Pair("height", 3),
+                           testing::Pair("age", 15)));
+  ASSERT_THROW(EvaluateFunction("PROPERTIES", {2}, &eval.ctx),
+               QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionLast) {
@@ -935,34 +934,36 @@ TEST(ExpressionEvaluator, FunctionType) {
   ASSERT_THROW(EvaluateFunction("TYPE", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("TYPE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
   v2.add_label(dba.Label("label2"));
   auto e = dba.InsertEdge(v1, v2, dba.EdgeType("type1"));
-  ASSERT_EQ(EvaluateFunction("TYPE", {e}, db).Value<std::string>(), "type1");
-  ASSERT_THROW(EvaluateFunction("TYPE", {2}, db), QueryRuntimeException);
+  ASSERT_EQ(EvaluateFunction("TYPE", {e}, &eval.ctx).Value<std::string>(),
+            "type1");
+  ASSERT_THROW(EvaluateFunction("TYPE", {2}, &eval.ctx), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionLabels) {
   ASSERT_THROW(EvaluateFunction("LABELS", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("LABELS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto v = dba.InsertVertex();
   v.add_label(dba.Label("label1"));
   v.add_label(dba.Label("label2"));
   std::vector<std::string> labels;
-  auto _labels =
-      EvaluateFunction("LABELS", {v}, db).Value<std::vector<TypedValue>>();
+  auto _labels = EvaluateFunction("LABELS", {v}, &eval.ctx)
+                     .Value<std::vector<TypedValue>>();
   for (auto label : _labels) {
     labels.push_back(label.Value<std::string>());
   }
   ASSERT_THAT(labels, UnorderedElementsAre("label1", "label2"));
-  ASSERT_THROW(EvaluateFunction("LABELS", {2}, db), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("LABELS", {2}, &eval.ctx),
+               QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionNodesRelationships) {
@@ -972,8 +973,8 @@ TEST(ExpressionEvaluator, FunctionNodesRelationships) {
   EXPECT_TRUE(EvaluateFunction("RELATIONSHIPS", {TypedValue::Null}).IsNull());
 
   {
-    database::SingleNode db;
-    database::GraphDbAccessor dba(db);
+    NoContextExpressionEvaluator eval;
+    auto &dba = eval.dba;
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
     auto v3 = dba.InsertVertex();
@@ -1030,8 +1031,8 @@ TEST(ExpressionEvaluator, FunctionKeys) {
   ASSERT_THROW(EvaluateFunction("KEYS", {}), QueryRuntimeException);
   ASSERT_EQ(EvaluateFunction("KEYS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
-  database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -1047,11 +1048,11 @@ TEST(ExpressionEvaluator, FunctionKeys) {
     }
     return keys;
   };
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {v1}, db)),
+  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {v1}, &eval.ctx)),
               UnorderedElementsAre("height", "age"));
-  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {e}, db)),
+  ASSERT_THAT(prop_keys_to_string(EvaluateFunction("KEYS", {e}, &eval.ctx)),
               UnorderedElementsAre("width", "age"));
-  ASSERT_THROW(EvaluateFunction("KEYS", {2}, db), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("KEYS", {2}, &eval.ctx), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionTail) {
@@ -1201,9 +1202,9 @@ TEST(ExpressionEvaluator, FunctionAll) {
   auto *all =
       ALL("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   NoContextExpressionEvaluator eval;
-  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
-  eval.symbol_table[*all->identifier_] = x_sym;
-  eval.symbol_table[*ident_x] = x_sym;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*all->identifier_] = x_sym;
+  eval.ctx.symbol_table_[*ident_x] = x_sym;
   auto value = all->Accept(eval.eval);
   ASSERT_EQ(value.type(), TypedValue::Type::Bool);
   EXPECT_FALSE(value.Value<bool>());
@@ -1213,8 +1214,8 @@ TEST(ExpressionEvaluator, FunctionAllNullList) {
   AstStorage storage;
   auto *all = ALL("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
   NoContextExpressionEvaluator eval;
-  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
-  eval.symbol_table[*all->identifier_] = x_sym;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*all->identifier_] = x_sym;
   auto value = all->Accept(eval.eval);
   EXPECT_TRUE(value.IsNull());
 }
@@ -1223,8 +1224,8 @@ TEST(ExpressionEvaluator, FunctionAllWhereWrongType) {
   AstStorage storage;
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
   NoContextExpressionEvaluator eval;
-  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
-  eval.symbol_table[*all->identifier_] = x_sym;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*all->identifier_] = x_sym;
   EXPECT_THROW(all->Accept(eval.eval), QueryRuntimeException);
 }
 
@@ -1234,9 +1235,9 @@ TEST(ExpressionEvaluator, FunctionSingle) {
   auto *single =
       SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   NoContextExpressionEvaluator eval;
-  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
-  eval.symbol_table[*single->identifier_] = x_sym;
-  eval.symbol_table[*ident_x] = x_sym;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*single->identifier_] = x_sym;
+  eval.ctx.symbol_table_[*ident_x] = x_sym;
   auto value = single->Accept(eval.eval);
   ASSERT_EQ(value.type(), TypedValue::Type::Bool);
   EXPECT_TRUE(value.Value<bool>());
@@ -1248,9 +1249,9 @@ TEST(ExpressionEvaluator, FunctionSingle2) {
   auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)),
                         WHERE(GREATER(ident_x, LITERAL(0))));
   NoContextExpressionEvaluator eval;
-  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
-  eval.symbol_table[*single->identifier_] = x_sym;
-  eval.symbol_table[*ident_x] = x_sym;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*single->identifier_] = x_sym;
+  eval.ctx.symbol_table_[*ident_x] = x_sym;
   auto value = single->Accept(eval.eval);
   ASSERT_EQ(value.type(), TypedValue::Type::Bool);
   EXPECT_FALSE(value.Value<bool>());
@@ -1260,8 +1261,8 @@ TEST(ExpressionEvaluator, FunctionSingleNullList) {
   AstStorage storage;
   auto *single = SINGLE("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
   NoContextExpressionEvaluator eval;
-  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
-  eval.symbol_table[*single->identifier_] = x_sym;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*single->identifier_] = x_sym;
   auto value = single->Accept(eval.eval);
   EXPECT_TRUE(value.IsNull());
 }
@@ -1273,12 +1274,12 @@ TEST(ExpressionEvaluator, FunctionReduce) {
   auto *reduce = REDUCE("sum", LITERAL(0), "x", LIST(LITERAL(1), LITERAL(2)),
                         ADD(ident_sum, ident_x));
   NoContextExpressionEvaluator eval;
-  const auto sum_sym = eval.symbol_table.CreateSymbol("sum", true);
-  eval.symbol_table[*reduce->accumulator_] = sum_sym;
-  eval.symbol_table[*ident_sum] = sum_sym;
-  const auto x_sym = eval.symbol_table.CreateSymbol("x", true);
-  eval.symbol_table[*reduce->identifier_] = x_sym;
-  eval.symbol_table[*ident_x] = x_sym;
+  const auto sum_sym = eval.ctx.symbol_table_.CreateSymbol("sum", true);
+  eval.ctx.symbol_table_[*reduce->accumulator_] = sum_sym;
+  eval.ctx.symbol_table_[*ident_sum] = sum_sym;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*reduce->identifier_] = x_sym;
+  eval.ctx.symbol_table_[*ident_x] = x_sym;
   auto value = reduce->Accept(eval.eval);
   ASSERT_EQ(value.type(), TypedValue::Type::Int);
   EXPECT_EQ(value.Value<int64_t>(), 3);
@@ -1311,7 +1312,7 @@ TEST(ExpressionEvaluator, FunctionAssert) {
 
 TEST(ExpressionEvaluator, ParameterLookup) {
   NoContextExpressionEvaluator eval;
-  eval.parameters.Add(0, 42);
+  eval.ctx.parameters_.Add(0, 42);
   AstStorage storage;
   auto *param_lookup = storage.Create<ParameterLookup>(0);
   auto value = param_lookup->Accept(eval.eval);
@@ -1320,152 +1321,163 @@ TEST(ExpressionEvaluator, ParameterLookup) {
 }
 
 TEST(ExpressionEvaluator, FunctionCounter) {
-  database::SingleNode db;
-  EXPECT_THROW(EvaluateFunction("COUNTER", {}, db), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b"}, db),
+  NoContextExpressionEvaluator eval;
+  EXPECT_THROW(EvaluateFunction("COUNTER", {}, &eval.ctx),
                QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 0);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 1);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 0);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 2);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 1);
+  EXPECT_THROW(EvaluateFunction("COUNTER", {"a", "b"}, &eval.ctx),
+               QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, &eval.ctx).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, &eval.ctx).ValueInt(), 1);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, &eval.ctx).ValueInt(), 0);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, &eval.ctx).ValueInt(), 2);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, &eval.ctx).ValueInt(), 1);
 }
 
 TEST(ExpressionEvaluator, FunctionCounterSet) {
-  database::SingleNode db;
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {}, db), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a"}, db),
+  NoContextExpressionEvaluator eval;
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {}, &eval.ctx),
                QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", "b"}, db),
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a"}, &eval.ctx),
                QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", 11, 12}, db),
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", "b"}, &eval.ctx),
                QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 0);
-  EvaluateFunction("COUNTERSET", {"c1", 12}, db);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 12);
-  EvaluateFunction("COUNTERSET", {"c2", 42}, db);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 42);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, db).ValueInt(), 13);
-  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, db).ValueInt(), 43);
+  EXPECT_THROW(EvaluateFunction("COUNTERSET", {"a", 11, 12}, &eval.ctx),
+               QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, &eval.ctx).ValueInt(), 0);
+  EvaluateFunction("COUNTERSET", {"c1", 12}, &eval.ctx);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, &eval.ctx).ValueInt(), 12);
+  EvaluateFunction("COUNTERSET", {"c2", 42}, &eval.ctx);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, &eval.ctx).ValueInt(), 42);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c1"}, &eval.ctx).ValueInt(), 13);
+  EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}, &eval.ctx).ValueInt(), 43);
 }
 
 TEST(ExpressionEvaluator, FunctionIndexInfo) {
-  database::SingleNode db;
-  EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}, db), QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("INDEXINFO", {}, db).ValueList().size(), 0);
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}, &eval.ctx),
+               QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("INDEXINFO", {}, &eval.ctx).ValueList().size(), 0);
+  auto &dba = eval.dba;
   dba.InsertVertex().add_label(dba.Label("l1"));
   {
-    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, db));
+    auto info =
+        ToList<std::string>(EvaluateFunction("INDEXINFO", {}, &eval.ctx));
     EXPECT_EQ(info.size(), 1);
     EXPECT_EQ(info[0], ":l1");
   }
   {
     dba.BuildIndex(dba.Label("l1"), dba.Property("prop"));
-    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}, db));
+    auto info =
+        ToList<std::string>(EvaluateFunction("INDEXINFO", {}, &eval.ctx));
     EXPECT_EQ(info.size(), 2);
     EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)"));
   }
 }
 
 TEST(ExpressionEvaluator, FunctionIdNoGeneration) {
-  database::SingleNode db;
-  EXPECT_THROW(EvaluateFunction("ID", {}, db), QueryRuntimeException);
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  EXPECT_THROW(EvaluateFunction("ID", {}, &eval.ctx), QueryRuntimeException);
+  auto &dba = eval.dba;
 
   auto va = dba.InsertVertex();
   auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
   // Unable to get id if they are not set
-  EXPECT_THROW(EvaluateFunction("ID", {va}, db), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("ID", {ea}, db), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("ID", {va}, &eval.ctx), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("ID", {ea}, &eval.ctx), QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionIdGenerateVertexIds) {
   FLAGS_generate_vertex_ids = true;
-  database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto va = dba.InsertVertex();
   auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  EXPECT_EQ(EvaluateFunction("ID", {va}, db).Value<int64_t>(), 0);
-  EXPECT_THROW(EvaluateFunction("ID", {ea}, db), QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("ID", {va}, &eval.ctx).Value<int64_t>(), 0);
+  EXPECT_THROW(EvaluateFunction("ID", {ea}, &eval.ctx), QueryRuntimeException);
 
   auto vb = dba.InsertVertex();
-  EXPECT_EQ(EvaluateFunction("ID", {vb}, db).Value<int64_t>(), 1024);
+  EXPECT_EQ(EvaluateFunction("ID", {vb}, &eval.ctx).Value<int64_t>(), 1024);
   FLAGS_generate_vertex_ids = false;
 }
 
 TEST(ExpressionEvaluator, FunctionIdGenerateEdgeIds) {
   FLAGS_generate_edge_ids = true;
-  database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto va = dba.InsertVertex();
   auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  EXPECT_THROW(EvaluateFunction("ID", {va}, db), QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("ID", {ea}, db).Value<int64_t>(), 0);
+  EXPECT_THROW(EvaluateFunction("ID", {va}, &eval.ctx), QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("ID", {ea}, &eval.ctx).Value<int64_t>(), 0);
 
   auto eb = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  EXPECT_EQ(EvaluateFunction("ID", {eb}, db).Value<int64_t>(), 1024);
+  EXPECT_EQ(EvaluateFunction("ID", {eb}, &eval.ctx).Value<int64_t>(), 1024);
   FLAGS_generate_edge_ids = false;
 }
 
 TEST(ExpressionEvaluator, FunctionWorkerIdException) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto va = dba.InsertVertex();
-  EXPECT_THROW(EvaluateFunction("WORKERID", {}, db), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("WORKERID", {va, va}, db),
+  EXPECT_THROW(EvaluateFunction("WORKERID", {}, &eval.ctx),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("WORKERID", {va, va}, &eval.ctx),
                QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionWorkerIdSingleNode) {
-  database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
   auto va = dba.InsertVertex();
-  EXPECT_EQ(EvaluateFunction("WORKERID", {va}, db).Value<int64_t>(),
-            db.WorkerId());
+  EXPECT_EQ(EvaluateFunction("WORKERID", {va}, &eval.ctx).Value<int64_t>(),
+            eval.db.WorkerId());
 }
 
 TEST(ExpressionEvaluator, FunctionToStringNull) {
-  database::SingleNode db;
-  EXPECT_TRUE(EvaluateFunction("TOSTRING", {TypedValue::Null}, db).IsNull());
+  EXPECT_TRUE(EvaluateFunction("TOSTRING", {TypedValue::Null}).IsNull());
 }
 
 TEST(ExpressionEvaluator, FunctionToStringString) {
-  database::SingleNode db;
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {""}, db).ValueString(), "");
-  EXPECT_EQ(
-      EvaluateFunction("TOSTRING", {"this is a string"}, db).ValueString(),
-      "this is a string");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {""}).ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {"this is a string"}).ValueString(),
+            "this is a string");
 }
 
 TEST(ExpressionEvaluator, FunctionToStringInteger) {
-  database::SingleNode db;
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {-23321312}, db).ValueString(),
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {-23321312}).ValueString(),
             "-23321312");
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {0}, db).ValueString(), "0");
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {42}, db).ValueString(), "42");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {0}).ValueString(), "0");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {42}).ValueString(), "42");
 }
 
 TEST(ExpressionEvaluator, FunctionToStringDouble) {
-  database::SingleNode db;
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {-42.42}, db).ValueString(),
-            "-42.420000");
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {0.0}, db).ValueString(), "0.000000");
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {238910.2313217}, db).ValueString(),
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {-42.42}).ValueString(), "-42.420000");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {0.0}).ValueString(), "0.000000");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {238910.2313217}).ValueString(),
             "238910.231322");
 }
 
 TEST(ExpressionEvaluator, FunctionToStringBool) {
-  database::SingleNode db;
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {true}, db).ValueString(), "true");
-  EXPECT_EQ(EvaluateFunction("TOSTRING", {false}, db).ValueString(), "false");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {true}).ValueString(), "true");
+  EXPECT_EQ(EvaluateFunction("TOSTRING", {false}).ValueString(), "false");
 }
 
 TEST(ExpressionEvaluator, FunctionToStringExceptions) {
-  database::SingleNode db;
-  EXPECT_THROW(EvaluateFunction("TOSTRING", {1, 2, 3}, db),
-               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOSTRING", {1, 2, 3}), QueryRuntimeException);
   std::vector<TypedValue> l{1, 2, 3};
-  EXPECT_THROW(EvaluateFunction("TOSTRING", l, db), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TOSTRING", l), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionTimestamp) {
+  NoContextExpressionEvaluator eval;
+  eval.ctx.timestamp_ = 42;
+  EXPECT_EQ(EvaluateFunction("TIMESTAMP", {}, &eval.ctx).ValueInt(), 42);
+}
+
+TEST(ExpressionEvaluator, FunctionTimestampExceptions) {
+  NoContextExpressionEvaluator eval;
+  eval.ctx.timestamp_ = 42;
+  EXPECT_THROW(EvaluateFunction("TIMESTAMP", {1}, &eval.ctx).ValueInt(),
+               QueryRuntimeException);
 }
 }  // namespace

@@ -489,6 +489,7 @@ void PullResData::LoadGraphElement(
                :capnp-type "List(Sem.Symbol)"
                :capnp-save (lcp:capnp-save-vector "query::capnp::Symbol" "query::Symbol")
                :capnp-load (lcp:capnp-load-vector "query::capnp::Symbol" "query::Symbol"))
+      (timestamp :int64_t)
       (accumulate :bool)
       (batch-size :int64_t)
       ;; Indicates which of (old, new) records of a graph element should be sent.

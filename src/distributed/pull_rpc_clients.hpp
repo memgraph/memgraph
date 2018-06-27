@@ -33,7 +33,7 @@ class PullRpcClients {
                                int64_t plan_id, tx::CommandId command_id,
                                const Parameters &params,
                                const std::vector<query::Symbol> &symbols,
-                               bool accumulate,
+                               int64_t timestamp, bool accumulate,
                                int batch_size = kDefaultBatchSize);
 
   auto GetWorkerIds() { return clients_.GetWorkerIds(); }

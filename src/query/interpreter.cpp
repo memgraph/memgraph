@@ -58,6 +58,9 @@ Interpreter::Results Interpreter::operator()(
   Context ctx(db_accessor);
   ctx.in_explicit_transaction_ = in_explicit_transaction;
   ctx.is_query_cached_ = true;
+  ctx.timestamp_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+                       std::chrono::system_clock::now().time_since_epoch())
+                       .count();
 
   // query -> stripped query
   StrippedQuery stripped(query);
@@ -157,7 +160,7 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
 }
 
 AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
-                                       Context &ctx) {
+                                   Context &ctx) {
   if (!ctx.is_query_cached_) {
     // stripped query -> AST
     auto parser = [&] {

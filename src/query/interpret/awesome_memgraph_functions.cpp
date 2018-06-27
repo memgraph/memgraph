@@ -6,6 +6,7 @@
 #include <functional>
 #include <random>
 
+#include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "utils/string.hpp"
 
@@ -27,14 +28,11 @@ namespace {
 // structure yet).
 // TODO: Implement size(pattern), for example size((a)-[:X]-()) should return
 // number of results of this pattern. I don't think we will ever do this.
-// TODO: Implement timestamp, every time it is called in a query it needs to
-// return same time. We need to store query start time somwhere.
 // TODO: Implement rest of the list functions.
 // TODO: Implement degrees, haversin, radians
 // TODO: Implement string and spatial functions
 
-TypedValue Coalesce(const std::vector<TypedValue> &args,
-                    database::GraphDbAccessor &) {
+TypedValue Coalesce(const std::vector<TypedValue> &args, Context *) {
   if (args.size() == 0U) {
     throw QueryRuntimeException("coalesce requires at least one argument");
   }
@@ -46,8 +44,7 @@ TypedValue Coalesce(const std::vector<TypedValue> &args,
   return TypedValue::Null;
 }
 
-TypedValue EndNode(const std::vector<TypedValue> &args,
-                   database::GraphDbAccessor &) {
+TypedValue EndNode(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("endNode requires one argument");
   }
@@ -61,8 +58,7 @@ TypedValue EndNode(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Head(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &) {
+TypedValue Head(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("head requires one argument");
   }
@@ -79,8 +75,7 @@ TypedValue Head(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Last(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &) {
+TypedValue Last(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("last requires one argument");
   }
@@ -97,15 +92,15 @@ TypedValue Last(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Properties(const std::vector<TypedValue> &args,
-                      database::GraphDbAccessor &db_accessor) {
+TypedValue Properties(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("properties requires one argument");
   }
   auto get_properties = [&](const auto &record_accessor) {
     std::map<std::string, TypedValue> properties;
     for (const auto &property : record_accessor.Properties()) {
-      properties[db_accessor.PropertyName(property.first)] = property.second;
+      properties[ctx->db_accessor_.PropertyName(property.first)] =
+          property.second;
     }
     return properties;
   };
@@ -121,8 +116,7 @@ TypedValue Properties(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Size(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &) {
+TypedValue Size(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("size requires one argument");
   }
@@ -146,8 +140,7 @@ TypedValue Size(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue StartNode(const std::vector<TypedValue> &args,
-                     database::GraphDbAccessor &) {
+TypedValue StartNode(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("startNode requires one argument");
   }
@@ -161,8 +154,7 @@ TypedValue StartNode(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Degree(const std::vector<TypedValue> &args,
-                  database::GraphDbAccessor &) {
+TypedValue Degree(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("degree requires one argument");
   }
@@ -178,8 +170,7 @@ TypedValue Degree(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue ToBoolean(const std::vector<TypedValue> &args,
-                     database::GraphDbAccessor &) {
+TypedValue ToBoolean(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("toBoolean requires one argument");
   }
@@ -203,8 +194,7 @@ TypedValue ToBoolean(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue ToFloat(const std::vector<TypedValue> &args,
-                   database::GraphDbAccessor &) {
+TypedValue ToFloat(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("toFloat requires one argument");
   }
@@ -226,8 +216,7 @@ TypedValue ToFloat(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue ToInteger(const std::vector<TypedValue> &args,
-                     database::GraphDbAccessor &) {
+TypedValue ToInteger(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("toInteger requires one argument");
   }
@@ -254,8 +243,7 @@ TypedValue ToInteger(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Type(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &db_accessor) {
+TypedValue Type(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("type requires one argument");
   }
@@ -263,21 +251,21 @@ TypedValue Type(const std::vector<TypedValue> &args,
     case TypedValue::Type::Null:
       return TypedValue::Null;
     case TypedValue::Type::Edge:
-      return db_accessor.EdgeTypeName(args[0].Value<EdgeAccessor>().EdgeType());
+      return ctx->db_accessor_.EdgeTypeName(
+          args[0].Value<EdgeAccessor>().EdgeType());
     default:
       throw QueryRuntimeException("type called with incompatible type");
   }
 }
 
-TypedValue Keys(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &db_accessor) {
+TypedValue Keys(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("keys requires one argument");
   }
   auto get_keys = [&](const auto &record_accessor) {
     std::vector<TypedValue> keys;
     for (const auto &property : record_accessor.Properties()) {
-      keys.push_back(db_accessor.PropertyName(property.first));
+      keys.push_back(ctx->db_accessor_.PropertyName(property.first));
     }
     return keys;
   };
@@ -293,8 +281,7 @@ TypedValue Keys(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Labels(const std::vector<TypedValue> &args,
-                  database::GraphDbAccessor &db_accessor) {
+TypedValue Labels(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("labels requires one argument");
   }
@@ -304,7 +291,7 @@ TypedValue Labels(const std::vector<TypedValue> &args,
     case TypedValue::Type::Vertex: {
       std::vector<TypedValue> labels;
       for (const auto &label : args[0].Value<VertexAccessor>().labels()) {
-        labels.push_back(db_accessor.LabelName(label));
+        labels.push_back(ctx->db_accessor_.LabelName(label));
       }
       return labels;
     }
@@ -313,8 +300,7 @@ TypedValue Labels(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Nodes(const std::vector<TypedValue> &args,
-                 database::GraphDbAccessor &) {
+TypedValue Nodes(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("nodes requires one argument");
   }
@@ -326,8 +312,7 @@ TypedValue Nodes(const std::vector<TypedValue> &args,
   return std::vector<TypedValue>(vertices.begin(), vertices.end());
 }
 
-TypedValue Relationships(const std::vector<TypedValue> &args,
-                         database::GraphDbAccessor &) {
+TypedValue Relationships(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("relationships requires one argument");
   }
@@ -339,8 +324,7 @@ TypedValue Relationships(const std::vector<TypedValue> &args,
   return std::vector<TypedValue>(edges.begin(), edges.end());
 }
 
-TypedValue Range(const std::vector<TypedValue> &args,
-                 database::GraphDbAccessor &) {
+TypedValue Range(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 2U && args.size() != 3U) {
     throw QueryRuntimeException("range requires two or three arguments");
   }
@@ -373,8 +357,7 @@ TypedValue Range(const std::vector<TypedValue> &args,
   return list;
 }
 
-TypedValue Tail(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &) {
+TypedValue Tail(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("tail requires one argument");
   }
@@ -392,8 +375,7 @@ TypedValue Tail(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Abs(const std::vector<TypedValue> &args,
-               database::GraphDbAccessor &) {
+TypedValue Abs(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("abs requires one argument");
   }
@@ -411,8 +393,7 @@ TypedValue Abs(const std::vector<TypedValue> &args,
 }
 
 #define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                      \
-  TypedValue name(const std::vector<TypedValue> &args,                        \
-                  database::GraphDbAccessor &) {                              \
+  TypedValue name(const std::vector<TypedValue> &args, Context *) {           \
     if (args.size() != 1U) {                                                  \
       throw QueryRuntimeException(#lowercased_name " requires one argument"); \
     }                                                                         \
@@ -447,8 +428,7 @@ WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
 
 #undef WRAP_CMATH_FLOAT_FUNCTION
 
-TypedValue Atan2(const std::vector<TypedValue> &args,
-                 database::GraphDbAccessor &) {
+TypedValue Atan2(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 2U) {
     throw QueryRuntimeException("atan2 requires two arguments");
   }
@@ -469,8 +449,7 @@ TypedValue Atan2(const std::vector<TypedValue> &args,
   return atan2(y, x);
 }
 
-TypedValue Sign(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &) {
+TypedValue Sign(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("sign requires one argument");
   }
@@ -487,23 +466,21 @@ TypedValue Sign(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue E(const std::vector<TypedValue> &args, database::GraphDbAccessor &) {
+TypedValue E(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 0U) {
     throw QueryRuntimeException("e shouldn't be called with arguments");
   }
   return M_E;
 }
 
-TypedValue Pi(const std::vector<TypedValue> &args,
-              database::GraphDbAccessor &) {
+TypedValue Pi(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 0U) {
     throw QueryRuntimeException("pi shouldn't be called with arguments");
   }
   return M_PI;
 }
 
-TypedValue Rand(const std::vector<TypedValue> &args,
-                database::GraphDbAccessor &) {
+TypedValue Rand(const std::vector<TypedValue> &args, Context *) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_real_distribution<> rand_dist_{0, 1};
   if (args.size() != 0U) {
@@ -513,8 +490,7 @@ TypedValue Rand(const std::vector<TypedValue> &args,
 }
 
 template <bool (*Predicate)(const std::string &s1, const std::string &s2)>
-TypedValue StringMatchOperator(const std::vector<TypedValue> &args,
-                               database::GraphDbAccessor &) {
+TypedValue StringMatchOperator(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 2U) {
     throw QueryRuntimeException(
         "startsWith shouldn't be called with 2 arguments");
@@ -556,8 +532,7 @@ bool ContainsPredicate(const std::string &s1, const std::string &s2) {
 }
 auto Contains = StringMatchOperator<ContainsPredicate>;
 
-TypedValue Assert(const std::vector<TypedValue> &args,
-                  database::GraphDbAccessor &) {
+TypedValue Assert(const std::vector<TypedValue> &args, Context *) {
   if (args.size() < 1U || args.size() > 2U) {
     throw QueryRuntimeException("assert takes one or two arguments");
   }
@@ -573,19 +548,17 @@ TypedValue Assert(const std::vector<TypedValue> &args,
   return args[0];
 }
 
-TypedValue Counter(const std::vector<TypedValue> &args,
-                   database::GraphDbAccessor &dba) {
+TypedValue Counter(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("counter takes one argument");
   }
   if (!args[0].IsString())
     throw QueryRuntimeException("first counter argument must be a string");
 
-  return dba.Counter(args[0].ValueString());
+  return ctx->db_accessor_.Counter(args[0].ValueString());
 }
 
-TypedValue CounterSet(const std::vector<TypedValue> &args,
-                      database::GraphDbAccessor &dba) {
+TypedValue CounterSet(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 2U) {
     throw QueryRuntimeException("counterSet takes two arguments");
   }
@@ -594,21 +567,19 @@ TypedValue CounterSet(const std::vector<TypedValue> &args,
   if (!args[1].IsInt())
     throw QueryRuntimeException("first counterSet argument must be an int");
 
-  dba.CounterSet(args[0].ValueString(), args[1].ValueInt());
+  ctx->db_accessor_.CounterSet(args[0].ValueString(), args[1].ValueInt());
   return TypedValue::Null;
 }
 
-TypedValue IndexInfo(const std::vector<TypedValue> &args,
-                     database::GraphDbAccessor &dba) {
+TypedValue IndexInfo(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 0U)
     throw QueryRuntimeException("indexInfo takes zero arguments");
 
-  auto info = dba.IndexInfo();
+  auto info = ctx->db_accessor_.IndexInfo();
   return std::vector<TypedValue>(info.begin(), info.end());
 }
 
-TypedValue WorkerId(const std::vector<TypedValue> &args,
-                    database::GraphDbAccessor &) {
+TypedValue WorkerId(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("workerId takes one argument");
   }
@@ -623,8 +594,7 @@ TypedValue WorkerId(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue Id(const std::vector<TypedValue> &args,
-              database::GraphDbAccessor &dba) {
+TypedValue Id(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("Id takes one argument");
   }
@@ -632,7 +602,7 @@ TypedValue Id(const std::vector<TypedValue> &args,
   switch (arg.type()) {
     case TypedValue::Type::Vertex: {
       auto id = arg.ValueVertex().PropsAt(
-          dba.Property(PropertyValueStore::IdPropertyName));
+          ctx->db_accessor_.Property(PropertyValueStore::IdPropertyName));
       if (id.IsNull()) {
         throw QueryRuntimeException(
             "Ids are not set on vertices, have a look at flags to "
@@ -642,7 +612,7 @@ TypedValue Id(const std::vector<TypedValue> &args,
     }
     case TypedValue::Type::Edge: {
       auto id = arg.ValueEdge().PropsAt(
-          dba.Property(PropertyValueStore::IdPropertyName));
+          ctx->db_accessor_.Property(PropertyValueStore::IdPropertyName));
       if (id.IsNull()) {
         throw QueryRuntimeException(
             "Ids are not set on edges, have a look at flags to "
@@ -655,8 +625,7 @@ TypedValue Id(const std::vector<TypedValue> &args,
   }
 }
 
-TypedValue ToString(const std::vector<TypedValue> &args,
-                    database::GraphDbAccessor &) {
+TypedValue ToString(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("toString takes one argument");
   }
@@ -678,10 +647,16 @@ TypedValue ToString(const std::vector<TypedValue> &args,
   }
 }
 
+TypedValue Timestamp(const std::vector<TypedValue> &args, Context *ctx) {
+  if (args.size() != 0) {
+    throw QueryRuntimeException("timestamp takes zero arguments");
+  }
+  return ctx->timestamp_;
+}
+
 }  // namespace
 
-std::function<TypedValue(const std::vector<TypedValue> &,
-                         database::GraphDbAccessor &)>
+std::function<TypedValue(const std::vector<TypedValue> &, Context *)>
 NameToFunction(const std::string &function_name) {
   if (function_name == "COALESCE") return Coalesce;
   if (function_name == "ENDNODE") return EndNode;
@@ -730,6 +705,7 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "WORKERID") return WorkerId;
   if (function_name == "ID") return Id;
   if (function_name == "TOSTRING") return ToString;
+  if (function_name == "TIMESTAMP") return Timestamp;
   return nullptr;
 }
 }  // namespace query

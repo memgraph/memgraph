@@ -41,14 +41,14 @@ class GraphDbAccessor;
 namespace query {
 
 #define CLONE_BINARY_EXPRESSION                                              \
-  auto Clone(AstStorage &storage) const->std::remove_const<              \
+  auto Clone(AstStorage &storage) const->std::remove_const<                  \
       std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression1_->Clone(storage), expression2_->Clone(storage));         \
   }
 #define CLONE_UNARY_EXPRESSION                                               \
-  auto Clone(AstStorage &storage) const->std::remove_const<              \
+  auto Clone(AstStorage &storage) const->std::remove_const<                  \
       std::remove_pointer<decltype(this)>::type>::type *override {           \
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
@@ -61,6 +61,7 @@ namespace query {
     ar &boost::serialization::base_object<BaseClass>(*this); \
   }
 
+class Context;
 class Tree;
 
 // It would be better to call this AstTree, but we already have a class Tree,
@@ -743,8 +744,7 @@ class GreaterEqualOperator : public BinaryOperator {
   }
   CLONE_BINARY_EXPRESSION;
   static GreaterEqualOperator *Construct(
-      const capnp::GreaterEqualOperator::Reader &reader,
-      AstStorage *storage);
+      const capnp::GreaterEqualOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -843,8 +843,7 @@ class ListSlicingOperator : public Expression {
   }
 
   static ListSlicingOperator *Construct(
-      const capnp::ListSlicingOperator::Reader &reader,
-      AstStorage *storage);
+      const capnp::ListSlicingOperator::Reader &reader, AstStorage *storage);
 
   Expression *list_ = nullptr;
   Expression *lower_bound_ = nullptr;
@@ -1523,8 +1522,7 @@ class Function : public Expression {
 
  private:
   std::string function_name_;
-  std::function<TypedValue(const std::vector<TypedValue> &,
-                           database::GraphDbAccessor &)>
+  std::function<TypedValue(const std::vector<TypedValue> &, Context *)>
       function_;
 
   friend class boost::serialization::access;
@@ -1729,8 +1727,7 @@ class All : public Expression {
                                where_->Clone(storage));
   }
 
-  static All *Construct(const capnp::All::Reader &reader,
-                        AstStorage *storage);
+  static All *Construct(const capnp::All::Reader &reader, AstStorage *storage);
 
   // None of these should be nullptr after construction.
   Identifier *identifier_ = nullptr;

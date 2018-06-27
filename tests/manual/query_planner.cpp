@@ -746,7 +746,7 @@ void ExaminePlans(
 }
 
 query::AstStorage MakeAst(const std::string &query,
-                              database::GraphDbAccessor &dba) {
+                          database::GraphDbAccessor &dba) {
   query::Context ctx(dba);
   // query -> AST
   auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);
@@ -765,8 +765,7 @@ query::SymbolTable MakeSymbolTable(const query::AstStorage &ast) {
 
 // Returns a list of pairs (plan, estimated cost), sorted in the ascending
 // order by cost.
-auto MakeLogicalPlans(query::AstStorage &ast,
-                      query::SymbolTable &symbol_table,
+auto MakeLogicalPlans(query::AstStorage &ast, query::SymbolTable &symbol_table,
                       InteractiveDbAccessor &dba) {
   auto query_parts = query::plan::CollectQueryParts(symbol_table, ast);
   std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>

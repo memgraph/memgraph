@@ -22,9 +22,9 @@
 namespace distributed {
 
 /// Handles the execution of a plan on the worker, requested by the remote
-/// master. Assumes that (tx_id, plan_id) uniquely identifies an execution, and
-/// that there will never be parallel requests for the same execution thus
-/// identified.
+/// master. Assumes that (tx id, command id, plan id) uniquely identifies an
+/// execution, and that there will never be parallel requests for the same
+/// execution thus  identified.
 class ProduceRpcServer {
   /// Encapsulates a Cursor execution in progress. Can be used for pulling a
   /// single result from the execution, or pulling all and accumulating the
@@ -35,7 +35,7 @@ class ProduceRpcServer {
     OngoingProduce(database::GraphDb &db, tx::TransactionId tx_id,
                    std::shared_ptr<query::plan::LogicalOperator> op,
                    query::SymbolTable symbol_table, Parameters parameters,
-                   std::vector<query::Symbol> pull_symbols);
+                   int64_t timestamp, std::vector<query::Symbol> pull_symbols);
 
     /// Returns a vector of typed values (one for each `pull_symbol`), and an
     /// indication of the pull result. The result data is valid only if the

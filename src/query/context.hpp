@@ -24,6 +24,7 @@ class Context {
   bool is_query_cached_ = false;
   bool in_explicit_transaction_ = false;
   bool is_index_created_ = false;
+  int64_t timestamp_{-1};
 };
 
 }  // namespace query

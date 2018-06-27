@@ -5,6 +5,8 @@
 #include "boost/archive/binary_oarchive.hpp"
 #include "gtest/gtest.h"
 
+#include "database/graph_db.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -846,7 +848,6 @@ TEST_F(TestSymbolGenerator, WithReturnReduce) {
   EXPECT_EQ(symbol_table.at(*reduce->accumulator_), symbol_table.at(*expr_y));
   EXPECT_NE(symbol_table.at(*reduce->accumulator_), symbol_table.at(*ret_as_y));
 }
-
 
 TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   // Test MATCH (n) -[r *bfs..n.prop] (r, n | r.prop)]-> (m) RETURN r AS r

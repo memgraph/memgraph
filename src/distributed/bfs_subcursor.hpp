@@ -7,6 +7,7 @@
 
 #include "glog/logging.h"
 
+#include "database/graph_db_accessor.hpp"
 #include "query/plan/operator.hpp"
 
 namespace database {

@@ -61,9 +61,9 @@ TEST_F(DistributedGraphDbTest, PullProduceRpc) {
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
   auto remote_pull = [this, &command_id, &params, &symbols](
-      GraphDbAccessor &dba, int worker_id) {
+                         GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(dba, worker_id, plan_id, command_id,
-                                        params, symbols, false, 3);
+                                        params, symbols, 0, false, 3);
   };
   auto expect_first_batch = [](auto &batch) {
     EXPECT_EQ(batch.pull_state, distributed::PullState::CURSOR_IN_PROGRESS);
@@ -150,9 +150,9 @@ TEST_F(DistributedGraphDbTest, PullProduceRpcWithGraphElements) {
   ctx.symbol_table_[*return_p] = ctx.symbol_table_.CreateSymbol("", true);
   auto produce = MakeProduce(p, return_n_r, return_m, return_p);
 
-  auto check_result = [prop](
-      int worker_id,
-      const std::vector<std::vector<query::TypedValue>> &frames) {
+  auto check_result = [prop](int worker_id,
+                             const std::vector<std::vector<query::TypedValue>>
+                                 &frames) {
     int offset = worker_id * 10;
     ASSERT_EQ(frames.size(), 1);
     auto &row = frames[0];
@@ -181,9 +181,9 @@ TEST_F(DistributedGraphDbTest, PullProduceRpcWithGraphElements) {
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
                                      ctx.symbol_table_[*return_m], p_sym};
   auto remote_pull = [this, &command_id, &params, &symbols](
-      GraphDbAccessor &dba, int worker_id) {
+                         GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(dba, worker_id, plan_id, command_id,
-                                        params, symbols, false, 3);
+                                        params, symbols, 0, false, 3);
   };
   auto future_w1_results = remote_pull(dba, 1);
   auto future_w2_results = remote_pull(dba, 2);
@@ -356,7 +356,7 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
   auto remote_pull = [this, &command_id, &params, &symbols, &dba]() {
     return master()
         .pull_clients()
-        .Pull(dba, 1, plan_id, command_id, params, symbols, false, 1)
+        .Pull(dba, 1, plan_id, command_id, params, symbols, 0, false, 1)
         .get()
         .pull_state;
   };
