@@ -29,6 +29,6 @@
 
 - name: durability_large
   project: release
-  commands: TIMEOUT=3600 ./ve3/bin/python3 durability --num-steps 20
+  commands: TIMEOUT=5400 ./ve3/bin/python3 durability --num-steps 20
   infiles: *DURABILITY_INFILES
   slave_group: remote_16c128g
