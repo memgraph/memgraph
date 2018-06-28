@@ -61,6 +61,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(All &) override;
   bool PreVisit(Single &) override;
   bool PreVisit(Reduce &) override;
+  bool PreVisit(Extract &) override;
 
   // Pattern and its subparts.
   bool PreVisit(Pattern &) override;

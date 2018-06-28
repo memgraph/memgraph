@@ -287,8 +287,8 @@ void FillReturnBody(AstStorage &, ReturnBody &body, OrderBy order_by,
   body.order_by = order_by.expressions;
   body.limit = limit.expression;
 }
-void FillReturnBody(AstStorage &, ReturnBody &body, OrderBy order_by,
-                    Skip skip, Limit limit = Limit{}) {
+void FillReturnBody(AstStorage &, ReturnBody &body, OrderBy order_by, Skip skip,
+                    Limit limit = Limit{}) {
   body.order_by = order_by.expressions;
   body.skip = skip.expression;
   body.limit = limit.expression;
@@ -570,6 +570,9 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::Reduce>(                                   \
       storage.Create<query::Identifier>(accumulator), initializer, \
       storage.Create<query::Identifier>(variable), list, expr)
+#define EXTRACT(variable, list, expr)                                         \
+  storage.Create<query::Extract>(storage.Create<query::Identifier>(variable), \
+                                 list, expr)
 #define CREATE_USER(username, password) \
   storage.Create<query::ModifyUser>((username), LITERAL(password), true)
 #define ALTER_USER(username, password) \

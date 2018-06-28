@@ -1285,6 +1285,48 @@ TEST(ExpressionEvaluator, FunctionReduce) {
   EXPECT_EQ(value.Value<int64_t>(), 3);
 }
 
+TEST(ExpressionEvaluator, FunctionExtract) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *extract =
+      EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(TypedValue::Null)),
+              ADD(ident_x, LITERAL(1)));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*extract->identifier_] = x_sym;
+  eval.ctx.symbol_table_[*ident_x] = x_sym;
+  auto value = extract->Accept(eval.eval);
+  EXPECT_EQ(value.type(), TypedValue::Type::List);
+  auto result = value.ValueList();
+  EXPECT_EQ(result[0].ValueInt(), 2);
+  EXPECT_EQ(result[1].ValueInt(), 3);
+  EXPECT_TRUE(result[2].IsNull());
+}
+
+TEST(ExpressionEvaluator, FunctionExtractNull) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *extract =
+      EXTRACT("x", LITERAL(TypedValue::Null), ADD(ident_x, LITERAL(1)));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*extract->identifier_] = x_sym;
+  eval.ctx.symbol_table_[*ident_x] = x_sym;
+  auto value = extract->Accept(eval.eval);
+  EXPECT_TRUE(value.IsNull());
+}
+
+TEST(ExpressionEvaluator, FunctionExtractExceptions) {
+  AstStorage storage;
+  auto *ident_x = IDENT("x");
+  auto *extract = EXTRACT("x", LITERAL("bla"), ADD(ident_x, LITERAL(1)));
+  NoContextExpressionEvaluator eval;
+  const auto x_sym = eval.ctx.symbol_table_.CreateSymbol("x", true);
+  eval.ctx.symbol_table_[*extract->identifier_] = x_sym;
+  eval.ctx.symbol_table_[*ident_x] = x_sym;
+  EXPECT_THROW(extract->Accept(eval.eval), QueryRuntimeException);
+}
+
 TEST(ExpressionEvaluator, FunctionAssert) {
   // Invalid calls.
   ASSERT_THROW(EvaluateFunction("ASSERT", {}), QueryRuntimeException);

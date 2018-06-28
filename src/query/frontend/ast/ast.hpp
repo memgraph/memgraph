@@ -1707,6 +1707,79 @@ class Reduce : public Expression {
                                                         const unsigned int);
 };
 
+class Extract : public Expression {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      identifier_->Accept(visitor) && list_->Accept(visitor) &&
+          expression_->Accept(visitor);
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  Extract *Clone(AstStorage &storage) const override {
+    return storage.Create<Extract>(identifier_->Clone(storage),
+                                   list_->Clone(storage),
+                                   expression_->Clone(storage));
+  }
+
+  static Extract *Construct(const capnp::Extract::Reader &reader,
+                            AstStorage *storage);
+  using Expression::Save;
+
+  // None of these should be nullptr after construction.
+
+  /// Identifier for the list element.
+  Identifier *identifier_ = nullptr;
+  /// Expression which produces a list which will be extracted.
+  Expression *list_ = nullptr;
+  /// Expression which produces the new value for list element.
+  Expression *expression_ = nullptr;
+
+ protected:
+  Extract(int uid, Identifier *identifier, Expression *list,
+          Expression *expression)
+      : Expression(uid),
+        identifier_(identifier),
+        list_(list),
+        expression_(expression) {}
+
+  void Save(capnp::Expression::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::Extract::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &tree_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  BOOST_SERIALIZATION_SPLIT_MEMBER();
+
+  template <class TArchive>
+  void save(TArchive &ar, const unsigned int) const {
+    ar << boost::serialization::base_object<Expression>(*this);
+    SavePointer(ar, identifier_);
+    SavePointer(ar, list_);
+    SavePointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  void load(TArchive &ar, const unsigned int) {
+    ar >> boost::serialization::base_object<Expression>(*this);
+    LoadPointer(ar, identifier_);
+    LoadPointer(ar, list_);
+    LoadPointer(ar, expression_);
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &, Extract *,
+                                                        const unsigned int);
+};
+
 // TODO: Think about representing All and Any as Reduce.
 class All : public Expression {
   friend class AstStorage;
@@ -3641,6 +3714,7 @@ LOAD_AND_CONSTRUCT(query::Aggregation, 0, nullptr, nullptr,
                    query::Aggregation::Op::COUNT);
 LOAD_AND_CONSTRUCT(query::Reduce, 0, nullptr, nullptr, nullptr, nullptr,
                    nullptr);
+LOAD_AND_CONSTRUCT(query::Extract, 0, nullptr, nullptr, nullptr);
 LOAD_AND_CONSTRUCT(query::All, 0, nullptr, nullptr, nullptr);
 LOAD_AND_CONSTRUCT(query::Single, 0, nullptr, nullptr, nullptr);
 LOAD_AND_CONSTRUCT(query::ParameterLookup, 0);
@@ -3704,6 +3778,7 @@ BOOST_CLASS_EXPORT_KEY(query::LabelsTest);
 BOOST_CLASS_EXPORT_KEY(query::Aggregation);
 BOOST_CLASS_EXPORT_KEY(query::Function);
 BOOST_CLASS_EXPORT_KEY(query::Reduce);
+BOOST_CLASS_EXPORT_KEY(query::Extract);
 BOOST_CLASS_EXPORT_KEY(query::All);
 BOOST_CLASS_EXPORT_KEY(query::Single);
 BOOST_CLASS_EXPORT_KEY(query::ParameterLookup);

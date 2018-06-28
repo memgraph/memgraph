@@ -991,6 +991,17 @@ antlrcpp::Any CypherMainVisitor::visitAtom(CypherParser::AtomContext *ctx) {
         storage_.Create<Reduce>(accumulator, initializer, ident, list, expr));
   } else if (ctx->caseExpression()) {
     return static_cast<Expression *>(ctx->caseExpression()->accept(this));
+  } else if (ctx->extractExpression()) {
+    auto *ident = storage_.Create<Identifier>(ctx->extractExpression()
+                                                  ->idInColl()
+                                                  ->variable()
+                                                  ->accept(this)
+                                                  .as<std::string>());
+    Expression *list =
+        ctx->extractExpression()->idInColl()->expression()->accept(this);
+    Expression *expr = ctx->extractExpression()->expression()->accept(this);
+    return static_cast<Expression *>(
+        storage_.Create<Extract>(ident, list, expr));
   }
   // TODO: Implement this. We don't support comprehensions, filtering... at
   // the moment.

@@ -22,9 +22,7 @@ namespace query {
 // safe, use a regular top-level function.
 void *const AstStorage::kHelperId = (void *)CloneReturnBody;
 
-AstStorage::AstStorage() {
-  storage_.emplace_back(new Query(next_uid_++));
-}
+AstStorage::AstStorage() { storage_.emplace_back(new Query(next_uid_++)); }
 
 Query *AstStorage::query() const {
   return dynamic_cast<Query *>(storage_[0].get());
@@ -48,7 +46,7 @@ ReturnBody CloneReturnBody(AstStorage &storage, const ReturnBody &body) {
 // Capnproto serialization.
 
 Tree *AstStorage::Load(const capnp::Tree::Reader &tree,
-                           std::vector<int> *loaded_uids) {
+                       std::vector<int> *loaded_uids) {
   auto uid = tree.getUid();
 
   // Check if element already deserialized and if yes, return existing
@@ -213,6 +211,10 @@ Expression *Expression::Construct(const capnp::Expression::Reader &reader,
       auto single_reader = reader.getSingle();
       return Single::Construct(single_reader, storage);
     }
+    case capnp::Expression::EXTRACT: {
+      auto extract_reader = reader.getExtract();
+      return Extract::Construct(extract_reader, storage);
+    }
   }
 }
 
@@ -360,8 +362,7 @@ void BinaryOperator::Save(capnp::BinaryOperator::Builder *builder,
 }
 
 void BinaryOperator::Load(const capnp::Tree::Reader &reader,
-                          AstStorage *storage,
-                          std::vector<int> *loaded_uids) {
+                          AstStorage *storage, std::vector<int> *loaded_uids) {
   Expression::Load(reader, storage, loaded_uids);
   auto bop_reader = reader.getExpression().getBinaryOperator();
   if (bop_reader.hasExpression1()) {
@@ -700,8 +701,7 @@ void UnaryOperator::Save(capnp::UnaryOperator::Builder *builder,
   }
 }
 
-void UnaryOperator::Load(const capnp::Tree::Reader &reader,
-                         AstStorage *storage,
+void UnaryOperator::Load(const capnp::Tree::Reader &reader, AstStorage *storage,
                          std::vector<int> *loaded_uids) {
   Expression::Load(reader, storage, loaded_uids);
   if (reader.hasExpression()) {
@@ -924,8 +924,8 @@ void Function::Save(capnp::Function::Builder *builder,
   }
 }
 
-void Function::Load(const capnp::Tree::Reader &base_reader,
-                    AstStorage *storage, std::vector<int> *loaded_uids) {
+void Function::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                    std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getFunction();
   function_name_ = reader.getFunctionName().cStr();
@@ -1043,8 +1043,7 @@ void PropertyLookup::Save(capnp::PropertyLookup::Builder *builder,
 }
 
 void PropertyLookup::Load(const capnp::Tree::Reader &base_reader,
-                          AstStorage *storage,
-                          std::vector<int> *loaded_uids) {
+                          AstStorage *storage, std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getPropertyLookup();
   if (reader.hasExpression()) {
@@ -1084,8 +1083,8 @@ void Reduce::Save(capnp::Reduce::Builder *builder,
   expression_->Save(&expr_builder, saved_uids);
 }
 
-void Reduce::Load(const capnp::Tree::Reader &base_reader,
-                  AstStorage *storage, std::vector<int> *loaded_uids) {
+void Reduce::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                  std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getReduce();
   const auto acc_reader = reader.getAccumulator();
@@ -1109,6 +1108,43 @@ Reduce *Reduce::Construct(const capnp::Reduce::Reader &reader,
   return storage->Create<Reduce>(nullptr, nullptr, nullptr, nullptr, nullptr);
 }
 
+// Extract
+void Extract::Save(capnp::Expression::Builder *expr_builder,
+                   std::vector<int> *saved_uids) {
+  Expression::Save(expr_builder, saved_uids);
+  auto builder = expr_builder->initExtract();
+  Save(&builder, saved_uids);
+}
+
+void Extract::Save(capnp::Extract::Builder *builder,
+                   std::vector<int> *saved_uids) {
+  auto id_builder = builder->initIdentifier();
+  identifier_->Save(&id_builder, saved_uids);
+  auto list_builder = builder->initList();
+  list_->Save(&list_builder, saved_uids);
+  auto expr_builder = builder->initExpression();
+  expression_->Save(&expr_builder, saved_uids);
+}
+
+void Extract::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                   std::vector<int> *loaded_uids) {
+  Expression::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getExpression().getExtract();
+  const auto id_reader = reader.getIdentifier();
+  identifier_ =
+      dynamic_cast<Identifier *>(storage->Load(id_reader, loaded_uids));
+  const auto list_reader = reader.getList();
+  list_ = dynamic_cast<Expression *>(storage->Load(list_reader, loaded_uids));
+  const auto expr_reader = reader.getExpression();
+  expression_ =
+      dynamic_cast<Expression *>(storage->Load(expr_reader, loaded_uids));
+}
+
+Extract *Extract::Construct(const capnp::Extract::Reader &reader,
+                            AstStorage *storage) {
+  return storage->Create<Extract>(nullptr, nullptr, nullptr);
+}
+
 // Single
 void Single::Save(capnp::Expression::Builder *expr_builder,
                   std::vector<int> *saved_uids) {
@@ -1127,8 +1163,8 @@ void Single::Save(capnp::Single::Builder *builder,
   list_expression_->Save(&expr_builder, saved_uids);
 }
 
-void Single::Load(const capnp::Tree::Reader &base_reader,
-                  AstStorage *storage, std::vector<int> *loaded_uids) {
+void Single::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                  std::vector<int> *loaded_uids) {
   Expression::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getExpression().getSingle();
   const auto id_reader = reader.getIdentifier();
@@ -1165,8 +1201,8 @@ void Where::Save(capnp::Where::Builder *builder, std::vector<int> *saved_uids) {
   }
 }
 
-void Where::Load(const capnp::Tree::Reader &base_reader,
-                 AstStorage *storage, std::vector<int> *loaded_uids) {
+void Where::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                 std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getWhere();
   if (reader.hasExpression()) {
@@ -1278,8 +1314,8 @@ void Create::Save(capnp::Create::Builder *builder,
   }
 }
 
-void Create::Load(const capnp::Tree::Reader &base_reader,
-                  AstStorage *storage, std::vector<int> *loaded_uids) {
+void Create::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                  std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getCreate();
   for (const auto pattern_reader : reader.getPatterns()) {
@@ -1339,8 +1375,8 @@ void Delete::Save(capnp::Delete::Builder *builder,
   builder->setDetach(detach_);
 }
 
-void Delete::Load(const capnp::Tree::Reader &base_reader,
-                  AstStorage *storage, std::vector<int> *loaded_uids) {
+void Delete::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                  std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getDelete();
   for (const auto tree_reader : reader.getExpressions()) {
@@ -1378,8 +1414,8 @@ void Match::Save(capnp::Match::Builder *builder, std::vector<int> *saved_uids) {
   builder->setOptional(optional_);
 }
 
-void Match::Load(const capnp::Tree::Reader &base_reader,
-                 AstStorage *storage, std::vector<int> *loaded_uids) {
+void Match::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                 std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getMatch();
   for (const auto tree_reader : reader.getPatterns()) {
@@ -1427,8 +1463,8 @@ void Merge::Save(capnp::Merge::Builder *builder, std::vector<int> *saved_uids) {
   }
 }
 
-void Merge::Load(const capnp::Tree::Reader &base_reader,
-                 AstStorage *storage, std::vector<int> *loaded_uids) {
+void Merge::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                 std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getMerge();
   for (const auto tree_reader : reader.getOnMatch()) {
@@ -1473,8 +1509,7 @@ void RemoveLabels::Save(capnp::RemoveLabels::Builder *builder,
 }
 
 void RemoveLabels::Load(const capnp::Tree::Reader &base_reader,
-                        AstStorage *storage,
-                        std::vector<int> *loaded_uids) {
+                        AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getRemoveLabels();
   if (reader.hasIdentifier()) {
@@ -1511,8 +1546,7 @@ void RemoveProperty::Save(capnp::RemoveProperty::Builder *builder,
 }
 
 void RemoveProperty::Load(const capnp::Tree::Reader &base_reader,
-                          AstStorage *storage,
-                          std::vector<int> *loaded_uids) {
+                          AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getRemoveProperty();
   if (reader.hasPropertyLookup()) {
@@ -1608,8 +1642,8 @@ void LoadReturnBody(capnp::ReturnBody::Reader &rb_reader, ReturnBody &body,
   }
 }
 
-void Return::Load(const capnp::Tree::Reader &base_reader,
-                  AstStorage *storage, std::vector<int> *loaded_uids) {
+void Return::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                  std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getReturn();
   auto rb_reader = reader.getReturnBody();
@@ -1726,8 +1760,7 @@ void SetProperties::Save(capnp::SetProperties::Builder *builder,
 }
 
 void SetProperties::Load(const capnp::Tree::Reader &base_reader,
-                         AstStorage *storage,
-                         std::vector<int> *loaded_uids) {
+                         AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getSetProperties();
   if (reader.hasIdentifier()) {
@@ -1764,8 +1797,8 @@ void Unwind::Save(capnp::Unwind::Builder *builder,
   }
 }
 
-void Unwind::Load(const capnp::Tree::Reader &base_reader,
-                  AstStorage *storage, std::vector<int> *loaded_uids) {
+void Unwind::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                  std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getUnwind();
   if (reader.hasNamedExpression()) {
@@ -1809,8 +1842,7 @@ void With::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
   LoadReturnBody(rb_reader, body_, storage, loaded_uids);
 }
 
-With *With::Construct(const capnp::With::Reader &reader,
-                      AstStorage *storage) {
+With *With::Construct(const capnp::With::Reader &reader, AstStorage *storage) {
   return storage->Create<With>();
 }
 
@@ -1866,8 +1898,8 @@ void DropUser::Save(capnp::DropUser::Builder *builder,
   utils::SaveVector(usernames_, &usernames_builder);
 }
 
-void DropUser::Load(const capnp::Tree::Reader &base_reader,
-                    AstStorage *storage, std::vector<int> *loaded_uids) {
+void DropUser::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                    std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getClause().getDropUser();
   usernames_.clear();
@@ -1950,8 +1982,7 @@ void NamedExpression::Save(capnp::NamedExpression::Builder *builder,
 }
 
 void NamedExpression::Load(const capnp::Tree::Reader &base_reader,
-                           AstStorage *storage,
-                           std::vector<int> *loaded_uids) {
+                           AstStorage *storage, std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getNamedExpression();
   name_ = reader.getName().cStr();
@@ -1994,8 +2025,8 @@ void Pattern::Save(capnp::Pattern::Builder *builder,
   }
 }
 
-void Pattern::Load(const capnp::Tree::Reader &base_reader,
-                   AstStorage *storage, std::vector<int> *loaded_uids) {
+void Pattern::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                   std::vector<int> *loaded_uids) {
   Tree::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getPattern();
   if (reader.hasIdentifier()) {
@@ -2048,8 +2079,8 @@ PatternAtom *PatternAtom::Construct(const capnp::PatternAtom::Reader &reader,
   }
 }
 
-void PatternAtom::Load(const capnp::Tree::Reader &reader,
-                       AstStorage *storage, std::vector<int> *loaded_uids) {
+void PatternAtom::Load(const capnp::Tree::Reader &reader, AstStorage *storage,
+                       std::vector<int> *loaded_uids) {
   Tree::Load(reader, storage, loaded_uids);
   auto pa_reader = reader.getPatternAtom();
   if (pa_reader.hasIdentifier()) {
@@ -2089,8 +2120,8 @@ void NodeAtom::Save(capnp::NodeAtom::Builder *builder,
   }
 }
 
-void NodeAtom::Load(const capnp::Tree::Reader &base_reader,
-                    AstStorage *storage, std::vector<int> *loaded_uids) {
+void NodeAtom::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                    std::vector<int> *loaded_uids) {
   PatternAtom::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getPatternAtom().getNodeAtom();
   for (auto entry_reader : reader.getProperties()) {
@@ -2231,8 +2262,8 @@ void LoadLambda(capnp::EdgeAtom::Lambda::Reader &reader,
   }
 }
 
-void EdgeAtom::Load(const capnp::Tree::Reader &base_reader,
-                    AstStorage *storage, std::vector<int> *loaded_uids) {
+void EdgeAtom::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+                    std::vector<int> *loaded_uids) {
   PatternAtom::Load(base_reader, storage, loaded_uids);
   auto reader = base_reader.getPatternAtom().getEdgeAtom();
   switch (reader.getType()) {
@@ -2418,6 +2449,7 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::LabelsTest);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::Aggregation);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::Function);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::Reduce);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::Extract);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::All);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::Single);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::ParameterLookup);

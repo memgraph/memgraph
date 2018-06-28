@@ -38,6 +38,7 @@ struct Expression {
     all @10 :All;
     single @11 :Single;
     parameterLookup @12 :ParameterLookup;
+    extract @13 :Extract;
   }
 }
 
@@ -283,6 +284,12 @@ struct Reduce {
   identifier @2 :Tree;
   list @3 :Tree;
   expression @4 :Tree;
+}
+
+struct Extract {
+  identifier @0 :Tree;
+  list @1 :Tree;
+  expression @2 :Tree;
 }
 
 struct All {

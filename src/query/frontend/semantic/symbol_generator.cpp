@@ -351,6 +351,11 @@ bool SymbolGenerator::PreVisit(Reduce &reduce) {
   return false;
 }
 
+bool SymbolGenerator::PreVisit(Extract &extract) {
+  extract.list_->Accept(*this);
+  VisitWithIdentifiers(*extract.expression_, {extract.identifier_});
+  return false;
+}
 
 // Pattern and its subparts.
 

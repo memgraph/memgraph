@@ -1638,6 +1638,25 @@ TYPED_TEST(CypherMainVisitorTest, ReturnReduce) {
   EXPECT_TRUE(add);
 }
 
+TYPED_TEST(CypherMainVisitorTest, ReturnExtract) {
+  TypeParam ast_generator("RETURN extract(x IN [1,2,3] | sum + x)");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *ret = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_TRUE(ret);
+  ASSERT_EQ(ret->body_.named_expressions.size(), 1U);
+  auto *extract =
+      dynamic_cast<Extract *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(extract);
+  EXPECT_EQ(extract->identifier_->name_, "x");
+  auto *list_literal = dynamic_cast<ListLiteral *>(extract->list_);
+  EXPECT_TRUE(list_literal);
+  auto *add = dynamic_cast<AdditionOperator *>(extract->expression_);
+  EXPECT_TRUE(add);
+}
+
 TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   TypeParam ast_generator(
       "MATCH (n) -[r:type1|type2 *bfs..10 (e, n|e.prop = 42)]-> (m) RETURN r");

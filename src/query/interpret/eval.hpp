@@ -372,6 +372,31 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return accumulator;
   }
 
+  TypedValue Visit(Extract &extract) override {
+    auto list_value = extract.list_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue::Null;
+    }
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("'EXTRACT' expected a list, but got {}",
+                                  list_value.type());
+    }
+    const auto &list = list_value.Value<std::vector<TypedValue>>();
+    const auto &element_symbol =
+        context_->symbol_table_.at(*extract.identifier_);
+    std::vector<TypedValue> result;
+    result.reserve(list.size());
+    for (const auto &element : list) {
+      if (element.IsNull()) {
+        result.push_back(TypedValue::Null);
+      } else {
+        frame_[element_symbol] = element;
+        result.emplace_back(extract.expression_->Accept(*this));
+      }
+    }
+    return result;
+  }
+
   TypedValue Visit(All &all) override {
     auto list_value = all.list_expression_->Accept(*this);
     if (list_value.IsNull()) {

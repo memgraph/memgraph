@@ -188,7 +188,7 @@ atom : literal
      | listComprehension
      | patternComprehension
      | ( FILTER SP? '(' SP? filterExpression SP? ')' )
-     | ( EXTRACT SP? '(' SP? filterExpression SP? ( SP? '|' expression )? ')' )
+     | ( EXTRACT SP? '(' SP? extractExpression SP? ')' )
      | ( REDUCE SP? '(' SP? reduceExpression SP? ')' )
      | ( ALL SP? '(' SP? filterExpression SP? ')' )
      | ( ANY SP? '(' SP? filterExpression SP? ')' )
@@ -230,6 +230,8 @@ relationshipsPattern : nodePattern ( SP? patternElementChain )+ ;
 filterExpression : idInColl ( SP? where )? ;
 
 reduceExpression : accumulator=variable SP? '=' SP? initial=expression SP? ',' SP? idInColl SP? '|' SP? expression ;
+
+extractExpression : idInColl SP? '|' SP? expression ;
 
 idInColl : variable SP IN SP expression ;
 

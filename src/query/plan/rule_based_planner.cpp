@@ -241,6 +241,21 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PostVisit(Extract &extract) override {
+    // Remove the symbol bound by extract, because we are only interested
+    // in free (unbound) symbols.
+    used_symbols_.erase(symbol_table_.at(*extract.identifier_));
+    DCHECK(has_aggregation_.size() >= 3U)
+        << "Expected 3 has_aggregation_ flags for EXTRACT arguments";
+    bool has_aggr = false;
+    for (int i = 0; i < 3; ++i) {
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
   bool Visit(Identifier &ident) override {
     const auto &symbol = symbol_table_.at(ident);
     if (!utils::Contains(output_symbols_, symbol)) {
