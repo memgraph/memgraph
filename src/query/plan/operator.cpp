@@ -805,7 +805,7 @@ class ExpandVariableCursor : public Cursor {
  public:
   ExpandVariableCursor(const ExpandVariable &self,
                        database::GraphDbAccessor &db)
-      : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
+      : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
     ExpressionEvaluator evaluator(frame, &context, self_.graph_view_);
@@ -838,7 +838,6 @@ class ExpandVariableCursor : public Cursor {
 
  private:
   const ExpandVariable &self_;
-  database::GraphDbAccessor &db_;
   const std::unique_ptr<Cursor> input_cursor_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
@@ -1023,7 +1022,7 @@ class ExpandVariableCursor : public Cursor {
 class ExpandBfsCursor : public query::plan::Cursor {
  public:
   ExpandBfsCursor(const ExpandVariable &self, database::GraphDbAccessor &db)
-      : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+      : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
     // evaluator for the filtering condition
@@ -1157,7 +1156,6 @@ class ExpandBfsCursor : public query::plan::Cursor {
 
  private:
   const ExpandVariable &self_;
-  database::GraphDbAccessor &db_;
   const std::unique_ptr<query::plan::Cursor> input_cursor_;
 
   // Depth bounds. Calculated on each pull from the input, the initial value is
@@ -1340,7 +1338,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
  public:
   ExpandWeightedShortestPathCursor(const ExpandVariable &self,
                                    database::GraphDbAccessor &db)
-      : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+      : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
     ExpressionEvaluator evaluator(frame, &context, self_.graph_view_);
@@ -1521,7 +1519,6 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
  private:
   const ExpandVariable &self_;
-  database::GraphDbAccessor &db_;
   const std::unique_ptr<query::plan::Cursor> input_cursor_;
 
   // Upper bound on the path length.
@@ -1697,7 +1694,7 @@ std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const {
 
 Filter::FilterCursor::FilterCursor(const Filter &self,
                                    database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, Context &context) {
   // Like all filters, newly set values should not affect filtering of old
@@ -1738,7 +1735,7 @@ std::vector<Symbol> Produce::ModifiedSymbols(const SymbolTable &table) const {
 
 Produce::ProduceCursor::ProduceCursor(const Produce &self,
                                       database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, Context &context) {
   if (input_cursor_->Pull(frame, context)) {
@@ -1840,7 +1837,7 @@ std::vector<Symbol> SetProperty::ModifiedSymbols(
 
 SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self,
                                                   database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
   if (!input_cursor_->Pull(frame, context)) return false;
@@ -2029,7 +2026,7 @@ std::vector<Symbol> RemoveProperty::ModifiedSymbols(
 
 RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(
     const RemoveProperty &self, database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
                                                 Context &context) {
@@ -2275,7 +2272,7 @@ std::vector<Symbol> Aggregate::ModifiedSymbols(const SymbolTable &) const {
 
 Aggregate::AggregateCursor::AggregateCursor(const Aggregate &self,
                                             database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 namespace {
 /** Returns the default TypedValue for an Aggregation element.
@@ -2554,7 +2551,7 @@ std::vector<Symbol> Skip::ModifiedSymbols(const SymbolTable &table) const {
 }
 
 Skip::SkipCursor::SkipCursor(const Skip &self, database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
   while (input_cursor_->Pull(frame, context)) {
@@ -2607,7 +2604,7 @@ std::vector<Symbol> Limit::ModifiedSymbols(const SymbolTable &table) const {
 
 Limit::LimitCursor::LimitCursor(const Limit &self,
                                 database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
   // We need to evaluate the limit expression before the first input Pull
@@ -2674,7 +2671,7 @@ std::vector<Symbol> OrderBy::ModifiedSymbols(const SymbolTable &table) const {
 
 OrderBy::OrderByCursor::OrderByCursor(const OrderBy &self,
                                       database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool OrderBy::OrderByCursor::Pull(Frame &frame, Context &context) {
   if (!did_pull_all_) {
@@ -3814,8 +3811,6 @@ WITHOUT_SINGLE_INPUT(ModifyUser)
 
 class ModifyUserCursor : public Cursor {
  public:
-  ModifyUserCursor(database::GraphDbAccessor &db) : db_(db) {}
-
   bool Pull(Frame &frame, Context &context) override {
     if (context.in_explicit_transaction_) {
       throw UserModificationInMulticommandTxException();
@@ -3825,14 +3820,11 @@ class ModifyUserCursor : public Cursor {
   }
 
   void Reset() override { throw utils::NotYetImplemented("user auth"); }
-
- private:
-  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> ModifyUser::MakeCursor(
     database::GraphDbAccessor &db) const {
-  return std::make_unique<ModifyUserCursor>(db);
+  return std::make_unique<ModifyUserCursor>();
 }
 
 bool DropUser::Accept(HierarchicalLogicalOperatorVisitor &visitor) {

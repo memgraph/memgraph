@@ -1096,7 +1096,6 @@ a boolean value.")
 
     private:
      const Filter &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
@@ -1147,7 +1146,6 @@ RETURN clause) the Produce's pull succeeds exactly once.")
 
     private:
      const Produce &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
    };
 
@@ -1248,7 +1246,6 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
 
     private:
      const SetProperty &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
@@ -1407,7 +1404,6 @@ It does NOT remove labels that are already set on that Vertex.")
 
     private:
      const RemoveProperty &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
@@ -1703,7 +1699,6 @@ elements are in an undefined state after aggregation.")
      };
 
      const Aggregate &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
      // storage for aggregated data
      // map key is the vector of group-by values
@@ -1808,7 +1803,6 @@ operator's implementation does not expect this.")
 
     private:
      const Skip &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
      // init to_skip_ to -1, indicating
      // that it's still unknown (input has not been Pulled yet)
@@ -1868,7 +1862,6 @@ input should be performed).")
 
     private:
      const Limit &self_;
-     database::GraphDbAccessor &db_;
      std::unique_ptr<Cursor> input_cursor_;
      // init limit_ to -1, indicating
      // that it's still unknown (Cursor has not been Pulled yet)
@@ -1932,7 +1925,6 @@ are valid for usage after the OrderBy operator.")
 
     private:
      const OrderBy &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
      bool did_pull_all_{false};
      // a cache of elements pulled from the input
