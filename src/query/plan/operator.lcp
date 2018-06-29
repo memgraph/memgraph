@@ -2032,7 +2032,6 @@ and returns true, once.")
        database::GraphDbAccessor &db) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-   // TODO: Consider whether we want to treat Optional as having single input.
    bool HasSingleInput() const override { return true; }
    std::shared_ptr<LogicalOperator> input() const override { return input_; }
    void set_input(std::shared_ptr<LogicalOperator> input) override {
@@ -2439,11 +2438,10 @@ by having only one result from each worker.")
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (username "std::string" :reader t)
-   (password "Expression *" 
-             :reader t
+   (password "Expression *" :reader t
              :save-fun #'save-pointer
              :load-fun #'load-pointer
-             :capnp-type "Ast.Tree" 
+             :capnp-type "Ast.Tree"
              :capnp-init nil
              :capnp-save #'save-ast-pointer
              :capnp-load (load-ast-pointer "Expression *"))

@@ -29,8 +29,6 @@ namespace query {
 }
 }  // namespace query
 
-using std::string_literals::operator""s;
-
 using namespace query::plan;
 using query::AstStorage;
 using query::SingleQuery;
@@ -2318,7 +2316,7 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
-TYPED_TEST(TestPlanner, DistributedCartesianCreate) {
+TYPED_TEST(TestPlanner, DistributedCartesianCreateExpand) {
   // Test MATCH (a), (b) CREATE (a)-[e:r]->(b) RETURN e
   AstStorage storage;
   FakeDbAccessor dba;
@@ -2448,6 +2446,216 @@ TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByProperty) {
+  // Test MATCH (a), (b :label) WHERE b.prop = a RETURN b
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = dba.Property("prop");
+  // Set indexes so that lookup by property is preferred.
+  dba.SetIndexCount(label, 1024);
+  dba.SetIndexCount(label, prop, 0);
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b", label);
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
+                     WHERE(EQ(PROPERTY_LOOKUP("b", prop), IDENT("a"))),
+                     RETURN("b")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  // We still expect only indexed lookup by label because property depends on
+  // Cartesian branch.
+  auto right_cart =
+      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByLowerBound) {
+  // Test MATCH (a), (b :label) WHERE a < b.prop RETURN b
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = dba.Property("prop");
+  // Set indexes so that lookup by property is preferred.
+  dba.SetIndexCount(label, 1024);
+  dba.SetIndexCount(label, prop, 0);
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b", label);
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
+                     WHERE(LESS(IDENT("a"), PROPERTY_LOOKUP("b", prop))),
+                     RETURN("b")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  // We still expect only indexed lookup by label because lower bound depends on
+  // Cartesian branch.
+  auto right_cart =
+      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByUpperBound) {
+  // Test MATCH (a), (b :label) WHERE a > b.prop RETURN b
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = dba.Property("prop");
+  // Set indexes so that lookup by property is preferred.
+  dba.SetIndexCount(label, 1024);
+  dba.SetIndexCount(label, prop, 0);
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b", label);
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
+                     WHERE(GREATER(IDENT("a"), PROPERTY_LOOKUP("b", prop))),
+                     RETURN("b")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  // We still expect only indexed lookup by label because upper bound depends on
+  // Cartesian branch.
+  auto right_cart =
+      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
+  // Test MATCH (a), (b :label) WHERE a > b.prop > a RETURN b
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = dba.Property("prop");
+  // Set indexes so that lookup by property is preferred.
+  dba.SetIndexCount(label, 1024);
+  dba.SetIndexCount(label, prop, 0);
+  SymbolTable symbol_table;
+  auto sym_a = symbol_table.CreateSymbol("a", true);
+  auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
+  auto sym_b = symbol_table.CreateSymbol("b", true);
+  query::Expression *lower_expr = IDENT("a");
+  symbol_table[*lower_expr] = sym_a;
+  auto lower_bound = utils::MakeBoundExclusive(lower_expr);
+  query::Expression *upper_expr = IDENT("a");
+  symbol_table[*upper_expr] = sym_a;
+  auto upper_bound = utils::MakeBoundExclusive(upper_expr);
+  auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
+      scan_a, sym_b, label, prop, lower_bound, upper_bound);
+  auto ident_b = IDENT("b");
+  symbol_table[*ident_b] = sym_b;
+  auto as_b = NEXPR("b", ident_b);
+  auto produce = std::make_shared<Produce>(
+      scan_b, std::vector<query::NamedExpression *>{as_b});
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  // We still expect only indexed lookup by label because both bounds depend on
+  // Cartesian branch.
+  auto right_cart =
+      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
+  CheckDistributedPlan(*produce, symbol_table, expected);
+}
+
+TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
+  // Test MATCH (a), (b :label) WHERE a > b.prop > 42 RETURN b
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = dba.Property("prop");
+  // Set indexes so that lookup by property is preferred.
+  dba.SetIndexCount(label, 1024);
+  dba.SetIndexCount(label, prop, 0);
+  SymbolTable symbol_table;
+  auto sym_a = symbol_table.CreateSymbol("a", true);
+  auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
+  auto sym_b = symbol_table.CreateSymbol("b", true);
+  query::Expression *lower_expr = LITERAL(42);
+  auto lower_bound = utils::MakeBoundExclusive(lower_expr);
+  query::Expression *upper_expr = IDENT("a");
+  symbol_table[*upper_expr] = sym_a;
+  auto upper_bound = utils::MakeBoundExclusive(upper_expr);
+  auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
+      scan_a, sym_b, label, prop, lower_bound, upper_bound);
+  auto ident_b = IDENT("b");
+  symbol_table[*ident_b] = sym_b;
+  auto as_b = NEXPR("b", ident_b);
+  auto produce = std::make_shared<Produce>(
+      scan_b, std::vector<query::NamedExpression *>{as_b});
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  // We still expect indexed lookup by label property range above lower bound,
+  // because upper bound depends on Cartesian branch.
+  auto right_cart =
+      MakeCheckers(ExpectScanAllByLabelPropertyRange(
+                       label, prop, lower_bound, std::experimental::nullopt),
+                   ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()),
+      MakeCheckers(ExpectScanAllByLabelPropertyRange(
+          label, prop, lower_bound, std::experimental::nullopt)));
+  CheckDistributedPlan(*produce, symbol_table, expected);
+}
+
+TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
+  // Test MATCH (a), (b :label) WHERE 42 > b.prop > a RETURN b
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto prop = dba.Property("prop");
+  // Set indexes so that lookup by property is preferred.
+  dba.SetIndexCount(label, 1024);
+  dba.SetIndexCount(label, prop, 0);
+  SymbolTable symbol_table;
+  auto sym_a = symbol_table.CreateSymbol("a", true);
+  auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
+  auto sym_b = symbol_table.CreateSymbol("b", true);
+  query::Expression *lower_expr = IDENT("a");
+  symbol_table[*lower_expr] = sym_a;
+  auto lower_bound = utils::MakeBoundExclusive(lower_expr);
+  query::Expression *upper_expr = LITERAL(42);
+  auto upper_bound = utils::MakeBoundExclusive(upper_expr);
+  auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
+      scan_a, sym_b, label, prop, lower_bound, upper_bound);
+  auto ident_b = IDENT("b");
+  symbol_table[*ident_b] = sym_b;
+  auto as_b = NEXPR("b", ident_b);
+  auto produce = std::make_shared<Produce>(
+      scan_b, std::vector<query::NamedExpression *>{as_b});
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
+  // We still expect indexed lookup by label property range below upper bound,
+  // because lower bound depends on Cartesian branch.
+  auto right_cart =
+      MakeCheckers(ExpectScanAllByLabelPropertyRange(
+                       label, prop, std::experimental::nullopt, upper_bound),
+                   ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()),
+      MakeCheckers(ExpectScanAllByLabelPropertyRange(
+          label, prop, std::experimental::nullopt, upper_bound)));
+  CheckDistributedPlan(*produce, symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianProduce) {
