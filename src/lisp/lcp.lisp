@@ -599,6 +599,9 @@ CPP-CLASS."
   (let* ((class (if (symbolp cpp-class) (find-cpp-class cpp-class) cpp-class))
          (capnp-opts (cpp-class-capnp-opts class))
          union compose)
+    (when (not capnp-opts)
+      (error "Class ~A should be marked for capnp serialization,
+or its derived classes set as :CAPNP :BASE T" (cpp-type-base-name class)))
     (when (not (capnp-opts-base capnp-opts))
       (dolist (parent (cpp-class-super-classes class))
         (if (member parent (capnp-opts-inherit-compose capnp-opts))
@@ -626,6 +629,9 @@ encoded as union inheritance in Cap'n Proto."
                            (rec first-parent)
                            (list (first (capnp-union-and-compose-parents class)))))))))
     (cdr (rec cpp-class))))
+
+(defvar *capnp-serialize-p* nil
+  "True if we should generate Cap'n Proto serialization code")
 
 (defvar *capnp-type-converters* nil
   "Pairs of (cpp-type capnp-type) which map the conversion of C++ types to
@@ -1284,7 +1290,7 @@ CPP-TYPE among defined enums."
                                  :documentation ,documentation
                                  :values ',values
                                  :enclosing-class *cpp-enclosing-class*
-                                 :capnp-schema ',(assoc :serialize options))))
+                                 :capnp-schema (and *capnp-serialize-p* ',(assoc :serialize options)))))
        (prog1 ,enum
          (push ,enum *cpp-enums*)
          (push ,enum *cpp-inner-types*)))))
@@ -1383,7 +1389,8 @@ Generates C++:
                                  :protected (list ,@(cdr (assoc :protected options)))
                                  :private (list ,@(cdr (assoc :private options)))
                                  :capnp-opts ,(when (member :capnp serialize)
-                                                `(make-capnp-opts ,@(cdr (member :capnp serialize))))
+                                                `(and *capnp-serialize-p*
+                                                      (make-capnp-opts ,@(cdr (member :capnp serialize)))))
                                  :namespace (reverse *cpp-namespaces*)
                                  ;; Set inner types at the end. This works
                                  ;; because CL standard specifies order of
@@ -1559,6 +1566,7 @@ file."
           (cpp-file (concatenate 'string lcp-file ".cpp"))
           (capnp-file (concatenate 'string filename ".capnp"))
           ;; Reset globals
+          (*capnp-serialize-p* capnp-id)
           (*capnp-namespace* nil)
           (*capnp-imports* nil)
           (*capnp-type-converters* nil)
