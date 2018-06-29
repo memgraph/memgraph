@@ -16,6 +16,88 @@
 namespace utils {
 
 /**
+ * Removes whitespace characters from the start of a string.
+ *
+ * @param str string that is going to be trimmed
+ *
+ * @return trimmed string
+ */
+inline std::string LTrim(const std::string &s) {
+  auto begin = s.begin();
+  auto end = s.end();
+  if (begin == end) {
+    // Need to check this to be sure that std::prev(end) exists.
+    return s;
+  }
+  while (begin < end && isspace(*begin)) {
+    ++begin;
+  }
+  return std::string(begin, end);
+}
+
+/**
+ * Removes characters contained in chars from the start of a string.
+ *
+ * @param s string that is going to be trimmed
+ * @param chars string that contains chars that are to be removed
+ *
+ * @return trimmed string
+ */
+inline std::string LTrim(const std::string &s, const std::string &chars) {
+  auto begin = s.begin();
+  auto end = s.end();
+  if (begin == end) {
+    // Need to check this to be sure that std::prev(end) exists.
+    return s;
+  }
+  while (begin < end && chars.find(*begin) != std::string::npos) {
+    ++begin;
+  }
+  return std::string(begin, end);
+}
+
+/**
+ * Removes whitespace characters from the end of a string.
+ *
+ * @param str string that is going to be trimmed
+ *
+ * @return trimmed string
+ */
+inline std::string RTrim(const std::string &s) {
+  auto begin = s.begin();
+  auto end = s.end();
+  if (begin == end) {
+    // Need to check this to be sure that std::prev(end) exists.
+    return s;
+  }
+  while (end > begin && isspace(*std::prev(end))) {
+    --end;
+  }
+  return std::string(begin, end);
+}
+
+/**
+ * Removes characters contained in chars from the end of a string.
+ *
+ * @param s string that is going to be trimmed
+ * @param chars string that contains chars that are to be removed
+ *
+ * @return trimmed string
+ */
+inline std::string RTrim(const std::string &s, const std::string &chars) {
+  auto begin = s.begin();
+  auto end = s.end();
+  if (begin == end) {
+    // Need to check this to be sure that std::prev(end) exists.
+    return s;
+  }
+  while (end > begin && chars.find(*std::prev(end)) != std::string::npos) {
+    --end;
+  }
+  return std::string(begin, end);
+}
+
+/**
  * Removes whitespace characters from the start and from the end of a string.
  *
  * @param str string that is going to be trimmed

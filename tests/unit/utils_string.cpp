@@ -8,6 +8,20 @@ using vec = std::vector<std::string>;
 
 using namespace utils;
 
+TEST(String, LTrim) {
+  EXPECT_EQ(LTrim(" \t\n\r ab\r\n\t ab \r\t "), "ab\r\n\t ab \r\t ");
+  EXPECT_EQ(LTrim(" \t\n\r"), "");
+  EXPECT_EQ(LTrim("run()"), "run()");
+  EXPECT_EQ(LTrim(""), "");
+}
+
+TEST(String, RTrim) {
+  EXPECT_EQ(RTrim(" \t\n\r ab\r\n\t ab \r\t "), " \t\n\r ab\r\n\t ab");
+  EXPECT_EQ(RTrim(" \t\n\r"), "");
+  EXPECT_EQ(RTrim("run()"), "run()");
+  EXPECT_EQ(RTrim(""), "");
+}
+
 TEST(String, Trim) {
   EXPECT_EQ(Trim(" \t\n\r ab\r\n\t ab \r\t "), "ab\r\n\t ab");
   EXPECT_EQ(Trim(" \t\n\r"), "");
@@ -118,8 +132,7 @@ TEST(String, RandomString) {
   EXPECT_EQ(RandomString(42).size(), 42);
 
   std::set<std::string> string_set;
-  for (int i = 0 ; i < 20 ; ++i)
-    string_set.emplace(RandomString(256));
+  for (int i = 0; i < 20; ++i) string_set.emplace(RandomString(256));
 
   EXPECT_EQ(string_set.size(), 20);
 }

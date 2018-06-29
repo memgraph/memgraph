@@ -106,6 +106,16 @@ inline bool Contains(const TIterable &iterable, const TElement &element) {
 }
 
 /**
+ * Returns a *copy* of a collection with its elements in reversed order.
+ *
+ * @param collection Collection to be reversed.
+ */
+template <class TCollection>
+TCollection Reversed(const TCollection &collection) {
+  return TCollection(std::rbegin(collection), std::rend(collection));
+}
+
+/**
  * Converts a (beginning, end) pair of iterators into an iterable that can be
  * passed on to itertools.
  */

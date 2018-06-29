@@ -1522,4 +1522,144 @@ TEST(ExpressionEvaluator, FunctionTimestampExceptions) {
   EXPECT_THROW(EvaluateFunction("TIMESTAMP", {1}, &eval.ctx).ValueInt(),
                QueryRuntimeException);
 }
+
+TEST(ExpressionEvaluator, FunctionLeft) {
+  EXPECT_THROW(EvaluateFunction("LEFT", {}), QueryRuntimeException);
+
+  EXPECT_TRUE(
+      EvaluateFunction("LEFT", {TypedValue::Null, TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("LEFT", {TypedValue::Null, 10}).IsNull());
+  EXPECT_THROW(EvaluateFunction("LEFT", {TypedValue::Null, -10}),
+               QueryRuntimeException);
+
+  EXPECT_EQ(EvaluateFunction("LEFT", {"memgraph", 0}).ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("LEFT", {"memgraph", 3}).ValueString(), "mem");
+  EXPECT_EQ(EvaluateFunction("LEFT", {"memgraph", 1000}).ValueString(),
+            "memgraph");
+  EXPECT_THROW(EvaluateFunction("LEFT", {"memgraph", -10}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("LEFT", {"memgraph", "graph"}),
+               QueryRuntimeException);
+
+  EXPECT_THROW(EvaluateFunction("LEFT", {132, 10}), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionRight) {
+  EXPECT_THROW(EvaluateFunction("RIGHT", {}), QueryRuntimeException);
+
+  EXPECT_TRUE(
+      EvaluateFunction("RIGHT", {TypedValue::Null, TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("RIGHT", {TypedValue::Null, 10}).IsNull());
+  EXPECT_THROW(EvaluateFunction("RIGHT", {TypedValue::Null, -10}),
+               QueryRuntimeException);
+
+  EXPECT_EQ(EvaluateFunction("RIGHT", {"memgraph", 0}).ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("RIGHT", {"memgraph", 3}).ValueString(), "aph");
+  EXPECT_EQ(EvaluateFunction("RIGHT", {"memgraph", 1000}).ValueString(),
+            "memgraph");
+  EXPECT_THROW(EvaluateFunction("RIGHT", {"memgraph", -10}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("RIGHT", {"memgraph", "graph"}),
+               QueryRuntimeException);
+
+  EXPECT_THROW(EvaluateFunction("RIGHT", {132, 10}), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, Trimming) {
+  EXPECT_TRUE(EvaluateFunction("LTRIM", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("RTRIM", {TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("TRIM", {TypedValue::Null}).IsNull());
+
+  EXPECT_EQ(EvaluateFunction("LTRIM", {"  abc    "}).ValueString(), "abc    ");
+  EXPECT_EQ(EvaluateFunction("RTRIM", {"  abc    "}).ValueString(), "  abc");
+  EXPECT_EQ(EvaluateFunction("TRIM", {"abc"}).ValueString(), "abc");
+
+  EXPECT_THROW(EvaluateFunction("LTRIM", {"x", "y"}), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("RTRIM", {"x", "y"}), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("TRIM", {"x", "y"}), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionReverse) {
+  EXPECT_TRUE(EvaluateFunction("REVERSE", {TypedValue::Null}).IsNull());
+  EXPECT_EQ(EvaluateFunction("REVERSE", {"abc"}).ValueString(), "cba");
+  EXPECT_THROW(EvaluateFunction("REVERSE", {"x", "y"}), QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionReplace) {
+  EXPECT_THROW(EvaluateFunction("REPLACE", {}), QueryRuntimeException);
+  EXPECT_TRUE(
+      EvaluateFunction("REPLACE", {TypedValue::Null, "l", "w"}).IsNull());
+  EXPECT_TRUE(
+      EvaluateFunction("REPLACE", {"hello", TypedValue::Null, "w"}).IsNull());
+  EXPECT_TRUE(
+      EvaluateFunction("REPLACE", {"hello", "l", TypedValue::Null}).IsNull());
+  EXPECT_EQ(EvaluateFunction("REPLACE", {"hello", "l", "w"}).ValueString(),
+            "hewwo");
+
+  EXPECT_THROW(EvaluateFunction("REPLACE", {1, "l", "w"}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("REPLACE", {"hello", 1, "w"}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("REPLACE", {"hello", "l", 1}),
+               QueryRuntimeException);
+}
+
+TEST(ExpressionEvaluator, FunctionSplit) {
+  EXPECT_THROW(EvaluateFunction("SPLIT", {}), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("SPLIT", {"one,two", 1}),
+               QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("SPLIT", {1, "one,two"}),
+               QueryRuntimeException);
+
+  EXPECT_TRUE(
+      EvaluateFunction("SPLIT", {TypedValue::Null, TypedValue::Null}).IsNull());
+  EXPECT_TRUE(
+      EvaluateFunction("SPLIT", {"one,two", TypedValue::Null}).IsNull());
+  EXPECT_TRUE(EvaluateFunction("SPLIT", {TypedValue::Null, ","}).IsNull());
+
+  auto result = EvaluateFunction("SPLIT", {"one,two", ","});
+  EXPECT_TRUE(result.IsList());
+  EXPECT_EQ(result.ValueList()[0].ValueString(), "one");
+  EXPECT_EQ(result.ValueList()[1].ValueString(), "two");
+}
+
+TEST(ExpressionEvaluator, FunctionSubstring) {
+  EXPECT_THROW(EvaluateFunction("SUBSTRING", {}), QueryRuntimeException);
+
+  EXPECT_TRUE(
+      EvaluateFunction("SUBSTRING", {TypedValue::Null, 0, 10}).IsNull());
+  EXPECT_THROW(
+      EvaluateFunction("SUBSTRING", {TypedValue::Null, TypedValue::Null}),
+      QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("SUBSTRING", {TypedValue::Null, -10}),
+               QueryRuntimeException);
+  EXPECT_THROW(
+      EvaluateFunction("SUBSTRING", {TypedValue::Null, 0, TypedValue::Null}),
+      QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("SUBSTRING", {TypedValue::Null, 0, -10}),
+               QueryRuntimeException);
+
+  EXPECT_EQ(EvaluateFunction("SUBSTRING", {"hello", 2}).ValueString(), "llo");
+  EXPECT_EQ(EvaluateFunction("SUBSTRING", {"hello", 10}).ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("SUBSTRING", {"hello", 2, 0}).ValueString(), "");
+  EXPECT_EQ(EvaluateFunction("SUBSTRING", {"hello", 1, 3}).ValueString(),
+            "ell");
+  EXPECT_EQ(EvaluateFunction("SUBSTRING", {"hello", 1, 4}).ValueString(),
+            "ello");
+  EXPECT_EQ(EvaluateFunction("SUBSTRING", {"hello", 1, 10}).ValueString(),
+            "ello");
+}
+
+TEST(ExpressionEvaluator, FunctionToLower) {
+  EXPECT_THROW(EvaluateFunction("TOLOWER", {}), QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction("TOLOWER", {TypedValue::Null}).IsNull());
+  EXPECT_EQ(EvaluateFunction("TOLOWER", {"Ab__C"}).ValueString(), "ab__c");
+}
+
+TEST(ExpressionEvaluator, FunctionToUpper) {
+  EXPECT_THROW(EvaluateFunction("TOUPPER", {}), QueryRuntimeException);
+  EXPECT_TRUE(EvaluateFunction("TOUPPER", {TypedValue::Null}).IsNull());
+  EXPECT_EQ(EvaluateFunction("TOUPPER", {"Ab__C"}).ValueString(), "AB__C");
+}
+
 }  // namespace

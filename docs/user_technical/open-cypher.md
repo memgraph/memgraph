@@ -695,14 +695,29 @@ functions.
  `startsWith`    | Check if the first argument starts with the second.
  `endsWith`      | Check if the first argument ends with the second.
  `contains`      | Check if the first argument has an element which is equal to the second argument.
+ `left`          | Returns a string containing the specified number of leftmost characters of the original string.
+ `lTrim`         | Returns the original string with leading whitespace removed.
+ `replace`       | Returns a string in which all occurrences of a specified string in the original string have been replaced by another (specified) string.
+ `reverse`       | Returns a string in which the order of all characters in the original string have been reversed.
+ `right`         | Returns a string containing the specified number of rightmost characters of the original string.
+ `rTrim`         | Returns the original string with trailing whitespace removed.
+ `split`         | Returns a list of strings resulting from the splitting of the original string around matches of the given delimiter.
+ `substring`     | Returns a substring of the original string, beginning with a 0-based index start and length.
+ `toLower`       | Returns the original string in lowercase.
+ `toString`      | Converts an integer, float or boolean value to a string.
+ `toUpper`       | Returns the original string in uppercase.
+ `trim`          | Returns the original string with leading and trailing whitespace removed.
  `all`           | Check if all elements of a list satisfy a predicate.<br/>The syntax is: `all(variable IN list WHERE predicate)`.<br/> NOTE: Whenever possible, use Memgraph's lambda functions when [matching](#filtering-variable-length-paths) instead.
  `single`        | Check if only one element of a list satisfies a predicate.<br/>The syntax is: `single(variable IN list WHERE predicate)`.
  `reduce`        | Accumulate list elements into a single result by applying an expression. The syntax is:<br/>`reduce(accumulator = initial_value, variable IN list | expression)`.
+ `extract`       | A list of values obtained by evaluating an expression for each element in list. The syntax is:<br>`extract(variable IN list | expression)`.
  `assert`        | Raises an exception reported to the client if the given argument is not `true`.
  `counter`       | Generates integers that are guaranteed to be unique on the database level, for the given counter name.
  `counterSet`    | Sets the counter with the given name to the given value.
  `indexInfo`     | Returns a list of all the indexes available in the database. The list includes indexes that are not yet ready for use (they are concurrently being built by another transaction).
  `id`            | Returns identifier for a given node or edge. To enable automatic generation of the identifiers, `--generate-vertex-ids` and `--generate-edge-ids` parameters have to be set on `true` (enabled in the configuration by default).
+ `timestamp`     | Returns the difference, measured in milliseconds, between the current time and midnight, January 1, 1970 UTC.
+
 
 #### String Operators
 
@@ -825,9 +840,6 @@ General purpose functions:
 * `exists(n.property)` - This can be expressed using `n.property IS NOT NULL`.
 * `length()` is named `size()` in Memgraph.
 
-Path functions:
-* `extract()`
-
 Aggregation functions:
 * `count(DISTINCT variable)` - This can be expressed using `WITH DISTINCT variable RETURN count(variable)`.
 
@@ -838,20 +850,6 @@ Mathematical functions:
 * `distance()`
 * `degrees()`
 
-String functions:
-* `replace()`
-* `substring()`
-* `left()`
-* `trim()`
-* `toupper()`
-* `tolower()`
-* `split()`
-* `reverse()`
-
 List functions:
 * `any()`
 * `none()`
-* `single()`
-* `head()`
-* `last()`
-* `tail()`

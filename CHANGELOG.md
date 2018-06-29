@@ -11,7 +11,10 @@
 * Properties on disk added.
 * Telemetry added.
 * SSL support added.
-* Add `toString` function to openCypher.
+* Added string functions to openCypher (`lTrim`, `left`, `rTrim`, `replace`,
+ `reverse`, `right`, `split`, `substring`, `toLower`, `toUpper`, `trim`,
+ `toString`).
+* Added `timestamp` function to openCypher.
 
 ### Bug Fixes and Other Changes
 

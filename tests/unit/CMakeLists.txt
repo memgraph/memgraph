@@ -259,6 +259,9 @@ target_link_libraries(${test_prefix}network_utils mg-io)
 
 # Test mg-utils
 
+add_unit_test(utils_algorithm.cpp)
+target_link_libraries(${test_prefix}utils_algorithm mg-utils)
+
 add_unit_test(utils_demangle.cpp)
 target_link_libraries(${test_prefix}utils_demangle mg-utils)
 
