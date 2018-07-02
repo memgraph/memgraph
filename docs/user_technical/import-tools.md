@@ -54,7 +54,7 @@ Let's import a simple dataset.
 
 Store the following in `comment_nodes.csv`.
 
-```
+```csv
 id:ID(COMMENT_ID),country:string,browser:string,content:string,:LABEL
 0,Croatia,Chrome,yes,Message;Comment
 1,United Kingdom,Chrome,thanks,Message;Comment
@@ -65,7 +65,7 @@ id:ID(COMMENT_ID),country:string,browser:string,content:string,:LABEL
 
 Now, let's add `forum_nodes.csv`.
 
-```
+```csv
 id:ID(FORUM_ID),title:string,:LABEL
 0,General,Forum
 1,Support,Forum
@@ -77,7 +77,7 @@ id:ID(FORUM_ID),title:string,:LABEL
 And finally, set relationships between comments and forums in
 `relationships.csv`.
 
-```
+```csv
 :START_ID(COMMENT_ID),:END_ID(FORUM_ID),:TYPE
 0,0,POSTED_ON
 1,1,POSTED_ON
