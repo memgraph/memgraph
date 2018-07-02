@@ -239,6 +239,7 @@ functionInvocation : functionName SP? '(' SP? ( DISTINCT SP? )? ( expression SP?
 
 functionName : UnescapedSymbolicName
              | EscapedSymbolicName
+             | HexLetter
              | COUNT ;
 
 listComprehension : '[' SP? filterExpression ( SP? '|' SP? expression )? SP? ']' ;

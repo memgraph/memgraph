@@ -768,6 +768,21 @@ TYPED_TEST(CypherMainVisitorTest, UndefinedFunction) {
                SemanticException);
 }
 
+TYPED_TEST(CypherMainVisitorTest, FunctionSpecialCase) {
+  // For some reason parsing of function calls with single letter name in a-f
+  // range would fail, so here's a test for that (also see D1464).
+  TypeParam ast_generator("RETURN e()");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
+  auto *function = dynamic_cast<Function *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(function);
+  ASSERT_TRUE(function->function());
+}
+
 TYPED_TEST(CypherMainVisitorTest, Function) {
   TypeParam ast_generator("RETURN abs(n, 2)");
   auto *query = ast_generator.query_;
