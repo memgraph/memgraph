@@ -3,6 +3,7 @@
 #include <chrono>
 #include <vector>
 
+#include "communication/conversion.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
@@ -62,7 +63,7 @@ class Cluster {
   auto Execute(const std::string &query,
                std::map<std::string, query::TypedValue> params = {}) {
     database::GraphDbAccessor dba(*master_);
-    ResultStreamFaker result;
+    ResultStreamFaker<query::TypedValue> result;
     interpreter_->operator()(query, dba, params, false).PullAll(result);
     dba.Commit();
     return result.GetResults();

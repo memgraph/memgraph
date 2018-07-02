@@ -342,7 +342,7 @@ TEST(BoltDecoder, Vertex) {
   buffer.Write(test_int, 1);
   ASSERT_EQ(decoder.ReadValue(&dv, DecodedValue::Type::Vertex), true);
   auto &vertex = dv.ValueVertex();
-  ASSERT_EQ(vertex.id, 1);
+  ASSERT_EQ(vertex.id.AsUint(), 1);
   ASSERT_EQ(vertex.labels[0], std::string("a"));
   ASSERT_EQ(vertex.properties[std::string("a")].ValueInt(), 1);
 }
@@ -429,9 +429,9 @@ TEST(BoltDecoder, Edge) {
   buffer.Write(test_int1, 1);
   ASSERT_EQ(decoder.ReadValue(&de, DecodedValue::Type::Edge), true);
   auto &edge = de.ValueEdge();
-  ASSERT_EQ(edge.id, 1);
-  ASSERT_EQ(edge.from, 2);
-  ASSERT_EQ(edge.to, 3);
+  ASSERT_EQ(edge.id.AsUint(), 1);
+  ASSERT_EQ(edge.from.AsUint(), 2);
+  ASSERT_EQ(edge.to.AsUint(), 3);
   ASSERT_EQ(edge.type, std::string("a"));
   ASSERT_EQ(edge.properties[std::string("a")].ValueInt(), 1);
 }

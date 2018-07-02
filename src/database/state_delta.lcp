@@ -2,7 +2,7 @@
 #pragma once
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
-#include "communication/bolt/v1/encoder/primitive_encoder.hpp"
+#include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/state_delta.capnp.h"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
@@ -125,7 +125,7 @@ omitted in the comment.")
       * with delta to the writer */
      void Encode(
          HashedFileWriter &writer,
-         communication::bolt::PrimitiveEncoder<HashedFileWriter> &encoder) const;
+         communication::bolt::BaseEncoder<HashedFileWriter> &encoder) const;
 
      static StateDelta TxBegin(tx::TransactionId tx_id);
      static StateDelta TxCommit(tx::TransactionId tx_id);

@@ -3,6 +3,8 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
+#include "communication/bolt/v1/decoder/decoder.hpp"
+#include "communication/conversion.hpp"
 #include "storage/pod_buffer.hpp"
 #include "storage/property_value_store.hpp"
 
@@ -211,7 +213,7 @@ PropertyValueStore::iterator PropertyValueStore::end() const {
 std::string PropertyValueStore::SerializeProp(const PropertyValue &prop) const {
   storage::PODBuffer pod_buffer;
   BaseEncoder<storage::PODBuffer> encoder{pod_buffer};
-  encoder.WriteTypedValue(prop);
+  encoder.WriteDecodedValue(communication::ToDecodedValue(prop));
   return std::string(reinterpret_cast<char *>(pod_buffer.buffer.data()),
                      pod_buffer.buffer.size());
 }
@@ -219,14 +221,14 @@ std::string PropertyValueStore::SerializeProp(const PropertyValue &prop) const {
 PropertyValue PropertyValueStore::DeserializeProp(
     const std::string &serialized_prop) const {
   storage::PODBuffer pod_buffer{serialized_prop};
-  Decoder<storage::PODBuffer> decoder{pod_buffer};
+  communication::bolt::Decoder<storage::PODBuffer> decoder{pod_buffer};
 
   DecodedValue dv;
   if (!decoder.ReadValue(&dv)) {
     DLOG(WARNING) << "Unable to read property value";
     return PropertyValue::Null;
   }
-  return dv.operator PropertyValue();
+  return communication::ToPropertyValue(dv);
 }
 
 storage::KVStore PropertyValueStore::ConstructDiskStorage() const {

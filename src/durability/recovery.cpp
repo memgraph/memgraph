@@ -4,6 +4,7 @@
 #include <limits>
 #include <unordered_map>
 
+#include "communication/conversion.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/indexes/label_property_index.hpp"
 #include "durability/hashed_file_reader.hpp"
@@ -132,8 +133,9 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
       vertex_accessor.add_label(dba.Label(label));
     }
     for (const auto &property_pair : vertex->properties) {
-      vertex_accessor.PropsSet(dba.Property(property_pair.first),
-                               query::TypedValue(property_pair.second));
+      vertex_accessor.PropsSet(
+          dba.Property(property_pair.first),
+          communication::ToTypedValue(property_pair.second));
     }
     auto vertex_record = vertex_accessor.GetNew();
     for (const auto &edge : vertex->in) {
@@ -187,7 +189,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     // We have to take full edge endpoints from vertices since the endpoints
     // found here don't containt worker_id, and this can't be changed since this
     // edges must be bolt-compliant
-    auto &edge_endpoints = edge_gid_endpoints_mapping[edge.id];
+    auto &edge_endpoints = edge_gid_endpoints_mapping[edge.id.AsUint()];
 
     storage::VertexAddress from;
     storage::VertexAddress to;
@@ -199,11 +201,11 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     vertex_transform_to_local_if_possible(to);
 
     auto edge_accessor = dba.InsertOnlyEdge(from, to, dba.EdgeType(edge.type),
-                                            edge.id, cypher_id);
+                                            edge.id.AsUint(), cypher_id);
 
     for (const auto &property_pair : edge.properties)
       edge_accessor.PropsSet(dba.Property(property_pair.first),
-                             query::TypedValue(property_pair.second));
+                             communication::ToTypedValue(property_pair.second));
   }
 
   // Vertex and edge counts are included in the hash. Re-read them to update the

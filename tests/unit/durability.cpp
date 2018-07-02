@@ -482,18 +482,18 @@ TEST_F(Durability, SnapshotEncoding) {
     decoder.ReadValue(&dv);
     ASSERT_EQ(dv.type(), communication::bolt::DecodedValue::Type::Edge);
     auto &edge = dv.ValueEdge();
-    decoded_edges.emplace(edge.id, edge);
+    decoded_edges.emplace(edge.id.AsUint(), edge);
     // Read cypher_id.
     decoder.ReadValue(&dv);
     ASSERT_EQ(dv.type(), communication::bolt::DecodedValue::Type::Int);
   }
   EXPECT_EQ(decoded_edges.size(), 2);
-  EXPECT_EQ(decoded_edges[gid0].from, gid0);
-  EXPECT_EQ(decoded_edges[gid0].to, gid1);
+  EXPECT_EQ(decoded_edges[gid0].from.AsUint(), gid0);
+  EXPECT_EQ(decoded_edges[gid0].to.AsUint(), gid1);
   EXPECT_EQ(decoded_edges[gid0].type, "et0");
   EXPECT_EQ(decoded_edges[gid0].properties.size(), 1);
-  EXPECT_EQ(decoded_edges[gid1].from, gid2);
-  EXPECT_EQ(decoded_edges[gid1].to, gid1);
+  EXPECT_EQ(decoded_edges[gid1].from.AsUint(), gid2);
+  EXPECT_EQ(decoded_edges[gid1].to.AsUint(), gid1);
   EXPECT_EQ(decoded_edges[gid1].type, "et1");
   EXPECT_EQ(decoded_edges[gid1].properties.size(), 0);
 

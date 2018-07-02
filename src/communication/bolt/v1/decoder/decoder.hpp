@@ -335,7 +335,7 @@ class Decoder {
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
       return false;
     }
-    vertex.id = dv.ValueInt();
+    vertex.id = Id::FromInt(dv.ValueInt());
 
     // read labels
     if (!ReadValue(&dv, DecodedValue::Type::List)) {
@@ -382,19 +382,19 @@ class Decoder {
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
       return false;
     }
-    edge.id = dv.ValueInt();
+    edge.id = Id::FromInt(dv.ValueInt());
 
     // read from
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
       return false;
     }
-    edge.from = dv.ValueInt();
+    edge.from = Id::FromInt(dv.ValueInt());
 
     // read to
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
       return false;
     }
-    edge.to = dv.ValueInt();
+    edge.to = Id::FromInt(dv.ValueInt());
 
     // read type
     if (!ReadValue(&dv, DecodedValue::Type::String)) {
@@ -421,7 +421,7 @@ class Decoder {
     if (!ReadValue(&dv, DecodedValue::Type::Int)) {
       return false;
     }
-    edge.id = dv.ValueInt();
+    edge.id = Id::FromInt(dv.ValueInt());
 
     // read type
     if (!ReadValue(&dv, DecodedValue::Type::String)) {

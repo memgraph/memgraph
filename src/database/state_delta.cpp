@@ -1,8 +1,10 @@
+#include "database/state_delta.hpp"
+
 #include <string>
 
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "communication/conversion.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/state_delta.hpp"
 
 namespace database {
 
@@ -161,7 +163,7 @@ StateDelta StateDelta::BuildIndex(tx::TransactionId tx_id, storage::Label label,
 
 void StateDelta::Encode(
     HashedFileWriter &writer,
-    communication::bolt::PrimitiveEncoder<HashedFileWriter> &encoder) const {
+    communication::bolt::BaseEncoder<HashedFileWriter> &encoder) const {
   encoder.WriteInt(static_cast<int64_t>(type));
   encoder.WriteInt(static_cast<int64_t>(transaction_id));
 
@@ -206,13 +208,13 @@ void StateDelta::Encode(
       encoder.WriteInt(vertex_id);
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
-      encoder.WritePropertyValue(value);
+      encoder.WriteDecodedValue(communication::ToDecodedValue(value));
       break;
     case Type::SET_PROPERTY_EDGE:
       encoder.WriteInt(edge_id);
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
-      encoder.WritePropertyValue(value);
+      encoder.WriteDecodedValue(communication::ToDecodedValue(value));
       break;
     case Type::ADD_LABEL:
     case Type::REMOVE_LABEL:
@@ -302,14 +304,14 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
         if (!decoder.ReadValue(&dv)) return nullopt;
-        r_val.value = static_cast<PropertyValue>(dv);
+        r_val.value = communication::ToPropertyValue(dv);
         break;
       case Type::SET_PROPERTY_EDGE:
         DECODE_MEMBER(edge_id, ValueInt)
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
         if (!decoder.ReadValue(&dv)) return nullopt;
-        r_val.value = static_cast<PropertyValue>(dv);
+        r_val.value = communication::ToPropertyValue(dv);
         break;
       case Type::ADD_LABEL:
       case Type::REMOVE_LABEL:

@@ -1,6 +1,5 @@
 #include "wal.hpp"
 
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "durability/paths.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"

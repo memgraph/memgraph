@@ -8,12 +8,13 @@ add_subdirectory(telemetry)
 
 # all memgraph src files
 set(memgraph_src_files
+    communication/bolt/v1/decoder/decoded_value.cpp
     communication/buffer.cpp
     communication/client.cpp
     communication/context.cpp
+    communication/conversion.cpp
     communication/helpers.cpp
     communication/init.cpp
-    communication/bolt/v1/decoder/decoded_value.cpp
     communication/rpc/client.cpp
     communication/rpc/protocol.cpp
     communication/rpc/server.cpp
@@ -25,20 +26,20 @@ set(memgraph_src_files
     database/state_delta.cpp
     distributed/bfs_rpc_clients.cpp
     distributed/bfs_subcursor.cpp
+    distributed/cache.cpp
     distributed/cluster_discovery_master.cpp
     distributed/cluster_discovery_worker.cpp
     distributed/coordination.cpp
     distributed/coordination_master.cpp
     distributed/coordination_worker.cpp
+    distributed/data_manager.cpp
+    distributed/data_rpc_clients.cpp
+    distributed/data_rpc_server.cpp
     distributed/durability_rpc_clients.cpp
     distributed/durability_rpc_server.cpp
     distributed/index_rpc_server.cpp
     distributed/plan_consumer.cpp
     distributed/plan_dispatcher.cpp
-    distributed/cache.cpp
-    distributed/data_manager.cpp
-    distributed/data_rpc_clients.cpp
-    distributed/data_rpc_server.cpp
     distributed/produce_rpc_server.cpp
     distributed/pull_rpc_clients.cpp
     distributed/serialization.cpp
@@ -49,7 +50,6 @@ set(memgraph_src_files
     durability/snapshooter.cpp
     durability/wal.cpp
     query/common.cpp
-    query/repl.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/semantic/symbol_generator.cpp
@@ -61,6 +61,7 @@ set(memgraph_src_files
     query/plan/preprocess.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
+    query/repl.cpp
     query/typed_value.cpp
     stats/metrics.cpp
     stats/stats.cpp

@@ -39,7 +39,7 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageInit(const std::string client_name,
-                   const std::map<std::string, query::TypedValue> &auth_token) {
+                   const std::map<std::string, DecodedValue> &auth_token) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
     WriteRAW(utils::UnderlyingCast(Signature::Init));
     WriteString(client_name);
@@ -61,8 +61,8 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageRun(const std::string statement,
-                  const std::map<std::string, query::TypedValue> &parameters,
+  bool MessageRun(const std::string &statement,
+                  const std::map<std::string, DecodedValue> &parameters,
                   bool flush = true) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
     WriteRAW(utils::UnderlyingCast(Signature::Run));

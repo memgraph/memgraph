@@ -1,12 +1,11 @@
 #pragma once
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
 
-#include "query/typed_value.hpp"
-#include "storage/property_value.hpp"
-#include "utils/algorithm.hpp"
+#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 
 namespace communication::bolt {
@@ -14,12 +13,38 @@ namespace communication::bolt {
 /** Forward declaration of DecodedValue class. */
 class DecodedValue;
 
+/** Wraps int64_t to prevent dangerous implicit conversions. */
+class Id {
+ public:
+  Id() = default;
+
+  /** Construct Id from uint64_t */
+  static Id FromUint(uint64_t id) { return Id(utils::MemcpyCast<int64_t>(id)); }
+
+  /** Construct Id from int64_t */
+  static Id FromInt(int64_t id) { return Id(id); }
+
+  int64_t AsInt() const { return id_; }
+  uint64_t AsUint() const { return utils::MemcpyCast<uint64_t>(id_); }
+
+ private:
+  explicit Id(int64_t id) : id_(id) {}
+
+  int64_t id_;
+};
+
+inline bool operator==(const Id &id1, const Id &id2) {
+  return id1.AsInt() == id2.AsInt();
+}
+
+inline bool operator!=(const Id &id1, const Id &id2) { return !(id1 == id2); }
+
 /**
  * Structure used when reading a Vertex with the decoder.
  * The decoder writes data into this structure.
  */
 struct DecodedVertex {
-  int64_t id;
+  Id id;
   std::vector<std::string> labels;
   std::map<std::string, DecodedValue> properties;
 };
@@ -29,9 +54,9 @@ struct DecodedVertex {
  * The decoder writes data into this structure.
  */
 struct DecodedEdge {
-  int64_t id;
-  int64_t from;
-  int64_t to;
+  Id id;
+  Id from;
+  Id to;
   std::string type;
   std::map<std::string, DecodedValue> properties;
 };
@@ -41,7 +66,7 @@ struct DecodedEdge {
  * The decoder writes data into this structure.
  */
 struct DecodedUnboundedEdge {
-  int64_t id;
+  Id id;
   std::string type;
   std::map<std::string, DecodedValue> properties;
 };
@@ -51,25 +76,56 @@ struct DecodedUnboundedEdge {
  * The decoder writes data into this structure.
  */
 struct DecodedPath {
+  DecodedPath() {}
+
+  DecodedPath(const std::vector<DecodedVertex> &vertices,
+              const std::vector<DecodedEdge> &edges) {
+    // Helper function. Looks for the given element in the collection. If found,
+    // puts its index into `indices`. Otherwise emplaces the given element
+    // into the collection and puts that index into `indices`. A multiplier is
+    // added to switch between positive and negative indices (that define edge
+    // direction).
+    auto add_element = [this](auto &collection, const auto &element,
+                              int multiplier, int offset) {
+      auto found =
+          std::find_if(collection.begin(), collection.end(),
+                       [&](const auto &e) { return e.id == element.id; });
+      indices.emplace_back(multiplier *
+                           (std::distance(collection.begin(), found) + offset));
+      if (found == collection.end()) collection.push_back(element);
+    };
+
+    this->vertices.reserve(vertices.size());
+    this->edges.reserve(edges.size());
+    this->vertices.emplace_back(vertices[0]);
+    for (uint i = 0; i < edges.size(); i++) {
+      const auto &e = edges[i];
+      const auto &v = vertices[i + 1];
+      DecodedUnboundedEdge unbounded_edge{e.id, e.type, e.properties};
+      add_element(this->edges, unbounded_edge, e.to == v.id ? 1 : -1, 1);
+      add_element(this->vertices, v, 1, 0);
+    }
+  }
+
+  /** Unique vertices in the path. */
   std::vector<DecodedVertex> vertices;
+  /** Unique edges in the path. */
   std::vector<DecodedUnboundedEdge> edges;
+  /**
+   * Indices that map path positions to vertices/edges.
+   * Positive indices for left-to-right directionality and negative for
+   * right-to-left.
+   */
   std::vector<int64_t> indices;
 };
 
-/**
- * DecodedValue provides an encapsulation arround TypedValue, DecodedVertex
- * and DecodedEdge. This is necessary because TypedValue stores vertices and
- * edges as our internal accessors. Because of that the Bolt decoder can't
- * decode vertices and edges directly into a TypedValue so a DecodedValue is
- * used instead.
- */
+/** DecodedValue represents supported values in the Bolt protocol. */
 class DecodedValue {
  public:
   /** Default constructor, makes Null */
   DecodedValue() : type_(Type::Null) {}
 
   /** Types that can be stored in a DecodedValue. */
-  // TODO: Path isn't supported yet!
   enum class Type : unsigned {
     Null,
     Bool,
@@ -160,10 +216,6 @@ class DecodedValue {
   TYPE_CHECKER(Path)
 
 #undef TYPE_CHECKER
-
-  operator query::TypedValue() const;
-  // PropertyValue operator must be explicit to prevent ambiguity.
-  explicit operator PropertyValue() const;
 
   friend std::ostream &operator<<(std::ostream &os, const DecodedValue &value);
 

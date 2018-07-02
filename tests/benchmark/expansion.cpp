@@ -47,7 +47,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
   database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
-    ResultStreamFaker results;
+    ResultStreamFaker<query::TypedValue> results;
     interpreter()(query, dba, {}, false).PullAll(results);
   }
 }
@@ -61,7 +61,7 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
   database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
-    ResultStreamFaker results;
+    ResultStreamFaker<query::TypedValue> results;
     interpreter()(query, dba, {}, false).PullAll(results);
   }
 }

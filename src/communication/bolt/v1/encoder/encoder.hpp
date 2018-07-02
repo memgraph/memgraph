@@ -36,7 +36,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param values the fields list object that should be sent
    */
-  void MessageRecord(const std::vector<query::TypedValue> &values) {
+  void MessageRecord(const std::vector<DecodedValue> &values) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Record));
     WriteList(values);
@@ -56,7 +56,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageSuccess(const std::map<std::string, query::TypedValue> &metadata,
+  bool MessageSuccess(const std::map<std::string, DecodedValue> &metadata,
                       bool flush = true) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Success));
@@ -79,7 +79,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *          false otherwise
    */
   bool MessageSuccess() {
-    std::map<std::string, query::TypedValue> metadata;
+    std::map<std::string, DecodedValue> metadata;
     return MessageSuccess(metadata);
   }
 
@@ -95,8 +95,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageFailure(
-      const std::map<std::string, query::TypedValue> &metadata) {
+  bool MessageFailure(const std::map<std::string, DecodedValue> &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Failure));
     WriteMap(metadata);
@@ -115,8 +114,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageIgnored(
-      const std::map<std::string, query::TypedValue> &metadata) {
+  bool MessageIgnored(const std::map<std::string, DecodedValue> &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Ignored));
     WriteMap(metadata);

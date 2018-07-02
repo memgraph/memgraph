@@ -12,7 +12,7 @@ TEST(TransactionTimeout, TransactionTimeout) {
   database::SingleNode db;
   query::Interpreter interpreter{db};
   auto interpret = [&](auto &dba, const std::string &query) {
-    ResultStreamFaker stream;
+    ResultStreamFaker<query::TypedValue> stream;
     interpreter(query, dba, {}, false).PullAll(stream);
 
   };

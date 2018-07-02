@@ -98,7 +98,7 @@ Interpreter::Results Interpreter::operator()(
 
   ctx.symbol_table_ = plan->symbol_table();
 
-  std::map<std::string, TypedValue> summary;
+  std::map<std::string, communication::bolt::DecodedValue> summary;
   summary["parsing_time"] = frontend_time.count();
   summary["planning_time"] = planning_time.count();
   summary["cost_estimate"] = plan->cost();

@@ -5,7 +5,6 @@
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
-#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "utils/likely.hpp"
 

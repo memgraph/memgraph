@@ -8,8 +8,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "communication/bolt/v1/decoder/decoder.hpp"
-#include "communication/bolt/v1/encoder/primitive_encoder.hpp"
+#include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "data_structures/ring_buffer.hpp"
 #include "database/state_delta.hpp"
 #include "storage/gid.hpp"
@@ -68,7 +67,7 @@ class WriteAheadLog {
     int worker_id_;
     const std::experimental::filesystem::path wal_dir_;
     HashedFileWriter writer_;
-    communication::bolt::PrimitiveEncoder<HashedFileWriter> encoder_{writer_};
+    communication::bolt::BaseEncoder<HashedFileWriter> encoder_{writer_};
 
     // The file to which the WAL flushes data. The path is fixed, the file gets
     // moved when the WAL gets rotated.

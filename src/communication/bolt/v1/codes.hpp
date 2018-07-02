@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include "utils/cast.hpp"
 
 namespace communication::bolt {
 

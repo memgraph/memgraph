@@ -64,7 +64,7 @@ void query::Repl(database::GraphDb &db) {
     // regular cypher queries
     try {
       database::GraphDbAccessor dba(db);
-      ResultStreamFaker results;
+      ResultStreamFaker<query::TypedValue> results;
       interpeter(command, dba, {}, false).PullAll(results);
       std::cout << results;
       dba.Commit();

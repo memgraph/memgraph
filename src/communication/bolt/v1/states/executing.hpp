@@ -9,6 +9,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
+#include "communication/conversion.hpp"
 #include "database/graph_db.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "query/exceptions.hpp"
@@ -19,8 +20,8 @@ namespace communication::bolt {
 
 template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
-  const std::map<std::string, query::TypedValue> kEmptyFields = {
-      {"fields", std::vector<query::TypedValue>{}}};
+  const std::map<std::string, DecodedValue> kEmptyFields = {
+      {"fields", std::vector<DecodedValue>{}}};
 
   if (marker != Marker::TinyStruct2) {
     DLOG(WARNING) << fmt::format(
@@ -131,9 +132,9 @@ State HandleRun(TSession &session, State state, Marker marker) {
       }
     }
 
-    auto &params_map = params.ValueMap();
-    std::map<std::string, query::TypedValue> params_tv(params_map.begin(),
-                                                       params_map.end());
+    std::map<std::string, query::TypedValue> params_tv;
+    for (const auto &kv : params.ValueMap())
+      params_tv.emplace(kv.first, communication::ToTypedValue(kv.second));
     session
         .interpreter_(query.ValueString(), *session.db_accessor_, params_tv,
                       in_explicit_transaction)

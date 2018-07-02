@@ -2,11 +2,11 @@
 #include "bolt_testdata.hpp"
 
 #include "communication/bolt/v1/encoder/encoder.hpp"
+#include "communication/conversion.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "query/typed_value.hpp"
 
-using query::TypedValue;
+using communication::bolt::DecodedValue;
 
 /**
  * TODO (mferencevic): document
@@ -65,10 +65,10 @@ std::vector<uint8_t> &output = output_stream.output;
 
 TEST(BoltEncoder, NullAndBool) {
   output.clear();
-  std::vector<TypedValue> vals;
-  vals.push_back(TypedValue::Null);
-  vals.push_back(TypedValue(true));
-  vals.push_back(TypedValue(false));
+  std::vector<DecodedValue> vals;
+  vals.push_back(DecodedValue());
+  vals.push_back(DecodedValue(true));
+  vals.push_back(DecodedValue(false));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, 3);
   CheckOutput(output, (const uint8_t *)"\xC0\xC3\xC2", 3);
@@ -77,8 +77,8 @@ TEST(BoltEncoder, NullAndBool) {
 TEST(BoltEncoder, Int) {
   int N = 28;
   output.clear();
-  std::vector<TypedValue> vals;
-  for (int i = 0; i < N; ++i) vals.push_back(TypedValue(int_decoded[i]));
+  std::vector<DecodedValue> vals;
+  for (int i = 0; i < N; ++i) vals.push_back(DecodedValue(int_decoded[i]));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, N);
   for (int i = 0; i < N; ++i)
@@ -89,8 +89,8 @@ TEST(BoltEncoder, Int) {
 TEST(BoltEncoder, Double) {
   int N = 4;
   output.clear();
-  std::vector<TypedValue> vals;
-  for (int i = 0; i < N; ++i) vals.push_back(TypedValue(double_decoded[i]));
+  std::vector<DecodedValue> vals;
+  for (int i = 0; i < N; ++i) vals.push_back(DecodedValue(double_decoded[i]));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, N);
   for (int i = 0; i < N; ++i) CheckOutput(output, double_encoded[i], 9, false);
@@ -99,9 +99,9 @@ TEST(BoltEncoder, Double) {
 
 TEST(BoltEncoder, String) {
   output.clear();
-  std::vector<TypedValue> vals;
+  std::vector<DecodedValue> vals;
   for (uint64_t i = 0; i < sizes_num; ++i)
-    vals.push_back(TypedValue(std::string((const char *)data, sizes[i])));
+    vals.push_back(DecodedValue(std::string((const char *)data, sizes[i])));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
   for (uint64_t i = 0; i < sizes_num; ++i) {
@@ -113,12 +113,12 @@ TEST(BoltEncoder, String) {
 
 TEST(BoltEncoder, List) {
   output.clear();
-  std::vector<TypedValue> vals;
+  std::vector<DecodedValue> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
-    std::vector<TypedValue> val;
+    std::vector<DecodedValue> val;
     for (uint64_t j = 0; j < sizes[i]; ++j)
-      val.push_back(TypedValue(std::string((const char *)&data[j], 1)));
-    vals.push_back(TypedValue(val));
+      val.push_back(DecodedValue(std::string((const char *)&data[j], 1)));
+    vals.push_back(DecodedValue(val));
   }
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
@@ -134,16 +134,16 @@ TEST(BoltEncoder, List) {
 
 TEST(BoltEncoder, Map) {
   output.clear();
-  std::vector<TypedValue> vals;
+  std::vector<DecodedValue> vals;
   uint8_t buff[10];
   for (int i = 0; i < sizes_num; ++i) {
-    std::map<std::string, TypedValue> val;
+    std::map<std::string, DecodedValue> val;
     for (int j = 0; j < sizes[i]; ++j) {
       sprintf((char *)buff, "%05X", j);
       std::string tmp((char *)buff, 5);
-      val.insert(std::make_pair(tmp, TypedValue(tmp)));
+      val.insert(std::make_pair(tmp, DecodedValue(tmp)));
     }
-    vals.push_back(TypedValue(val));
+    vals.push_back(DecodedValue(val));
   }
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
@@ -188,10 +188,10 @@ TEST(BoltEncoder, VertexAndEdge) {
   ea.PropsSet(p4, pv4);
 
   // check everything
-  std::vector<TypedValue> vals;
-  vals.push_back(TypedValue(va1));
-  vals.push_back(TypedValue(va2));
-  vals.push_back(TypedValue(ea));
+  std::vector<DecodedValue> vals;
+  vals.push_back(communication::ToDecodedValue(va1));
+  vals.push_back(communication::ToDecodedValue(va2));
+  vals.push_back(communication::ToDecodedValue(ea));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,
@@ -214,18 +214,18 @@ TEST(BoltEncoder, BoltV1ExampleMessages) {
   output.clear();
 
   // record message
-  std::vector<TypedValue> rvals;
-  for (int i = 1; i < 4; ++i) rvals.push_back(TypedValue(i));
+  std::vector<DecodedValue> rvals;
+  for (int i = 1; i < 4; ++i) rvals.push_back(DecodedValue(i));
   bolt_encoder.MessageRecord(rvals);
   CheckOutput(output, (const uint8_t *)"\xB1\x71\x93\x01\x02\x03", 6);
 
   // success message
   std::string sv1("name"), sv2("age"), sk("fields");
-  std::vector<TypedValue> svec;
-  svec.push_back(TypedValue(sv1));
-  svec.push_back(TypedValue(sv2));
-  TypedValue slist(svec);
-  std::map<std::string, TypedValue> svals;
+  std::vector<DecodedValue> svec;
+  svec.push_back(DecodedValue(sv1));
+  svec.push_back(DecodedValue(sv2));
+  DecodedValue slist(svec);
+  std::map<std::string, DecodedValue> svals;
   svals.insert(std::make_pair(sk, slist));
   bolt_encoder.MessageSuccess(svals);
   CheckOutput(output,
@@ -236,8 +236,8 @@ TEST(BoltEncoder, BoltV1ExampleMessages) {
   std::string fv1("Neo.ClientError.Statement.SyntaxError"),
       fv2("Invalid syntax.");
   std::string fk1("code"), fk2("message");
-  TypedValue ftv1(fv1), ftv2(fv2);
-  std::map<std::string, TypedValue> fvals;
+  DecodedValue ftv1(fv1), ftv2(fv2);
+  std::map<std::string, DecodedValue> fvals;
   fvals.insert(std::make_pair(fk1, ftv1));
   fvals.insert(std::make_pair(fk2, ftv2));
   bolt_encoder.MessageFailure(fvals);

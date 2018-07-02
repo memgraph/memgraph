@@ -3,7 +3,11 @@
 #include <map>
 
 #include "glog/logging.h"
-#include "query/typed_value.hpp"
+
+#include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "utils/algorithm.hpp"
+
+// TODO: Why is this here?! It's only used in tests and query/repl.cpp
 
 /**
  * A mocker for the data output record stream.
@@ -11,6 +15,7 @@
  * sent to it in an acceptable order, and tracks
  * the content of those messages.
  */
+template <class TResultValue = communication::bolt::DecodedValue>
 class ResultStreamFaker {
  public:
   ResultStreamFaker() = default;
@@ -26,13 +31,14 @@ class ResultStreamFaker {
     current_state_ = State::WritingResults;
   }
 
-  void Result(const std::vector<query::TypedValue> &values) {
+  void Result(const std::vector<TResultValue> &values) {
     DCHECK(current_state_ == State::WritingResults)
         << "Can't accept results before header nor after summary";
     results_.push_back(values);
   }
 
-  void Summary(const std::map<std::string, query::TypedValue> &summary) {
+  void Summary(
+      const std::map<std::string, communication::bolt::DecodedValue> &summary) {
     DCHECK(current_state_ != State::Done) << "Can only send a summary once";
     summary_ = summary;
     current_state_ = State::Done;
@@ -52,7 +58,7 @@ class ResultStreamFaker {
 
   friend std::ostream &operator<<(std::ostream &os,
                                   const ResultStreamFaker &results) {
-    auto typed_value_to_string = [](const query::TypedValue &value) {
+    auto decoded_value_to_string = [](const auto &value) {
       std::stringstream ss;
       ss << value;
       return ss.str();
@@ -71,7 +77,7 @@ class ResultStreamFaker {
       for (int col_ind = 0; col_ind < static_cast<int>(column_widths.size());
            ++col_ind) {
         std::string string_val =
-            typed_value_to_string(results_data[row_ind][col_ind]);
+            decoded_value_to_string(results_data[row_ind][col_ind]);
         column_widths[col_ind] =
             std::max(column_widths[col_ind], (int)string_val.size());
         result_strings[row_ind][col_ind] = string_val;
@@ -129,6 +135,6 @@ class ResultStreamFaker {
 
   // the data that the record stream can accept
   std::vector<std::string> header_;
-  std::vector<std::vector<query::TypedValue>> results_;
-  std::map<std::string, query::TypedValue> summary_;
+  std::vector<std::vector<TResultValue>> results_;
+  std::map<std::string, communication::bolt::DecodedValue> summary_;
 };

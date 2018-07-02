@@ -17,11 +17,10 @@ class InterpreterTest : public ::testing::Test {
   database::SingleNode db_;
   query::Interpreter interpreter_{db_};
 
-  ResultStreamFaker Interpret(
-      const std::string &query,
-      const std::map<std::string, query::TypedValue> params = {}) {
+  auto Interpret(const std::string &query,
+                 const std::map<std::string, query::TypedValue> &params = {}) {
     database::GraphDbAccessor dba(db_);
-    ResultStreamFaker result;
+    ResultStreamFaker<query::TypedValue> result;
     interpreter_(query, dba, params, false).PullAll(result);
     return result;
   }
@@ -198,7 +197,7 @@ TEST_F(InterpreterTest, Bfs) {
   }
 
   database::GraphDbAccessor dba(db_);
-  ResultStreamFaker stream;
+  ResultStreamFaker<query::TypedValue> stream;
   interpreter_(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
       "e.reachable)]->(m) RETURN r",
@@ -242,7 +241,7 @@ TEST_F(InterpreterTest, Bfs) {
 }
 
 TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
-  ResultStreamFaker stream;
+  ResultStreamFaker<query::TypedValue> stream;
   database::GraphDbAccessor dba(db_);
   ASSERT_THROW(
       interpreter_("CREATE INDEX ON :X(y)", dba, {}, true).PullAll(stream),
@@ -252,7 +251,7 @@ TEST_F(InterpreterTest, CreateIndexInMulticommandTransaction) {
 // Test shortest path end to end.
 TEST_F(InterpreterTest, ShortestPath) {
   {
-    ResultStreamFaker stream;
+    ResultStreamFaker<query::TypedValue> stream;
     database::GraphDbAccessor dba(db_);
     interpreter_(
         "CREATE (n:A {x: 1}), (m:B {x: 2}), (l:C {x: 1}), (n)-[:r1 {w: 1 "
@@ -263,7 +262,7 @@ TEST_F(InterpreterTest, ShortestPath) {
     dba.Commit();
   }
 
-  ResultStreamFaker stream;
+  ResultStreamFaker<query::TypedValue> stream;
   database::GraphDbAccessor dba(db_);
   interpreter_("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e", dba,
                {}, false)

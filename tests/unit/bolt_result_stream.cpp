@@ -3,9 +3,8 @@
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "communication/bolt/v1/encoder/result_stream.hpp"
-#include "query/typed_value.hpp"
 
-using query::TypedValue;
+using communication::bolt::DecodedValue;
 
 using BufferT = communication::bolt::ChunkedEncoderBuffer<TestOutputStream>;
 using EncoderT = communication::bolt::Encoder<BufferT>;
@@ -36,15 +35,15 @@ TEST(Bolt, ResultStream) {
   PrintOutput(output);
   CheckOutput(output, header_output, 45);
 
-  std::vector<TypedValue> result{TypedValue(5),
-                                 TypedValue(std::string("hello"))};
+  std::vector<DecodedValue> result{DecodedValue(5),
+                                   DecodedValue(std::string("hello"))};
   result_stream.Result(result);
   buffer.Flush();
   PrintOutput(output);
   CheckOutput(output, result_output, 14);
 
-  std::map<std::string, TypedValue> summary;
-  summary.insert(std::make_pair(std::string("changed"), TypedValue(10)));
+  std::map<std::string, DecodedValue> summary;
+  summary.insert(std::make_pair(std::string("changed"), DecodedValue(10)));
   result_stream.Summary(summary);
   buffer.Flush();
   PrintOutput(output);

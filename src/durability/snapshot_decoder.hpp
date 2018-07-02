@@ -24,7 +24,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
       return std::experimental::nullopt;
     }
     auto &read_vertex = dv.ValueVertex();
-    vertex.gid = static_cast<uint64_t>(read_vertex.id);
+    vertex.gid = read_vertex.id.AsUint();
     vertex.labels = read_vertex.labels;
     vertex.properties = read_vertex.properties;
 

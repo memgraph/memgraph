@@ -3,14 +3,14 @@
 #include <string>
 
 #include "communication/bolt/v1/codes.hpp"
-#include "storage/property_value.hpp"
 #include "utils/bswap.hpp"
+#include "utils/cast.hpp"
 
 namespace communication::bolt {
 
 /**
  * Bolt PrimitiveEncoder. Has public interfaces for writing Bolt encoded data.
- * Supported types are: Null, Bool, Int, Double, String and PropertyValue.
+ * Supported types are: Null, Bool, Int, Double and String.
  *
  * Bolt encoding is used both for streaming data to network clients and for
  * database durability.
@@ -93,45 +93,8 @@ class PrimitiveEncoder {
     WriteRAW(value.c_str(), value.size());
   }
 
-  void WritePropertyValue(const PropertyValue &value) {
-    auto write_list = [this](const std::vector<PropertyValue> &value) {
-      WriteTypeSize(value.size(), MarkerList);
-      for (auto &x : value) WritePropertyValue(x);
-    };
-
-    auto write_map = [this](const std::map<std::string, PropertyValue> &value) {
-      WriteTypeSize(value.size(), MarkerMap);
-      for (auto &x : value) {
-        WriteString(x.first);
-        WritePropertyValue(x.second);
-      }
-    };
-    switch (value.type()) {
-      case PropertyValue::Type::Null:
-        WriteNull();
-        break;
-      case PropertyValue::Type::Bool:
-        WriteBool(value.Value<bool>());
-        break;
-      case PropertyValue::Type::Int:
-        WriteInt(value.Value<int64_t>());
-        break;
-      case PropertyValue::Type::Double:
-        WriteDouble(value.Value<double>());
-        break;
-      case PropertyValue::Type::String:
-        WriteString(value.Value<std::string>());
-        break;
-      case PropertyValue::Type::List:
-        write_list(value.Value<std::vector<PropertyValue>>());
-        break;
-      case PropertyValue::Type::Map:
-        write_map(value.Value<std::map<std::string, PropertyValue>>());
-        break;
-    }
-  }
-
  protected:
   Buffer &buffer_;
 };
+
 }  // namespace communication::bolt

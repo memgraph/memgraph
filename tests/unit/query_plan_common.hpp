@@ -4,7 +4,6 @@
 #include <memory>
 #include <vector>
 
-#include "communication/result_stream_faker.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -18,29 +17,14 @@ using namespace query::plan;
 
 using Bound = ScanAllByLabelPropertyRange::Bound;
 
-/**
- * Helper function that collects all the results from the given
- * Produce into a ResultStreamFaker and returns the results from it.
- *
- * @param produce
- * @param symbol_table
- * @param db_accessor
- * @return
- */
+/** Helper function that collects all the results from the given Produce. */
 std::vector<std::vector<TypedValue>> CollectProduce(
     Produce *produce, SymbolTable &symbol_table,
     database::GraphDbAccessor &db_accessor) {
-  ResultStreamFaker stream;
   Frame frame(symbol_table.max_position());
 
   // top level node in the operator tree is a produce (return)
   // so stream out results
-
-  // generate header
-  std::vector<std::string> header;
-  for (auto named_expression : produce->named_expressions())
-    header.push_back(named_expression->name_);
-  stream.Header(header);
 
   // collect the symbols from the return clause
   std::vector<Symbol> symbols;
@@ -51,15 +35,14 @@ std::vector<std::vector<TypedValue>> CollectProduce(
   context.symbol_table_ = symbol_table;
   // stream out results
   auto cursor = produce->MakeCursor(db_accessor);
+  std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, context)) {
     std::vector<TypedValue> values;
     for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
-    stream.Result(values);
+    results.emplace_back(values);
   }
 
-  stream.Summary({{std::string("type"), TypedValue("r")}});
-
-  return stream.GetResults();
+  return results;
 }
 
 int PullAll(std::shared_ptr<LogicalOperator> logical_op,

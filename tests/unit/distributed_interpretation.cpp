@@ -4,6 +4,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "communication/result_stream_faker.hpp"
 #include "database/graph_db.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
@@ -38,7 +39,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
 
   auto RunWithDba(const std::string &query, GraphDbAccessor &dba) {
     std::map<std::string, query::TypedValue> params = {};
-    ResultStreamFaker result;
+    ResultStreamFaker<query::TypedValue> result;
     interpreter_.value()(query, dba, params, false).PullAll(result);
     return result.GetResults();
   }

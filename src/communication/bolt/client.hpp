@@ -6,8 +6,9 @@
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/client_encoder.hpp"
-
-#include "query/typed_value.hpp"
+#include "communication/client.hpp"
+#include "communication/context.hpp"
+#include "io/network/endpoint.hpp"
 #include "utils/exceptions.hpp"
 
 namespace communication::bolt {
@@ -98,9 +99,7 @@ class Client final {
     DLOG(INFO) << "Sending run message with statement: '" << query
                << "'; parameters: " << parameters;
 
-    std::map<std::string, query::TypedValue> params_tv(parameters.begin(),
-                                                       parameters.end());
-    encoder_.MessageRun(query, params_tv, false);
+    encoder_.MessageRun(query, parameters, false);
     encoder_.MessagePullAll();
 
     DLOG(INFO) << "Reading run message response";

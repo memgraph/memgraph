@@ -1,6 +1,8 @@
 #pragma once
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "communication/conversion.hpp"
+#include "database/graph_db_accessor.hpp"
 #include "utils/cast.hpp"
 
 namespace durability {
@@ -11,7 +13,8 @@ class SnapshotEncoder : public communication::bolt::BaseEncoder<Buffer> {
   explicit SnapshotEncoder(Buffer &buffer)
       : communication::bolt::BaseEncoder<Buffer>(buffer) {}
   void WriteSnapshotVertex(const VertexAccessor &vertex) {
-    communication::bolt::BaseEncoder<Buffer>::WriteVertex(vertex);
+    communication::bolt::BaseEncoder<Buffer>::WriteVertex(
+        communication::ToDecodedVertex(vertex));
 
     // Write cypher_id
     this->WriteInt(vertex.cypher_id());

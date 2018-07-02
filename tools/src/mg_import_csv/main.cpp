@@ -17,6 +17,7 @@
 #include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
 #include "storage/address_types.hpp"
+#include "utils/cast.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
@@ -250,7 +251,8 @@ void WriteNodeRow(
     }
   }
   CHECK(id) << "Node ID must be specified";
-  partial_vertices[*id] = {*id, static_cast<int>(*id), labels, properties, {}};
+  partial_vertices[*id] = {
+      *id, utils::MemcpyCast<int64_t>(*id), labels, properties, {}};
 }
 
 auto PassNodes(std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex>
@@ -307,7 +309,10 @@ void WriteRelationshipsRow(
   CHECK(end_id) << "END_ID must be set";
   CHECK(relationship_type) << "Relationship TYPE must be set";
 
-  edges[relationship_id] = {(int64_t)relationship_id, *start_id, *end_id,
+  auto bolt_id = communication::bolt::Id::FromUint(relationship_id);
+  auto bolt_start_id = communication::bolt::Id::FromUint(*start_id);
+  auto bolt_end_id = communication::bolt::Id::FromUint(*end_id);
+  edges[relationship_id] = {bolt_id, bolt_start_id, bolt_end_id,
                             *relationship_type, properties};
 }
 
@@ -353,7 +358,7 @@ void Convert(const std::vector<std::string> &nodes,
     //   7) Summary with node count, relationship count and hash digest.
     encoder.WriteRAW(durability::kMagicNumber.data(),
                      durability::kMagicNumber.size());
-    encoder.WriteTypedValue(durability::kVersion);
+    encoder.WriteDecodedValue(durability::kVersion);
 
     encoder.WriteInt(0);  // Worker Id - for this use case it's okay to set to 0
                           // since we are using a single-node version of
@@ -379,11 +384,12 @@ void Convert(const std::vector<std::string> &nodes,
     }
     for (auto edge : edges) {
       auto encoded = edge.second;
-      auto edge_address = storage::EdgeAddress(encoded.id, 0);
-      vertices[encoded.from].out.push_back(
-          {edge_address, storage::VertexAddress(encoded.to, 0), encoded.type});
-      vertices[encoded.to].in.push_back(
-          {edge_address, storage::VertexAddress(encoded.from, 0),
+      auto edge_address = storage::EdgeAddress(encoded.id.AsUint(), 0);
+      vertices[encoded.from.AsUint()].out.push_back(
+          {edge_address, storage::VertexAddress(encoded.to.AsUint(), 0),
+           encoded.type});
+      vertices[encoded.to.AsUint()].in.push_back(
+          {edge_address, storage::VertexAddress(encoded.from.AsUint(), 0),
            encoded.type});
     }
     for (auto vertex_pair : vertices) {
@@ -396,10 +402,12 @@ void Convert(const std::vector<std::string> &nodes,
 
       encoder.WriteInt(vertex.gid);
       auto &labels = vertex.labels;
-      std::vector<query::TypedValue> transformed;
-      std::transform(
-          labels.begin(), labels.end(), std::back_inserter(transformed),
-          [](const std::string &str) -> query::TypedValue { return str; });
+      std::vector<communication::bolt::DecodedValue> transformed;
+      std::transform(labels.begin(), labels.end(),
+                     std::back_inserter(transformed),
+                     [](const std::string &str) {
+                       return communication::bolt::DecodedValue(str);
+                     });
       encoder.WriteList(transformed);
       encoder.WriteMap(vertex.properties);
 
@@ -426,14 +434,14 @@ void Convert(const std::vector<std::string> &nodes,
           utils::UnderlyingCast(communication::bolt::Marker::TinyStruct) + 5);
       encoder.WriteRAW(
           utils::UnderlyingCast(communication::bolt::Signature::Relationship));
-      encoder.WriteInt(edge.id);
-      encoder.WriteInt(edge.from);
-      encoder.WriteInt(edge.to);
+      encoder.WriteInt(edge.id.AsInt());
+      encoder.WriteInt(edge.from.AsInt());
+      encoder.WriteInt(edge.to.AsInt());
       encoder.WriteString(edge.type);
       encoder.WriteMap(edge.properties);
 
       // cypher_id
-      encoder.WriteInt(edge.id);
+      encoder.WriteInt(edge.id.AsInt());
     }
 
     buffer.WriteValue(node_count);

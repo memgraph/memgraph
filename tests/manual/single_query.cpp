@@ -13,7 +13,7 @@ int main(int argc, char *argv[]) {
   }
   database::SingleNode db;
   database::GraphDbAccessor dba(db);
-  ResultStreamFaker results;
+  ResultStreamFaker<query::TypedValue> results;
   query::Interpreter{db}(argv[1], dba, {}, false).PullAll(results);
   std::cout << results;
   return 0;

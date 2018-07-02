@@ -4,6 +4,8 @@
 #include <vector>
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "communication/conversion.hpp"
+#include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
 #include "durability/version.hpp"
 #include "query/typed_value.hpp"
@@ -25,12 +27,12 @@ class SnapshotWriter {
       : worker_id_(worker_id), buffer_(path) {
     encoder_.WriteRAW(durability::kMagicNumber.data(),
                       durability::kMagicNumber.size());
-    encoder_.WriteTypedValue(durability::kVersion);
+    encoder_.WriteDecodedValue(durability::kVersion);
     encoder_.WriteInt(worker_id_);
     encoder_.WriteInt(vertex_generator_local_count);
     encoder_.WriteInt(edge_generator_local_count);
     encoder_.WriteInt(0);
-    encoder_.WriteList(std::vector<query::TypedValue>{});
+    encoder_.WriteList(std::vector<communication::bolt::DecodedValue>{});
   }
 
   // reference to `buffer_` gets broken when moving, so let's just forbid moving
@@ -39,8 +41,8 @@ class SnapshotWriter {
 
   template <typename TValue>
   void WriteList(const std::vector<TValue> &list) {
-    encoder_.WriteList(
-        std::vector<query::TypedValue>(list.begin(), list.end()));
+    encoder_.WriteList(std::vector<communication::bolt::DecodedValue>(
+        list.begin(), list.end()));
   }
 
   storage::VertexAddress DefaultVertexAddress(gid::Gid gid) {
@@ -67,7 +69,11 @@ class SnapshotWriter {
     encoder_.WriteInt(node.gid);
 
     WriteList(node.labels);
-    encoder_.WriteMap(node.props);
+    std::map<std::string, communication::bolt::DecodedValue> props;
+    for (const auto &prop : node.props) {
+      props[prop.first] = communication::ToDecodedValue(prop.second);
+    }
+    encoder_.WriteMap(props);
 
     // cypher_id
     encoder_.WriteInt(utils::MemcpyCast<int64_t>(node.gid));
@@ -94,7 +100,11 @@ class SnapshotWriter {
     encoder_.WriteInt(edge.from);
     encoder_.WriteInt(edge.to);
     encoder_.WriteString(edge.type);
-    encoder_.WriteMap(edge.props);
+    std::map<std::string, communication::bolt::DecodedValue> props;
+    for (const auto &prop : edge.props) {
+      props[prop.first] = communication::ToDecodedValue(prop.second);
+    }
+    encoder_.WriteMap(props);
 
     // cypher_id
     encoder_.WriteInt(utils::MemcpyCast<int64_t>(edge.gid));

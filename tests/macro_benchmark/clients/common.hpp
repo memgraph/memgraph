@@ -8,7 +8,9 @@
 
 #include "communication/bolt/client.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
 using communication::ClientContext;

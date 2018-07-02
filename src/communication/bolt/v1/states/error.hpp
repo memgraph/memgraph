@@ -6,7 +6,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
-#include "query/typed_value.hpp"
+#include "utils/cast.hpp"
 
 namespace communication::bolt {
 
