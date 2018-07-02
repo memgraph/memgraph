@@ -789,7 +789,7 @@ class InListOperator : public BinaryOperator {
                                                         const unsigned int);
 };
 
-class ListMapIndexingOperator : public BinaryOperator {
+class SubscriptOperator : public BinaryOperator {
   friend class AstStorage;
 
  public:
@@ -801,8 +801,8 @@ class ListMapIndexingOperator : public BinaryOperator {
     return visitor.PostVisit(*this);
   }
   CLONE_BINARY_EXPRESSION;
-  static ListMapIndexingOperator *Construct(
-      capnp::ListMapIndexingOperator::Reader &reader, AstStorage *storage);
+  static SubscriptOperator *Construct(
+      capnp::SubscriptOperator::Reader &reader, AstStorage *storage);
 
  protected:
   using BinaryOperator::BinaryOperator;
@@ -814,7 +814,7 @@ class ListMapIndexingOperator : public BinaryOperator {
   SERIALIZE_USING_BASE(BinaryOperator);
   template <class TArchive>
   friend void boost::serialization::load_construct_data(
-      TArchive &, ListMapIndexingOperator *, const unsigned int);
+      TArchive &, SubscriptOperator *, const unsigned int);
 };
 
 class ListSlicingOperator : public Expression {
@@ -3695,7 +3695,7 @@ LOAD_AND_CONSTRUCT(query::GreaterOperator, 0);
 LOAD_AND_CONSTRUCT(query::LessEqualOperator, 0);
 LOAD_AND_CONSTRUCT(query::GreaterEqualOperator, 0);
 LOAD_AND_CONSTRUCT(query::InListOperator, 0);
-LOAD_AND_CONSTRUCT(query::ListMapIndexingOperator, 0);
+LOAD_AND_CONSTRUCT(query::SubscriptOperator, 0);
 LOAD_AND_CONSTRUCT(query::ListSlicingOperator, 0, nullptr, nullptr, nullptr);
 LOAD_AND_CONSTRUCT(query::IfOperator, 0, nullptr, nullptr, nullptr);
 LOAD_AND_CONSTRUCT(query::NotOperator, 0);
@@ -3765,7 +3765,7 @@ BOOST_CLASS_EXPORT_KEY(query::GreaterOperator);
 BOOST_CLASS_EXPORT_KEY(query::LessEqualOperator);
 BOOST_CLASS_EXPORT_KEY(query::GreaterEqualOperator);
 BOOST_CLASS_EXPORT_KEY(query::InListOperator);
-BOOST_CLASS_EXPORT_KEY(query::ListMapIndexingOperator);
+BOOST_CLASS_EXPORT_KEY(query::SubscriptOperator);
 BOOST_CLASS_EXPORT_KEY(query::ListSlicingOperator);
 BOOST_CLASS_EXPORT_KEY(query::IfOperator);
 BOOST_CLASS_EXPORT_KEY(query::UnaryPlusOperator);

@@ -1778,7 +1778,7 @@ TYPED_TEST(TestPlanner, EmptyListIndexAggregation) {
   auto empty_list = LIST();
   auto group_by_literal = LITERAL(42);
   QUERY(SINGLE_QUERY(
-      RETURN(storage.Create<query::ListMapIndexingOperator>(empty_list, sum),
+      RETURN(storage.Create<query::SubscriptOperator>(empty_list, sum),
              AS("result"), group_by_literal, AS("group_by"))));
   // We expect to group by '42' and the empty list, because it is a
   // sub-expression of a binary operator which contains an aggregation. This is

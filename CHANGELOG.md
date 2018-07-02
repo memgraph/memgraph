@@ -15,6 +15,7 @@
  `reverse`, `right`, `split`, `substring`, `toLower`, `toUpper`, `trim`,
  `toString`).
 * Added `timestamp` function to openCypher.
+* Added support for dynamic property access with `[]` operator.
 
 ### Bug Fixes and Other Changes
 

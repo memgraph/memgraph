@@ -48,7 +48,7 @@ class GreaterOperator;
 class LessEqualOperator;
 class GreaterEqualOperator;
 class InListOperator;
-class ListMapIndexingOperator;
+class SubscriptOperator;
 class ListSlicingOperator;
 class IfOperator;
 class Delete;
@@ -69,7 +69,7 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     AndOperator, NotOperator, AdditionOperator, SubtractionOperator,
     MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
     EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, ListMapIndexingOperator,
+    GreaterEqualOperator, InListOperator, SubscriptOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
     Aggregation, Function, Reduce, Extract, All, Single, Create, Match, Return,
@@ -95,13 +95,12 @@ using TreeVisitor = ::utils::Visitor<
     XorOperator, AndOperator, NotOperator, AdditionOperator,
     SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator,
     NotEqualOperator, EqualOperator, LessOperator, GreaterOperator,
-    LessEqualOperator, GreaterEqualOperator, InListOperator,
-    ListMapIndexingOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
-    UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral, PropertyLookup,
-    LabelsTest, Aggregation, Function, Reduce, Extract, All, Single,
-    ParameterLookup, Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom,
-    Delete, Where, SetProperty, SetProperties, SetLabels, RemoveProperty,
-    RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral, CreateIndex,
-    ModifyUser, DropUser>;
+    LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
+    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
+    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
+    Aggregation, Function, Reduce, Extract, All, Single, ParameterLookup,
+    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
+    Unwind, Identifier, PrimitiveLiteral, CreateIndex, ModifyUser, DropUser>;
 
 }  // namespace query

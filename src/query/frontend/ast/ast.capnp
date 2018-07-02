@@ -169,7 +169,7 @@ struct BinaryOperator {
     lessEqualOperator @12 :LessEqualOperator;
     greaterEqualOperator @13 :GreaterEqualOperator;
     inListOperator @14 :InListOperator;
-    listMapIndexingOperator @15 :ListMapIndexingOperator;
+    subscriptOperator @15 :SubscriptOperator;
     aggregation @16 :Aggregation;
   }
   expression1 @17 :Tree;
@@ -191,7 +191,7 @@ struct GreaterOperator {}
 struct LessEqualOperator {}
 struct GreaterEqualOperator {}
 struct InListOperator {}
-struct ListMapIndexingOperator {}
+struct SubscriptOperator {}
 struct Aggregation {
   enum Op {
     count @0;

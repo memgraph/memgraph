@@ -364,7 +364,7 @@ TEST(ExpressionEvaluator, InListOperator) {
   }
 }
 
-TEST(ExpressionEvaluator, ListMapIndexingOperator) {
+TEST(ExpressionEvaluator, ListIndexing) {
   AstStorage storage;
   NoContextExpressionEvaluator eval;
   auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
@@ -373,35 +373,35 @@ TEST(ExpressionEvaluator, ListMapIndexingOperator) {
       storage.Create<PrimitiveLiteral>(4)});
   {
     // Legal indexing.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(2));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<int64_t>(), 3);
   }
   {
     // Out of bounds indexing.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(4));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.type(), TypedValue::Type::Null);
   }
   {
     // Out of bounds indexing with negative bound.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-100));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.type(), TypedValue::Type::Null);
   }
   {
     // Legal indexing with negative index.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-2));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<int64_t>(), 3);
   }
   {
     // Indexing with one operator being null.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         storage.Create<PrimitiveLiteral>(TypedValue::Null),
         storage.Create<PrimitiveLiteral>(-2));
     auto value = op->Accept(eval.eval);
@@ -409,9 +409,8 @@ TEST(ExpressionEvaluator, ListMapIndexingOperator) {
   }
   {
     // Indexing with incompatible type.
-    auto *op = storage.Create<ListMapIndexingOperator>(
-        storage.Create<PrimitiveLiteral>(2),
-        storage.Create<PrimitiveLiteral>(TypedValue::Null));
+    auto *op = storage.Create<SubscriptOperator>(
+        list_literal, storage.Create<PrimitiveLiteral>("bla"));
     EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
   }
 }
@@ -429,30 +428,92 @@ TEST(ExpressionEvaluator, MapIndexing) {
           {PROPERTY_PAIR("c"), storage.Create<PrimitiveLiteral>(3)}});
   {
     // Legal indexing.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>("b"));
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<int64_t>(), 2);
   }
   {
     // Legal indexing, non-existing key.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>("z"));
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Wrong key type.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>(42));
     EXPECT_THROW(op->Accept(eval.eval), QueryRuntimeException);
   }
   {
     // Indexing with Null.
-    auto *op = storage.Create<ListMapIndexingOperator>(
+    auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null));
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
+  }
+}
+
+TEST(ExpressionEvaluator, VertexAndEdgeIndexing) {
+  AstStorage storage;
+  NoContextExpressionEvaluator eval;
+  auto &dba = eval.dba;
+
+  auto edge_type = dba.EdgeType("edge_type");
+  auto prop = dba.Property("prop");
+  auto v1 = dba.InsertVertex();
+  auto e11 = dba.InsertEdge(v1, v1, edge_type);
+  v1.PropsSet(prop, 42);
+  e11.PropsSet(prop, 43);
+
+  auto *vertex_literal = storage.Create<PrimitiveLiteral>(v1);
+  auto *edge_literal = storage.Create<PrimitiveLiteral>(e11);
+  {
+    // Legal indexing.
+    auto *op1 = storage.Create<SubscriptOperator>(
+        vertex_literal, storage.Create<PrimitiveLiteral>("prop"));
+    auto value1 = op1->Accept(eval.eval);
+    EXPECT_EQ(value1.Value<int64_t>(), 42);
+
+    auto *op2 = storage.Create<SubscriptOperator>(
+        edge_literal, storage.Create<PrimitiveLiteral>("prop"));
+    auto value2 = op2->Accept(eval.eval);
+    EXPECT_EQ(value2.Value<int64_t>(), 43);
+  }
+  {
+    // Legal indexing, non-existing key.
+    auto *op1 = storage.Create<SubscriptOperator>(
+        vertex_literal, storage.Create<PrimitiveLiteral>("blah"));
+    auto value1 = op1->Accept(eval.eval);
+    EXPECT_TRUE(value1.IsNull());
+
+    auto *op2 = storage.Create<SubscriptOperator>(
+        edge_literal, storage.Create<PrimitiveLiteral>("blah"));
+    auto value2 = op2->Accept(eval.eval);
+    EXPECT_TRUE(value2.IsNull());
+  }
+  {
+    // Wrong key type.
+    auto *op1 = storage.Create<SubscriptOperator>(
+        vertex_literal, storage.Create<PrimitiveLiteral>(1));
+    EXPECT_THROW(op1->Accept(eval.eval), QueryRuntimeException);
+
+    auto *op2 = storage.Create<SubscriptOperator>(
+        edge_literal, storage.Create<PrimitiveLiteral>(1));
+    EXPECT_THROW(op2->Accept(eval.eval), QueryRuntimeException);
+  }
+  {
+    // Indexing with Null.
+    auto *op1 = storage.Create<SubscriptOperator>(
+        vertex_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null));
+    auto value1 = op1->Accept(eval.eval);
+    EXPECT_TRUE(value1.IsNull());
+
+    auto *op2 = storage.Create<SubscriptOperator>(
+        edge_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null));
+    auto value2 = op2->Accept(eval.eval);
+    EXPECT_TRUE(value2.IsNull());
   }
 }
 

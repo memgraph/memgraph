@@ -568,7 +568,7 @@ TYPED_TEST(CypherMainVisitorTest, ListIndexing) {
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
-  auto *list_index_op = dynamic_cast<ListMapIndexingOperator *>(
+  auto *list_index_op = dynamic_cast<SubscriptOperator *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(list_index_op);
   auto *list = dynamic_cast<ListLiteral *>(list_index_op->expression1_);
@@ -620,7 +620,7 @@ TYPED_TEST(CypherMainVisitorTest, InWithListIndexing) {
   ASSERT_TRUE(in_list_operator);
   CheckLiteral(ast_generator.context_, in_list_operator->expression1_, 1);
   auto *list_indexing =
-      dynamic_cast<ListMapIndexingOperator *>(in_list_operator->expression2_);
+      dynamic_cast<SubscriptOperator *>(in_list_operator->expression2_);
   ASSERT_TRUE(list_indexing);
   auto *list = dynamic_cast<ListLiteral *>(list_indexing->expression1_);
   EXPECT_TRUE(list);

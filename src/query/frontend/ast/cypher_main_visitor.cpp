@@ -881,7 +881,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3b(
   for (auto *list_op : ctx->listIndexingOrSlicing()) {
     if (list_op->getTokens(kDotsTokenId).size() == 0U) {
       // If there is no '..' then we need to create list indexing operator.
-      expression = storage_.Create<ListMapIndexingOperator>(
+      expression = storage_.Create<SubscriptOperator>(
           expression, list_op->expression()[0]->accept(this));
     } else if (!list_op->lower_bound && !list_op->upper_bound) {
       throw SemanticException(

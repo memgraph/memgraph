@@ -420,9 +420,9 @@ BinaryOperator *BinaryOperator::Construct(
       auto literal = reader.getLessOperator();
       return LessOperator::Construct(literal, storage);
     }
-    case capnp::BinaryOperator::LIST_MAP_INDEXING_OPERATOR: {
-      auto literal = reader.getListMapIndexingOperator();
-      return ListMapIndexingOperator::Construct(literal, storage);
+    case capnp::BinaryOperator::SUBSCRIPT_OPERATOR: {
+      auto literal = reader.getSubscriptOperator();
+      return SubscriptOperator::Construct(literal, storage);
     }
     case capnp::BinaryOperator::MOD_OPERATOR: {
       auto literal = reader.getModOperator();
@@ -616,15 +616,15 @@ InListOperator *InListOperator::Construct(const capnp::InListOperator::Reader &,
   return storage->Create<InListOperator>();
 }
 
-void ListMapIndexingOperator::Save(capnp::BinaryOperator::Builder *builder,
-                                   std::vector<int> *saved_uids) {
+void SubscriptOperator::Save(capnp::BinaryOperator::Builder *builder,
+                             std::vector<int> *saved_uids) {
   BinaryOperator::Save(builder, saved_uids);
-  builder->initListMapIndexingOperator();
+  builder->initSubscriptOperator();
 }
 
-ListMapIndexingOperator *ListMapIndexingOperator::Construct(
-    capnp::ListMapIndexingOperator::Reader &, AstStorage *storage) {
-  return storage->Create<ListMapIndexingOperator>();
+SubscriptOperator *SubscriptOperator::Construct(
+    capnp::SubscriptOperator::Reader &, AstStorage *storage) {
+  return storage->Create<SubscriptOperator>();
 }
 
 void Aggregation::Save(capnp::BinaryOperator::Builder *builder,
@@ -2436,7 +2436,7 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::GreaterOperator);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::LessEqualOperator);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::GreaterEqualOperator);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::InListOperator);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::ListMapIndexingOperator);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::SubscriptOperator);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::ListSlicingOperator);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::IfOperator);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::UnaryPlusOperator);

@@ -178,13 +178,15 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     return false;
   }
 
-  TypedValue Visit(ListMapIndexingOperator &list_indexing) override {
+  TypedValue Visit(SubscriptOperator &list_indexing) override {
     auto lhs = list_indexing.expression1_->Accept(*this);
     auto index = list_indexing.expression2_->Accept(*this);
-    if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsNull())
-
+    if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsVertex() && !lhs.IsEdge() &&
+        !lhs.IsNull())
       throw QueryRuntimeException(
-          "Expected a list or map to index with '[]', but got {}", lhs.type());
+          "Expected a list, a map, a vertex or an edge to index with '[]', but "
+          "got {}",
+          lhs.type());
     if (lhs.IsNull() || index.IsNull()) return TypedValue::Null;
     if (lhs.IsList()) {
       if (!index.IsInt())
@@ -210,13 +212,29 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       return found->second;
     }
 
+    if (lhs.IsVertex()) {
+      if (!index.IsString())
+        throw QueryRuntimeException(
+            "Expected a string as a property name, but got {}", index.type());
+      return lhs.Value<VertexAccessor>().PropsAt(
+          context_->db_accessor_.Property(index.Value<std::string>()));
+    }
+
+    if (lhs.IsEdge()) {
+      if (!index.IsString())
+        throw QueryRuntimeException(
+            "Expected a string as a property name, but got {}", index.type());
+      return lhs.Value<EdgeAccessor>().PropsAt(
+          context_->db_accessor_.Property(index.Value<std::string>()));
+    }
+
     // lhs is Null
     return TypedValue::Null;
   }
 
   TypedValue Visit(ListSlicingOperator &op) override {
-    // If some type is null we can't return null, because throwing exception on
-    // illegal type has higher priority.
+    // If some type is null we can't return null, because throwing exception
+    // on illegal type has higher priority.
     auto is_null = false;
     auto get_bound = [&](Expression *bound_expr, int64_t default_value) {
       if (bound_expr) {
