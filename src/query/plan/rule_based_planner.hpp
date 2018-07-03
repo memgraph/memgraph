@@ -224,6 +224,13 @@ class RuleBasedPlanner {
           DCHECK(!input_op) << "Unexpected operator before StartStopAllStreams";
           input_op = std::make_unique<plan::StartStopAllStreams>(
               start_stop_all_streams->is_start_);
+        } else if (auto *test_stream =
+                       dynamic_cast<query::TestStream *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before TestStream";
+          auto &symbol_table = context.symbol_table;
+          input_op = std::make_unique<plan::TestStream>(
+              test_stream->stream_name_, test_stream->limit_batches_,
+              symbol_table.CreateSymbol("test result", false));
         } else {
           throw utils::NotYetImplemented("clause conversion to operator(s)");
         }

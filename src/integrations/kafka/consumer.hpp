@@ -35,13 +35,16 @@ class Consumer final : public RdKafka::EventCb {
   Consumer &operator=(const Consumer &other) = delete;
   Consumer &operator=(Consumer &&other) = delete;
 
-  void Start(std::experimental::optional<int64_t> batch_limit);
+  void Start(std::experimental::optional<int64_t> limit_batches);
 
   void Stop();
 
   void StartIfNotStopped();
 
   void StopIfNotRunning();
+
+  std::vector<std::string> Test(
+      std::experimental::optional<int64_t> limit_batches);
 
   StreamInfo info();
 
@@ -59,7 +62,9 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopConsuming();
 
-  void StartConsuming(std::experimental::optional<int64_t> batch_limit);
+  void StartConsuming(std::experimental::optional<int64_t> limit_batches);
+
+  std::vector<std::unique_ptr<RdKafka::Message>> GetBatch();
 };
 
 }  // namespace kafka

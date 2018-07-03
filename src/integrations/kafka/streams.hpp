@@ -27,6 +27,11 @@ class Streams final {
 
   std::vector<StreamInfo> ShowStreams();
 
+  std::vector<std::string> TestStream(
+      const std::string &stream_name,
+      std::experimental::optional<int64_t> batch_limit =
+          std::experimental::nullopt);
+
  private:
   std::mutex mutex_;
   std::unordered_map<std::string, Consumer> consumers_;

@@ -3911,6 +3911,56 @@ class StartStopAllStreams : public Clause {
                                                         const unsigned int);
 };
 
+class TestStream : public Clause {
+  friend class AstStorage;
+
+ public:
+  DEFVISITABLE(TreeVisitor<TypedValue>);
+  DEFVISITABLE(HierarchicalTreeVisitor);
+
+  TestStream *Clone(AstStorage &storage) const override {
+    return storage.Create<TestStream>(
+        stream_name_,
+        limit_batches_ ? limit_batches_->Clone(storage) : nullptr);
+  }
+
+  static TestStream *Construct(const capnp::TestStream::Reader &reader,
+                               AstStorage *storage);
+  using Clause::Save;
+
+  std::string stream_name_;
+  Expression *limit_batches_;
+
+ protected:
+  explicit TestStream(int uid) : Clause(uid) {}
+  TestStream(int uid, std::string stream_name, Expression *limit_batches)
+      : Clause(uid),
+        stream_name_(std::move(stream_name)),
+        limit_batches_(limit_batches) {}
+
+  void Save(capnp::Clause::Builder *builder,
+            std::vector<int> *saved_uids) override;
+  virtual void Save(capnp::TestStream::Builder *builder,
+                    std::vector<int> *saved_uids);
+  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
+            std::vector<int> *loaded_uids) override;
+
+ private:
+  friend class boost::serialization::access;
+
+  template <class TArchive>
+  void serialize(TArchive &ar, const unsigned int) {
+    ar &boost::serialization::base_object<Clause>(*this);
+    ar &stream_name_;
+    ar &limit_batches_;
+  }
+
+  template <class TArchive>
+  friend void boost::serialization::load_construct_data(TArchive &,
+                                                        TestStream *,
+                                                        const unsigned int);
+};
+
 #undef CLONE_BINARY_EXPRESSION
 #undef CLONE_UNARY_EXPRESSION
 #undef SERIALIZE_USING_BASE
@@ -3993,6 +4043,7 @@ LOAD_AND_CONSTRUCT(query::DropStream, 0);
 LOAD_AND_CONSTRUCT(query::ShowStreams, 0);
 LOAD_AND_CONSTRUCT(query::StartStopStream, 0);
 LOAD_AND_CONSTRUCT(query::StartStopAllStreams, 0);
+LOAD_AND_CONSTRUCT(query::TestStream, 0);
 
 }  // namespace boost::serialization
 
@@ -4061,3 +4112,4 @@ BOOST_CLASS_EXPORT_KEY(query::DropStream);
 BOOST_CLASS_EXPORT_KEY(query::ShowStreams);
 BOOST_CLASS_EXPORT_KEY(query::StartStopStream);
 BOOST_CLASS_EXPORT_KEY(query::StartStopAllStreams);
+BOOST_CLASS_EXPORT_KEY(query::TestStream);

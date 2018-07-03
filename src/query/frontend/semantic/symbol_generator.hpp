@@ -54,6 +54,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool Visit(ShowStreams &) override;
   bool Visit(StartStopStream &) override;
   bool Visit(StartStopAllStreams &) override;
+  bool Visit(TestStream &) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;

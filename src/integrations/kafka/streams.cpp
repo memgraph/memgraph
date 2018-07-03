@@ -64,5 +64,16 @@ std::vector<StreamInfo> Streams::ShowStreams() {
   return streams;
 }
 
+std::vector<std::string> Streams::TestStream(
+    const std::string &stream_name,
+    std::experimental::optional<int64_t> batch_limit) {
+  std::lock_guard<std::mutex> g(mutex_);
+  auto find_it = consumers_.find(stream_name);
+  if (find_it == consumers_.end())
+    throw StreamDoesntExistException(stream_name);
+
+  return find_it->second.Test(batch_limit);
+}
+
 }  // namespace kafka
 }  // namespace integrations

@@ -139,14 +139,10 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
 
   VISIT(CreateStream);
   VISIT(DropStream);
-
-  bool Visit(ShowStreams &op) override {
-    CheckOp(op);
-    return true;
-  }
-
+  VISIT(ShowStreams);
   VISIT(StartStopStream);
   VISIT(StartStopAllStreams);
+  VISIT(TestStream);
 
 #undef PRE_VISIT
 #undef VISIT
@@ -583,6 +579,28 @@ class ExpectStartStopAllStreams : public OpChecker<StartStopAllStreams> {
 
  private:
   bool is_start_;
+};
+
+class ExpectTestStream : public OpChecker<TestStream> {
+ public:
+  ExpectTestStream(std::string stream_name, query::Expression *limit_batches)
+      : stream_name_(stream_name), limit_batches_(limit_batches) {}
+
+  void ExpectOp(TestStream &test_stream, const SymbolTable &) override {
+    EXPECT_EQ(test_stream.stream_name(), stream_name_);
+    // TODO: Proper expression equality
+    if (limit_batches_ && test_stream.limit_batches()) {
+      EXPECT_EQ(typeid(test_stream.limit_batches()).hash_code(),
+                typeid(limit_batches_).hash_code());
+    } else {
+      EXPECT_TRUE(limit_batches_ == nullptr &&
+                  test_stream.limit_batches() == nullptr);
+    }
+  }
+
+ private:
+  std::string stream_name_;
+  query::Expression *limit_batches_;
 };
 
 auto MakeSymbolTable(query::Query &query) {
@@ -2511,6 +2529,31 @@ TYPED_TEST(TestPlanner, StartStopAllStreams) {
     CheckPlan<TypeParam>(storage, expected);
     auto expected_distributed =
         ExpectDistributed(MakeCheckers(ExpectStartStopAllStreams(false)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+}
+
+TYPED_TEST(TestPlanner, TestStream) {
+  std::string stream_name("kafka");
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    QUERY(SINGLE_QUERY(TEST_STREAM(stream_name, nullptr)));
+    auto expected = ExpectTestStream(stream_name, nullptr);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed =
+        ExpectDistributed(MakeCheckers(ExpectTestStream(stream_name, nullptr)));
+    CheckDistributedPlan<TypeParam>(storage, expected_distributed);
+  }
+  {
+    FakeDbAccessor dba;
+    AstStorage storage;
+    auto limit_batches = LITERAL(10);
+    QUERY(SINGLE_QUERY(TEST_STREAM(stream_name, limit_batches)));
+    auto expected = ExpectTestStream(stream_name, limit_batches);
+    CheckPlan<TypeParam>(storage, expected);
+    auto expected_distributed = ExpectDistributed(
+        MakeCheckers(ExpectTestStream(stream_name, limit_batches)));
     CheckDistributedPlan<TypeParam>(storage, expected_distributed);
   }
 }

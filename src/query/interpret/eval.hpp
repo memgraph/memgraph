@@ -56,6 +56,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   BLOCK_VISIT(ShowStreams);
   BLOCK_VISIT(StartStopStream);
   BLOCK_VISIT(StartStopAllStreams);
+  BLOCK_VISIT(TestStream);
 
 #undef BLOCK_VISIT
 

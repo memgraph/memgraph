@@ -13,6 +13,7 @@ using namespace std::chrono_literals;
 
 constexpr int64_t kDefaultBatchIntervalMillis = 100;
 constexpr int64_t kDefaultBatchSize = 10;
+constexpr int64_t kDefaultTestBatchLimit = 1;
 
 void Consumer::event_cb(RdKafka::Event &event) {
   switch (event.type()) {
@@ -96,60 +97,72 @@ void Consumer::StopConsuming() {
 }
 
 void Consumer::StartConsuming(
-    std::experimental::optional<int64_t> batch_limit) {
-  thread_ = std::thread([this, batch_limit]() {
+    std::experimental::optional<int64_t> limit_batches) {
+  thread_ = std::thread([this, limit_batches]() {
     int64_t batch_count = 0;
     is_running_.store(true);
 
     while (is_running_) {
-      int64_t remaining_timeout_in_ms =
-          info_.batch_interval_in_ms.value_or(kDefaultBatchIntervalMillis);
-      int64_t remaining_size = info_.batch_size.value_or(kDefaultBatchSize);
-
-      auto start = std::chrono::system_clock::now();
-
-      bool run_batch = true;
-      while (is_running_ && run_batch && remaining_size-- > 0) {
-        std::unique_ptr<RdKafka::Message> msg(
-            consumer_->consume(remaining_timeout_in_ms));
-        switch (msg->err()) {
-          case RdKafka::ERR__TIMED_OUT:
-            run_batch = false;
-            break;
-
-          case RdKafka::ERR_NO_ERROR:
-            // TODO (msantl): store message to current batch and pass the batch
-            // to transform
-            break;
-
-          default:
-            LOG(ERROR) << "Consumer error: " << msg->errstr();
-            is_running_.store(false);
-            break;
-        }
-
-        auto now = std::chrono::system_clock::now();
-        auto took =
-            std::chrono::duration_cast<std::chrono::milliseconds>(now - start);
-        if (took.count() >= remaining_timeout_in_ms) {
-          break;
-        }
-
-        remaining_timeout_in_ms = remaining_timeout_in_ms - took.count();
-        start = now;
-      }
-
-      if (batch_limit != std::experimental::nullopt) {
-        batch_count++;
-        if (batch_limit <= batch_count) {
+      auto batch = this->GetBatch();
+      // TODO (msantl): transform the batch
+      if (limit_batches != std::experimental::nullopt) {
+        if (limit_batches <= ++batch_count) {
           is_running_.store(false);
+          break;
         }
       }
     }
   });
 }
 
-void Consumer::Start(std::experimental::optional<int64_t> batch_limit) {
+std::vector<std::unique_ptr<RdKafka::Message>> Consumer::GetBatch() {
+  std::vector<std::unique_ptr<RdKafka::Message>> batch;
+  bool run_batch = false;
+  auto start = std::chrono::system_clock::now();
+  int64_t remaining_timeout_in_ms =
+      info_.batch_interval_in_ms.value_or(kDefaultBatchIntervalMillis);
+  int64_t batch_size = info_.batch_size.value_or(kDefaultBatchSize);
+
+  batch.reserve(batch_size);
+
+  for (int64_t i = 0; i < batch_size; ++i) {
+    std::unique_ptr<RdKafka::Message> msg(
+        consumer_->consume(remaining_timeout_in_ms));
+    switch (msg->err()) {
+      case RdKafka::ERR__TIMED_OUT:
+        run_batch = false;
+        break;
+
+      case RdKafka::ERR_NO_ERROR:
+        batch.emplace_back(std::move(msg));
+        break;
+
+      default:
+        LOG(ERROR) << "[Kafka] Consumer error: " << msg->errstr();
+        run_batch = false;
+        is_running_.store(false);
+        break;
+    }
+
+    if (!run_batch) {
+      break;
+    }
+
+    auto now = std::chrono::system_clock::now();
+    auto took =
+        std::chrono::duration_cast<std::chrono::milliseconds>(now - start);
+    if (took.count() >= remaining_timeout_in_ms) {
+      break;
+    }
+
+    remaining_timeout_in_ms = remaining_timeout_in_ms - took.count();
+    start = now;
+  }
+
+  return batch;
+}
+
+void Consumer::Start(std::experimental::optional<int64_t> limit_batches) {
   if (!consumer_) {
     throw ConsumerNotAvailableException(info_.stream_name);
   }
@@ -158,7 +171,7 @@ void Consumer::Start(std::experimental::optional<int64_t> batch_limit) {
     throw ConsumerRunningException(info_.stream_name);
   }
 
-  StartConsuming(batch_limit);
+  StartConsuming(limit_batches);
 }
 
 void Consumer::Stop() {
@@ -191,6 +204,35 @@ void Consumer::StopIfNotRunning() {
   if (is_running_) {
     StopConsuming();
   }
+}
+
+std::vector<std::string> Consumer::Test(
+    std::experimental::optional<int64_t> limit_batches) {
+  if (!consumer_) {
+    throw ConsumerNotAvailableException(info_.stream_name);
+  }
+
+  if (is_running_) {
+    throw ConsumerRunningException(info_.stream_name);
+  }
+
+  int64_t num_of_batches = limit_batches.value_or(kDefaultTestBatchLimit);
+  std::vector<std::string> results;
+
+  is_running_.store(true);
+
+  for (int64_t i = 0; i < num_of_batches; ++i) {
+    auto batch = GetBatch();
+    // TODO (msantl): transform the batch
+
+    for (auto &result : batch) {
+      results.push_back(
+          std::string(reinterpret_cast<char *>(result->payload())));
+    }
+  }
+  is_running_.store(false);
+
+  return results;
 }
 
 StreamInfo Consumer::info() {

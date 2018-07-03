@@ -587,8 +587,10 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::DropStream>((stream_name))
 #define SHOW_STREAMS storage.Create<query::ShowStreams>()
 #define START_STREAM(stream_name, limit_batches) \
-  storage.Create<query::StartStopStream>((stream_name), true, limit_batches)
+  storage.Create<query::StartStopStream>((stream_name), true, (limit_batches))
 #define STOP_STREAM(stream_name) \
   storage.Create<query::StartStopStream>((stream_name), false, nullptr)
 #define START_ALL_STREAMS storage.Create<query::StartStopAllStreams>(true)
 #define STOP_ALL_STREAMS storage.Create<query::StartStopAllStreams>(false)
+#define TEST_STREAM(stream_name, limit_batches) \
+  storage.Create<query::TestStream>((stream_name), (limit_batches))

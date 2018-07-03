@@ -1312,6 +1312,10 @@ Clause *Clause::Construct(const capnp::Clause::Reader &reader,
       auto ssas_reader = reader.getStartStopAllStreams();
       return StartStopAllStreams::Construct(ssas_reader, storage);
     }
+    case capnp::Clause::TEST_STREAM: {
+      auto ts_reader = reader.getTestStream();
+      return TestStream::Construct(ts_reader, storage);
+    }
   }
 }
 
@@ -1552,6 +1556,41 @@ void StartStopAllStreams::Load(const capnp::Tree::Reader &base_reader,
 StartStopAllStreams *StartStopAllStreams::Construct(
     const capnp::StartStopAllStreams::Reader &reader, AstStorage *storage) {
   return storage->Create<StartStopAllStreams>();
+}
+
+// TestStream.
+void TestStream::Save(capnp::Clause::Builder *builder,
+                      std::vector<int> *saved_uids) {
+  Clause::Save(builder, saved_uids);
+  auto test_builder = builder->initTestStream();
+  TestStream::Save(&test_builder, saved_uids);
+}
+
+void TestStream::Save(capnp::TestStream::Builder *builder,
+                      std::vector<int> *saved_uids) {
+  builder->setStreamName(stream_name_);
+  if (limit_batches_) {
+    auto limit_batches_builder = builder->getLimitBatches();
+    limit_batches_->Save(&limit_batches_builder, saved_uids);
+  }
+}
+
+void TestStream::Load(const capnp::Tree::Reader &base_reader,
+                      AstStorage *storage, std::vector<int> *loaded_uids) {
+  Clause::Load(base_reader, storage, loaded_uids);
+  auto reader = base_reader.getClause().getTestStream();
+  stream_name_ = reader.getStreamName();
+  limit_batches_ = nullptr;
+  if (reader.hasLimitBatches()) {
+    const auto limit_batches_reader = reader.getLimitBatches();
+    limit_batches_ = dynamic_cast<Expression *>(
+        storage->Load(limit_batches_reader, loaded_uids));
+  }
+}
+
+TestStream *TestStream::Construct(const capnp::TestStream::Reader &reader,
+                                  AstStorage *storage) {
+  return storage->Create<TestStream>();
 }
 
 // Delete.
@@ -2677,3 +2716,4 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::DropStream);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::ShowStreams);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::StartStopStream);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::StartStopAllStreams);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::TestStream);

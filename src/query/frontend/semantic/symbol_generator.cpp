@@ -234,6 +234,8 @@ bool SymbolGenerator::Visit(StartStopStream &) { return true; }
 
 bool SymbolGenerator::Visit(StartStopAllStreams &) { return true; }
 
+bool SymbolGenerator::Visit(TestStream &) { return true; }
+
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {

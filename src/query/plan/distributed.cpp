@@ -82,6 +82,7 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   bool Visit(ShowStreams &) override { return true; }
   bool Visit(StartStopStream &) override { return true; }
   bool Visit(StartStopAllStreams &) override { return true; }
+  bool Visit(TestStream &) override { return true; }
 
   bool PreVisit(ScanAll &scan) override {
     prev_ops_.push_back(&scan);
@@ -1221,6 +1222,8 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool Visit(StartStopStream &) override { return true; }
 
   bool Visit(StartStopAllStreams &) override { return true; }
+
+  bool Visit(TestStream &) override { return true; }
 
   // Accumulate is used only if the query performs any writes. In such a case,
   // we need to synchronize the work done on master and all workers.

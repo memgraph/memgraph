@@ -54,6 +54,7 @@ clause : cypherMatch
        | showStreams
        | startStopStream
        | startStopAllStreams
+       | testStream
        ;
 
 cypherMatch : ( OPTIONAL SP )? MATCH SP? pattern ( SP? where )? ;
@@ -318,6 +319,8 @@ limitBatchesOption : LIMIT SP limitBatches=literal SP BATCHES ;
 
 startStopAllStreams : ( START | STOP ) SP ALL SP STREAMS ;
 
+testStream : K_TEST SP STREAM SP streamName ( SP limitBatchesOption )? ;
+
 HexInteger : '0x' ( HexDigit )+ ;
 
 DecimalInteger : ZeroDigit
@@ -576,6 +579,8 @@ STOP : ( 'S' | 's' ) ( 'T' | 't' ) ( 'O' | 'o' ) ( 'P' | 'p' ) ;
 BATCHES : ( 'B' | 'b' )  ( 'A' | 'a' ) ( 'T' | 't' ) ( 'C' | 'c' ) ( 'H' | 'h' ) ( 'E' | 'e' ) ( 'S' | 's' ) ;
 
 TOPIC : ( 'T' | 't' ) ( 'O' | 'o' ) ( 'P' | 'p' ) ( 'I' | 'i' ) ( 'C' | 'c' ) ;
+
+K_TEST : ( 'T' | 't' ) ( 'E' | 'e' ) ( 'S' | 's' ) ( 'T' | 't' ) ;
 
 UnescapedSymbolicName : IdentifierStart ( IdentifierPart )* ;
 

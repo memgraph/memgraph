@@ -142,7 +142,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
                dynamic_cast<DropStream *>(clause) ||
                dynamic_cast<ShowStreams *>(clause) ||
                dynamic_cast<StartStopStream *>(clause) ||
-               dynamic_cast<StartStopAllStreams *>(clause)) {
+               dynamic_cast<StartStopAllStreams *>(clause) ||
+               dynamic_cast<TestStream *>(clause)) {
       // If there is stream clause then there shouldn't be anything else.
       if (single_query->clauses_.size() != 1U) {
         throw SemanticException(
@@ -237,6 +238,10 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
   if (ctx->startStopAllStreams()) {
     return static_cast<Clause *>(
         ctx->startStopAllStreams()->accept(this).as<StartStopAllStreams *>());
+  }
+  if (ctx->testStream()) {
+    return static_cast<Clause *>(
+        ctx->testStream()->accept(this).as<TestStream *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
@@ -438,6 +443,21 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(
     return_clause->body_.distinct = true;
   }
   return return_clause;
+}
+
+/**
+ * @return TestStream*
+ */
+antlrcpp::Any CypherMainVisitor::visitTestStream(
+    CypherParser::TestStreamContext *ctx) {
+  std::string stream_name(std::string(ctx->streamName()->getText()));
+  Expression *limit_batches = nullptr;
+
+  if (ctx->limitBatchesOption()) {
+    limit_batches = ctx->limitBatchesOption()->accept(this);
+  }
+
+  return storage_.Create<TestStream>(stream_name, limit_batches);
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnBody(

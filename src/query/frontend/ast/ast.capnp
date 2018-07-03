@@ -139,6 +139,7 @@ struct Clause {
     showStreams @17 :ShowStreams;
     startStopStream @18 :StartStopStream;
     startStopAllStreams @19 :StartStopAllStreams;
+    testStream @20 :TestStream;
   }
 }
 
@@ -431,3 +432,9 @@ struct StartStopStream {
 struct StartStopAllStreams {
   isStart @0 :Bool;
 }
+
+struct TestStream {
+  streamName @0 :Text;
+  limitBatches @1: Tree;
+}
+

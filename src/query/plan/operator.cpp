@@ -4084,9 +4084,17 @@ class StartStopStreamCursor : public Cursor {
       throw StreamClauseInMulticommandTxException();
     }
 
+    ExpressionEvaluator evaluator(frame, &ctx, GraphView::OLD);
+    std::experimental::optional<int64_t> limit_batches;
+
+    if (self_.limit_batches()) {
+      limit_batches = self_.limit_batches()->Accept(evaluator).Value<int64_t>();
+    }
+
     try {
       if (self_.is_start()) {
-        db_.db().kafka_streams().StartStream(self_.stream_name());
+        db_.db().kafka_streams().StartStream(self_.stream_name(),
+                                             limit_batches);
       } else {
         db_.db().kafka_streams().StopStream(self_.stream_name());
       }
@@ -4151,6 +4159,67 @@ std::unique_ptr<Cursor> StartStopAllStreams::MakeCursor(
   return std::make_unique<StartStopAllStreamsCursor>(*this, db);
 }
 
+TestStream::TestStream(std::string stream_name, Expression *limit_batches,
+                       Symbol test_result_symbol)
+    : stream_name_(stream_name),
+      limit_batches_(limit_batches),
+      test_result_symbol_(test_result_symbol) {}
+
+WITHOUT_SINGLE_INPUT(TestStream)
+
+class TestStreamCursor : public Cursor {
+ public:
+  TestStreamCursor(const TestStream &self, database::GraphDbAccessor &db)
+      : self_(self), db_(db) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
+      throw StreamClauseInMulticommandTxException();
+    }
+
+    if (!is_initialized_) {
+      ExpressionEvaluator evaluator(frame, &ctx, GraphView::OLD);
+      std::experimental::optional<int64_t> limit_batches;
+
+      if (self_.limit_batches()) {
+        limit_batches =
+            self_.limit_batches()->Accept(evaluator).Value<int64_t>();
+      }
+
+      try {
+        results_ = db_.db().kafka_streams().TestStream(self_.stream_name(),
+                                                       limit_batches);
+      } catch (const KafkaStreamException &e) {
+        throw QueryRuntimeException(e.what());
+      }
+      results_it_ = results_.begin();
+      is_initialized_ = true;
+    }
+
+    if (results_it_ == results_.end()) return false;
+
+    frame[self_.test_result_symbol()] = *results_it_;
+    results_it_++;
+
+    return true;
+  }
+
+  void Reset() override { throw utils::NotYetImplemented("Test Stream"); }
+
+ private:
+  const TestStream &self_;
+  database::GraphDbAccessor &db_;
+
+  bool is_initialized_ = false;
+  std::vector<std::string> results_;
+  std::vector<std::string>::iterator results_it_ = results_.begin();
+};
+
+std::unique_ptr<Cursor> TestStream::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<TestStreamCursor>(*this, db);
+}
+
 }  // namespace query::plan
 
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Once);
@@ -4196,3 +4265,4 @@ BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::DropStream);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ShowStreams);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::StartStopStream);
 BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::StartStopAllStreams);
+BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::TestStream);

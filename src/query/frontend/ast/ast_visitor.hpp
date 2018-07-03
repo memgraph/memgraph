@@ -68,6 +68,7 @@ class DropStream;
 class ShowStreams;
 class StartStopStream;
 class StartStopAllStreams;
+class TestStream;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     Query, SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
@@ -85,7 +86,7 @@ using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup,
                          CreateIndex, ModifyUser, DropUser, CreateStream,
                          DropStream, ShowStreams, StartStopStream,
-                         StartStopAllStreams>;
+                         StartStopAllStreams, TestStream>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {
@@ -109,7 +110,7 @@ using TreeVisitor = ::utils::Visitor<
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
     Unwind, Identifier, PrimitiveLiteral, CreateIndex, ModifyUser, DropUser,
-    CreateStream, DropStream, ShowStreams, StartStopStream,
-    StartStopAllStreams>;
+    CreateStream, DropStream, ShowStreams, StartStopStream, StartStopAllStreams,
+    TestStream>;
 
 }  // namespace query

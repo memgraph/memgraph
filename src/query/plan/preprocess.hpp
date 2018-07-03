@@ -60,6 +60,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   bool Visit(query::ShowStreams &) override { return true; }
   bool Visit(query::StartStopStream &) override { return true; }
   bool Visit(query::StartStopAllStreams &) override { return true; }
+  bool Visit(query::TestStream &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;

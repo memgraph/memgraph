@@ -58,9 +58,24 @@ You can also start/stop streams with the `START` and `STOP` clauses:
 START STREAM stream_name [LIMIT count BATCHES];
 STOP STREAM stream_name;
 ```
+A stream needs to be stopped in order to start it and it needs to be started in
+order to stop it. Starting a started or stopping a stopped stream will not
+affect that stream.
 
 There are also convenience clauses to start and stop all streams:
 ```opencypher
 START ALL STREAMS;
 STOP ALL STREAMS;
 ```
+
+
+Before the actual import, you can also test the stream with the `TEST
+STREAM` clause:
+```opencypher
+TEST STREAM stream_name [LIMIT count BATCHES];
+```
+When a stream is tested, data extraction and transformation occurs, but no
+output is inserted in the graph.
+
+A stream needs to be stopped in order to test it. When the batch limit is
+omitted, `TEST STREAM` will run for only one batch by default.

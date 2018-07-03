@@ -2182,4 +2182,43 @@ TYPED_TEST(CypherMainVisitorTest, StartStopAllStreams) {
                SyntaxException);
 }
 
+TYPED_TEST(CypherMainVisitorTest, TestStream) {
+  auto check_test_stream = [](
+      std::string input, const std::string &stream_name,
+      std::experimental::optional<int64_t> limit_batches) {
+    TypeParam ast_generator(input);
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *test_stream = dynamic_cast<TestStream *>(single_query->clauses_[0]);
+    EXPECT_TRUE(test_stream);
+
+    EXPECT_EQ(test_stream->stream_name_, stream_name);
+
+    if (limit_batches) {
+      ASSERT_TRUE(test_stream->limit_batches_);
+      CheckLiteral(ast_generator.context_, test_stream->limit_batches_,
+                   TypedValue(*limit_batches));
+    } else {
+      EXPECT_EQ(test_stream->limit_batches_, nullptr);
+    }
+  };
+
+  check_test_stream("TesT STreaM strim", "strim", std::experimental::nullopt);
+  check_test_stream("tESt STreAM strim LimIT 10 BATchES", "strim", 10);
+
+  check_test_stream("Test StrEAM strim", "strim", std::experimental::nullopt);
+
+  EXPECT_THROW(check_test_stream("tEST STReaM 'strim'", "strim",
+                                 std::experimental::nullopt),
+               SyntaxException);
+  EXPECT_THROW(
+      check_test_stream("test STReaM strim LImiT 'dva' BATCheS", "strim", 2),
+      SyntaxException);
+  EXPECT_THROW(check_test_stream("test STreAM 'strim'", "strim",
+                                 std::experimental::nullopt),
+               SyntaxException);
+}
+
 }  // namespace

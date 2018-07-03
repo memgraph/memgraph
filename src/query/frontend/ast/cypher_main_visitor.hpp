@@ -225,6 +225,11 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::LimitBatchesOptionContext *ctx) override;
 
   /**
+   * @return TestStream*
+   */
+  antlrcpp::Any visitTestStream(CypherParser::TestStreamContext *ctx) override;
+
+  /**
    * @return Return*
    */
   antlrcpp::Any visitCypherReturn(

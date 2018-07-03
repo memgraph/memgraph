@@ -32,28 +32,28 @@ class ConsumerFailedToInitializeException : public KafkaStreamException {
 
 class ConsumerNotAvailableException : public KafkaStreamException {
  public:
-  ConsumerNotAvailableException(const std::string &stream_name)
+  explicit ConsumerNotAvailableException(const std::string &stream_name)
       : KafkaStreamException(
             fmt::format("Kafka stream {} not available", stream_name)) {}
 };
 
 class ConsumerRunningException : public KafkaStreamException {
  public:
-  ConsumerRunningException(const std::string &stream_name)
+  explicit ConsumerRunningException(const std::string &stream_name)
       : KafkaStreamException(
             fmt::format("Kafka stream {} is already running", stream_name)) {}
 };
 
 class ConsumerStoppedException : public KafkaStreamException {
  public:
-  ConsumerStoppedException(const std::string &stream_name)
+  explicit ConsumerStoppedException(const std::string &stream_name)
       : KafkaStreamException(
             fmt::format("Kafka stream {} is already stopped", stream_name)) {}
 };
 
 class TopicNotFoundException : public KafkaStreamException {
  public:
-  TopicNotFoundException(const std::string &stream_name)
+  explicit TopicNotFoundException(const std::string &stream_name)
       : KafkaStreamException(
             fmt::format("Kafka stream {}, topic not found", stream_name)) {}
 };
