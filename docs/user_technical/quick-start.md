@@ -253,7 +253,7 @@ for some popular programming languages are listed below:
   * [PHP](https://github.com/graphaware/neo4j-bolt-php)
 
 We have included some basic usage examples for some of the supported languages
-in the **Drivers** section.
+in the [Drivers](drivers.md) section.
 
 ### Telemetry
 
@@ -272,10 +272,10 @@ as a command-line argument when running the executable.
 
 ### Where to Next
 
-To learn more about the openCypher language, visit **openCypher Query
-Language** chapter in this document. For real-world examples of how to use
-Memgraph visit **Examples** chapter. Details on what can be stored in Memgraph
-are in **Data Storage** chapter.
+To learn more about the openCypher language, visit [openCypher Query
+Language](open-cypher.md) chapter in this document. For real-world examples
+of how to use Memgraph visit [Examples](examples.md) chapter. Details on
+what can be stored in Memgraph are in [Data Storage](storage.md) chapter.
 
 We *welcome and encourage* your feedback!
 
