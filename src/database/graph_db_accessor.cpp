@@ -396,7 +396,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
   if (from.is_local()) {
     auto edge_accessor = InsertOnlyEdge(from.address(), to.address(), edge_type,
                                         requested_gid, cypher_id);
-    edge_address = edge_accessor.address(),
+    edge_address = edge_accessor.address();
 
     from.SwitchNew();
     from_updated = &from.update();
