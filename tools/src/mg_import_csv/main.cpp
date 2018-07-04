@@ -114,7 +114,7 @@ class MemgraphNodeIdMap {
     return found_it->second;
   }
 
-  int64_t Insert(const NodeId &node_id) {
+  uint64_t Insert(const NodeId &node_id) {
     auto gid = generator_.Next();
     node_id_to_mg_[node_id] = gid;
     return gid;
@@ -250,7 +250,7 @@ void WriteNodeRow(
     }
   }
   CHECK(id) << "Node ID must be specified";
-  partial_vertices[*id] = {*id, labels, properties, {}};
+  partial_vertices[*id] = {*id, static_cast<int>(*id), labels, properties, {}};
 }
 
 auto PassNodes(std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex>
@@ -379,12 +379,12 @@ void Convert(const std::vector<std::string> &nodes,
     }
     for (auto edge : edges) {
       auto encoded = edge.second;
+      auto edge_address = storage::EdgeAddress(encoded.id, 0);
       vertices[encoded.from].out.push_back(
-          {storage::EdgeAddress(encoded.id, 0),
-           storage::VertexAddress(encoded.to, 0), encoded.type});
+          {edge_address, storage::VertexAddress(encoded.to, 0), encoded.type});
       vertices[encoded.to].in.push_back(
-          {storage::EdgeAddress(encoded.id, 0),
-           storage::VertexAddress(encoded.from, 0), encoded.type});
+          {edge_address, storage::VertexAddress(encoded.from, 0),
+           encoded.type});
     }
     for (auto vertex_pair : vertices) {
       auto &vertex = vertex_pair.second;
@@ -402,6 +402,8 @@ void Convert(const std::vector<std::string> &nodes,
           [](const std::string &str) -> query::TypedValue { return str; });
       encoder.WriteList(transformed);
       encoder.WriteMap(vertex.properties);
+
+      encoder.WriteInt(vertex.cypher_id);
 
       encoder.WriteInt(vertex.in.size());
       for (auto edge : vertex.in) {
@@ -429,6 +431,9 @@ void Convert(const std::vector<std::string> &nodes,
       encoder.WriteInt(edge.to);
       encoder.WriteString(edge.type);
       encoder.WriteMap(edge.properties);
+
+      // cypher_id
+      encoder.WriteInt(edge.id);
     }
 
     buffer.WriteValue(node_count);

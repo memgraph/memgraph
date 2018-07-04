@@ -21,7 +21,7 @@ void MvccMix(benchmark::State &state) {
     state.PauseTiming();
     tx::SingleNodeEngine engine;
     auto t1 = engine.Begin();
-    mvcc::VersionList<Prop> version_list(*t1, 0);
+    mvcc::VersionList<Prop> version_list(*t1, 0, 0);
 
     engine.Commit(*t1);
     auto t2 = engine.Begin();

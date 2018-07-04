@@ -7,7 +7,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "utils/bswap.hpp"
-#include "utils/underlying_cast.hpp"
+#include "utils/cast.hpp"
 
 namespace communication::bolt {
 

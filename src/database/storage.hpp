@@ -28,7 +28,7 @@ struct RecoveryInfo;
 RecoveryInfo Recover(const std::experimental::filesystem::path &,
                      database::GraphDb &,
                      std::experimental::optional<RecoveryInfo>);
-};
+};  // namespace durability
 
 namespace database {
 
@@ -77,7 +77,11 @@ class Storage {
       storage::Address<mvcc::VersionList<TRecord>> address) const {
     if (address.is_local()) return address;
     if (address.worker_id() == worker_id_) {
-      return LocalAddress<TRecord>(address.gid());
+      auto vlist = LocalAddress<TRecord>(address.gid());
+      if constexpr (std::is_same<TRecord, Vertex>::value)
+        return storage::VertexAddress(vlist);
+      else
+        return storage::EdgeAddress(vlist);
     }
     return address;
   }

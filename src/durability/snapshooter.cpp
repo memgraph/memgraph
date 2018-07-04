@@ -16,7 +16,7 @@ namespace fs = std::experimental::filesystem;
 namespace durability {
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 5,
+static_assert(durability::kVersion == 6,
               "Wrong snapshot version, please update!");
 
 namespace {
@@ -68,6 +68,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     }
     for (const auto &edge : dba.Edges(false)) {
       encoder.WriteEdge(edge);
+      encoder.WriteInt(edge.cypher_id());
       edge_num++;
     }
     buffer.WriteValue(vertex_num);

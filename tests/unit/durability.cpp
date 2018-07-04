@@ -483,6 +483,9 @@ TEST_F(Durability, SnapshotEncoding) {
     ASSERT_EQ(dv.type(), communication::bolt::DecodedValue::Type::Edge);
     auto &edge = dv.ValueEdge();
     decoded_edges.emplace(edge.id, edge);
+    // Read cypher_id.
+    decoder.ReadValue(&dv);
+    ASSERT_EQ(dv.type(), communication::bolt::DecodedValue::Type::Int);
   }
   EXPECT_EQ(decoded_edges.size(), 2);
   EXPECT_EQ(decoded_edges[gid0].from, gid0);
@@ -823,8 +826,9 @@ TEST_F(Durability, SequentialRecovery) {
     return threads;
   };
 
-  auto make_updates = [&run_updates, this](
-      database::GraphDb &db, bool snapshot_during, bool snapshot_after) {
+  auto make_updates = [&run_updates, this](database::GraphDb &db,
+                                           bool snapshot_during,
+                                           bool snapshot_after) {
     std::atomic<bool> keep_running{true};
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);

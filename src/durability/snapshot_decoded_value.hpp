@@ -22,6 +22,7 @@ struct DecodedInlinedVertexEdge;
  */
 struct DecodedSnapshotVertex {
   gid::Gid gid;
+  int64_t cypher_id;
   std::vector<std::string> labels;
   std::map<std::string, communication::bolt::DecodedValue> properties;
   // Vector of edges without properties

@@ -10,7 +10,8 @@ TEST(StateDelta, CreateVertex) {
   auto gid0 = generator.Next();
   {
     database::GraphDbAccessor dba(db);
-    auto delta = database::StateDelta::CreateVertex(dba.transaction_id(), gid0);
+    auto delta =
+        database::StateDelta::CreateVertex(dba.transaction_id(), gid0, 0);
     delta.Apply(dba);
     dba.Commit();
   }
@@ -18,6 +19,7 @@ TEST(StateDelta, CreateVertex) {
     database::GraphDbAccessor dba(db);
     auto vertex = dba.FindVertexOptional(gid0, false);
     EXPECT_TRUE(vertex);
+    EXPECT_EQ(vertex->cypher_id(), 0);
   }
 }
 
@@ -58,8 +60,9 @@ TEST(StateDelta, CreateEdge) {
   }
   {
     database::GraphDbAccessor dba(db);
-    auto delta = database::StateDelta::CreateEdge(
-        dba.transaction_id(), gid2, gid0, gid1, dba.EdgeType("edge"), "edge");
+    auto delta =
+        database::StateDelta::CreateEdge(dba.transaction_id(), gid2, 0, gid0,
+                                         gid1, dba.EdgeType("edge"), "edge");
     delta.Apply(dba);
     dba.Commit();
   }

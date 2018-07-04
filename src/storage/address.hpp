@@ -4,8 +4,8 @@
 
 #include "glog/logging.h"
 
-#include "storage/serialization.capnp.h"
 #include "storage/gid.hpp"
+#include "storage/serialization.capnp.h"
 
 namespace storage {
 
@@ -41,10 +41,10 @@ class Address {
   Address() {}
 
   // Constructor for raw address value
-  Address(StorageT storage) : storage_(storage) {}
+  explicit Address(StorageT storage) : storage_(storage) {}
 
   // Constructor for local Address.
-  Address(TLocalObj *ptr) {
+  explicit Address(TLocalObj *ptr) {
     uintptr_t ptr_no_type = reinterpret_cast<uintptr_t>(ptr);
     DCHECK((ptr_no_type & kTypeMask) == 0) << "Ptr has type_mask bit set";
     storage_ = ptr_no_type | kLocal;

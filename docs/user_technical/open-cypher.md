@@ -715,9 +715,8 @@ functions.
  `counter`       | Generates integers that are guaranteed to be unique on the database level, for the given counter name.
  `counterSet`    | Sets the counter with the given name to the given value.
  `indexInfo`     | Returns a list of all the indexes available in the database. The list includes indexes that are not yet ready for use (they are concurrently being built by another transaction).
- `id`            | Returns identifier for a given node or edge. To enable automatic generation of the identifiers, `--generate-vertex-ids` and `--generate-edge-ids` parameters have to be set on `true` (enabled in the configuration by default).
  `timestamp`     | Returns the difference, measured in milliseconds, between the current time and midnight, January 1, 1970 UTC.
-
+ `id`            | Returns identifier for a given node or edge. The identifier is generated during the initialization of node or edge and will be persisted through the durability mechanism.
 
 #### String Operators
 

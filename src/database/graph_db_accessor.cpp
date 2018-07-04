@@ -15,18 +15,6 @@
 #include "utils/atomic.hpp"
 #include "utils/on_scope_exit.hpp"
 
-// Autogenerate property with Vertex ID
-DEFINE_bool(
-    generate_vertex_ids, false,
-    "If enabled database will automatically generate Ids as properties of "
-    "vertices, which can be accessed using the `Id` cypher function.");
-
-// Autogenerate property with Edge ID
-DEFINE_bool(
-    generate_edge_ids, false,
-    "If enabled database will automatically generate Ids as properties of "
-    "edges, which can be accessed using the `Id` cypher function.");
-
 namespace database {
 
 GraphDbAccessor::GraphDbAccessor(GraphDb &db)
@@ -74,21 +62,22 @@ bool GraphDbAccessor::should_abort() const {
 durability::WriteAheadLog &GraphDbAccessor::wal() { return db_.wal(); }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
-    std::experimental::optional<gid::Gid> requested_gid) {
+    std::experimental::optional<gid::Gid> requested_gid,
+    std::experimental::optional<int64_t> cypher_id) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
-  int64_t gid = db_.storage().vertex_generator_.Next(requested_gid);
-  auto vertex_vlist = new mvcc::VersionList<Vertex>(transaction_, gid);
+  auto gid = db_.storage().vertex_generator_.Next(requested_gid);
+  if (!cypher_id) cypher_id = utils::MemcpyCast<int64_t>(gid);
+  auto vertex_vlist =
+      new mvcc::VersionList<Vertex>(transaction_, gid, *cypher_id);
 
   bool success =
       db_.storage().vertices_.access().insert(gid, vertex_vlist).second;
   CHECK(success) << "Attempting to insert a vertex with an existing GID: "
                  << gid;
-  wal().Emplace(
-      database::StateDelta::CreateVertex(transaction_.id_, vertex_vlist->gid_));
-  auto va = VertexAccessor(vertex_vlist, *this);
-  if (FLAGS_generate_vertex_ids)
-    va.PropsSet(Property(PropertyValueStore::IdPropertyName), gid);
+  wal().Emplace(database::StateDelta::CreateVertex(
+      transaction_.id_, vertex_vlist->gid_, vertex_vlist->cypher_id()));
+  auto va = VertexAccessor(storage::VertexAddress(vertex_vlist), *this);
   return va;
 }
 
@@ -114,8 +103,8 @@ VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
     gid::Gid gid, bool current_state) {
-  VertexAccessor record_accessor(db_.storage().LocalAddress<Vertex>(gid),
-                                 *this);
+  VertexAccessor record_accessor(
+      storage::VertexAddress(db_.storage().LocalAddress<Vertex>(gid)), *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -129,7 +118,8 @@ VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
 
 std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
     gid::Gid gid, bool current_state) {
-  EdgeAccessor record_accessor(db_.storage().LocalAddress<Edge>(gid), *this);
+  EdgeAccessor record_accessor(
+      storage::EdgeAddress(db_.storage().LocalAddress<Edge>(gid)), *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -395,7 +385,8 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid) {
+    std::experimental::optional<gid::Gid> requested_gid,
+    std::experimental::optional<int64_t> cypher_id) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   // The address of an edge we'll create.
@@ -403,8 +394,8 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
 
   Vertex *from_updated;
   if (from.is_local()) {
-    auto edge_accessor =
-        InsertOnlyEdge(from.address(), to.address(), edge_type, requested_gid);
+    auto edge_accessor = InsertOnlyEdge(from.address(), to.address(), edge_type,
+                                        requested_gid, cypher_id);
     edge_address = edge_accessor.address(),
 
     from.SwitchNew();
@@ -414,8 +405,8 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     // `CREATE_EDGE`, but always have it split into 3 parts (edge insertion,
     // in/out modification).
     wal().Emplace(database::StateDelta::CreateEdge(
-        transaction_.id_, edge_accessor.gid(), from.gid(), to.gid(), edge_type,
-        EdgeTypeName(edge_type)));
+        transaction_.id_, edge_accessor.gid(), edge_accessor.cypher_id(),
+        from.gid(), to.gid(), edge_type, EdgeTypeName(edge_type)));
 
   } else {
     edge_address = db().updates_clients().CreateEdge(transaction_id(), from, to,
@@ -466,21 +457,22 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
 EdgeAccessor GraphDbAccessor::InsertOnlyEdge(
     storage::VertexAddress from, storage::VertexAddress to,
     storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid) {
+    std::experimental::optional<gid::Gid> requested_gid,
+    std::experimental::optional<int64_t> cypher_id) {
   CHECK(from.is_local())
       << "`from` address should be local when calling InsertOnlyEdge";
-  int64_t gid = db_.storage().edge_generator_.Next(requested_gid);
-  auto edge_vlist =
-      new mvcc::VersionList<Edge>(transaction_, gid, from, to, edge_type);
+  auto gid = db_.storage().edge_generator_.Next(requested_gid);
+  if (!cypher_id) cypher_id = utils::MemcpyCast<int64_t>(gid);
+  auto edge_vlist = new mvcc::VersionList<Edge>(transaction_, gid, *cypher_id,
+                                                from, to, edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
   // can throw and edge_vlist will not be garbage collected if it is not in
   // edges_ skiplist.
   bool success = db_.storage().edges_.access().insert(gid, edge_vlist).second;
   CHECK(success) << "Attempting to insert an edge with an existing GID: "
                  << gid;
-  auto ea = EdgeAccessor(edge_vlist, *this, from, to, edge_type);
-  if (FLAGS_generate_edge_ids)
-    ea.PropsSet(Property(PropertyValueStore::IdPropertyName), gid);
+  auto ea = EdgeAccessor(storage::EdgeAddress(edge_vlist), *this, from, to,
+                         edge_type);
   return ea;
 }
 

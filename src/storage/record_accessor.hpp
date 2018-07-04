@@ -150,6 +150,13 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
    * owner is some other worker in a distributed system. */
   bool is_local() const { return address_.is_local(); }
 
+  int64_t cypher_id() const {
+    if (address_.is_local())
+      return address_.local()->cypher_id();
+    else
+      throw utils::NotYetImplemented("Fetch remote cypher_id");
+  }
+
  protected:
   /**
    * Sends delta for remote processing.

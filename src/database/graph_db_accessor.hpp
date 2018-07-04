@@ -73,10 +73,14 @@ class GraphDbAccessor {
    *
    * @param requested_gid The requested GID. Should only be provided when
    * recovering from durability.
+   * @param cypher_id Take a look under mvcc::VersionList::cypher_id
+   *
    * @return See above.
    */
   VertexAccessor InsertVertex(std::experimental::optional<gid::Gid>
-                                  requested_gid = std::experimental::nullopt);
+                                  requested_gid = std::experimental::nullopt,
+                              std::experimental::optional<int64_t> cypher_id =
+                                  std::experimental::nullopt);
 
   /** Creates a new Vertex on the given worker. It is NOT allowed to call this
    * function with this worker's id. */
@@ -149,7 +153,7 @@ class GraphDbAccessor {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
         [this](auto id_vlist) {
-          return VertexAccessor(id_vlist.second, *this);
+          return VertexAccessor(storage::VertexAddress(id_vlist.second), *this);
         },
         db_.storage().vertices_.access());
 
@@ -174,7 +178,9 @@ class GraphDbAccessor {
   auto Vertices(storage::Label label, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(vlist, *this); },
+        [this](auto vlist) {
+          return VertexAccessor(storage::VertexAddress(vlist), *this);
+        },
         db_.storage().labels_index_.GetVlists(label, transaction_,
                                               current_state));
   }
@@ -198,7 +204,9 @@ class GraphDbAccessor {
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(vlist, *this); },
+        [this](auto vlist) {
+          return VertexAccessor(storage::VertexAddress(vlist), *this);
+        },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), transaction_,
             current_state));
@@ -226,7 +234,9 @@ class GraphDbAccessor {
     CHECK(value.type() != PropertyValue::Type::Null)
         << "Can't query index for propery value type null.";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(vlist, *this); },
+        [this](auto vlist) {
+          return VertexAccessor(storage::VertexAddress(vlist), *this);
+        },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), value, transaction_,
             current_state));
@@ -269,7 +279,9 @@ class GraphDbAccessor {
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
-        [this](auto vlist) { return VertexAccessor(vlist, *this); },
+        [this](auto vlist) {
+          return VertexAccessor(storage::VertexAddress(vlist), *this);
+        },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), lower, upper,
             transaction_, current_state));
@@ -291,22 +303,30 @@ class GraphDbAccessor {
    * @param type Edge type.
    * @param requested_gid The requested GID. Should only be provided when
    * recovering from durability.
+   * @param cypher_id Take a look under mvcc::VersionList::cypher_id
+   *
    * @return  An accessor to the edge.
    */
   EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
                           storage::EdgeType type,
                           std::experimental::optional<gid::Gid> requested_gid =
+                              std::experimental::nullopt,
+                          std::experimental::optional<int64_t> cypher_id =
                               std::experimental::nullopt);
 
   /**
    * Insert edge into main storage, but don't insert it into from and to
    * vertices edge lists.
+   *
+   * @param cypher_id Take a look under mvcc::VersionList::cypher_id
    */
   EdgeAccessor InsertOnlyEdge(storage::VertexAddress from,
                               storage::VertexAddress to,
                               storage::EdgeType edge_type,
                               std::experimental::optional<gid::Gid>
-                                  requested_gid = std::experimental::nullopt);
+                                  requested_gid = std::experimental::nullopt,
+                              std::experimental::optional<int64_t> cypher_id =
+                                  std::experimental::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -364,7 +384,9 @@ class GraphDbAccessor {
 
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
-        [this](auto id_vlist) { return EdgeAccessor(id_vlist.second, *this); },
+        [this](auto id_vlist) {
+          return EdgeAccessor(storage::EdgeAddress(id_vlist.second), *this);
+        },
         db_.storage().edges_.access());
 
     // filter out the accessors not visible to the current transaction

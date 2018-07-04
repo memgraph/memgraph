@@ -24,7 +24,7 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
     index.IndexFinishedBuilding(*key);
 
     t = engine.Begin();
-    vlist = new mvcc::VersionList<Vertex>(*t, 0);
+    vlist = new mvcc::VersionList<Vertex>(*t, 0, 0);
     engine.Advance(t->id_);
 
     vertex = vlist->find(*t);

@@ -21,15 +21,18 @@ class VersionList {
  public:
   /**
    * @brief Constructor that is used to insert one item into VersionList.
+   *
    * @param t - transaction
    * @param gid - Version list identifier. Uniqueness guaranteed by the code
    * creating this version list.
+   * @param cypher_id - Number returned from the id function.
    * @param args - args forwarded to constructor of item T (for
    * creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
-  VersionList(const tx::Transaction &t, gid::Gid gid, Args &&... args)
-      : gid_(gid) {
+  VersionList(const tx::Transaction &t, gid::Gid gid, int64_t cypher_id,
+              Args &&... args)
+      : gid_(gid), cypher_id_(cypher_id) {
     // TODO replace 'new' with something better
     auto *v1 = new T(std::forward<Args>(args)...);
     v1->mark_created(t);
@@ -221,7 +224,12 @@ class VersionList {
     record->mark_expired(t);
   }
 
+  /**
+   * TODO (buda): Try to move git_ to storage::Address.
+   */
   const gid::Gid gid_;
+
+  auto cypher_id() { return cypher_id_; }
 
  private:
   void lock_and_validate(T *record, const tx::Transaction &t) {
@@ -260,6 +268,18 @@ class VersionList {
     return updated;
   }
 
+  /**
+   * The following member is here because Memgraph supports ID function from
+   * the Cypher query language. If you have plans to change this you have to
+   * consider the following:
+   *   * If the id has to be durable. -> Snapshot and WAL have to be updated.
+   *   * Impact on query execution.         |
+   *   * Impact on the communication stack. |-> The id has to be returned
+   *                                            to the client.
+   *   * Import tools bacause of the dependencies on the durability stack.
+   *   * Implications on the distributed system.
+   */
+  int64_t cypher_id_{0};
   std::atomic<T *> head_{nullptr};
   RecordLock lock_;
 };

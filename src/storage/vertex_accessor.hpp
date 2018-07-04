@@ -100,9 +100,9 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto in(const std::vector<storage::EdgeType> *edge_types) const {
-    return MakeAccessorIterator(current().in_.begin(nullptr, edge_types),
-                                current().in_.end(), false, address(),
-                                db_accessor());
+    return MakeAccessorIterator(
+        current().in_.begin(storage::VertexAddress(nullptr), edge_types),
+        current().in_.end(), false, address(), db_accessor());
   }
 
   /** Returns EdgeAccessors for all outgoing edges. */
@@ -133,9 +133,9 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto out(const std::vector<storage::EdgeType> *edge_types) const {
-    return MakeAccessorIterator(current().out_.begin(nullptr, edge_types),
-                                current().out_.end(), true, address(),
-                                db_accessor());
+    return MakeAccessorIterator(
+        current().out_.begin(storage::VertexAddress(nullptr), edge_types),
+        current().out_.end(), true, address(), db_accessor());
   }
 
   /** Removes the given edge from the outgoing edges of this vertex. Note that

@@ -121,10 +121,13 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
   std::unordered_map<gid::Gid,
                      std::pair<storage::VertexAddress, storage::VertexAddress>>
       edge_gid_endpoints_mapping;
+
   for (int64_t i = 0; i < vertex_count; ++i) {
     auto vertex = decoder.ReadSnapshotVertex();
     RETURN_IF_NOT(vertex);
-    auto vertex_accessor = dba.InsertVertex(vertex->gid);
+
+    auto vertex_accessor =
+        dba.InsertVertex(vertex->gid, vertex->cypher_id);
     for (const auto &label : vertex->labels) {
       vertex_accessor.add_label(dba.Label(label));
     }
@@ -169,10 +172,18 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
         }
       };
 
+  DecodedValue dv_cypher_id;
+
   for (int64_t i = 0; i < edge_count; ++i) {
     RETURN_IF_NOT(
         decoder.ReadValue(&dv, communication::bolt::DecodedValue::Type::Edge));
     auto &edge = dv.ValueEdge();
+
+    // Read cypher_id
+    RETURN_IF_NOT(decoder.ReadValue(
+        &dv_cypher_id, communication::bolt::DecodedValue::Type::Int));
+    auto cypher_id = dv_cypher_id.ValueInt();
+
     // We have to take full edge endpoints from vertices since the endpoints
     // found here don't containt worker_id, and this can't be changed since this
     // edges must be bolt-compliant
@@ -187,8 +198,8 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     vertex_transform_to_local_if_possible(from);
     vertex_transform_to_local_if_possible(to);
 
-    auto edge_accessor =
-        dba.InsertOnlyEdge(from, to, dba.EdgeType(edge.type), edge.id);
+    auto edge_accessor = dba.InsertOnlyEdge(from, to, dba.EdgeType(edge.type),
+                                            edge.id, cypher_id);
 
     for (const auto &property_pair : edge.properties)
       edge_accessor.PropsSet(dba.Property(property_pair.first),

@@ -14,7 +14,7 @@
 namespace snapshot_generation {
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 5,
+static_assert(durability::kVersion == 6,
               "Wrong snapshot version, please update!");
 
 class SnapshotWriter {
@@ -69,6 +69,9 @@ class SnapshotWriter {
     WriteList(node.labels);
     encoder_.WriteMap(node.props);
 
+    // cypher_id
+    encoder_.WriteInt(utils::MemcpyCast<int64_t>(node.gid));
+
     encoder_.WriteInt(node.in_edges.size());
     for (const auto &edge_idx : node.in_edges) {
       WriteInlineEdge(edges.at(edge_idx), true);
@@ -92,6 +95,9 @@ class SnapshotWriter {
     encoder_.WriteInt(edge.to);
     encoder_.WriteString(edge.type);
     encoder_.WriteMap(edge.props);
+
+    // cypher_id
+    encoder_.WriteInt(utils::MemcpyCast<int64_t>(edge.gid));
 
     ++edges_written_;
   }

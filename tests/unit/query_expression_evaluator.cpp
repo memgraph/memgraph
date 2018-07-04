@@ -4,7 +4,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "gflags/gflags.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -25,9 +24,6 @@ using namespace query;
 using query::test_common::ToList;
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;
-
-DECLARE_bool(generate_vertex_ids);
-DECLARE_bool(generate_edge_ids);
 
 namespace {
 
@@ -1477,44 +1473,19 @@ TEST(ExpressionEvaluator, FunctionIndexInfo) {
   }
 }
 
-TEST(ExpressionEvaluator, FunctionIdNoGeneration) {
-  NoContextExpressionEvaluator eval;
-  EXPECT_THROW(EvaluateFunction("ID", {}, &eval.ctx), QueryRuntimeException);
-  auto &dba = eval.dba;
-
-  auto va = dba.InsertVertex();
-  auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  // Unable to get id if they are not set
-  EXPECT_THROW(EvaluateFunction("ID", {va}, &eval.ctx), QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("ID", {ea}, &eval.ctx), QueryRuntimeException);
-}
-
-TEST(ExpressionEvaluator, FunctionIdGenerateVertexIds) {
-  FLAGS_generate_vertex_ids = true;
+TEST(ExpressionEvaluator, FunctionId) {
   NoContextExpressionEvaluator eval;
   auto &dba = eval.dba;
   auto va = dba.InsertVertex();
   auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  EXPECT_EQ(EvaluateFunction("ID", {va}, &eval.ctx).Value<int64_t>(), 0);
-  EXPECT_THROW(EvaluateFunction("ID", {ea}, &eval.ctx), QueryRuntimeException);
-
   auto vb = dba.InsertVertex();
-  EXPECT_EQ(EvaluateFunction("ID", {vb}, &eval.ctx).Value<int64_t>(), 1024);
-  FLAGS_generate_vertex_ids = false;
-}
-
-TEST(ExpressionEvaluator, FunctionIdGenerateEdgeIds) {
-  FLAGS_generate_edge_ids = true;
-  NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
-  auto va = dba.InsertVertex();
-  auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  EXPECT_THROW(EvaluateFunction("ID", {va}, &eval.ctx), QueryRuntimeException);
+  EXPECT_EQ(EvaluateFunction("ID", {va}, &eval.ctx).Value<int64_t>(), 0);
   EXPECT_EQ(EvaluateFunction("ID", {ea}, &eval.ctx).Value<int64_t>(), 0);
-
-  auto eb = dba.InsertEdge(va, va, dba.EdgeType("edge"));
-  EXPECT_EQ(EvaluateFunction("ID", {eb}, &eval.ctx).Value<int64_t>(), 1024);
-  FLAGS_generate_edge_ids = false;
+  EXPECT_EQ(EvaluateFunction("ID", {vb}, &eval.ctx).Value<int64_t>(), 1024);
+  EXPECT_THROW(EvaluateFunction("ID", {}, &eval.ctx), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("ID", {0}, &eval.ctx), QueryRuntimeException);
+  EXPECT_THROW(EvaluateFunction("ID", {va, ea}, &eval.ctx),
+               QueryRuntimeException);
 }
 
 TEST(ExpressionEvaluator, FunctionWorkerIdException) {

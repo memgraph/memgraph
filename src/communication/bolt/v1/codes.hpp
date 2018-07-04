@@ -1,7 +1,7 @@
 #pragma once
 
 #include <cstdint>
-#include "utils/underlying_cast.hpp"
+#include "utils/cast.hpp"
 
 namespace communication::bolt {
 
@@ -82,4 +82,4 @@ static constexpr Marker Marker16[3] = {Marker::String16, Marker::List16,
                                        Marker::Map16};
 static constexpr Marker Marker32[3] = {Marker::String32, Marker::List32,
                                        Marker::Map32};
-}
+}  // namespace communication::bolt

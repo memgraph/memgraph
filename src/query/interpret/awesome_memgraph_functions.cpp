@@ -610,24 +610,10 @@ TypedValue Id(const std::vector<TypedValue> &args, Context *ctx) {
   auto &arg = args[0];
   switch (arg.type()) {
     case TypedValue::Type::Vertex: {
-      auto id = arg.ValueVertex().PropsAt(
-          ctx->db_accessor_.Property(PropertyValueStore::IdPropertyName));
-      if (id.IsNull()) {
-        throw QueryRuntimeException(
-            "IDs are not set on vertices, --generate-vertex-ids flag must be "
-            "set on startup to automatically generate them");
-      }
-      return id.Value<int64_t>();
+      return TypedValue(arg.ValueVertex().cypher_id());
     }
     case TypedValue::Type::Edge: {
-      auto id = arg.ValueEdge().PropsAt(
-          ctx->db_accessor_.Property(PropertyValueStore::IdPropertyName));
-      if (id.IsNull()) {
-        throw QueryRuntimeException(
-            "IDs are not set on edges, --generate-edge-ids flag must be set on "
-            "startup to automatically generate them");
-      }
-      return id.Value<int64_t>();
+      return TypedValue(arg.ValueEdge().cypher_id());
     }
     default:
       throw QueryRuntimeException("id argument must be a vertex or an edge");

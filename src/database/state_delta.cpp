@@ -18,20 +18,22 @@ StateDelta StateDelta::TxAbort(tx::TransactionId tx_id) {
   return {StateDelta::Type::TRANSACTION_ABORT, tx_id};
 }
 
-StateDelta StateDelta::CreateVertex(tx::TransactionId tx_id,
-                                    gid::Gid vertex_id) {
+StateDelta StateDelta::CreateVertex(tx::TransactionId tx_id, gid::Gid vertex_id,
+                                    int64_t cypher_id) {
   StateDelta op(StateDelta::Type::CREATE_VERTEX, tx_id);
   op.vertex_id = vertex_id;
+  op.cypher_id = cypher_id;
   return op;
 }
 
 StateDelta StateDelta::CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
-                                  gid::Gid vertex_from_id,
+                                  int64_t cypher_id, gid::Gid vertex_from_id,
                                   gid::Gid vertex_to_id,
                                   storage::EdgeType edge_type,
                                   const std::string &edge_type_name) {
   StateDelta op(StateDelta::Type::CREATE_EDGE, tx_id);
   op.edge_id = edge_id;
+  op.cypher_id = cypher_id;
   op.vertex_from_id = vertex_from_id;
   op.vertex_to_id = vertex_to_id;
   op.edge_type = edge_type;
@@ -39,8 +41,7 @@ StateDelta StateDelta::CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
   return op;
 }
 
-StateDelta StateDelta::AddOutEdge(tx::TransactionId tx_id,
-                                  gid::Gid vertex_id,
+StateDelta StateDelta::AddOutEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
                                   storage::VertexAddress vertex_to_address,
                                   storage::EdgeAddress edge_address,
                                   storage::EdgeType edge_type) {
@@ -78,8 +79,7 @@ StateDelta StateDelta::AddInEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveInEdge(tx::TransactionId tx_id,
-                                    gid::Gid vertex_id,
+StateDelta StateDelta::RemoveInEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
                                     storage::EdgeAddress edge_address) {
   CHECK(edge_address.is_remote()) << "WAL can only contain global addresses.";
   StateDelta op(StateDelta::Type::REMOVE_IN_EDGE, tx_id);
@@ -101,8 +101,7 @@ StateDelta StateDelta::PropsSetVertex(tx::TransactionId tx_id,
   return op;
 }
 
-StateDelta StateDelta::PropsSetEdge(tx::TransactionId tx_id,
-                                    gid::Gid edge_id,
+StateDelta StateDelta::PropsSetEdge(tx::TransactionId tx_id, gid::Gid edge_id,
                                     storage::Property property,
                                     const std::string &property_name,
                                     const PropertyValue &value) {
@@ -124,8 +123,8 @@ StateDelta StateDelta::AddLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveLabel(tx::TransactionId tx_id,
-                                   gid::Gid vertex_id, storage::Label label,
+StateDelta StateDelta::RemoveLabel(tx::TransactionId tx_id, gid::Gid vertex_id,
+                                   storage::Label label,
                                    const std::string &label_name) {
   StateDelta op(StateDelta::Type::REMOVE_LABEL, tx_id);
   op.vertex_id = vertex_id;
@@ -134,23 +133,21 @@ StateDelta StateDelta::RemoveLabel(tx::TransactionId tx_id,
   return op;
 }
 
-StateDelta StateDelta::RemoveVertex(tx::TransactionId tx_id,
-                                    gid::Gid vertex_id, bool check_empty) {
+StateDelta StateDelta::RemoveVertex(tx::TransactionId tx_id, gid::Gid vertex_id,
+                                    bool check_empty) {
   StateDelta op(StateDelta::Type::REMOVE_VERTEX, tx_id);
   op.vertex_id = vertex_id;
   op.check_empty = check_empty;
   return op;
 }
 
-StateDelta StateDelta::RemoveEdge(tx::TransactionId tx_id,
-                                  gid::Gid edge_id) {
+StateDelta StateDelta::RemoveEdge(tx::TransactionId tx_id, gid::Gid edge_id) {
   StateDelta op(StateDelta::Type::REMOVE_EDGE, tx_id);
   op.edge_id = edge_id;
   return op;
 }
 
-StateDelta StateDelta::BuildIndex(tx::TransactionId tx_id,
-                                  storage::Label label,
+StateDelta StateDelta::BuildIndex(tx::TransactionId tx_id, storage::Label label,
                                   const std::string &label_name,
                                   storage::Property property,
                                   const std::string &property_name) {
@@ -175,9 +172,11 @@ void StateDelta::Encode(
       break;
     case Type::CREATE_VERTEX:
       encoder.WriteInt(vertex_id);
+      encoder.WriteInt(cypher_id);
       break;
     case Type::CREATE_EDGE:
       encoder.WriteInt(edge_id);
+      encoder.WriteInt(cypher_id);
       encoder.WriteInt(vertex_from_id);
       encoder.WriteInt(vertex_to_id);
       encoder.WriteInt(edge_type.Id());
@@ -267,9 +266,11 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
         break;
       case Type::CREATE_VERTEX:
         DECODE_MEMBER(vertex_id, ValueInt)
+        DECODE_MEMBER(cypher_id, ValueInt)
         break;
       case Type::CREATE_EDGE:
         DECODE_MEMBER(edge_id, ValueInt)
+        DECODE_MEMBER(cypher_id, ValueInt)
         DECODE_MEMBER(vertex_from_id, ValueInt)
         DECODE_MEMBER(vertex_to_id, ValueInt)
         DECODE_MEMBER_CAST(edge_type, ValueInt, storage::EdgeType)
@@ -354,12 +355,13 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       LOG(FATAL) << "Transaction handling not handled in Apply";
       break;
     case Type::CREATE_VERTEX:
-      dba.InsertVertex(vertex_id);
+      dba.InsertVertex(vertex_id, cypher_id);
       break;
     case Type::CREATE_EDGE: {
       auto from = dba.FindVertex(vertex_from_id, true);
       auto to = dba.FindVertex(vertex_to_id, true);
-      dba.InsertEdge(from, to, dba.EdgeType(edge_type_name), edge_id);
+      dba.InsertEdge(from, to, dba.EdgeType(edge_type_name), edge_id,
+                     cypher_id);
       break;
     }
     case Type::ADD_OUT_EDGE:

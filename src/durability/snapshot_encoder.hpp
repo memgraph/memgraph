@@ -1,6 +1,7 @@
 #pragma once
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "utils/cast.hpp"
 
 namespace durability {
 
@@ -12,14 +13,17 @@ class SnapshotEncoder : public communication::bolt::BaseEncoder<Buffer> {
   void WriteSnapshotVertex(const VertexAccessor &vertex) {
     communication::bolt::BaseEncoder<Buffer>::WriteVertex(vertex);
 
-    // write in edges without properties
+    // Write cypher_id
+    this->WriteInt(vertex.cypher_id());
+
+    // Write in edges without properties
     this->WriteUInt(vertex.in_degree());
     auto edges_in = vertex.in();
     for (const auto &edge : edges_in) {
       this->WriteSnapshotEdge(edge, true);
     }
 
-    // write out edges without properties
+    // Write out edges without properties
     this->WriteUInt(vertex.out_degree());
     auto edges_out = vertex.out();
     for (const auto &edge : edges_out) {
@@ -29,18 +33,21 @@ class SnapshotEncoder : public communication::bolt::BaseEncoder<Buffer> {
 
  private:
   void WriteUInt(const uint64_t &value) {
-    this->WriteInt(*reinterpret_cast<const int64_t *>(&value));
+    this->WriteInt(utils::MemcpyCast<int64_t>(value));
   }
 
   // Writes edge without properties
   void WriteSnapshotEdge(const EdgeAccessor &edge, bool write_from) {
+    // Write global id of the edge
     WriteUInt(edge.GlobalAddress().raw());
+
+    // Write to/from global id
     if (write_from)
       WriteUInt(edge.from().GlobalAddress().raw());
     else
       WriteUInt(edge.to().GlobalAddress().raw());
 
-    // write type
+    // Write type
     this->WriteString(edge.db_accessor().EdgeTypeName(edge.EdgeType()));
   }
 };

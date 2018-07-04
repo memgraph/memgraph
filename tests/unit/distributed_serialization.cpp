@@ -121,26 +121,44 @@ class DistributedSerializationMvcc : public ::testing::Test {
  protected:
   tx::SingleNodeEngine engine;
   tx::Transaction *tx = engine.Begin();
-  mvcc::VersionList<Vertex> v1_vlist{*tx, 0};
+  mvcc::VersionList<Vertex> v1_vlist{*tx, 0, 0};
   Vertex &v1 = *v1_vlist.Oldest();
-  mvcc::VersionList<Vertex> v2_vlist{*tx, 1};
+  mvcc::VersionList<Vertex> v2_vlist{*tx, 1, 1};
   Vertex &v2 = *v2_vlist.Oldest();
-  mvcc::VersionList<Edge> e1_vlist{*tx, 0, &v1_vlist, &v2_vlist, EdgeType(0)};
+  mvcc::VersionList<Edge> e1_vlist{*tx,
+                                   0,
+                                   0,
+                                   storage::VertexAddress(&v1_vlist),
+                                   storage::VertexAddress(&v2_vlist),
+                                   EdgeType(0)};
   Edge &e1 = *e1_vlist.Oldest();
-  mvcc::VersionList<Edge> e2_vlist{*tx, 1, &v2_vlist, &v1_vlist, EdgeType(2)};
+  mvcc::VersionList<Edge> e2_vlist{*tx,
+                                   1,
+                                   1,
+                                   storage::VertexAddress(&v2_vlist),
+                                   storage::VertexAddress(&v1_vlist),
+                                   EdgeType(2)};
   Edge &e2 = *e2_vlist.Oldest();
 };
 
 TEST_F(DistributedSerializationMvcc, VertexEdges) {
-  UPDATE_AND_CHECK_V(v1, v1.out_.emplace(&v2_vlist, &e1_vlist, EdgeType(0)));
-  UPDATE_AND_CHECK_V(v2, v2.in_.emplace(&v1_vlist, &e1_vlist, EdgeType(0)));
-  UPDATE_AND_CHECK_V(v1, v1.in_.emplace(&v2_vlist, &e2_vlist, EdgeType(2)));
-  UPDATE_AND_CHECK_V(v2, v2.out_.emplace(&v1_vlist, &e2_vlist, EdgeType(2)));
+  UPDATE_AND_CHECK_V(
+      v1, v1.out_.emplace(storage::VertexAddress(&v2_vlist),
+                          storage::EdgeAddress(&e1_vlist), EdgeType(0)));
+  UPDATE_AND_CHECK_V(
+      v2, v2.in_.emplace(storage::VertexAddress(&v1_vlist),
+                         storage::EdgeAddress(&e1_vlist), EdgeType(0)));
+  UPDATE_AND_CHECK_V(
+      v1, v1.in_.emplace(storage::VertexAddress(&v2_vlist),
+                         storage::EdgeAddress(&e2_vlist), EdgeType(2)));
+  UPDATE_AND_CHECK_V(
+      v2, v2.out_.emplace(storage::VertexAddress(&v1_vlist),
+                          storage::EdgeAddress(&e2_vlist), EdgeType(2)));
 }
 
 TEST_F(DistributedSerializationMvcc, EdgeFromAndTo) {
-  UPDATE_AND_CHECK_E(e1, e1.from_ = &v2_vlist);
-  UPDATE_AND_CHECK_E(e1, e1.to_ = &v1_vlist);
+  UPDATE_AND_CHECK_E(e1, e1.from_ = storage::VertexAddress(&v2_vlist));
+  UPDATE_AND_CHECK_E(e1, e1.to_ = storage::VertexAddress(&v1_vlist));
 }
 
 TEST_F(DistributedSerializationMvcc, EdgeType) {
