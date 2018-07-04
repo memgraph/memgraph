@@ -1,5 +1,19 @@
 # Change Log
 
+## v0.12.0
+
+### Breaking Changes
+
+* Snapshot format changed (not backward compatible).
+
+### Major Features and Improvements
+
+* Improved Id Cypher function.
+* Added string functions to openCypher (`lTrim`, `left`, `rTrim`, `replace`,
+ `reverse`, `right`, `split`, `substring`, `toLower`, `toUpper`, `trim`).
+* Added `timestamp` function to openCypher.
+* Added support for dynamic property access with `[]` operator.
+
 ## v0.11.0
 
 ### Major Features and Improvements
@@ -11,11 +25,7 @@
 * Properties on disk added.
 * Telemetry added.
 * SSL support added.
-* Added string functions to openCypher (`lTrim`, `left`, `rTrim`, `replace`,
- `reverse`, `right`, `split`, `substring`, `toLower`, `toUpper`, `trim`,
- `toString`).
-* Added `timestamp` function to openCypher.
-* Added support for dynamic property access with `[]` operator.
+* `toString` function added.
 
 ### Bug Fixes and Other Changes
 
