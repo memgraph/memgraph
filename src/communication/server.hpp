@@ -63,7 +63,7 @@ class Server final {
       LOG(FATAL) << "Cannot listen on socket!";
     }
 
-    thread_ = std::thread([this, workers_count, service_name]() {
+    thread_ = std::thread([this, service_name]() {
       utils::ThreadSetName(fmt::format("{} server", service_name));
 
       std::cout << service_name << " server is fully armed and operational"

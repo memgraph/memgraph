@@ -162,9 +162,9 @@ std::vector<Field> ReadHeader(std::istream &stream) {
     auto name_and_type = utils::Split(value, ":");
     CHECK(name_and_type.size() == 1U || name_and_type.size() == 2U)
         << fmt::format(
-            "\nExpected a name and optionally a type, got '{}'.\nDid you "
-            "specify a correct CSV delimiter?",
-            value);
+               "\nExpected a name and optionally a type, got '{}'.\nDid you "
+               "specify a correct CSV delimiter?",
+               value);
     auto name = name_and_type[0];
     // When type is missing, default is string.
     std::string type("string");
@@ -476,7 +476,7 @@ std::string GetOutputPath() {
   try {
     auto wal_dir = durability_dir + "/wal";
     if (std::experimental::filesystem::exists(wal_dir)) {
-      for (const auto &wal_file :
+      for ([[gnu::unused]] const auto &wal_file :
            std::experimental::filesystem::directory_iterator(wal_dir)) {
         if (!FLAGS_overwrite) {
           LOG(FATAL) << "Durability directory isn't empty. Pass --overwrite to "
