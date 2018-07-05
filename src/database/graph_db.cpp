@@ -326,7 +326,8 @@ class Worker : public PrivateBase {
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
   distributed::DataManager data_manager_{*this, data_clients_};
   distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
-      tx_engine_, server_, produce_server_, updates_server_, data_manager_};
+      tx_engine_,      &wal(),          server_,
+      produce_server_, updates_server_, data_manager_};
   distributed::DurabilityRpcServer durability_rpc_server_{*this, server_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
       server_, coordination_, rpc_worker_clients_.GetClientPool(0)};

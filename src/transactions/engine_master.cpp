@@ -86,12 +86,12 @@ MasterEngine::MasterEngine(communication::rpc::Server &server,
 }
 
 void MasterEngine::Commit(const Transaction &t) {
-  ongoing_produce_joiner_.JoinOngoingProduces(t.id_);
+  ongoing_produce_joiner_.JoinOngoingProduces(t.id_, true);
   SingleNodeEngine::Commit(t);
 }
 
 void MasterEngine::Abort(const Transaction &t) {
-  ongoing_produce_joiner_.JoinOngoingProduces(t.id_);
+  ongoing_produce_joiner_.JoinOngoingProduces(t.id_, false);
   SingleNodeEngine::Abort(t);
 }
 

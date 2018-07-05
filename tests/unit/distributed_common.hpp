@@ -145,10 +145,20 @@ class DistributedGraphDbTest : public ::testing::Test {
     return std::distance(edges.begin(), edges.end());
   };
 
-  fs::path tmp_dir_ = fs::temp_directory_path() /
-                      ("MG_test_unit_durability" + std::to_string(getpid()));
+  fs::path tmp_dir_{fs::temp_directory_path() / "MG_test_unit_durability"};
+
+ public:
+  // Each test has to specify its own durability suffix to avoid conflicts
+  DistributedGraphDbTest() = delete;
+
+  DistributedGraphDbTest(const std::string &dir_suffix)
+      : dir_suffix_(dir_suffix) {
+    tmp_dir_ =
+        fs::temp_directory_path() / ("MG_test_unit_durability_" + dir_suffix_);
+  }
 
  private:
+  std::string dir_suffix_{""};
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;
 };

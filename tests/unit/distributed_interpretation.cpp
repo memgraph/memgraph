@@ -23,6 +23,8 @@ using namespace std::literals::chrono_literals;
 
 class DistributedInterpretationTest : public DistributedGraphDbTest {
  protected:
+  DistributedInterpretationTest() : DistributedGraphDbTest("interpretation") {}
+
   void SetUp() override {
     DistributedGraphDbTest::SetUp();
     interpreter_.emplace(master());

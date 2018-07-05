@@ -13,6 +13,8 @@
 
 class DistributedUpdateTest : public DistributedGraphDbTest {
  protected:
+  DistributedUpdateTest() : DistributedGraphDbTest("update") {}
+
   std::unique_ptr<database::GraphDbAccessor> dba1;
   std::unique_ptr<database::GraphDbAccessor> dba2;
   storage::Label label;
@@ -66,7 +68,13 @@ TEST_F(DistributedUpdateTest, UpdateApply) {
 
 #undef EXPECT_LABEL
 
-TEST_F(DistributedGraphDbTest, CreateVertex) {
+class DistributedGraphDbSimpleUpdatesTest : public DistributedGraphDbTest {
+ public:
+  DistributedGraphDbSimpleUpdatesTest()
+      : DistributedGraphDbTest("simple_updates") {}
+};
+
+TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertex) {
   gid::Gid gid;
   {
     database::GraphDbAccessor dba{worker(1)};
@@ -81,7 +89,7 @@ TEST_F(DistributedGraphDbTest, CreateVertex) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, CreateVertexWithUpdate) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertexWithUpdate) {
   gid::Gid gid;
   storage::Property prop;
   {
@@ -101,7 +109,7 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithUpdate) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, CreateVertexWithData) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertexWithData) {
   gid::Gid gid;
   storage::Label l1;
   storage::Label l2;
@@ -135,7 +143,7 @@ TEST_F(DistributedGraphDbTest, CreateVertexWithData) {
 
 // Checks if expiring a local record for a local update before applying a remote
 // update delta causes a problem
-TEST_F(DistributedGraphDbTest, UpdateVertexRemoteAndLocal) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, UpdateVertexRemoteAndLocal) {
   gid::Gid gid;
   storage::Label l1;
   storage::Label l2;
@@ -161,7 +169,7 @@ TEST_F(DistributedGraphDbTest, UpdateVertexRemoteAndLocal) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, AddSameLabelRemoteAndLocal) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, AddSameLabelRemoteAndLocal) {
   auto v_address = InsertVertex(worker(1));
   {
     database::GraphDbAccessor dba0{master()};
@@ -182,7 +190,7 @@ TEST_F(DistributedGraphDbTest, AddSameLabelRemoteAndLocal) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, IndexGetsUpdatedRemotely) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, IndexGetsUpdatedRemotely) {
   storage::VertexAddress v_remote = InsertVertex(worker(1));
   storage::Label label;
   {
@@ -200,7 +208,7 @@ TEST_F(DistributedGraphDbTest, IndexGetsUpdatedRemotely) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, DeleteVertexRemoteCommit) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, DeleteVertexRemoteCommit) {
   auto v_address = InsertVertex(worker(1));
   database::GraphDbAccessor dba0{master()};
   database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
@@ -212,7 +220,7 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteCommit) {
   EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
 }
 
-TEST_F(DistributedGraphDbTest, DeleteVertexRemoteBothDelete) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, DeleteVertexRemoteBothDelete) {
   auto v_address = InsertVertex(worker(1));
   {
     database::GraphDbAccessor dba0{master()};
@@ -227,7 +235,7 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteBothDelete) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
+TEST_F(DistributedGraphDbSimpleUpdatesTest, DeleteVertexRemoteStillConnected) {
   auto v_address = InsertVertex(worker(1));
   auto e_address = InsertEdge(v_address, v_address, "edge");
 
@@ -258,6 +266,8 @@ TEST_F(DistributedGraphDbTest, DeleteVertexRemoteStillConnected) {
 
 class DistributedDetachDeleteTest : public DistributedGraphDbTest {
  protected:
+  DistributedDetachDeleteTest() : DistributedGraphDbTest("detach_delete") {}
+
   storage::VertexAddress w1_a;
   storage::VertexAddress w1_b;
   storage::VertexAddress w2_a;
@@ -352,6 +362,8 @@ TEST_F(DistributedDetachDeleteTest, TwoVerticesSameWorkers) {
 
 class DistributedEdgeCreateTest : public DistributedGraphDbTest {
  protected:
+  DistributedEdgeCreateTest() : DistributedGraphDbTest("edge_create") {}
+
   storage::VertexAddress w1_a;
   storage::VertexAddress w1_b;
   storage::VertexAddress w2_a;
@@ -474,6 +486,8 @@ TEST_F(DistributedEdgeCreateTest, RemoteRemoteCycle) {
 
 class DistributedEdgeRemoveTest : public DistributedGraphDbTest {
  protected:
+  DistributedEdgeRemoveTest() : DistributedGraphDbTest("edge_remove") {}
+
   storage::VertexAddress from_addr;
   storage::VertexAddress to_addr;
   storage::EdgeAddress edge_addr;

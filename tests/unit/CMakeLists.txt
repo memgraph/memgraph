@@ -88,6 +88,9 @@ target_link_libraries(${test_prefix}distributed_data_exchange memgraph_lib kvsto
 add_unit_test(distributed_durability.cpp)
 target_link_libraries(${test_prefix}distributed_durability memgraph_lib kvstore_dummy_lib)
 
+add_unit_test(distributed_dynamic_graph_partitioner.cpp)
+target_link_libraries(${test_prefix}distributed_dynamic_graph_partitioner memgraph_lib kvstore_dummy_lib)
+
 add_unit_test(distributed_gc.cpp)
 target_link_libraries(${test_prefix}distributed_gc memgraph_lib kvstore_dummy_lib)
 
@@ -105,6 +108,9 @@ target_link_libraries(${test_prefix}distributed_serialization memgraph_lib kvsto
 
 add_unit_test(distributed_updates.cpp)
 target_link_libraries(${test_prefix}distributed_updates memgraph_lib kvstore_dummy_lib)
+
+add_unit_test(distributed_vertex_migrator.cpp)
+target_link_libraries(${test_prefix}distributed_vertex_migrator memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(durability.cpp)
 target_link_libraries(${test_prefix}durability memgraph_lib kvstore_dummy_lib)

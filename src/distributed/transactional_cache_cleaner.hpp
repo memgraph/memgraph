@@ -65,20 +65,32 @@ class WorkerTransactionalCacheCleaner : public TransactionalCacheCleaner {
  public:
   template <class... T>
   WorkerTransactionalCacheCleaner(tx::WorkerEngine &tx_engine,
+                                  durability::WriteAheadLog *wal,
                                   communication::rpc::Server &server,
                                   ProduceRpcServer &produce_server,
                                   T &... caches)
       : TransactionalCacheCleaner(tx_engine, caches...),
+        wal_(wal),
         rpc_server_(server),
         produce_server_(produce_server) {
     Register(tx_engine);
-    rpc_server_.Register<WaitOnTransactionEndRpc>([this](const auto &req_reader,
-                                                         auto *res_builder) {
-      produce_server_.FinishAndClearOngoingProducePlans(req_reader.getMember());
-    });
+    rpc_server_.Register<WaitOnTransactionEndRpc>(
+        [this](const auto &req_reader, auto *res_builder) {
+          auto tx_id = req_reader.getTxId();
+          auto committed = req_reader.getCommitted();
+          produce_server_.FinishAndClearOngoingProducePlans(tx_id);
+          if (wal_) {
+            if (committed) {
+              wal_->Emplace(database::StateDelta::TxCommit(tx_id));
+            } else {
+              wal_->Emplace(database::StateDelta::TxAbort(tx_id));
+            }
+          }
+        });
   }
 
  private:
+  durability::WriteAheadLog *wal_;
   communication::rpc::Server &rpc_server_;
   ProduceRpcServer &produce_server_;
 };

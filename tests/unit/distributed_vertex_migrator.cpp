@@ -15,14 +15,19 @@ using namespace database;
 DECLARE_bool(generate_vertex_ids);
 DECLARE_bool(generate_edge_ids);
 
+class DistributedVertexMigratorTest : public DistributedGraphDbTest {
+ public:
+  DistributedVertexMigratorTest() : DistributedGraphDbTest("vertex_migrator") {}
+};
+
 // Check if the auto-generated gid property is unchanged after migration
-TEST_F(DistributedGraphDbTest, VertexEdgeGidSaved) {
+TEST_F(DistributedVertexMigratorTest, VertexEdgeGidSaved) {
   FLAGS_generate_vertex_ids = true;
   FLAGS_generate_edge_ids = true;
   // Fill master so that the ids are not the same on master and worker 1
   for (int i = 0; i < 10; ++i) {
     auto va = InsertVertex(master());
-    auto ea = InsertEdge(va, va, "edge");
+    InsertEdge(va, va, "edge");
   }
 
   auto va = InsertVertex(master());
@@ -71,7 +76,7 @@ TEST_F(DistributedGraphDbTest, VertexEdgeGidSaved) {
 
 // Checks if two connected nodes from master will be transfered to worker 1 and
 // if edge from vertex on the worker 2 will now point to worker 1 after transfer
-TEST_F(DistributedGraphDbTest, SomeTransfer) {
+TEST_F(DistributedVertexMigratorTest, SomeTransfer) {
   auto va = InsertVertex(master());
   auto vb = InsertVertex(master());
   auto vc = InsertVertex(worker(2));
@@ -109,7 +114,7 @@ TEST_F(DistributedGraphDbTest, SomeTransfer) {
 
 // Check if cycle edge is transfered only once since it's contained in both in
 // and out edges of a vertex and if not handled correctly could cause problems
-TEST_F(DistributedGraphDbTest, EdgeCycle) {
+TEST_F(DistributedVertexMigratorTest, EdgeCycle) {
   auto va = InsertVertex(master());
   InsertEdge(va, va, "edge");
   {
@@ -132,7 +137,7 @@ TEST_F(DistributedGraphDbTest, EdgeCycle) {
   EXPECT_EQ(EdgeCount(worker(1)), 1);
 }
 
-TEST_F(DistributedGraphDbTest, TransferLabelsAndProperties) {
+TEST_F(DistributedVertexMigratorTest, TransferLabelsAndProperties) {
   {
     database::GraphDbAccessor dba(master());
     auto va = dba.InsertVertex();

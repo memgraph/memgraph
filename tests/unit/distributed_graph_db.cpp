@@ -30,7 +30,12 @@ using namespace distributed;
 using namespace database;
 using namespace std::literals::chrono_literals;
 
-TEST_F(DistributedGraphDbTest, Coordination) {
+class DistributedGraphDb : public DistributedGraphDbTest {
+ public:
+  DistributedGraphDb() : DistributedGraphDbTest("distributed_graph") {}
+};
+
+TEST_F(DistributedGraphDb, Coordination) {
   EXPECT_NE(master().endpoint().port(), 0);
   EXPECT_NE(worker(1).endpoint().port(), 0);
   EXPECT_NE(worker(2).endpoint().port(), 0);
@@ -43,7 +48,7 @@ TEST_F(DistributedGraphDbTest, Coordination) {
   EXPECT_EQ(worker(2).GetEndpoint(1), worker(1).endpoint());
 }
 
-TEST_F(DistributedGraphDbTest, TxEngine) {
+TEST_F(DistributedGraphDb, TxEngine) {
   auto *tx1 = master_tx_engine().Begin();
   auto *tx2 = master_tx_engine().Begin();
   EXPECT_EQ(tx2->snapshot().size(), 1);
@@ -60,7 +65,7 @@ template <typename TType>
 using mapper_vec =
     std::vector<std::reference_wrapper<storage::ConcurrentIdMapper<TType>>>;
 
-TEST_F(DistributedGraphDbTest, StorageTypes) {
+TEST_F(DistributedGraphDb, StorageTypes) {
   auto test_mappers = [](auto mappers, auto ids) {
     for (size_t i = 0; i < mappers.size(); ++i) {
       ids.emplace_back(
@@ -89,7 +94,7 @@ TEST_F(DistributedGraphDbTest, StorageTypes) {
                std::vector<storage::Property>{});
 }
 
-TEST_F(DistributedGraphDbTest, Counters) {
+TEST_F(DistributedGraphDb, Counters) {
   EXPECT_EQ(master().counters().Get("a"), 0);
   EXPECT_EQ(worker(1).counters().Get("a"), 1);
   EXPECT_EQ(worker(2).counters().Get("a"), 2);
@@ -99,7 +104,7 @@ TEST_F(DistributedGraphDbTest, Counters) {
   EXPECT_EQ(master().counters().Get("b"), 2);
 }
 
-TEST_F(DistributedGraphDbTest, DispatchPlan) {
+TEST_F(DistributedGraphDb, DispatchPlan) {
   auto kRPCWaitTime = 600ms;
   int64_t plan_id = 5;
   SymbolTable symbol_table;
@@ -124,7 +129,7 @@ TEST_F(DistributedGraphDbTest, DispatchPlan) {
   EXPECT_DEATH(check_for_worker(worker(1)), "Missing plan*");
 }
 
-TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
+TEST_F(DistributedGraphDb, BuildIndexDistributed) {
   storage::Label label;
   storage::Property property;
 
@@ -169,7 +174,7 @@ TEST_F(DistributedGraphDbTest, BuildIndexDistributed) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, WorkerOwnedDbAccessors) {
+TEST_F(DistributedGraphDb, WorkerOwnedDbAccessors) {
   GraphDbAccessor dba_w1(worker(1));
   auto v = dba_w1.InsertVertex();
   auto prop = dba_w1.Property("p");

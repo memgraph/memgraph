@@ -27,6 +27,7 @@ class BfsTest : public DistributedGraphDbTest {
   }
 
  public:
+  BfsTest() : DistributedGraphDbTest("bfs") {}
   std::vector<storage::VertexAddress> vertices;
   std::map<std::pair<int, int>, storage::EdgeAddress> edges;
 };

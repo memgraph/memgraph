@@ -32,7 +32,12 @@ using namespace distributed;
 using namespace database;
 using namespace std::literals::chrono_literals;
 
-TEST_F(DistributedGraphDbTest, PullProduceRpc) {
+class DistributedQueryPlan : public DistributedGraphDbTest {
+ protected:
+  DistributedQueryPlan() : DistributedGraphDbTest("query_plan") {}
+};
+
+TEST_F(DistributedQueryPlan, PullProduceRpc) {
   GraphDbAccessor dba{master()};
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
@@ -96,7 +101,7 @@ TEST_F(DistributedGraphDbTest, PullProduceRpc) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, PullProduceRpcWithGraphElements) {
+TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   // Create some data on the master and both workers. Eeach edge (3 of them) and
   // vertex (6 of them) will be uniquely identified with their worker id and
   // sequence ID, so we can check we retrieved all.
@@ -191,7 +196,7 @@ TEST_F(DistributedGraphDbTest, PullProduceRpcWithGraphElements) {
   check_result(2, future_w2_results.get().frames);
 }
 
-TEST_F(DistributedGraphDbTest, Synchronize) {
+TEST_F(DistributedQueryPlan, Synchronize) {
   auto from = InsertVertex(worker(1));
   auto to = InsertVertex(worker(2));
   InsertEdge(from, to, "et");
@@ -245,7 +250,7 @@ TEST_F(DistributedGraphDbTest, Synchronize) {
   // TODO test without advance command?
 }
 
-TEST_F(DistributedGraphDbTest, Create) {
+TEST_F(DistributedQueryPlan, Create) {
   // Query: UNWIND range(0, 1000) as x CREATE ()
   auto &db = master();
   GraphDbAccessor dba{db};
@@ -267,7 +272,7 @@ TEST_F(DistributedGraphDbTest, Create) {
   EXPECT_GT(VertexCount(worker(2)), 200);
 }
 
-TEST_F(DistributedGraphDbTest, PullRemoteOrderBy) {
+TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
   // Create some data on the master and both workers.
   storage::Property prop;
   {
@@ -327,6 +332,8 @@ TEST_F(DistributedGraphDbTest, PullRemoteOrderBy) {
 
 class DistributedTransactionTimeout : public DistributedGraphDbTest {
  protected:
+  DistributedTransactionTimeout()
+      : DistributedGraphDbTest("transaction_timeout") {}
   int QueryExecutionTimeSec(int) override { return 1; }
 };
 

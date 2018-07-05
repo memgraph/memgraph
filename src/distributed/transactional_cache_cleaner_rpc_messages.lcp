@@ -11,7 +11,8 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:define-rpc wait-on-transaction-end
-    (:request ((member "tx::TransactionId" :capnp-type "UInt64")))
+    (:request ((tx-id "tx::TransactionId" :capnp-type "UInt64")
+               (committed :bool)))
   (:response ()))
 
 (lcp:pop-namespace)

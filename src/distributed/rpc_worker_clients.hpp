@@ -130,11 +130,12 @@ class OngoingProduceJoinerRpcClients {
   OngoingProduceJoinerRpcClients(RpcWorkerClients &clients)
       : clients_(clients) {}
 
-  void JoinOngoingProduces(tx::TransactionId tx_id) {
+  void JoinOngoingProduces(tx::TransactionId tx_id, bool committed) {
     auto futures = clients_.ExecuteOnWorkers<void>(
-        0, [tx_id](int worker_id, communication::rpc::ClientPool &client_pool) {
-          auto result =
-              client_pool.Call<distributed::WaitOnTransactionEndRpc>(tx_id);
+        0, [tx_id, committed](int worker_id,
+                              communication::rpc::ClientPool &client_pool) {
+          auto result = client_pool.Call<distributed::WaitOnTransactionEndRpc>(
+              tx_id, committed);
           CHECK(result)
               << "[WaitOnTransactionEndRpc] failed to notify that transaction "
               << tx_id << " ended";

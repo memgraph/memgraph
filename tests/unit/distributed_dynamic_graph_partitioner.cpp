@@ -15,7 +15,13 @@ using namespace database;
 
 DECLARE_int32(dgp_max_batch_size);
 
-TEST_F(DistributedGraphDbTest, CountLabels) {
+class DistributedDynamicGraphPartitionerTest : public DistributedGraphDbTest {
+ public:
+  DistributedDynamicGraphPartitionerTest()
+      : DistributedGraphDbTest("dynamic_graph_partitioner") {}
+};
+
+TEST_F(DistributedDynamicGraphPartitionerTest, CountLabels) {
   auto va = InsertVertex(master());
   auto vb = InsertVertex(worker(1));
   auto vc = InsertVertex(worker(2));
@@ -37,7 +43,7 @@ TEST_F(DistributedGraphDbTest, CountLabels) {
   EXPECT_EQ(count_labels[worker(2).WorkerId()], 4 + 6);
 }
 
-TEST_F(DistributedGraphDbTest, FindMigrationsMoveVertex) {
+TEST_F(DistributedDynamicGraphPartitionerTest, FindMigrationsMoveVertex) {
   auto va = InsertVertex(master());
   auto vb = InsertVertex(worker(1));
 
@@ -54,7 +60,7 @@ TEST_F(DistributedGraphDbTest, FindMigrationsMoveVertex) {
   EXPECT_EQ(migrations[0].second, worker(1).WorkerId());
 }
 
-TEST_F(DistributedGraphDbTest, FindMigrationsNoChange) {
+TEST_F(DistributedDynamicGraphPartitionerTest, FindMigrationsNoChange) {
   InsertVertex(master());
   InsertVertex(worker(1));
   InsertVertex(worker(2));
@@ -67,7 +73,7 @@ TEST_F(DistributedGraphDbTest, FindMigrationsNoChange) {
   EXPECT_EQ(migrations.size(), 0);
 }
 
-TEST_F(DistributedGraphDbTest, FindMigrationsMultipleAndLimit) {
+TEST_F(DistributedDynamicGraphPartitionerTest, FindMigrationsMultipleAndLimit) {
   auto va = InsertVertex(master());
   auto vb = InsertVertex(master());
   auto vc = InsertVertex(worker(1));
@@ -96,7 +102,7 @@ TEST_F(DistributedGraphDbTest, FindMigrationsMultipleAndLimit) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, Run) {
+TEST_F(DistributedDynamicGraphPartitionerTest, Run) {
   // Emulate a bipartite graph with lots of connections on the left, and right
   // side, and some connections between the halfs
   std::vector<storage::VertexAddress> left;

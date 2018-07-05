@@ -2,7 +2,12 @@
 
 #include "distributed_common.hpp"
 
-TEST_F(DistributedGraphDbTest, GarbageCollect) {
+class DistributedGcTest : public DistributedGraphDbTest {
+ public:
+  DistributedGcTest() : DistributedGraphDbTest("gc") {}
+};
+
+TEST_F(DistributedGcTest, GarbageCollect) {
   database::GraphDbAccessor dba{master()};
   auto tx = dba.transaction_id();
   dba.Commit();
@@ -33,7 +38,7 @@ TEST_F(DistributedGraphDbTest, GarbageCollect) {
   EXPECT_EQ(worker(2).tx_engine().Info(tx_last).is_committed(), true);
 }
 
-TEST_F(DistributedGraphDbTest, GarbageCollectBlocked) {
+TEST_F(DistributedGcTest, GarbageCollectBlocked) {
   database::GraphDbAccessor dba{master()};
   auto tx = dba.transaction_id();
   dba.Commit();

@@ -11,7 +11,12 @@
 using namespace database;
 using namespace std::literals::chrono_literals;
 
-TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
+class DistributedDataExchangeTest : public DistributedGraphDbTest {
+ public:
+  DistributedDataExchangeTest() : DistributedGraphDbTest("data_exchange") {}
+};
+
+TEST_F(DistributedDataExchangeTest, RemoteDataGetting) {
   // Only old data is visible remotely, so create and commit some data.
   gid::Gid v1_id, v2_id, e1_id;
 
@@ -64,7 +69,7 @@ TEST_F(DistributedGraphDbTest, RemoteDataGetting) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, RemoteExpansion) {
+TEST_F(DistributedDataExchangeTest, RemoteExpansion) {
   // Model (v1)-->(v2), where each vertex is on one worker.
   auto from = InsertVertex(worker(1));
   auto to = InsertVertex(worker(2));
@@ -90,7 +95,7 @@ TEST_F(DistributedGraphDbTest, RemoteExpansion) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, VertexCountsEqual) {
+TEST_F(DistributedDataExchangeTest, VertexCountsEqual) {
   for (int i = 0; i < 5; ++i) InsertVertex(master());
   for (int i = 0; i < 7; ++i) InsertVertex(worker(1));
   for (int i = 0; i < 9; ++i) InsertVertex(worker(2));
@@ -115,7 +120,7 @@ TEST_F(DistributedGraphDbTest, VertexCountsEqual) {
   }
 }
 
-TEST_F(DistributedGraphDbTest, VertexCountsTransactional) {
+TEST_F(DistributedDataExchangeTest, VertexCountsTransactional) {
   {
     GraphDbAccessor accessor(master());
     InsertVertex(master());
