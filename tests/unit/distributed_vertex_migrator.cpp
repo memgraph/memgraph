@@ -12,9 +12,6 @@
 using namespace distributed;
 using namespace database;
 
-DECLARE_bool(generate_vertex_ids);
-DECLARE_bool(generate_edge_ids);
-
 class DistributedVertexMigratorTest : public DistributedGraphDbTest {
  public:
   DistributedVertexMigratorTest() : DistributedGraphDbTest("vertex_migrator") {}
@@ -22,8 +19,6 @@ class DistributedVertexMigratorTest : public DistributedGraphDbTest {
 
 // Check if the auto-generated gid property is unchanged after migration
 TEST_F(DistributedVertexMigratorTest, VertexEdgeGidSaved) {
-  FLAGS_generate_vertex_ids = true;
-  FLAGS_generate_edge_ids = true;
   // Fill master so that the ids are not the same on master and worker 1
   for (int i = 0; i < 10; ++i) {
     auto va = InsertVertex(master());
@@ -32,20 +27,11 @@ TEST_F(DistributedVertexMigratorTest, VertexEdgeGidSaved) {
 
   auto va = InsertVertex(master());
   auto ea = InsertEdge(va, va, "edge");
-  PropertyValue old_vgid_property(42);
-  PropertyValue old_egid_property(42);
-  {
-    database::GraphDbAccessor dba(master());
-    VertexAccessor vaccessor(va, dba);
-    old_vgid_property =
-        vaccessor.PropsAt(dba.Property(PropertyValueStore::IdPropertyName));
-    EXPECT_FALSE(old_vgid_property.IsNull());
-
-    EdgeAccessor eaccessor(ea, dba);
-    old_egid_property =
-        eaccessor.PropsAt(dba.Property(PropertyValueStore::IdPropertyName));
-    EXPECT_FALSE(old_egid_property.IsNull());
-  }
+  database::GraphDbAccessor dba(master());
+  VertexAccessor vacc(va, dba);
+  EdgeAccessor eacc(ea, dba);
+  auto old_vgid_id = vacc.cypher_id();
+  auto old_egid_id = eacc.cypher_id();
   {
     database::GraphDbAccessor dba(master());
     VertexAccessor accessor(va, dba);
@@ -63,14 +49,8 @@ TEST_F(DistributedVertexMigratorTest, VertexEdgeGidSaved) {
     database::GraphDbAccessor dba(worker(1));
     auto vaccessor = *dba.Vertices(false).begin();
     auto eaccessor = *dba.Edges(false).begin();
-    auto new_vgid_property =
-        vaccessor.PropsAt(dba.Property(PropertyValueStore::IdPropertyName));
-    auto new_egid_property =
-        eaccessor.PropsAt(dba.Property(PropertyValueStore::IdPropertyName));
-    EXPECT_EQ(old_vgid_property.Value<int64_t>(),
-              new_vgid_property.Value<int64_t>());
-    EXPECT_EQ(old_egid_property.Value<int64_t>(),
-              new_egid_property.Value<int64_t>());
+    EXPECT_EQ(vaccessor.cypher_id(), old_vgid_id);
+    EXPECT_EQ(eaccessor.cypher_id(), old_egid_id);
   }
 }
 
