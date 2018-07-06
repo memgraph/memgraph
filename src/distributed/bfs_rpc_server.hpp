@@ -38,6 +38,15 @@ class BfsRpcServer {
           res.Save(res_builder);
         });
 
+    server_->Register<ResetSubcursorRpc>([this](const auto &req_reader,
+                                                auto *res_builder) {
+      ResetSubcursorReq req;
+      req.Load(req_reader);
+      subcursor_storage_->Get(req.subcursor_id)->Reset();
+      ResetSubcursorRes res;
+      res.Save(res_builder);
+    });
+
     server_->Register<RemoveBfsSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           RemoveBfsSubcursorReq req;

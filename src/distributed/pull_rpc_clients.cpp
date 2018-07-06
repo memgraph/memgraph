@@ -8,25 +8,36 @@
 namespace distributed {
 
 utils::Future<PullData> PullRpcClients::Pull(
-    database::GraphDbAccessor &dba, int worker_id, int64_t plan_id,
+    database::GraphDbAccessor *dba, int worker_id, int64_t plan_id,
     tx::CommandId command_id, const Parameters &params,
     const std::vector<query::Symbol> &symbols, int64_t timestamp,
     bool accumulate, int batch_size) {
   return clients_.ExecuteOnWorker<
-      PullData>(worker_id, [&dba, plan_id, command_id, params, symbols,
+      PullData>(worker_id, [dba, plan_id, command_id, params, symbols,
                             timestamp, accumulate, batch_size](
                                int worker_id, ClientPool &client_pool) {
-    auto load_pull_res = [&dba](const auto &res_reader) {
+    auto load_pull_res = [dba](const auto &res_reader) {
       PullRes res;
-      res.Load(res_reader, &dba);
+      res.Load(res_reader, dba);
       return res;
     };
     auto result = client_pool.CallWithLoad<PullRpc>(
-        load_pull_res, dba.transaction_id(), dba.transaction().snapshot(),
+        load_pull_res, dba->transaction_id(), dba->transaction().snapshot(),
         plan_id, command_id, params, symbols, timestamp, accumulate, batch_size,
         true, true);
     return PullData{result->data.pull_state, std::move(result->data.frames)};
   });
+}
+
+utils::Future<void> PullRpcClients::ResetCursor(database::GraphDbAccessor *dba,
+                                                int worker_id, int64_t plan_id,
+                                                tx::CommandId command_id) {
+  return clients_.ExecuteOnWorker<void>(
+      worker_id, [dba, plan_id, command_id](int worker_id, auto &client) {
+        auto res = client.template Call<ResetCursorRpc>(dba->transaction_id(),
+                                                        plan_id, command_id);
+        CHECK(res) << "ResetCursorRpc failed!";
+      });
 }
 
 std::vector<utils::Future<void>>

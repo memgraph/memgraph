@@ -103,6 +103,9 @@ target_link_libraries(${test_prefix}distributed_interpretation memgraph_lib kvst
 add_unit_test(distributed_query_plan.cpp)
 target_link_libraries(${test_prefix}distributed_query_plan memgraph_lib kvstore_dummy_lib)
 
+add_unit_test(distributed_reset.cpp)
+target_link_libraries(${test_prefix}distributed_reset memgraph_lib kvstore_dummy_lib)
+
 add_unit_test(distributed_serialization.cpp)
 target_link_libraries(${test_prefix}distributed_serialization memgraph_lib kvstore_dummy_lib)
 

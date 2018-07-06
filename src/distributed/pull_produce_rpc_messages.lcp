@@ -541,6 +541,13 @@ void PullResData::LoadGraphElement(
 ;; TODO make a separate RPC for the continuation of an existing pull, as an
 ;; optimization not to have to send the full PullReqData pack every time.
 
+(lcp:define-rpc reset-cursor
+    (:request
+     ((tx-id "tx::TransactionId")
+      (plan-id :int64_t)
+      (command-id "tx::CommandId")))
+    (:response ()))
+
 (lcp:define-rpc transaction-command-advanced
     (:request ((member "tx::TransactionId")))
   (:response ()))

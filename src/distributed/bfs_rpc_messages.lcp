@@ -186,6 +186,10 @@ cpp<#
                                 cpp<#))))
   (:response ()))
 
+(lcp:define-rpc reset-subcursor
+    (:request ((subcursor-id :int64_t)))
+    (:response ()))
+
 (lcp:define-rpc remove-bfs-subcursor
     (:request ((member :int64_t)))
   (:response ()))

@@ -44,6 +44,17 @@ void BfsRpcClients::RegisterSubcursors(
       ->RegisterSubcursors(subcursor_ids);
 }
 
+void BfsRpcClients::ResetSubcursors(
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
+  auto futures = clients_->ExecuteOnWorkers<void>(
+      db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
+        auto res = client.template Call<ResetSubcursorRpc>(
+            subcursor_ids.at(worker_id));
+        CHECK(res) << "ResetSubcursor RPC failed!";
+      });
+  subcursor_storage_->Get(subcursor_ids.at(db_->WorkerId()))->Reset();
+}
+
 void BfsRpcClients::RemoveBfsSubcursors(
     const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
   auto futures = clients_->ExecuteOnWorkers<void>(

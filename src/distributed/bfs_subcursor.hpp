@@ -73,11 +73,11 @@ class ExpandBfsSubcursor {
 
   /// Reconstruct the part of path to given vertex stored on this worker.
   PathSegment ReconstructPath(storage::VertexAddress vertex_addr);
-
- private:
+ 
   /// Used to reset subcursor state before starting expansion from new source.
   void Reset();
 
+ private:
   /// Expands to a local or remote vertex, returns true if expansion was
   /// successful.
   bool ExpandToVertex(EdgeAccessor edge, VertexAccessor vertex);

@@ -52,6 +52,12 @@ PullState ProduceRpcServer::OngoingProduce::Accumulate() {
   }
 }
 
+void ProduceRpcServer::OngoingProduce::Reset() {
+  cursor_->Reset();
+  accumulation_.clear();
+  cursor_state_ = PullState::CURSOR_IN_PROGRESS;
+}
+
 std::pair<std::vector<query::TypedValue>, PullState>
 ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
   std::vector<query::TypedValue> results;
@@ -102,6 +108,15 @@ ProduceRpcServer::ProduceRpcServer(
         PullReq req;
         req.Load(req_reader);
         PullRes res(Pull(req));
+        res.Save(res_builder);
+      });
+
+  produce_rpc_server_.Register<ResetCursorRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        ResetCursorReq req;
+        req.Load(req_reader);
+        Reset(req);
+        ResetCursorRes res;
         res.Save(res_builder);
       });
 
@@ -172,6 +187,17 @@ PullResData ProduceRpcServer::Pull(const PullReq &req) {
   }
 
   return result;
+}
+
+void ProduceRpcServer::Reset(const ResetCursorReq &req) {
+  auto key_tuple = std::make_tuple(req.tx_id, req.command_id, req.plan_id);
+  std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
+  auto found = ongoing_produces_.find(key_tuple);
+  // It is fine if the cursor doesn't exist yet. Creating a new cursor is the
+  // same thing as reseting an existing one.
+  if (found != ongoing_produces_.end()) {
+    found->second.Reset();
+  }
 }
 
 }  // namespace distributed

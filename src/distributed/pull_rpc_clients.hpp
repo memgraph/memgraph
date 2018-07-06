@@ -29,12 +29,15 @@ class PullRpcClients {
   /// @todo: it might be cleaner to split Pull into {InitRemoteCursor,
   /// Pull, RemoteAccumulate}, but that's a lot of refactoring and more
   /// RPC calls.
-  utils::Future<PullData> Pull(database::GraphDbAccessor &dba, int worker_id,
+  utils::Future<PullData> Pull(database::GraphDbAccessor *dba, int worker_id,
                                int64_t plan_id, tx::CommandId command_id,
                                const Parameters &params,
                                const std::vector<query::Symbol> &symbols,
                                int64_t timestamp, bool accumulate,
                                int batch_size = kDefaultBatchSize);
+
+  utils::Future<void> ResetCursor(database::GraphDbAccessor *dba, int worker_id,
+                                  int64_t plan_id, tx::CommandId command_id);
 
   auto GetWorkerIds() { return clients_.GetWorkerIds(); }
 

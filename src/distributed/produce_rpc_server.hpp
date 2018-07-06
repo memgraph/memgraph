@@ -46,6 +46,8 @@ class ProduceRpcServer {
     /// CURSOR_EXHAUSTED. If an error occurs, an appropriate value is returned.
     PullState Accumulate();
 
+    void Reset();
+
    private:
     database::GraphDbAccessor dba_;
     query::Context context_;
@@ -87,6 +89,9 @@ class ProduceRpcServer {
 
   /// Performs a single remote pull for the given request.
   PullResData Pull(const PullReq &req);
+
+  /// Resets the cursor for an ongoing produce.
+  void Reset(const ResetCursorReq &req);
 };
 
 }  // namespace distributed

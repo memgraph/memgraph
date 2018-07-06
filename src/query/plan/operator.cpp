@@ -1327,7 +1327,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   }
 
   void Reset() override {
-    LOG(FATAL) << "`Reset` not supported in distributed";
+    db_.db().bfs_subcursor_clients().ResetSubcursors(subcursor_ids_);
+    pull_pos_ = subcursor_ids_.end();
   }
 
  private:
@@ -3271,9 +3272,26 @@ class RemotePuller {
           throw HintedAbortError();
         case distributed::PullState::QUERY_ERROR:
           throw QueryRuntimeException(
-              "Query runtime error occurred duing PullRemote !");
+              "Query runtime error occurred during PullRemote !");
       }
     }
+  }
+
+  void Reset() {
+    worker_ids_ = db_.db().pull_clients().GetWorkerIds();
+    // Remove master from the worker ids list.
+    worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
+
+    // We must clear remote_pulls before reseting cursors to make sure that all
+    // outstanding remote pulls are done. Otherwise we might try to reset cursor
+    // during its pull.
+    remote_pulls_.clear();
+    for (auto &worker_id : worker_ids_) {
+      db_.db().pull_clients().ResetCursor(&db_, worker_id, plan_id_,
+                                          command_id_);
+    }
+    remote_results_.clear();
+    remote_pulls_initialized_ = false;
   }
 
   auto Workers() { return worker_ids_; }
@@ -3322,7 +3340,7 @@ class RemotePuller {
 
   void UpdatePullForWorker(int worker_id, Context &context) {
     remote_pulls_[worker_id] = db_.db().pull_clients().Pull(
-        db_, worker_id, plan_id_, command_id_, context.parameters_, symbols_,
+        &db_, worker_id, plan_id_, command_id_, context.parameters_, symbols_,
         context.timestamp_, false);
   }
 };
@@ -3412,7 +3430,9 @@ class PullRemoteCursor : public Cursor {
   }
 
   void Reset() override {
-    throw QueryRuntimeException("Unsupported: Reset during PullRemote!");
+    if (input_cursor_) input_cursor_->Reset();
+    remote_puller_.Reset();
+    last_pulled_worker_id_index_ = 0;
   }
 
  private:
@@ -3465,7 +3485,10 @@ class SynchronizeCursor : public Cursor {
   }
 
   void Reset() override {
-    throw QueryRuntimeException("Unsupported: Reset during Synchronize!");
+    input_cursor_->Reset();
+    pull_remote_cursor_->Reset();
+    initial_pull_done_ = false;
+    local_frames_.clear();
   }
 
  private:
@@ -3487,7 +3510,7 @@ class SynchronizeCursor : public Cursor {
       for (auto worker_id : db.pull_clients().GetWorkerIds()) {
         if (worker_id == db.WorkerId()) continue;
         worker_accumulations.emplace_back(db.pull_clients().Pull(
-            context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
+            &context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
             command_id_, context.parameters_, self_.pull_remote()->symbols(),
             context.timestamp_, true, 0));
       }
@@ -3774,7 +3797,12 @@ class PullRemoteOrderByCursor : public Cursor {
   }
 
   void Reset() {
-    throw QueryRuntimeException("Unsupported: Reset during PullRemoteOrderBy!");
+    input_->Reset();
+    remote_puller_.Reset();
+    merge_.clear();
+    missing_results_from_.clear();
+    missing_master_result_ = false;
+    merge_initialized_ = false;
   }
 
  private:

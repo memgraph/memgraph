@@ -27,6 +27,9 @@ class BfsRpcClients {
   void RegisterSubcursors(
       const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
+  void ResetSubcursors(
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids);
+
   void RemoveBfsSubcursors(
       const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
