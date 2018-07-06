@@ -1,5 +1,6 @@
 #include <gflags/gflags.h>
 
+#include "requests/requests.hpp"
 #include "telemetry/telemetry.hpp"
 
 DEFINE_string(endpoint, "http://127.0.0.1:9000/",
@@ -14,7 +15,7 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  telemetry::Init();
+  requests::Init();
   telemetry::Telemetry telemetry(FLAGS_endpoint, FLAGS_storage_directory,
                                  std::chrono::seconds(FLAGS_interval), 1);
 

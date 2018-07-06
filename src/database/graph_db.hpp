@@ -8,7 +8,6 @@
 #include "database/storage.hpp"
 #include "database/storage_gc.hpp"
 #include "durability/wal.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
 #include "storage/types.hpp"
@@ -93,7 +92,6 @@ class GraphDb {
   virtual Type type() const = 0;
   virtual Storage &storage() = 0;
   virtual durability::WriteAheadLog &wal() = 0;
-  virtual integrations::kafka::Streams &kafka_streams() = 0;
   virtual tx::Engine &tx_engine() = 0;
   virtual storage::ConcurrentIdMapper<storage::Label> &label_mapper() = 0;
   virtual storage::ConcurrentIdMapper<storage::EdgeType>
@@ -151,7 +149,6 @@ class PublicBase : public GraphDb {
   Type type() const override;
   Storage &storage() override;
   durability::WriteAheadLog &wal() override;
-  integrations::kafka::Streams &kafka_streams() override;
   tx::Engine &tx_engine() override;
   storage::ConcurrentIdMapper<storage::Label> &label_mapper() override;
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper() override;

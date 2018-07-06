@@ -16,12 +16,14 @@
 #include "boost/serialization/export.hpp"
 #include "glog/logging.h"
 
+#include "communication/result_stream_faker.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
 #include "integrations/kafka/exceptions.hpp"
+#include "integrations/kafka/streams.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -3916,8 +3918,8 @@ class CreateStreamCursor : public Cursor {
   using StreamInfo = integrations::kafka::StreamInfo;
 
  public:
-  CreateStreamCursor(const CreateStream &self, database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+  CreateStreamCursor(const CreateStream &self, database::GraphDbAccessor &)
+      : self_(self) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -3948,8 +3950,8 @@ class CreateStreamCursor : public Cursor {
       info.batch_interval_in_ms = batch_interval_in_ms;
       info.batch_size = batch_size;
 
-      db_.db().kafka_streams().CreateStream(info);
-    } catch (const KafkaStreamException &e) {
+      ctx.kafka_streams_->Create(info);
+    } catch (const integrations::kafka::KafkaStreamException &e) {
       throw QueryRuntimeException(e.what());
     }
 
@@ -3960,7 +3962,6 @@ class CreateStreamCursor : public Cursor {
 
  private:
   const CreateStream &self_;
-  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> CreateStream::MakeCursor(
@@ -3975,8 +3976,8 @@ WITHOUT_SINGLE_INPUT(DropStream)
 
 class DropStreamCursor : public Cursor {
  public:
-  DropStreamCursor(const DropStream &self, database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+  DropStreamCursor(const DropStream &self, database::GraphDbAccessor &)
+      : self_(self) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -3984,8 +3985,8 @@ class DropStreamCursor : public Cursor {
     }
 
     try {
-      db_.db().kafka_streams().DropStream(self_.stream_name());
-    } catch (const KafkaStreamException &e) {
+      ctx.kafka_streams_->Drop(self_.stream_name());
+    } catch (const integrations::kafka::KafkaStreamException &e) {
       throw QueryRuntimeException(e.what());
     }
     return false;
@@ -3995,7 +3996,6 @@ class DropStreamCursor : public Cursor {
 
  private:
   const DropStream &self_;
-  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> DropStream::MakeCursor(
@@ -4021,8 +4021,8 @@ std::vector<Symbol> ShowStreams::OutputSymbols(const SymbolTable &) const {
 
 class ShowStreamsCursor : public Cursor {
  public:
-  ShowStreamsCursor(const ShowStreams &self, database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+  ShowStreamsCursor(const ShowStreams &self, database::GraphDbAccessor &)
+      : self_(self) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -4030,7 +4030,7 @@ class ShowStreamsCursor : public Cursor {
     }
 
     if (!is_initialized_) {
-      streams_ = db_.db().kafka_streams().ShowStreams();
+      streams_ = ctx.kafka_streams_->Show();
       streams_it_ = streams_.begin();
       is_initialized_ = true;
     }
@@ -4052,7 +4052,6 @@ class ShowStreamsCursor : public Cursor {
 
  private:
   const ShowStreams &self_;
-  database::GraphDbAccessor &db_;
 
   bool is_initialized_ = false;
   using StreamInfo = integrations::kafka::StreamInfo;
@@ -4076,8 +4075,8 @@ WITHOUT_SINGLE_INPUT(StartStopStream)
 class StartStopStreamCursor : public Cursor {
  public:
   StartStopStreamCursor(const StartStopStream &self,
-                        database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+                        database::GraphDbAccessor &)
+      : self_(self) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -4093,12 +4092,11 @@ class StartStopStreamCursor : public Cursor {
 
     try {
       if (self_.is_start()) {
-        db_.db().kafka_streams().StartStream(self_.stream_name(),
-                                             limit_batches);
+        ctx.kafka_streams_->Start(self_.stream_name(), limit_batches);
       } else {
-        db_.db().kafka_streams().StopStream(self_.stream_name());
+        ctx.kafka_streams_->Stop(self_.stream_name());
       }
-    } catch (const KafkaStreamException &e) {
+    } catch (const integrations::kafka::KafkaStreamException &e) {
       throw QueryRuntimeException(e.what());
     }
 
@@ -4109,7 +4107,6 @@ class StartStopStreamCursor : public Cursor {
 
  private:
   const StartStopStream &self_;
-  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> StartStopStream::MakeCursor(
@@ -4124,8 +4121,8 @@ WITHOUT_SINGLE_INPUT(StartStopAllStreams)
 class StartStopAllStreamsCursor : public Cursor {
  public:
   StartStopAllStreamsCursor(const StartStopAllStreams &self,
-                            database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+                            database::GraphDbAccessor &)
+      : self_(self) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -4134,11 +4131,11 @@ class StartStopAllStreamsCursor : public Cursor {
 
     try {
       if (self_.is_start()) {
-        db_.db().kafka_streams().StartAllStreams();
+        ctx.kafka_streams_->StartAll();
       } else {
-        db_.db().kafka_streams().StopAllStreams();
+        ctx.kafka_streams_->StopAll();
       }
-    } catch (const KafkaStreamException &e) {
+    } catch (const integrations::kafka::KafkaStreamException &e) {
       throw QueryRuntimeException(e.what());
     }
 
@@ -4151,7 +4148,6 @@ class StartStopAllStreamsCursor : public Cursor {
 
  private:
   const StartStopAllStreams &self_;
-  database::GraphDbAccessor &db_;
 };
 
 std::unique_ptr<Cursor> StartStopAllStreams::MakeCursor(
@@ -4167,10 +4163,14 @@ TestStream::TestStream(std::string stream_name, Expression *limit_batches,
 
 WITHOUT_SINGLE_INPUT(TestStream)
 
+std::vector<Symbol> TestStream::OutputSymbols(const SymbolTable &) const {
+  return {test_result_symbol_};
+}
+
 class TestStreamCursor : public Cursor {
  public:
-  TestStreamCursor(const TestStream &self, database::GraphDbAccessor &db)
-      : self_(self), db_(db) {}
+  TestStreamCursor(const TestStream &self, database::GraphDbAccessor &)
+      : self_(self) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -4187,9 +4187,8 @@ class TestStreamCursor : public Cursor {
       }
 
       try {
-        results_ = db_.db().kafka_streams().TestStream(self_.stream_name(),
-                                                       limit_batches);
-      } catch (const KafkaStreamException &e) {
+        results_ = ctx.kafka_streams_->Test(self_.stream_name(), limit_batches);
+      } catch (const integrations::kafka::KafkaStreamException &e) {
         throw QueryRuntimeException(e.what());
       }
       results_it_ = results_.begin();
@@ -4208,7 +4207,6 @@ class TestStreamCursor : public Cursor {
 
  private:
   const TestStream &self_;
-  database::GraphDbAccessor &db_;
 
   bool is_initialized_ = false;
   std::vector<std::string> results_;

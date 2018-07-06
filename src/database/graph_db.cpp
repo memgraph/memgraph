@@ -56,9 +56,6 @@ class PrivateBase : public GraphDb {
 
   Storage &storage() override { return *storage_; }
   durability::WriteAheadLog &wal() override { return wal_; }
-  integrations::kafka::Streams &kafka_streams() override {
-    return kafka_streams_;
-  }
   int WorkerId() const override { return config_.worker_id; }
 
   // Makes a local snapshot from the visibility of accessor
@@ -101,7 +98,6 @@ class PrivateBase : public GraphDb {
   durability::WriteAheadLog wal_{config_.worker_id,
                                  config_.durability_directory,
                                  config_.durability_enabled};
-  integrations::kafka::Streams kafka_streams_;
 };
 
 template <template <typename TId> class TMapper>
@@ -449,9 +445,6 @@ PublicBase::~PublicBase() {
 GraphDb::Type PublicBase::type() const { return impl_->type(); }
 Storage &PublicBase::storage() { return impl_->storage(); }
 durability::WriteAheadLog &PublicBase::wal() { return impl_->wal(); }
-integrations::kafka::Streams &PublicBase::kafka_streams() {
-  return impl_->kafka_streams();
-}
 tx::Engine &PublicBase::tx_engine() { return impl_->tx_engine(); }
 ConcurrentIdMapper<Label> &PublicBase::label_mapper() {
   return impl_->label_mapper();

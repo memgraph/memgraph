@@ -4,6 +4,8 @@
 
 #include <fmt/format.h>
 
+namespace integrations {
+namespace kafka {
 class KafkaStreamException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
@@ -20,6 +22,33 @@ class StreamDoesntExistException : public KafkaStreamException {
   explicit StreamDoesntExistException(const std::string &stream_name)
       : KafkaStreamException(
             fmt::format("Kafka stream {} doesn't exist.", stream_name)) {}
+};
+
+class StreamSerializationException : public KafkaStreamException {
+ public:
+  StreamSerializationException()
+      : KafkaStreamException("Failed to serialize stream data!") {}
+};
+
+class StreamDeserializationException : public KafkaStreamException {
+ public:
+  StreamDeserializationException()
+      : KafkaStreamException("Failed to deserialize stream data!") {}
+};
+
+class StreamMetadataCouldNotBeStored : public KafkaStreamException {
+ public:
+  explicit StreamMetadataCouldNotBeStored(const std::string &stream_name)
+      : KafkaStreamException(fmt::format(
+            "Couldn't persist stream metadata for stream {}", stream_name)) {}
+};
+
+class StreamMetadataCouldNotBeDeleted : public KafkaStreamException {
+ public:
+  explicit StreamMetadataCouldNotBeDeleted(const std::string &stream_name)
+      : KafkaStreamException(fmt::format(
+            "Couldn't delete persisted stream metadata for stream {}",
+            stream_name)) {}
 };
 
 class ConsumerFailedToInitializeException : public KafkaStreamException {
@@ -57,3 +86,36 @@ class TopicNotFoundException : public KafkaStreamException {
       : KafkaStreamException(
             fmt::format("Kafka stream {}, topic not found", stream_name)) {}
 };
+
+class TransformScriptNotFoundException : public KafkaStreamException {
+ public:
+  explicit TransformScriptNotFoundException(const std::string &stream_name)
+      : KafkaStreamException(fmt::format(
+            "Couldn't find transform script for {}", stream_name)) {}
+};
+
+class TransformScriptDownloadException : public KafkaStreamException {
+ public:
+  explicit TransformScriptDownloadException(const std::string &transform_uri)
+      : KafkaStreamException(fmt::format(
+            "Couldn't get the transform script from {}", transform_uri)) {}
+};
+
+class TransformScriptCouldNotBeCreatedException : public KafkaStreamException {
+ public:
+  explicit TransformScriptCouldNotBeCreatedException(
+      const std::string &stream_name)
+      : KafkaStreamException(fmt::format(
+            "Couldn't create transform script for stream {}", stream_name)) {}
+};
+
+class TransformScriptCouldNotBeDeletedException : public KafkaStreamException {
+ public:
+  explicit TransformScriptCouldNotBeDeletedException(
+      const std::string &stream_name)
+      : KafkaStreamException(fmt::format(
+            "Couldn't delete transform script for stream {}", stream_name)) {}
+};
+
+}  // namespace kafka
+}  // namespace integrations

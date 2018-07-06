@@ -61,6 +61,7 @@ Interpreter::Results Interpreter::operator()(
   ctx.timestamp_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                        std::chrono::system_clock::now().time_since_epoch())
                        .count();
+  ctx.kafka_streams_ = kafka_streams_;
 
   // query -> stripped query
   StrippedQuery stripped(query);

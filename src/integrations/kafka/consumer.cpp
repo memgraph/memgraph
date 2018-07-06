@@ -1,10 +1,12 @@
 #include "integrations/kafka/consumer.hpp"
 
 #include <chrono>
+#include <thread>
 
 #include "glog/logging.h"
 
 #include "integrations/kafka/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace integrations {
 namespace kafka {
@@ -12,7 +14,7 @@ namespace kafka {
 using namespace std::chrono_literals;
 
 constexpr int64_t kDefaultBatchIntervalMillis = 100;
-constexpr int64_t kDefaultBatchSize = 10;
+constexpr int64_t kDefaultBatchSize = 1000;
 constexpr int64_t kDefaultTestBatchLimit = 1;
 
 void Consumer::event_cb(RdKafka::Event &event) {
@@ -26,7 +28,12 @@ void Consumer::event_cb(RdKafka::Event &event) {
   }
 }
 
-Consumer::Consumer(const StreamInfo &info) : info_(info) {
+Consumer::Consumer(
+    const StreamInfo &info, const std::string &transform_script_path,
+    std::function<void(const std::vector<std::string> &)> stream_writer)
+    : info_(info),
+      stream_writer_(stream_writer),
+      transform_(info.transform_uri, transform_script_path) {
   std::unique_ptr<RdKafka::Conf> conf(
       RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   std::string error;
@@ -94,17 +101,25 @@ Consumer::Consumer(const StreamInfo &info) : info_(info) {
 void Consumer::StopConsuming() {
   is_running_.store(false);
   if (thread_.joinable()) thread_.join();
+
+  // Set limit_batches to nullopt since it's not running anymore.
+  info_.limit_batches = std::experimental::nullopt;
 }
 
 void Consumer::StartConsuming(
     std::experimental::optional<int64_t> limit_batches) {
+  info_.limit_batches = limit_batches;
+  is_running_.store(true);
+
   thread_ = std::thread([this, limit_batches]() {
     int64_t batch_count = 0;
-    is_running_.store(true);
 
     while (is_running_) {
+      // TODO (msantl): Figure out what to do with potential exceptions here.
       auto batch = this->GetBatch();
-      // TODO (msantl): transform the batch
+      auto transformed_batch = transform_.Apply(batch);
+      stream_writer_(transformed_batch);
+
       if (limit_batches != std::experimental::nullopt) {
         if (limit_batches <= ++batch_count) {
           is_running_.store(false);
@@ -117,7 +132,6 @@ void Consumer::StartConsuming(
 
 std::vector<std::unique_ptr<RdKafka::Message>> Consumer::GetBatch() {
   std::vector<std::unique_ptr<RdKafka::Message>> batch;
-  bool run_batch = false;
   auto start = std::chrono::system_clock::now();
   int64_t remaining_timeout_in_ms =
       info_.batch_interval_in_ms.value_or(kDefaultBatchIntervalMillis);
@@ -125,7 +139,8 @@ std::vector<std::unique_ptr<RdKafka::Message>> Consumer::GetBatch() {
 
   batch.reserve(batch_size);
 
-  for (int64_t i = 0; i < batch_size; ++i) {
+  bool run_batch = true;
+  for (int64_t i = 0; remaining_timeout_in_ms > 0 && i < batch_size; ++i) {
     std::unique_ptr<RdKafka::Message> msg(
         consumer_->consume(remaining_timeout_in_ms));
     switch (msg->err()) {
@@ -151,10 +166,6 @@ std::vector<std::unique_ptr<RdKafka::Message>> Consumer::GetBatch() {
     auto now = std::chrono::system_clock::now();
     auto took =
         std::chrono::duration_cast<std::chrono::milliseconds>(now - start);
-    if (took.count() >= remaining_timeout_in_ms) {
-      break;
-    }
-
     remaining_timeout_in_ms = remaining_timeout_in_ms - took.count();
     start = now;
   }
@@ -186,7 +197,7 @@ void Consumer::Stop() {
   StopConsuming();
 }
 
-void Consumer::StartIfNotStopped() {
+void Consumer::StartIfStopped() {
   if (!consumer_) {
     throw ConsumerNotAvailableException(info_.stream_name);
   }
@@ -196,7 +207,7 @@ void Consumer::StartIfNotStopped() {
   }
 }
 
-void Consumer::StopIfNotRunning() {
+void Consumer::StopIfRunning() {
   if (!consumer_) {
     throw ConsumerNotAvailableException(info_.stream_name);
   }
@@ -221,16 +232,16 @@ std::vector<std::string> Consumer::Test(
 
   is_running_.store(true);
 
+  utils::OnScopeExit cleanup([this]() { is_running_.store(false); });
+
   for (int64_t i = 0; i < num_of_batches; ++i) {
     auto batch = GetBatch();
-    // TODO (msantl): transform the batch
+    auto transformed_batch = transform_.Apply(batch);
 
-    for (auto &result : batch) {
-      results.push_back(
-          std::string(reinterpret_cast<char *>(result->payload())));
+    for (auto &record : transformed_batch) {
+      results.emplace_back(std::move(record));
     }
   }
-  is_running_.store(false);
 
   return results;
 }

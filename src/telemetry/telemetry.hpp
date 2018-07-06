@@ -12,14 +12,6 @@
 namespace telemetry {
 
 /**
- * Call this function in each `main` file that uses the Telemetry stack. It is
- * used to initialize all libraries (primarily cURL).
- *
- * NOTE: This function must be called **exactly** once.
- */
-void Init();
-
-/**
  * This class implements the telemetry collector service. It periodically scapes
  * all registered collectors and stores their data. With periodically scraping
  * the collectors the service collects machine information in the constructor

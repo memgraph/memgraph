@@ -5,8 +5,8 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
+#include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
-#include "telemetry/requests.hpp"
 #include "telemetry/system_info.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
@@ -14,8 +14,6 @@
 namespace telemetry {
 
 const int kMaxBatchSize = 100;
-
-void Init() { RequestsInit(); }
 
 Telemetry::Telemetry(
     const std::string &url,
@@ -69,7 +67,7 @@ void Telemetry::SendData() {
     }
   }
 
-  if (RequestPostJson(url_, payload)) {
+  if (requests::RequestPostJson(url_, payload)) {
     for (const auto &key : keys) {
       if (!storage_.Delete(key)) {
         DLOG(WARNING) << "Couldn't delete key " << key

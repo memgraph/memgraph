@@ -10,6 +10,8 @@
 
 #include "rdkafkacpp.h"
 
+#include "integrations/kafka/transform.hpp"
+
 namespace integrations {
 namespace kafka {
 
@@ -21,6 +23,8 @@ struct StreamInfo {
   std::experimental::optional<int64_t> batch_interval_in_ms;
   std::experimental::optional<int64_t> batch_size;
 
+  std::experimental::optional<int64_t> limit_batches;
+
   bool is_running = false;
 };
 
@@ -28,7 +32,8 @@ class Consumer final : public RdKafka::EventCb {
  public:
   Consumer() = delete;
 
-  explicit Consumer(const StreamInfo &info);
+  Consumer(const StreamInfo &info, const std::string &transform_script_path,
+           std::function<void(const std::vector<std::string> &)> stream_writer);
 
   Consumer(const Consumer &other) = delete;
   Consumer(Consumer &&other) = delete;
@@ -40,9 +45,9 @@ class Consumer final : public RdKafka::EventCb {
 
   void Stop();
 
-  void StartIfNotStopped();
+  void StartIfStopped();
 
-  void StopIfNotRunning();
+  void StopIfRunning();
 
   std::vector<std::string> Test(
       std::experimental::optional<int64_t> limit_batches);
@@ -50,9 +55,11 @@ class Consumer final : public RdKafka::EventCb {
   StreamInfo info();
 
  private:
-  void event_cb(RdKafka::Event &event) override;
-
   StreamInfo info_;
+  std::string transform_script_path_;
+  std::function<void(const std::vector<std::string> &)> stream_writer_;
+
+  Transform transform_;
 
   std::atomic<bool> is_running_{false};
   std::thread thread_;
@@ -60,6 +67,8 @@ class Consumer final : public RdKafka::EventCb {
   std::unique_ptr<RdKafka::KafkaConsumer,
                   std::function<void(RdKafka::KafkaConsumer *)>>
       consumer_;
+
+  void event_cb(RdKafka::Event &event) override;
 
   void StopConsuming();
 

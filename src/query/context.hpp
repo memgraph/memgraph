@@ -5,6 +5,12 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
 
+namespace integrations {
+namespace kafka {
+class Streams;
+}  // namespace kafka
+}  // namespace integrations
+
 namespace query {
 
 class Context {
@@ -25,6 +31,8 @@ class Context {
   bool in_explicit_transaction_ = false;
   bool is_index_created_ = false;
   int64_t timestamp_{-1};
+
+  integrations::kafka::Streams *kafka_streams_ = nullptr;
 };
 
 }  // namespace query

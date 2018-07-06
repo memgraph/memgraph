@@ -2,6 +2,7 @@
 
 # add memgraph sub libraries, ordered by dependency
 add_subdirectory(utils)
+add_subdirectory(requests)
 add_subdirectory(integrations)
 add_subdirectory(io)
 add_subdirectory(telemetry)
@@ -189,7 +190,7 @@ set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
     ${Boost_IOSTREAMS_LIBRARY_RELEASE}
     ${Boost_SERIALIZATION_LIBRARY_RELEASE}
-    mg-utils mg-io mg-integrations mg-communication)
+    mg-utils mg-io mg-integrations mg-requests mg-communication)
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)

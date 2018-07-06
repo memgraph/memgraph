@@ -20,6 +20,12 @@ namespace distributed {
 class PlanDispatcher;
 }
 
+namespace integrations {
+namespace kafka {
+class Streams;
+}  // namespace kafka
+}  // namespace integrations
+
 namespace query {
 
 class Interpreter {
@@ -158,6 +164,8 @@ class Interpreter {
                      database::GraphDbAccessor &db_accessor,
                      const std::map<std::string, TypedValue> &params,
                      bool in_explicit_transaction);
+
+  integrations::kafka::Streams *kafka_streams_ = nullptr;
 
  private:
   ConcurrentMap<HashType, AstStorage> ast_cache_;

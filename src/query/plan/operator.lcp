@@ -2703,6 +2703,7 @@ in the db.")
    DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
      return {};
    }

@@ -212,7 +212,7 @@ class RuleBasedPlanner {
               symbol_table.CreateSymbol("uri", false),
               symbol_table.CreateSymbol("topic", false),
               symbol_table.CreateSymbol("transform", false),
-              symbol_table.CreateSymbol("is running", false));
+              symbol_table.CreateSymbol("is_running", false));
         } else if (auto *start_stop_stream =
                        dynamic_cast<query::StartStopStream *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before StartStopStream";
@@ -230,7 +230,7 @@ class RuleBasedPlanner {
           auto &symbol_table = context.symbol_table;
           input_op = std::make_unique<plan::TestStream>(
               test_stream->stream_name_, test_stream->limit_batches_,
-              symbol_table.CreateSymbol("test result", false));
+              symbol_table.CreateSymbol("test_result", false));
         } else {
           throw utils::NotYetImplemented("clause conversion to operator(s)");
         }

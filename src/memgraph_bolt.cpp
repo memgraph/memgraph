@@ -16,9 +16,12 @@
 #include "database/graph_db.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "glue/conversion.hpp"
+#include "integrations/kafka/exceptions.hpp"
+#include "integrations/kafka/streams.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/transaction_engine.hpp"
+#include "requests/requests.hpp"
 #include "stats/stats.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
@@ -140,6 +143,17 @@ class BoltSession final
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
+/**
+ * Class that implements ResultStream API for Kafka.
+ *
+ * Kafka doesn't need to stream the import results back to the client so we
+ * don't need any functionality here.
+ */
+class KafkaResultStream {
+ public:
+  void Result(const std::vector<query::TypedValue> &) {}
+};
+
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
 // when we are exiting main, inside destructors of database::GraphDb and
@@ -239,6 +253,8 @@ int WithInit(int argc, char **argv,
                      << " MB left.";
     });
   }
+  requests::Init();
+
   memgraph_main();
   return 0;
 }
@@ -247,6 +263,34 @@ void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
   database::SingleNode db;
   SessionData session_data{db};
+
+  auto stream_writer =
+      [&session_data](const std::vector<std::string> &queries) {
+        database::GraphDbAccessor dba(session_data.db);
+        for (auto &query : queries) {
+          KafkaResultStream stream;
+          try {
+            session_data.interpreter(query, dba, {}, false).PullAll(stream);
+          } catch (const query::QueryException &e) {
+            LOG(ERROR) << e.what();
+          }
+        }
+        dba.Commit();
+      };
+
+  integrations::kafka::Streams kafka_streams{
+      std::experimental::filesystem::path(FLAGS_durability_directory) /
+          "streams",
+      stream_writer};
+
+  try {
+    // Recover possible streams.
+    kafka_streams.Recover();
+  } catch (const integrations::kafka::KafkaStreamException &e) {
+    LOG(ERROR) << e.what();
+  }
+
+  session_data.interpreter.kafka_streams_ = &kafka_streams;
 
   ServerContext context;
   std::string service_name = "Bolt";
@@ -262,7 +306,6 @@ void SingleNodeMain() {
   // Setup telemetry
   std::experimental::optional<telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry::Init();
     telemetry.emplace(
         "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
         std::experimental::filesystem::path(FLAGS_durability_directory) /
@@ -309,6 +352,34 @@ void MasterMain() {
 
   database::Master db;
   SessionData session_data{db};
+
+  auto stream_writer =
+      [&session_data](const std::vector<std::string> &queries) {
+        database::GraphDbAccessor dba(session_data.db);
+        for (auto &query : queries) {
+          KafkaResultStream stream;
+          try {
+            session_data.interpreter(query, dba, {}, false).PullAll(stream);
+          } catch (const query::QueryException &e) {
+            LOG(ERROR) << e.what();
+          }
+        }
+        dba.Commit();
+      };
+
+  integrations::kafka::Streams kafka_streams{
+      std::experimental::filesystem::path(FLAGS_durability_directory) /
+          "streams",
+      stream_writer};
+
+  try {
+    // Recover possible streams.
+    kafka_streams.Recover();
+  } catch (const integrations::kafka::KafkaStreamException &e) {
+    LOG(ERROR) << e.what();
+  }
+
+  session_data.interpreter.kafka_streams_ = &kafka_streams;
 
   ServerContext context;
   std::string service_name = "Bolt";
