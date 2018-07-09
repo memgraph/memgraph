@@ -57,7 +57,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
 
 TEST_F(DistributedInterpretationTest, PullTest) {
   auto results = Run("OPTIONAL MATCH(n) UNWIND(RANGE(0, 20)) AS X RETURN 1");
-  ASSERT_EQ(results.size(), 3 * 21);
+  ASSERT_EQ(results.size(), 1 * 21);
 
   for (auto result : results) {
     ASSERT_EQ(result.size(), 1U);

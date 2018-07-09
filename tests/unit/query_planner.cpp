@@ -1143,8 +1143,6 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto as_p = AS("p");
   QUERY(SINGLE_QUERY(OPTIONAL_MATCH(pattern), RETURN("p", as_p)));
   auto symbol_table = MakeSymbolTable(*storage.query());
-  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
-                                      new ExpectConstructNamedPath()};
   auto get_symbol = [&symbol_table](const auto *ast_node) {
     return symbol_table.at(*ast_node->identifier_);
   };
@@ -1152,13 +1150,15 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
                                        get_symbol(edge), get_symbol(node_m)};
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
+                                      new ExpectConstructNamedPath()};
   CheckPlan(planner.plan(), symbol_table,
             ExpectOptional(optional_symbols, optional), ExpectProduce());
+  optional.push_back(new ExpectPullRemote(optional_symbols));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectOptional(optional_symbols, optional), ExpectProduce(),
-                   ExpectPullRemote({symbol_table.at(*as_p)})),
-      MakeCheckers(ExpectOptional(optional_symbols, optional),
-                   ExpectProduce()));
+      MakeCheckers(ExpectOptional(optional_symbols, optional), ExpectProduce()),
+      MakeCheckers(ExpectScanAll(), ExpectExpand(),
+                   ExpectConstructNamedPath()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -1304,8 +1304,7 @@ TYPED_TEST(TestPlanner, MultiMatch) {
       MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectExpand(),
                    ExpectExpandUniquenessFilter<EdgeAccessor>(), right_pull);
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectProduce()),
       MakeCheckers(ExpectScanAll(), ExpectExpand()),
       MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectExpand(),
                    ExpectExpandUniquenessFilter<EdgeAccessor>()));
@@ -2647,9 +2646,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateExpand) {
       MakeCheckers(ExpectScanAll(),
                    ExpectPullRemote({symbol_table.at(*node_b->identifier_)}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectCreateExpand(), ExpectSynchronize(false),
-                   ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectCreateExpand(),
+                   ExpectSynchronize(false), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
@@ -2673,8 +2671,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpand) {
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectExpand(),
                                  ExpectPullRemote({sym_b, sym_e, sym_c}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectProduce()),
       MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAll(), ExpectExpand()));
   FakeDbAccessor dba;
@@ -2696,8 +2693,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandToExisting) {
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectExpand(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectExpand(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
@@ -2718,8 +2715,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandFromExisting) {
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectExpand(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectExpand(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
@@ -2746,12 +2743,10 @@ TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
   auto mid_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
   auto mid_right_cart =
-      MakeCheckers(ExpectCartesian(std::move(mid_cart), std::move(right_cart)),
-                   ExpectFilter());
+      MakeCheckers(ExpectCartesian(mid_cart, right_cart), ExpectFilter());
   auto expected = ExpectDistributed(
-      MakeCheckers(
-          ExpectCartesian(std::move(left_cart), std::move(mid_right_cart)),
-          ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, mid_right_cart), ExpectFilter(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll(), ExpectFilter()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
@@ -2782,8 +2777,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByProperty) {
   auto right_cart =
       MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectFilter(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
@@ -2812,8 +2807,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByLowerBound) {
   auto right_cart =
       MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectFilter(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
@@ -2842,8 +2837,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByUpperBound) {
   auto right_cart =
       MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectFilter(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
@@ -2881,8 +2876,8 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
   auto right_cart =
       MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectFilter(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
   CheckDistributedPlan(*produce, symbol_table, expected);
 }
@@ -2920,8 +2915,8 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
                        label, prop, lower_bound, std::experimental::nullopt),
                    ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectFilter(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAllByLabelPropertyRange(
           label, prop, lower_bound, std::experimental::nullopt)));
@@ -2961,8 +2956,8 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
                        label, prop, std::experimental::nullopt, upper_bound),
                    ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectFilter(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAllByLabelPropertyRange(
           label, prop, std::experimental::nullopt, upper_bound)));
@@ -2982,11 +2977,11 @@ TYPED_TEST(TestPlanner, DistributedCartesianProduce) {
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectPullRemote({sym_a}));
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()));
+  auto expected =
+      ExpectDistributed(MakeCheckers(ExpectCartesian(left_cart, right_cart),
+                                     ExpectFilter(), ExpectProduce()),
+                        MakeCheckers(ExpectScanAll(), ExpectProduce()),
+                        MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
@@ -3005,8 +3000,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianUnwind) {
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectUnwind(), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectUnwind(),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
@@ -3029,10 +3024,80 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
   auto sym_c = symbol_table.at(*node_c->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart),
                    ExpectCreateNode(true), ExpectSynchronize(false)),
       MakeCheckers(ExpectScanAll(), ExpectCreateNode()),
       MakeCheckers(ExpectScanAll()));
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedOptionalExpand) {
+  // Test MATCH (n) OPTIONAL MATCH (n)-[e]-(m) RETURN e;
+  AstStorage storage;
+  auto *node_n = NODE("n");
+  auto *edge_e = EDGE("e");
+  auto *node_m = NODE("m");
+  auto *ret_e = RETURN("e");
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)),
+                     OPTIONAL_MATCH(PATTERN(node_n, edge_e, node_m)), ret_e));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_e = symbol_table.at(*ret_e->body_.named_expressions[0]);
+  std::list<BaseOpChecker *> optional{new ExpectExpand()};
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectScanAll(), ExpectOptional(optional), ExpectProduce(),
+                   ExpectPullRemote({sym_e})),
+      MakeCheckers(ExpectScanAll(), ExpectOptional(optional), ExpectProduce()));
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedOptionalCartesian) {
+  // Test MATCH (a) OPTIONAL MATCH (b), (c) WHERE b > a RETURN c;
+  AstStorage storage;
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b");
+  auto *node_c = NODE("c");
+  QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(node_a)), OPTIONAL_MATCH(PATTERN(node_b), PATTERN(node_c)),
+      WHERE(GREATER(node_b->identifier_, node_a->identifier_)), RETURN("c")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto sym_c = symbol_table.at(*node_c->identifier_);
+  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
+  std::list<BaseOpChecker *> optional{
+      new ExpectCartesian(left_cart, right_cart), new ExpectFilter()};
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}),
+                   ExpectOptional(optional), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()),
+      MakeCheckers(ExpectScanAll()));
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedOptionalScanExpandExisting) {
+  // Test MATCH (a) OPTIONAL MATCH (b)-[e]-(a) RETURN e;
+  AstStorage storage;
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b");
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a)),
+                     OPTIONAL_MATCH(PATTERN(node_b, EDGE("e"), NODE("a"))),
+                     RETURN("e")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  std::list<BaseOpChecker *> optional{
+      new ExpectScanAll(), new ExpectPullRemote({sym_b}), new ExpectExpand()};
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}),
+                   ExpectOptional(optional), ExpectProduce()),
+      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
