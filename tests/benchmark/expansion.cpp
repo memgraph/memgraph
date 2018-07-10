@@ -23,7 +23,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
     // the fixed part is one vertex expanding to 1000 others
     auto start = dba.InsertVertex();
-    start.add_label(dba.Label("Start"));
+    start.add_label(dba.Label("Starting"));
     auto edge_type = dba.EdgeType("edge_type");
     for (int i = 0; i < 1000; i++) {
       auto dest = dba.InsertVertex();
@@ -44,7 +44,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 };
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
-  auto query = "MATCH (s:Start) return s";
+  auto query = "MATCH (s:Starting) return s";
   database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
@@ -58,7 +58,7 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
     ->Unit(benchmark::kMillisecond);
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
-  auto query = "MATCH (s:Start) WITH s MATCH (s)--(d) RETURN count(d)";
+  auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
   database::GraphDbAccessor dba(*db_);
   while (state.KeepRunning()) {
     ResultStreamFaker results;
