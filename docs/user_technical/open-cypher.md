@@ -323,7 +323,7 @@ Labels and properties can be set during creation using the same syntax as in
 property:
 
 ```opencypher
-CREATE (node :Label {property: "my property value"}
+CREATE (node :Label {property: "my property value"})
 ```
 
 Additional information on `CREATE` is
@@ -530,7 +530,7 @@ value.  If `True`, matching continues, otherwise the path is discarded.
 The previous example can be written using the `all` function:
 
 ```opencypher
-MATCH (n)-[edge_list *]-(m) WHERE all(edge IN r WHERE 0 < edge.x < 10)
+MATCH (n)-[edge_list *]-(m) WHERE all(edge IN edge_list WHERE 0 < edge.x < 10)
 ```
 
 However, filtering using a lambda function is more efficient because paths
