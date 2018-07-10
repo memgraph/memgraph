@@ -69,7 +69,7 @@ cd ${script_dir}
 #git clone https://phabricator.memgraph.io/source/ldbc-snb-impls.git
 git clone $deps_git_url/ldbc-snb-impls.git
 cd ldbc-snb-impls
-git checkout 4b3bc129e6991dfa9adc974bb8fc53258036e127
+git checkout 3f3f4deccc6260b79469aa89e6088d449032761e
 sed -r '/(snb-interactive-tools|snb-interactive-titan|snb-interactive-torc)/s@^( +)(.+)$@\1<!--\2-->@' -i pom.xml
 $mvn install
 $mvn clean compile assembly:single
