@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <experimental/optional>
+#include <functional>
 #include <memory>
 #include <string>
 #include <thread>
