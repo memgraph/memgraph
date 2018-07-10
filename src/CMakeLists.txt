@@ -5,19 +5,10 @@ add_subdirectory(utils)
 add_subdirectory(integrations)
 add_subdirectory(io)
 add_subdirectory(telemetry)
+add_subdirectory(communication)
 
 # all memgraph src files
 set(memgraph_src_files
-    communication/bolt/v1/decoder/decoded_value.cpp
-    communication/buffer.cpp
-    communication/client.cpp
-    communication/context.cpp
-    communication/conversion.cpp
-    communication/helpers.cpp
-    communication/init.cpp
-    communication/rpc/client.cpp
-    communication/rpc/protocol.cpp
-    communication/rpc/server.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/config.cpp
     database/counters.cpp
@@ -49,6 +40,7 @@ set(memgraph_src_files
     durability/recovery.cpp
     durability/snapshooter.cpp
     durability/wal.cpp
+    glue/conversion.cpp
     query/common.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp
@@ -195,10 +187,9 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
-    ${OPENSSL_LIBRARIES}
     ${Boost_IOSTREAMS_LIBRARY_RELEASE}
     ${Boost_SERIALIZATION_LIBRARY_RELEASE}
-    mg-utils mg-io mg-integrations)
+    mg-utils mg-io mg-integrations mg-communication)
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
@@ -213,7 +204,6 @@ endif()
 # STATIC library used by memgraph executables
 add_library(memgraph_lib STATIC ${memgraph_src_files})
 target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
-target_include_directories(memgraph_lib PRIVATE ${OPENSSL_INCLUDE_DIR})
 add_dependencies(memgraph_lib generate_opencypher_parser)
 add_dependencies(memgraph_lib generate_lcp)
 add_dependencies(memgraph_lib generate_capnp)

@@ -2,8 +2,6 @@
 
 #include <gflags/gflags.h>
 
-#include "communication/bolt/v1/encoder/base_encoder.hpp"
-#include "communication/conversion.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
@@ -68,8 +66,7 @@ class Interpreter {
     Results(Context ctx, std::shared_ptr<CachedPlan> plan,
             std::unique_ptr<query::plan::Cursor> cursor,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
-            std::map<std::string, communication::bolt::DecodedValue> summary,
-            PlanCacheT &plan_cache)
+            std::map<std::string, TypedValue> summary, PlanCacheT &plan_cache)
         : ctx_(std::move(ctx)),
           plan_(plan),
           cursor_(std::move(cursor)),
@@ -144,7 +141,7 @@ class Interpreter {
 
     bool header_written_{false};
     std::vector<std::string> header_;
-    std::map<std::string, communication::bolt::DecodedValue> summary_;
+    std::map<std::string, TypedValue> summary_;
 
     utils::Timer execution_timer_;
     // Gets invalidated after if an index has been built.

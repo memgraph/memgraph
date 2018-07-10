@@ -4,7 +4,8 @@
 #include "glog/logging.h"
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
-#include "communication/conversion.hpp"
+#include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "glue/conversion.hpp"
 #include "storage/pod_buffer.hpp"
 #include "storage/property_value_store.hpp"
 
@@ -213,7 +214,7 @@ PropertyValueStore::iterator PropertyValueStore::end() const {
 std::string PropertyValueStore::SerializeProp(const PropertyValue &prop) const {
   storage::PODBuffer pod_buffer;
   BaseEncoder<storage::PODBuffer> encoder{pod_buffer};
-  encoder.WriteDecodedValue(communication::ToDecodedValue(prop));
+  encoder.WriteDecodedValue(glue::ToDecodedValue(prop));
   return std::string(reinterpret_cast<char *>(pod_buffer.buffer.data()),
                      pod_buffer.buffer.size());
 }
@@ -228,7 +229,7 @@ PropertyValue PropertyValueStore::DeserializeProp(
     DLOG(WARNING) << "Unable to read property value";
     return PropertyValue::Null;
   }
-  return communication::ToPropertyValue(dv);
+  return glue::ToPropertyValue(dv);
 }
 
 storage::KVStore PropertyValueStore::ConstructDiskStorage() const {

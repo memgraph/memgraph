@@ -2,7 +2,6 @@
 
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
-#include "communication/conversion.hpp"
 
 namespace communication::bolt {
 
@@ -47,18 +46,8 @@ class ResultStream {
    *
    * @param values the values that should be sent
    */
-  void Result(std::vector<DecodedValue> &values) {
+  void Result(const std::vector<DecodedValue> &values) {
     encoder_.MessageRecord(values);
-  }
-
-  // TODO: Move this to another class
-  void Result(std::vector<query::TypedValue> &values) {
-    std::vector<DecodedValue> decoded_values;
-    decoded_values.reserve(values.size());
-    for (const auto &v : values) {
-      decoded_values.push_back(communication::ToDecodedValue(v));
-    }
-    return Result(decoded_values);
   }
 
   /**

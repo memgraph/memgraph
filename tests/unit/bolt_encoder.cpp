@@ -2,9 +2,9 @@
 #include "bolt_testdata.hpp"
 
 #include "communication/bolt/v1/encoder/encoder.hpp"
-#include "communication/conversion.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "glue/conversion.hpp"
 
 using communication::bolt::DecodedValue;
 
@@ -189,9 +189,9 @@ TEST(BoltEncoder, VertexAndEdge) {
 
   // check everything
   std::vector<DecodedValue> vals;
-  vals.push_back(communication::ToDecodedValue(va1));
-  vals.push_back(communication::ToDecodedValue(va2));
-  vals.push_back(communication::ToDecodedValue(ea));
+  vals.push_back(glue::ToDecodedValue(va1));
+  vals.push_back(glue::ToDecodedValue(va2));
+  vals.push_back(glue::ToDecodedValue(ea));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,

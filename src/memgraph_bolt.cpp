@@ -14,6 +14,10 @@
 #include "communication/bolt/v1/session.hpp"
 #include "config.hpp"
 #include "database/graph_db.hpp"
+#include "distributed/pull_rpc_clients.hpp"
+#include "glue/conversion.hpp"
+#include "query/exceptions.hpp"
+#include "query/interpreter.hpp"
 #include "stats/stats.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
@@ -23,12 +27,6 @@
 #include "version.hpp"
 
 // Common stuff for enterprise and community editions
-
-using communication::bolt::SessionData;
-using SessionT = communication::bolt::Session<communication::InputStream,
-                                              communication::OutputStream>;
-using ServerT = communication::Server<SessionT, SessionData>;
-using communication::ServerContext;
 
 // General purpose flags.
 DEFINE_string(interface, "0.0.0.0",
@@ -58,6 +56,173 @@ DEFINE_bool(telemetry_enabled, false,
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
 DECLARE_string(durability_directory);
+
+/** Encapsulates Dbms and Interpreter that are passed through the network server
+ * and worker to the session. */
+struct SessionData {
+  database::MasterBase &db;
+  query::Interpreter interpreter{db};
+};
+
+class BoltSession final
+    : public communication::bolt::Session<communication::InputStream,
+                                          communication::OutputStream> {
+ public:
+  BoltSession(SessionData &data, communication::InputStream &input_stream,
+              communication::OutputStream &output_stream)
+      : communication::bolt::Session<communication::InputStream,
+                                     communication::OutputStream>(
+            input_stream, output_stream),
+        db_(data.db),
+        interpreter_(data.interpreter) {}
+
+  ~BoltSession() {
+    if (db_accessor_) {
+      Abort();
+    }
+  }
+
+  bool IsShuttingDown() override { return !db_.is_accepting_transactions(); }
+
+  using communication::bolt::Session<
+      communication::InputStream, communication::OutputStream>::ResultStreamT;
+
+  void PullAll(
+      const std::string &query,
+      const std::map<std::string, communication::bolt::DecodedValue> &params,
+      ResultStreamT *result_stream) override {
+    bool in_explicit_transaction = !!db_accessor_;
+    if (!db_accessor_)
+      db_accessor_ = std::make_unique<database::GraphDbAccessor>(db_);
+    // TODO: Queries below should probably move to interpreter, but there is
+    // only one interpreter in GraphDb. We probably need some kind of
+    // per-session access for the interpreter.
+    // TODO: Also, write tests for these queries
+    if (expect_rollback_ && query != "ROLLBACK") {
+      // Client could potentially recover if we move to error state, but we
+      // don't implement rollback of single command in transaction, only
+      // rollback of whole transaction so we can't continue in this transaction
+      // if we receive new query.
+      throw communication::bolt::ClientError(
+          "Expected ROLLBACK, because previous query contained an error");
+    }
+    if (query == "ROLLBACK") {
+      if (!in_explicit_transaction)
+        throw communication::bolt::ClientError(
+            "ROLLBACK can only be used after BEGIN");
+      Abort();
+      result_stream->Header({});
+      result_stream->Summary({});
+      return;
+    } else if (query == "BEGIN") {
+      if (in_explicit_transaction)
+        throw communication::bolt::ClientError("BEGIN already called");
+      // We accept BEGIN, so send the empty results.
+      result_stream->Header({});
+      result_stream->Summary({});
+      return;
+    } else if (query == "COMMIT") {
+      if (!in_explicit_transaction)
+        throw communication::bolt::ClientError(
+            "COMMIT can only be used after BEGIN");
+      Commit();
+      result_stream->Header({});
+      result_stream->Summary({});
+      return;
+    }
+    // Any other query in BEGIN block advances the command.
+    if (in_explicit_transaction) AdvanceCommand();
+    // Handle regular Cypher queries below
+    std::map<std::string, query::TypedValue> params_tv;
+    for (const auto &kv : params)
+      params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
+    auto abort_tx = [this, in_explicit_transaction]() {
+      if (in_explicit_transaction)
+        expect_rollback_ = true;
+      else
+        this->Abort();
+    };
+    try {
+      TypedValueResultStream stream(result_stream);
+      interpreter_(query, *db_accessor_, params_tv, in_explicit_transaction)
+          .PullAll(stream);
+      if (!in_explicit_transaction) Commit();
+    } catch (const query::QueryException &e) {
+      abort_tx();
+      // Wrap QueryException into ClientError, because we want to allow the
+      // client to fix their query.
+      throw communication::bolt::ClientError(e.what());
+    } catch (const utils::BasicException &) {
+      abort_tx();
+      throw;
+    }
+  }
+
+  void Abort() override {
+    if (!db_accessor_) return;
+    db_accessor_->Abort();
+    db_accessor_ = nullptr;
+  }
+
+ private:
+  // Wrapper around ResultStreamT which converts TypedValue to DecodedValue
+  // before forwarding the calls to original ResultStreamT.
+  class TypedValueResultStream {
+   public:
+    TypedValueResultStream(ResultStreamT *result_stream)
+        : result_stream_(result_stream) {}
+
+    void Header(const std::vector<std::string> &fields) {
+      return result_stream_->Header(fields);
+    }
+
+    void Result(const std::vector<query::TypedValue> &values) {
+      std::vector<communication::bolt::DecodedValue> decoded_values;
+      decoded_values.reserve(values.size());
+      for (const auto &v : values) {
+        decoded_values.push_back(glue::ToDecodedValue(v));
+      }
+      return result_stream_->Result(decoded_values);
+    }
+
+    void Summary(const std::map<std::string, query::TypedValue> &summary) {
+      std::map<std::string, communication::bolt::DecodedValue> decoded_summary;
+      for (const auto &kv : summary) {
+        decoded_summary.emplace(kv.first, glue::ToDecodedValue(kv.second));
+      }
+      return result_stream_->Summary(decoded_summary);
+    }
+
+   private:
+    ResultStreamT *result_stream_;
+  };
+
+  database::MasterBase &db_;
+  query::Interpreter &interpreter_;
+  // GraphDbAccessor of active transaction in the session, can be null if
+  // there is no associated transaction.
+  std::unique_ptr<database::GraphDbAccessor> db_accessor_;
+  bool expect_rollback_{false};
+
+  void Commit() {
+    DCHECK(db_accessor_) << "Commit called and there is no transaction";
+    db_accessor_->Commit();
+    db_accessor_ = nullptr;
+  }
+
+  void AdvanceCommand() {
+    db_accessor_->AdvanceCommand();
+    if (db_.type() == database::GraphDb::Type::DISTRIBUTED_MASTER) {
+      auto tx_id = db_accessor_->transaction_id();
+      auto futures =
+          db_.pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
+      for (auto &future : futures) future.wait();
+    }
+  }
+};
+
+using ServerT = communication::Server<BoltSession, SessionData>;
+using communication::ServerContext;
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled

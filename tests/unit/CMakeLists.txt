@@ -19,26 +19,8 @@ function(add_unit_test test_cpp)
   add_dependencies(memgraph__unit ${target_name})
 endfunction(add_unit_test)
 
-add_unit_test(bolt_chunked_decoder_buffer.cpp)
-target_link_libraries(${test_prefix}bolt_chunked_decoder_buffer memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(bolt_chunked_encoder_buffer.cpp)
-target_link_libraries(${test_prefix}bolt_chunked_encoder_buffer memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(bolt_decoder.cpp)
-target_link_libraries(${test_prefix}bolt_decoder memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(bolt_encoder.cpp)
 target_link_libraries(${test_prefix}bolt_encoder memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(bolt_result_stream.cpp)
-target_link_libraries(${test_prefix}bolt_result_stream memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(bolt_session.cpp)
-target_link_libraries(${test_prefix}bolt_session memgraph_lib kvstore_dummy_lib)
-
-add_unit_test(communication_buffer.cpp)
-target_link_libraries(${test_prefix}communication_buffer memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(concurrent_id_mapper_distributed.cpp)
 target_link_libraries(${test_prefix}concurrent_id_mapper_distributed memgraph_lib kvstore_dummy_lib)
@@ -157,9 +139,6 @@ target_link_libraries(${test_prefix}mvcc_one_transaction memgraph_lib kvstore_du
 add_unit_test(mvcc_parallel_update.cpp)
 target_link_libraries(${test_prefix}mvcc_parallel_update memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(network_timeouts.cpp)
-target_link_libraries(${test_prefix}network_timeouts memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(pod_buffer.cpp)
 target_link_libraries(${test_prefix}pod_buffer memgraph_lib kvstore_dummy_lib)
 
@@ -208,9 +187,6 @@ target_link_libraries(${test_prefix}raft_storage memgraph_lib kvstore_dummy_lib)
 add_unit_test(record_edge_vertex_accessor.cpp)
 target_link_libraries(${test_prefix}record_edge_vertex_accessor memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(rpc_worker_clients.cpp)
 target_link_libraries(${test_prefix}rpc_worker_clients memgraph_lib kvstore_dummy_lib)
 
@@ -252,6 +228,32 @@ target_link_libraries(${test_prefix}transaction_engine_single_node memgraph_lib 
 
 add_unit_test(typed_value.cpp)
 target_link_libraries(${test_prefix}typed_value memgraph_lib kvstore_dummy_lib)
+
+# Test mg-communication
+
+add_unit_test(bolt_chunked_decoder_buffer.cpp)
+target_link_libraries(${test_prefix}bolt_chunked_decoder_buffer mg-communication)
+
+add_unit_test(bolt_chunked_encoder_buffer.cpp)
+target_link_libraries(${test_prefix}bolt_chunked_encoder_buffer mg-communication)
+
+add_unit_test(bolt_decoder.cpp)
+target_link_libraries(${test_prefix}bolt_decoder mg-communication)
+
+add_unit_test(bolt_result_stream.cpp)
+target_link_libraries(${test_prefix}bolt_result_stream mg-communication)
+
+add_unit_test(bolt_session.cpp)
+target_link_libraries(${test_prefix}bolt_session mg-communication)
+
+add_unit_test(communication_buffer.cpp)
+target_link_libraries(${test_prefix}communication_buffer mg-communication)
+
+add_unit_test(network_timeouts.cpp)
+target_link_libraries(${test_prefix}network_timeouts mg-communication)
+
+add_unit_test(rpc.cpp)
+target_link_libraries(${test_prefix}rpc mg-communication)
 
 # Test data structures
 

@@ -28,7 +28,7 @@ add_manual_test(binomial.cpp)
 target_link_libraries(${test_prefix}binomial mg-utils)
 
 add_manual_test(bolt_client.cpp)
-target_link_libraries(${test_prefix}bolt_client memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}bolt_client mg-communication)
 
 add_manual_test(card_fraud_generate_snapshot.cpp)
 target_link_libraries(${test_prefix}card_fraud_generate_snapshot memgraph_lib kvstore_dummy_lib)
@@ -72,10 +72,10 @@ add_manual_test(stripped_timing.cpp)
 target_link_libraries(${test_prefix}stripped_timing memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(ssl_client.cpp)
-target_link_libraries(${test_prefix}ssl_client memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}ssl_client mg-communication)
 
 add_manual_test(ssl_server.cpp)
-target_link_libraries(${test_prefix}ssl_server memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}ssl_server mg-communication)
 
 add_manual_test(xorshift.cpp)
 target_link_libraries(${test_prefix}xorshift mg-utils)

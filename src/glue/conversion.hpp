@@ -5,7 +5,7 @@
 #include "query/typed_value.hpp"
 #include "storage/property_value.hpp"
 
-namespace communication {
+namespace glue {
 
 communication::bolt::DecodedVertex ToDecodedVertex(
     const VertexAccessor &vertex);
@@ -23,4 +23,4 @@ communication::bolt::DecodedValue ToDecodedValue(const PropertyValue &value);
 
 PropertyValue ToPropertyValue(const communication::bolt::DecodedValue &value);
 
-}  // namespace communication
+}  // namespace glue

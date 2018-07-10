@@ -1,4 +1,4 @@
-#include "communication/conversion.hpp"
+#include "glue/conversion.hpp"
 
 #include <map>
 #include <string>
@@ -8,7 +8,7 @@
 
 using communication::bolt::DecodedValue;
 
-namespace communication {
+namespace glue {
 
 query::TypedValue ToTypedValue(const DecodedValue &value) {
   switch (value.type()) {
@@ -189,4 +189,4 @@ DecodedValue ToDecodedValue(const PropertyValue &value) {
   }
 }
 
-}  // namespace communication
+}  // namespace glue

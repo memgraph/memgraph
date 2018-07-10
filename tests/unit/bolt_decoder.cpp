@@ -4,7 +4,6 @@
 #include "bolt_testdata.hpp"
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
-#include "query/typed_value.hpp"
 
 using communication::bolt::DecodedValue;
 

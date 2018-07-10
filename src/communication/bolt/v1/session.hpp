@@ -14,20 +14,9 @@
 #include "communication/bolt/v1/states/executing.hpp"
 #include "communication/bolt/v1/states/handshake.hpp"
 #include "communication/bolt/v1/states/init.hpp"
-#include "communication/buffer.hpp"
-#include "database/graph_db.hpp"
-#include "query/interpreter.hpp"
-#include "transactions/transaction.hpp"
 #include "utils/exceptions.hpp"
 
 namespace communication::bolt {
-
-/** Encapsulates Dbms and Interpreter that are passed through the network server
- * and worker to the session. */
-struct SessionData {
-  database::MasterBase &db;
-  query::Interpreter interpreter{db};
-};
 
 /**
  * Bolt Session Exception
@@ -53,17 +42,28 @@ class Session {
   using ResultStreamT =
       ResultStream<Encoder<ChunkedEncoderBuffer<TOutputStream>>>;
 
-  Session(SessionData &data, TInputStream &input_stream,
-          TOutputStream &output_stream)
-      : db_(data.db),
-        interpreter_(data.interpreter),
-        input_stream_(input_stream),
-        output_stream_(output_stream) {}
+  Session(TInputStream &input_stream, TOutputStream &output_stream)
+      : input_stream_(input_stream), output_stream_(output_stream) {}
 
-  ~Session() {
-    if (db_accessor_) {
-      Abort();
-    }
+  virtual ~Session() {}
+
+  /** Return `true` if we are no longer running and accepting queries */
+  virtual bool IsShuttingDown() = 0;
+
+  /**
+   * Put results in the `result_stream` by processing the given `query` with
+   * `params`.
+   */
+  virtual void PullAll(const std::string &query,
+                       const std::map<std::string, DecodedValue> &params,
+                       ResultStreamT *result_stream) = 0;
+
+  /** Aborts currently running query. */
+  virtual void Abort() = 0;
+
+  void PullAll(const std::string &query,
+               const std::map<std::string, DecodedValue> &params) {
+    return PullAll(query, params, &result_stream_);
   }
 
   /**
@@ -99,11 +99,9 @@ class Session {
           break;
         case State::Idle:
         case State::Result:
-        case State::WaitForRollback:
           state_ = StateExecutingRun(*this, state_);
           break;
-        case State::ErrorIdle:
-        case State::ErrorWaitForRollback:
+        case State::Error:
           state_ = StateErrorRun(*this, state_);
           break;
         default:
@@ -122,28 +120,8 @@ class Session {
     }
   }
 
-  /**
-   * Commits associated transaction.
-   */
-  void Commit() {
-    DCHECK(db_accessor_) << "Commit called and there is no transaction";
-    db_accessor_->Commit();
-    db_accessor_ = nullptr;
-  }
-
-  /**
-   * Aborts associated transaction.
-   */
-  void Abort() {
-    DCHECK(db_accessor_) << "Abort called and there is no transaction";
-    db_accessor_->Abort();
-    db_accessor_ = nullptr;
-  }
-
   // TODO: Rethink if there is a way to hide some members. At the momement all
   // of them are public.
-  database::MasterBase &db_;
-  query::Interpreter &interpreter_;
   TInputStream &input_stream_;
   TOutputStream &output_stream_;
 
@@ -156,9 +134,6 @@ class Session {
 
   bool handshake_done_{false};
   State state_{State::Handshake};
-  // GraphDbAccessor of active transaction in the session, can be null if
-  // there is no associated transaction.
-  std::unique_ptr<database::GraphDbAccessor> db_accessor_;
 
  private:
   void ClientFailureInvalidData() {
@@ -176,4 +151,5 @@ class Session {
     throw SessionException("Something went wrong during session execution!");
   }
 };
+
 }  // namespace communication::bolt

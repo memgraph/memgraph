@@ -9,14 +9,22 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
-#include "communication/conversion.hpp"
-#include "database/graph_db.hpp"
-#include "distributed/pull_rpc_clients.hpp"
-#include "query/exceptions.hpp"
-#include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
 
 namespace communication::bolt {
+
+/**
+ * Used to indicate something is wrong with the client but the transaction is
+ * kept open for a potential retry.
+ *
+ * The most common use case for throwing this error is if something is wrong
+ * with the query. Perhaps a simple syntax error that can be fixed and query
+ * retried.
+ */
+class ClientError : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
 
 template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
@@ -41,23 +49,6 @@ State HandleRun(TSession &session, State state, Marker marker) {
     return State::Close;
   }
 
-  if (state == State::WaitForRollback) {
-    if (query.ValueString() == "ROLLBACK") {
-      session.Abort();
-      // One MessageSuccess for RUN command should be flushed.
-      session.encoder_.MessageSuccess(kEmptyFields);
-      // One for PULL_ALL should be chunked.
-      session.encoder_.MessageSuccess({}, false);
-      return State::Result;
-    }
-    DLOG(WARNING) << "Expected RUN \"ROLLBACK\" not received!";
-    // Client could potentially recover if we move to error state, but we don't
-    // implement rollback of single command in transaction, only rollback of
-    // whole transaction so we can't continue in this transaction if we receive
-    // new RUN command.
-    return State::Close;
-  }
-
   if (state != State::Idle) {
     // Client could potentially recover if we move to error state, but there is
     // no legitimate situation in which well working client would end up in this
@@ -70,79 +61,20 @@ State HandleRun(TSession &session, State state, Marker marker) {
       << "There should be no data to write in this state";
 
   DLOG(INFO) << fmt::format("[Run] '{}'", query.ValueString());
-  bool in_explicit_transaction = false;
-  if (session.db_accessor_) {
-    // Transaction already exists.
-    in_explicit_transaction = true;
-  } else {
-    // TODO: Possible (but very unlikely) race condition, where we have alive
-    // session during shutdown, but is_accepting_transactions_ isn't yet false.
-    // We should probably create transactions under some locking mechanism.
-    if (!session.db_.is_accepting_transactions()) {
-      // Db is shutting down and doesn't accept new transactions so we should
-      // close this session.
-      return State::Close;
-    }
-    // Create new transaction.
-    session.db_accessor_ =
-        std::make_unique<database::GraphDbAccessor>(session.db_);
-  }
 
-  // If there was not explicitly started transaction before maybe we are
-  // starting one now.
-  if (!in_explicit_transaction && query.ValueString() == "BEGIN") {
-    // Check if query string is "BEGIN". If it is then we should start
-    // transaction and wait for in-transaction queries.
-    // TODO: "BEGIN" is not defined by bolt protocol or opencypher so we should
-    // test if all drivers really denote transaction start with "BEGIN" string.
-    // Same goes for "ROLLBACK" and "COMMIT".
-    //
-    // One MessageSuccess for RUN command should be flushed.
-    session.encoder_.MessageSuccess(kEmptyFields);
-    // One for PULL_ALL should be chunked.
-    session.encoder_.MessageSuccess({}, false);
-    return State::Result;
+  // TODO: Possible (but very unlikely) race condition, where we have alive
+  // session during shutdown, but IsAcceptingTransactions isn't yet false.
+  // We should probably create transactions under some locking mechanism.
+  if (session.IsShuttingDown()) {
+    // Db is shutting down and doesn't accept new transactions so we should
+    // close this session.
+    return State::Close;
   }
 
   try {
-    // This check is within try block because AdvanceCommand can throw.
-    if (in_explicit_transaction) {
-      if (query.ValueString() == "COMMIT") {
-        session.Commit();
-        // One MessageSuccess for RUN command should be flushed.
-        session.encoder_.MessageSuccess(kEmptyFields);
-        // One for PULL_ALL should be chunked.
-        session.encoder_.MessageSuccess({}, false);
-        return State::Result;
-      } else if (query.ValueString() == "ROLLBACK") {
-        session.Abort();
-        // One MessageSuccess for RUN command should be flushed.
-        session.encoder_.MessageSuccess(kEmptyFields);
-        // One for PULL_ALL should be chunked.
-        session.encoder_.MessageSuccess({}, false);
-        return State::Result;
-      }
-      session.db_accessor_->AdvanceCommand();
-      if (session.db_.type() == database::GraphDb::Type::DISTRIBUTED_MASTER) {
-        auto tx_id = session.db_accessor_->transaction_id();
-        auto futures =
-            session.db_.pull_clients().NotifyAllTransactionCommandAdvanced(
-                tx_id);
-        for (auto &future : futures) future.wait();
-      }
-    }
+    // PullAll can throw.
+    session.PullAll(query.ValueString(), params.ValueMap());
 
-    std::map<std::string, query::TypedValue> params_tv;
-    for (const auto &kv : params.ValueMap())
-      params_tv.emplace(kv.first, communication::ToTypedValue(kv.second));
-    session
-        .interpreter_(query.ValueString(), *session.db_accessor_, params_tv,
-                      in_explicit_transaction)
-        .PullAll(session.result_stream_);
-
-    if (!in_explicit_transaction) {
-      session.Commit();
-    }
     // The query engine has already stored all query data in the buffer.
     // We should only send the first chunk now which is the success
     // message which contains header data. The rest of this data (records
@@ -161,7 +93,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
     }
 
     auto code_message = [&e]() -> std::pair<std::string, std::string> {
-      if (dynamic_cast<const query::QueryException *>(&e)) {
+      if (dynamic_cast<const ClientError *>(&e)) {
         // Clients expect 4 strings separated by dots. First being database name
         // (for example: Neo, Memgraph...), second being either ClientError,
         // TransientError or DatabaseError (or ClientNotification for warnings).
@@ -177,10 +109,6 @@ State HandleRun(TSession &session, State state, Marker marker) {
         // receives *.TransientError.Transaction.Terminate it will not rerun
         // query even though TransientError was returned, because of Neo's
         // semantics of that error.
-        //
-        // QueryException was thrown, only changing the query or existing
-        // database data could make this query successful. Return ClientError to
-        // discourage retry of this query.
         return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
       }
       if (dynamic_cast<const utils::BasicException *>(&e)) {
@@ -212,11 +140,7 @@ State HandleRun(TSession &session, State state, Marker marker) {
       DLOG(WARNING) << "Couldn't send failure message!";
       return State::Close;
     }
-    if (!in_explicit_transaction) {
-      session.Abort();
-      return State::ErrorIdle;
-    }
-    return State::ErrorWaitForRollback;
+    return State::Error;
   }
 }
 
@@ -290,9 +214,7 @@ State HandleReset(Session &session, State, Marker marker) {
     DLOG(WARNING) << "Couldn't send success message!";
     return State::Close;
   }
-  if (session.db_accessor_) {
-    session.Abort();
-  }
+  session.Abort();
   return State::Idle;
 }
 

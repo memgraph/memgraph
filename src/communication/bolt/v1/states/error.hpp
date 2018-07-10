@@ -40,20 +40,13 @@ State StateErrorRun(TSession &session, State state) {
       return State::Close;
     }
     if (signature == Signature::Reset) {
-      if (session.db_accessor_) {
-        session.Abort();
-      }
+      session.Abort();
       return State::Idle;
     }
 
     // We got AckFailure get back to right state.
-    if (state == State::ErrorIdle) {
-      return State::Idle;
-    } else if (state == State::ErrorWaitForRollback) {
-      return State::WaitForRollback;
-    } else {
-      LOG(FATAL) << "Shouldn't happen";
-    }
+    CHECK(state == State::Error) << "Shouldn't happen";
+    return State::Idle;
   } else {
     uint8_t value = utils::UnderlyingCast(marker);
 

@@ -5,6 +5,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/state.hpp"
+#include "utils/likely.hpp"
 
 namespace communication::bolt {
 

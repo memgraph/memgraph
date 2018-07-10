@@ -6,8 +6,7 @@
 #include <vector>
 
 #include <glog/logging.h>
-
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 /**
  * TODO (mferencevic): document

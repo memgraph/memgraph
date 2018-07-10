@@ -3,9 +3,9 @@
 #include <chrono>
 #include <vector>
 
-#include "communication/conversion.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "glue/conversion.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 

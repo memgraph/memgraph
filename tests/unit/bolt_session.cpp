@@ -2,26 +2,59 @@
 #include <glog/logging.h>
 
 #include "bolt_common.hpp"
-#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/session.hpp"
-#include "database/graph_db.hpp"
+
+using communication::bolt::ClientError;
+using communication::bolt::DecodedValue;
+using communication::bolt::Session;
+using communication::bolt::SessionException;
+using communication::bolt::State;
+
+static const char *kInvalidQuery = "invalid query";
+static const char *kQueryReturn42 = "RETURN 42";
+static const char *kQueryEmpty = "no results";
+
+class TestSessionData {};
+
+class TestSession : public Session<TestInputStream, TestOutputStream> {
+ public:
+  using Session<TestInputStream, TestOutputStream>::ResultStreamT;
+
+  TestSession(TestSessionData &data, TestInputStream &input_stream,
+              TestOutputStream &output_stream)
+      : Session<TestInputStream, TestOutputStream>(input_stream,
+                                                   output_stream) {}
+
+  bool IsShuttingDown() override { return false; }
+
+  void PullAll(const std::string &query,
+               const std::map<std::string, DecodedValue> &params,
+               ResultStreamT *result_stream) override {
+    if (query == kQueryReturn42) {
+      result_stream->Header({"result_name"});
+      result_stream->Result(std::vector<DecodedValue>{42});
+      result_stream->Summary({});
+    } else if (query == kQueryEmpty) {
+      result_stream->Header({"result_name"});
+      result_stream->Summary({});
+    } else {
+      throw ClientError("client sent invalid query");
+    }
+  }
+
+  void Abort() override {}
+};
+
+using ResultStreamT = TestSession::ResultStreamT;
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
-#define INIT_VARS                                              \
-  TestInputStream input_stream;                                \
-  TestOutputStream output_stream;                              \
-  database::SingleNode db;                                     \
-  SessionData session_data{db};                                \
-  SessionT session(session_data, input_stream, output_stream); \
+#define INIT_VARS                                                 \
+  TestInputStream input_stream;                                   \
+  TestOutputStream output_stream;                                 \
+  TestSessionData session_data;                                   \
+  TestSession session(session_data, input_stream, output_stream); \
   std::vector<uint8_t> &output = output_stream.output;
-
-using communication::bolt::SessionData;
-using communication::bolt::SessionException;
-using communication::bolt::State;
-using SessionT =
-    communication::bolt::Session<TestInputStream, TestOutputStream>;
-using ResultStreamT = SessionT::ResultStreamT;
 
 // Sample testdata that has correct inputs and outputs.
 const uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x00,
@@ -85,7 +118,7 @@ void CheckIgnoreMessage(std::vector<uint8_t> &output) {
 }
 
 // Execute and check a correct handshake
-void ExecuteHandshake(TestInputStream &input_stream, SessionT &session,
+void ExecuteHandshake(TestInputStream &input_stream, TestSession &session,
                       std::vector<uint8_t> &output) {
   input_stream.Write(handshake_req, 20);
   session.Execute();
@@ -95,7 +128,7 @@ void ExecuteHandshake(TestInputStream &input_stream, SessionT &session,
 }
 
 // Write bolt chunk and execute command
-void ExecuteCommand(TestInputStream &input_stream, SessionT &session,
+void ExecuteCommand(TestInputStream &input_stream, TestSession &session,
                     const uint8_t *data, size_t len, bool chunk = true) {
   if (chunk) WriteChunkHeader(input_stream, len);
   input_stream.Write(data, len);
@@ -104,7 +137,7 @@ void ExecuteCommand(TestInputStream &input_stream, SessionT &session,
 }
 
 // Execute and check a correct init
-void ExecuteInit(TestInputStream &input_stream, SessionT &session,
+void ExecuteInit(TestInputStream &input_stream, TestSession &session,
                  std::vector<uint8_t> &output) {
   ExecuteCommand(input_stream, session, init_req, sizeof(init_req));
   ASSERT_EQ(session.state_, State::Idle);
@@ -277,7 +310,7 @@ TEST(BoltSession, ExecuteRunBasicException) {
     ExecuteInit(input_stream, session, output);
 
     output_stream.SetWriteSuccess(i == 0);
-    WriteRunRequest(input_stream, "MATCH (omnom");
+    WriteRunRequest(input_stream, kInvalidQuery);
     if (i == 0) {
       session.Execute();
     } else {
@@ -285,7 +318,7 @@ TEST(BoltSession, ExecuteRunBasicException) {
     }
 
     if (i == 0) {
-      ASSERT_EQ(session.state_, State::ErrorIdle);
+      ASSERT_EQ(session.state_, State::Error);
       CheckFailureMessage(output);
     } else {
       ASSERT_EQ(session.state_, State::Close);
@@ -300,7 +333,7 @@ TEST(BoltSession, ExecuteRunWithoutPullAll) {
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(input_stream, "RETURN 2");
+  WriteRunRequest(input_stream, kQueryReturn42);
   session.Execute();
 
   ASSERT_EQ(session.state_, State::Result);
@@ -361,7 +394,7 @@ TEST(BoltSession, ExecutePullAllDiscardAllReset) {
 
       ExecuteHandshake(input_stream, session, output);
       ExecuteInit(input_stream, session, output);
-      WriteRunRequest(input_stream, "CREATE (n) RETURN n");
+      WriteRunRequest(input_stream, kQueryReturn42);
       session.Execute();
 
       if (j == 1) output.clear();
@@ -407,7 +440,7 @@ TEST(BoltSession, ErrorIgnoreMessage) {
     ExecuteHandshake(input_stream, session, output);
     ExecuteInit(input_stream, session, output);
 
-    WriteRunRequest(input_stream, "MATCH (omnom");
+    WriteRunRequest(input_stream, kInvalidQuery);
     session.Execute();
 
     output.clear();
@@ -425,7 +458,7 @@ TEST(BoltSession, ErrorIgnoreMessage) {
     ASSERT_EQ(session.decoder_buffer_.Size(), 0);
 
     if (i == 0) {
-      ASSERT_EQ(session.state_, State::ErrorIdle);
+      ASSERT_EQ(session.state_, State::Error);
       CheckOutput(output, ignored_resp, sizeof(ignored_resp));
     } else {
       ASSERT_EQ(session.state_, State::Close);
@@ -441,7 +474,7 @@ TEST(BoltSession, ErrorRunAfterRun) {
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(input_stream, "MATCH (n) RETURN n");
+  WriteRunRequest(input_stream, kQueryReturn42);
   session.Execute();
 
   output.clear();
@@ -452,7 +485,7 @@ TEST(BoltSession, ErrorRunAfterRun) {
   ASSERT_EQ(session.state_, State::Result);
 
   // New run request.
-  WriteRunRequest(input_stream, "MATCH (n) RETURN n");
+  WriteRunRequest(input_stream, kQueryReturn42);
   ASSERT_THROW(session.Execute(), SessionException);
 
   ASSERT_EQ(session.state_, State::Close);
@@ -464,7 +497,7 @@ TEST(BoltSession, ErrorCantCleanup) {
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(input_stream, "MATCH (omnom");
+  WriteRunRequest(input_stream, kInvalidQuery);
   session.Execute();
 
   output.clear();
@@ -484,7 +517,7 @@ TEST(BoltSession, ErrorWrongMarker) {
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(input_stream, "MATCH (omnom");
+  WriteRunRequest(input_stream, kInvalidQuery);
   session.Execute();
 
   output.clear();
@@ -510,7 +543,7 @@ TEST(BoltSession, ErrorOK) {
       ExecuteHandshake(input_stream, session, output);
       ExecuteInit(input_stream, session, output);
 
-      WriteRunRequest(input_stream, "MATCH (omnom");
+      WriteRunRequest(input_stream, kInvalidQuery);
       session.Execute();
 
       output.clear();
@@ -543,7 +576,7 @@ TEST(BoltSession, ErrorMissingData) {
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(input_stream, "MATCH (omnom");
+  WriteRunRequest(input_stream, kInvalidQuery);
   session.Execute();
 
   output.clear();
@@ -563,7 +596,7 @@ TEST(BoltSession, MultipleChunksInOneExecute) {
   ExecuteHandshake(input_stream, session, output);
   ExecuteInit(input_stream, session, output);
 
-  WriteRunRequest(input_stream, "CREATE (n) RETURN n");
+  WriteRunRequest(input_stream, kQueryReturn42);
   ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
 
   ASSERT_EQ(session.state_, State::Idle);
@@ -605,117 +638,6 @@ TEST(BoltSession, PartialChunk) {
   ASSERT_EQ(session.state_, State::Close);
   ASSERT_GT(output.size(), 0);
   PrintOutput(output);
-}
-
-TEST(BoltSession, ExplicitTransactionValidQueries) {
-  // It is not really easy to check if we commited or aborted transaction except
-  // by faking GraphDb/TxEngine...
-  std::vector<std::string> transaction_ends = {"COMMIT", "ROLLBACK"};
-
-  for (const auto &transaction_end : transaction_ends) {
-    INIT_VARS;
-
-    ExecuteHandshake(input_stream, session, output);
-    ExecuteInit(input_stream, session, output);
-
-    WriteRunRequest(input_stream, "BEGIN");
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Result);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckSuccessMessage(output);
-
-    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Idle);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckSuccessMessage(output);
-
-    WriteRunRequest(input_stream, "MATCH (n) RETURN n");
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Result);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckSuccessMessage(output);
-
-    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Idle);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckSuccessMessage(output);
-
-    WriteRunRequest(input_stream, transaction_end.c_str());
-    session.Execute();
-    ASSERT_FALSE(session.db_accessor_);
-    CheckSuccessMessage(output);
-    ASSERT_EQ(session.state_, State::Result);
-
-    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Idle);
-    ASSERT_FALSE(session.db_accessor_);
-    CheckSuccessMessage(output);
-  }
-}
-
-TEST(BoltSession, ExplicitTransactionInvalidQuery) {
-  std::vector<std::string> transaction_ends = {"COMMIT", "ROLLBACK"};
-
-  for (const auto &transaction_end : transaction_ends) {
-    INIT_VARS;
-
-    ExecuteHandshake(input_stream, session, output);
-    ExecuteInit(input_stream, session, output);
-
-    WriteRunRequest(input_stream, "BEGIN");
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Result);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckSuccessMessage(output);
-
-    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
-    session.Execute();
-    ASSERT_EQ(session.state_, State::Idle);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckSuccessMessage(output);
-
-    WriteRunRequest(input_stream, "MATCH (");
-    session.Execute();
-    ASSERT_EQ(session.state_, State::ErrorWaitForRollback);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckFailureMessage(output);
-
-    ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
-    session.Execute();
-    ASSERT_EQ(session.state_, State::ErrorWaitForRollback);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckIgnoreMessage(output);
-
-    ExecuteCommand(input_stream, session, ackfailure_req,
-                   sizeof(ackfailure_req));
-    session.Execute();
-    ASSERT_EQ(session.state_, State::WaitForRollback);
-    ASSERT_TRUE(session.db_accessor_);
-    CheckSuccessMessage(output);
-
-    WriteRunRequest(input_stream, transaction_end.c_str());
-
-    if (transaction_end == "ROLLBACK") {
-      session.Execute();
-      ASSERT_EQ(session.state_, State::Result);
-      ASSERT_FALSE(session.db_accessor_);
-      CheckSuccessMessage(output);
-
-      ExecuteCommand(input_stream, session, pullall_req, sizeof(pullall_req));
-      session.Execute();
-      ASSERT_EQ(session.state_, State::Idle);
-      ASSERT_FALSE(session.db_accessor_);
-      CheckSuccessMessage(output);
-
-    } else {
-      ASSERT_THROW(session.Execute(), SessionException);
-      ASSERT_EQ(session.state_, State::Close);
-      CheckFailureMessage(output);
-    }
-  }
 }
 
 int main(int argc, char **argv) {

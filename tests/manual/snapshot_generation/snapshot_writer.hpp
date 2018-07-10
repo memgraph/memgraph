@@ -4,10 +4,10 @@
 #include <vector>
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
-#include "communication/conversion.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
 #include "durability/version.hpp"
+#include "glue/conversion.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
 
@@ -71,7 +71,7 @@ class SnapshotWriter {
     WriteList(node.labels);
     std::map<std::string, communication::bolt::DecodedValue> props;
     for (const auto &prop : node.props) {
-      props[prop.first] = communication::ToDecodedValue(prop.second);
+      props[prop.first] = glue::ToDecodedValue(prop.second);
     }
     encoder_.WriteMap(props);
 
@@ -102,7 +102,7 @@ class SnapshotWriter {
     encoder_.WriteString(edge.type);
     std::map<std::string, communication::bolt::DecodedValue> props;
     for (const auto &prop : edge.props) {
-      props[prop.first] = communication::ToDecodedValue(prop.second);
+      props[prop.first] = glue::ToDecodedValue(prop.second);
     }
     encoder_.WriteMap(props);
 

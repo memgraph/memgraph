@@ -1,6 +1,9 @@
 #pragma once
 
-#include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include <cstdint>
+#include <cstring>
+#include <string>
+#include <vector>
 
 namespace storage {
 

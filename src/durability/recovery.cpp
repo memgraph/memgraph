@@ -4,7 +4,6 @@
 #include <limits>
 #include <unordered_map>
 
-#include "communication/conversion.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/indexes/label_property_index.hpp"
 #include "durability/hashed_file_reader.hpp"
@@ -13,6 +12,7 @@
 #include "durability/snapshot_decoder.hpp"
 #include "durability/version.hpp"
 #include "durability/wal.hpp"
+#include "glue/conversion.hpp"
 #include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "transactions/type.hpp"
@@ -127,15 +127,13 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     auto vertex = decoder.ReadSnapshotVertex();
     RETURN_IF_NOT(vertex);
 
-    auto vertex_accessor =
-        dba.InsertVertex(vertex->gid, vertex->cypher_id);
+    auto vertex_accessor = dba.InsertVertex(vertex->gid, vertex->cypher_id);
     for (const auto &label : vertex->labels) {
       vertex_accessor.add_label(dba.Label(label));
     }
     for (const auto &property_pair : vertex->properties) {
-      vertex_accessor.PropsSet(
-          dba.Property(property_pair.first),
-          communication::ToTypedValue(property_pair.second));
+      vertex_accessor.PropsSet(dba.Property(property_pair.first),
+                               glue::ToTypedValue(property_pair.second));
     }
     auto vertex_record = vertex_accessor.GetNew();
     for (const auto &edge : vertex->in) {
@@ -205,7 +203,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
 
     for (const auto &property_pair : edge.properties)
       edge_accessor.PropsSet(dba.Property(property_pair.first),
-                             communication::ToTypedValue(property_pair.second));
+                             glue::ToTypedValue(property_pair.second));
   }
 
   // Vertex and edge counts are included in the hash. Re-read them to update the

@@ -37,8 +37,7 @@ class ResultStreamFaker {
     results_.push_back(values);
   }
 
-  void Summary(
-      const std::map<std::string, communication::bolt::DecodedValue> &summary) {
+  void Summary(const std::map<std::string, TResultValue> &summary) {
     DCHECK(current_state_ != State::Done) << "Can only send a summary once";
     summary_ = summary;
     current_state_ = State::Done;
@@ -136,5 +135,5 @@ class ResultStreamFaker {
   // the data that the record stream can accept
   std::vector<std::string> header_;
   std::vector<std::vector<TResultValue>> results_;
-  std::map<std::string, communication::bolt::DecodedValue> summary_;
+  std::map<std::string, TResultValue> summary_;
 };
