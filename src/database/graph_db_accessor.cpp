@@ -154,6 +154,28 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
         "exists.");
   }
 
+  std::experimental::optional<std::vector<utils::Future<bool>>>
+      index_rpc_completions;
+
+  // Notify all workers to create the index
+  if (db_.type() == GraphDb::Type::DISTRIBUTED_MASTER) {
+    index_rpc_completions.emplace(db_.index_rpc_clients().GetCreateIndexFutures(
+        label, property, this->db_.WorkerId()));
+  }
+
+  if (index_rpc_completions) {
+    // Wait first, check later - so that every thread finishes and none
+    // terminates - this can probably be optimized in case we fail early so that
+    // we notify other workers to stop building indexes
+    for (auto &index_built : *index_rpc_completions) index_built.wait();
+    for (auto &index_built : *index_rpc_completions) {
+      if (!index_built.get()) {
+        db_.storage().label_property_index_.DeleteIndex(key);
+        throw IndexCreationOnWorkerException("Index exists on a worker");
+      }
+    }
+  }
+
   // Everything that happens after the line above ended will be added to the
   // index automatically, but we still have to add to index everything that
   // happened earlier. We have to first wait for every transaction that
@@ -179,14 +201,12 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   // CreateIndex.
   GraphDbAccessor dba(db_);
 
-  std::experimental::optional<std::vector<utils::Future<bool>>>
-      index_rpc_completions;
-
-  // Notify all workers to start building an index if we are the master since
+  // Notify all workers to start populating an index if we are the master since
   // they don't have to wait anymore
   if (db_.type() == GraphDb::Type::DISTRIBUTED_MASTER) {
-    index_rpc_completions.emplace(db_.index_rpc_clients().GetBuildIndexFutures(
-        label, property, transaction_id(), this->db_.WorkerId()));
+    index_rpc_completions.emplace(
+        db_.index_rpc_clients().GetPopulateIndexFutures(
+            label, property, dba.transaction_id(), this->db_.WorkerId()));
   }
 
   // Add transaction to the build_tx_in_progress as this transaction doesn't

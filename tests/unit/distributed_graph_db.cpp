@@ -174,6 +174,45 @@ TEST_F(DistributedGraphDb, BuildIndexDistributed) {
   }
 }
 
+TEST_F(DistributedGraphDb, BuildIndexConcurrentInsert) {
+  storage::Label label;
+  storage::Property property;
+
+  GraphDbAccessor dba0{master()};
+  label = dba0.Label("label");
+  property = dba0.Property("property");
+
+  int cnt = 0;
+  auto add_vertex = [label, property, &cnt](GraphDbAccessor &dba) {
+    auto vertex = dba.InsertVertex();
+    vertex.add_label(label);
+    vertex.PropsSet(property, ++cnt);
+  };
+  dba0.Commit();
+
+  auto worker_insert = std::thread([this, &add_vertex]() {
+    for (int i = 0; i < 10000; ++i) {
+      GraphDbAccessor dba1{worker(1)};
+      add_vertex(dba1);
+      dba1.Commit();
+    }
+  });
+
+  std::this_thread::sleep_for(0.5s);
+  {
+    GraphDbAccessor dba{master()};
+    dba.BuildIndex(label, property);
+    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
+  }
+
+  worker_insert.join();
+  {
+    GraphDbAccessor dba{worker(1)};
+    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 10000);
+  }
+}
+
 TEST_F(DistributedGraphDb, WorkerOwnedDbAccessors) {
   GraphDbAccessor dba_w1(worker(1));
   auto v = dba_w1.InsertVertex();

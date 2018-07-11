@@ -15,11 +15,17 @@ cpp<#
 
 (lcp:capnp-import 'storage "/storage/serialization.capnp")
 
-(lcp:define-rpc build-index
+(lcp:define-rpc populate-index
     (:request
      ((label "storage::Label" :capnp-type "Storage.Common")
       (property "storage::Property" :capnp-type "Storage.Common")
       (tx-id "tx::TransactionId" :capnp-type "UInt64")))
+  (:response ()))
+
+(lcp:define-rpc create-index
+    (:request
+     ((label "storage::Label" :capnp-type "Storage.Common")
+      (property "storage::Property" :capnp-type "Storage.Common")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

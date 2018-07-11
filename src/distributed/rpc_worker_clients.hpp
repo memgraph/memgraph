@@ -84,15 +84,27 @@ class IndexRpcClients {
  public:
   explicit IndexRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
 
-  auto GetBuildIndexFutures(const storage::Label &label,
-                            const storage::Property &property,
-                            tx::TransactionId transaction_id, int worker_id) {
+  auto GetPopulateIndexFutures(const storage::Label &label,
+                               const storage::Property &property,
+                               tx::TransactionId transaction_id,
+                               int worker_id) {
     return clients_.ExecuteOnWorkers<bool>(
         worker_id,
         [label, property, transaction_id](
             int worker_id, communication::rpc::ClientPool &client_pool) {
+          return static_cast<bool>(client_pool.Call<PopulateIndexRpc>(
+              label, property, transaction_id));
+        });
+  }
+
+  auto GetCreateIndexFutures(const storage::Label &label,
+                             const storage::Property &property, int worker_id) {
+    return clients_.ExecuteOnWorkers<bool>(
+        worker_id,
+        [label, property](int worker_id,
+                          communication::rpc::ClientPool &client_pool) {
           return static_cast<bool>(
-              client_pool.Call<BuildIndexRpc>(label, property, transaction_id));
+              client_pool.Call<CreateIndexRpc>(label, property));
         });
   }
 

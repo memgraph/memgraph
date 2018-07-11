@@ -52,8 +52,9 @@ class Cluster {
 
   void Stop() {
     interpreter_ = nullptr;
-    master_ = nullptr;
+    auto t = std::thread([this]() { master_ = nullptr; });
     workers_.clear();
+    if (t.joinable()) t.join();
   }
 
   ~Cluster() {
