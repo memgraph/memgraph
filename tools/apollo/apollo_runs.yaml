@@ -13,7 +13,7 @@
 - name: code_coverage
   type: data process
   require_runs: ^unit__.+ # regex to match all unit runs
-  commands: ./coverage_convert
+  commands: TIMEOUT=300 ./coverage_convert
   infiles:
     - coverage_convert # coverage_convert script
     - coverage_parse_export # coverage_parse_export script
