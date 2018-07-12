@@ -72,6 +72,11 @@ class Session {
    */
   void Execute() {
     if (UNLIKELY(!handshake_done_)) {
+      // Resize the input buffer to ensure that a whole chunk can fit into it.
+      // This can be done only once because the buffer holds its size.
+      input_stream_.Resize(WHOLE_CHUNK_SIZE);
+
+      // Receive the handshake.
       if (input_stream_.size() < HANDSHAKE_SIZE) {
         DLOG(WARNING) << fmt::format("Received partial handshake of size {}",
                                      input_stream_.size());

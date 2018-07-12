@@ -34,6 +34,8 @@ class TestInputStream {
     data_.erase(data_.begin(), data_.begin() + count);
   }
 
+  void Resize(size_t len) {}
+
  private:
   std::vector<uint8_t> data_;
 };
