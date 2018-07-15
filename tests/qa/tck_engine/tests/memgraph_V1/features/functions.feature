@@ -796,3 +796,42 @@ Feature: Functions
         Then the result should be:
             | n  | zero | one | n2 |
             | 42 | 0    | 1   | 0  |
+
+    Scenario: Vertex Id test:
+        # 1024 should be a runtime parameter.
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (), (), ()
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n ORDER BY id(n)
+            WITH COLLECT(id(n)) AS node_ids
+            UNWIND node_ids AS node_id
+            RETURN (node_id - node_ids[0]) / 1024 AS id;
+            """
+        Then the result should be:
+            | id |
+            | 0  |
+            | 1  |
+            | 2  |
+
+    Scenario: Edge Id test:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (v1)-[e1:A]->(v2)-[e2:A]->(v3)-[e3:A]->(v4)
+            """
+        When executing query:
+            """
+            MATCH ()-[e]->() WITH e ORDER BY id(e)
+            WITH COLLECT(id(e)) AS edge_ids
+            UNWIND edge_ids AS edge_id
+            RETURN (edge_id - edge_ids[0]) / 1024 AS id;
+            """
+        Then the result should be:
+            | id |
+            | 0  |
+            | 1  |
+            | 2  |
