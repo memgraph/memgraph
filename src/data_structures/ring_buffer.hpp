@@ -21,8 +21,8 @@
 template <typename TElement>
 class RingBuffer {
  public:
-  RingBuffer(int capacity) : capacity_(capacity) {
-    buffer_ = new TElement[capacity_];
+  explicit RingBuffer(int capacity) : capacity_(capacity) {
+    buffer_ = std::make_unique<TElement[]>(capacity_);
   }
 
   RingBuffer(const RingBuffer &) = delete;
@@ -30,9 +30,7 @@ class RingBuffer {
   RingBuffer &operator=(const RingBuffer &) = delete;
   RingBuffer &operator=(RingBuffer &&) = delete;
 
-  ~RingBuffer() {
-    delete[] buffer_;
-  }
+  ~RingBuffer() = default;
 
   /**
    * Emplaces a new element into the buffer. This call blocks until space in the
@@ -53,7 +51,7 @@ class RingBuffer {
       }
 
       // Log a warning approximately once per second if buffer is full.
-      LOG_EVERY_N(WARNING, 4000) << "RingBuffer full: worker waiting";
+      DLOG_EVERY_N(WARNING, 4000) << "RingBuffer full: worker waiting";
       // Sleep time determined using tests/benchmark/ring_buffer.cpp
       std::this_thread::sleep_for(std::chrono::microseconds(250));
     }
@@ -83,7 +81,7 @@ class RingBuffer {
 
  private:
   int capacity_;
-  TElement *buffer_;
+  std::unique_ptr<TElement[]> buffer_;
   utils::SpinLock lock_;
   int read_pos_{0};
   int write_pos_{0};
