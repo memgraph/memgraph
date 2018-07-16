@@ -62,15 +62,6 @@ State HandleRun(TSession &session, State state, Marker marker) {
 
   DLOG(INFO) << fmt::format("[Run] '{}'", query.ValueString());
 
-  // TODO: Possible (but very unlikely) race condition, where we have alive
-  // session during shutdown, but IsAcceptingTransactions isn't yet false.
-  // We should probably create transactions under some locking mechanism.
-  if (session.IsShuttingDown()) {
-    // Db is shutting down and doesn't accept new transactions so we should
-    // close this session.
-    return State::Close;
-  }
-
   try {
     // PullAll can throw.
     session.PullAll(query.ValueString(), params.ValueMap());

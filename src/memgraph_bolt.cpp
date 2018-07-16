@@ -18,6 +18,7 @@
 #include "glue/conversion.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
+#include "query/transaction_engine.hpp"
 #include "stats/stats.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
@@ -73,16 +74,7 @@ class BoltSession final
       : communication::bolt::Session<communication::InputStream,
                                      communication::OutputStream>(
             input_stream, output_stream),
-        db_(data.db),
-        interpreter_(data.interpreter) {}
-
-  ~BoltSession() {
-    if (db_accessor_) {
-      Abort();
-    }
-  }
-
-  bool IsShuttingDown() override { return !db_.is_accepting_transactions(); }
+        transaction_engine_(data.db, data.interpreter) {}
 
   using communication::bolt::Session<
       communication::InputStream, communication::OutputStream>::ResultStreamT;
@@ -91,78 +83,20 @@ class BoltSession final
       const std::string &query,
       const std::map<std::string, communication::bolt::DecodedValue> &params,
       ResultStreamT *result_stream) override {
-    bool in_explicit_transaction = !!db_accessor_;
-    if (!db_accessor_)
-      db_accessor_ = std::make_unique<database::GraphDbAccessor>(db_);
-    // TODO: Queries below should probably move to interpreter, but there is
-    // only one interpreter in GraphDb. We probably need some kind of
-    // per-session access for the interpreter.
-    // TODO: Also, write tests for these queries
-    if (expect_rollback_ && query != "ROLLBACK") {
-      // Client could potentially recover if we move to error state, but we
-      // don't implement rollback of single command in transaction, only
-      // rollback of whole transaction so we can't continue in this transaction
-      // if we receive new query.
-      throw communication::bolt::ClientError(
-          "Expected ROLLBACK, because previous query contained an error");
-    }
-    if (query == "ROLLBACK") {
-      if (!in_explicit_transaction)
-        throw communication::bolt::ClientError(
-            "ROLLBACK can only be used after BEGIN");
-      Abort();
-      result_stream->Header({});
-      result_stream->Summary({});
-      return;
-    } else if (query == "BEGIN") {
-      if (in_explicit_transaction)
-        throw communication::bolt::ClientError("BEGIN already called");
-      // We accept BEGIN, so send the empty results.
-      result_stream->Header({});
-      result_stream->Summary({});
-      return;
-    } else if (query == "COMMIT") {
-      if (!in_explicit_transaction)
-        throw communication::bolt::ClientError(
-            "COMMIT can only be used after BEGIN");
-      Commit();
-      result_stream->Header({});
-      result_stream->Summary({});
-      return;
-    }
-    // Any other query in BEGIN block advances the command.
-    if (in_explicit_transaction) AdvanceCommand();
-    // Handle regular Cypher queries below
     std::map<std::string, query::TypedValue> params_tv;
     for (const auto &kv : params)
       params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
-    auto abort_tx = [this, in_explicit_transaction]() {
-      if (in_explicit_transaction)
-        expect_rollback_ = true;
-      else
-        this->Abort();
-    };
     try {
       TypedValueResultStream stream(result_stream);
-      interpreter_(query, *db_accessor_, params_tv, in_explicit_transaction)
-          .PullAll(stream);
-      if (!in_explicit_transaction) Commit();
+      transaction_engine_.PullAll(query, params_tv, &stream);
     } catch (const query::QueryException &e) {
-      abort_tx();
       // Wrap QueryException into ClientError, because we want to allow the
       // client to fix their query.
       throw communication::bolt::ClientError(e.what());
-    } catch (const utils::BasicException &) {
-      abort_tx();
-      throw;
     }
   }
 
-  void Abort() override {
-    if (!db_accessor_) return;
-    db_accessor_->Abort();
-    db_accessor_ = nullptr;
-  }
+  void Abort() override { transaction_engine_.Abort(); }
 
  private:
   // Wrapper around ResultStreamT which converts TypedValue to DecodedValue
@@ -197,28 +131,7 @@ class BoltSession final
     ResultStreamT *result_stream_;
   };
 
-  database::MasterBase &db_;
-  query::Interpreter &interpreter_;
-  // GraphDbAccessor of active transaction in the session, can be null if
-  // there is no associated transaction.
-  std::unique_ptr<database::GraphDbAccessor> db_accessor_;
-  bool expect_rollback_{false};
-
-  void Commit() {
-    DCHECK(db_accessor_) << "Commit called and there is no transaction";
-    db_accessor_->Commit();
-    db_accessor_ = nullptr;
-  }
-
-  void AdvanceCommand() {
-    db_accessor_->AdvanceCommand();
-    if (db_.type() == database::GraphDb::Type::DISTRIBUTED_MASTER) {
-      auto tx_id = db_accessor_->transaction_id();
-      auto futures =
-          db_.pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
-      for (auto &future : futures) future.wait();
-    }
-  }
+  query::TransactionEngine transaction_engine_;
 };
 
 using ServerT = communication::Server<BoltSession, SessionData>;

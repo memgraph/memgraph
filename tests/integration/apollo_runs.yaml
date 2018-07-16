@@ -14,3 +14,11 @@
     - runner.sh # runner script
     - ../../../build_debug/tests/integration/ssl/tester # tester binary
   enable_network: true
+
+- name: integration__transactions
+  cd: transactions
+  commands: ./runner.sh
+  infiles:
+    - runner.sh # runner script
+    - ../../../build_debug/memgraph # memgraph binary
+    - ../../../build_debug/tests/integration/transactions/tester # tester binary

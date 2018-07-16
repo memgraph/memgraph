@@ -25,8 +25,6 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
       : Session<TestInputStream, TestOutputStream>(input_stream,
                                                    output_stream) {}
 
-  bool IsShuttingDown() override { return false; }
-
   void PullAll(const std::string &query,
                const std::map<std::string, DecodedValue> &params,
                ResultStreamT *result_stream) override {

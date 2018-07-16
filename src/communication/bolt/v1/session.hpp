@@ -47,9 +47,6 @@ class Session {
 
   virtual ~Session() {}
 
-  /** Return `true` if we are no longer running and accepting queries */
-  virtual bool IsShuttingDown() = 0;
-
   /**
    * Put results in the `result_stream` by processing the given `query` with
    * `params`.

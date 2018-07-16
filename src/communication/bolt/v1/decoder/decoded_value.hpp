@@ -150,6 +150,7 @@ class DecodedValue {
   DecodedValue(const std::string &value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
+  DecodedValue(const char *value) : DecodedValue(std::string(value)) {}
   DecodedValue(const std::vector<DecodedValue> &value) : type_(Type::List) {
     new (&list_v) std::vector<DecodedValue>(value);
   }
