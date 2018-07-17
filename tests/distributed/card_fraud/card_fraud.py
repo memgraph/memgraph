@@ -78,7 +78,7 @@ class MgCluster:
             ])
 
         # sleep to allow the workers to startup
-        time.sleep(5)
+        time.sleep(15)
 
         # store initial usage
         self._usage_start = [self._master.get_usage()]

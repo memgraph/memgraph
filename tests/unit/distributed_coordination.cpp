@@ -60,7 +60,10 @@ class WorkerCoordinationInThread {
   }
   auto worker_ids() { return worker->coord.GetWorkerIds(); }
   void join() { worker_thread_.join(); }
-  void NotifyWorkerRecovered() { worker->discovery.NotifyWorkerRecovered(); }
+  void NotifyWorkerRecovered() {
+    std::experimental::optional<durability::RecoveryInfo> no_recovery_info;
+    worker->discovery.NotifyWorkerRecovered(no_recovery_info);
+  }
 
  private:
   std::thread worker_thread_;
@@ -72,7 +75,7 @@ TEST(Distributed, Coordination) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
   {
     MasterCoordination master_coord(master_server.endpoint());
-    master_coord.SetRecoveryInfo(std::experimental::nullopt);
+    master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
     RpcWorkerClients rpc_worker_clients(master_coord);
     ClusterDiscoveryMaster master_discovery_(master_server, master_coord,
                                              rpc_worker_clients);
@@ -102,7 +105,7 @@ TEST(Distributed, DesiredAndUniqueId) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
   {
     MasterCoordination master_coord(master_server.endpoint());
-    master_coord.SetRecoveryInfo(std::experimental::nullopt);
+    master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
     RpcWorkerClients rpc_worker_clients(master_coord);
     ClusterDiscoveryMaster master_discovery_(master_server, master_coord,
                                              rpc_worker_clients);
@@ -125,7 +128,7 @@ TEST(Distributed, CoordinationWorkersId) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
   {
     MasterCoordination master_coord(master_server.endpoint());
-    master_coord.SetRecoveryInfo(std::experimental::nullopt);
+    master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
     RpcWorkerClients rpc_worker_clients(master_coord);
     ClusterDiscoveryMaster master_discovery_(master_server, master_coord,
                                              rpc_worker_clients);
@@ -151,7 +154,7 @@ TEST(Distributed, ClusterDiscovery) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
   {
     MasterCoordination master_coord(master_server.endpoint());
-    master_coord.SetRecoveryInfo(std::experimental::nullopt);
+    master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
     RpcWorkerClients rpc_worker_clients(master_coord);
     ClusterDiscoveryMaster master_discovery_(master_server, master_coord,
                                              rpc_worker_clients);
@@ -182,7 +185,7 @@ TEST(Distributed, KeepsTrackOfRecovered) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
   {
     MasterCoordination master_coord(master_server.endpoint());
-    master_coord.SetRecoveryInfo(std::experimental::nullopt);
+    master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
     RpcWorkerClients rpc_worker_clients(master_coord);
     ClusterDiscoveryMaster master_discovery_(master_server, master_coord,
                                              rpc_worker_clients);

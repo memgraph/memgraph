@@ -6,15 +6,22 @@
 
 #include "communication/rpc/messages.hpp"
 #include "distributed/durability_rpc_messages.capnp.h"
+#include "durability/recovery.hpp"
 #include "transactions/transaction.hpp"
 cpp<#
 
 (lcp:namespace distributed)
+
+(lcp:capnp-import 'dur "/durability/recovery.capnp")
 
 (lcp:capnp-namespace "distributed")
 
 (lcp:define-rpc make-snapshot
     (:request ((member "tx::TransactionId" :capnp-type "UInt64")))
   (:response ((member :bool))))
+
+(lcp:define-rpc recover-wal-and-indexes
+    (:request ((member "durability::RecoveryData" :capnp-type "Dur.RecoveryData")))
+  (:response ()))
 
 (lcp:pop-namespace) ;; distributed

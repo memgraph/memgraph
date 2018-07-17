@@ -28,8 +28,8 @@ set(memgraph_src_files
     distributed/data_manager.cpp
     distributed/data_rpc_clients.cpp
     distributed/data_rpc_server.cpp
-    distributed/durability_rpc_clients.cpp
-    distributed/durability_rpc_server.cpp
+    distributed/durability_rpc_master.cpp
+    distributed/durability_rpc_worker.cpp
     distributed/index_rpc_server.cpp
     distributed/plan_consumer.cpp
     distributed/plan_dispatcher.cpp

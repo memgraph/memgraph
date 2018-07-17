@@ -54,10 +54,25 @@ SingleNode::SingleNode(Config config)
   if (impl_->config_.durability_enabled)
     utils::CheckDir(impl_->config_.durability_directory);
 
-  // Recover only if necessary.
-  if (impl_->config_.db_recover_on_startup) {
-    durability::Recover(impl_->config_.durability_directory, *this,
-                        std::experimental::nullopt);
+  // Durability recovery.
+  {
+    // What we recover.
+    std::experimental::optional<durability::RecoveryInfo> recovery_info;
+
+    durability::RecoveryData recovery_data;
+    // Recover only if necessary.
+    if (impl_->config_.db_recover_on_startup) {
+      recovery_info = durability::RecoverOnlySnapshot(
+          impl_->config_.durability_directory, this, &recovery_data,
+          std::experimental::nullopt);
+    }
+
+    // Post-recovery setup and checking.
+    if (recovery_info) {
+      recovery_data.wal_tx_to_recover = recovery_info->wal_recovered;
+      durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
+                                       this, &recovery_data);
+    }
   }
 
   if (impl_->config_.durability_enabled) {

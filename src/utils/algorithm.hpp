@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <string>
+#include <unordered_set>
 #include <utility>
 
 #include "utils/exceptions.hpp"
@@ -89,6 +90,12 @@ template <class TVal, class TIterable>
 inline TVal First(TIterable &&iterable, TVal &&empty_value) {
   if (iterable.begin() != iterable.end()) return *iterable.begin();
   return empty_value;
+}
+
+template <typename TElement>
+inline bool Contains(const std::unordered_set<TElement> &iterable,
+                     const TElement &element) {
+  return iterable.find(element) != iterable.end();
 }
 
 /**

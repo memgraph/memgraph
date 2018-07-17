@@ -31,31 +31,37 @@ class MasterCoordination final : public Coordination {
 
   /*
    * Worker `worker_id` finished with recovering, adds it to the set of
-   * recovered workers.
+   * recovered workers alongside with its recovery_info.
    */
-  void WorkerRecovered(int worker_id);
+  void WorkerRecoveredSnapshot(
+      int worker_id, const std::experimental::optional<durability::RecoveryInfo>
+                         &recovery_info);
 
   Endpoint GetEndpoint(int worker_id);
 
   /// Sets the recovery info. nullopt indicates nothing was recovered.
-  void SetRecoveryInfo(
-      std::experimental::optional<durability::RecoveryInfo> info);
+  void SetRecoveredSnapshot(
+      std::experimental::optional<tx::TransactionId> recovered_snapshot);
 
-  std::experimental::optional<durability::RecoveryInfo> RecoveryInfo() const;
+  std::experimental::optional<tx::TransactionId> RecoveredSnapshotTx() const;
 
   int CountRecoveredWorkers() const;
+
+  std::vector<tx::TransactionId> CommonWalTransactions(
+      const durability::RecoveryInfo &master_info) const;
 
  private:
   // Most master functions aren't thread-safe.
   mutable std::mutex lock_;
 
-  /// Durabiliry recovery info.
+  /// Durabilility recovery info.
   /// Indicates if the recovery phase is done.
   bool recovery_done_{false};
-  /// Set of workers that finished sucesfully recovering
-  std::set<int> recovered_workers_;
+  /// Set of workers that finished sucesfully recovering snapshot
+  std::map<int, std::experimental::optional<durability::RecoveryInfo>>
+      recovered_workers_;
   /// If nullopt nothing was recovered.
-  std::experimental::optional<durability::RecoveryInfo> recovery_info_;
+  std::experimental::optional<tx::TransactionId> recovered_snapshot_tx_;
 };
 
 }  // namespace distributed

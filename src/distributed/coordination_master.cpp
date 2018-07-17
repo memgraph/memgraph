@@ -40,8 +40,11 @@ bool MasterCoordination::RegisterWorker(int desired_worker_id,
   return true;
 }
 
-void MasterCoordination::WorkerRecovered(int worker_id) {
-  CHECK(recovered_workers_.insert(worker_id).second)
+void MasterCoordination::WorkerRecoveredSnapshot(
+    int worker_id, const std::experimental::optional<durability::RecoveryInfo>
+                       &recovery_info) {
+  CHECK(recovered_workers_.insert(std::make_pair(worker_id, recovery_info))
+            .second)
       << "Worker already notified about finishing recovery";
 }
 
@@ -71,22 +74,54 @@ MasterCoordination::~MasterCoordination() {
   }
 }
 
-void MasterCoordination::SetRecoveryInfo(
-    std::experimental::optional<durability::RecoveryInfo> info) {
+void MasterCoordination::SetRecoveredSnapshot(
+    std::experimental::optional<tx::TransactionId> recovered_snapshot_tx) {
   std::lock_guard<std::mutex> guard(lock_);
   recovery_done_ = true;
-  recovery_info_ = info;
+  recovered_snapshot_tx_ = recovered_snapshot_tx;
 }
 
 int MasterCoordination::CountRecoveredWorkers() const {
   return recovered_workers_.size();
 }
 
-std::experimental::optional<durability::RecoveryInfo>
-MasterCoordination::RecoveryInfo() const {
+std::experimental::optional<tx::TransactionId>
+MasterCoordination::RecoveredSnapshotTx() const {
   std::lock_guard<std::mutex> guard(lock_);
-  CHECK(recovery_done_) << "RecoveryInfo requested before it's available";
-  return recovery_info_;
+  CHECK(recovery_done_) << "Recovered snapshot requested before it's available";
+  return recovered_snapshot_tx_;
+}
+
+std::vector<tx::TransactionId> MasterCoordination::CommonWalTransactions(
+    const durability::RecoveryInfo &master_info) const {
+  int cluster_size;
+  std::unordered_map<tx::TransactionId, int> tx_cnt;
+  for (auto tx : master_info.wal_recovered) {
+    tx_cnt[tx]++;
+  }
+
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    for (auto worker : recovered_workers_) {
+      // If there is no recovery info we can just return an empty vector since
+      // we can't restore any transaction
+      if (!worker.second) return {};
+      for (auto tx : worker.second->wal_recovered) {
+        tx_cnt[tx]++;
+      }
+    }
+    // Add one because of master
+    cluster_size = recovered_workers_.size() + 1;
+  }
+
+  std::vector<tx::TransactionId> tx_intersection;
+  for (auto tx : tx_cnt) {
+    if (tx.second == cluster_size) {
+      tx_intersection.push_back(tx.first);
+    }
+  }
+
+  return tx_intersection;
 }
 
 }  // namespace distributed

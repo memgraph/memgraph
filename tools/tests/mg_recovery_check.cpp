@@ -21,7 +21,10 @@ class RecoveryTest : public ::testing::Test {
  protected:
   void SetUp() override {
     std::string durability_dir(FLAGS_durability_dir);
-    durability::Recover(durability_dir, db_, std::experimental::nullopt);
+    durability::RecoveryData recovery_data;
+    durability::RecoverOnlySnapshot(durability_dir, &db_, &recovery_data,
+                                    std::experimental::nullopt);
+    durability::RecoverWalAndIndexes(durability_dir, &db_, &recovery_data);
   }
 
   database::SingleNode db_;

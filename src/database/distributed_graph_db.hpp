@@ -1,6 +1,7 @@
 #pragma once
 
 #include "database/graph_db.hpp"
+#include "durability/recovery.hpp"
 
 namespace distributed {
 class BfsRpcServer;
@@ -100,6 +101,7 @@ class Worker final : public DistributedGraphDb {
   std::vector<int> GetWorkerIds() const override;
   bool MakeSnapshot(GraphDbAccessor &accessor) override;
   void ReinitializeStorage() override;
+  void RecoverWalAndIndexes(durability::RecoveryData *recovery_data);
 
   /** Gets this worker's endpoint. */
   io::network::Endpoint endpoint() const;

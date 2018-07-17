@@ -11,8 +11,8 @@
 #include "distributed/coordination_worker.hpp"
 #include "distributed/data_manager.hpp"
 #include "distributed/data_rpc_server.hpp"
-#include "distributed/durability_rpc_clients.hpp"
-#include "distributed/durability_rpc_server.hpp"
+#include "distributed/durability_rpc_master.hpp"
+#include "distributed/durability_rpc_worker.hpp"
 #include "distributed/index_rpc_server.hpp"
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/pull_rpc_clients.hpp"
@@ -48,7 +48,7 @@ struct TypemapPack {
 
 class Master {
  public:
-  explicit Master(const Config &config, DistributedGraphDb *self)
+  explicit Master(const Config &config, database::Master *self)
       : config_(config), self_(self) {}
 
   Config config_;
@@ -62,7 +62,7 @@ class Master {
   // have a lot of circular pointers among members. It would be a good idea to
   // clean the mess. Also, be careful of virtual calls to `self_` in
   // constructors of members.
-  DistributedGraphDb *self_{nullptr};
+  database::Master *self_{nullptr};
   communication::rpc::Server server_{
       config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   tx::MasterEngine tx_engine_{server_, rpc_worker_clients_, &wal_};
@@ -79,8 +79,7 @@ class Master {
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{
       self_, &subcursor_storage_, &rpc_worker_clients_, &data_manager_};
-  distributed::DurabilityRpcClients durability_rpc_clients_{
-      rpc_worker_clients_};
+  distributed::DurabilityRpcMaster durability_rpc_{rpc_worker_clients_};
   distributed::DataRpcServer data_server_{*self_, server_};
   distributed::DataRpcClients data_clients_{rpc_worker_clients_};
   distributed::PlanDispatcher plan_dispatcher_{rpc_worker_clients_};
@@ -112,14 +111,21 @@ Master::Master(Config config)
     // What we recover.
     std::experimental::optional<durability::RecoveryInfo> recovery_info;
 
+    durability::RecoveryData recovery_data;
     // Recover only if necessary.
     if (impl_->config_.db_recover_on_startup) {
-      recovery_info = durability::Recover(impl_->config_.durability_directory,
-                                          *this, std::experimental::nullopt);
+      recovery_info = durability::RecoverOnlySnapshot(
+          impl_->config_.durability_directory, this, &recovery_data,
+          std::experimental::nullopt);
     }
 
     // Post-recovery setup and checking.
-    impl_->coordination_.SetRecoveryInfo(recovery_info);
+    impl_->coordination_.SetRecoveredSnapshot(
+        recovery_info
+            ? std::experimental::make_optional(recovery_info->snapshot_tx_id)
+            : std::experimental::nullopt);
+
+    // Wait till workers report back their recoverable wal txs
     if (recovery_info) {
       CHECK(impl_->config_.recovering_cluster_size > 0)
           << "Invalid cluster recovery size flag. Recovered cluster size "
@@ -129,8 +135,19 @@ Master::Master(Config config)
         LOG(INFO) << "Waiting for workers to finish recovering..";
         std::this_thread::sleep_for(2s);
       }
+
+      // Get the intersection of recoverable transactions from wal on
+      // workers and on master
+      recovery_data.wal_tx_to_recover =
+          impl_->coordination_.CommonWalTransactions(*recovery_info);
+      durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
+                                       this, &recovery_data);
+      auto workers_recovered_wal =
+          impl_->durability_rpc_.RecoverWalAndIndexes(&recovery_data);
+      workers_recovered_wal.get();
     }
   }
+
   // Start the dynamic graph partitioner inside token sharing server
   if (impl_->config_.dynamic_graph_partitioner_enabled) {
     impl_->token_sharing_server_.StartTokenSharing();
@@ -214,7 +231,7 @@ std::vector<int> Master::GetWorkerIds() const {
 // written here only if workers sucesfully created their own snapshot
 bool Master::MakeSnapshot(GraphDbAccessor &accessor) {
   auto workers_snapshot =
-      impl_->durability_rpc_clients_.MakeSnapshot(accessor.transaction_id());
+      impl_->durability_rpc_.MakeSnapshot(accessor.transaction_id());
   if (!workers_snapshot.get()) return false;
   // This can be further optimized by creating master snapshot at the same
   // time as workers snapshots but this forces us to delete the master
@@ -295,7 +312,7 @@ class Worker {
                                  config_.durability_directory,
                                  config_.durability_enabled};
 
-  explicit Worker(const Config &config, DistributedGraphDb *self)
+  explicit Worker(const Config &config, database::Worker *self)
       : config_(config), self_(self) {
     cluster_discovery_.RegisterWorker(config.worker_id);
   }
@@ -304,7 +321,7 @@ class Worker {
   // have a lot of circular pointers among members. It would be a good idea to
   // clean the mess. Also, be careful of virtual calls to `self_` in
   // constructors of members.
-  DistributedGraphDb *self_{nullptr};
+  database::Worker *self_{nullptr};
   communication::rpc::Server server_{
       config_.worker_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
   distributed::WorkerCoordination coordination_{server_,
@@ -336,7 +353,7 @@ class Worker {
   distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
       tx_engine_,      &wal_,           server_,
       produce_server_, updates_server_, data_manager_};
-  distributed::DurabilityRpcServer durability_rpc_server_{*self_, server_};
+  distributed::DurabilityRpcWorker durability_rpc_{self_, &server_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
       server_, coordination_, rpc_worker_clients_.GetClientPool(0)};
   distributed::TokenSharingRpcClients token_sharing_clients_{
@@ -356,23 +373,27 @@ Worker::Worker(Config config)
   // Durability recovery.
   {
     // What we should recover.
-    std::experimental::optional<durability::RecoveryInfo>
-        required_recovery_info(impl_->cluster_discovery_.recovery_info());
+    std::experimental::optional<tx::TransactionId> snapshot_to_recover;
+    snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
 
     // What we recover.
     std::experimental::optional<durability::RecoveryInfo> recovery_info;
 
+    durability::RecoveryData recovery_data;
     // Recover only if necessary.
-    if (required_recovery_info) {
-      recovery_info = durability::Recover(impl_->config_.durability_directory,
-                                          *this, required_recovery_info);
+    if (snapshot_to_recover) {
+      recovery_info = durability::RecoverOnlySnapshot(
+          impl_->config_.durability_directory, this, &recovery_data,
+          snapshot_to_recover);
     }
 
     // Post-recovery setup and checking.
-    if (required_recovery_info != recovery_info)
+    if (snapshot_to_recover &&
+        (!recovery_info ||
+         snapshot_to_recover != recovery_info->snapshot_tx_id))
       LOG(FATAL) << "Memgraph worker failed to recover the database state "
                     "recovered on the master";
-    impl_->cluster_discovery_.NotifyWorkerRecovered();
+    impl_->cluster_discovery_.NotifyWorkerRecovered(recovery_info);
   }
 
   if (impl_->config_.durability_enabled) {
@@ -454,6 +475,11 @@ void Worker::ReinitializeStorage() {
   impl_->storage_gc_ = std::make_unique<StorageGcWorker>(
       *impl_->storage_, impl_->tx_engine_, impl_->config_.gc_cycle_sec,
       impl_->rpc_worker_clients_.GetClientPool(0), impl_->config_.worker_id);
+}
+
+void Worker::RecoverWalAndIndexes(durability::RecoveryData *recovery_data) {
+  durability::RecoverWalAndIndexes(impl_->config_.durability_directory, this,
+                                   recovery_data);
 }
 
 io::network::Endpoint Worker::endpoint() const {

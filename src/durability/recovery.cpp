@@ -37,31 +37,14 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
 namespace {
 using communication::bolt::DecodedValue;
 
-// A data structure for exchanging info between main recovery function and
-// snapshot and WAL recovery functions.
-struct RecoveryData {
-  tx::TransactionId snapshooter_tx_id{0};
-  tx::TransactionId wal_max_recovered_tx_id{0};
-  std::vector<tx::TransactionId> snapshooter_tx_snapshot;
-  // A collection into which the indexes should be added so they
-  // can be rebuilt at the end of the recovery transaction.
-  std::vector<std::pair<std::string, std::string>> indexes;
-
-  void Clear() {
-    snapshooter_tx_id = 0;
-    snapshooter_tx_snapshot.clear();
-    indexes.clear();
-  }
-};
-
 #define RETURN_IF_NOT(condition) \
   if (!(condition)) {            \
     reader.Close();              \
     return false;                \
   }
 
-bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
-                     RecoveryData &recovery_data) {
+bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
+                     RecoveryData *recovery_data) {
   HashedFileReader reader;
   SnapshotDecoder<HashedFileReader> decoder(reader);
 
@@ -85,25 +68,25 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
 
   // Checks worker id was set correctly
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int) &&
-                dv.ValueInt() == db.WorkerId());
+                dv.ValueInt() == db->WorkerId());
 
   // Vertex and edge generator ids
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
   uint64_t vertex_generator_cnt = dv.ValueInt();
-  db.storage().VertexGenerator().SetId(std::max(
-      db.storage().VertexGenerator().LocalCount(), vertex_generator_cnt));
+  db->storage().VertexGenerator().SetId(std::max(
+      db->storage().VertexGenerator().LocalCount(), vertex_generator_cnt));
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
   uint64_t edge_generator_cnt = dv.ValueInt();
-  db.storage().EdgeGenerator().SetId(
-      std::max(db.storage().EdgeGenerator().LocalCount(), edge_generator_cnt));
+  db->storage().EdgeGenerator().SetId(
+      std::max(db->storage().EdgeGenerator().LocalCount(), edge_generator_cnt));
 
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
-  recovery_data.snapshooter_tx_id = dv.ValueInt();
+  recovery_data->snapshooter_tx_id = dv.ValueInt();
   // Transaction snapshot of the transaction that created the snapshot.
   RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::List));
   for (const auto &value : dv.ValueList()) {
     RETURN_IF_NOT(value.IsInt());
-    recovery_data.snapshooter_tx_snapshot.emplace_back(value.ValueInt());
+    recovery_data->snapshooter_tx_snapshot.emplace_back(value.ValueInt());
   }
 
   // A list of label+property indexes.
@@ -114,11 +97,11 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
     RETURN_IF_NOT(it != index_value.end());
     auto property = *it++;
     RETURN_IF_NOT(label.IsString() && property.IsString());
-    recovery_data.indexes.emplace_back(label.ValueString(),
-                                       property.ValueString());
+    recovery_data->indexes.emplace_back(label.ValueString(),
+                                        property.ValueString());
   }
 
-  database::GraphDbAccessor dba(db);
+  database::GraphDbAccessor dba(*db);
   std::unordered_map<gid::Gid,
                      std::pair<storage::VertexAddress, storage::VertexAddress>>
       edge_gid_endpoints_mapping;
@@ -154,7 +137,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
       [&db, &dba](storage::VertexAddress &address) {
         if (address.is_local()) return;
         // If the worker id matches it should be a local apperance
-        if (address.worker_id() == db.WorkerId()) {
+        if (address.worker_id() == db->WorkerId()) {
           address = storage::VertexAddress(
               dba.db().storage().LocalAddress<Vertex>(address.gid()));
           CHECK(address.is_local()) << "Address should be local but isn't";
@@ -165,7 +148,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
       [&db, &dba](storage::EdgeAddress &address) {
         if (address.is_local()) return;
         // If the worker id matches it should be a local apperance
-        if (address.worker_id() == db.WorkerId()) {
+        if (address.worker_id() == db->WorkerId()) {
           address = storage::EdgeAddress(
               dba.db().storage().LocalAddress<Edge>(address.gid()));
           CHECK(address.is_local()) << "Address should be local but isn't";
@@ -245,8 +228,8 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
   // than the latest one we have recovered. Do this to make sure that
   // subsequently created snapshots and WAL files will have transactional info
   // that does not interfere with that found in previous snapshots and WAL.
-  tx::TransactionId max_id = recovery_data.snapshooter_tx_id;
-  auto &snap = recovery_data.snapshooter_tx_snapshot;
+  tx::TransactionId max_id = recovery_data->snapshooter_tx_id;
+  auto &snap = recovery_data->snapshooter_tx_snapshot;
   if (!snap.empty()) max_id = *std::max_element(snap.begin(), snap.end());
   dba.db().tx_engine().EnsureNextIdGreater(max_id);
   dba.Commit();
@@ -255,32 +238,99 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb &db,
 
 #undef RETURN_IF_NOT
 
-// TODO - finer-grained recovery feedback could be useful here.
-bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
-                RecoveryData &recovery_data) {
+std::vector<fs::path> GetWalFiles(const fs::path &wal_dir) {
   // Get paths to all the WAL files and sort them (on date).
   std::vector<fs::path> wal_files;
-  if (!fs::exists(wal_dir)) return true;
+  if (!fs::exists(wal_dir)) return {};
   for (auto &wal_file : fs::directory_iterator(wal_dir))
     wal_files.emplace_back(wal_file);
   std::sort(wal_files.begin(), wal_files.end());
+  return wal_files;
+}
 
-  // Track which transaction should be recovered first, and define logic for
-  // which transactions should be skipped in recovery.
+bool ApplyOverDeltas(
+    const std::vector<fs::path> &wal_files, tx::TransactionId first_to_recover,
+    const std::function<void(const database::StateDelta &)> &f) {
+  for (auto &wal_file : wal_files) {
+    auto wal_file_max_tx_id = TransactionIdFromWalFilename(wal_file.filename());
+    if (!wal_file_max_tx_id || *wal_file_max_tx_id < first_to_recover) continue;
+
+    HashedFileReader wal_reader;
+    if (!wal_reader.Open(wal_file)) return false;
+    communication::bolt::Decoder<HashedFileReader> decoder(wal_reader);
+    while (true) {
+      auto delta = database::StateDelta::Decode(wal_reader, decoder);
+      if (!delta) break;
+      f(*delta);
+    }
+  }
+
+  return true;
+}
+
+auto FirstWalTxToRecover(const RecoveryData &recovery_data) {
   auto &tx_sn = recovery_data.snapshooter_tx_snapshot;
   auto first_to_recover = tx_sn.empty() ? recovery_data.snapshooter_tx_id + 1
                                         : *std::min(tx_sn.begin(), tx_sn.end());
-  auto should_skip = [&tx_sn, &recovery_data,
+  return first_to_recover;
+}
+
+std::vector<tx::TransactionId> ReadWalRecoverableTransactions(
+    const fs::path &wal_dir, database::GraphDb *db,
+    const RecoveryData &recovery_data) {
+  auto wal_files = GetWalFiles(wal_dir);
+
+  std::unordered_set<tx::TransactionId> committed_set;
+  auto first_to_recover = FirstWalTxToRecover(recovery_data);
+  ApplyOverDeltas(
+      wal_files, first_to_recover, [&](const database::StateDelta &delta) {
+        if (delta.transaction_id >= first_to_recover &&
+            delta.type == database::StateDelta::Type::TRANSACTION_COMMIT) {
+          committed_set.insert(delta.transaction_id);
+        }
+      });
+
+  std::vector<tx::TransactionId> committed_tx_ids(committed_set.size());
+  for (auto id : committed_set) committed_tx_ids.push_back(id);
+  return committed_tx_ids;
+}
+
+// TODO - finer-grained recovery feedback could be useful here.
+bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
+                RecoveryData *recovery_data) {
+  auto wal_files = GetWalFiles(wal_dir);
+  // Track which transaction should be recovered first, and define logic for
+  // which transactions should be skipped in recovery.
+  auto &tx_sn = recovery_data->snapshooter_tx_snapshot;
+  auto first_to_recover = FirstWalTxToRecover(*recovery_data);
+
+  // Set of transactions which can be recovered, since not every transaction in
+  // wal can be recovered because it might not be present on some workers (there
+  // wasn't enough time for it to flush to disk or similar)
+  std::unordered_set<tx::TransactionId> common_wal_tx;
+  for (auto tx_id : recovery_data->wal_tx_to_recover)
+    common_wal_tx.insert(tx_id);
+
+  auto should_skip = [&tx_sn, recovery_data, &common_wal_tx,
                       first_to_recover](tx::TransactionId tx_id) {
     return tx_id < first_to_recover ||
-           (tx_id < recovery_data.snapshooter_tx_id &&
-            !utils::Contains(tx_sn, tx_id));
+           (tx_id < recovery_data->snapshooter_tx_id &&
+            !utils::Contains(tx_sn, tx_id)) ||
+            !utils::Contains(common_wal_tx, tx_id);
   };
 
   std::unordered_map<tx::TransactionId, database::GraphDbAccessor> accessors;
   auto get_accessor =
-      [&accessors](tx::TransactionId tx_id) -> database::GraphDbAccessor & {
+      [db, &accessors](tx::TransactionId tx_id) -> database::GraphDbAccessor & {
     auto found = accessors.find(tx_id);
+
+    // Currently accessors are created on transaction_begin, but since workers
+    // don't have a transaction begin, the accessors are not created.
+    if (db->type() == database::GraphDb::Type::DISTRIBUTED_WORKER &&
+        found == accessors.end()) {
+      std::tie(found, std::ignore) = accessors.emplace(tx_id, *db);
+    }
+
     CHECK(found != accessors.end())
         << "Accessor does not exist for transaction: " << tx_id;
     return found->second;
@@ -294,59 +344,49 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb &db,
 
   // Read all the WAL files whose max_tx_id is not smaller than
   // min_tx_to_recover.
-  for (auto &wal_file : wal_files) {
-    auto wal_file_max_tx_id = TransactionIdFromWalFilename(wal_file.filename());
-    if (!wal_file_max_tx_id || *wal_file_max_tx_id < first_to_recover) continue;
-
-    HashedFileReader wal_reader;
-    if (!wal_reader.Open(wal_file)) return false;
-    communication::bolt::Decoder<HashedFileReader> decoder(wal_reader);
-    while (true) {
-      auto delta = database::StateDelta::Decode(wal_reader, decoder);
-      if (!delta) break;
-      max_observed_tx_id = std::max(max_observed_tx_id, delta->transaction_id);
-      if (should_skip(delta->transaction_id)) continue;
-      switch (delta->type) {
-        case database::StateDelta::Type::TRANSACTION_BEGIN:
-          DCHECK(accessors.find(delta->transaction_id) == accessors.end())
-              << "Double transaction start";
-          accessors.emplace(delta->transaction_id, db);
-          break;
-        case database::StateDelta::Type::TRANSACTION_ABORT:
-          get_accessor(delta->transaction_id).Abort();
-          accessors.erase(accessors.find(delta->transaction_id));
-          break;
-        case database::StateDelta::Type::TRANSACTION_COMMIT:
-          get_accessor(delta->transaction_id).Commit();
-          recovery_data.wal_max_recovered_tx_id = delta->transaction_id;
-          accessors.erase(accessors.find(delta->transaction_id));
-          break;
-        case database::StateDelta::Type::BUILD_INDEX:
-          // TODO index building might still be problematic in HA
-          recovery_data.indexes.emplace_back(delta->label_name,
-                                             delta->property_name);
-          break;
-        default:
-          delta->Apply(get_accessor(delta->transaction_id));
-      }
-    }  // reading all deltas in a single wal file
-  }    // reading all wal files
+  //
+  ApplyOverDeltas(
+      wal_files, first_to_recover, [&](const database::StateDelta &delta) {
+        max_observed_tx_id = std::max(max_observed_tx_id, delta.transaction_id);
+        if (should_skip(delta.transaction_id)) return;
+        switch (delta.type) {
+          case database::StateDelta::Type::TRANSACTION_BEGIN:
+            CHECK(accessors.find(delta.transaction_id) == accessors.end())
+                << "Double transaction start";
+            accessors.emplace(delta.transaction_id, *db);
+            break;
+          case database::StateDelta::Type::TRANSACTION_ABORT:
+            get_accessor(delta.transaction_id).Abort();
+            accessors.erase(accessors.find(delta.transaction_id));
+            break;
+          case database::StateDelta::Type::TRANSACTION_COMMIT:
+            get_accessor(delta.transaction_id).Commit();
+            accessors.erase(accessors.find(delta.transaction_id));
+            break;
+          case database::StateDelta::Type::BUILD_INDEX:
+            // TODO index building might still be problematic in HA
+            recovery_data->indexes.emplace_back(delta.label_name,
+                                                delta.property_name);
+            break;
+          default:
+            delta.Apply(get_accessor(delta.transaction_id));
+        }
+      });
 
   // TODO when implementing proper error handling return one of the following:
   // - WAL fully recovered
   // - WAL partially recovered
   // - WAL recovery error
 
-  db.tx_engine().EnsureNextIdGreater(max_observed_tx_id);
+  db->tx_engine().EnsureNextIdGreater(max_observed_tx_id);
   return true;
 }
 }  // anonymous namespace
 
-RecoveryInfo Recover(
-    const fs::path &durability_dir, database::GraphDb &db,
-    std::experimental::optional<RecoveryInfo> required_recovery_info) {
-  RecoveryData recovery_data;
-
+RecoveryInfo RecoverOnlySnapshot(
+    const fs::path &durability_dir, database::GraphDb *db,
+    RecoveryData *recovery_data,
+    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id) {
   // Attempt to recover from snapshot files in reverse order (from newest
   // backwards).
   const auto snapshot_dir = durability_dir / kSnapshotDir;
@@ -356,21 +396,21 @@ RecoveryInfo Recover(
       snapshot_files.emplace_back(file);
   std::sort(snapshot_files.rbegin(), snapshot_files.rend());
   for (auto &snapshot_file : snapshot_files) {
-    if (required_recovery_info) {
+    if (required_snapshot_tx_id) {
       auto snapshot_file_tx_id =
           TransactionIdFromSnapshotFilename(snapshot_file);
-      if (!snapshot_file_tx_id || snapshot_file_tx_id.value() !=
-                                      required_recovery_info->snapshot_tx_id) {
+      if (!snapshot_file_tx_id ||
+          snapshot_file_tx_id.value() != *required_snapshot_tx_id) {
         LOG(INFO) << "Skipping snapshot file '" << snapshot_file
                   << "' because it does not match the required snapshot tx id: "
-                  << required_recovery_info->snapshot_tx_id;
+                  << *required_snapshot_tx_id;
         continue;
       }
     }
     LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
     if (!RecoverSnapshot(snapshot_file, db, recovery_data)) {
-      db.ReinitializeStorage();
-      recovery_data.Clear();
+      db->ReinitializeStorage();
+      recovery_data->Clear();
       LOG(WARNING) << "Snapshot recovery failed, trying older snapshot...";
       continue;
     } else {
@@ -379,12 +419,19 @@ RecoveryInfo Recover(
     }
   }
 
-  // If snapshot recovery is required, and we failed, don't even deal with the
-  // WAL recovery.
-  if (required_recovery_info &&
-      recovery_data.snapshooter_tx_id != required_recovery_info->snapshot_tx_id)
-    return {recovery_data.snapshooter_tx_id, 0};
+  // If snapshot recovery is required, and we failed, don't even deal with
+  // the WAL recovery.
+  if (required_snapshot_tx_id &&
+      recovery_data->snapshooter_tx_id != *required_snapshot_tx_id)
+    return {recovery_data->snapshooter_tx_id, {}};
 
+  return {recovery_data->snapshooter_tx_id,
+          ReadWalRecoverableTransactions(durability_dir / kWalDir, db,
+                                         *recovery_data)};
+}
+
+void RecoverWalAndIndexes(const fs::path &durability_dir, database::GraphDb *db,
+                          RecoveryData *recovery_data) {
   // Write-ahead-log recovery.
   // WAL recovery does not have to be complete for the recovery to be
   // considered successful. For the time being ignore the return value,
@@ -392,18 +439,15 @@ RecoveryInfo Recover(
   RecoverWal(durability_dir / kWalDir, db, recovery_data);
 
   // Index recovery.
-  database::GraphDbAccessor db_accessor_indices{db};
-  for (const auto &label_prop : recovery_data.indexes) {
+  database::GraphDbAccessor db_accessor_indices{*db};
+  for (const auto &label_prop : recovery_data->indexes) {
     const database::LabelPropertyIndex::Key key{
         db_accessor_indices.Label(label_prop.first),
         db_accessor_indices.Property(label_prop.second)};
-    db_accessor_indices.db().storage().label_property_index_.CreateIndex(key);
+    db_accessor_indices.db().storage().label_property_index().CreateIndex(key);
     db_accessor_indices.PopulateIndex(key);
     db_accessor_indices.EnableIndex(key);
   }
   db_accessor_indices.Commit();
-
-  return {recovery_data.snapshooter_tx_id,
-          recovery_data.wal_max_recovered_tx_id};
 }
 }  // namespace durability

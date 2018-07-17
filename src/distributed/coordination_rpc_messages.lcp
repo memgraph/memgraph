@@ -24,8 +24,21 @@ cpp<#
       (endpoint "io::network::Endpoint" :capnp-type "Io.Endpoint")))
   (:response
    ((registration-successful :bool)
-    (recovery-info "std::experimental::optional<durability::RecoveryInfo>"
-                   :capnp-type "Utils.Optional(Dur.RecoveryInfo)")
+    (snapshot-to-recover "std::experimental::optional<tx::TransactionId>"
+                         :capnp-type "Utils.Optional(Utils.BoxUInt64)"
+                         :capnp-save
+                         (lambda (builder member)
+                           #>cpp
+                           utils::SaveOptional<utils::capnp::BoxUInt64, tx::TransactionId>(
+                               ${member}, &${builder},
+                               [](auto builder, const auto &v){ builder->setValue(v); });
+                           cpp<#)
+                         :capnp-load
+                         (lambda (reader member)
+                           #>cpp
+                           ${member} = utils::LoadOptional<utils::capnp::BoxUInt64, tx::TransactionId>(
+                               ${reader}, [](auto reader){ return reader.getValue(); });
+                           cpp<#))
     (workers "std::unordered_map<int, io::network::Endpoint>"
              :capnp-type "Utils.Map(Utils.BoxInt16, Io.Endpoint)"
              :capnp-save
@@ -61,8 +74,10 @@ cpp<#
   (:response ()))
 
 (lcp:define-rpc notify-worker-recovered
-    (:request ((member :int64_t)))
+    (:request
+     ((worker-id :int16_t)
+      (recovery-info "std::experimental::optional<durability::RecoveryInfo>"
+                     :capnp-type "Utils.Optional(Dur.RecoveryInfo)")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed
-

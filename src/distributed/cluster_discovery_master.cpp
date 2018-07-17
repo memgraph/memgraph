@@ -28,14 +28,17 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     }
 
     RegisterWorkerRes res(registration_successful,
-                          this->coordination_.RecoveryInfo(),
+                          this->coordination_.RecoveredSnapshotTx(),
                           this->coordination_.GetWorkers());
     res.Save(res_builder);
   });
 
   server_.Register<NotifyWorkerRecoveredRpc>(
       [this](const auto &req_reader, auto *res_builder) {
-        this->coordination_.WorkerRecovered(req_reader.getMember());
+        NotifyWorkerRecoveredReq req;
+        req.Load(req_reader);
+        this->coordination_.WorkerRecoveredSnapshot(req.worker_id,
+                                                    req.recovery_info);
       });
 }
 

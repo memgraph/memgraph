@@ -20,21 +20,24 @@ void ClusterDiscoveryWorker::RegisterWorker(int worker_id) {
   auto result =
       client_pool_.Call<RegisterWorkerRpc>(worker_id, server_.endpoint());
   CHECK(result) << "RegisterWorkerRpc failed";
-  CHECK(result->registration_successful)
-      << "Unable to assign requested ID (" << worker_id << ") to worker!";
+  CHECK(result->registration_successful) << "Unable to assign requested ID ("
+                                         << worker_id << ") to worker!";
 
   worker_id_ = worker_id;
   for (auto &kv : result->workers) {
     coordination_.RegisterWorker(kv.first, kv.second);
   }
-  recovery_info_ = result->recovery_info;
+  snapshot_to_recover_ = result->snapshot_to_recover;
 }
 
-void ClusterDiscoveryWorker::NotifyWorkerRecovered() {
+void ClusterDiscoveryWorker::NotifyWorkerRecovered(
+    const std::experimental::optional<durability::RecoveryInfo>
+        &recovery_info) {
   CHECK(worker_id_ >= 0)
       << "Workers id is not yet assigned, preform registration before "
          "notifying that the recovery finished";
-  auto result = client_pool_.Call<NotifyWorkerRecoveredRpc>(worker_id_);
+  auto result =
+      client_pool_.Call<NotifyWorkerRecoveredRpc>(worker_id_, recovery_info);
   CHECK(result) << "NotifyWorkerRecoveredRpc failed";
 }
 

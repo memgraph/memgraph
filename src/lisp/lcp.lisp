@@ -982,7 +982,8 @@ used for outside definition."
               (member-builder (format nil "~A_builder" (cpp-member-name member :struct t)))
               (capnp-name (cpp-type-name (cpp-member-symbol member))))
           (cond
-            ((capnp-primitive-type-p (capnp-type-of-member member))
+            ((and (not (cpp-member-capnp-save member))
+                  (capnp-primitive-type-p (capnp-type-of-member member)))
              (format s "  builder->set~A(~A);~%" capnp-name member-name))
             (t
              (write-line "{" s) ;; Enclose larger save code in new scope
@@ -1166,7 +1167,8 @@ used for outside definition."
               (member-reader (format nil "~A_reader" (cpp-member-name member :struct t)))
               (capnp-name (cpp-type-name (cpp-member-symbol member))))
           (cond
-            ((capnp-primitive-type-p (capnp-type-of-member member))
+            ((and (not (cpp-member-capnp-load member))
+                  (capnp-primitive-type-p (capnp-type-of-member member)))
              (format s "  ~A = reader.get~A();~%" member-name capnp-name))
             (t
              (write-line "{" s) ;; Enclose larger load code in new scope

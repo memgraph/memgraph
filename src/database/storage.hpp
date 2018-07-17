@@ -23,13 +23,6 @@ namespace database {
 class GraphDb;
 };
 
-namespace durability {
-struct RecoveryInfo;
-RecoveryInfo Recover(const std::experimental::filesystem::path &,
-                     database::GraphDb &,
-                     std::experimental::optional<RecoveryInfo>);
-};  // namespace durability
-
 namespace database {
 
 /** A data structure containing the main data members of a graph database. */
@@ -56,6 +49,7 @@ class Storage {
 
   gid::Generator &VertexGenerator() { return vertex_generator_; }
   gid::Generator &EdgeGenerator() { return edge_generator_; }
+  LabelPropertyIndex &label_property_index() { return label_property_index_; }
 
   /// Gets the local address for the given gid. Fails if not present.
   template <typename TRecord>
@@ -103,9 +97,6 @@ class Storage {
   friend class GraphDbAccessor;
   friend class StorageGc;
   friend class distributed::IndexRpcServer;
-  friend durability::RecoveryInfo durability::Recover(
-      const std::experimental::filesystem::path &, database::GraphDb &,
-      std::experimental::optional<durability::RecoveryInfo>);
 
   int worker_id_;
   gid::Generator vertex_generator_;

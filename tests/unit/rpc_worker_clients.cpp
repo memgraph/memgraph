@@ -52,7 +52,7 @@ class RpcWorkerClientsTest : public ::testing::Test {
   const io::network::Endpoint kLocalHost{"127.0.0.1", 0};
   const int kWorkerCount = 2;
   void SetUp() override {
-    master_coord_->SetRecoveryInfo(std::experimental::nullopt);
+    master_coord_->SetRecoveredSnapshot(std::experimental::nullopt);
     for (int i = 1; i <= kWorkerCount; ++i) {
       workers_server_.emplace_back(
           std::make_unique<communication::rpc::Server>(kLocalHost));

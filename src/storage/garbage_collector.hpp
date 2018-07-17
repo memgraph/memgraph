@@ -5,7 +5,6 @@
 #include "data_structures/concurrent/skiplist.hpp"
 #include "mvcc/version_list.hpp"
 #include "storage/deferred_deleter.hpp"
-#include "storage/deferred_deleter.hpp"
 #include "transactions/engine.hpp"
 
 /**
@@ -52,8 +51,8 @@ class GarbageCollector {
       if (ret.second != nullptr)
         deleted_records.emplace_back(ret.second, engine.LocalLast());
     }
-    DLOG_IF(INFO, count > 0) << "GC started cleaning with snapshot: "
-                             << snapshot;
+    DLOG_IF(INFO, count > 0)
+        << "GC started cleaning with snapshot: " << snapshot;
     DLOG_IF(INFO, count > 0) << "Destroyed: " << count;
 
     // Add records to deleter, with the id larger or equal than the last active

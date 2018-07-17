@@ -34,17 +34,20 @@ class ClusterDiscoveryWorker final {
    * Notifies the master that the worker finished recovering. Assumes that the
    * worker was already registered with master.
    */
-  void NotifyWorkerRecovered();
+  void NotifyWorkerRecovered(
+      const std::experimental::optional<durability::RecoveryInfo>
+          &recovery_info);
 
-  /** Returns the recovery info. Valid only after registration. */
-  auto recovery_info() const { return recovery_info_; }
+  /** Returns the snapshot that should be recovered on workers. Valid only after
+   * registration. */
+  auto snapshot_to_recover() const { return snapshot_to_recover_; }
 
  private:
   int worker_id_{-1};
   Server &server_;
   WorkerCoordination &coordination_;
   communication::rpc::ClientPool &client_pool_;
-  std::experimental::optional<durability::RecoveryInfo> recovery_info_;
+  std::experimental::optional<tx::TransactionId> snapshot_to_recover_;
 };
 
 }  // namespace distributed
