@@ -24,10 +24,7 @@ class Encoder : private BaseEncoder<Buffer> {
   Encoder(Buffer &buffer) : BaseEncoder<Buffer>(buffer) {}
 
   /**
-   * Writes a Record message. This method only stores data in the Buffer.
-   * It doesn't send the values out to the Buffer (Chunk is called at the
-   * end of this method). To send the values Flush method has to be called
-   * after this method.
+   * Sends a Record message.
    *
    * From the Bolt v1 documentation:
    *   RecordMessage (signature=0x71) {
@@ -36,11 +33,18 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param values the fields list object that should be sent
    */
-  void MessageRecord(const std::vector<DecodedValue> &values) {
+  bool MessageRecord(const std::vector<DecodedValue> &values) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Record));
     WriteList(values);
-    buffer_.Chunk();
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done. Here we tell
+    // the buffer that there will be more data because this is a Record message
+    // and it will surely be followed by either a Record, Success or Failure
+    // message.
+    return buffer_.Flush(true);
   }
 
   /**
@@ -52,22 +56,18 @@ class Encoder : private BaseEncoder<Buffer> {
    *   }
    *
    * @param metadata the metadata map object that should be sent
-   * @param flush should method flush the socket
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageSuccess(const std::map<std::string, DecodedValue> &metadata,
-                      bool flush = true) {
+  bool MessageSuccess(const std::map<std::string, DecodedValue> &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Success));
     WriteMap(metadata);
-    if (flush) {
-      return buffer_.Flush();
-    } else {
-      buffer_.Chunk();
-      // Chunk always succeeds, so return true
-      return true;
-    }
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
+    return buffer_.Flush();
   }
 
   /**
@@ -99,6 +99,10 @@ class Encoder : private BaseEncoder<Buffer> {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Failure));
     WriteMap(metadata);
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 
@@ -118,6 +122,10 @@ class Encoder : private BaseEncoder<Buffer> {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Ignored));
     WriteMap(metadata);
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 
@@ -132,6 +140,10 @@ class Encoder : private BaseEncoder<Buffer> {
   bool MessageIgnored() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
     WriteRAW(utils::UnderlyingCast(Signature::Ignored));
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 };

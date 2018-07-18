@@ -68,8 +68,7 @@ class TestBuffer {
       : output_stream_(output_stream) {}
 
   void Write(const uint8_t *data, size_t n) { output_stream_.Write(data, n); }
-  void Chunk() {}
-  bool Flush() { return true; }
+  bool Flush(bool have_more = false) { return true; }
 
  private:
   TestOutputStream &output_stream_;

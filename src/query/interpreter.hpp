@@ -94,13 +94,8 @@ class Interpreter {
      */
     template <typename TStream>
     bool Pull(TStream &stream) {
-      if (!header_written_) {
-        stream.Header(header_);
-        header_written_ = true;
-      }
-
+      utils::Timer timer;
       bool return_value = cursor_->Pull(frame_, ctx_);
-
       if (return_value && !output_symbols_.empty()) {
         std::vector<TypedValue> values;
         values.reserve(output_symbols_.size());
@@ -109,11 +104,10 @@ class Interpreter {
         }
         stream.Result(values);
       }
+      execution_time_ += timer.Elapsed().count();
 
       if (!return_value) {
-        auto execution_time = execution_timer_.Elapsed();
-        summary_["plan_execution_time"] = execution_time.count();
-        stream.Summary(summary_);
+        summary_["plan_execution_time"] = execution_time_;
 
         if (ctx_.is_index_created_) {
           auto access = plan_cache_.access();
@@ -132,6 +126,9 @@ class Interpreter {
       while (Pull(stream)) continue;
     }
 
+    const std::vector<std::string> &header() { return header_; }
+    const std::map<std::string, TypedValue> &summary() { return summary_; }
+
    private:
     Context ctx_;
     std::shared_ptr<CachedPlan> plan_;
@@ -139,11 +136,10 @@ class Interpreter {
     Frame frame_;
     std::vector<Symbol> output_symbols_;
 
-    bool header_written_{false};
     std::vector<std::string> header_;
     std::map<std::string, TypedValue> summary_;
 
-    utils::Timer execution_timer_;
+    double execution_time_{0};
     // Gets invalidated after if an index has been built.
     PlanCacheT &plan_cache_;
   };

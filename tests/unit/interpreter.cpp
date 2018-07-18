@@ -20,9 +20,12 @@ class InterpreterTest : public ::testing::Test {
   auto Interpret(const std::string &query,
                  const std::map<std::string, query::TypedValue> &params = {}) {
     database::GraphDbAccessor dba(db_);
-    ResultStreamFaker<query::TypedValue> result;
-    interpreter_(query, dba, params, false).PullAll(result);
-    return result;
+    ResultStreamFaker<query::TypedValue> stream;
+    auto results = interpreter_(query, dba, params, false);
+    stream.Header(results.header());
+    results.PullAll(stream);
+    stream.Summary(results.summary());
+    return stream;
   }
 };
 
@@ -198,11 +201,13 @@ TEST_F(InterpreterTest, Bfs) {
 
   database::GraphDbAccessor dba(db_);
   ResultStreamFaker<query::TypedValue> stream;
-  interpreter_(
+  auto results = interpreter_(
       "MATCH (n {id: 0})-[r *bfs..5 (e, n | n.reachable and "
       "e.reachable)]->(m) RETURN r",
-      dba, {}, false)
-      .PullAll(stream);
+      dba, {}, false);
+  stream.Header(results.header());
+  results.PullAll(stream);
+  stream.Summary(results.summary());
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "r");
@@ -264,9 +269,11 @@ TEST_F(InterpreterTest, ShortestPath) {
 
   ResultStreamFaker<query::TypedValue> stream;
   database::GraphDbAccessor dba(db_);
-  interpreter_("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e", dba,
-               {}, false)
-      .PullAll(stream);
+  auto results = interpreter_(
+      "MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e", dba, {}, false);
+  stream.Header(results.header());
+  results.PullAll(stream);
+  stream.Summary(results.summary());
 
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader()[0], "e");

@@ -5,29 +5,25 @@
 using BufferT = communication::bolt::ChunkedEncoderBuffer<TestOutputStream>;
 
 // constants
-using communication::bolt::CHUNK_END_MARKER_SIZE;
-using communication::bolt::CHUNK_HEADER_SIZE;
-using communication::bolt::MAX_CHUNK_SIZE;
-using communication::bolt::WHOLE_CHUNK_SIZE;
+using communication::bolt::kChunkHeaderSize;
+using communication::bolt::kChunkMaxDataSize;
+using communication::bolt::kChunkWholeSize;
 
 // test data
-constexpr const int TEST_DATA_SIZE = 100000;
-uint8_t test_data[TEST_DATA_SIZE];
+constexpr const int kTestDataSize = 100000;
+uint8_t test_data[kTestDataSize];
 
 /**
- * Verifies a single chunk. The chunk should be constructed from header
- * (chunk size), data and end marker. The header is two bytes long number
- * written in big endian format. Data is array of elements from test_data
- * which max size is 0xFFFF. The end marker is always two bytes long array of
- * two zeros.
+ * Verifies a single chunk. The chunk should be constructed from a header
+ * (chunk size) and data. The header is a two byte long number written in big
+ * endian format. Data is an array of elements from test_data whose max size is
+ * 0xFFFF.
  *
  * @param data pointer on data array (array of bytes)
  * @param size of data array
  * @param offset offset from the begining of the test data
- * @param final_chunk if set to true then check for 0x00 0x00 after the chunk
  */
-void VerifyChunkOfTestData(uint8_t *data, int size, uint64_t offset = 0,
-                           bool final_chunk = true) {
+void VerifyChunkOfTestData(uint8_t *data, int size, uint64_t offset = 0) {
   // first two bytes are size (big endian)
   uint8_t lower_byte = size & 0xFF;
   uint8_t higher_byte = (size & 0xFF00) >> 8;
@@ -37,14 +33,7 @@ void VerifyChunkOfTestData(uint8_t *data, int size, uint64_t offset = 0,
   // in the data array should be size number of ones
   // the header is skipped
   for (auto i = 0; i < size; ++i) {
-    ASSERT_EQ(data[i + CHUNK_HEADER_SIZE], test_data[i + offset]);
-  }
-
-  // last two bytes should be zeros
-  // next to header and data
-  if (final_chunk) {
-    ASSERT_EQ(data[CHUNK_HEADER_SIZE + size], 0x00);
-    ASSERT_EQ(data[CHUNK_HEADER_SIZE + size + 1], 0x00);
+    ASSERT_EQ(data[i + kChunkHeaderSize], test_data[i + offset]);
   }
 }
 
@@ -60,7 +49,7 @@ TEST(BoltChunkedEncoderBuffer, OneSmallChunk) {
   buffer.Flush();
 
   // check the output array
-  // the array should look like: [0, 100, first 100 bytes of test data, 0, 0]
+  // the array should look like: [0, 100, first 100 bytes of test data]
   VerifyChunkOfTestData(output_stream.output.data(), size);
 }
 
@@ -74,18 +63,17 @@ TEST(BoltChunkedEncoderBuffer, TwoSmallChunks) {
 
   // write into buffer
   buffer.Write(test_data, size1);
-  buffer.Chunk();
+  buffer.Flush();
   buffer.Write(test_data + size1, size2);
   buffer.Flush();
 
   // check the output array
   // the output array should look like this:
-  // [0, 100, first 100 bytes of test data, 0, 0] +
-  // [0, 100, second 100 bytes of test data, 0, 0]
+  // [0, 100, first 100 bytes of test data] +
+  // [0, 100, second 100 bytes of test data]
   auto data = output_stream.output.data();
   VerifyChunkOfTestData(data, size1);
-  VerifyChunkOfTestData(
-      data + CHUNK_HEADER_SIZE + size1 + CHUNK_END_MARKER_SIZE, size2, size1);
+  VerifyChunkOfTestData(data + kChunkHeaderSize + size1, size2, size1);
 }
 
 TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
@@ -94,21 +82,21 @@ TEST(BoltChunkedEncoderBuffer, OneAndAHalfOfMaxChunk) {
   BufferT buffer(output_stream);
 
   // write into buffer
-  buffer.Write(test_data, TEST_DATA_SIZE);
+  buffer.Write(test_data, kTestDataSize);
   buffer.Flush();
 
   // check the output array
   // the output array should look like this:
   // [0xFF, 0xFF, first 65535 bytes of test data,
-  //  0x86, 0xA1, 34465 bytes of test data after the first 65535 bytes, 0, 0]
+  //  0x86, 0xA1, 34465 bytes of test data after the first 65535 bytes]
   auto output = output_stream.output.data();
-  VerifyChunkOfTestData(output, MAX_CHUNK_SIZE, 0, false);
-  VerifyChunkOfTestData(output + WHOLE_CHUNK_SIZE,
-                        TEST_DATA_SIZE - MAX_CHUNK_SIZE, MAX_CHUNK_SIZE);
+  VerifyChunkOfTestData(output, kChunkMaxDataSize);
+  VerifyChunkOfTestData(output + kChunkWholeSize,
+                        kTestDataSize - kChunkMaxDataSize, kChunkMaxDataSize);
 }
 
 int main(int argc, char **argv) {
-  InitializeData(test_data, TEST_DATA_SIZE);
+  InitializeData(test_data, kTestDataSize);
   google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

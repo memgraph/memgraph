@@ -18,32 +18,42 @@ class TestSessionData {};
 
 class TestSession : public Session<TestInputStream, TestOutputStream> {
  public:
-  using Session<TestInputStream, TestOutputStream>::ResultStreamT;
+  using Session<TestInputStream, TestOutputStream>::TEncoder;
 
   TestSession(TestSessionData &data, TestInputStream &input_stream,
               TestOutputStream &output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream,
                                                    output_stream) {}
 
-  void PullAll(const std::string &query,
-               const std::map<std::string, DecodedValue> &params,
-               ResultStreamT *result_stream) override {
-    if (query == kQueryReturn42) {
-      result_stream->Header({"result_name"});
-      result_stream->Result(std::vector<DecodedValue>{42});
-      result_stream->Summary({});
-    } else if (query == kQueryEmpty) {
-      result_stream->Header({"result_name"});
-      result_stream->Summary({});
+  std::vector<std::string> Interpret(
+      const std::string &query,
+      const std::map<std::string, DecodedValue> &params) override {
+    if (query == kQueryReturn42 || query == kQueryEmpty) {
+      query_ = query;
+      return {"result_name"};
+    } else {
+      query_ = "";
+      throw ClientError("client sent invalid query");
+    }
+  }
+
+  std::map<std::string, DecodedValue> PullAll(
+      TEncoder *encoder) override {
+    if (query_ == kQueryReturn42) {
+      encoder->MessageRecord(std::vector<DecodedValue>{42});
+      return {};
+    } else if (query_ == kQueryEmpty) {
+      return {};
     } else {
       throw ClientError("client sent invalid query");
     }
   }
 
   void Abort() override {}
-};
 
-using ResultStreamT = TestSession::ResultStreamT;
+ private:
+  std::string query_;
+};
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests

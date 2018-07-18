@@ -240,9 +240,6 @@ target_link_libraries(${test_prefix}bolt_chunked_encoder_buffer mg-communication
 add_unit_test(bolt_decoder.cpp)
 target_link_libraries(${test_prefix}bolt_decoder mg-communication)
 
-add_unit_test(bolt_result_stream.cpp)
-target_link_libraries(${test_prefix}bolt_result_stream mg-communication)
-
 add_unit_test(bolt_session.cpp)
 target_link_libraries(${test_prefix}bolt_session mg-communication)
 

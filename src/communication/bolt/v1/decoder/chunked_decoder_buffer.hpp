@@ -42,7 +42,7 @@ template <typename TBuffer>
 class ChunkedDecoderBuffer {
  public:
   ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) {
-    data_.reserve(MAX_CHUNK_SIZE);
+    data_.reserve(kChunkMaxDataSize);
   }
 
   /**

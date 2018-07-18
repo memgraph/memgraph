@@ -99,7 +99,7 @@ class Client final {
     DLOG(INFO) << "Sending run message with statement: '" << query
                << "'; parameters: " << parameters;
 
-    encoder_.MessageRun(query, parameters, false);
+    encoder_.MessageRun(query, parameters);
     encoder_.MessagePullAll();
 
     DLOG(INFO) << "Reading run message response";
@@ -194,7 +194,7 @@ class Client final {
   bool GetMessage() {
     client_.ClearData();
     while (true) {
-      if (!client_.Read(CHUNK_HEADER_SIZE)) return false;
+      if (!client_.Read(kChunkHeaderSize)) return false;
 
       size_t chunk_size = client_.GetData()[0];
       chunk_size <<= 8;

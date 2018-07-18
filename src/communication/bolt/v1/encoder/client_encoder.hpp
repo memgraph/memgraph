@@ -44,6 +44,10 @@ class ClientEncoder : private BaseEncoder<Buffer> {
     WriteRAW(utils::UnderlyingCast(Signature::Init));
     WriteString(client_name);
     WriteMap(auth_token);
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 
@@ -63,18 +67,18 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    */
   bool MessageRun(const std::string &statement,
                   const std::map<std::string, DecodedValue> &parameters,
-                  bool flush = true) {
+                  bool have_more = true) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct2));
     WriteRAW(utils::UnderlyingCast(Signature::Run));
     WriteString(statement);
     WriteMap(parameters);
-    if (flush) {
-      return buffer_.Flush();
-    } else {
-      buffer_.Chunk();
-      // Chunk always succeeds, so return true
-      return true;
-    }
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done. Here we
+    // forward the `have_more` flag to indicate if there is more data that will
+    // be sent.
+    return buffer_.Flush(have_more);
   }
 
   /**
@@ -90,6 +94,10 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   bool MessageDiscardAll() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
     WriteRAW(utils::UnderlyingCast(Signature::DiscardAll));
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 
@@ -106,6 +114,10 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   bool MessagePullAll() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
     WriteRAW(utils::UnderlyingCast(Signature::PullAll));
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 
@@ -122,6 +134,10 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   bool MessageAckFailure() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
     WriteRAW(utils::UnderlyingCast(Signature::AckFailure));
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 
@@ -138,7 +154,11 @@ class ClientEncoder : private BaseEncoder<Buffer> {
   bool MessageReset() {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
     WriteRAW(utils::UnderlyingCast(Signature::Reset));
+    // Try to flush all remaining data in the buffer, but tell it that we will
+    // send more data (the end of message chunk).
+    if (!buffer_.Flush(true)) return false;
+    // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
 };
-}
+}  // namespace communication::bolt

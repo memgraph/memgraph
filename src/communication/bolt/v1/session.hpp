@@ -7,8 +7,8 @@
 #include "communication/bolt/v1/constants.hpp"
 #include "communication/bolt/v1/decoder/chunked_decoder_buffer.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
+#include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/encoder.hpp"
-#include "communication/bolt/v1/encoder/result_stream.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/error.hpp"
 #include "communication/bolt/v1/states/executing.hpp"
@@ -39,8 +39,7 @@ class SessionException : public utils::BasicException {
 template <typename TInputStream, typename TOutputStream>
 class Session {
  public:
-  using ResultStreamT =
-      ResultStream<Encoder<ChunkedEncoderBuffer<TOutputStream>>>;
+  using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
 
   Session(TInputStream &input_stream, TOutputStream &output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
@@ -48,20 +47,18 @@ class Session {
   virtual ~Session() {}
 
   /**
-   * Put results in the `result_stream` by processing the given `query` with
-   * `params`.
+   * Process the given `query` with `params`.
    */
-  virtual void PullAll(const std::string &query,
-                       const std::map<std::string, DecodedValue> &params,
-                       ResultStreamT *result_stream) = 0;
+  virtual std::vector<std::string> Interpret(const std::string &query,
+                         const std::map<std::string, DecodedValue> &params) = 0;
+
+  /**
+   * Put results of the processed query in the `encoder`.
+   */
+  virtual std::map<std::string, DecodedValue> PullAll(TEncoder *encoder) = 0;
 
   /** Aborts currently running query. */
   virtual void Abort() = 0;
-
-  void PullAll(const std::string &query,
-               const std::map<std::string, DecodedValue> &params) {
-    return PullAll(query, params, &result_stream_);
-  }
 
   /**
    * Executes the session after data has been read into the buffer.
@@ -71,10 +68,10 @@ class Session {
     if (UNLIKELY(!handshake_done_)) {
       // Resize the input buffer to ensure that a whole chunk can fit into it.
       // This can be done only once because the buffer holds its size.
-      input_stream_.Resize(WHOLE_CHUNK_SIZE);
+      input_stream_.Resize(kChunkWholeSize);
 
       // Receive the handshake.
-      if (input_stream_.size() < HANDSHAKE_SIZE) {
+      if (input_stream_.size() < kHandshakeSize) {
         DLOG(WARNING) << fmt::format("Received partial handshake of size {}",
                                      input_stream_.size());
         return;
@@ -128,8 +125,7 @@ class Session {
   TOutputStream &output_stream_;
 
   ChunkedEncoderBuffer<TOutputStream> encoder_buffer_{output_stream_};
-  Encoder<ChunkedEncoderBuffer<TOutputStream>> encoder_{encoder_buffer_};
-  ResultStreamT result_stream_{encoder_};
+  TEncoder encoder_{encoder_buffer_};
 
   ChunkedDecoderBuffer<TInputStream> decoder_buffer_{input_stream_};
   Decoder<ChunkedDecoderBuffer<TInputStream>> decoder_{decoder_buffer_};

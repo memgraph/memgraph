@@ -26,6 +26,49 @@ class ClientError : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+// TODO (mferencevic): revise these error messages
+inline std::pair<std::string, std::string> ExceptionToErrorMessage(
+    const std::exception &e) {
+  if (dynamic_cast<const ClientError *>(&e)) {
+    // Clients expect 4 strings separated by dots. First being database name
+    // (for example: Neo, Memgraph...), second being either ClientError,
+    // TransientError or DatabaseError (or ClientNotification for warnings).
+    // ClientError means wrong query, do not retry. DatabaseError means
+    // something wrong in database, do not retry. TransientError means query
+    // failed, but if retried it may succeed, retry it.
+    //
+    // Third and fourth strings being namespace and specific error name.
+    // It is not really important what we put there since we don't expect
+    // any special handling of specific exceptions on client side, but we
+    // need to make sure that we don't accidentally return some exception
+    // name which clients handle in a special way. For example, if client
+    // receives *.TransientError.Transaction.Terminate it will not rerun
+    // query even though TransientError was returned, because of Neo's
+    // semantics of that error.
+    return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
+  }
+  if (dynamic_cast<const utils::BasicException *>(&e)) {
+    // Exception not derived from QueryException was thrown which means that
+    // database probably aborted transaction because of some timeout,
+    // deadlock, serialization error or something similar. We return
+    // TransientError since retry of same transaction could succeed.
+    return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
+  }
+  if (dynamic_cast<const std::bad_alloc *>(&e)) {
+    // std::bad_alloc was thrown, God knows in which state is database ->
+    // terminate.
+    LOG(FATAL) << "Memgraph is out of memory";
+  }
+  // All exceptions used in memgraph are derived from BasicException. Since
+  // we caught some other exception we don't know what is going on. Return
+  // DatabaseError, log real message and return generic string.
+  LOG(ERROR) << "Unknown exception occurred during query execution "
+             << e.what();
+  return {"Memgraph.DatabaseError.MemgraphError.MemgraphError",
+          "An unknown exception occurred, this is unexpected. Real message "
+          "should be in database logs."};
+}
+
 template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
   const std::map<std::string, DecodedValue> kEmptyFields = {
@@ -63,68 +106,27 @@ State HandleRun(TSession &session, State state, Marker marker) {
   DLOG(INFO) << fmt::format("[Run] '{}'", query.ValueString());
 
   try {
-    // PullAll can throw.
-    session.PullAll(query.ValueString(), params.ValueMap());
-
-    // The query engine has already stored all query data in the buffer.
-    // We should only send the first chunk now which is the success
-    // message which contains header data. The rest of this data (records
-    // and summary) will be sent after a PULL_ALL command from the client.
-    if (!session.encoder_buffer_.FlushFirstChunk()) {
-      DLOG(WARNING) << "Couldn't flush header data from the buffer!";
+    // Interpret can throw.
+    auto header = session.Interpret(query.ValueString(), params.ValueMap());
+    // Convert std::string to DecodedValue
+    std::vector<DecodedValue> vec;
+    std::map<std::string, DecodedValue> data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.push_back(DecodedValue(i));
+    data.insert(std::make_pair(std::string("fields"), DecodedValue(vec)));
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      DLOG(WARNING) << "Couldn't send query header!";
       return State::Close;
     }
     return State::Result;
   } catch (const std::exception &e) {
-    // clear header success message
-    session.encoder_buffer_.Clear();
     DLOG(WARNING) << fmt::format("Error message: {}", e.what());
     if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
       DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
     }
-
-    auto code_message = [&e]() -> std::pair<std::string, std::string> {
-      if (dynamic_cast<const ClientError *>(&e)) {
-        // Clients expect 4 strings separated by dots. First being database name
-        // (for example: Neo, Memgraph...), second being either ClientError,
-        // TransientError or DatabaseError (or ClientNotification for warnings).
-        // ClientError means wrong query, do not retry. DatabaseError means
-        // something wrong in database, do not retry. TransientError means query
-        // failed, but if retried it may succeed, retry it.
-        //
-        // Third and fourth strings being namespace and specific error name.
-        // It is not really important what we put there since we don't expect
-        // any special handling of specific exceptions on client side, but we
-        // need to make sure that we don't accidentally return some exception
-        // name which clients handle in a special way. For example, if client
-        // receives *.TransientError.Transaction.Terminate it will not rerun
-        // query even though TransientError was returned, because of Neo's
-        // semantics of that error.
-        return {"Memgraph.ClientError.MemgraphError.MemgraphError", e.what()};
-      }
-      if (dynamic_cast<const utils::BasicException *>(&e)) {
-        // Exception not derived from QueryException was thrown which means that
-        // database probably aborted transaction because of some timeout,
-        // deadlock, serialization error or something similar. We return
-        // TransientError since retry of same transaction could succeed.
-        return {"Memgraph.TransientError.MemgraphError.MemgraphError",
-                e.what()};
-      }
-      if (dynamic_cast<const std::bad_alloc *>(&e)) {
-        // std::bad_alloc was thrown, God knows in which state is database ->
-        // terminate.
-        LOG(FATAL) << "Memgraph is out of memory";
-      }
-      // All exceptions used in memgraph are derived from BasicException. Since
-      // we caught some other exception we don't know what is going on. Return
-      // DatabaseError, log real message and return generic string.
-      LOG(ERROR) << "Unknown exception occurred during query execution "
-                 << e.what();
-      return {"Memgraph.DatabaseError.MemgraphError.MemgraphError",
-              "An unknown exception occurred, this is unexpected. Real message "
-              "should be in database logs."};
-    }();
-
+    session.encoder_buffer_.Clear();
+    auto code_message = ExceptionToErrorMessage(e);
     bool fail_sent = session.encoder_.MessageFailure(
         {{"code", code_message.first}, {"message", code_message.second}});
     if (!fail_sent) {
@@ -135,7 +137,6 @@ State HandleRun(TSession &session, State state, Marker marker) {
   }
 }
 
-// TODO: Get rid of duplications in PullAll/DiscardAll functions.
 template <typename Session>
 State HandlePullAll(Session &session, State state, Marker marker) {
   if (marker != Marker::TinyStruct) {
@@ -150,13 +151,30 @@ State HandlePullAll(Session &session, State state, Marker marker) {
     // Same as `unexpected RUN` case.
     return State::Close;
   }
-  // Flush pending data to the client, the success message is streamed
-  // from the query engine, it contains statistics from the query run.
-  if (!session.encoder_buffer_.Flush()) {
-    DLOG(WARNING) << "Couldn't flush data from the buffer!";
-    return State::Close;
+
+  try {
+    // PullAll can throw.
+    auto summary = session.PullAll(&session.encoder_);
+    if (!session.encoder_.MessageSuccess(summary)) {
+      DLOG(WARNING) << "Couldn't send query summary!";
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    DLOG(WARNING) << fmt::format("Error message: {}", e.what());
+    if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
+      DLOG(WARNING) << fmt::format("Error trace: {}", p->trace());
+    }
+    session.encoder_buffer_.Clear();
+    auto code_message = ExceptionToErrorMessage(e);
+    bool fail_sent = session.encoder_.MessageFailure(
+        {{"code", code_message.first}, {"message", code_message.second}});
+    if (!fail_sent) {
+      DLOG(WARNING) << "Couldn't send failure message!";
+      return State::Close;
+    }
+    return State::Error;
   }
-  return State::Idle;
 }
 
 template <typename Session>
@@ -173,12 +191,14 @@ State HandleDiscardAll(Session &session, State state, Marker marker) {
     // Same as `unexpected RUN` case.
     return State::Close;
   }
+
   // Clear all pending data and send a success message.
   session.encoder_buffer_.Clear();
   if (!session.encoder_.MessageSuccess()) {
     DLOG(WARNING) << "Couldn't send success message!";
     return State::Close;
   }
+
   return State::Idle;
 }
 
@@ -199,13 +219,16 @@ State HandleReset(Session &session, State, Marker marker) {
         utils::UnderlyingCast(marker));
     return State::Close;
   }
-  // clear all pending data and send a success message
+
+  // Clear all pending data and send a success message.
   session.encoder_buffer_.Clear();
   if (!session.encoder_.MessageSuccess()) {
     DLOG(WARNING) << "Couldn't send success message!";
     return State::Close;
   }
+
   session.Abort();
+
   return State::Idle;
 }
 

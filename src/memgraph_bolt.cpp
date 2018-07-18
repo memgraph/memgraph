@@ -76,19 +76,35 @@ class BoltSession final
             input_stream, output_stream),
         transaction_engine_(data.db, data.interpreter) {}
 
-  using communication::bolt::Session<
-      communication::InputStream, communication::OutputStream>::ResultStreamT;
+  using communication::bolt::Session<communication::InputStream,
+                                     communication::OutputStream>::TEncoder;
 
-  void PullAll(
+  std::vector<std::string> Interpret(
       const std::string &query,
-      const std::map<std::string, communication::bolt::DecodedValue> &params,
-      ResultStreamT *result_stream) override {
+      const std::map<std::string, communication::bolt::DecodedValue> &params)
+      override {
     std::map<std::string, query::TypedValue> params_tv;
     for (const auto &kv : params)
       params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
     try {
-      TypedValueResultStream stream(result_stream);
-      transaction_engine_.PullAll(query, params_tv, &stream);
+      return transaction_engine_.Interpret(query, params_tv);
+    } catch (const query::QueryException &e) {
+      // Wrap QueryException into ClientError, because we want to allow the
+      // client to fix their query.
+      throw communication::bolt::ClientError(e.what());
+    }
+  }
+
+  std::map<std::string, communication::bolt::DecodedValue> PullAll(
+      TEncoder *encoder) override {
+    try {
+      TypedValueResultStream stream(encoder);
+      const auto &summary = transaction_engine_.PullAll(&stream);
+      std::map<std::string, communication::bolt::DecodedValue> decoded_summary;
+      for (const auto &kv : summary) {
+        decoded_summary.emplace(kv.first, glue::ToDecodedValue(kv.second));
+      }
+      return decoded_summary;
     } catch (const query::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
       // client to fix their query.
@@ -99,16 +115,11 @@ class BoltSession final
   void Abort() override { transaction_engine_.Abort(); }
 
  private:
-  // Wrapper around ResultStreamT which converts TypedValue to DecodedValue
-  // before forwarding the calls to original ResultStreamT.
+  // Wrapper around TEncoder which converts TypedValue to DecodedValue
+  // before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
-    TypedValueResultStream(ResultStreamT *result_stream)
-        : result_stream_(result_stream) {}
-
-    void Header(const std::vector<std::string> &fields) {
-      return result_stream_->Header(fields);
-    }
+    TypedValueResultStream(TEncoder *encoder) : encoder_(encoder) {}
 
     void Result(const std::vector<query::TypedValue> &values) {
       std::vector<communication::bolt::DecodedValue> decoded_values;
@@ -116,19 +127,11 @@ class BoltSession final
       for (const auto &v : values) {
         decoded_values.push_back(glue::ToDecodedValue(v));
       }
-      return result_stream_->Result(decoded_values);
-    }
-
-    void Summary(const std::map<std::string, query::TypedValue> &summary) {
-      std::map<std::string, communication::bolt::DecodedValue> decoded_summary;
-      for (const auto &kv : summary) {
-        decoded_summary.emplace(kv.first, glue::ToDecodedValue(kv.second));
-      }
-      return result_stream_->Summary(decoded_summary);
+      encoder_->MessageRecord(decoded_values);
     }
 
    private:
-    ResultStreamT *result_stream_;
+    TEncoder *encoder_;
   };
 
   query::TransactionEngine transaction_engine_;

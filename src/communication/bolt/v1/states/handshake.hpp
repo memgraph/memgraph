@@ -32,8 +32,8 @@ State StateHandshakeRun(TSession &session) {
   }
 
   // Delete data from the input stream. It is guaranteed that there will more
-  // than, or equal to 20 bytes (HANDSHAKE_SIZE) in the buffer.
-  session.input_stream_.Shift(HANDSHAKE_SIZE);
+  // than, or equal to 20 bytes (kHandshakeSize) in the buffer.
+  session.input_stream_.Shift(kHandshakeSize);
 
   return State::Init;
 }
