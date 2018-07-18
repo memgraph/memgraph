@@ -485,10 +485,7 @@ void PullResData::LoadGraphElement(
                   ${member}.Add(entry_reader.getKey().getValue(), value);
                 }
                 cpp<#))
-      (symbols "std::vector<query::Symbol>"
-               :capnp-type "List(Sem.Symbol)"
-               :capnp-save (lcp:capnp-save-vector "query::capnp::Symbol" "query::Symbol")
-               :capnp-load (lcp:capnp-load-vector "query::capnp::Symbol" "query::Symbol"))
+      (symbols "std::vector<query::Symbol>" :capnp-type "List(Sem.Symbol)")
       (timestamp :int64_t)
       (accumulate :bool)
       (batch-size :int64_t)

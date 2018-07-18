@@ -42,10 +42,7 @@ cpp<#
 
 (lcp:define-rpc batch-stats
     (:request
-     ((requests "std::vector<StatsReq>"
-                :capnp-type "List(StatsReq)"
-                :capnp-save (lcp:capnp-save-vector "capnp::StatsReq" "StatsReq")
-                :capnp-load (lcp:capnp-load-vector "capnp::StatsReq" "StatsReq"))))
+     ((requests "std::vector<StatsReq>")))
   (:response ()))
 
 (lcp:pop-namespace) ;; stats

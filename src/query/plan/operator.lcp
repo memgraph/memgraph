@@ -2484,15 +2484,7 @@ by having only one result from each worker.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (usernames "std::vector<std::string>" :reader t
-              :capnp-save (lambda (builder member-name)
-                           #>cpp
-                           utils::SaveVector(${member-name}, &${builder});
-                           cpp<#)
-              :capnp-load (lambda (reader member-name)
-                           #>cpp
-                           utils::LoadVector(&${member-name}, ${reader});
-                           cpp<#)))
+   (usernames "std::vector<std::string>" :reader t))
   (:documentation
    "Operator that deletes one or more existing database users.")
   (:public

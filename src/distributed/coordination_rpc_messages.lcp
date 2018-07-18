@@ -25,11 +25,7 @@ cpp<#
   (:response
    ((registration-successful :bool)
     (recovery-info "std::experimental::optional<durability::RecoveryInfo>"
-                   :capnp-type "Utils.Optional(Dur.RecoveryInfo)"
-                   :capnp-save (lcp:capnp-save-optional "durability::capnp::RecoveryInfo"
-                                                        "durability::RecoveryInfo")
-                   :capnp-load (lcp:capnp-load-optional "durability::capnp::RecoveryInfo"
-                                                        "durability::RecoveryInfo"))
+                   :capnp-type "Utils.Optional(Dur.RecoveryInfo)")
     (workers "std::unordered_map<int, io::network::Endpoint>"
              :capnp-type "Utils.Map(Utils.BoxInt16, Io.Endpoint)"
              :capnp-save

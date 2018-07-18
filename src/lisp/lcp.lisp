@@ -875,20 +875,57 @@ used for outside definition."
      :virtual (and (not parents) (capnp-union-subclasses cpp-class))
      :const t :override parents :inline inline)))
 
+(defun capnp-cpp-type<-cpp-type (cpp-type &key boxp)
+  (declare (type cpp-type cpp-type))
+  (when (cpp-type-type-params cpp-type)
+    (error "Don't know how to convert '~A' to capnp equivalent"
+           (cpp-type-decl cpp-type)))
+  (let ((name (cpp-type-base-name cpp-type))
+        (namespace (cpp-type-namespace cpp-type)))
+    (cond
+      ((and boxp (typep cpp-type 'cpp-primitive-type))
+       (setf name (concatenate 'string "Box" (capnp-type<-cpp-type cpp-type))
+             namespace '("utils" "capnp")))
+      ((string= "string" (cpp-type-base-name cpp-type))
+       (setf name "Text"
+             namespace '("capnp")))
+      (t ;; Just append capnp as final namespace
+       (setf namespace (append namespace '("capnp")))))
+    (make-instance 'cpp-type :name name :namespace namespace)))
+
 (defun capnp-save-default (member-name member-type member-builder)
   "Generate the default call to save for member."
   (declare (type string member-name member-type member-builder))
   (let* ((type (parse-cpp-type-declaration member-type))
          (type-name (cpp-type-base-name type)))
-    (when (member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
-      (error "Use a custom :capnp-save function for ~A ~A" type-name member-name))
-    (let* ((cpp-class (find-cpp-class type-name)) ;; TODO: full type-name search
-           (extra-args (when cpp-class
-                         (mapcar (lambda (name-and-type)
-                                   (cpp-variable-name (first name-and-type)))
-                                 (capnp-extra-args cpp-class :save)))))
-      (format nil "~A.Save(&~A~{, ~A~});"
-              member-name member-builder extra-args))))
+    (cond
+      ((string= "vector" type-name)
+       (let* ((elem-type (car (cpp-type-type-args type)))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
+         (if (capnp-primitive-type-p (capnp-type<-cpp-type (cpp-type-base-name elem-type)))
+             (raw-cpp-string
+              #>cpp
+              utils::SaveVector(${member-name}, &${member-builder});
+              cpp<#)
+             (raw-cpp-string
+              (funcall (capnp-save-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+                       member-builder member-name)))))
+      ((string= "optional" type-name)
+       (let* ((elem-type (car (cpp-type-type-args type)))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t)))
+         (raw-cpp-string
+          (funcall (capnp-save-optional (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+                   member-builder member-name))))
+      ((member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
+       (error "Use a custom :capnp-save function for ~A ~A" type-name member-name))
+      (t
+       (let* ((cpp-class (find-cpp-class type-name)) ;; TODO: full type-name search
+              (extra-args (when cpp-class
+                            (mapcar (lambda (name-and-type)
+                                      (cpp-variable-name (first name-and-type)))
+                                    (capnp-extra-args cpp-class :save)))))
+         (format nil "~A.Save(&~A~{, ~A~});"
+                 member-name member-builder extra-args))))))
 
 (defun capnp-save-code (cpp-class)
   "Generate Cap'n Proto saving code for CPP-CLASS"
@@ -1046,15 +1083,34 @@ used for outside definition."
   (declare (type string member-name member-type member-reader))
   (let* ((type (parse-cpp-type-declaration member-type))
          (type-name (cpp-type-base-name type)))
-    (when (member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
-      (error "Use a custom :capnp-load function for ~A ~A" type-name member-name))
-    (let* ((cpp-class (find-cpp-class type-name)) ;; TODO: full type-name search
-           (extra-args (when cpp-class
-                         (mapcar (lambda (name-and-type)
-                                   (cpp-variable-name (first name-and-type)))
-                                 (capnp-extra-args cpp-class :load)))))
-      (format nil "~A.Load(~A~{, ~A~});"
-              member-name member-reader extra-args))))
+    (cond
+      ((string= "vector" type-name)
+       (let* ((elem-type (car (cpp-type-type-args type)))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
+         (if (capnp-primitive-type-p (capnp-type<-cpp-type (cpp-type-base-name elem-type)))
+             (raw-cpp-string
+              #>cpp
+              utils::LoadVector(&${member-name}, ${member-reader});
+              cpp<#)
+             (raw-cpp-string
+              (funcall (capnp-load-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+                       member-reader member-name)))))
+      ((string= "optional" type-name)
+       (let* ((elem-type (car (cpp-type-type-args type)))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t)))
+         (raw-cpp-string
+          (funcall (capnp-load-optional (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+                   member-reader member-name))))
+      ((member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
+       (error "Use a custom :capnp-load function for ~A ~A" type-name member-name))
+      (t
+       (let* ((cpp-class (find-cpp-class type-name)) ;; TODO: full type-name search
+              (extra-args (when cpp-class
+                            (mapcar (lambda (name-and-type)
+                                      (cpp-variable-name (first name-and-type)))
+                                    (capnp-extra-args cpp-class :load)))))
+         (format nil "~A.Load(~A~{, ~A~});"
+                 member-name member-reader extra-args))))))
 
 (defun capnp-load-declaration (cpp-class &key (inline t))
   "Generate Cap'n Proto load function declaration for CPP-CLASS. If
