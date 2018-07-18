@@ -57,11 +57,17 @@ Feature: Memgraph only tests (queries in which we choose to be incompatible with
 
     Scenario: Keyword as symbolic name
         Given an empty graph
-        When executing query:
+        And having executed
             """
             CREATE(a:DELete)
             """
-        Then an error should be raised
+        When executing query:
+            """
+            MATCH (n) RETURN n
+            """
+        Then the result should be:
+            | n         |
+            | (:DELete) |
 
     Scenario: Aggregation in CASE:
         Given an empty graph

@@ -65,8 +65,9 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // A helper function that stores literal and its token position in a
   // literals_. In stripped query text literal is replaced with a new_value.
   // new_value can be any value that is lexed as a literal.
-  auto replace_stripped = [this, &token_strings](
-      int position, const TypedValue &value, const std::string &new_value) {
+  auto replace_stripped = [this, &token_strings](int position,
+                                                 const TypedValue &value,
+                                                 const std::string &new_value) {
     literals_.Add(position, value);
     token_strings.push_back(new_value);
   };
@@ -77,8 +78,8 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // For every token in original query remember token index in stripped query.
   std::vector<int> position_mapping(tokens.size(), -1);
 
-  // Convert tokens to strings, perform lowercasing and filtering, store
-  // literals and nonaliased named expressions in return.
+  // Convert tokens to strings, perform filtering, store literals and nonaliased
+  // named expressions in return.
   for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
     auto &token = tokens[i];
     // Position is calculated in query after stripping and whitespace
@@ -91,16 +92,14 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       case Token::UNMATCHED:
         LOG(FATAL) << "Shouldn't happen";
       case Token::KEYWORD: {
-        token.second = utils::ToLowerCase(token.second);
-        const auto &s = token.second;
         // We don't strip NULL, since it can appear in special expressions
         // like IS NULL and IS NOT NULL, but we strip true and false keywords.
-        if (s == "true") {
+        if (utils::IEquals(token.second, "true")) {
           replace_stripped(token_index, true, kStrippedBooleanToken);
-        } else if (s == "false") {
+        } else if (utils::IEquals(token.second, "false")) {
           replace_stripped(token_index, false, kStrippedBooleanToken);
         } else {
-          token_strings.push_back(s);
+          token_strings.push_back(token.second);
         }
       } break;
       case Token::SPACE:
@@ -141,7 +140,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     // Store nonaliased named expressions in returns in named_exprs_.
     it = std::find_if(it, tokens.end(),
                       [](const std::pair<Token, std::string> &a) {
-                        return a.second == "return";
+                        return utils::IEquals(a.second, "return");
                       });
     // There is no RETURN so there is nothing to do here.
     if (it == tokens.end()) return;
@@ -153,7 +152,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     while (it != tokens.end() && it->first == Token::SPACE) {
       ++it;
     }
-    if (it != tokens.end() && it->second == "distinct") {
+    if (it != tokens.end() && utils::IEquals(it->second, "distinct")) {
       ++it;
     }
 
@@ -177,11 +176,13 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
       int num_open_braces = 0;
       int num_open_parantheses = 0;
       int num_open_brackets = 0;
-      for (;
-           jt != tokens.end() && (jt->second != "," || num_open_braces ||
-                                  num_open_parantheses || num_open_brackets) &&
-           jt->second != "order" && jt->second != "skip" &&
-           jt->second != "limit" && jt->second != "union" && jt->second != ";";
+      for (; jt != tokens.end() &&
+             (jt->second != "," || num_open_braces || num_open_parantheses ||
+              num_open_brackets) &&
+             !utils::IEquals(jt->second, "order") &&
+             !utils::IEquals(jt->second, "skip") &&
+             !utils::IEquals(jt->second, "limit") &&
+             !utils::IEquals(jt->second, "union") && jt->second != ";";
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parantheses;
@@ -196,15 +197,14 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
         } else if (jt->second == "}") {
           --num_open_brackets;
         }
-        has_as |= jt->second == "as";
+        has_as |= utils::IEquals(jt->second, "as");
         if (jt->first != Token::SPACE) {
           last_non_space = jt;
         }
       }
       if (!has_as) {
         // Named expression is not aliased. Save string disregarding leading and
-        // trailing whitespaces. Use original_tokens in which case of the
-        // keywords is not lowercased.
+        // trailing whitespaces.
         std::string s;
         auto begin_token = it - tokens.begin() + original_tokens.begin();
         auto end_token =

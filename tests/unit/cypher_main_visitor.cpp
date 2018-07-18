@@ -240,7 +240,18 @@ TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
 }
 
 TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
-  ASSERT_THROW(TypeParam("RETURN n:DEletE"), SemanticException);
+  TypeParam ast_generator("RETURN n:DEletE");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *labels_test = dynamic_cast<LabelsTest *>(
+      return_clause->body_.named_expressions[0]->expression_);
+  auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
+  ASSERT_EQ(identifier->name_, "n");
+  ASSERT_THAT(labels_test->labels_,
+              ElementsAre(ast_generator.db_accessor_.Label("DEletE")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
@@ -1961,45 +1972,46 @@ TYPED_TEST(CypherMainVisitorTest, DropUser) {
 }
 
 TYPED_TEST(CypherMainVisitorTest, CreateStream) {
-  auto check_create_stream = [](
-      std::string input, const std::string &stream_name,
-      const std::string &stream_uri, const std::string &stream_topic,
-      const std::string &transform_uri,
-      std::experimental::optional<int64_t> batch_interval_in_ms,
-      std::experimental::optional<int64_t> batch_size) {
-    TypeParam ast_generator(input);
-    auto *query = ast_generator.query_;
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *create_stream =
-        dynamic_cast<CreateStream *>(single_query->clauses_[0]);
-    ASSERT_TRUE(create_stream);
-    EXPECT_EQ(create_stream->stream_name_, stream_name);
-    ASSERT_TRUE(create_stream->stream_uri_);
-    CheckLiteral(ast_generator.context_, create_stream->stream_uri_,
-                 TypedValue(stream_uri));
-    ASSERT_TRUE(create_stream->stream_topic_);
-    CheckLiteral(ast_generator.context_, create_stream->stream_topic_,
-                 TypedValue(stream_topic));
-    ASSERT_TRUE(create_stream->transform_uri_);
-    CheckLiteral(ast_generator.context_, create_stream->transform_uri_,
-                 TypedValue(transform_uri));
-    if (batch_interval_in_ms) {
-      ASSERT_TRUE(create_stream->batch_interval_in_ms_);
-      CheckLiteral(ast_generator.context_, create_stream->batch_interval_in_ms_,
-                   TypedValue(*batch_interval_in_ms));
-    } else {
-      EXPECT_EQ(create_stream->batch_interval_in_ms_, nullptr);
-    }
-    if (batch_size) {
-      ASSERT_TRUE(create_stream->batch_size_);
-      CheckLiteral(ast_generator.context_, create_stream->batch_size_,
-                   TypedValue(*batch_size));
-    } else {
-      EXPECT_EQ(create_stream->batch_size_, nullptr);
-    }
-  };
+  auto check_create_stream =
+      [](std::string input, const std::string &stream_name,
+         const std::string &stream_uri, const std::string &stream_topic,
+         const std::string &transform_uri,
+         std::experimental::optional<int64_t> batch_interval_in_ms,
+         std::experimental::optional<int64_t> batch_size) {
+        TypeParam ast_generator(input);
+        auto *query = ast_generator.query_;
+        ASSERT_TRUE(query->single_query_);
+        auto *single_query = query->single_query_;
+        ASSERT_EQ(single_query->clauses_.size(), 1U);
+        auto *create_stream =
+            dynamic_cast<CreateStream *>(single_query->clauses_[0]);
+        ASSERT_TRUE(create_stream);
+        EXPECT_EQ(create_stream->stream_name_, stream_name);
+        ASSERT_TRUE(create_stream->stream_uri_);
+        CheckLiteral(ast_generator.context_, create_stream->stream_uri_,
+                     TypedValue(stream_uri));
+        ASSERT_TRUE(create_stream->stream_topic_);
+        CheckLiteral(ast_generator.context_, create_stream->stream_topic_,
+                     TypedValue(stream_topic));
+        ASSERT_TRUE(create_stream->transform_uri_);
+        CheckLiteral(ast_generator.context_, create_stream->transform_uri_,
+                     TypedValue(transform_uri));
+        if (batch_interval_in_ms) {
+          ASSERT_TRUE(create_stream->batch_interval_in_ms_);
+          CheckLiteral(ast_generator.context_,
+                       create_stream->batch_interval_in_ms_,
+                       TypedValue(*batch_interval_in_ms));
+        } else {
+          EXPECT_EQ(create_stream->batch_interval_in_ms_, nullptr);
+        }
+        if (batch_size) {
+          ASSERT_TRUE(create_stream->batch_size_);
+          CheckLiteral(ast_generator.context_, create_stream->batch_size_,
+                       TypedValue(*batch_size));
+        } else {
+          EXPECT_EQ(create_stream->batch_size_, nullptr);
+        }
+      };
 
   check_create_stream(
       "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
@@ -2110,30 +2122,31 @@ TYPED_TEST(CypherMainVisitorTest, ShowStreams) {
 }
 
 TYPED_TEST(CypherMainVisitorTest, StartStopStream) {
-  auto check_start_stop_stream = [](
-      std::string input, const std::string &stream_name, bool is_start,
-      std::experimental::optional<int64_t> limit_batches) {
-    TypeParam ast_generator(input);
-    auto *query = ast_generator.query_;
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *start_stop_stream =
-        dynamic_cast<StartStopStream *>(single_query->clauses_[0]);
-    EXPECT_TRUE(start_stop_stream);
+  auto check_start_stop_stream =
+      [](std::string input, const std::string &stream_name, bool is_start,
+         std::experimental::optional<int64_t> limit_batches) {
+        TypeParam ast_generator(input);
+        auto *query = ast_generator.query_;
+        ASSERT_TRUE(query->single_query_);
+        auto *single_query = query->single_query_;
+        ASSERT_EQ(single_query->clauses_.size(), 1U);
+        auto *start_stop_stream =
+            dynamic_cast<StartStopStream *>(single_query->clauses_[0]);
+        EXPECT_TRUE(start_stop_stream);
 
-    EXPECT_EQ(start_stop_stream->stream_name_, stream_name);
-    EXPECT_EQ(start_stop_stream->is_start_, is_start);
+        EXPECT_EQ(start_stop_stream->stream_name_, stream_name);
+        EXPECT_EQ(start_stop_stream->is_start_, is_start);
 
-    if (limit_batches) {
-      ASSERT_TRUE(is_start);
-      ASSERT_TRUE(start_stop_stream->limit_batches_);
-      CheckLiteral(ast_generator.context_, start_stop_stream->limit_batches_,
-                   TypedValue(*limit_batches));
-    } else {
-      EXPECT_EQ(start_stop_stream->limit_batches_, nullptr);
-    }
-  };
+        if (limit_batches) {
+          ASSERT_TRUE(is_start);
+          ASSERT_TRUE(start_stop_stream->limit_batches_);
+          CheckLiteral(ast_generator.context_,
+                       start_stop_stream->limit_batches_,
+                       TypedValue(*limit_batches));
+        } else {
+          EXPECT_EQ(start_stop_stream->limit_batches_, nullptr);
+        }
+      };
 
   check_start_stop_stream("stARt STreaM strim", "strim", true,
                           std::experimental::nullopt);
@@ -2183,27 +2196,28 @@ TYPED_TEST(CypherMainVisitorTest, StartStopAllStreams) {
 }
 
 TYPED_TEST(CypherMainVisitorTest, TestStream) {
-  auto check_test_stream = [](
-      std::string input, const std::string &stream_name,
-      std::experimental::optional<int64_t> limit_batches) {
-    TypeParam ast_generator(input);
-    auto *query = ast_generator.query_;
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *test_stream = dynamic_cast<TestStream *>(single_query->clauses_[0]);
-    EXPECT_TRUE(test_stream);
+  auto check_test_stream =
+      [](std::string input, const std::string &stream_name,
+         std::experimental::optional<int64_t> limit_batches) {
+        TypeParam ast_generator(input);
+        auto *query = ast_generator.query_;
+        ASSERT_TRUE(query->single_query_);
+        auto *single_query = query->single_query_;
+        ASSERT_EQ(single_query->clauses_.size(), 1U);
+        auto *test_stream =
+            dynamic_cast<TestStream *>(single_query->clauses_[0]);
+        EXPECT_TRUE(test_stream);
 
-    EXPECT_EQ(test_stream->stream_name_, stream_name);
+        EXPECT_EQ(test_stream->stream_name_, stream_name);
 
-    if (limit_batches) {
-      ASSERT_TRUE(test_stream->limit_batches_);
-      CheckLiteral(ast_generator.context_, test_stream->limit_batches_,
-                   TypedValue(*limit_batches));
-    } else {
-      EXPECT_EQ(test_stream->limit_batches_, nullptr);
-    }
-  };
+        if (limit_batches) {
+          ASSERT_TRUE(test_stream->limit_batches_);
+          CheckLiteral(ast_generator.context_, test_stream->limit_batches_,
+                       TypedValue(*limit_batches));
+        } else {
+          EXPECT_EQ(test_stream->limit_batches_, nullptr);
+        }
+      };
 
   check_test_stream("TesT STreaM strim", "strim", std::experimental::nullopt);
   check_test_stream("tESt STreAM strim LimIT 10 BATchES", "strim", 10);

@@ -310,6 +310,17 @@ inline bool StartsWith(const std::string &s, const std::string &prefix) {
   return s.size() >= prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
 }
 
+/**
+ * Case-insensitive string comparison.
+ */
+inline bool IEquals(const std::string &lhs, const std::string &rhs) {
+  if (lhs.size() != rhs.size()) return false;
+  for (size_t i = 0; i < lhs.size(); ++i) {
+    if (tolower(lhs[i]) != tolower(rhs[i])) return false;
+  }
+  return true;
+}
+
 /** Creates a random alphanumeric string of the given length. */
 inline std::string RandomString(size_t length) {
   static const char charset[] =

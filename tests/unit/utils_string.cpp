@@ -126,6 +126,13 @@ TEST(String, EndsWith) {
   EXPECT_FALSE(EndsWith("memgraph", "the memgraph"));
 }
 
+TEST(String, IEquals) {
+  EXPECT_TRUE(IEquals("", ""));
+  EXPECT_FALSE(IEquals("", "fdasfa"));
+  EXPECT_TRUE(IEquals("abcv", "AbCV"));
+  EXPECT_FALSE(IEquals("abcv", "AbCd"));
+}
+
 TEST(String, RandomString) {
   EXPECT_EQ(RandomString(0).size(), 0);
   EXPECT_EQ(RandomString(1).size(), 1);
