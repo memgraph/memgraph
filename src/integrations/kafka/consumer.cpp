@@ -325,7 +325,7 @@ StreamStatus Consumer::Status() {
   return ret;
 }
 
-StreamInfo Consumer::info() {
+StreamInfo Consumer::Info() {
   info_.is_running = is_running_;
   return info_;
 }

@@ -6,6 +6,10 @@
 
 * Write-ahead log format changed (not backward compatible).
 
+### Major Features and Improvements
+
+* Kafka integration
+
 ## v0.12.0
 
 ### Breaking Changes

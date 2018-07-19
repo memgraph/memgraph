@@ -1,3 +1,4 @@
+/// @file
 #pragma once
 
 #include <experimental/filesystem>
@@ -16,15 +17,31 @@ struct TargetArguments {
   int pipe_from_python{-1};
 };
 
+/// Wrapper around the transform script for a stream.
 class Transform final {
  private:
   const int kStackSizeBytes = 262144;
 
  public:
+  /// Download the transform script from the given URI and store it on the given
+  /// path.
+  ///
+  /// @param transform_script_uri URI of the script
+  /// @param transform_script_path path on the filesystem where the script
+  ///        will be stored
+  ///
+  /// @throws TransformScriptDownloadException if it can't download the script
   explicit Transform(const std::string &transform_script_path);
 
+  /// Starts the transform script.
+  ///
+  /// @return bool True on success or False otherwise.
   bool Start();
 
+  /// Transform the given batch of messages using the transform script.
+  ///
+  /// @param batch kafka message batch
+  /// @return std::vector<std::string> transformed batch of kafka messages
   void Apply(const std::vector<std::unique_ptr<RdKafka::Message>> &batch,
              std::function<void(
                  const std::string &,

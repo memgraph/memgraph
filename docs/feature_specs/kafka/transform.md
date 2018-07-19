@@ -6,46 +6,28 @@ should be aware of the data format in the Kafka message.
 Each Kafka message is byte length encoded, which means that the first eight
 bytes of each message contain the length of the message.
 
-More on the message format can be seen
-[here](https://cwiki.apache.org/confluence/display/KAFKA/A+Guide+To+The+Kafka+Protocol#AGuideToTheKafkaProtocol-Messagesets).
-
-
-The script will be embedded in our C++ codebase using pythons
-[embedding](https://docs.python.org/3.5/extending/embedding.html) feature.
-
 A sample code for a streaming transform script could look like this:
 
 ```python
-import struct
-import sys
+def create_vertex(vertex_id):
+  return ("CREATE (:Node {id: $id})", {"id": vertex_id})
 
-def get_records():
-    while True:
-        message_len = sys.stdin.read(8)
-        if len(message_len) == 8:
-            message_len = struct.unpack("L", message_len)[0]
-            record = sys.stdin.read(message_len)
-            yield record
+
+def create_edge(from_id, to_id):
+  return ("MATCH (n:Node {id: $from_id}), (m:Node {id: $to_id}) "\
+          "CREATE (n)-[:Edge]->(m)", {"from_id": from_id, "to_id": to_id})
+
+
+def stream(batch):
+    result = []
+    for item in batch:
+        message = item.decode('utf-8').strip().split()
+        if len(message) == 1:
+          result.append(create_vertex(message[0])))
         else:
-            assert len(message_len) == 0, message_len
-            return
+          result.append(create_edge(message[0], message[1]))
+    return result
 
-def create_vertex(fields):
-  return "CREATE (n:Node {{id: {}}})".format(fields[1])
-
-
-def create_edge(fields):
-  return "MATCH (n:Node {{id: {}}}) "\
-         "MATCH ((m:Node {{id : {}}})) "\
-         "CREATE (n)-[e:Edge{{value: {}}}]->(m) "\
-         .format(fields[1], fields[2], fields[3])
-
-for record in get_records():
-  fields = record.split("\t")
-  if fields[0] == "v":
-    return create_vertex(fields):
-  else:
-    return create_edge(fields)
 ```
 
 The script should output openCypher query strings based on the type of the

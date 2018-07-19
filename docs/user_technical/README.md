@@ -15,6 +15,7 @@ data structures, multi-version concurrency control and asynchronous IO.
   * [Examples](examples.md)
   * [Drivers](drivers.md)
   * [Data Storage](storage.md)
+  * [Integrations](integrations.md)
   * [openCypher Query Language](open-cypher.md)
   * [Import Tools](import-tools.md)
   * [Concepts](concepts.md)

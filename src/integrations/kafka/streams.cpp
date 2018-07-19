@@ -195,7 +195,7 @@ void Streams::Start(const std::string &stream_name,
 
   // Store stream_info in metadata_store_.
   if (!metadata_store_.Put(stream_name,
-                           Serialize(find_it->second.info()).dump())) {
+                           Serialize(find_it->second.Info()).dump())) {
     throw StreamMetadataCouldNotBeStored(stream_name);
   }
 }
@@ -210,7 +210,7 @@ void Streams::Stop(const std::string &stream_name) {
 
   // Store stream_info in metadata_store_.
   if (!metadata_store_.Put(stream_name,
-                           Serialize(find_it->second.info()).dump())) {
+                           Serialize(find_it->second.Info()).dump())) {
     throw StreamMetadataCouldNotBeStored(stream_name);
   }
 }
@@ -222,7 +222,7 @@ void Streams::StartAll() {
 
     // Store stream_info in metadata_store_.
     if (!metadata_store_.Put(consumer_kv.first,
-                             Serialize(consumer_kv.second.info()).dump())) {
+                             Serialize(consumer_kv.second.Info()).dump())) {
       throw StreamMetadataCouldNotBeStored(consumer_kv.first);
     }
   }
@@ -235,7 +235,7 @@ void Streams::StopAll() {
 
     // Store stream_info in metadata_store_.
     if (!metadata_store_.Put(consumer_kv.first,
-                             Serialize(consumer_kv.second.info()).dump())) {
+                             Serialize(consumer_kv.second.Info()).dump())) {
       throw StreamMetadataCouldNotBeStored(consumer_kv.first);
     }
   }
