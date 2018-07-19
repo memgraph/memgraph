@@ -1,5 +1,6 @@
 #include "glog/logging.h"
 
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
 #include "distributed/data_manager.hpp"
@@ -150,8 +151,15 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
     // TODO in write queries it's possible the command has been advanced and
     // we need to invalidate the Cache and really get the latest stuff.
     // But only do that after the command has been advanced.
-    auto &cache = dba.db().data_manager().template Elements<TRecord>(
-        dba.transaction_id());
+    distributed::DataManager *data_manager = nullptr;
+    // TODO: Replace this with virtual call or some other mechanism.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
+      data_manager = &distributed_db->data_manager();
+    }
+    CHECK(data_manager);
+    auto &cache =
+        data_manager->template Elements<TRecord>(dba.transaction_id());
     cache.FindSetOldNew(dba.transaction().id_, address_.worker_id(),
                         address_.gid(), old_, new_);
   }
@@ -179,8 +187,15 @@ TRecord &RecordAccessor<TRecord>::update() const {
   if (is_local()) {
     new_ = address_.local()->update(t);
   } else {
-    auto &cache = dba.db().data_manager().template Elements<TRecord>(
-        dba.transaction_id());
+    distributed::DataManager *data_manager = nullptr;
+    // TODO: Replace this with virtual call or some other mechanism.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
+      data_manager = &distributed_db->data_manager();
+    }
+    CHECK(data_manager);
+    auto &cache =
+        data_manager->template Elements<TRecord>(dba.transaction_id());
     new_ = cache.FindNew(address_.gid());
   }
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
@@ -202,8 +217,15 @@ void RecordAccessor<TRecord>::SendDelta(
   DCHECK(!is_local())
       << "Only a delta created on a remote accessor should be sent";
 
-  auto result =
-      db_accessor().db().updates_clients().Update(address().worker_id(), delta);
+  auto &dba = db_accessor();
+  distributed::UpdatesRpcClients *updates_clients = nullptr;
+  // TODO: Replace this with virtual call or some other mechanism.
+  if (auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
+    updates_clients = &distributed_db->updates_clients();
+  }
+  CHECK(updates_clients);
+  auto result = updates_clients->Update(address().worker_id(), delta);
   switch (result) {
     case distributed::UpdateResult::DONE:
       break;

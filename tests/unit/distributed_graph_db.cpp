@@ -26,8 +26,8 @@
 #include "query_plan_common.hpp"
 #include "transactions/engine_master.hpp"
 
+using database::GraphDbAccessor;
 using namespace distributed;
-using namespace database;
 using namespace std::literals::chrono_literals;
 
 class DistributedGraphDb : public DistributedGraphDbTest {

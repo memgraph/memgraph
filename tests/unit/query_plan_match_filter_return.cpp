@@ -828,11 +828,30 @@ struct hash<std::pair<int, int>> {
 };
 }  // namespace std
 
+enum class TestType { SINGLE_NODE, DISTRIBUTED };
+
 /** A test fixture for breadth first expansion */
 class QueryPlanExpandBfs
     : public testing::TestWithParam<std::pair<TestType, int>> {
+ private:
+  std::unique_ptr<Cluster> cluster_;
+  std::unique_ptr<database::SingleNode> single_node_;
+  database::GraphDb *db_{nullptr};
+  std::unordered_map<std::pair<int, int>, storage::EdgeAddress> e_;
+
  protected:
-  QueryPlanExpandBfs() : cluster(GetParam().first, GetParam().second) {}
+  QueryPlanExpandBfs()
+      : cluster_(GetParam().first == TestType::DISTRIBUTED
+                     ? new Cluster(GetParam().second)
+                     : nullptr),
+        single_node_(GetParam().first == TestType::DISTRIBUTED
+                         ? nullptr
+                         : new database::SingleNode()),
+        db_([&]() -> database::GraphDb * {
+          if (cluster_) return cluster_->master();
+          return single_node_.get();
+        }()),
+        dba(*db_) {}
 
   // Worker IDs where vertices are located.
   const std::vector<int> vertices = {0, 1, 1, 0, 1, 2};
@@ -842,18 +861,14 @@ class QueryPlanExpandBfs
 
   // Style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
   // macro requirements.
-  Cluster cluster;
-  database::GraphDb &db{*cluster.master()};
-  database::GraphDbAccessor dba{db};
-  std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
-  storage::EdgeType edge_type = dba.EdgeType("edge_type");
-
+  database::GraphDbAccessor dba;
   std::vector<storage::VertexAddress> v;
-  std::unordered_map<std::pair<int, int>, storage::EdgeAddress> e;
 
   AstStorage storage;
   SymbolTable symbol_table;
 
+  std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
+  storage::EdgeType edge_type = dba.EdgeType("edge_type");
   // Inner edge and vertex symbols.
   // Edge from a to b has `prop` with the value ab (all ints).
   Symbol inner_edge = symbol_table.CreateSymbol("inner_edge", true);
@@ -879,10 +894,10 @@ class QueryPlanExpandBfs
       VertexAccessor to(v[p.second], dba);
       auto edge = dba.InsertEdge(from, to, edge_type);
       edge.PropsSet(prop.second, p.first * 10 + p.second);
-      e.emplace(p, edge.GlobalAddress());
+      e_.emplace(p, edge.GlobalAddress());
     }
 
-    cluster.AdvanceCommand(dba.transaction_id());
+    AdvanceCommand(dba.transaction_id());
   }
 
   // Defines and performs a breadth-first expansion with the given parameters.
@@ -947,6 +962,18 @@ class QueryPlanExpandBfs
       if (GetProp(edges[i]) != ids[i]) return false;
     }
     return true;
+  }
+
+  void ApplyUpdates(tx::TransactionId tx_id) {
+    if (GetParam().first == TestType::DISTRIBUTED)
+      cluster_->ApplyUpdates(tx_id);
+  }
+
+  void AdvanceCommand(tx::TransactionId tx_id) {
+    if (GetParam().first == TestType::DISTRIBUTED)
+      cluster_->AdvanceCommand(tx_id);
+    else
+      database::GraphDbAccessor(*db_, tx_id).AdvanceCommand();
   }
 };
 
@@ -1081,32 +1108,32 @@ TEST_P(QueryPlanExpandBfs, GraphState) {
     v.push_back(to.GlobalAddress());
 
     dba.InsertEdge(from, to, edge_type);
-    cluster.ApplyUpdates(dba.transaction_id());
+    ApplyUpdates(dba.transaction_id());
   }
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 5);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 6);
 
-  cluster.AdvanceCommand(dba.transaction_id());
+  AdvanceCommand(dba.transaction_id());
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 6);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 6);
 
   {
     v.push_back(dba.InsertVertex().GlobalAddress());
-    cluster.AdvanceCommand(dba.transaction_id());
+    AdvanceCommand(dba.transaction_id());
 
     auto from = VertexAccessor(v[4], dba);
     auto to = VertexAccessor(v[7], dba);
 
     dba.InsertEdge(from, to, edge_type);
-    cluster.ApplyUpdates(dba.transaction_id());
+    ApplyUpdates(dba.transaction_id());
   }
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 6);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 7);
 
-  cluster.AdvanceCommand(dba.transaction_id());
+  AdvanceCommand(dba.transaction_id());
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 7);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 7);

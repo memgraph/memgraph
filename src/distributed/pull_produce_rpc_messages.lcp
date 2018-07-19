@@ -17,6 +17,7 @@ cpp<#
 
 (lcp:in-impl
  #>cpp
+ #include "database/distributed_graph_db.hpp"
  #include "database/graph_db_accessor.hpp"
  #include "distributed/data_manager.hpp"
  cpp<#)
@@ -369,7 +370,14 @@ void PullResData::LoadGraphElement(
     database::GraphDbAccessor *dba,
     const distributed::capnp::TypedValue::Reader &reader,
     query::TypedValue *value) {
-  auto load_vertex = [dba](const auto &vertex_reader) {
+  distributed::DataManager *data_manager = nullptr;
+  // TODO: Pass in a DistributedGraphDb or data_manager.
+  if (auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(&dba->db())) {
+    data_manager = &distributed_db->data_manager();
+  }
+  CHECK(data_manager);
+  auto load_vertex = [dba, data_manager](const auto &vertex_reader) {
     storage::VertexAddress global_address(vertex_reader.getAddress());
     auto old_record =
         vertex_reader.hasOld()
@@ -381,14 +389,12 @@ void PullResData::LoadGraphElement(
             ? distributed::LoadVertex<const distributed::capnp::Vertex::Reader>(
                   vertex_reader.getNew())
             : nullptr;
-    dba->db()
-        .data_manager()
-        .Elements<Vertex>(dba->transaction_id())
+    data_manager->Elements<Vertex>(dba->transaction_id())
         .emplace(global_address.gid(), std::move(old_record),
                  std::move(new_record));
     return VertexAccessor(global_address, *dba);
   };
-  auto load_edge = [dba](const auto &edge_reader) {
+  auto load_edge = [dba, data_manager](const auto &edge_reader) {
     storage::EdgeAddress global_address(edge_reader.getAddress());
     auto old_record =
         edge_reader.hasOld()
@@ -400,9 +406,7 @@ void PullResData::LoadGraphElement(
             ? distributed::LoadEdge<const distributed::capnp::Edge::Reader>(
                   edge_reader.getNew())
             : nullptr;
-    dba->db()
-        .data_manager()
-        .Elements<Edge>(dba->transaction_id())
+    data_manager->Elements<Edge>(dba->transaction_id())
         .emplace(global_address.gid(), std::move(old_record),
                  std::move(new_record));
     return EdgeAccessor(global_address, *dba);
@@ -430,7 +434,7 @@ void PullResData::LoadGraphElement(
   }
 }
 
- cpp<#)
+cpp<#)
 
 (lcp:define-rpc pull
     (:request

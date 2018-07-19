@@ -1,5 +1,6 @@
 #pragma once
 
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -11,7 +12,7 @@ namespace query {
 
 class TransactionEngine final {
  public:
-  TransactionEngine(database::MasterBase &db, Interpreter &interpreter)
+  TransactionEngine(database::GraphDb &db, Interpreter &interpreter)
       : db_(db), interpreter_(interpreter) {}
 
   ~TransactionEngine() { Abort(); }
@@ -100,7 +101,7 @@ class TransactionEngine final {
   }
 
  private:
-  database::MasterBase &db_;
+  database::GraphDb &db_;
   Interpreter &interpreter_;
   std::unique_ptr<database::GraphDbAccessor> db_accessor_;
   // The `query::Interpreter::Results` object MUST be destroyed before the
@@ -124,9 +125,10 @@ class TransactionEngine final {
     db_accessor_->AdvanceCommand();
     // TODO: this logic shouldn't be here!
     if (db_.type() == database::GraphDb::Type::DISTRIBUTED_MASTER) {
+      auto *master_db = dynamic_cast<database::Master *>(&db_);
       auto tx_id = db_accessor_->transaction_id();
       auto futures =
-          db_.pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
+          master_db->pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
       for (auto &future : futures) future.wait();
     }
   }
@@ -140,4 +142,5 @@ class TransactionEngine final {
     }
   }
 };
+
 }  // namespace query

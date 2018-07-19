@@ -6,7 +6,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "database/graph_db.hpp"
+#include "database/distributed_graph_db.hpp"
 #include "query/interpreter.hpp"
 #include "query/repl.hpp"
 #include "utils/flag_validation.hpp"

@@ -13,6 +13,7 @@
 
 #include "communication/bolt/v1/session.hpp"
 #include "config.hpp"
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "glue/conversion.hpp"
@@ -64,7 +65,7 @@ DECLARE_string(durability_directory);
 /** Encapsulates Dbms and Interpreter that are passed through the network server
  * and worker to the session. */
 struct SessionData {
-  database::MasterBase &db;
+  database::GraphDb &db;
   query::Interpreter interpreter{db};
 };
 

@@ -3,6 +3,7 @@
 #include <glog/logging.h>
 #include <limits>
 
+#include "database/distributed_graph_db.hpp"
 #include "distributed/plan_dispatcher.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -46,9 +47,11 @@ Interpreter::CachedPlan::~CachedPlan() {
 }
 
 Interpreter::Interpreter(database::GraphDb &db)
-    : plan_dispatcher_(db.type() == database::GraphDb::Type::DISTRIBUTED_MASTER
-                           ? &db.plan_dispatcher()
-                           : nullptr) {}
+    : plan_dispatcher_(
+          db.type() == database::GraphDb::Type::DISTRIBUTED_MASTER
+              // TODO: Replace this with virtual call or some other mechanism.
+              ? &dynamic_cast<database::Master *>(&db)->plan_dispatcher()
+              : nullptr) {}
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query, database::GraphDbAccessor &db_accessor,

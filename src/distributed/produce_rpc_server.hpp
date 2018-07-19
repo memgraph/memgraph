@@ -21,6 +21,8 @@
 
 namespace distributed {
 
+class DataManager;
+
 /// Handles the execution of a plan on the worker, requested by the remote
 /// master. Assumes that (tx id, command id, plan id) uniquely identifies an
 /// execution, and that there will never be parallel requests for the same
@@ -64,7 +66,8 @@ class ProduceRpcServer {
  public:
   ProduceRpcServer(database::GraphDb &db, tx::Engine &tx_engine,
                    communication::rpc::Server &server,
-                   const distributed::PlanConsumer &plan_consumer);
+                   const PlanConsumer &plan_consumer,
+                   DataManager *data_manager);
 
   /// Finish and clear ongoing produces for all plans that are tied to a
   /// transaction with tx_id.

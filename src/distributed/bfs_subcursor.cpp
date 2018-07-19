@@ -1,11 +1,12 @@
+#include "bfs_subcursor.hpp"
+
 #include <unordered_map>
 
+#include "database/distributed_graph_db.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "query/plan/operator.hpp"
 #include "storage/address_types.hpp"
 #include "storage/vertex_accessor.hpp"
-
-#include "bfs_subcursor.hpp"
 
 namespace distributed {
 
@@ -14,9 +15,10 @@ using query::TypedValue;
 ExpandBfsSubcursor::ExpandBfsSubcursor(
     database::GraphDb *db, tx::TransactionId tx_id,
     query::EdgeAtom::Direction direction,
-    std::vector<storage::EdgeType> edge_types, query::GraphView graph_view)
-
-    : dba_(*db, tx_id),
+    std::vector<storage::EdgeType> edge_types, query::GraphView graph_view,
+    BfsRpcClients *bfs_subcursor_clients)
+    : bfs_subcursor_clients_(bfs_subcursor_clients),
+      dba_(*db, tx_id),
       direction_(direction),
       edge_types_(std::move(edge_types)),
       graph_view_(graph_view) {
@@ -145,10 +147,9 @@ void ExpandBfsSubcursor::ReconstructPathHelper(VertexAccessor vertex,
 bool ExpandBfsSubcursor::ExpandToVertex(EdgeAccessor edge,
                                         VertexAccessor vertex) {
   // TODO(mtomic): lambda filtering in distributed
-  return vertex.is_local()
-             ? ExpandToLocalVertex(edge.address(), vertex)
-             : dba_.db().bfs_subcursor_clients().ExpandToRemoteVertex(
-                   subcursor_ids_, edge, vertex);
+  return vertex.is_local() ? ExpandToLocalVertex(edge.address(), vertex)
+                           : bfs_subcursor_clients_->ExpandToRemoteVertex(
+                                 subcursor_ids_, edge, vertex);
 }
 
 bool ExpandBfsSubcursor::ExpandFromVertex(VertexAccessor vertex) {
@@ -164,7 +165,9 @@ bool ExpandBfsSubcursor::ExpandFromVertex(VertexAccessor vertex) {
   return expanded;
 }
 
-BfsSubcursorStorage::BfsSubcursorStorage(database::GraphDb *db) : db_(db) {}
+BfsSubcursorStorage::BfsSubcursorStorage(database::GraphDb *db,
+                                         BfsRpcClients *bfs_subcursor_clients)
+    : db_(db), bfs_subcursor_clients_(bfs_subcursor_clients) {}
 
 int64_t BfsSubcursorStorage::Create(tx::TransactionId tx_id,
                                     query::EdgeAtom::Direction direction,
@@ -172,9 +175,10 @@ int64_t BfsSubcursorStorage::Create(tx::TransactionId tx_id,
                                     query::GraphView graph_view) {
   std::lock_guard<std::mutex> lock(mutex_);
   int64_t id = next_subcursor_id_++;
-  auto got = storage_.emplace(
-      id, std::make_unique<ExpandBfsSubcursor>(
-              db_, tx_id, direction, std::move(edge_types), graph_view));
+  auto got =
+      storage_.emplace(id, std::make_unique<ExpandBfsSubcursor>(
+                               db_, tx_id, direction, std::move(edge_types),
+                               graph_view, bfs_subcursor_clients_));
   CHECK(got.second) << "Subcursor with ID " << id << " already exists";
   return id;
 }

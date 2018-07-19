@@ -98,7 +98,8 @@ ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
 ProduceRpcServer::ProduceRpcServer(
     database::GraphDb &db, tx::Engine &tx_engine,
     communication::rpc::Server &server,
-    const distributed::PlanConsumer &plan_consumer)
+    const PlanConsumer &plan_consumer,
+    DataManager *data_manager)
     : db_(db),
       produce_rpc_server_(server),
       plan_consumer_(plan_consumer),
@@ -120,12 +121,14 @@ ProduceRpcServer::ProduceRpcServer(
         res.Save(res_builder);
       });
 
+  CHECK(data_manager);
+
   produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
+      [this, data_manager](const auto &req_reader, auto *res_builder) {
         TransactionCommandAdvancedReq req;
         req.Load(req_reader);
         tx_engine_.UpdateCommand(req.member);
-        db_.data_manager().ClearCacheForSingleTransaction(req.member);
+        data_manager->ClearCacheForSingleTransaction(req.member);
         TransactionCommandAdvancedRes res;
         res.Save(res_builder);
       });

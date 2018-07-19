@@ -1,14 +1,19 @@
+#include "bfs_rpc_clients.hpp"
+
+#include "database/distributed_graph_db.hpp"
 #include "distributed/bfs_rpc_messages.hpp"
 #include "distributed/data_manager.hpp"
 
-#include "bfs_rpc_clients.hpp"
-
 namespace distributed {
 
-BfsRpcClients::BfsRpcClients(
-    database::GraphDb *db, distributed::BfsSubcursorStorage *subcursor_storage,
-    distributed::RpcWorkerClients *clients)
-    : db_(db), subcursor_storage_(subcursor_storage), clients_(clients) {}
+BfsRpcClients::BfsRpcClients(database::GraphDb *db,
+                             BfsSubcursorStorage *subcursor_storage,
+                             RpcWorkerClients *clients,
+                             DataManager *data_manager)
+    : db_(db),
+      subcursor_storage_(subcursor_storage),
+      clients_(clients),
+      data_manager_(data_manager) {}
 
 std::unordered_map<int16_t, int64_t> BfsRpcClients::CreateBfsSubcursors(
     tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
@@ -77,14 +82,12 @@ std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
   CHECK(res) << "SubcursorPull RPC failed!";
   if (!res->vertex) return std::experimental::nullopt;
 
-  db_->data_manager()
-      .Elements<Vertex>(dba->transaction_id())
+  data_manager_->Elements<Vertex>(dba->transaction_id())
       .emplace(res->vertex->global_address.gid(),
                std::move(res->vertex->old_element_output),
                std::move(res->vertex->new_element_output));
   return VertexAccessor(res->vertex->global_address, *dba);
 }
-
 bool BfsRpcClients::ExpandLevel(
     const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
   auto futures = clients_->ExecuteOnWorkers<bool>(
@@ -133,12 +136,11 @@ bool BfsRpcClients::ExpandToRemoteVertex(
 }
 
 PathSegment BuildPathSegment(ReconstructPathRes *res,
-                             database::GraphDbAccessor *dba) {
+                             database::GraphDbAccessor *dba,
+                             distributed::DataManager *data_manager) {
   std::vector<EdgeAccessor> edges;
   for (auto &edge : res->edges) {
-    dba->db()
-        .data_manager()
-        .Elements<Edge>(dba->transaction_id())
+    data_manager->Elements<Edge>(dba->transaction_id())
         .emplace(edge.global_address.gid(), std::move(edge.old_element_output),
                  std::move(edge.new_element_output));
     edges.emplace_back(edge.global_address, *dba);
@@ -158,7 +160,7 @@ PathSegment BfsRpcClients::ReconstructPath(
 
   auto res = clients_->GetClientPool(worker_id).Call<ReconstructPathRpc>(
       subcursor_ids.at(worker_id), vertex);
-  return BuildPathSegment(&res.value(), dba);
+  return BuildPathSegment(&res.value(), dba, data_manager_);
 }
 
 PathSegment BfsRpcClients::ReconstructPath(
@@ -171,7 +173,7 @@ PathSegment BfsRpcClients::ReconstructPath(
   }
   auto res = clients_->GetClientPool(worker_id).Call<ReconstructPathRpc>(
       subcursor_ids.at(worker_id), edge);
-  return BuildPathSegment(&res.value(), dba);
+  return BuildPathSegment(&res.value(), dba, data_manager_);
 }
 
 void BfsRpcClients::PrepareForExpand(

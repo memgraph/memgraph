@@ -8,7 +8,7 @@ class Server;
 }
 
 namespace database {
-class GraphDb;
+class DistributedGraphDb;
 };
 
 namespace distributed {
@@ -19,7 +19,7 @@ namespace distributed {
 /// step in the same time.
 class TokenSharingRpcServer {
  public:
-  TokenSharingRpcServer(database::GraphDb *db, int worker_id,
+  TokenSharingRpcServer(database::DistributedGraphDb *db, int worker_id,
                         distributed::Coordination *coordination,
                         communication::rpc::Server *server,
                         distributed::TokenSharingRpcClients *clients)

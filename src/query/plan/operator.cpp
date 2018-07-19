@@ -17,6 +17,7 @@
 #include "glog/logging.h"
 
 #include "communication/result_stream_faker.hpp"
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "distributed/pull_rpc_clients.hpp"
@@ -1190,17 +1191,23 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   DistributedExpandBfsCursor(const ExpandVariable &self,
                              database::GraphDbAccessor &db)
       : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {
-    subcursor_ids_ = db_.db().bfs_subcursor_clients().CreateBfsSubcursors(
+    // TODO: Pass in a DistributedGraphDb.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&db.db())) {
+      bfs_subcursor_clients_ = &distributed_db->bfs_subcursor_clients();
+    }
+    CHECK(bfs_subcursor_clients_);
+    subcursor_ids_ = bfs_subcursor_clients_->CreateBfsSubcursors(
         db_.transaction_id(), self_.direction(), self_.edge_types(),
         self_.graph_view());
-    db_.db().bfs_subcursor_clients().RegisterSubcursors(subcursor_ids_);
+    bfs_subcursor_clients_->RegisterSubcursors(subcursor_ids_);
     VLOG(10) << "BFS subcursors initialized";
     pull_pos_ = subcursor_ids_.end();
   }
 
   ~DistributedExpandBfsCursor() {
     VLOG(10) << "Removing BFS subcursors";
-    db_.db().bfs_subcursor_clients().RemoveBfsSubcursors(subcursor_ids_);
+    bfs_subcursor_clients_->RemoveBfsSubcursors(subcursor_ids_);
   }
 
   bool Pull(Frame &frame, Context &context) override {
@@ -1218,8 +1225,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
       if (!skip_rest_) {
         if (current_depth_ >= lower_bound_) {
           for (; pull_pos_ != subcursor_ids_.end(); ++pull_pos_) {
-            auto vertex = db_.db().bfs_subcursor_clients().Pull(
-                pull_pos_->first, pull_pos_->second, &db_);
+            auto vertex = bfs_subcursor_clients_->Pull(pull_pos_->first,
+                                                       pull_pos_->second, &db_);
             if (vertex) {
               last_vertex = *vertex;
               SwitchAccessor(last_vertex.ValueVertex(), self_.graph_view_);
@@ -1263,9 +1270,9 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
                    "`current_vertex_addr` "
                    "should be set during path reconstruction";
             auto ret = current_edge_addr
-                           ? db_.db().bfs_subcursor_clients().ReconstructPath(
+                           ? bfs_subcursor_clients_->ReconstructPath(
                                  subcursor_ids_, *current_edge_addr, &db_)
-                           : db_.db().bfs_subcursor_clients().ReconstructPath(
+                           : bfs_subcursor_clients_->ReconstructPath(
                                  subcursor_ids_, *current_vertex_addr, &db_);
             edges.insert(edges.end(), ret.edges.begin(), ret.edges.end());
             current_vertex_addr = ret.next_vertex;
@@ -1286,9 +1293,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
         if (current_depth_ < upper_bound_) {
           VLOG(10) << "Trying to expand again...";
           current_depth_++;
-          db_.db().bfs_subcursor_clients().PrepareForExpand(subcursor_ids_,
-                                                            false);
-          if (db_.db().bfs_subcursor_clients().ExpandLevel(subcursor_ids_)) {
+          bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, false);
+          if (bfs_subcursor_clients_->ExpandLevel(subcursor_ids_)) {
             continue;
           }
         }
@@ -1321,21 +1327,21 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
       VLOG(10) << "Starting BFS from " << vertex << " with limits "
                << lower_bound_ << ".." << upper_bound_;
-      db_.db().bfs_subcursor_clients().PrepareForExpand(subcursor_ids_, true);
-      db_.db().bfs_subcursor_clients().SetSource(subcursor_ids_,
-                                                 vertex.GlobalAddress());
+      bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, true);
+      bfs_subcursor_clients_->SetSource(subcursor_ids_, vertex.GlobalAddress());
       current_depth_ = 1;
     }
   }
 
   void Reset() override {
-    db_.db().bfs_subcursor_clients().ResetSubcursors(subcursor_ids_);
+    bfs_subcursor_clients_->ResetSubcursors(subcursor_ids_);
     pull_pos_ = subcursor_ids_.end();
   }
 
  private:
   const ExpandVariable &self_;
   database::GraphDbAccessor &db_;
+  distributed::BfsRpcClients *bfs_subcursor_clients_{nullptr};
   const std::unique_ptr<query::plan::Cursor> input_cursor_;
 
   // Depth bounds. Calculated on each pull from the input, the initial value
@@ -3194,11 +3200,17 @@ namespace {
  */
 class RemotePuller {
  public:
-  RemotePuller(database::GraphDbAccessor &db,
+  RemotePuller(distributed::PullRpcClients *pull_clients,
+               database::GraphDbAccessor &db,
                const std::vector<Symbol> &symbols, int64_t plan_id,
                tx::CommandId command_id)
-      : db_(db), symbols_(symbols), plan_id_(plan_id), command_id_(command_id) {
-    worker_ids_ = db_.db().pull_clients().GetWorkerIds();
+      : pull_clients_(pull_clients),
+        db_(db),
+        symbols_(symbols),
+        plan_id_(plan_id),
+        command_id_(command_id) {
+    CHECK(pull_clients_);
+    worker_ids_ = pull_clients_->GetWorkerIds();
     // Remove master from the worker ids list.
     worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
   }
@@ -3280,7 +3292,7 @@ class RemotePuller {
   }
 
   void Reset() {
-    worker_ids_ = db_.db().pull_clients().GetWorkerIds();
+    worker_ids_ = pull_clients_->GetWorkerIds();
     // Remove master from the worker ids list.
     worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
 
@@ -3289,8 +3301,7 @@ class RemotePuller {
     // during its pull.
     remote_pulls_.clear();
     for (auto &worker_id : worker_ids_) {
-      db_.db().pull_clients().ResetCursor(&db_, worker_id, plan_id_,
-                                          command_id_);
+      pull_clients_->ResetCursor(&db_, worker_id, plan_id_, command_id_);
     }
     remote_results_.clear();
     remote_pulls_initialized_ = false;
@@ -3330,6 +3341,7 @@ class RemotePuller {
   }
 
  private:
+  distributed::PullRpcClients *pull_clients_{nullptr};
   database::GraphDbAccessor &db_;
   std::vector<Symbol> symbols_;
   int64_t plan_id_;
@@ -3341,7 +3353,7 @@ class RemotePuller {
   bool remote_pulls_initialized_ = false;
 
   void UpdatePullForWorker(int worker_id, Context &context) {
-    remote_pulls_[worker_id] = db_.db().pull_clients().Pull(
+    remote_pulls_[worker_id] = pull_clients_->Pull(
         &db_, worker_id, plan_id_, command_id_, context.parameters_, symbols_,
         context.timestamp_, false);
   }
@@ -3354,7 +3366,9 @@ class PullRemoteCursor : public Cursor {
         input_cursor_(self.input() ? self.input()->MakeCursor(db) : nullptr),
         command_id_(db.transaction().cid()),
         remote_puller_(
-            RemotePuller(db, self.symbols(), self.plan_id(), command_id_)) {}
+            // TODO: Pass in a Master GraphDb.
+            &dynamic_cast<database::Master *>(&db.db())->pull_clients(), db,
+            self.symbols(), self.plan_id(), command_id_) {}
 
   bool Pull(Frame &frame, Context &context) override {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
@@ -3449,6 +3463,15 @@ class SynchronizeCursor : public Cursor {
  public:
   SynchronizeCursor(const Synchronize &self, database::GraphDbAccessor &db)
       : self_(self),
+        pull_clients_(
+            // TODO: Pass in a Master GraphDb.
+            &dynamic_cast<database::Master *>(&db.db())->pull_clients()),
+        updates_clients_(
+            // TODO: Pass in a Master GraphDb.
+            &dynamic_cast<database::Master *>(&db.db())->updates_clients()),
+        updates_server_(
+            // TODO: Pass in a Master GraphDb.
+            &dynamic_cast<database::Master *>(&db.db())->updates_server()),
         input_cursor_(self.input()->MakeCursor(db)),
         pull_remote_cursor_(
             self.pull_remote() ? self.pull_remote()->MakeCursor(db) : nullptr),
@@ -3495,6 +3518,9 @@ class SynchronizeCursor : public Cursor {
 
  private:
   const Synchronize &self_;
+  distributed::PullRpcClients *pull_clients_{nullptr};
+  distributed::UpdatesRpcClients *updates_clients_{nullptr};
+  distributed::UpdatesRpcServer *updates_server_{nullptr};
   const std::unique_ptr<Cursor> input_cursor_;
   const std::unique_ptr<Cursor> pull_remote_cursor_;
   bool initial_pull_done_{false};
@@ -3509,9 +3535,9 @@ class SynchronizeCursor : public Cursor {
     // Tell all workers to accumulate, only if there is a remote pull.
     std::vector<utils::Future<distributed::PullData>> worker_accumulations;
     if (pull_remote_cursor_) {
-      for (auto worker_id : db.pull_clients().GetWorkerIds()) {
+      for (auto worker_id : pull_clients_->GetWorkerIds()) {
         if (worker_id == db.WorkerId()) continue;
-        worker_accumulations.emplace_back(db.pull_clients().Pull(
+        worker_accumulations.emplace_back(pull_clients_->Pull(
             &context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
             command_id_, context.parameters_, self_.pull_remote()->symbols(),
             context.timestamp_, true, 0));
@@ -3569,9 +3595,8 @@ class SynchronizeCursor : public Cursor {
 
     // Make all the workers apply their deltas.
     auto tx_id = context.db_accessor_.transaction_id();
-    auto apply_futures =
-        db.updates_clients().UpdateApplyAll(db.WorkerId(), tx_id);
-    db.updates_server().Apply(tx_id);
+    auto apply_futures = updates_clients_->UpdateApplyAll(db.WorkerId(), tx_id);
+    updates_server_->Apply(tx_id);
     for (auto &future : apply_futures) {
       switch (future.get()) {
         case distributed::UpdateResult::SERIALIZATION_ERROR:
@@ -3592,8 +3617,7 @@ class SynchronizeCursor : public Cursor {
 
     // If the command advanced, let the workers know.
     if (self_.advance_command()) {
-      auto futures =
-          db.pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
+      auto futures = pull_clients_->NotifyAllTransactionCommandAdvanced(tx_id);
       for (auto &future : futures) future.wait();
     }
   }
@@ -3687,7 +3711,9 @@ class PullRemoteOrderByCursor : public Cursor {
         input_(self.input()->MakeCursor(db)),
         command_id_(db.transaction().cid()),
         remote_puller_(
-            RemotePuller(db, self.symbols(), self.plan_id(), command_id_)) {}
+            // TODO: Pass in a Master GraphDb.
+            &dynamic_cast<database::Master *>(&db.db())->pull_clients(), db,
+            self.symbols(), self.plan_id(), command_id_) {}
 
   bool Pull(Frame &frame, Context &context) {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();

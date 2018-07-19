@@ -306,7 +306,7 @@ TEST_F(DistributedInterpretationTest, AdvanceCommandOnWorkers) {
   RunWithDba("UNWIND RANGE(1, 10) as x CREATE (:A {id: x})", dba);
   dba.AdvanceCommand();
   // Advance commands on workers also.
-  auto futures = dba.db().pull_clients().NotifyAllTransactionCommandAdvanced(
+  auto futures = master().pull_clients().NotifyAllTransactionCommandAdvanced(
       dba.transaction_id());
   for (auto &future : futures) future.wait();
 

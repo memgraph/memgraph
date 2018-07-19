@@ -1,8 +1,10 @@
+#include "database/graph_db_accessor.hpp"
+
 #include <functional>
 
 #include "glog/logging.h"
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed_graph_db.hpp"
 #include "database/state_delta.hpp"
 #include "distributed/data_manager.hpp"
 #include "distributed/rpc_worker_clients.hpp"
@@ -88,15 +90,23 @@ VertexAccessor GraphDbAccessor::InsertVertexIntoRemote(
   CHECK(worker_id != db().WorkerId())
       << "Not allowed to call InsertVertexIntoRemote for local worker";
 
-  gid::Gid gid = db().updates_clients().CreateVertex(
-      worker_id, transaction_id(), labels, properties);
+  distributed::UpdatesRpcClients *updates_clients = nullptr;
+  distributed::DataManager *data_manager = nullptr;
+  // TODO: Replace this with virtual call or some other mechanism.
+  if (auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(&db())) {
+    updates_clients = &distributed_db->updates_clients();
+    data_manager = &distributed_db->data_manager();
+  }
+  CHECK(updates_clients && data_manager);
+  gid::Gid gid = updates_clients->CreateVertex(worker_id, transaction_id(),
+                                               labels, properties);
 
   auto vertex = std::make_unique<Vertex>();
   vertex->labels_ = labels;
   for (auto &kv : properties) vertex->properties_.set(kv.first, kv.second);
 
-  db().data_manager()
-      .Elements<Vertex>(transaction_id())
+  data_manager->Elements<Vertex>(transaction_id())
       .emplace(gid, nullptr, std::move(vertex));
   return VertexAccessor({gid, worker_id}, *this);
 }
@@ -159,8 +169,11 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
 
   // Notify all workers to create the index
   if (db_.type() == GraphDb::Type::DISTRIBUTED_MASTER) {
-    index_rpc_completions.emplace(db_.index_rpc_clients().GetCreateIndexFutures(
-        label, property, this->db_.WorkerId()));
+    // TODO: Replace this with virtual call or some other mechanism.
+    database::Master *master_db = dynamic_cast<database::Master *>(&db_);
+    index_rpc_completions.emplace(
+        master_db->index_rpc_clients().GetCreateIndexFutures(
+            label, property, this->db_.WorkerId()));
   }
 
   if (index_rpc_completions) {
@@ -204,8 +217,10 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   // Notify all workers to start populating an index if we are the master since
   // they don't have to wait anymore
   if (db_.type() == GraphDb::Type::DISTRIBUTED_MASTER) {
+    // TODO: Replace this with virtual call or some other mechanism.
+    database::Master *master_db = dynamic_cast<database::Master *>(&db_);
     index_rpc_completions.emplace(
-        db_.index_rpc_clients().GetPopulateIndexFutures(
+        master_db->index_rpc_clients().GetPopulateIndexFutures(
             label, property, dba.transaction_id(), this->db_.WorkerId()));
   }
 
@@ -364,8 +379,15 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
 
   if (!vertex_accessor.is_local()) {
     auto address = vertex_accessor.address();
-    db().updates_clients().RemoveVertex(address.worker_id(), transaction_id(),
-                                        address.gid(), check_empty);
+    distributed::UpdatesRpcClients *updates_clients = nullptr;
+    // TODO: Replace this with virtual call or some other mechanism.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&db())) {
+      updates_clients = &distributed_db->updates_clients();
+    }
+    CHECK(updates_clients);
+    updates_clients->RemoveVertex(address.worker_id(), transaction_id(),
+                                  address.gid(), check_empty);
     // We can't know if we are going to be able to remove vertex until deferred
     // updates on a remote worker are executed
     return true;
@@ -429,16 +451,23 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
         from.gid(), to.gid(), edge_type, EdgeTypeName(edge_type)));
 
   } else {
-    edge_address = db().updates_clients().CreateEdge(transaction_id(), from, to,
-                                                     edge_type);
+    distributed::UpdatesRpcClients *updates_clients = nullptr;
+    distributed::DataManager *data_manager = nullptr;
+    // TODO: Replace this with virtual call or some other mechanism.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&db())) {
+      updates_clients = &distributed_db->updates_clients();
+      data_manager = &distributed_db->data_manager();
+    }
+    CHECK(updates_clients && data_manager);
+    edge_address =
+        updates_clients->CreateEdge(transaction_id(), from, to, edge_type);
 
-    from_updated = db().data_manager()
-                       .Elements<Vertex>(transaction_id())
-                       .FindNew(from.gid());
+    from_updated =
+        data_manager->Elements<Vertex>(transaction_id()).FindNew(from.gid());
 
     // Create an Edge and insert it into the Cache so we see it locally.
-    db().data_manager()
-        .Elements<Edge>(transaction_id())
+    data_manager->Elements<Edge>(transaction_id())
         .emplace(
             edge_address.gid(), nullptr,
             std::make_unique<Edge>(from.address(), to.address(), edge_type));
@@ -455,16 +484,24 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
     to.SwitchNew();
     to_updated = &to.update();
   } else {
+    distributed::UpdatesRpcClients *updates_clients = nullptr;
+    distributed::DataManager *data_manager = nullptr;
+    // TODO: Replace this with virtual call or some other mechanism.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&db())) {
+      updates_clients = &distributed_db->updates_clients();
+      data_manager = &distributed_db->data_manager();
+    }
+    CHECK(updates_clients && data_manager);
     // The RPC call for the `to` side is already handled if `from` is not local.
     if (from.is_local() ||
         from.address().worker_id() != to.address().worker_id()) {
-      db().updates_clients().AddInEdge(
-          transaction_id(), from,
-          db().storage().GlobalizedAddress(edge_address), to, edge_type);
+      updates_clients->AddInEdge(transaction_id(), from,
+                                 db().storage().GlobalizedAddress(edge_address),
+                                 to, edge_type);
     }
-    to_updated = db().data_manager()
-                     .Elements<Vertex>(transaction_id())
-                     .FindNew(to.gid());
+    to_updated =
+        data_manager->Elements<Vertex>(transaction_id()).FindNew(to.gid());
   }
   to_updated->in_.emplace(
       db_.storage().LocalizedAddressIfPossible(from.address()), edge_address,
@@ -522,15 +559,21 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
     CHECK(edge_addr.worker_id() == from_addr.worker_id())
         << "Edge and it's 'from' vertex not on the same worker";
     auto to_addr = db().storage().GlobalizedAddress(edge.to_addr());
-    db().updates_clients().RemoveEdge(transaction_id(), edge_addr.worker_id(),
-                                      edge_addr.gid(), from_addr.gid(),
-                                      to_addr);
+    distributed::UpdatesRpcClients *updates_clients = nullptr;
+    // TODO: Replace this with virtual call or some other mechanism.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&db())) {
+      updates_clients = &distributed_db->updates_clients();
+    }
+    CHECK(updates_clients);
+    updates_clients->RemoveEdge(transaction_id(), edge_addr.worker_id(),
+                                edge_addr.gid(), from_addr.gid(), to_addr);
 
     // Another RPC is necessary only if the first did not handle vertices on
     // both sides.
     if (edge_addr.worker_id() != to_addr.worker_id()) {
-      db().updates_clients().RemoveInEdge(transaction_id(), to_addr.worker_id(),
-                                          to_addr.gid(), edge_addr);
+      updates_clients->RemoveInEdge(transaction_id(), to_addr.worker_id(),
+                                    to_addr.gid(), edge_addr);
     }
   }
 }

@@ -7,6 +7,8 @@
 
 namespace distributed {
 
+class DataManager;
+
 /// Along with `BfsRpcServer`, this class is used to expose `BfsSubcursor`
 /// interface over the network so that subcursors can communicate during the
 /// traversal. It is just a thin wrapper making RPC calls that also takes
@@ -16,8 +18,9 @@ namespace distributed {
 class BfsRpcClients {
  public:
   BfsRpcClients(database::GraphDb *db,
-                distributed::BfsSubcursorStorage *subcursor_storage,
-                distributed::RpcWorkerClients *clients);
+                BfsSubcursorStorage *subcursor_storage,
+                RpcWorkerClients *clients,
+                DataManager *data_manager);
 
   std::unordered_map<int16_t, int64_t> CreateBfsSubcursors(
       tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
@@ -57,9 +60,10 @@ class BfsRpcClients {
       const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear);
 
  private:
-  database::GraphDb *db_;
-  distributed::BfsSubcursorStorage *subcursor_storage_;
-  distributed::RpcWorkerClients *clients_;
+  database::GraphDb *db_{nullptr};
+  distributed::BfsSubcursorStorage *subcursor_storage_{nullptr};
+  distributed::RpcWorkerClients *clients_{nullptr};
+  distributed::DataManager *data_manager_{nullptr};
 };
 
 }  // namespace distributed

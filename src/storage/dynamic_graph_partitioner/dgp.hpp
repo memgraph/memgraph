@@ -8,7 +8,7 @@
 #include "storage/vertex_accessor.hpp"
 
 namespace database {
-class GraphDb;
+class DistributedGraphDb;
 class GraphDbAccessor;
 };  // namespace database
 
@@ -25,7 +25,7 @@ class DynamicGraphPartitioner {
       delete;
   DynamicGraphPartitioner &operator=(DynamicGraphPartitioner &&other) = delete;
 
-  explicit DynamicGraphPartitioner(database::GraphDb *db);
+  explicit DynamicGraphPartitioner(database::DistributedGraphDb *db);
 
   /// Runs one dynamic graph partitioning cycle (step).
   void Run();
@@ -50,5 +50,5 @@ class DynamicGraphPartitioner {
       const VertexAccessor &vertex) const;
 
  private:
-  database::GraphDb *db_;
+  database::DistributedGraphDb *db_{nullptr};
 };

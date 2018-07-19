@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "communication/result_stream_faker.hpp"
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "glue/conversion.hpp"
 #include "query/interpreter.hpp"

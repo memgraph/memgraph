@@ -16,6 +16,8 @@ class GraphDb;
 
 namespace distributed {
 
+class BfsRpcClients;
+
 /// Path from BFS source to a vertex might span multiple workers. This struct
 /// stores information describing segment of a path stored on a worker and
 /// information necessary to continue path reconstruction on another worker.
@@ -33,7 +35,8 @@ class ExpandBfsSubcursor {
   ExpandBfsSubcursor(database::GraphDb *db, tx::TransactionId tx_id,
                      query::EdgeAtom::Direction direction,
                      std::vector<storage::EdgeType> edge_types,
-                     query::GraphView graph_view);
+                     query::GraphView graph_view,
+                     BfsRpcClients *bfs_subcursor_clients);
 
   // Stores subcursor ids of other workers.
   void RegisterSubcursors(std::unordered_map<int16_t, int64_t> subcursor_ids) {
@@ -73,7 +76,7 @@ class ExpandBfsSubcursor {
 
   /// Reconstruct the part of path to given vertex stored on this worker.
   PathSegment ReconstructPath(storage::VertexAddress vertex_addr);
- 
+
   /// Used to reset subcursor state before starting expansion from new source.
   void Reset();
 
@@ -88,6 +91,8 @@ class ExpandBfsSubcursor {
 
   /// Helper for path reconstruction doing the actual work.
   void ReconstructPathHelper(VertexAccessor vertex, PathSegment *result);
+
+  BfsRpcClients *bfs_subcursor_clients_{nullptr};
 
   database::GraphDbAccessor dba_;
 
@@ -123,7 +128,8 @@ class ExpandBfsSubcursor {
 /// Thread-safe storage for BFS subcursors.
 class BfsSubcursorStorage {
  public:
-  explicit BfsSubcursorStorage(database::GraphDb *db);
+  explicit BfsSubcursorStorage(database::GraphDb *db,
+                               BfsRpcClients *bfs_subcursor_clients);
 
   int64_t Create(tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
                  std::vector<storage::EdgeType> edge_types,
@@ -132,7 +138,8 @@ class BfsSubcursorStorage {
   ExpandBfsSubcursor *Get(int64_t subcursor_id);
 
  private:
-  database::GraphDb *db_;
+  database::GraphDb *db_{nullptr};
+  BfsRpcClients *bfs_subcursor_clients_{nullptr};
 
   std::mutex mutex_;
   std::map<int64_t, std::unique_ptr<ExpandBfsSubcursor>> storage_;

@@ -296,8 +296,14 @@ class DistributedDetachDeleteTest : public DistributedGraphDbTest {
       accessor.DetachRemoveVertex(v_accessor);
 
       for (auto db_accessor : dba) {
-        ASSERT_EQ(db_accessor.get().db().updates_server().Apply(
-                      dba[0].get().transaction_id()),
+        distributed::UpdatesRpcServer *updates_server = nullptr;
+        auto *db = &db_accessor.get().db();
+        if (auto *distributed_db =
+                dynamic_cast<database::DistributedGraphDb *>(db)) {
+          updates_server = &distributed_db->updates_server();
+        }
+        ASSERT_TRUE(updates_server);
+        ASSERT_EQ(updates_server->Apply(dba[0].get().transaction_id()),
                   distributed::UpdateResult::DONE);
       }
 

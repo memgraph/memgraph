@@ -4,6 +4,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "query/exceptions.hpp"
@@ -23,7 +24,8 @@ DEFINE_VALIDATED_int32(dgp_max_batch_size, 2000,
                        "one dynamic graph partitioner step.",
                        FLAG_IN_RANGE(1, std::numeric_limits<int32_t>::max()));
 
-DynamicGraphPartitioner::DynamicGraphPartitioner(database::GraphDb *db)
+DynamicGraphPartitioner::DynamicGraphPartitioner(
+    database::DistributedGraphDb *db)
     : db_(db) {}
 
 void DynamicGraphPartitioner::Run() {
