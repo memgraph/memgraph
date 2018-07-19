@@ -266,16 +266,17 @@ void SingleNodeMain() {
 
   auto stream_writer =
       [&session_data](const std::vector<std::string> &queries) {
-        database::GraphDbAccessor dba(session_data.db);
         for (auto &query : queries) {
+          database::GraphDbAccessor dba(session_data.db);
           KafkaResultStream stream;
           try {
             session_data.interpreter(query, dba, {}, false).PullAll(stream);
+            dba.Commit();
           } catch (const query::QueryException &e) {
             LOG(ERROR) << e.what();
+            dba.Abort();
           }
         }
-        dba.Commit();
       };
 
   integrations::kafka::Streams kafka_streams{
@@ -355,16 +356,17 @@ void MasterMain() {
 
   auto stream_writer =
       [&session_data](const std::vector<std::string> &queries) {
-        database::GraphDbAccessor dba(session_data.db);
         for (auto &query : queries) {
+          database::GraphDbAccessor dba(session_data.db);
           KafkaResultStream stream;
           try {
             session_data.interpreter(query, dba, {}, false).PullAll(stream);
+            dba.Commit();
           } catch (const query::QueryException &e) {
             LOG(ERROR) << e.what();
+            dba.Abort();
           }
         }
-        dba.Commit();
       };
 
   integrations::kafka::Streams kafka_streams{
