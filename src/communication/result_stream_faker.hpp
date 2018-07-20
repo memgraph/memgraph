@@ -24,36 +24,21 @@ class ResultStreamFaker {
   ResultStreamFaker(ResultStreamFaker &&) = default;
   ResultStreamFaker &operator=(ResultStreamFaker &&) = default;
 
-  void Header(const std::vector<std::string> &fields) {
-    DCHECK(current_state_ == State::Start)
-        << "Headers can only be written in the beginning";
-    header_ = fields;
-    current_state_ = State::WritingResults;
-  }
+  void Header(const std::vector<std::string> &fields) { header_ = fields; }
 
   void Result(const std::vector<TResultValue> &values) {
-    DCHECK(current_state_ == State::WritingResults)
-        << "Can't accept results before header nor after summary";
     results_.push_back(values);
   }
 
   void Summary(const std::map<std::string, TResultValue> &summary) {
-    DCHECK(current_state_ != State::Done) << "Can only send a summary once";
     summary_ = summary;
-    current_state_ = State::Done;
   }
 
-  const auto &GetHeader() const {
-    DCHECK(current_state_ != State::Start) << "Header not written";
-    return header_;
-  }
+  const auto &GetHeader() const { return header_; }
 
   const auto &GetResults() const { return results_; }
 
-  const auto &GetSummary() const {
-    DCHECK(current_state_ == State::Done) << "Summary not written";
-    return summary_;
-  }
+  const auto &GetSummary() const { return summary_; }
 
   friend std::ostream &operator<<(std::ostream &os,
                                   const ResultStreamFaker &results) {
@@ -123,15 +108,6 @@ class ResultStreamFaker {
   }
 
  private:
-  /**
-   * Possible states of the Mocker. Used for checking if calls to
-   * the Mocker as in acceptable order.
-   */
-  enum class State { Start, WritingResults, Done };
-
-  // the current state
-  State current_state_ = State::Start;
-
   // the data that the record stream can accept
   std::vector<std::string> header_;
   std::vector<std::vector<TResultValue>> results_;
