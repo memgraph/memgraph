@@ -7,7 +7,7 @@
 #include <string>
 
 #include "communication/bolt/client.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/thread/sync.hpp"
@@ -15,41 +15,41 @@
 
 using communication::ClientContext;
 using communication::bolt::Client;
-using communication::bolt::DecodedValue;
+using communication::bolt::Value;
 using io::network::Endpoint;
 
-void PrintJsonDecodedValue(std::ostream &os, const DecodedValue &value) {
+void PrintJsonValue(std::ostream &os, const Value &value) {
   switch (value.type()) {
-    case DecodedValue::Type::Null:
+    case Value::Type::Null:
       os << "null";
       break;
-    case DecodedValue::Type::Bool:
+    case Value::Type::Bool:
       os << (value.ValueBool() ? "true" : "false");
       break;
-    case DecodedValue::Type::Int:
+    case Value::Type::Int:
       os << value.ValueInt();
       break;
-    case DecodedValue::Type::Double:
+    case Value::Type::Double:
       os << value.ValueDouble();
       break;
-    case DecodedValue::Type::String:
+    case Value::Type::String:
       os << "\"" << value.ValueString() << "\"";
       break;
-    case DecodedValue::Type::List:
+    case Value::Type::List:
       os << "[";
       utils::PrintIterable(os, value.ValueList(), ", ",
                            [](auto &stream, const auto &item) {
-                             PrintJsonDecodedValue(stream, item);
+                             PrintJsonValue(stream, item);
                            });
       os << "]";
       break;
-    case DecodedValue::Type::Map:
+    case Value::Type::Map:
       os << "{";
       utils::PrintIterable(os, value.ValueMap(), ", ",
                            [](auto &stream, const auto &pair) {
-                             PrintJsonDecodedValue(stream, {pair.first});
+                             PrintJsonValue(stream, {pair.first});
                              stream << ": ";
-                             PrintJsonDecodedValue(stream, pair.second);
+                             PrintJsonValue(stream, pair.second);
                            });
       os << "}";
       break;
@@ -60,7 +60,7 @@ void PrintJsonDecodedValue(std::ostream &os, const DecodedValue &value) {
 
 std::pair<communication::bolt::QueryData, int> ExecuteNTimesTillSuccess(
     Client &client, const std::string &query,
-    const std::map<std::string, communication::bolt::DecodedValue> &params,
+    const std::map<std::string, communication::bolt::Value> &params,
     int max_attempts) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_int_distribution<> rand_dist_{10, 50};

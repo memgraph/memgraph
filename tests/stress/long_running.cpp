@@ -15,7 +15,7 @@
 using EndpointT = io::network::Endpoint;
 using ClientContextT = communication::ClientContext;
 using ClientT = communication::bolt::Client;
-using DecodedValueT = communication::bolt::DecodedValue;
+using ValueT = communication::bolt::Value;
 using QueryDataT = communication::bolt::QueryData;
 using ExceptionT = communication::bolt::ClientQueryException;
 
@@ -159,7 +159,7 @@ class GraphSession {
         }
         // remove edge
         auto &edge = record[2];
-        if (edge.type() == DecodedValueT::Type::Int) {
+        if (edge.type() == ValueT::Type::Int) {
           edges_.erase(edge.ValueInt());
         }
       }

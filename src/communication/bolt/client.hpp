@@ -29,8 +29,8 @@ class ClientQueryException : public utils::BasicException {
 
 struct QueryData {
   std::vector<std::string> fields;
-  std::vector<std::vector<DecodedValue>> records;
-  std::map<std::string, DecodedValue> metadata;
+  std::vector<std::vector<Value>> records;
+  std::map<std::string, Value> metadata;
 };
 
 class Client final {
@@ -79,7 +79,7 @@ class Client final {
     }
 
     Signature signature;
-    DecodedValue metadata;
+    Value metadata;
     if (!ReadMessage(&signature, &metadata)) {
       LOG(ERROR) << "Couldn't read init message response!";
       return false;
@@ -95,7 +95,7 @@ class Client final {
   }
 
   QueryData Execute(const std::string &query,
-                    const std::map<std::string, DecodedValue> &parameters) {
+                    const std::map<std::string, Value> &parameters) {
     DLOG(INFO) << "Sending run message with statement: '" << query
                << "'; parameters: " << parameters;
 
@@ -104,11 +104,11 @@ class Client final {
 
     DLOG(INFO) << "Reading run message response";
     Signature signature;
-    DecodedValue fields;
+    Value fields;
     if (!ReadMessage(&signature, &fields)) {
       throw ClientFatalException();
     }
-    if (fields.type() != DecodedValue::Type::Map) {
+    if (fields.type() != Value::Type::Map) {
       throw ClientFatalException();
     }
 
@@ -126,8 +126,8 @@ class Client final {
 
     DLOG(INFO) << "Reading pull_all message response";
     Marker marker;
-    DecodedValue metadata;
-    std::vector<std::vector<DecodedValue>> records;
+    Value metadata;
+    std::vector<std::vector<Value>> records;
     while (true) {
       if (!GetMessage()) {
         throw ClientFatalException();
@@ -136,8 +136,8 @@ class Client final {
         throw ClientFatalException();
       }
       if (signature == Signature::Record) {
-        DecodedValue record;
-        if (!decoder_.ReadValue(&record, DecodedValue::Type::List)) {
+        Value record;
+        if (!decoder_.ReadValue(&record, Value::Type::List)) {
           throw ClientFatalException();
         }
         records.push_back(record.ValueList());
@@ -147,7 +147,7 @@ class Client final {
         }
         break;
       } else if (signature == Signature::Failure) {
-        DecodedValue data;
+        Value data;
         if (!decoder_.ReadValue(&data)) {
           throw ClientFatalException();
         }
@@ -163,7 +163,7 @@ class Client final {
       }
     }
 
-    if (metadata.type() != DecodedValue::Type::Map) {
+    if (metadata.type() != Value::Type::Map) {
       throw ClientFatalException();
     }
 
@@ -173,13 +173,13 @@ class Client final {
     if (header.find("fields") == header.end()) {
       throw ClientFatalException();
     }
-    if (header["fields"].type() != DecodedValue::Type::List) {
+    if (header["fields"].type() != Value::Type::List) {
       throw ClientFatalException();
     }
     auto &field_vector = header["fields"].ValueList();
 
     for (auto &field_item : field_vector) {
-      if (field_item.type() != DecodedValue::Type::String) {
+      if (field_item.type() != Value::Type::String) {
         throw ClientFatalException();
       }
       ret.fields.push_back(field_item.ValueString());
@@ -208,16 +208,16 @@ class Client final {
     return true;
   }
 
-  bool ReadMessage(Signature *signature, DecodedValue *ret) {
+  bool ReadMessage(Signature *signature, Value *ret) {
     Marker marker;
     if (!GetMessage()) return false;
     if (!decoder_.ReadMessageHeader(signature, &marker)) return false;
     return ReadMessageData(marker, ret);
   }
 
-  bool ReadMessageData(Marker marker, DecodedValue *ret) {
+  bool ReadMessageData(Marker marker, Value *ret) {
     if (marker == Marker::TinyStruct) {
-      *ret = DecodedValue();
+      *ret = Value();
       return true;
     } else if (marker == Marker::TinyStruct1) {
       return decoder_.ReadValue(ret);
@@ -231,7 +231,7 @@ class Client final {
     }
     while (true) {
       Signature signature;
-      DecodedValue data;
+      Value data;
       if (!ReadMessage(&signature, &data)) {
         throw ClientFatalException();
       }

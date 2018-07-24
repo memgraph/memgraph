@@ -1,5 +1,5 @@
 set(communication_src_files
-    bolt/v1/decoder/decoded_value.cpp
+    bolt/v1/value.cpp
     buffer.cpp
     client.cpp
     context.cpp

@@ -4,7 +4,7 @@
 
 #include "glog/logging.h"
 
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "utils/algorithm.hpp"
 
 // TODO: Why is this here?! It's only used in tests and query/repl.cpp
@@ -15,7 +15,7 @@
  * sent to it in an acceptable order, and tracks
  * the content of those messages.
  */
-template <class TResultValue = communication::bolt::DecodedValue>
+template <class TResultValue = communication::bolt::Value>
 class ResultStreamFaker {
  public:
   ResultStreamFaker() = default;

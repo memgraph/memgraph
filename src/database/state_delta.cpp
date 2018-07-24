@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "glue/conversion.hpp"
 
@@ -208,13 +208,13 @@ void StateDelta::Encode(
       encoder.WriteInt(vertex_id);
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
-      encoder.WriteDecodedValue(glue::ToDecodedValue(value));
+      encoder.WriteValue(glue::ToBoltValue(value));
       break;
     case Type::SET_PROPERTY_EDGE:
       encoder.WriteInt(edge_id);
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
-      encoder.WriteDecodedValue(glue::ToDecodedValue(value));
+      encoder.WriteValue(glue::ToBoltValue(value));
       break;
     case Type::ADD_LABEL:
     case Type::REMOVE_LABEL:
@@ -254,7 +254,7 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
 
   StateDelta r_val;
   // The decoded value used as a temporary while decoding.
-  communication::bolt::DecodedValue dv;
+  communication::bolt::Value dv;
 
   try {
     if (!decoder.ReadValue(&dv)) return nullopt;
@@ -339,7 +339,7 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
     if (decoder_hash != encoded_hash) return nullopt;
 
     return r_val;
-  } catch (communication::bolt::DecodedValueException &) {
+  } catch (communication::bolt::ValueException &) {
     return nullopt;
   } catch (std::ifstream::failure &) {
     return nullopt;

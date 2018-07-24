@@ -6,7 +6,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "glue/conversion.hpp"
 
-using communication::bolt::DecodedValue;
+using communication::bolt::Value;
 
 /**
  * TODO (mferencevic): document
@@ -65,10 +65,10 @@ std::vector<uint8_t> &output = output_stream.output;
 
 TEST(BoltEncoder, NullAndBool) {
   output.clear();
-  std::vector<DecodedValue> vals;
-  vals.push_back(DecodedValue());
-  vals.push_back(DecodedValue(true));
-  vals.push_back(DecodedValue(false));
+  std::vector<Value> vals;
+  vals.push_back(Value());
+  vals.push_back(Value(true));
+  vals.push_back(Value(false));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, 3);
   CheckOutput(output, (const uint8_t *)"\xC0\xC3\xC2", 3);
@@ -77,8 +77,8 @@ TEST(BoltEncoder, NullAndBool) {
 TEST(BoltEncoder, Int) {
   int N = 28;
   output.clear();
-  std::vector<DecodedValue> vals;
-  for (int i = 0; i < N; ++i) vals.push_back(DecodedValue(int_decoded[i]));
+  std::vector<Value> vals;
+  for (int i = 0; i < N; ++i) vals.push_back(Value(int_decoded[i]));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, N);
   for (int i = 0; i < N; ++i)
@@ -89,8 +89,8 @@ TEST(BoltEncoder, Int) {
 TEST(BoltEncoder, Double) {
   int N = 4;
   output.clear();
-  std::vector<DecodedValue> vals;
-  for (int i = 0; i < N; ++i) vals.push_back(DecodedValue(double_decoded[i]));
+  std::vector<Value> vals;
+  for (int i = 0; i < N; ++i) vals.push_back(Value(double_decoded[i]));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, N);
   for (int i = 0; i < N; ++i) CheckOutput(output, double_encoded[i], 9, false);
@@ -99,9 +99,9 @@ TEST(BoltEncoder, Double) {
 
 TEST(BoltEncoder, String) {
   output.clear();
-  std::vector<DecodedValue> vals;
+  std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i)
-    vals.push_back(DecodedValue(std::string((const char *)data, sizes[i])));
+    vals.push_back(Value(std::string((const char *)data, sizes[i])));
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
   for (uint64_t i = 0; i < sizes_num; ++i) {
@@ -113,12 +113,12 @@ TEST(BoltEncoder, String) {
 
 TEST(BoltEncoder, List) {
   output.clear();
-  std::vector<DecodedValue> vals;
+  std::vector<Value> vals;
   for (uint64_t i = 0; i < sizes_num; ++i) {
-    std::vector<DecodedValue> val;
+    std::vector<Value> val;
     for (uint64_t j = 0; j < sizes[i]; ++j)
-      val.push_back(DecodedValue(std::string((const char *)&data[j], 1)));
-    vals.push_back(DecodedValue(val));
+      val.push_back(Value(std::string((const char *)&data[j], 1)));
+    vals.push_back(Value(val));
   }
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
@@ -134,16 +134,16 @@ TEST(BoltEncoder, List) {
 
 TEST(BoltEncoder, Map) {
   output.clear();
-  std::vector<DecodedValue> vals;
+  std::vector<Value> vals;
   uint8_t buff[10];
   for (int i = 0; i < sizes_num; ++i) {
-    std::map<std::string, DecodedValue> val;
+    std::map<std::string, Value> val;
     for (int j = 0; j < sizes[i]; ++j) {
       sprintf((char *)buff, "%05X", j);
       std::string tmp((char *)buff, 5);
-      val.insert(std::make_pair(tmp, DecodedValue(tmp)));
+      val.insert(std::make_pair(tmp, Value(tmp)));
     }
-    vals.push_back(DecodedValue(val));
+    vals.push_back(Value(val));
   }
   bolt_encoder.MessageRecord(vals);
   CheckRecordHeader(output, vals.size());
@@ -188,10 +188,10 @@ TEST(BoltEncoder, VertexAndEdge) {
   ea.PropsSet(p4, pv4);
 
   // check everything
-  std::vector<DecodedValue> vals;
-  vals.push_back(glue::ToDecodedValue(va1));
-  vals.push_back(glue::ToDecodedValue(va2));
-  vals.push_back(glue::ToDecodedValue(ea));
+  std::vector<Value> vals;
+  vals.push_back(glue::ToBoltValue(va1));
+  vals.push_back(glue::ToBoltValue(va2));
+  vals.push_back(glue::ToBoltValue(ea));
   bolt_encoder.MessageRecord(vals);
 
   // The vertexedge_encoded testdata has hardcoded zeros for IDs,
@@ -214,18 +214,18 @@ TEST(BoltEncoder, BoltV1ExampleMessages) {
   output.clear();
 
   // record message
-  std::vector<DecodedValue> rvals;
-  for (int i = 1; i < 4; ++i) rvals.push_back(DecodedValue(i));
+  std::vector<Value> rvals;
+  for (int i = 1; i < 4; ++i) rvals.push_back(Value(i));
   bolt_encoder.MessageRecord(rvals);
   CheckOutput(output, (const uint8_t *)"\xB1\x71\x93\x01\x02\x03", 6);
 
   // success message
   std::string sv1("name"), sv2("age"), sk("fields");
-  std::vector<DecodedValue> svec;
-  svec.push_back(DecodedValue(sv1));
-  svec.push_back(DecodedValue(sv2));
-  DecodedValue slist(svec);
-  std::map<std::string, DecodedValue> svals;
+  std::vector<Value> svec;
+  svec.push_back(Value(sv1));
+  svec.push_back(Value(sv2));
+  Value slist(svec);
+  std::map<std::string, Value> svals;
   svals.insert(std::make_pair(sk, slist));
   bolt_encoder.MessageSuccess(svals);
   CheckOutput(output,
@@ -236,8 +236,8 @@ TEST(BoltEncoder, BoltV1ExampleMessages) {
   std::string fv1("Neo.ClientError.Statement.SyntaxError"),
       fv2("Invalid syntax.");
   std::string fk1("code"), fk2("message");
-  DecodedValue ftv1(fv1), ftv2(fv2);
-  std::map<std::string, DecodedValue> fvals;
+  Value ftv1(fv1), ftv2(fv2);
+  std::map<std::string, Value> fvals;
   fvals.insert(std::make_pair(fk1, ftv1));
   fvals.insert(std::make_pair(fk2, ftv2));
   bolt_encoder.MessageFailure(fvals);

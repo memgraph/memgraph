@@ -10,8 +10,8 @@
 
 namespace communication::bolt {
 
-/** Forward declaration of DecodedValue class. */
-class DecodedValue;
+/** Forward declaration of Value class. */
+class Value;
 
 /** Wraps int64_t to prevent dangerous implicit conversions. */
 class Id {
@@ -43,43 +43,42 @@ inline bool operator!=(const Id &id1, const Id &id2) { return !(id1 == id2); }
  * Structure used when reading a Vertex with the decoder.
  * The decoder writes data into this structure.
  */
-struct DecodedVertex {
+struct Vertex {
   Id id;
   std::vector<std::string> labels;
-  std::map<std::string, DecodedValue> properties;
+  std::map<std::string, Value> properties;
 };
 
 /**
  * Structure used when reading an Edge with the decoder.
  * The decoder writes data into this structure.
  */
-struct DecodedEdge {
+struct Edge {
   Id id;
   Id from;
   Id to;
   std::string type;
-  std::map<std::string, DecodedValue> properties;
+  std::map<std::string, Value> properties;
 };
 
 /**
  * Structure used when reading an UnboundEdge with the decoder.
  * The decoder writes data into this structure.
  */
-struct DecodedUnboundedEdge {
+struct UnboundedEdge {
   Id id;
   std::string type;
-  std::map<std::string, DecodedValue> properties;
+  std::map<std::string, Value> properties;
 };
 
 /**
  * Structure used when reading a Path with the decoder.
  * The decoder writes data into this structure.
  */
-struct DecodedPath {
-  DecodedPath() {}
+struct Path {
+  Path() {}
 
-  DecodedPath(const std::vector<DecodedVertex> &vertices,
-              const std::vector<DecodedEdge> &edges) {
+  Path(const std::vector<Vertex> &vertices, const std::vector<Edge> &edges) {
     // Helper function. Looks for the given element in the collection. If found,
     // puts its index into `indices`. Otherwise emplaces the given element
     // into the collection and puts that index into `indices`. A multiplier is
@@ -101,16 +100,16 @@ struct DecodedPath {
     for (uint i = 0; i < edges.size(); i++) {
       const auto &e = edges[i];
       const auto &v = vertices[i + 1];
-      DecodedUnboundedEdge unbounded_edge{e.id, e.type, e.properties};
+      UnboundedEdge unbounded_edge{e.id, e.type, e.properties};
       add_element(this->edges, unbounded_edge, e.to == v.id ? 1 : -1, 1);
       add_element(this->vertices, v, 1, 0);
     }
   }
 
   /** Unique vertices in the path. */
-  std::vector<DecodedVertex> vertices;
+  std::vector<Vertex> vertices;
   /** Unique edges in the path. */
-  std::vector<DecodedUnboundedEdge> edges;
+  std::vector<UnboundedEdge> edges;
   /**
    * Indices that map path positions to vertices/edges.
    * Positive indices for left-to-right directionality and negative for
@@ -119,13 +118,13 @@ struct DecodedPath {
   std::vector<int64_t> indices;
 };
 
-/** DecodedValue represents supported values in the Bolt protocol. */
-class DecodedValue {
+/** Value represents supported values in the Bolt protocol. */
+class Value {
  public:
   /** Default constructor, makes Null */
-  DecodedValue() : type_(Type::Null) {}
+  Value() : type_(Type::Null) {}
 
-  /** Types that can be stored in a DecodedValue. */
+  /** Types that can be stored in a Value. */
   enum class Type : unsigned {
     Null,
     Bool,
@@ -141,39 +140,34 @@ class DecodedValue {
   };
 
   // constructors for primitive types
-  DecodedValue(bool value) : type_(Type::Bool) { bool_v = value; }
-  DecodedValue(int value) : type_(Type::Int) { int_v = value; }
-  DecodedValue(int64_t value) : type_(Type::Int) { int_v = value; }
-  DecodedValue(double value) : type_(Type::Double) { double_v = value; }
+  Value(bool value) : type_(Type::Bool) { bool_v = value; }
+  Value(int value) : type_(Type::Int) { int_v = value; }
+  Value(int64_t value) : type_(Type::Int) { int_v = value; }
+  Value(double value) : type_(Type::Double) { double_v = value; }
 
   // constructors for non-primitive types
-  DecodedValue(const std::string &value) : type_(Type::String) {
+  Value(const std::string &value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
-  DecodedValue(const char *value) : DecodedValue(std::string(value)) {}
-  DecodedValue(const std::vector<DecodedValue> &value) : type_(Type::List) {
-    new (&list_v) std::vector<DecodedValue>(value);
+  Value(const char *value) : Value(std::string(value)) {}
+  Value(const std::vector<Value> &value) : type_(Type::List) {
+    new (&list_v) std::vector<Value>(value);
   }
-  DecodedValue(const std::map<std::string, DecodedValue> &value)
-      : type_(Type::Map) {
-    new (&map_v) std::map<std::string, DecodedValue>(value);
+  Value(const std::map<std::string, Value> &value) : type_(Type::Map) {
+    new (&map_v) std::map<std::string, Value>(value);
   }
-  DecodedValue(const DecodedVertex &value) : type_(Type::Vertex) {
-    new (&vertex_v) DecodedVertex(value);
+  Value(const Vertex &value) : type_(Type::Vertex) {
+    new (&vertex_v) Vertex(value);
   }
-  DecodedValue(const DecodedEdge &value) : type_(Type::Edge) {
-    new (&edge_v) DecodedEdge(value);
+  Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
+  Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) {
+    new (&unbounded_edge_v) UnboundedEdge(value);
   }
-  DecodedValue(const DecodedUnboundedEdge &value) : type_(Type::UnboundedEdge) {
-    new (&unbounded_edge_v) DecodedUnboundedEdge(value);
-  }
-  DecodedValue(const DecodedPath &value) : type_(Type::Path) {
-    new (&path_v) DecodedPath(value);
-  }
+  Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
 
-  DecodedValue &operator=(const DecodedValue &other);
-  DecodedValue(const DecodedValue &other);
-  ~DecodedValue();
+  Value &operator=(const Value &other);
+  Value(const Value &other);
+  ~Value();
 
   Type type() const { return type_; }
 
@@ -192,13 +186,13 @@ class DecodedValue {
   const value_type &Value##type() const;
 
   DECL_GETTER_BY_REFERENCE(String, std::string)
-  DECL_GETTER_BY_REFERENCE(List, std::vector<DecodedValue>)
-  using map_t = std::map<std::string, DecodedValue>;
+  DECL_GETTER_BY_REFERENCE(List, std::vector<Value>)
+  using map_t = std::map<std::string, Value>;
   DECL_GETTER_BY_REFERENCE(Map, map_t)
-  DECL_GETTER_BY_REFERENCE(Vertex, DecodedVertex)
-  DECL_GETTER_BY_REFERENCE(Edge, DecodedEdge)
-  DECL_GETTER_BY_REFERENCE(UnboundedEdge, DecodedUnboundedEdge)
-  DECL_GETTER_BY_REFERENCE(Path, DecodedPath)
+  DECL_GETTER_BY_REFERENCE(Vertex, Vertex)
+  DECL_GETTER_BY_REFERENCE(Edge, Edge)
+  DECL_GETTER_BY_REFERENCE(UnboundedEdge, UnboundedEdge)
+  DECL_GETTER_BY_REFERENCE(Path, Path)
 
 #undef DECL_GETTER_BY_REFERNCE
 
@@ -218,7 +212,7 @@ class DecodedValue {
 
 #undef TYPE_CHECKER
 
-  friend std::ostream &operator<<(std::ostream &os, const DecodedValue &value);
+  friend std::ostream &operator<<(std::ostream &os, const Value &value);
 
  private:
   Type type_;
@@ -229,32 +223,31 @@ class DecodedValue {
     int64_t int_v;
     double double_v;
     std::string string_v;
-    std::vector<DecodedValue> list_v;
-    std::map<std::string, DecodedValue> map_v;
-    DecodedVertex vertex_v;
-    DecodedEdge edge_v;
-    DecodedUnboundedEdge unbounded_edge_v;
-    DecodedPath path_v;
+    std::vector<Value> list_v;
+    std::map<std::string, Value> map_v;
+    Vertex vertex_v;
+    Edge edge_v;
+    UnboundedEdge unbounded_edge_v;
+    Path path_v;
   };
 };
 
 /**
- * An exception raised by the DecodedValue system.
+ * An exception raised by the Value system.
  */
-class DecodedValueException : public utils::BasicException {
+class ValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
-  DecodedValueException()
-      : BasicException("Incompatible template param and type!") {}
+  ValueException() : BasicException("Incompatible template param and type!") {}
 };
 
 /**
  * Output operators.
  */
-std::ostream &operator<<(std::ostream &os, const DecodedVertex &vertex);
-std::ostream &operator<<(std::ostream &os, const DecodedEdge &edge);
-std::ostream &operator<<(std::ostream &os, const DecodedUnboundedEdge &edge);
-std::ostream &operator<<(std::ostream &os, const DecodedPath &path);
-std::ostream &operator<<(std::ostream &os, const DecodedValue &value);
-std::ostream &operator<<(std::ostream &os, const DecodedValue::Type type);
+std::ostream &operator<<(std::ostream &os, const Vertex &vertex);
+std::ostream &operator<<(std::ostream &os, const Edge &edge);
+std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge);
+std::ostream &operator<<(std::ostream &os, const Path &path);
+std::ostream &operator<<(std::ostream &os, const Value &value);
+std::ostream &operator<<(std::ostream &os, const Value::Type type);
 }  // namespace communication::bolt

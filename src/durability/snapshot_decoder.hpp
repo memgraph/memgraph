@@ -3,7 +3,7 @@
 #include <experimental/optional>
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
-#include "durability/snapshot_decoded_value.hpp"
+#include "durability/snapshot_value.hpp"
 
 namespace durability {
 
@@ -13,13 +13,13 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
   explicit SnapshotDecoder(Buffer &buffer)
       : communication::bolt::Decoder<Buffer>(buffer) {}
 
-  std::experimental::optional<DecodedSnapshotVertex> ReadSnapshotVertex() {
-    communication::bolt::DecodedValue dv;
-    DecodedSnapshotVertex vertex;
+  std::experimental::optional<SnapshotVertex> ReadSnapshotVertex() {
+    communication::bolt::Value dv;
+    SnapshotVertex vertex;
 
     // Read global id, labels and properties of the vertex
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
-            &dv, communication::bolt::DecodedValue::Type::Vertex)) {
+            &dv, communication::bolt::Value::Type::Vertex)) {
       DLOG(WARNING) << "Unable to read snapshot vertex";
       return std::experimental::nullopt;
     }
@@ -30,7 +30,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
 
     // Read cypher_id
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
-            &dv, communication::bolt::DecodedValue::Type::Int)) {
+            &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "Unable to read vertex cypher_id";
       return std::experimental::nullopt;
     }
@@ -38,7 +38,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
 
     // Read in edges
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
-            &dv, communication::bolt::DecodedValue::Type::Int)) {
+            &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotVertex] Couldn't read number of in "
                        "edges in vertex!";
       return std::experimental::nullopt;
@@ -51,7 +51,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
 
     // Read out edges
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
-            &dv, communication::bolt::DecodedValue::Type::Int)) {
+            &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotVertex] Couldn't read number of out "
                        "edges in vertex!";
       return std::experimental::nullopt;
@@ -67,15 +67,15 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
   }
 
  private:
-  std::experimental::optional<DecodedInlinedVertexEdge> ReadSnapshotEdge() {
-    communication::bolt::DecodedValue dv;
-    DecodedInlinedVertexEdge edge;
+  std::experimental::optional<InlinedVertexEdge> ReadSnapshotEdge() {
+    communication::bolt::Value dv;
+    InlinedVertexEdge edge;
 
     VLOG(20) << "[ReadSnapshotEdge] Start";
 
     // Read global id of this edge
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
-            &dv, communication::bolt::DecodedValue::Type::Int)) {
+            &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read Global ID!";
       return std::experimental::nullopt;
     }
@@ -84,7 +84,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
     // Read global vertex id of the other side of the edge
     // (global id of from/to vertexes).
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
-            &dv, communication::bolt::DecodedValue::Type::Int)) {
+            &dv, communication::bolt::Value::Type::Int)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read from/to address!";
       return std::experimental::nullopt;
     }
@@ -92,7 +92,7 @@ class SnapshotDecoder : public communication::bolt::Decoder<Buffer> {
 
     // Read edge type
     if (!communication::bolt::Decoder<Buffer>::ReadValue(
-            &dv, communication::bolt::DecodedValue::Type::String)) {
+            &dv, communication::bolt::Value::Type::String)) {
       DLOG(WARNING) << "[ReadSnapshotEdge] Couldn't read type!";
       return std::experimental::nullopt;
     }

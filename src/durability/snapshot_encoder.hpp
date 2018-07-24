@@ -14,7 +14,7 @@ class SnapshotEncoder : public communication::bolt::BaseEncoder<Buffer> {
       : communication::bolt::BaseEncoder<Buffer>(buffer) {}
   void WriteSnapshotVertex(const VertexAccessor &vertex) {
     communication::bolt::BaseEncoder<Buffer>::WriteVertex(
-        glue::ToDecodedVertex(vertex));
+        glue::ToBoltVertex(vertex));
 
     // Write cypher_id
     this->WriteInt(vertex.cypher_id());

@@ -5,7 +5,7 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "utils/bswap.hpp"
 #include "utils/cast.hpp"
 
@@ -23,14 +23,14 @@ class Decoder {
   explicit Decoder(Buffer &buffer) : buffer_(buffer) {}
 
   /**
-   * Reads a DecodedValue from the available data in the buffer.
-   * This function tries to read a DecodedValue from the available data.
+   * Reads a Value from the available data in the buffer.
+   * This function tries to read a Value from the available data.
    *
-   * @param data pointer to a DecodedValue where the read data should be stored
+   * @param data pointer to a Value where the read data should be stored
    * @returns true if data has been written to the data pointer,
    *          false otherwise
    */
-  bool ReadValue(DecodedValue *data) {
+  bool ReadValue(Value *data) {
     uint8_t value;
 
     if (!buffer_.Read(&value, 1)) {
@@ -109,15 +109,15 @@ class Decoder {
   }
 
   /**
-   * Reads a DecodedValue from the available data in the buffer and checks
+   * Reads a Value from the available data in the buffer and checks
    * whether the read data type matches the supplied data type.
    *
-   * @param data pointer to a DecodedValue where the read data should be stored
+   * @param data pointer to a Value where the read data should be stored
    * @param type the expected type that should be read
    * @returns true if data has been written to the data pointer and the type
    *          matches the expected type, false otherwise
    */
-  bool ReadValue(DecodedValue *data, DecodedValue::Type type) {
+  bool ReadValue(Value *data, Value::Type type) {
     if (!ReadValue(data)) {
       return false;
     }
@@ -152,24 +152,24 @@ class Decoder {
   Buffer &buffer_;
 
  private:
-  bool ReadNull(const Marker &marker, DecodedValue *data) {
+  bool ReadNull(const Marker &marker, Value *data) {
     DCHECK(marker == Marker::Null) << "Received invalid marker!";
-    *data = DecodedValue();
+    *data = Value();
     return true;
   }
 
-  bool ReadBool(const Marker &marker, DecodedValue *data) {
+  bool ReadBool(const Marker &marker, Value *data) {
     DCHECK(marker == Marker::False || marker == Marker::True)
         << "Received invalid marker!";
     if (marker == Marker::False) {
-      *data = DecodedValue(false);
+      *data = Value(false);
     } else {
-      *data = DecodedValue(true);
+      *data = Value(true);
     }
     return true;
   }
 
-  bool ReadInt(const Marker &marker, DecodedValue *data) {
+  bool ReadInt(const Marker &marker, Value *data) {
     uint8_t value = utils::UnderlyingCast(marker);
     int64_t ret;
     if (value >= 240 || value <= 127) {
@@ -201,11 +201,11 @@ class Decoder {
     } else {
       return false;
     }
-    *data = DecodedValue(ret);
+    *data = Value(ret);
     return true;
   }
 
-  bool ReadDouble(const Marker marker, DecodedValue *data) {
+  bool ReadDouble(const Marker marker, Value *data) {
     uint64_t value;
     double ret;
     DCHECK(marker == Marker::Float64) << "Received invalid marker!";
@@ -215,7 +215,7 @@ class Decoder {
     value = utils::Bswap(value);
     // cppcheck-suppress invalidPointerCast
     ret = *reinterpret_cast<double *>(&value);
-    *data = DecodedValue(ret);
+    *data = Value(ret);
     return true;
   }
 
@@ -248,7 +248,7 @@ class Decoder {
     }
   }
 
-  bool ReadString(const Marker &marker, DecodedValue *data) {
+  bool ReadString(const Marker &marker, Value *data) {
     const int kMaxStackBuffer = 8192;
     uint8_t buffer[kMaxStackBuffer];
     auto size = ReadTypeSize(marker, MarkerString);
@@ -261,55 +261,54 @@ class Decoder {
     // way we allocate a temporary buffer only when the string is large. This
     // wouldn't be necessary if we had full C++17 support. In C++17 we could
     // preallocate the `buffer[size]` in the destination string `*data =
-    // DecodedValue(std::string('\0', size))` and just call
+    // Value(std::string('\0', size))` and just call
     // `buffer_.Read(data->ValueString().data())`.
     if (size < kMaxStackBuffer) {
       if (!buffer_.Read(buffer, size)) {
         DLOG(WARNING) << "[ReadString] Missing data!";
         return false;
       }
-      *data = DecodedValue(std::string(reinterpret_cast<char *>(buffer), size));
+      *data = Value(std::string(reinterpret_cast<char *>(buffer), size));
     } else {
       std::unique_ptr<uint8_t[]> ret(new uint8_t[size]);
       if (!buffer_.Read(ret.get(), size)) {
         DLOG(WARNING) << "[ReadString] Missing data!";
         return false;
       }
-      *data =
-          DecodedValue(std::string(reinterpret_cast<char *>(ret.get()), size));
+      *data = Value(std::string(reinterpret_cast<char *>(ret.get()), size));
     }
     return true;
   }
 
-  bool ReadList(const Marker &marker, DecodedValue *data) {
+  bool ReadList(const Marker &marker, Value *data) {
     auto size = ReadTypeSize(marker, MarkerList);
     if (size == -1) {
       return false;
     }
-    std::vector<DecodedValue> ret(size);
+    std::vector<Value> ret(size);
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadValue(&ret[i])) {
         return false;
       }
     }
-    *data = DecodedValue(ret);
+    *data = Value(ret);
     return true;
   }
 
-  bool ReadMap(const Marker &marker, DecodedValue *data) {
+  bool ReadMap(const Marker &marker, Value *data) {
     auto size = ReadTypeSize(marker, MarkerMap);
     if (size == -1) {
       return false;
     }
 
-    DecodedValue dv;
+    Value dv;
     std::string str;
-    std::map<std::string, DecodedValue> ret;
+    std::map<std::string, Value> ret;
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadValue(&dv)) {
         return false;
       }
-      if (dv.type() != DecodedValue::Type::String) {
+      if (dv.type() != Value::Type::String) {
         return false;
       }
       str = dv.ValueString();
@@ -323,48 +322,48 @@ class Decoder {
       return false;
     }
 
-    *data = DecodedValue(ret);
+    *data = Value(ret);
     return true;
   }
 
-  bool ReadVertex(DecodedValue *data) {
-    DecodedValue dv;
-    DecodedVertex vertex;
+  bool ReadVertex(Value *data) {
+    Value dv;
+    Vertex vertex;
 
     // read ID
-    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!ReadValue(&dv, Value::Type::Int)) {
       return false;
     }
     vertex.id = Id::FromInt(dv.ValueInt());
 
     // read labels
-    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+    if (!ReadValue(&dv, Value::Type::List)) {
       return false;
     }
     auto &labels = dv.ValueList();
     vertex.labels.resize(labels.size());
     for (size_t i = 0; i < labels.size(); ++i) {
-      if (labels[i].type() != DecodedValue::Type::String) {
+      if (labels[i].type() != Value::Type::String) {
         return false;
       }
       vertex.labels[i] = labels[i].ValueString();
     }
 
     // read properties
-    if (!ReadValue(&dv, DecodedValue::Type::Map)) {
+    if (!ReadValue(&dv, Value::Type::Map)) {
       return false;
     }
     vertex.properties = dv.ValueMap();
 
-    *data = DecodedValue(vertex);
+    *data = Value(vertex);
 
     return true;
   }
 
-  bool ReadEdge(const Marker &marker, DecodedValue *data) {
+  bool ReadEdge(const Marker &marker, Value *data) {
     uint8_t value;
-    DecodedValue dv;
-    DecodedEdge edge;
+    Value dv;
+    Edge edge;
 
     if (!buffer_.Read(&value, 1)) {
       return false;
@@ -379,105 +378,105 @@ class Decoder {
     }
 
     // read ID
-    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!ReadValue(&dv, Value::Type::Int)) {
       return false;
     }
     edge.id = Id::FromInt(dv.ValueInt());
 
     // read from
-    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!ReadValue(&dv, Value::Type::Int)) {
       return false;
     }
     edge.from = Id::FromInt(dv.ValueInt());
 
     // read to
-    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!ReadValue(&dv, Value::Type::Int)) {
       return false;
     }
     edge.to = Id::FromInt(dv.ValueInt());
 
     // read type
-    if (!ReadValue(&dv, DecodedValue::Type::String)) {
+    if (!ReadValue(&dv, Value::Type::String)) {
       return false;
     }
     edge.type = dv.ValueString();
 
     // read properties
-    if (!ReadValue(&dv, DecodedValue::Type::Map)) {
+    if (!ReadValue(&dv, Value::Type::Map)) {
       return false;
     }
     edge.properties = dv.ValueMap();
 
-    *data = DecodedValue(edge);
+    *data = Value(edge);
 
     return true;
   }
 
-  bool ReadUnboundedEdge(DecodedValue *data) {
-    DecodedValue dv;
-    DecodedUnboundedEdge edge;
+  bool ReadUnboundedEdge(Value *data) {
+    Value dv;
+    UnboundedEdge edge;
 
     // read ID
-    if (!ReadValue(&dv, DecodedValue::Type::Int)) {
+    if (!ReadValue(&dv, Value::Type::Int)) {
       return false;
     }
     edge.id = Id::FromInt(dv.ValueInt());
 
     // read type
-    if (!ReadValue(&dv, DecodedValue::Type::String)) {
+    if (!ReadValue(&dv, Value::Type::String)) {
       return false;
     }
     edge.type = dv.ValueString();
 
     // read properties
-    if (!ReadValue(&dv, DecodedValue::Type::Map)) {
+    if (!ReadValue(&dv, Value::Type::Map)) {
       return false;
     }
     edge.properties = dv.ValueMap();
 
-    *data = DecodedValue(edge);
+    *data = Value(edge);
 
     return true;
   }
 
-  bool ReadPath(DecodedValue *data) {
-    DecodedValue dv;
-    DecodedPath path;
+  bool ReadPath(Value *data) {
+    Value dv;
+    Path path;
 
     // vertices
-    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+    if (!ReadValue(&dv, Value::Type::List)) {
       return false;
     }
     for (const auto &vertex : dv.ValueList()) {
-      if (vertex.type() != DecodedValue::Type::Vertex) {
+      if (vertex.type() != Value::Type::Vertex) {
         return false;
       }
       path.vertices.emplace_back(vertex.ValueVertex());
     }
 
     // edges
-    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+    if (!ReadValue(&dv, Value::Type::List)) {
       return false;
     }
     for (const auto &edge : dv.ValueList()) {
-      if (edge.type() != DecodedValue::Type::UnboundedEdge) {
+      if (edge.type() != Value::Type::UnboundedEdge) {
         return false;
       }
       path.edges.emplace_back(edge.ValueUnboundedEdge());
     }
 
     // indices
-    if (!ReadValue(&dv, DecodedValue::Type::List)) {
+    if (!ReadValue(&dv, Value::Type::List)) {
       return false;
     }
     for (const auto &index : dv.ValueList()) {
-      if (index.type() != DecodedValue::Type::Int) {
+      if (index.type() != Value::Type::Int) {
         return false;
       }
       path.indices.emplace_back(index.ValueInt());
     }
 
-    *data = DecodedValue(path);
+    *data = Value(path);
 
     return true;
   }

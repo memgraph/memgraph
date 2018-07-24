@@ -6,185 +6,184 @@
 
 #include "database/graph_db_accessor.hpp"
 
-using communication::bolt::DecodedValue;
+using communication::bolt::Value;
 
 namespace glue {
 
-query::TypedValue ToTypedValue(const DecodedValue &value) {
+query::TypedValue ToTypedValue(const Value &value) {
   switch (value.type()) {
-    case DecodedValue::Type::Null:
+    case Value::Type::Null:
       return query::TypedValue::Null;
-    case DecodedValue::Type::Bool:
+    case Value::Type::Bool:
       return query::TypedValue(value.ValueBool());
-    case DecodedValue::Type::Int:
+    case Value::Type::Int:
       return query::TypedValue(value.ValueInt());
-    case DecodedValue::Type::Double:
+    case Value::Type::Double:
       return query::TypedValue(value.ValueDouble());
-    case DecodedValue::Type::String:
+    case Value::Type::String:
       return query::TypedValue(value.ValueString());
-    case DecodedValue::Type::List: {
+    case Value::Type::List: {
       std::vector<query::TypedValue> list;
       list.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) list.push_back(ToTypedValue(v));
       return query::TypedValue(list);
     }
-    case DecodedValue::Type::Map: {
+    case Value::Type::Map: {
       std::map<std::string, query::TypedValue> map;
       for (const auto &kv : value.ValueMap())
         map.emplace(kv.first, ToTypedValue(kv.second));
       return query::TypedValue(map);
     }
-    case DecodedValue::Type::Vertex:
-    case DecodedValue::Type::Edge:
-    case DecodedValue::Type::UnboundedEdge:
-    case DecodedValue::Type::Path:
-      throw communication::bolt::DecodedValueException(
-          "Unsupported conversion from DecodedValue to TypedValue");
+    case Value::Type::Vertex:
+    case Value::Type::Edge:
+    case Value::Type::UnboundedEdge:
+    case Value::Type::Path:
+      throw communication::bolt::ValueException(
+          "Unsupported conversion from Value to TypedValue");
   }
 }
 
-DecodedValue ToDecodedValue(const query::TypedValue &value) {
+Value ToBoltValue(const query::TypedValue &value) {
   switch (value.type()) {
     case query::TypedValue::Type::Null:
-      return DecodedValue();
+      return Value();
     case query::TypedValue::Type::Bool:
-      return DecodedValue(value.ValueBool());
+      return Value(value.ValueBool());
     case query::TypedValue::Type::Int:
-      return DecodedValue(value.ValueInt());
+      return Value(value.ValueInt());
     case query::TypedValue::Type::Double:
-      return DecodedValue(value.ValueDouble());
+      return Value(value.ValueDouble());
     case query::TypedValue::Type::String:
-      return DecodedValue(value.ValueString());
+      return Value(value.ValueString());
     case query::TypedValue::Type::List: {
-      std::vector<DecodedValue> values;
+      std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
-        values.push_back(ToDecodedValue(v));
+        values.push_back(ToBoltValue(v));
       }
-      return DecodedValue(values);
+      return Value(values);
     }
     case query::TypedValue::Type::Map: {
-      std::map<std::string, DecodedValue> map;
+      std::map<std::string, Value> map;
       for (const auto &kv : value.ValueMap()) {
-        map.emplace(kv.first, ToDecodedValue(kv.second));
+        map.emplace(kv.first, ToBoltValue(kv.second));
       }
-      return DecodedValue(map);
+      return Value(map);
     }
     case query::TypedValue::Type::Vertex:
-      return DecodedValue(ToDecodedVertex(value.ValueVertex()));
+      return Value(ToBoltVertex(value.ValueVertex()));
     case query::TypedValue::Type::Edge:
-      return DecodedValue(ToDecodedEdge(value.ValueEdge()));
+      return Value(ToBoltEdge(value.ValueEdge()));
     case query::TypedValue::Type::Path:
-      return DecodedValue(ToDecodedPath(value.ValuePath()));
+      return Value(ToBoltPath(value.ValuePath()));
   }
 }
 
-communication::bolt::DecodedVertex ToDecodedVertex(
-    const VertexAccessor &vertex) {
+communication::bolt::Vertex ToBoltVertex(const VertexAccessor &vertex) {
   auto id = communication::bolt::Id::FromUint(vertex.gid());
   std::vector<std::string> labels;
   labels.reserve(vertex.labels().size());
   for (const auto &label : vertex.labels()) {
     labels.push_back(vertex.db_accessor().LabelName(label));
   }
-  std::map<std::string, DecodedValue> properties;
+  std::map<std::string, Value> properties;
   for (const auto &prop : vertex.Properties()) {
     properties[vertex.db_accessor().PropertyName(prop.first)] =
-        ToDecodedValue(prop.second);
+        ToBoltValue(prop.second);
   }
-  return communication::bolt::DecodedVertex{id, labels, properties};
+  return communication::bolt::Vertex{id, labels, properties};
 }
 
-communication::bolt::DecodedEdge ToDecodedEdge(const EdgeAccessor &edge) {
+communication::bolt::Edge ToBoltEdge(const EdgeAccessor &edge) {
   auto id = communication::bolt::Id::FromUint(edge.gid());
   auto from = communication::bolt::Id::FromUint(edge.from().gid());
   auto to = communication::bolt::Id::FromUint(edge.to().gid());
   auto type = edge.db_accessor().EdgeTypeName(edge.EdgeType());
-  std::map<std::string, DecodedValue> properties;
+  std::map<std::string, Value> properties;
   for (const auto &prop : edge.Properties()) {
     properties[edge.db_accessor().PropertyName(prop.first)] =
-        ToDecodedValue(prop.second);
+        ToBoltValue(prop.second);
   }
-  return communication::bolt::DecodedEdge{id, from, to, type, properties};
+  return communication::bolt::Edge{id, from, to, type, properties};
 }
 
-communication::bolt::DecodedPath ToDecodedPath(const query::Path &path) {
-  std::vector<communication::bolt::DecodedVertex> vertices;
+communication::bolt::Path ToBoltPath(const query::Path &path) {
+  std::vector<communication::bolt::Vertex> vertices;
   vertices.reserve(path.vertices().size());
   for (const auto &v : path.vertices()) {
-    vertices.push_back(ToDecodedVertex(v));
+    vertices.push_back(ToBoltVertex(v));
   }
-  std::vector<communication::bolt::DecodedEdge> edges;
+  std::vector<communication::bolt::Edge> edges;
   edges.reserve(path.edges().size());
   for (const auto &e : path.edges()) {
-    edges.push_back(ToDecodedEdge(e));
+    edges.push_back(ToBoltEdge(e));
   }
-  return communication::bolt::DecodedPath(vertices, edges);
+  return communication::bolt::Path(vertices, edges);
 }
 
-PropertyValue ToPropertyValue(const DecodedValue &value) {
+PropertyValue ToPropertyValue(const Value &value) {
   switch (value.type()) {
-    case DecodedValue::Type::Null:
+    case Value::Type::Null:
       return PropertyValue::Null;
-    case DecodedValue::Type::Bool:
+    case Value::Type::Bool:
       return PropertyValue(value.ValueBool());
-    case DecodedValue::Type::Int:
+    case Value::Type::Int:
       return PropertyValue(value.ValueInt());
-    case DecodedValue::Type::Double:
+    case Value::Type::Double:
       return PropertyValue(value.ValueDouble());
-    case DecodedValue::Type::String:
+    case Value::Type::String:
       return PropertyValue(value.ValueString());
-    case DecodedValue::Type::List: {
+    case Value::Type::List: {
       std::vector<PropertyValue> vec;
       vec.reserve(value.ValueList().size());
       for (const auto &value : value.ValueList())
         vec.emplace_back(ToPropertyValue(value));
       return PropertyValue(std::move(vec));
     }
-    case DecodedValue::Type::Map: {
+    case Value::Type::Map: {
       std::map<std::string, PropertyValue> map;
       for (const auto &kv : value.ValueMap())
         map.emplace(kv.first, ToPropertyValue(kv.second));
       return PropertyValue(std::move(map));
     }
-    case DecodedValue::Type::Vertex:
-    case DecodedValue::Type::Edge:
-    case DecodedValue::Type::UnboundedEdge:
-    case DecodedValue::Type::Path:
-      throw communication::bolt::DecodedValueException(
-          "Unsupported conversion from DecodedValue to PropertyValue");
+    case Value::Type::Vertex:
+    case Value::Type::Edge:
+    case Value::Type::UnboundedEdge:
+    case Value::Type::Path:
+      throw communication::bolt::ValueException(
+          "Unsupported conversion from Value to PropertyValue");
   }
 }
 
-DecodedValue ToDecodedValue(const PropertyValue &value) {
+Value ToBoltValue(const PropertyValue &value) {
   switch (value.type()) {
     case PropertyValue::Type::Null:
-      return DecodedValue();
+      return Value();
     case PropertyValue::Type::Bool:
-      return DecodedValue(value.Value<bool>());
+      return Value(value.Value<bool>());
     case PropertyValue::Type::Int:
-      return DecodedValue(value.Value<int64_t>());
+      return Value(value.Value<int64_t>());
       break;
     case PropertyValue::Type::Double:
-      return DecodedValue(value.Value<double>());
+      return Value(value.Value<double>());
     case PropertyValue::Type::String:
-      return DecodedValue(value.Value<std::string>());
+      return Value(value.Value<std::string>());
     case PropertyValue::Type::List: {
       const auto &values = value.Value<std::vector<PropertyValue>>();
-      std::vector<DecodedValue> vec;
+      std::vector<Value> vec;
       vec.reserve(values.size());
       for (const auto &v : values) {
-        vec.push_back(ToDecodedValue(v));
+        vec.push_back(ToBoltValue(v));
       }
-      return DecodedValue(vec);
+      return Value(vec);
     }
     case PropertyValue::Type::Map: {
       const auto &map = value.Value<std::map<std::string, PropertyValue>>();
-      std::map<std::string, DecodedValue> dv_map;
+      std::map<std::string, Value> dv_map;
       for (const auto &kv : map) {
-        dv_map.emplace(kv.first, ToDecodedValue(kv.second));
+        dv_map.emplace(kv.first, ToBoltValue(kv.second));
       }
-      return DecodedValue(dv_map);
+      return Value(dv_map);
     }
   }
 }

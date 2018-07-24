@@ -13,7 +13,7 @@
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
 #include "durability/snapshooter.hpp"
-#include "durability/snapshot_decoded_value.hpp"
+#include "durability/snapshot_value.hpp"
 #include "durability/snapshot_encoder.hpp"
 #include "durability/version.hpp"
 #include "storage/address_types.hpp"
@@ -176,12 +176,12 @@ std::vector<Field> ReadHeader(std::istream &stream) {
   return fields;
 }
 
-communication::bolt::DecodedValue StringToDecodedValue(
+communication::bolt::Value StringToValue(
     const std::string &str, const std::string &type) {
   // Empty string signifies Null.
-  if (str.empty()) return communication::bolt::DecodedValue();
+  if (str.empty()) return communication::bolt::Value();
   auto convert = [](const auto &str,
-                    const auto &type) -> communication::bolt::DecodedValue {
+                    const auto &type) -> communication::bolt::Value {
     if (type == "int" || type == "long" || type == "byte" || type == "short") {
       std::istringstream ss(str);
       int64_t val;
@@ -195,14 +195,14 @@ communication::bolt::DecodedValue StringToDecodedValue(
       return str;
     }
     LOG(FATAL) << "Unexpected type: " << type;
-    return communication::bolt::DecodedValue();
+    return communication::bolt::Value();
   };
   // Type *not* ending with '[]', signifies regular value.
   if (!utils::EndsWith(type, "[]")) return convert(str, type);
   // Otherwise, we have an array type.
   auto elem_type = type.substr(0, type.size() - 2);
   auto elems = utils::Split(str, FLAGS_array_delimiter);
-  std::vector<communication::bolt::DecodedValue> array;
+  std::vector<communication::bolt::Value> array;
   array.reserve(elems.size());
   for (const auto &elem : elems) {
     array.push_back(convert(utils::Trim(elem), elem_type));
@@ -217,13 +217,13 @@ std::string GetIdSpace(const std::string &type) {
 }
 
 void WriteNodeRow(
-    std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex>
+    std::unordered_map<gid::Gid, durability::SnapshotVertex>
         &partial_vertices,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     MemgraphNodeIdMap &node_id_map) {
   std::experimental::optional<gid::Gid> id;
   std::vector<std::string> labels;
-  std::map<std::string, communication::bolt::DecodedValue> properties;
+  std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     auto value = utils::Trim(row[i]);
@@ -247,7 +247,7 @@ void WriteNodeRow(
         labels.emplace_back(utils::Trim(label));
       }
     } else if (field.type != "ignore") {
-      properties[field.name] = StringToDecodedValue(value, field.type);
+      properties[field.name] = StringToValue(value, field.type);
     }
   }
   CHECK(id) << "Node ID must be specified";
@@ -255,7 +255,7 @@ void WriteNodeRow(
       *id, utils::MemcpyCast<int64_t>(*id), labels, properties, {}};
 }
 
-auto PassNodes(std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex>
+auto PassNodes(std::unordered_map<gid::Gid, durability::SnapshotVertex>
                    &partial_vertices,
                const std::string &nodes_path, MemgraphNodeIdMap &node_id_map) {
   int64_t node_count = 0;
@@ -275,13 +275,13 @@ auto PassNodes(std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex>
 }
 
 void WriteRelationshipsRow(
-    std::unordered_map<gid::Gid, communication::bolt::DecodedEdge> &edges,
+    std::unordered_map<gid::Gid, communication::bolt::Edge> &edges,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     const MemgraphNodeIdMap &node_id_map, gid::Gid relationship_id) {
   std::experimental::optional<int64_t> start_id;
   std::experimental::optional<int64_t> end_id;
   std::experimental::optional<std::string> relationship_type;
-  std::map<std::string, communication::bolt::DecodedValue> properties;
+  std::map<std::string, communication::bolt::Value> properties;
   for (int i = 0; i < row.size(); ++i) {
     const auto &field = fields[i];
     auto value = utils::Trim(row[i]);
@@ -302,7 +302,7 @@ void WriteRelationshipsRow(
           << "Only one relationship TYPE must be specified";
       relationship_type = value;
     } else if (field.type != "ignore") {
-      properties[field.name] = StringToDecodedValue(value, field.type);
+      properties[field.name] = StringToValue(value, field.type);
     }
   }
   CHECK(start_id) << "START_ID must be set";
@@ -317,7 +317,7 @@ void WriteRelationshipsRow(
 }
 
 int PassRelationships(
-    std::unordered_map<gid::Gid, communication::bolt::DecodedEdge> &edges,
+    std::unordered_map<gid::Gid, communication::bolt::Edge> &edges,
     const std::string &relationships_path, const MemgraphNodeIdMap &node_id_map,
     gid::Generator &relationship_id_generator) {
   std::ifstream relationships_file(relationships_path);
@@ -358,7 +358,7 @@ void Convert(const std::vector<std::string> &nodes,
     //   7) Summary with node count, relationship count and hash digest.
     encoder.WriteRAW(durability::kMagicNumber.data(),
                      durability::kMagicNumber.size());
-    encoder.WriteDecodedValue(durability::kVersion);
+    encoder.WriteValue(durability::kVersion);
 
     encoder.WriteInt(0);  // Worker Id - for this use case it's okay to set to 0
                           // since we are using a single-node version of
@@ -373,8 +373,8 @@ void Convert(const std::vector<std::string> &nodes,
     encoder.WriteInt(0);    // Id of transaction that is snapshooting.
     encoder.WriteList({});  // Transactional snapshot.
     encoder.WriteList({});  // Label + property indexes.
-    std::unordered_map<gid::Gid, durability::DecodedSnapshotVertex> vertices;
-    std::unordered_map<gid::Gid, communication::bolt::DecodedEdge> edges;
+    std::unordered_map<gid::Gid, durability::SnapshotVertex> vertices;
+    std::unordered_map<gid::Gid, communication::bolt::Edge> edges;
     for (const auto &nodes_file : nodes) {
       node_count += PassNodes(vertices, nodes_file, node_id_map);
     }
@@ -402,11 +402,11 @@ void Convert(const std::vector<std::string> &nodes,
 
       encoder.WriteInt(vertex.gid);
       auto &labels = vertex.labels;
-      std::vector<communication::bolt::DecodedValue> transformed;
+      std::vector<communication::bolt::Value> transformed;
       std::transform(labels.begin(), labels.end(),
                      std::back_inserter(transformed),
                      [](const std::string &str) {
-                       return communication::bolt::DecodedValue(str);
+                       return communication::bolt::Value(str);
                      });
       encoder.WriteList(transformed);
       encoder.WriteMap(vertex.properties);

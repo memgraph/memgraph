@@ -27,12 +27,12 @@ class SnapshotWriter {
       : worker_id_(worker_id), buffer_(path) {
     encoder_.WriteRAW(durability::kMagicNumber.data(),
                       durability::kMagicNumber.size());
-    encoder_.WriteDecodedValue(durability::kVersion);
+    encoder_.WriteValue(durability::kVersion);
     encoder_.WriteInt(worker_id_);
     encoder_.WriteInt(vertex_generator_local_count);
     encoder_.WriteInt(edge_generator_local_count);
     encoder_.WriteInt(0);
-    encoder_.WriteList(std::vector<communication::bolt::DecodedValue>{});
+    encoder_.WriteList(std::vector<communication::bolt::Value>{});
   }
 
   // reference to `buffer_` gets broken when moving, so let's just forbid moving
@@ -41,8 +41,8 @@ class SnapshotWriter {
 
   template <typename TValue>
   void WriteList(const std::vector<TValue> &list) {
-    encoder_.WriteList(std::vector<communication::bolt::DecodedValue>(
-        list.begin(), list.end()));
+    encoder_.WriteList(
+        std::vector<communication::bolt::Value>(list.begin(), list.end()));
   }
 
   storage::VertexAddress DefaultVertexAddress(gid::Gid gid) {
@@ -69,9 +69,9 @@ class SnapshotWriter {
     encoder_.WriteInt(node.gid);
 
     WriteList(node.labels);
-    std::map<std::string, communication::bolt::DecodedValue> props;
+    std::map<std::string, communication::bolt::Value> props;
     for (const auto &prop : node.props) {
-      props[prop.first] = glue::ToDecodedValue(prop.second);
+      props[prop.first] = glue::ToBoltValue(prop.second);
     }
     encoder_.WriteMap(props);
 
@@ -100,9 +100,9 @@ class SnapshotWriter {
     encoder_.WriteInt(edge.from);
     encoder_.WriteInt(edge.to);
     encoder_.WriteString(edge.type);
-    std::map<std::string, communication::bolt::DecodedValue> props;
+    std::map<std::string, communication::bolt::Value> props;
     for (const auto &prop : edge.props) {
-      props[prop.first] = glue::ToDecodedValue(prop.second);
+      props[prop.first] = glue::ToBoltValue(prop.second);
     }
     encoder_.WriteMap(props);
 

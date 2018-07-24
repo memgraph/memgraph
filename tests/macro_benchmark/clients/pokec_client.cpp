@@ -20,14 +20,14 @@
 
 #include "long_running_common.hpp"
 
-using communication::bolt::DecodedEdge;
-using communication::bolt::DecodedValue;
-using communication::bolt::DecodedVertex;
+using communication::bolt::Edge;
+using communication::bolt::Value;
+using communication::bolt::Vertex;
 
 struct VertexAndEdges {
-  DecodedVertex vertex;
-  std::vector<DecodedEdge> edges;
-  std::vector<DecodedVertex> vertices;
+  Vertex vertex;
+  std::vector<Edge> edges;
+  std::vector<Vertex> vertices;
 };
 
 const std::string INDEPENDENT_LABEL = "User";
@@ -60,14 +60,14 @@ class PokecClient : public TestClient {
         {{"id", id}});
   }
 
-  auto CreateVertex(const DecodedVertex &vertex) {
+  auto CreateVertex(const Vertex &vertex) {
     std::stringstream os;
     os << "CREATE (n :";
     utils::PrintIterable(os, vertex.labels, ":");
     os << " {";
     utils::PrintIterable(
         os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
-          if (pair.second.type() == DecodedValue::Type::String) {
+          if (pair.second.type() == Value::Type::String) {
             stream << pair.first << ": \"" << pair.second << "\"";
           } else {
             stream << pair.first << ": " << pair.second;
@@ -91,9 +91,9 @@ class PokecClient : public TestClient {
         {{"id", id}});
   }
 
-  auto CreateEdge(const DecodedVertex &from, const std::string &from_label,
+  auto CreateEdge(const Vertex &from, const std::string &from_label,
                   int64_t from_id, const std::string &to_label, int64_t to_id,
-                  const DecodedEdge &edge) {
+                  const Edge &edge) {
     std::stringstream os;
     os << fmt::format("MATCH (n :{} {{id : {}}}) ", from_label, from_id);
     os << fmt::format("MATCH (m :{} {{id : {}}}) ", to_label, to_id);
@@ -106,7 +106,7 @@ class PokecClient : public TestClient {
     os << "[:" << edge.type << " {";
     utils::PrintIterable(
         os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
-          if (pair.second.type() == DecodedValue::Type::String) {
+          if (pair.second.type() == Value::Type::String) {
             stream << pair.first << ": \"" << pair.second << "\"";
           } else {
             stream << pair.first << ": " << pair.second;
@@ -141,13 +141,13 @@ class PokecClient : public TestClient {
 
     DetachDeleteVertex(label, id);
 
-    std::vector<DecodedEdge> edges;
+    std::vector<Edge> edges;
     edges.reserve(records.size());
     for (const auto &record : records) {
       edges.push_back(record[1].ValueEdge());
     }
 
-    std::vector<DecodedVertex> vertices;
+    std::vector<Vertex> vertices;
     vertices.reserve(records.size());
     for (const auto &record : records) {
       vertices.push_back(record[2].ValueVertex());

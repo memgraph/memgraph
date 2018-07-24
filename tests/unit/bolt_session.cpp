@@ -5,10 +5,10 @@
 #include "communication/bolt/v1/session.hpp"
 
 using communication::bolt::ClientError;
-using communication::bolt::DecodedValue;
 using communication::bolt::Session;
 using communication::bolt::SessionException;
 using communication::bolt::State;
+using communication::bolt::Value;
 
 static const char *kInvalidQuery = "invalid query";
 static const char *kQueryReturn42 = "RETURN 42";
@@ -27,7 +27,7 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   std::vector<std::string> Interpret(
       const std::string &query,
-      const std::map<std::string, DecodedValue> &params) override {
+      const std::map<std::string, Value> &params) override {
     if (query == kQueryReturn42 || query == kQueryEmpty) {
       query_ = query;
       return {"result_name"};
@@ -37,10 +37,9 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
     }
   }
 
-  std::map<std::string, DecodedValue> PullAll(
-      TEncoder *encoder) override {
+  std::map<std::string, Value> PullAll(TEncoder *encoder) override {
     if (query_ == kQueryReturn42) {
-      encoder->MessageRecord(std::vector<DecodedValue>{42});
+      encoder->MessageRecord(std::vector<Value>{42});
       return {};
     } else if (query_ == kQueryEmpty) {
       return {};

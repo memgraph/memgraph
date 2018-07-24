@@ -214,7 +214,7 @@ PropertyValueStore::iterator PropertyValueStore::end() const {
 std::string PropertyValueStore::SerializeProp(const PropertyValue &prop) const {
   storage::PODBuffer pod_buffer;
   BaseEncoder<storage::PODBuffer> encoder{pod_buffer};
-  encoder.WriteDecodedValue(glue::ToDecodedValue(prop));
+  encoder.WriteValue(glue::ToBoltValue(prop));
   return std::string(reinterpret_cast<char *>(pod_buffer.buffer.data()),
                      pod_buffer.buffer.size());
 }
@@ -224,7 +224,7 @@ PropertyValue PropertyValueStore::DeserializeProp(
   storage::PODBuffer pod_buffer{serialized_prop};
   communication::bolt::Decoder<storage::PODBuffer> decoder{pod_buffer};
 
-  DecodedValue dv;
+  Value dv;
   if (!decoder.ReadValue(&dv)) {
     DLOG(WARNING) << "Unable to read property value";
     return PropertyValue::Null;

@@ -4,8 +4,8 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "utils/likely.hpp"
 
 namespace communication::bolt {
@@ -44,14 +44,14 @@ State StateInitRun(Session &session) {
     // return State::Close;
   }
 
-  DecodedValue client_name;
-  if (!session.decoder_.ReadValue(&client_name, DecodedValue::Type::String)) {
+  Value client_name;
+  if (!session.decoder_.ReadValue(&client_name, Value::Type::String)) {
     DLOG(WARNING) << "Couldn't read client name!";
     return State::Close;
   }
 
-  DecodedValue metadata;
-  if (!session.decoder_.ReadValue(&metadata, DecodedValue::Type::Map)) {
+  Value metadata;
+  if (!session.decoder_.ReadValue(&metadata, Value::Type::Map)) {
     DLOG(WARNING) << "Couldn't read metadata!";
     return State::Close;
   }

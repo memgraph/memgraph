@@ -433,7 +433,7 @@ TEST_F(Durability, SnapshotEncoding) {
   buffer.Read(magic_number.data(), magic_number.size());
   ASSERT_EQ(magic_number, durability::kMagicNumber);
 
-  communication::bolt::DecodedValue dv;
+  communication::bolt::Value dv;
   decoder.ReadValue(&dv);
   ASSERT_EQ(dv.ValueInt(), durability::kVersion);
   // Worker id
@@ -457,7 +457,7 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(dv.ValueList()[0].ValueString(), "l1");
   EXPECT_EQ(dv.ValueList()[1].ValueString(), "p1");
 
-  std::map<gid::Gid, durability::DecodedSnapshotVertex> decoded_vertices;
+  std::map<gid::Gid, durability::SnapshotVertex> decoded_vertices;
 
   // Decode vertices.
   for (int i = 0; i < vertex_count; ++i) {
@@ -475,17 +475,17 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(decoded_vertices[gid2].labels.size(), 0);
   EXPECT_EQ(decoded_vertices[gid2].properties.size(), 2);
 
-  std::map<gid::Gid, communication::bolt::DecodedEdge> decoded_edges;
+  std::map<gid::Gid, communication::bolt::Edge> decoded_edges;
 
   // Decode edges.
   for (int i = 0; i < edge_count; ++i) {
     decoder.ReadValue(&dv);
-    ASSERT_EQ(dv.type(), communication::bolt::DecodedValue::Type::Edge);
+    ASSERT_EQ(dv.type(), communication::bolt::Value::Type::Edge);
     auto &edge = dv.ValueEdge();
     decoded_edges.emplace(edge.id.AsUint(), edge);
     // Read cypher_id.
     decoder.ReadValue(&dv);
-    ASSERT_EQ(dv.type(), communication::bolt::DecodedValue::Type::Int);
+    ASSERT_EQ(dv.type(), communication::bolt::Value::Type::Int);
   }
   EXPECT_EQ(decoded_edges.size(), 2);
   EXPECT_EQ(decoded_edges[gid0].from.AsUint(), gid0);

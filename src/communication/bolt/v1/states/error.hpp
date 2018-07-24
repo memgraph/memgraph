@@ -4,8 +4,8 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "utils/cast.hpp"
 
 namespace communication::bolt {
@@ -60,7 +60,7 @@ State StateErrorRun(TSession &session, State state) {
 
     // We need to clean up all parameters from this command.
     value &= 0x0F;  // The length is stored in the lower nibble.
-    DecodedValue dv;
+    Value dv;
     for (int i = 0; i < value; ++i) {
       if (!session.decoder_.ReadValue(&dv)) {
         DLOG(WARNING) << fmt::format("Couldn't clean up parameter {} / {}!", i,

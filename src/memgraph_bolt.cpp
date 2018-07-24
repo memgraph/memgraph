@@ -85,7 +85,7 @@ class BoltSession final
 
   std::vector<std::string> Interpret(
       const std::string &query,
-      const std::map<std::string, communication::bolt::DecodedValue> &params)
+      const std::map<std::string, communication::bolt::Value> &params)
       override {
     std::map<std::string, query::TypedValue> params_tv;
     for (const auto &kv : params)
@@ -99,14 +99,14 @@ class BoltSession final
     }
   }
 
-  std::map<std::string, communication::bolt::DecodedValue> PullAll(
+  std::map<std::string, communication::bolt::Value> PullAll(
       TEncoder *encoder) override {
     try {
       TypedValueResultStream stream(encoder);
       const auto &summary = transaction_engine_.PullAll(&stream);
-      std::map<std::string, communication::bolt::DecodedValue> decoded_summary;
+      std::map<std::string, communication::bolt::Value> decoded_summary;
       for (const auto &kv : summary) {
-        decoded_summary.emplace(kv.first, glue::ToDecodedValue(kv.second));
+        decoded_summary.emplace(kv.first, glue::ToBoltValue(kv.second));
       }
       return decoded_summary;
     } catch (const query::QueryException &e) {
@@ -119,17 +119,17 @@ class BoltSession final
   void Abort() override { transaction_engine_.Abort(); }
 
  private:
-  // Wrapper around TEncoder which converts TypedValue to DecodedValue
+  // Wrapper around TEncoder which converts TypedValue to Value
   // before forwarding the calls to original TEncoder.
   class TypedValueResultStream {
    public:
     TypedValueResultStream(TEncoder *encoder) : encoder_(encoder) {}
 
     void Result(const std::vector<query::TypedValue> &values) {
-      std::vector<communication::bolt::DecodedValue> decoded_values;
+      std::vector<communication::bolt::Value> decoded_values;
       decoded_values.reserve(values.size());
       for (const auto &v : values) {
-        decoded_values.push_back(glue::ToDecodedValue(v));
+        decoded_values.push_back(glue::ToBoltValue(v));
       }
       encoder_->MessageRecord(decoded_values);
     }

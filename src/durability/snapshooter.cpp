@@ -46,7 +46,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     // Write the transaction snapshot into the snapshot. It's used when
     // recovering from the combination of snapshot and write-ahead-log.
     {
-      std::vector<communication::bolt::DecodedValue> tx_snapshot;
+      std::vector<communication::bolt::Value> tx_snapshot;
       for (int64_t tx : dba.transaction().snapshot())
         tx_snapshot.emplace_back(tx);
       encoder.WriteList(tx_snapshot);
@@ -54,7 +54,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
 
     // Write label+property indexes as list ["label", "property", ...]
     {
-      std::vector<communication::bolt::DecodedValue> index_vec;
+      std::vector<communication::bolt::Value> index_vec;
       for (const auto &key : dba.GetIndicesKeys()) {
         index_vec.emplace_back(dba.LabelName(key.label_));
         index_vec.emplace_back(dba.PropertyName(key.property_));
@@ -67,7 +67,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
       vertex_num++;
     }
     for (const auto &edge : dba.Edges(false)) {
-      encoder.WriteEdge(glue::ToDecodedEdge(edge));
+      encoder.WriteEdge(glue::ToBoltEdge(edge));
       encoder.WriteInt(edge.cypher_id());
       edge_num++;
     }

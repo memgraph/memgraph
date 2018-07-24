@@ -33,7 +33,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *
    * @param values the fields list object that should be sent
    */
-  bool MessageRecord(const std::vector<DecodedValue> &values) {
+  bool MessageRecord(const std::vector<Value> &values) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Record));
     WriteList(values);
@@ -59,7 +59,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageSuccess(const std::map<std::string, DecodedValue> &metadata) {
+  bool MessageSuccess(const std::map<std::string, Value> &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Success));
     WriteMap(metadata);
@@ -79,7 +79,7 @@ class Encoder : private BaseEncoder<Buffer> {
    *          false otherwise
    */
   bool MessageSuccess() {
-    std::map<std::string, DecodedValue> metadata;
+    std::map<std::string, Value> metadata;
     return MessageSuccess(metadata);
   }
 
@@ -95,7 +95,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageFailure(const std::map<std::string, DecodedValue> &metadata) {
+  bool MessageFailure(const std::map<std::string, Value> &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Failure));
     WriteMap(metadata);
@@ -118,7 +118,7 @@ class Encoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client,
    *          false otherwise
    */
-  bool MessageIgnored(const std::map<std::string, DecodedValue> &metadata) {
+  bool MessageIgnored(const std::map<std::string, Value> &metadata) {
     WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
     WriteRAW(utils::UnderlyingCast(Signature::Ignored));
     WriteMap(metadata);

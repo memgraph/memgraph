@@ -7,8 +7,8 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
 #include "communication/bolt/v1/state.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "utils/exceptions.hpp"
 
 namespace communication::bolt {
@@ -71,8 +71,8 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(
 
 template <typename TSession>
 State HandleRun(TSession &session, State state, Marker marker) {
-  const std::map<std::string, DecodedValue> kEmptyFields = {
-      {"fields", std::vector<DecodedValue>{}}};
+  const std::map<std::string, Value> kEmptyFields = {
+      {"fields", std::vector<Value>{}}};
 
   if (marker != Marker::TinyStruct2) {
     DLOG(WARNING) << fmt::format(
@@ -81,13 +81,13 @@ State HandleRun(TSession &session, State state, Marker marker) {
     return State::Close;
   }
 
-  DecodedValue query, params;
-  if (!session.decoder_.ReadValue(&query, DecodedValue::Type::String)) {
+  Value query, params;
+  if (!session.decoder_.ReadValue(&query, Value::Type::String)) {
     DLOG(WARNING) << "Couldn't read query string!";
     return State::Close;
   }
 
-  if (!session.decoder_.ReadValue(&params, DecodedValue::Type::Map)) {
+  if (!session.decoder_.ReadValue(&params, Value::Type::Map)) {
     DLOG(WARNING) << "Couldn't read parameters!";
     return State::Close;
   }
@@ -108,12 +108,12 @@ State HandleRun(TSession &session, State state, Marker marker) {
   try {
     // Interpret can throw.
     auto header = session.Interpret(query.ValueString(), params.ValueMap());
-    // Convert std::string to DecodedValue
-    std::vector<DecodedValue> vec;
-    std::map<std::string, DecodedValue> data;
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    std::map<std::string, Value> data;
     vec.reserve(header.size());
-    for (auto &i : header) vec.push_back(DecodedValue(i));
-    data.insert(std::make_pair(std::string("fields"), DecodedValue(vec)));
+    for (auto &i : header) vec.push_back(Value(i));
+    data.insert(std::make_pair(std::string("fields"), Value(vec)));
     // Send the header.
     if (!session.encoder_.MessageSuccess(data)) {
       DLOG(WARNING) << "Couldn't send query header!";

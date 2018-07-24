@@ -8,8 +8,8 @@
 #include "database/indexes/label_property_index.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/paths.hpp"
-#include "durability/snapshot_decoded_value.hpp"
 #include "durability/snapshot_decoder.hpp"
+#include "durability/snapshot_value.hpp"
 #include "durability/version.hpp"
 #include "durability/wal.hpp"
 #include "glue/conversion.hpp"
@@ -35,7 +35,7 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
 }
 
 namespace {
-using communication::bolt::DecodedValue;
+using communication::bolt::Value;
 
 #define RETURN_IF_NOT(condition) \
   if (!(condition)) {            \
@@ -61,36 +61,36 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   RETURN_IF_NOT(
       durability::ReadSnapshotSummary(reader, vertex_count, edge_count, hash));
 
-  DecodedValue dv;
+  Value dv;
 
-  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int) &&
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
 
   // Checks worker id was set correctly
-  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int) &&
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == db->WorkerId());
 
   // Vertex and edge generator ids
-  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
   uint64_t vertex_generator_cnt = dv.ValueInt();
   db->storage().VertexGenerator().SetId(std::max(
       db->storage().VertexGenerator().LocalCount(), vertex_generator_cnt));
-  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
   uint64_t edge_generator_cnt = dv.ValueInt();
   db->storage().EdgeGenerator().SetId(
       std::max(db->storage().EdgeGenerator().LocalCount(), edge_generator_cnt));
 
-  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::Int));
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
   recovery_data->snapshooter_tx_id = dv.ValueInt();
   // Transaction snapshot of the transaction that created the snapshot.
-  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::List));
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::List));
   for (const auto &value : dv.ValueList()) {
     RETURN_IF_NOT(value.IsInt());
     recovery_data->snapshooter_tx_snapshot.emplace_back(value.ValueInt());
   }
 
   // A list of label+property indexes.
-  RETURN_IF_NOT(decoder.ReadValue(&dv, DecodedValue::Type::List));
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::List));
   auto index_value = dv.ValueList();
   for (auto it = index_value.begin(); it != index_value.end();) {
     auto label = *it++;
@@ -155,16 +155,16 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
         }
       };
 
-  DecodedValue dv_cypher_id;
+  Value dv_cypher_id;
 
   for (int64_t i = 0; i < edge_count; ++i) {
     RETURN_IF_NOT(
-        decoder.ReadValue(&dv, communication::bolt::DecodedValue::Type::Edge));
+        decoder.ReadValue(&dv, communication::bolt::Value::Type::Edge));
     auto &edge = dv.ValueEdge();
 
     // Read cypher_id
-    RETURN_IF_NOT(decoder.ReadValue(
-        &dv_cypher_id, communication::bolt::DecodedValue::Type::Int));
+    RETURN_IF_NOT(decoder.ReadValue(&dv_cypher_id,
+                                    communication::bolt::Value::Type::Int));
     auto cypher_id = dv_cypher_id.ValueInt();
 
     // We have to take full edge endpoints from vertices since the endpoints

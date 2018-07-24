@@ -72,8 +72,7 @@ class TestClient {
   virtual void Step() = 0;
 
   std::experimental::optional<communication::bolt::QueryData> Execute(
-      const std::string &query,
-      const std::map<std::string, DecodedValue> &params,
+      const std::string &query, const std::map<std::string, Value> &params,
       const std::string &query_name = "") {
     communication::bolt::QueryData result;
     int retries;
@@ -102,8 +101,7 @@ class TestClient {
   }
 
   utils::SpinLock lock_;
-  std::unordered_map<std::string,
-                     std::vector<std::map<std::string, DecodedValue>>>
+  std::unordered_map<std::string, std::vector<std::map<std::string, Value>>>
       stats_;
 
   std::atomic<bool> keep_running_{true};
@@ -134,12 +132,11 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
   }
   LOG(INFO) << "Starting test with " << clients.size() << " workers";
   while (timer.Elapsed().count() < FLAGS_duration) {
-    std::unordered_map<std::string, std::map<std::string, DecodedValue>>
+    std::unordered_map<std::string, std::map<std::string, Value>>
         aggregated_stats;
 
     using namespace std::chrono_literals;
-    std::unordered_map<std::string,
-                       std::vector<std::map<std::string, DecodedValue>>>
+    std::unordered_map<std::string, std::vector<std::map<std::string, Value>>>
         stats;
     for (const auto &client : clients) {
       auto client_stats = client->ConsumeStats();
@@ -150,9 +147,9 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
       }
     }
 
-    // TODO: Here we combine pure values, json and DecodedValue which is a
+    // TODO: Here we combine pure values, json and Value which is a
     // little bit chaotic. Think about refactoring this part to only use json
-    // and write DecodedValue to json converter.
+    // and write Value to json converter.
     const std::vector<std::string> fields = {
         "wall_time",
         "parsing_time",
@@ -172,12 +169,11 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
       int64_t new_count = query_stats.second.size();
 
       auto &aggregated_query_stats = aggregated_stats[query_stats.first];
-      aggregated_query_stats.insert({"count", DecodedValue(0)});
+      aggregated_query_stats.insert({"count", Value(0)});
       auto old_count = aggregated_query_stats["count"].ValueInt();
       aggregated_query_stats["count"].ValueInt() += new_count;
       for (const auto &stat : new_aggregated_query_stats) {
-        auto it = aggregated_query_stats.insert({stat.first, DecodedValue(0.0)})
-                      .first;
+        auto it = aggregated_query_stats.insert({stat.first, Value(0.0)}).first;
         it->second = (it->second.ValueDouble() * old_count + stat.second) /
                      (old_count + new_count);
         stats::LogStat(
@@ -195,7 +191,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
         out, aggregated_stats, ", ", [](auto &stream, const auto &x) {
           stream << "{\"query\": " << nlohmann::json(x.first)
                  << ", \"stats\": ";
-          PrintJsonDecodedValue(stream, DecodedValue(x.second));
+          PrintJsonValue(stream, Value(x.second));
           stream << "}";
         });
     out << "]}" << std::endl;

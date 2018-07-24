@@ -22,23 +22,22 @@ DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
-using communication::bolt::DecodedValue;
+using communication::bolt::Value;
 
 const int MAX_RETRIES = 50;
 
 void PrintJsonMetadata(
     std::ostream &os,
-    const std::vector<std::map<std::string, DecodedValue>> &metadata) {
+    const std::vector<std::map<std::string, Value>> &metadata) {
   os << "[";
   utils::PrintIterable(os, metadata, ", ", [](auto &stream, const auto &item) {
-    PrintJsonDecodedValue(stream, item);
+    PrintJsonValue(stream, item);
   });
   os << "]";
 }
 
-void PrintSummary(
-    std::ostream &os, double duration,
-    const std::vector<std::map<std::string, DecodedValue>> &metadata) {
+void PrintSummary(std::ostream &os, double duration,
+                  const std::vector<std::map<std::string, Value>> &metadata) {
   os << "{\"wall_time\": " << duration << ", "
      << "\"metadatas\": ";
   PrintJsonMetadata(os, metadata);
@@ -51,7 +50,7 @@ void ExecuteQueries(const std::vector<std::string> &queries,
 
   utils::SpinLock spinlock;
   uint64_t last = 0;
-  std::vector<std::map<std::string, DecodedValue>> metadata;
+  std::vector<std::map<std::string, Value>> metadata;
 
   metadata.resize(queries.size());
 

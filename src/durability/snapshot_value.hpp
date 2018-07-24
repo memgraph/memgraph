@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "storage/property_value.hpp"
@@ -13,28 +13,28 @@
 
 namespace durability {
 
-/** Forward declartion of DecodedSnapshotEdge. */
-struct DecodedInlinedVertexEdge;
+/** Forward declartion of SnapshotEdge. */
+struct InlinedVertexEdge;
 
 /**
  * Structure used when reading a Vertex with the decoder.
  * The decoder writes data into this structure.
  */
-struct DecodedSnapshotVertex {
+struct SnapshotVertex {
   gid::Gid gid;
   int64_t cypher_id;
   std::vector<std::string> labels;
-  std::map<std::string, communication::bolt::DecodedValue> properties;
+  std::map<std::string, communication::bolt::Value> properties;
   // Vector of edges without properties
-  std::vector<DecodedInlinedVertexEdge> in;
-  std::vector<DecodedInlinedVertexEdge> out;
+  std::vector<InlinedVertexEdge> in;
+  std::vector<InlinedVertexEdge> out;
 };
 
 /**
  * Structure used when reading an Edge with the snapshot decoder.
  * The decoder writes data into this structure.
  */
-struct DecodedInlinedVertexEdge {
+struct InlinedVertexEdge {
   // Addresses down below must always be global_address and never direct
   // pointers to a record.
   storage::EdgeAddress address;

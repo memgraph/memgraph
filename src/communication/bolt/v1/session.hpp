@@ -49,13 +49,13 @@ class Session {
   /**
    * Process the given `query` with `params`.
    */
-  virtual std::vector<std::string> Interpret(const std::string &query,
-                         const std::map<std::string, DecodedValue> &params) = 0;
+  virtual std::vector<std::string> Interpret(
+      const std::string &query, const std::map<std::string, Value> &params) = 0;
 
   /**
    * Put results of the processed query in the `encoder`.
    */
-  virtual std::map<std::string, DecodedValue> PullAll(TEncoder *encoder) = 0;
+  virtual std::map<std::string, Value> PullAll(TEncoder *encoder) = 0;
 
   /** Aborts currently running query. */
   virtual void Abort() = 0;

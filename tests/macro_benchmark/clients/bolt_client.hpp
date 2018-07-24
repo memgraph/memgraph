@@ -6,14 +6,14 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/client.hpp"
-#include "communication/bolt/v1/decoder/decoded_value.hpp"
+#include "communication/bolt/v1/value.hpp"
 #include "io/network/endpoint.hpp"
 
 using EndpointT = io::network::Endpoint;
 using ContextT = communication::ClientContext;
 using ClientT = communication::bolt::Client;
 using QueryDataT = communication::bolt::QueryData;
-using communication::bolt::DecodedValue;
+using communication::bolt::Value;
 
 class BoltClient {
  public:
@@ -29,7 +29,7 @@ class BoltClient {
   }
 
   QueryDataT Execute(const std::string &query,
-                     const std::map<std::string, DecodedValue> &parameters) {
+                     const std::map<std::string, Value> &parameters) {
     return client_.Execute(query, parameters);
   }
 
