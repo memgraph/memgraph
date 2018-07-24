@@ -7,6 +7,7 @@
 #include <json/json.hpp>
 
 #include "integrations/kafka/exceptions.hpp"
+#include "requests/requests.hpp"
 #include "utils/file.hpp"
 
 namespace integrations {
@@ -122,12 +123,12 @@ void Streams::Recover() {
     }
 
     StreamInfo info = Deserialize(data);
-    Create(info);
+    Create(info, false);
     if (info.is_running) Start(info.stream_name, info.limit_batches);
   }
 }
 
-void Streams::Create(const StreamInfo &info) {
+void Streams::Create(const StreamInfo &info, bool download_transform_script) {
   std::lock_guard<std::mutex> g(mutex_);
   if (consumers_.find(info.stream_name) != consumers_.end())
     throw StreamExistsException(info.stream_name);
@@ -142,11 +143,18 @@ void Streams::Create(const StreamInfo &info) {
     throw TransformScriptCouldNotBeCreatedException(info.stream_name);
   }
 
+  // Download the transform script.
+  auto transform_script_path = GetTransformScriptPath(info.stream_name);
+  if (download_transform_script &&
+      !requests::CreateAndDownloadFile(info.transform_uri,
+                                       transform_script_path)) {
+    throw TransformScriptDownloadException(info.transform_uri);
+  }
+
   try {
     consumers_.emplace(
         std::piecewise_construct, std::forward_as_tuple(info.stream_name),
-        std::forward_as_tuple(info, GetTransformScriptPath(info.stream_name),
-                              stream_writer_));
+        std::forward_as_tuple(info, transform_script_path, stream_writer_));
   } catch (const KafkaStreamException &e) {
     // If we failed to create the consumer, remove the persisted metadata.
     metadata_store_.Delete(info.stream_name);

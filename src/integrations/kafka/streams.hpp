@@ -18,7 +18,7 @@ class Streams final {
 
   void Recover();
 
-  void Create(const StreamInfo &info);
+  void Create(const StreamInfo &info, bool download_transform_script = true);
 
   void Drop(const std::string &stream_name);
 

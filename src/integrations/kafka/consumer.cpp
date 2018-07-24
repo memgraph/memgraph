@@ -33,7 +33,7 @@ Consumer::Consumer(
     std::function<void(const std::vector<std::string> &)> stream_writer)
     : info_(info),
       stream_writer_(stream_writer),
-      transform_(info.transform_uri, transform_script_path) {
+      transform_(transform_script_path) {
   std::unique_ptr<RdKafka::Conf> conf(
       RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   std::string error;

@@ -11,8 +11,7 @@ namespace kafka {
 
 class Transform final {
  public:
-  Transform(const std::string &transform_script_uri,
-            const std::string &transform_script_path);
+  Transform(const std::string &transform_script_path);
 
   std::vector<std::string> Apply(
       const std::vector<std::unique_ptr<RdKafka::Message>> &batch);
