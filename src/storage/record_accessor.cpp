@@ -1,22 +1,20 @@
-#include "glog/logging.h"
+#include "storage/record_accessor.hpp"
 
-#include "database/distributed_graph_db.hpp"
+#include <glog/logging.h>
+
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
-#include "distributed/data_manager.hpp"
-#include "distributed/updates_rpc_clients.hpp"
-#include "query/exceptions.hpp"
 #include "storage/edge.hpp"
-#include "storage/record_accessor.hpp"
 #include "storage/vertex.hpp"
-#include "utils/thread/sync.hpp"
 
 using database::StateDelta;
 
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(AddressT address,
-                                        database::GraphDbAccessor &db_accessor)
-    : db_accessor_(&db_accessor),
+                                        database::GraphDbAccessor &db_accessor,
+                                        Impl *impl)
+    : impl_(impl),
+      db_accessor_(&db_accessor),
       address_(db_accessor.db().storage().LocalizedAddressIfPossible(address)) {
 }
 
@@ -109,17 +107,7 @@ typename RecordAccessor<TRecord>::AddressT RecordAccessor<TRecord>::address()
 template <typename TRecord>
 typename RecordAccessor<TRecord>::AddressT
 RecordAccessor<TRecord>::GlobalAddress() const {
-  // TODO: Replace this with some other mechanism, i.e. virtual call.
-  int worker_id = 0;
-  if (auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(&db_accessor_->db())) {
-    worker_id = distributed_db->WorkerId();
-  } else {
-    CHECK(dynamic_cast<database::SingleNode *>(&db_accessor_->db()));
-  }
-  return is_local()
-             ? storage::Address<mvcc::VersionList<TRecord>>(gid(), worker_id)
-             : address_;
+  return impl_->GlobalAddress(*this);
 }
 
 template <typename TRecord>
@@ -150,27 +138,7 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
-  auto &dba = db_accessor();
-  if (is_local()) {
-    address_.local()->find_set_old_new(dba.transaction(), old_, new_);
-  } else {
-    // It's not possible that we have a global address for a graph element
-    // that's local, because that is resolved in the constructor.
-    // TODO in write queries it's possible the command has been advanced and
-    // we need to invalidate the Cache and really get the latest stuff.
-    // But only do that after the command has been advanced.
-    distributed::DataManager *data_manager = nullptr;
-    // TODO: Replace this with virtual call or some other mechanism.
-    if (auto *distributed_db =
-            dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
-      data_manager = &distributed_db->data_manager();
-    }
-    CHECK(data_manager);
-    auto &cache =
-        data_manager->template Elements<TRecord>(dba.transaction_id());
-    cache.FindSetOldNew(dba.transaction().id_, address_.worker_id(),
-                        address_.gid(), old_, new_);
-  }
+  impl_->SetOldNew(*this, &old_, &new_);
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
 }
@@ -192,20 +160,7 @@ TRecord &RecordAccessor<TRecord>::update() const {
 
   if (new_) return *new_;
 
-  if (is_local()) {
-    new_ = address_.local()->update(t);
-  } else {
-    distributed::DataManager *data_manager = nullptr;
-    // TODO: Replace this with virtual call or some other mechanism.
-    if (auto *distributed_db =
-            dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
-      data_manager = &distributed_db->data_manager();
-    }
-    CHECK(data_manager);
-    auto &cache =
-        data_manager->template Elements<TRecord>(dba.transaction_id());
-    new_ = cache.FindNew(address_.gid());
-  }
+  new_ = impl_->FindNew(*this);
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
 }
@@ -220,42 +175,9 @@ const TRecord &RecordAccessor<TRecord>::current() const {
 }
 
 template <typename TRecord>
-void RecordAccessor<TRecord>::SendDelta(
-    const database::StateDelta &delta) const {
-  DCHECK(!is_local())
-      << "Only a delta created on a remote accessor should be sent";
-
-  auto &dba = db_accessor();
-  distributed::UpdatesRpcClients *updates_clients = nullptr;
-  // TODO: Replace this with virtual call or some other mechanism.
-  if (auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
-    updates_clients = &distributed_db->updates_clients();
-  }
-  CHECK(updates_clients);
-  auto result = updates_clients->Update(address().worker_id(), delta);
-  switch (result) {
-    case distributed::UpdateResult::DONE:
-      break;
-    case distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
-      throw query::RemoveAttachedVertexException();
-    case distributed::UpdateResult::SERIALIZATION_ERROR:
-      throw mvcc::SerializationError();
-    case distributed::UpdateResult::UPDATE_DELETED_ERROR:
-      throw RecordDeletedError();
-    case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
-      throw utils::LockTimeoutException("Lock timeout on remote worker");
-  }
-}
-
-template <typename TRecord>
 void RecordAccessor<TRecord>::ProcessDelta(
     const database::StateDelta &delta) const {
-  if (is_local()) {
-    db_accessor().wal().Emplace(delta);
-  } else {
-    SendDelta(delta);
-  }
+  impl_->ProcessDelta(*this, delta);
 }
 
 template class RecordAccessor<Vertex>;

@@ -19,7 +19,7 @@
  * This class indirectly inherits MVCC data structures and
  * takes care of MVCC versioning.
  */
-class VertexAccessor : public RecordAccessor<Vertex> {
+class VertexAccessor final : public RecordAccessor<Vertex> {
   using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
   // Helper function for creating an iterator over edges.
   // @param begin - begin iterator
@@ -49,10 +49,16 @@ class VertexAccessor : public RecordAccessor<Vertex> {
   }
 
  public:
-  VertexAccessor(VertexAddress address, database::GraphDbAccessor &db_accessor)
-      : RecordAccessor(address, db_accessor) {
-    Reconstruct();
-  }
+  /** Like RecordAccessor::Impl with addition of Vertex specific methods. */
+  class Impl : public RecordAccessor<Vertex>::Impl {
+   public:
+    virtual void AddLabel(const VertexAccessor &va,
+                          const storage::Label &label) = 0;
+    virtual void RemoveLabel(const VertexAccessor &va,
+                             const storage::Label &label) = 0;
+  };
+
+  VertexAccessor(VertexAddress address, database::GraphDbAccessor &db_accessor);
 
   /** Returns the number of outgoing edges. */
   size_t out_degree() const;
@@ -147,6 +153,9 @@ class VertexAccessor : public RecordAccessor<Vertex> {
    * this operation should always be accompanied by the removal of the edge from
    * the outgoing edges on the other side and edge deletion. */
   void RemoveInEdge(storage::EdgeAddress edge);
+
+ private:
+  Impl *impl_{nullptr};
 };
 
 std::ostream &operator<<(std::ostream &, const VertexAccessor &);

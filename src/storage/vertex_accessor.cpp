@@ -6,43 +6,23 @@
 #include "database/state_delta.hpp"
 #include "utils/algorithm.hpp"
 
+VertexAccessor::VertexAccessor(VertexAddress address,
+                               database::GraphDbAccessor &db_accessor)
+    : RecordAccessor(address, db_accessor, db_accessor.GetVertexImpl()),
+      impl_(db_accessor.GetVertexImpl()) {
+  Reconstruct();
+}
+
 size_t VertexAccessor::out_degree() const { return current().out_.size(); }
 
 size_t VertexAccessor::in_degree() const { return current().in_.size(); }
 
 void VertexAccessor::add_label(storage::Label label) {
-  auto &dba = db_accessor();
-  auto delta = database::StateDelta::AddLabel(dba.transaction_id(), gid(),
-                                              label, dba.LabelName(label));
-  Vertex &vertex = update();
-  // not a duplicate label, add it
-  if (!utils::Contains(vertex.labels_, label)) {
-    vertex.labels_.emplace_back(label);
-    if (is_local()) {
-      dba.wal().Emplace(delta);
-      dba.UpdateLabelIndices(label, *this, &vertex);
-    }
-  }
-
-  if (!is_local()) SendDelta(delta);
+  return impl_->AddLabel(*this, label);
 }
 
 void VertexAccessor::remove_label(storage::Label label) {
-  auto &dba = db_accessor();
-  auto delta = database::StateDelta::RemoveLabel(dba.transaction_id(), gid(),
-                                                 label, dba.LabelName(label));
-  Vertex &vertex = update();
-  if (utils::Contains(vertex.labels_, label)) {
-    auto &labels = vertex.labels_;
-    auto found = std::find(labels.begin(), labels.end(), delta.label);
-    std::swap(*found, labels.back());
-    labels.pop_back();
-    if (is_local()) {
-      dba.wal().Emplace(delta);
-    }
-  }
-
-  if (!is_local()) SendDelta(delta);
+  return impl_->RemoveLabel(*this, label);
 }
 
 bool VertexAccessor::has_label(storage::Label label) const {

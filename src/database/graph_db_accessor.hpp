@@ -39,6 +39,8 @@ class IndexCreationOnWorkerException : public utils::BasicException {
 class GraphDbAccessor {
   // We need to make friends with this guys since they need to access private
   // methods for updating indices.
+  // TODO: Rethink this, we have too much long-distance friendship complicating
+  // the code.
   friend class ::RecordAccessor<Vertex>;
   friend class ::VertexAccessor;
 
@@ -58,6 +60,9 @@ class GraphDbAccessor {
   GraphDbAccessor(GraphDbAccessor &&other) = delete;
   GraphDbAccessor &operator=(const GraphDbAccessor &other) = delete;
   GraphDbAccessor &operator=(GraphDbAccessor &&other) = delete;
+
+  virtual ::VertexAccessor::Impl *GetVertexImpl() = 0;
+  virtual ::RecordAccessor<Edge>::Impl *GetEdgeImpl() = 0;
 
   /**
    * Creates a new Vertex and returns an accessor to it. If the ID is
@@ -600,6 +605,18 @@ class GraphDbAccessor {
   /* Returns a list of index names present in the database. */
   std::vector<std::string> IndexInfo() const;
 
+  /**
+   * Insert this vertex into corresponding label and label+property (if it
+   * exists) index.
+   *
+   * @param label - label with which to insert vertex label record
+   * @param vertex_accessor - vertex_accessor to insert
+   * @param vertex - vertex record to insert
+   */
+  void UpdateLabelIndices(storage::Label label,
+                          const VertexAccessor &vertex_accessor,
+                          const Vertex *const vertex);
+
  protected:
   /** Called in `BuildIndex` after creating an index, but before populating. */
   virtual void PostCreateIndex(const LabelPropertyIndex::Key &key) {}
@@ -637,18 +654,6 @@ class GraphDbAccessor {
 
   bool commited_{false};
   bool aborted_{false};
-
-  /**
-   * Insert this vertex into corresponding label and label+property (if it
-   * exists) index.
-   *
-   * @param label - label with which to insert vertex label record
-   * @param vertex_accessor - vertex_accessor to insert
-   * @param vertex - vertex record to insert
-   */
-  void UpdateLabelIndices(storage::Label label,
-                          const VertexAccessor &vertex_accessor,
-                          const Vertex *const vertex);
 
   /**
    * Insert this vertex into corresponding any label + 'property' index.

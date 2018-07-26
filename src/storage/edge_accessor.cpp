@@ -4,6 +4,29 @@
 #include "storage/vertex_accessor.hpp"
 #include "utils/algorithm.hpp"
 
+EdgeAccessor::EdgeAccessor(EdgeAddress address,
+                           database::GraphDbAccessor &db_accessor)
+    : RecordAccessor(address, db_accessor, db_accessor.GetEdgeImpl()),
+      from_(nullptr),
+      to_(nullptr),
+      edge_type_() {
+  RecordAccessor::Reconstruct();
+  if (current_ != nullptr) {
+    from_ = current_->from_;
+    to_ = current_->to_;
+    edge_type_ = current_->edge_type_;
+  }
+}
+
+EdgeAccessor::EdgeAccessor(EdgeAddress address,
+                           database::GraphDbAccessor &db_accessor,
+                           VertexAddress from, VertexAddress to,
+                           storage::EdgeType edge_type)
+    : RecordAccessor(address, db_accessor, db_accessor.GetEdgeImpl()),
+      from_(from),
+      to_(to),
+      edge_type_(edge_type) {}
+
 storage::EdgeType EdgeAccessor::EdgeType() const { return edge_type_; }
 
 VertexAccessor EdgeAccessor::from() const {

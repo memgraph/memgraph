@@ -19,35 +19,22 @@ class VertexAccessor;
  * EdgeAccessor means that data does not have to be read from a random memory
  * location, which is often a performance bottleneck in traversals.
  */
-class EdgeAccessor : public RecordAccessor<Edge> {
+class EdgeAccessor final : public RecordAccessor<Edge> {
   using EdgeAddress = storage::EdgeAddress;
   using VertexAddress = storage::VertexAddress;
 
  public:
   /** Constructor that reads data from the random memory location (lower
    * performance, see class docs). */
-  EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor)
-      : RecordAccessor(address, db_accessor),
-        from_(nullptr),
-        to_(nullptr),
-        edge_type_() {
-    RecordAccessor::Reconstruct();
-    if (current_ != nullptr) {
-      from_ = current_->from_;
-      to_ = current_->to_;
-      edge_type_ = current_->edge_type_;
-    }
-  }
+  EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor);
 
-  /** Constructor that does NOT data from the random memory location (better
-   * performance, see class docs). */
+  /**
+   * Constructor that does NOT read data from the random memory location
+   * (better performance, see class docs).
+   */
   EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor,
                VertexAddress from, VertexAddress to,
-               storage::EdgeType edge_type)
-      : RecordAccessor(address, db_accessor),
-        from_(from),
-        to_(to),
-        edge_type_(edge_type) {}
+               storage::EdgeType edge_type);
 
   storage::EdgeType EdgeType() const;
 

@@ -14,7 +14,151 @@
 #include "utils/file.hpp"
 
 namespace database {
-namespace impl {
+
+namespace {
+
+//////////////////////////////////////////////////////////////////////
+// RecordAccessor and GraphDbAccessor implementations
+//////////////////////////////////////////////////////////////////////
+
+template <class TRecord>
+class SingleNodeRecordAccessor final {
+ public:
+  typename RecordAccessor<TRecord>::AddressT GlobalAddress(
+      const RecordAccessor<TRecord> &record_accessor) {
+    // TODO: This is still coupled to distributed storage, albeit loosely.
+    int worker_id = 0;
+    CHECK(record_accessor.is_local());
+    return storage::Address<mvcc::VersionList<TRecord>>(record_accessor.gid(),
+                                                        worker_id);
+  }
+
+  void SetOldNew(const RecordAccessor<TRecord> &record_accessor, TRecord **old,
+                 TRecord **newr) {
+    auto &dba = record_accessor.db_accessor();
+    const auto &address = record_accessor.address();
+    CHECK(record_accessor.is_local());
+    address.local()->find_set_old_new(dba.transaction(), *old, *newr);
+  }
+
+  TRecord *FindNew(const RecordAccessor<TRecord> &record_accessor) {
+    const auto &address = record_accessor.address();
+    auto &dba = record_accessor.db_accessor();
+    CHECK(address.is_local());
+    return address.local()->update(dba.transaction());
+  }
+
+  void ProcessDelta(const RecordAccessor<TRecord> &record_accessor,
+                    const database::StateDelta &delta) {
+    CHECK(record_accessor.is_local());
+    record_accessor.db_accessor().wal().Emplace(delta);
+  }
+};
+
+class VertexAccessorImpl final : public ::VertexAccessor::Impl {
+  SingleNodeRecordAccessor<Vertex> accessor_;
+
+ public:
+  typename RecordAccessor<Vertex>::AddressT GlobalAddress(
+      const RecordAccessor<Vertex> &ra) override {
+    return accessor_.GlobalAddress(ra);
+  }
+
+  void SetOldNew(const RecordAccessor<Vertex> &ra, Vertex **old_record,
+                 Vertex **new_record) override {
+    return accessor_.SetOldNew(ra, old_record, new_record);
+  }
+
+  Vertex *FindNew(const RecordAccessor<Vertex> &ra) override {
+    return accessor_.FindNew(ra);
+  }
+
+  void ProcessDelta(const RecordAccessor<Vertex> &ra,
+                    const database::StateDelta &delta) override {
+    return accessor_.ProcessDelta(ra, delta);
+  }
+
+  void AddLabel(const VertexAccessor &va,
+                const storage::Label &label) override {
+    CHECK(va.is_local());
+    auto &dba = va.db_accessor();
+    auto delta = StateDelta::AddLabel(dba.transaction_id(), va.gid(), label,
+                                      dba.LabelName(label));
+    Vertex &vertex = va.update();
+    // not a duplicate label, add it
+    if (!utils::Contains(vertex.labels_, label)) {
+      vertex.labels_.emplace_back(label);
+      dba.wal().Emplace(delta);
+      dba.UpdateLabelIndices(label, va, &vertex);
+    }
+  }
+
+  void RemoveLabel(const VertexAccessor &va,
+                   const storage::Label &label) override {
+    CHECK(va.is_local());
+    auto &dba = va.db_accessor();
+    auto delta = StateDelta::RemoveLabel(dba.transaction_id(), va.gid(), label,
+                                         dba.LabelName(label));
+    Vertex &vertex = va.update();
+    if (utils::Contains(vertex.labels_, label)) {
+      auto &labels = vertex.labels_;
+      auto found = std::find(labels.begin(), labels.end(), delta.label);
+      std::swap(*found, labels.back());
+      labels.pop_back();
+      dba.wal().Emplace(delta);
+    }
+  }
+};
+
+class EdgeAccessorImpl final : public ::RecordAccessor<Edge>::Impl {
+  SingleNodeRecordAccessor<Edge> accessor_;
+
+ public:
+  typename RecordAccessor<Edge>::AddressT GlobalAddress(
+      const RecordAccessor<Edge> &ra) override {
+    return accessor_.GlobalAddress(ra);
+  }
+
+  void SetOldNew(const RecordAccessor<Edge> &ra, Edge **old_record,
+                 Edge **new_record) override {
+    return accessor_.SetOldNew(ra, old_record, new_record);
+  }
+
+  Edge *FindNew(const RecordAccessor<Edge> &ra) override {
+    return accessor_.FindNew(ra);
+  }
+
+  void ProcessDelta(const RecordAccessor<Edge> &ra,
+                    const database::StateDelta &delta) override {
+    return accessor_.ProcessDelta(ra, delta);
+  }
+};
+
+class SingleNodeAccessor : public GraphDbAccessor {
+  // Shared implementations of record accessors.
+  static VertexAccessorImpl vertex_accessor_;
+  static EdgeAccessorImpl edge_accessor_;
+
+ public:
+  explicit SingleNodeAccessor(GraphDb &db) : GraphDbAccessor(db) {}
+  SingleNodeAccessor(GraphDb &db, tx::TransactionId tx_id)
+      : GraphDbAccessor(db, tx_id) {}
+
+  ::VertexAccessor::Impl *GetVertexImpl() override { return &vertex_accessor_; }
+
+  ::RecordAccessor<Edge>::Impl *GetEdgeImpl() override {
+    return &edge_accessor_;
+  }
+};
+
+VertexAccessorImpl SingleNodeAccessor::vertex_accessor_;
+EdgeAccessorImpl SingleNodeAccessor::edge_accessor_;
+
+}  // namespace
+
+//////////////////////////////////////////////////////////////////////
+// SingleNode GraphDb implementation
+//////////////////////////////////////////////////////////////////////
 
 template <template <typename TId> class TMapper>
 struct TypemapPack {
@@ -26,6 +170,8 @@ struct TypemapPack {
   TMapper<storage::EdgeType> edge_type;
   TMapper<storage::Property> property;
 };
+
+namespace impl {
 
 class SingleNode {
  public:
@@ -118,13 +264,6 @@ SingleNode::~SingleNode() {
     MakeSnapshot(*dba);
   }
 }
-
-class SingleNodeAccessor : public GraphDbAccessor {
- public:
-  explicit SingleNodeAccessor(GraphDb &db) : GraphDbAccessor(db) {}
-  SingleNodeAccessor(GraphDb &db, tx::TransactionId tx_id)
-      : GraphDbAccessor(db, tx_id) {}
-};
 
 std::unique_ptr<GraphDbAccessor> SingleNode::Access() {
   // NOTE: We are doing a heap allocation to allow polymorphism. If this poses

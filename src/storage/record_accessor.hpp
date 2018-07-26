@@ -1,3 +1,4 @@
+/** @file */
 #pragma once
 
 #include "glog/logging.h"
@@ -26,27 +27,33 @@ struct StateDelta;
  */
 template <typename TRecord>
 class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
- protected:
+ public:
   using AddressT = storage::Address<mvcc::VersionList<TRecord>>;
 
   /**
-   * The database::GraphDbAccessor is friend to this accessor so it can
-   * operate on it's data (mvcc version-list and the record itself).
-   * This is legitimate because database::GraphDbAccessor creates
-   * RecordAccessors
-   * and is semantically their parent/owner. It is necessary because
-   * the database::GraphDbAccessor handles insertions and deletions, and these
-   * operations modify data intensively.
+   * Interface for the underlying implementation of the record accessor.
+   * The RecordAccessor only borrows the pointer to the implementation, it does
+   * *not* own it. When a RecordAccessor is copied, so is the pointer but *not*
+   * the implementation itself. This means that concrete Impl types need to be
+   * shareable among different accessors. To achieve that, it's best for derived
+   * Impl types to contain *no state*. The reason we are using this approach is
+   * to prevent large amounts of allocations, because RecordAccessor are often
+   * created and copied.
    */
-  friend database::GraphDbAccessor;
+  class Impl {
+   public:
+    virtual ~Impl() {}
 
- public:
-  /**
-   * @param address Address (local or global) of the Vertex/Edge of this
-   * accessor.
-   * @param db_accessor The DB accessor that "owns" this record accessor.
-   */
-  RecordAccessor(AddressT address, database::GraphDbAccessor &db_accessor);
+    virtual AddressT GlobalAddress(const RecordAccessor<TRecord> &ra) = 0;
+    /** Set the pointers for old and new records during `Reconstruct`. */
+    virtual void SetOldNew(const RecordAccessor<TRecord> &ra,
+                           TRecord **old_record, TRecord **new_record) = 0;
+    /** Find the pointer to the new, updated record. */
+    virtual TRecord *FindNew(const RecordAccessor<TRecord> &ra) = 0;
+    /** Process a change delta, e.g. by writing WAL. */
+    virtual void ProcessDelta(const RecordAccessor<TRecord> &ra,
+                              const database::StateDelta &delta) = 0;
+  };
 
   // this class is default copyable, movable and assignable
   RecordAccessor(const RecordAccessor &other) = default;
@@ -54,6 +61,25 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   RecordAccessor &operator=(const RecordAccessor &other) = default;
   RecordAccessor &operator=(RecordAccessor &&other) = default;
 
+ protected:
+  /**
+   * Protected destructor because we allow inheritance, but nobody should own a
+   * pointer to plain RecordAccessor.
+   */
+  ~RecordAccessor() = default;
+
+  /**
+   * Only derived types may allow construction.
+   *
+   * @param address Address (local or global) of the Vertex/Edge of this
+   * accessor.
+   * @param db_accessor The DB accessor that "owns" this record accessor.
+   * @param impl Borrowed pointer to the underlying implementation.
+   */
+  RecordAccessor(AddressT address, database::GraphDbAccessor &db_accessor,
+                 Impl *impl);
+
+ public:
   /** Gets the property for the given key. */
   PropertyValue PropsAt(storage::Property key) const;
 
@@ -83,7 +109,6 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
 
   AddressT address() const;
 
-  // Returns an address which is global - composed of gid and worker_id
   AddressT GlobalAddress() const;
 
   /*
@@ -146,6 +171,7 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
            (current_state && new_ && !new_->is_expired_by(t));
   }
 
+  // TODO: This shouldn't be here, because it's only relevant in distributed.
   /** Indicates if this accessor represents a local Vertex/Edge, or one whose
    * owner is some other worker in a distributed system. */
   bool is_local() const { return address_.is_local(); }
@@ -159,13 +185,17 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
 
  protected:
   /**
-   * Sends delta for remote processing.
+   * The database::GraphDbAccessor is friend to this accessor so it can
+   * operate on it's data (mvcc version-list and the record itself).
+   * This is legitimate because database::GraphDbAccessor creates
+   * RecordAccessors
+   * and is semantically their parent/owner. It is necessary because
+   * the database::GraphDbAccessor handles insertions and deletions, and these
+   * operations modify data intensively.
    */
-  void SendDelta(const database::StateDelta &delta) const;
+  friend database::GraphDbAccessor;
 
-  /**
-   * Processes delta by either adding it to WAL, or by sending it remotely.
-   */
+  /** Process a change delta, e.g. by writing WAL. */
   void ProcessDelta(const database::StateDelta &delta) const;
 
   /**
@@ -183,6 +213,7 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   const TRecord &current() const;
 
  private:
+  Impl *impl_;
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.
