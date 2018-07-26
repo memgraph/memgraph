@@ -1,0 +1,392 @@
+/*
+ * Copyright (c) 2015-2016 "Neo Technology,"
+ * Network Engine for Objects in Lund AB [http://neotechnology.com]
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ * 
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ * 
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/*
+ * When changing this grammar make sure to update constants in
+ * src/query/frontend/stripped_lexer_constants.hpp (kKeywords, kSpecialTokens
+ * and bitsets) if needed.
+ */
+
+parser grammar CypherParser ;
+
+options { tokenVocab=CypherLexer; }
+
+cypher : statement ;
+
+statement : query ;
+
+query : regularQuery ;
+
+regularQuery : singleQuery ( cypherUnion )* ;
+
+singleQuery : clause ( clause )* ;
+
+cypherUnion : ( UNION ALL singleQuery )
+            | ( UNION singleQuery )
+            ;
+
+clause : cypherMatch
+       | unwind
+       | merge
+       | create
+       | set
+       | cypherDelete
+       | remove
+       | with
+       | cypherReturn
+       | createIndex
+       | modifyUser
+       | dropUser
+       | createStream
+       | dropStream
+       | showStreams
+       | startStopStream
+       | startStopAllStreams
+       | testStream
+       ;
+
+cypherMatch : OPTIONAL? MATCH pattern where? ;
+
+unwind : UNWIND expression AS variable ;
+
+merge : MERGE patternPart ( mergeAction )* ;
+
+mergeAction : ( ON MATCH set )
+            | ( ON CREATE set )
+            ;
+
+create : CREATE pattern ;
+
+set : SET setItem ( ',' setItem )* ;
+
+setItem : ( propertyExpression '=' expression )
+        | ( variable '=' expression )
+        | ( variable '+=' expression )
+        | ( variable nodeLabels )
+        ;
+
+cypherDelete : DETACH? DELETE expression ( ',' expression )* ;
+
+remove : REMOVE removeItem ( ',' removeItem )* ;
+
+removeItem : ( variable nodeLabels )
+           | propertyExpression
+           ;
+
+with : WITH ( DISTINCT )? returnBody ( where )? ;
+
+cypherReturn : RETURN ( DISTINCT )? returnBody ;
+
+returnBody : returnItems ( order )? ( skip )? ( limit )? ;
+
+returnItems : ( '*' ( ',' returnItem )* )
+            | ( returnItem ( ',' returnItem )* )
+            ;
+
+returnItem : ( expression AS variable )
+           | expression
+           ;
+
+order : ORDER BY sortItem ( ',' sortItem )* ;
+
+skip : L_SKIP expression ;
+
+limit : LIMIT expression ;
+
+sortItem : expression ( ASCENDING | ASC | DESCENDING | DESC )? ;
+
+where : WHERE expression ;
+
+pattern : patternPart ( ',' patternPart )* ;
+
+patternPart : ( variable '=' anonymousPatternPart )
+            | anonymousPatternPart
+            ;
+
+anonymousPatternPart : patternElement ;
+
+patternElement : ( nodePattern ( patternElementChain )* )
+               | ( '(' patternElement ')' )
+               ;
+
+nodePattern : '(' ( variable )? ( nodeLabels )? ( properties )? ')' ;
+
+patternElementChain : relationshipPattern nodePattern ;
+
+relationshipPattern : ( leftArrowHead dash ( relationshipDetail )? dash rightArrowHead )
+                    | ( leftArrowHead dash ( relationshipDetail )? dash )
+                    | ( dash ( relationshipDetail )? dash rightArrowHead )
+                    | ( dash ( relationshipDetail )? dash )
+                    ;
+
+leftArrowHead : '<' | LeftArrowHeadPart ;
+rightArrowHead : '>' | RightArrowHeadPart ;
+dash : '-' | DashPart ;
+
+relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )?  properties ']'
+                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? relationshipLambda ( total_weight=variable )? (relationshipLambda )? ']'
+                   | '[' ( name=variable )? ( relationshipTypes )? ( variableExpansion )? (properties )* ( relationshipLambda total_weight=variable )? (relationshipLambda )? ']';
+
+relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable '|' expression ')';
+
+variableExpansion : '*' (BFS | WSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
+
+properties : mapLiteral
+           | parameter
+           ;
+
+relationshipTypes : ':' relTypeName ( '|' ':'? relTypeName )* ;
+
+nodeLabels : nodeLabel ( nodeLabel )* ;
+
+nodeLabel : ':' labelName ;
+
+labelName : symbolicName ;
+
+relTypeName : symbolicName ;
+
+expression : expression12 ;
+
+expression12 : expression11 ( OR expression11 )* ;
+
+expression11 : expression10 ( XOR expression10 )* ;
+
+expression10 : expression9 ( AND expression9 )* ;
+
+expression9 : ( NOT )* expression8 ;
+
+expression8 : expression7 ( partialComparisonExpression )* ;
+
+expression7 : expression6 ( ( '+' expression6 ) | ( '-' expression6 ) )* ;
+
+expression6 : expression5 ( ( '*' expression5 ) | ( '/' expression5 ) | ( '%' expression5 ) )* ;
+
+expression5 : expression4 ( '^' expression4 )* ;
+
+expression4 : ( ( '+' | '-' ) )* expression3a ;
+
+expression3a : expression3b ( stringAndNullOperators )* ;
+
+stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression3b) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
+
+expression3b : expression2a ( listIndexingOrSlicing )* ;
+
+listIndexingOrSlicing : ( '[' expression ']' )
+                      | ( '[' lower_bound=expression? '..' upper_bound=expression? ']' )
+                      ;
+
+expression2a : expression2b ( nodeLabels )? ;
+
+expression2b : atom ( propertyLookup )* ;
+
+atom : literal
+     | parameter
+     | caseExpression
+     | ( COUNT '(' '*' ')' )
+     | listComprehension
+     | patternComprehension
+     | ( FILTER '(' filterExpression ')' )
+     | ( EXTRACT '(' extractExpression ')' )
+     | ( REDUCE '(' reduceExpression ')' )
+     | ( ALL '(' filterExpression ')' )
+     | ( ANY '(' filterExpression ')' )
+     | ( NONE '(' filterExpression ')' )
+     | ( SINGLE '(' filterExpression ')' )
+     | relationshipsPattern
+     | parenthesizedExpression
+     | functionInvocation
+     | variable
+     ;
+
+literal : numberLiteral
+        | StringLiteral
+        | booleanLiteral
+        | CYPHERNULL
+        | mapLiteral
+        | listLiteral
+        ;
+
+booleanLiteral : TRUE
+               | FALSE
+               ;
+
+listLiteral : '[' ( expression ( ',' expression )* )? ']' ;
+
+partialComparisonExpression : ( '=' expression7 )
+                            | ( '<>' expression7 )
+                            | ( '!=' expression7 )
+                            | ( '<' expression7 )
+                            | ( '>' expression7 )
+                            | ( '<=' expression7 )
+                            | ( '>=' expression7 )
+                            ;
+
+parenthesizedExpression : '(' expression ')' ;
+
+relationshipsPattern : nodePattern ( patternElementChain )+ ;
+
+filterExpression : idInColl ( where )? ;
+
+reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' expression ;
+
+extractExpression : idInColl '|' expression ;
+
+idInColl : variable IN expression ;
+
+functionInvocation : functionName '(' ( DISTINCT )? ( expression ( ',' expression )* )? ')' ;
+
+functionName : UnescapedSymbolicName
+             | EscapedSymbolicName
+             | COUNT ;
+
+listComprehension : '[' filterExpression ( '|' expression )? ']' ;
+
+patternComprehension : '[' ( variable '=' )? relationshipsPattern ( WHERE expression )? '|' expression ']' ;
+
+propertyLookup : '.' ( propertyKeyName ) ;
+
+caseExpression : ( ( CASE ( caseAlternatives )+ ) | ( CASE test=expression ( caseAlternatives )+ ) ) ( ELSE else_expression=expression )? END ;
+
+caseAlternatives : WHEN when_expression=expression THEN then_expression=expression ;
+
+variable : symbolicName ;
+
+numberLiteral : doubleLiteral
+              | integerLiteral
+              ;
+
+mapLiteral : '{' ( propertyKeyName ':' expression ( ',' propertyKeyName ':' expression )* )? '}' ;
+
+parameter : '$' ( symbolicName | DecimalLiteral ) ;
+
+propertyExpression : atom ( propertyLookup )+ ;
+
+propertyKeyName : symbolicName ;
+
+integerLiteral : DecimalLiteral
+               | OctalLiteral
+               | HexadecimalLiteral
+               ;
+ 
+createIndex : CREATE INDEX ON ':' labelName '(' propertyKeyName ')' ;
+
+userName : UnescapedSymbolicName ;
+
+createUser : CREATE USER ; 
+
+alterUser : ALTER USER ; 
+
+modifyUser : ( createUser | alterUser ) userName ( WITH ( modifyUserOption )+ )? ;
+
+modifyUserOption : passwordOption ;
+
+passwordOption : PASSWORD literal;
+
+dropUser : DROP USER userName ( ',' userName )* ;
+
+streamName : UnescapedSymbolicName ;
+
+createStream : CREATE STREAM streamName AS LOAD DATA KAFKA 
+streamUri=literal WITH TOPIC streamTopic=literal WITH TRANSFORM
+transformUri=literal ( batchIntervalOption )? (batchSizeOption )? ;
+
+batchIntervalOption : BATCH_INTERVAL literal ;
+
+batchSizeOption : BATCH_SIZE literal ;
+
+dropStream : DROP STREAM streamName ;
+
+showStreams : SHOW STREAMS ; 
+
+startStopStream : ( START | STOP ) STREAM streamName ( limitBatchesOption )? ;
+
+limitBatchesOption : LIMIT limitBatches=literal BATCHES ;
+
+startStopAllStreams : ( START | STOP ) ALL STREAMS ;
+
+testStream : K_TEST STREAM streamName ( limitBatchesOption )? ;
+
+doubleLiteral : FloatingLiteral ;
+
+symbolicName : UnescapedSymbolicName
+             | EscapedSymbolicName
+             | UNION
+             | ALL
+             | REDUCE
+             | OPTIONAL
+             | MATCH
+             | UNWIND
+             | AS
+             | MERGE
+             | ON
+             | CREATE
+             | SET
+             | DETACH
+             | DELETE
+             | REMOVE
+             | WITH
+             | DISTINCT
+             | RETURN
+             | ORDER
+             | BY
+             | L_SKIP
+             | LIMIT
+             | ASCENDING
+             | ASC
+             | DESCENDING
+             | DESC
+             | WHERE
+             | OR
+             | XOR
+             | AND
+             | NOT
+             | IN
+             | STARTS
+             | ENDS
+             | CONTAINS
+             | IS
+             | CYPHERNULL
+             | CASE
+             | WHEN
+             | THEN
+             | ELSE
+             | END
+             | COUNT
+             | FILTER
+             | EXTRACT
+             | ANY
+             | NONE
+             | SINGLE
+             | TRUE
+             | FALSE
+             | USER
+             | PASSWORD
+             | ALTER
+             | DROP
+             | STREAM
+             | STREAMS
+             | LOAD
+             | DATA
+             | KAFKA
+             | TRANSFORM
+             | BATCH_SIZE
+             | BATCH_INTERVAL
+             | SHOW
+             | START
+             | STOP
+             ;
+

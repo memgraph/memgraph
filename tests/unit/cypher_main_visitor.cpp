@@ -394,7 +394,7 @@ TYPED_TEST(CypherMainVisitorTest, IntegerLiteral) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
-               return_clause->body_.named_expressions[0]->expression_, 42, 2);
+               return_clause->body_.named_expressions[0]->expression_, 42, 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, IntegerLiteralTooLarge) {
@@ -409,7 +409,7 @@ TYPED_TEST(CypherMainVisitorTest, BooleanLiteralTrue) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
-               return_clause->body_.named_expressions[0]->expression_, true, 2);
+               return_clause->body_.named_expressions[0]->expression_, true, 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
@@ -420,7 +420,7 @@ TYPED_TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
                return_clause->body_.named_expressions[0]->expression_, false,
-               2);
+               1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, NullLiteral) {
@@ -431,7 +431,7 @@ TYPED_TEST(CypherMainVisitorTest, NullLiteral) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
                return_clause->body_.named_expressions[0]->expression_,
-               TypedValue::Null, 2);
+               TypedValue::Null, 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ParenthesizedExpression) {
@@ -815,7 +815,7 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
                return_clause->body_.named_expressions[0]->expression_, "mi'rko",
-               2);
+               1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
@@ -826,7 +826,7 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
                return_clause->body_.named_expressions[0]->expression_,
-               "mi\"rko", 2);
+               "mi\"rko", 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
@@ -837,7 +837,7 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
                return_clause->body_.named_expressions[0]->expression_,
-               "\\'\"\b\b\f\f\n\n\r\r\t\t", 2);
+               "\\'\"\b\b\f\f\n\n\r\r\t\t", 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
@@ -848,7 +848,7 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
                return_clause->body_.named_expressions[0]->expression_,
-               u8"\u221daaa\u221daaa", 2);
+               u8"\u221daaa\u221daaa", 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16Error) {
@@ -863,7 +863,7 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
                return_clause->body_.named_expressions[0]->expression_,
-               u8"\U0001F600aaaa\U0001F600aaaaaaaa", 2);
+               u8"\U0001F600aaaa\U0001F600aaaaaaaa", 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, DoubleLiteral) {
@@ -873,7 +873,7 @@ TYPED_TEST(CypherMainVisitorTest, DoubleLiteral) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
-               return_clause->body_.named_expressions[0]->expression_, 3.5, 2);
+               return_clause->body_.named_expressions[0]->expression_, 3.5, 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
@@ -883,7 +883,7 @@ TYPED_TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   CheckLiteral(ast_generator.context_,
-               return_clause->body_.named_expressions[0]->expression_, 0.5, 2);
+               return_clause->body_.named_expressions[0]->expression_, 0.5, 1);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ListLiteral) {

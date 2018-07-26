@@ -160,14 +160,15 @@ include_directories(SYSTEM ${LIBRDKAFKA_INCLUDE_DIR})
 # openCypher parser -----------------------------------------------------------
 set(opencypher_frontend ${CMAKE_SOURCE_DIR}/src/query/frontend/opencypher)
 set(opencypher_generated ${opencypher_frontend}/generated)
-set(opencypher_grammar ${opencypher_frontend}/grammar/Cypher.g4)
+set(opencypher_lexer_grammar ${opencypher_frontend}/grammar/CypherLexer.g4)
+set(opencypher_parser_grammar ${opencypher_frontend}/grammar/CypherParser.g4)
 
 # enumerate all files that are generated from antlr
 set(antlr_opencypher_generated_src
    ${opencypher_generated}/CypherLexer.cpp
    ${opencypher_generated}/CypherParser.cpp
-   ${opencypher_generated}/CypherBaseVisitor.cpp
-   ${opencypher_generated}/CypherVisitor.cpp
+   ${opencypher_generated}/CypherParserBaseVisitor.cpp
+   ${opencypher_generated}/CypherParserVisitor.cpp
 )
 
 # Provide a command to generate sources if missing. If this were a
@@ -176,9 +177,9 @@ add_custom_command(OUTPUT ${antlr_opencypher_generated_src}
   COMMAND
   ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
   COMMAND
-  java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlropencypher ${opencypher_grammar}
+  java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlropencypher ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-  DEPENDS ${opencypher_grammar})
+  DEPENDS ${opencypher_lexer_grammar} ${opencypher_parser_grammar})
 
 # add custom target for generation
 add_custom_target(generate_opencypher_parser

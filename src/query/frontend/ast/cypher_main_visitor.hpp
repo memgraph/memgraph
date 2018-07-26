@@ -9,8 +9,7 @@
 
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/named_antlr_tokens.hpp"
-#include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
+#include "query/frontend/opencypher/generated/CypherParserBaseVisitor.h"
 #include "utils/exceptions.hpp"
 
 namespace query {
@@ -19,7 +18,7 @@ namespace frontend {
 using antlropencypher::CypherParser;
 using query::Context;
 
-class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
+class CypherMainVisitor : public antlropencypher::CypherParserBaseVisitor {
  public:
   explicit CypherMainVisitor(Context &ctx) : ctx_(ctx) {}
 
@@ -33,28 +32,28 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
         return storage_.Create<XorOperator>(e1, e2);
       case CypherParser::AND:
         return storage_.Create<AndOperator>(e1, e2);
-      case kPlusTokenId:
+      case CypherParser::PLUS:
         return storage_.Create<AdditionOperator>(e1, e2);
-      case kMinusTokenId:
+      case CypherParser::MINUS:
         return storage_.Create<SubtractionOperator>(e1, e2);
-      case kMultTokenId:
+      case CypherParser::ASTERISK:
         return storage_.Create<MultiplicationOperator>(e1, e2);
-      case kDivTokenId:
+      case CypherParser::SLASH:
         return storage_.Create<DivisionOperator>(e1, e2);
-      case kModTokenId:
+      case CypherParser::PERCENT:
         return storage_.Create<ModOperator>(e1, e2);
-      case kEqTokenId:
+      case CypherParser::EQ:
         return storage_.Create<EqualOperator>(e1, e2);
-      case kNeTokenId1:
-      case kNeTokenId2:
+      case CypherParser::NEQ1:
+      case CypherParser::NEQ2:
         return storage_.Create<NotEqualOperator>(e1, e2);
-      case kLtTokenId:
+      case CypherParser::LT:
         return storage_.Create<LessOperator>(e1, e2);
-      case kGtTokenId:
+      case CypherParser::GT:
         return storage_.Create<GreaterOperator>(e1, e2);
-      case kLeTokenId:
+      case CypherParser::LTE:
         return storage_.Create<LessEqualOperator>(e1, e2);
-      case kGeTokenId:
+      case CypherParser::GTE:
         return storage_.Create<GreaterEqualOperator>(e1, e2);
       default:
         throw utils::NotYetImplemented("binary operator");
@@ -65,9 +64,9 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
     switch (token) {
       case CypherParser::NOT:
         return storage_.Create<NotOperator>(e);
-      case kUnaryPlusTokenId:
+      case CypherParser::PLUS:
         return storage_.Create<UnaryPlusOperator>(e);
-      case kUnaryMinusTokenId:
+      case CypherParser::MINUS:
         return storage_.Create<UnaryMinusOperator>(e);
       default:
         throw utils::NotYetImplemented("unary operator");

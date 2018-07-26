@@ -33,18 +33,18 @@ TEST(QueryStripper, NoLiterals) {
 TEST(QueryStripper, ZeroInteger) {
   StrippedQuery stripped("RETURN 0");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).first, 2);
+  EXPECT_EQ(stripped.literals().At(0).first, 1);
   EXPECT_EQ(stripped.literals().At(0).second.Value<int64_t>(), 0);
-  EXPECT_EQ(stripped.literals().AtTokenPosition(2).Value<int64_t>(), 0);
+  EXPECT_EQ(stripped.literals().AtTokenPosition(1).Value<int64_t>(), 0);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedIntToken);
 }
 
 TEST(QueryStripper, DecimalInteger) {
   StrippedQuery stripped("RETURN 42");
   EXPECT_EQ(stripped.literals().size(), 1);
-  EXPECT_EQ(stripped.literals().At(0).first, 2);
+  EXPECT_EQ(stripped.literals().At(0).first, 1);
   EXPECT_EQ(stripped.literals().At(0).second.Value<int64_t>(), 42);
-  EXPECT_EQ(stripped.literals().AtTokenPosition(2).Value<int64_t>(), 42);
+  EXPECT_EQ(stripped.literals().AtTokenPosition(1).Value<int64_t>(), 42);
   EXPECT_EQ(stripped.query(), "RETURN " + kStrippedIntToken);
 }
 
@@ -264,7 +264,7 @@ TEST(QueryStripper, OtherTokens) {
 TEST(QueryStripper, NamedExpression) {
   StrippedQuery stripped("RETURN 2   + 3");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "2   + 3")));
+              UnorderedElementsAre(Pair(1, "2   + 3")));
 }
 
 TEST(QueryStripper, AliasedNamedExpression) {
@@ -276,32 +276,32 @@ TEST(QueryStripper, MultipleNamedExpressions) {
   StrippedQuery stripped("RETURN 2   + 3, x as s, x, n.x");
   EXPECT_THAT(
       stripped.named_expressions(),
-      UnorderedElementsAre(Pair(2, "2   + 3"), Pair(18, "x"), Pair(22, "n.x")));
+      UnorderedElementsAre(Pair(1, "2   + 3"), Pair(9, "x"), Pair(11, "n.x")));
 }
 
 TEST(QueryStripper, ReturnOrderBy) {
   StrippedQuery stripped("RETURN 2   + 3 ORDER BY n.x, x");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "2   + 3")));
+              UnorderedElementsAre(Pair(1, "2   + 3")));
 }
 
 TEST(QueryStripper, ReturnSkip) {
   StrippedQuery stripped("RETURN 2   + 3 SKIP 10");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "2   + 3")));
+              UnorderedElementsAre(Pair(1, "2   + 3")));
 }
 
 TEST(QueryStripper, ReturnLimit) {
   StrippedQuery stripped("RETURN 2   + 3 LIMIT 12");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "2   + 3")));
+              UnorderedElementsAre(Pair(1, "2   + 3")));
 }
 
 TEST(QueryStripper, ReturnListsAndFunctionCalls) {
   StrippedQuery stripped("RETURN [1,2,[3, 4] , 5], f(1, 2), 3");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "[1,2,[3, 4] , 5]"),
-                                   Pair(30, "f(1, 2)"), Pair(44, "3")));
+              UnorderedElementsAre(Pair(1, "[1,2,[3, 4] , 5]"),
+                                   Pair(15, "f(1, 2)"), Pair(22, "3")));
 }
 
 TEST(QueryStripper, Parameters) {
@@ -309,11 +309,11 @@ TEST(QueryStripper, Parameters) {
   EXPECT_EQ(stripped.literals().size(), 0);
   EXPECT_EQ(stripped.query(), "RETURN $123 , $pero , $`mirko ``slavko`");
   EXPECT_THAT(stripped.parameters(),
-              UnorderedElementsAre(Pair(2, "123"), Pair(7, "pero"),
-                                   Pair(12, "mirko `slavko")));
+              UnorderedElementsAre(Pair(1, "123"), Pair(4, "pero"),
+                                   Pair(7, "mirko `slavko")));
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "$123"), Pair(7, "$pero"),
-                                   Pair(12, "$`mirko ``slavko`")));
+              UnorderedElementsAre(Pair(1, "$123"), Pair(4, "$pero"),
+                                   Pair(7, "$`mirko ``slavko`")));
 }
 
 TEST(QueryStripper, KeywordInNamedExpression) {
@@ -321,7 +321,7 @@ TEST(QueryStripper, KeywordInNamedExpression) {
   EXPECT_EQ(stripped.literals().size(), 0);
   EXPECT_EQ(stripped.query(), "RETURN CoUnT ( n )");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "CoUnT(n)")));
+              UnorderedElementsAre(Pair(1, "CoUnT(n)")));
 }
 
 TEST(QueryStripper, UnionMultipleReturnStatementsAliasedExpression) {
@@ -332,29 +332,29 @@ TEST(QueryStripper, UnionMultipleReturnStatementsAliasedExpression) {
 TEST(QueryStripper, UnionMultipleReturnStatementsNamedExpressions) {
   StrippedQuery stripped("RETURN x UNION RETURN x");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "x"), Pair(8, "x")));
+              UnorderedElementsAre(Pair(1, "x"), Pair(4, "x")));
 }
 
 TEST(QueryStripper, UnionAllMultipleReturnStatementsNamedExpressions) {
   StrippedQuery stripped("RETURN x UNION ALL RETURN x");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "x"), Pair(10, "x")));
+              UnorderedElementsAre(Pair(1, "x"), Pair(5, "x")));
 }
 
 TEST(QueryStripper, QueryReturnMap) {
   StrippedQuery stripped("RETURN {a: 1, b: 'foo'}");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "{a: 1, b: 'foo'}")));
+              UnorderedElementsAre(Pair(1, "{a: 1, b: 'foo'}")));
 }
 
 TEST(QueryStripper, QuerySemicolonEndingQuery1) {
   StrippedQuery stripped("RETURN 1;");
-  EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(2, "1")));
+  EXPECT_THAT(stripped.named_expressions(), UnorderedElementsAre(Pair(1, "1")));
 }
 
 TEST(QueryStripper, QuerySemicolonEndingQuery2) {
   StrippedQuery stripped("RETURN 42   ;");
   EXPECT_THAT(stripped.named_expressions(),
-              UnorderedElementsAre(Pair(2, "42")));
+              UnorderedElementsAre(Pair(1, "42")));
 }
 }  // namespace

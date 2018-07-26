@@ -488,7 +488,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItems(
     named_expressions.push_back(item->accept(this));
   }
   return std::pair<bool, std::vector<NamedExpression *>>(
-      ctx->getTokens(kReturnAllTokenId).size(), named_expressions);
+      ctx->getTokens(CypherParser::ASTERISK).size(), named_expressions);
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnItem(
@@ -628,7 +628,7 @@ antlrcpp::Any CypherMainVisitor::visitSymbolicName(
     }
     return name;
   }
-  if (ctx->UnescapedSymbolicName() || ctx->HexLetter()) {
+  if (ctx->UnescapedSymbolicName()) {
     return std::string(ctx->getText());
   }
   return ctx->getText();
@@ -844,7 +844,7 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
   if (ctx->expression().size() == 0U) {
     // Case -[*]-
   } else if (ctx->expression().size() == 1U) {
-    auto dots_tokens = ctx->getTokens(kDotsTokenId);
+    auto dots_tokens = ctx->getTokens(CypherParser::DOTS);
     Expression *bound = ctx->expression()[0]->accept(this);
     if (!dots_tokens.size()) {
       // Case -[*bound]-
@@ -970,8 +970,9 @@ antlrcpp::Any CypherMainVisitor::visitPartialComparisonExpression(
 // Addition and subtraction.
 antlrcpp::Any CypherMainVisitor::visitExpression7(
     CypherParser::Expression7Context *ctx) {
-  return LeftAssociativeOperatorExpression(ctx->expression6(), ctx->children,
-                                           {kPlusTokenId, kMinusTokenId});
+  return LeftAssociativeOperatorExpression(
+      ctx->expression6(), ctx->children,
+      {CypherParser::PLUS, CypherParser::MINUS});
 }
 
 // Multiplication, division, modding.
@@ -979,7 +980,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression6(
     CypherParser::Expression6Context *ctx) {
   return LeftAssociativeOperatorExpression(
       ctx->expression5(), ctx->children,
-      {kMultTokenId, kDivTokenId, kModTokenId});
+      {CypherParser::ASTERISK, CypherParser::SLASH, CypherParser::PERCENT});
 }
 
 // Power.
@@ -997,7 +998,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression5(
 antlrcpp::Any CypherMainVisitor::visitExpression4(
     CypherParser::Expression4Context *ctx) {
   return PrefixUnaryOperator(ctx->expression3a(), ctx->children,
-                             {kUnaryPlusTokenId, kUnaryMinusTokenId});
+                             {CypherParser::PLUS, CypherParser::MINUS});
 }
 
 // IS NULL, IS NOT NULL, STARTS WITH, ..
@@ -1044,7 +1045,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression3b(
     CypherParser::Expression3bContext *ctx) {
   Expression *expression = ctx->expression2a()->accept(this);
   for (auto *list_op : ctx->listIndexingOrSlicing()) {
-    if (list_op->getTokens(kDotsTokenId).size() == 0U) {
+    if (list_op->getTokens(CypherParser::DOTS).size() == 0U) {
       // If there is no '..' then we need to create list indexing operator.
       expression = storage_.Create<SubscriptOperator>(
           expression, list_op->expression()[0]->accept(this));
@@ -1356,13 +1357,13 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(
   }
 
   // SetProperties either assignment or update
-  if (ctx->getTokens(kPropertyAssignmentTokenId).size() ||
-      ctx->getTokens(kPropertyUpdateTokenId).size()) {
+  if (ctx->getTokens(CypherParser::EQ).size() ||
+      ctx->getTokens(CypherParser::PLUS_EQ).size()) {
     auto *set_properties = storage_.Create<SetProperties>();
     set_properties->identifier_ = storage_.Create<Identifier>(
         ctx->variable()->accept(this).as<std::string>());
     set_properties->expression_ = ctx->expression()->accept(this);
-    if (ctx->getTokens(kPropertyUpdateTokenId).size()) {
+    if (ctx->getTokens(CypherParser::PLUS_EQ).size()) {
       set_properties->update_ = true;
     }
     return static_cast<Clause *>(set_properties);

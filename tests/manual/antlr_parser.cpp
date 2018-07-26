@@ -14,9 +14,11 @@ int main(int, const char **a) {
   CypherLexer lexer(&input);
   CommonTokenStream tokens(&lexer);
 
+  const auto &vocabulary = lexer.getVocabulary();
   tokens.fill();
   for (auto token : tokens.getTokens()) {
-    std::cout << "TYPE: " << token->getType() << "; TEXT: " << token->getText()
+    std::cout << "TYPE: " << vocabulary.getDisplayName(token->getType())
+              << "; TEXT: " << token->getText()
               << "; STRING: " << token->toString() << std::endl;
   }
 

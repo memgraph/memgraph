@@ -10,9 +10,9 @@
 
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/opencypher/generated/CypherBaseVisitor.h"
 #include "query/frontend/opencypher/generated/CypherLexer.h"
 #include "query/frontend/opencypher/generated/CypherParser.h"
+#include "query/frontend/opencypher/generated/CypherParserBaseVisitor.h"
 #include "query/frontend/stripped_lexer_constants.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string.hpp"
@@ -82,12 +82,9 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
   // named expressions in return.
   for (int i = 0; i < static_cast<int>(tokens.size()); ++i) {
     auto &token = tokens[i];
-    // Position is calculated in query after stripping and whitespace
-    // normalisation, not before. There will be twice as much tokens before
-    // this one because space tokens will be inserted between every one we also
-    // need to shift token index for every parameter since antlr's parser thinks
-    // of parameter as two tokens.
-    int token_index = token_strings.size() * 2 + parameters_.size();
+    // We need to shift token index for every parameter since antlr's parser
+    // thinks of parameter as two tokens.
+    int token_index = token_strings.size() + parameters_.size();
     switch (token.first) {
       case Token::UNMATCHED:
         LOG(FATAL) << "Shouldn't happen";
