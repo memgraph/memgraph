@@ -126,7 +126,7 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input,
 namespace {
 
 // Returns a random worker id. Worker ID is obtained from the Db.
-int RandomWorkerId(database::GraphDb &db) {
+int RandomWorkerId(const database::DistributedGraphDb &db) {
   thread_local std::mt19937 gen_{std::random_device{}()};
   thread_local std::uniform_int_distribution<int> rand_;
 
@@ -156,7 +156,16 @@ VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
                                      Frame &frame, Context &context) {
   auto &dba = context.db_accessor_;
 
-  if (worker_id == dba.db().WorkerId())
+  int current_worker_id = 0;
+  // TODO: Figure out a better solution.
+  if (auto *distributed_db =
+      dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
+    current_worker_id = distributed_db->WorkerId();
+  } else {
+    CHECK(dynamic_cast<database::SingleNode *>(&dba.db()));
+  }
+
+  if (worker_id == current_worker_id)
     return CreateLocalVertex(node_atom, frame, context);
 
   std::unordered_map<storage::Property, query::TypedValue> properties;
@@ -173,11 +182,12 @@ VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
     properties.emplace(kv.first.second, std::move(value));
   }
 
-  auto new_node =
-      dba.InsertVertexIntoRemote(worker_id, node_atom->labels_, properties);
+  auto new_node = database::InsertVertexIntoRemote(
+      &dba, worker_id, node_atom->labels_, properties);
   frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
   return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
 }
+
 }  // namespace
 
 ACCEPT_WITH_INPUT(CreateNode)
@@ -201,8 +211,12 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self,
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
   if (input_cursor_->Pull(frame, context)) {
     if (self_.on_random_worker_) {
-      CreateVertexOnWorker(RandomWorkerId(db_.db()), self_.node_atom_, frame,
-                           context);
+      // TODO: Replace this with some other mechanism
+      auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(&db_.db());
+      CHECK(distributed_db);
+      CreateVertexOnWorker(RandomWorkerId(*distributed_db), self_.node_atom_,
+                           frame, context);
     } else {
       CreateLocalVertex(self_.node_atom_, frame, context);
     }
@@ -3475,7 +3489,10 @@ class SynchronizeCursor : public Cursor {
         input_cursor_(self.input()->MakeCursor(db)),
         pull_remote_cursor_(
             self.pull_remote() ? self.pull_remote()->MakeCursor(db) : nullptr),
-        command_id_(db.transaction().cid()) {}
+        command_id_(db.transaction().cid()),
+        master_id_(
+            // TODO: Pass in a Master GraphDb.
+            dynamic_cast<database::Master *>(&db.db())->WorkerId()) {}
 
   bool Pull(Frame &frame, Context &context) override {
     if (!initial_pull_done_) {
@@ -3526,17 +3543,17 @@ class SynchronizeCursor : public Cursor {
   bool initial_pull_done_{false};
   std::vector<std::vector<TypedValue>> local_frames_;
   tx::CommandId command_id_;
+  int master_id_;
 
   void InitialPull(Frame &frame, Context &context) {
     VLOG(10) << "[SynchronizeCursor] [" << context.db_accessor_.transaction_id()
              << "] initial pull";
-    auto &db = context.db_accessor_.db();
 
     // Tell all workers to accumulate, only if there is a remote pull.
     std::vector<utils::Future<distributed::PullData>> worker_accumulations;
     if (pull_remote_cursor_) {
       for (auto worker_id : pull_clients_->GetWorkerIds()) {
-        if (worker_id == db.WorkerId()) continue;
+        if (worker_id == master_id_) continue;
         worker_accumulations.emplace_back(pull_clients_->Pull(
             &context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
             command_id_, context.parameters_, self_.pull_remote()->symbols(),
@@ -3595,7 +3612,7 @@ class SynchronizeCursor : public Cursor {
 
     // Make all the workers apply their deltas.
     auto tx_id = context.db_accessor_.transaction_id();
-    auto apply_futures = updates_clients_->UpdateApplyAll(db.WorkerId(), tx_id);
+    auto apply_futures = updates_clients_->UpdateApplyAll(master_id_, tx_id);
     updates_server_->Apply(tx_id);
     for (auto &future : apply_futures) {
       switch (future.get()) {

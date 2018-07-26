@@ -23,7 +23,7 @@ auto Count(TIterable iterable) {
 class GraphDbAccessorIndex : public testing::Test {
  protected:
   database::SingleNode db;
-  std::experimental::optional<database::GraphDbAccessor> dba{db};
+  std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
   storage::Property property = dba->Property("property");
   storage::Label label = dba->Label("label");
   storage::EdgeType edge_type = dba->EdgeType("edge_type");
@@ -44,7 +44,7 @@ class GraphDbAccessorIndex : public testing::Test {
   // commits the current dba, and replaces it with a new one
   void Commit() {
     dba->Commit();
-    dba.emplace(db);
+    dba = db.Access();
   }
 };
 
@@ -142,9 +142,9 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
     std::vector<std::thread> threads;
     for (int index = 0; index < THREAD_COUNT; ++index) {
       threads.emplace_back([&db, index]() {
-        database::GraphDbAccessor dba(db);
-        dba.BuildIndex(dba.Label("l" + std::to_string(index)),
-                       dba.Property("p" + std::to_string(index)));
+        auto dba = db.Access();
+        dba->BuildIndex(dba->Label("l" + std::to_string(index)),
+                        dba->Property("p" + std::to_string(index)));
 
       });
     }

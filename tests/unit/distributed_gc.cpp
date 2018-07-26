@@ -8,13 +8,13 @@ class DistributedGcTest : public DistributedGraphDbTest {
 };
 
 TEST_F(DistributedGcTest, GarbageCollect) {
-  database::GraphDbAccessor dba{master()};
-  auto tx = dba.transaction_id();
-  dba.Commit();
+  auto dba = master().Access();
+  auto tx = dba->transaction_id();
+  dba->Commit();
 
   // Create multiple transactions so that the commit log can be cleared
   for (int i = 0; i < tx::CommitLog::kBitsetBlockSize; ++i) {
-    database::GraphDbAccessor dba{master()};
+    auto dba = master().Access();
   }
 
   master().CollectGarbage();
@@ -22,9 +22,9 @@ TEST_F(DistributedGcTest, GarbageCollect) {
   worker(2).CollectGarbage();
   EXPECT_EQ(master().tx_engine().Info(tx).is_committed(), true);
 
-  database::GraphDbAccessor dba2{master()};
-  auto tx_last = dba2.transaction_id();
-  dba2.Commit();
+  auto dba2 = master().Access();
+  auto tx_last = dba2->transaction_id();
+  dba2->Commit();
 
   worker(1).CollectGarbage();
   worker(2).CollectGarbage();
@@ -39,17 +39,17 @@ TEST_F(DistributedGcTest, GarbageCollect) {
 }
 
 TEST_F(DistributedGcTest, GarbageCollectBlocked) {
-  database::GraphDbAccessor dba{master()};
-  auto tx = dba.transaction_id();
-  dba.Commit();
+  auto dba = master().Access();
+  auto tx = dba->transaction_id();
+  dba->Commit();
 
   // Block garbage collection because this is a still alive transaction on the
   // worker
-  database::GraphDbAccessor dba3{worker(1)};
+  auto dba3 = worker(1).Access();
 
   // Create multiple transactions so that the commit log can be cleared
   for (int i = 0; i < tx::CommitLog::kBitsetBlockSize; ++i) {
-    database::GraphDbAccessor dba{master()};
+    auto dba = master().Access();
   }
 
   // Query for a large id so that the commit log new block is created
@@ -60,9 +60,9 @@ TEST_F(DistributedGcTest, GarbageCollectBlocked) {
   worker(2).CollectGarbage();
   EXPECT_EQ(master().tx_engine().Info(tx).is_committed(), true);
 
-  database::GraphDbAccessor dba2{master()};
-  auto tx_last = dba2.transaction_id();
-  dba2.Commit();
+  auto dba2 = master().Access();
+  auto tx_last = dba2->transaction_id();
+  dba2->Commit();
 
   worker(1).CollectGarbage();
   worker(2).CollectGarbage();

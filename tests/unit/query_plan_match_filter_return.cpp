@@ -28,18 +28,18 @@ using namespace query::plan;
 class MatchReturnFixture : public testing::Test {
  protected:
   database::SingleNode db_;
-  database::GraphDbAccessor dba_{db_};
+  std::unique_ptr<database::GraphDbAccessor> dba_{db_.Access()};
   AstStorage storage;
   SymbolTable symbol_table;
 
   void AddVertices(int count) {
-    for (int i = 0; i < count; i++) dba_.InsertVertex();
+    for (int i = 0; i < count; i++) dba_->InsertVertex();
   }
 
   template <typename TResult>
   std::vector<TResult> Results(std::shared_ptr<Produce> &op) {
     std::vector<TResult> res;
-    for (const auto &row : CollectProduce(op.get(), symbol_table, dba_))
+    for (const auto &row : CollectProduce(op.get(), symbol_table, *dba_))
       res.emplace_back(row[0].Value<TResult>());
     return res;
   }
@@ -47,7 +47,7 @@ class MatchReturnFixture : public testing::Test {
 
 TEST_F(MatchReturnFixture, MatchReturn) {
   AddVertices(2);
-  dba_.AdvanceCommand();
+  dba_->AdvanceCommand();
 
   auto test_pull_count = [&](GraphView graph_view) {
     auto scan_all =
@@ -57,21 +57,21 @@ TEST_F(MatchReturnFixture, MatchReturn) {
     symbol_table[*output->expression_] = scan_all.sym_;
     symbol_table[*output] =
         symbol_table.CreateSymbol("named_expression_1", true);
-    return PullAll(produce, dba_, symbol_table);
+    return PullAll(produce, *dba_, symbol_table);
   };
 
   EXPECT_EQ(2, test_pull_count(GraphView::NEW));
   EXPECT_EQ(2, test_pull_count(GraphView::OLD));
-  dba_.InsertVertex();
+  dba_->InsertVertex();
   EXPECT_EQ(3, test_pull_count(GraphView::NEW));
   EXPECT_EQ(2, test_pull_count(GraphView::OLD));
-  dba_.AdvanceCommand();
+  dba_->AdvanceCommand();
   EXPECT_EQ(3, test_pull_count(GraphView::OLD));
 }
 
 TEST_F(MatchReturnFixture, MatchReturnPath) {
   AddVertices(2);
-  dba_.AdvanceCommand();
+  dba_->AdvanceCommand();
 
   auto scan_all = MakeScanAll(storage, symbol_table, "n", nullptr);
   Symbol path_sym = symbol_table.CreateSymbol("path", true);
@@ -84,7 +84,7 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   auto results = Results<query::Path>(produce);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> expected_paths;
-  for (const auto &v : dba_.Vertices(false)) expected_paths.emplace_back(v);
+  for (const auto &v : dba_->Vertices(false)) expected_paths.emplace_back(v);
   ASSERT_EQ(expected_paths.size(), 2);
   EXPECT_TRUE(std::is_permutation(expected_paths.begin(), expected_paths.end(),
                                   results.begin()));
@@ -92,11 +92,11 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
 
 TEST(QueryPlan, MatchReturnCartesian) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
-  dba.InsertVertex().add_label(dba.Label("l1"));
-  dba.InsertVertex().add_label(dba.Label("l2"));
-  dba.AdvanceCommand();
+  dba->InsertVertex().add_label(dba->Label("l1"));
+  dba->InsertVertex().add_label(dba->Label("l2"));
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -113,7 +113,7 @@ TEST(QueryPlan, MatchReturnCartesian) {
       symbol_table.CreateSymbol("named_expression_2", true);
   auto produce = MakeProduce(m.op_, return_n, return_m);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 4);
   // ensure the result ordering is OK:
   // "n" from the results is the same for the first two rows, while "m" isn't
@@ -125,12 +125,12 @@ TEST(QueryPlan, MatchReturnCartesian) {
 
 TEST(QueryPlan, StandaloneReturn) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   // add a few nodes to the database
-  dba.InsertVertex();
-  dba.InsertVertex();
-  dba.AdvanceCommand();
+  dba->InsertVertex();
+  dba->InsertVertex();
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -139,7 +139,7 @@ TEST(QueryPlan, StandaloneReturn) {
   auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 1);
   EXPECT_EQ(results[0].size(), 1);
   EXPECT_EQ(results[0][0].Value<int64_t>(), 42);
@@ -147,7 +147,8 @@ TEST(QueryPlan, StandaloneReturn) {
 
 TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
 
   // add a few nodes to the database
   storage::Label label = dba.Label("Label");
@@ -203,28 +204,28 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 
 TEST(QueryPlan, NodeFilterMultipleLabels) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   // add a few nodes to the database
-  storage::Label label1 = dba.Label("label1");
-  storage::Label label2 = dba.Label("label2");
-  storage::Label label3 = dba.Label("label3");
+  storage::Label label1 = dba->Label("label1");
+  storage::Label label2 = dba->Label("label2");
+  storage::Label label3 = dba->Label("label3");
   // the test will look for nodes that have label1 and label2
-  dba.InsertVertex();                    // NOT accepted
-  dba.InsertVertex().add_label(label1);  // NOT accepted
-  dba.InsertVertex().add_label(label2);  // NOT accepted
-  dba.InsertVertex().add_label(label3);  // NOT accepted
-  auto v1 = dba.InsertVertex();          // YES accepted
+  dba->InsertVertex();                    // NOT accepted
+  dba->InsertVertex().add_label(label1);  // NOT accepted
+  dba->InsertVertex().add_label(label2);  // NOT accepted
+  dba->InsertVertex().add_label(label3);  // NOT accepted
+  auto v1 = dba->InsertVertex();          // YES accepted
   v1.add_label(label1);
   v1.add_label(label2);
-  auto v2 = dba.InsertVertex();  // NOT accepted
+  auto v2 = dba->InsertVertex();  // NOT accepted
   v2.add_label(label1);
   v2.add_label(label3);
-  auto v3 = dba.InsertVertex();  // YES accepted
+  auto v3 = dba->InsertVertex();  // YES accepted
   v3.add_label(label1);
   v3.add_label(label2);
   v3.add_label(label3);
-  dba.AdvanceCommand();
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -247,23 +248,23 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = n.sym_;
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 2);
 }
 
 TEST(QueryPlan, Cartesian) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   auto add_vertex = [&dba](std::string label) {
-    auto vertex = dba.InsertVertex();
-    vertex.add_label(dba.Label(label));
+    auto vertex = dba->InsertVertex();
+    vertex.add_label(dba->Label(label));
     return vertex;
   };
 
   std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
                                        add_vertex("v3")};
-  dba.AdvanceCommand();
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -286,7 +287,7 @@ TEST(QueryPlan, Cartesian) {
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 9);
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
@@ -298,7 +299,7 @@ TEST(QueryPlan, Cartesian) {
 
 TEST(QueryPlan, CartesianEmptySet) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -321,22 +322,22 @@ TEST(QueryPlan, CartesianEmptySet) {
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 0);
 }
 
 TEST(QueryPlan, CartesianThreeWay) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   auto add_vertex = [&dba](std::string label) {
-    auto vertex = dba.InsertVertex();
-    vertex.add_label(dba.Label(label));
+    auto vertex = dba->InsertVertex();
+    vertex.add_label(dba->Label(label));
     return vertex;
   };
 
   std::vector<VertexAccessor> vertices{add_vertex("v1"), add_vertex("v2"),
                                        add_vertex("v3")};
-  dba.AdvanceCommand();
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -369,7 +370,7 @@ TEST(QueryPlan, CartesianThreeWay) {
 
   auto produce = MakeProduce(cartesian_op_2, return_n, return_m, return_l);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 27);
   int id = 0;
   for (int i = 0; i < 3; ++i) {
@@ -387,23 +388,23 @@ TEST(QueryPlan, CartesianThreeWay) {
 class ExpandFixture : public testing::Test {
  protected:
   database::SingleNode db_;
-  database::GraphDbAccessor dba_{db_};
+  std::unique_ptr<database::GraphDbAccessor> dba_{db_.Access()};
   AstStorage storage;
   SymbolTable symbol_table;
 
   // make a V-graph (v3)<-[r2]-(v1)-[r1]->(v2)
-  VertexAccessor v1 = dba_.InsertVertex();
-  VertexAccessor v2 = dba_.InsertVertex();
-  VertexAccessor v3 = dba_.InsertVertex();
-  storage::EdgeType edge_type = dba_.EdgeType("Edge");
-  EdgeAccessor r1 = dba_.InsertEdge(v1, v2, edge_type);
-  EdgeAccessor r2 = dba_.InsertEdge(v1, v3, edge_type);
+  VertexAccessor v1 = dba_->InsertVertex();
+  VertexAccessor v2 = dba_->InsertVertex();
+  VertexAccessor v3 = dba_->InsertVertex();
+  storage::EdgeType edge_type = dba_->EdgeType("Edge");
+  EdgeAccessor r1 = dba_->InsertEdge(v1, v2, edge_type);
+  EdgeAccessor r2 = dba_->InsertEdge(v1, v3, edge_type);
 
   void SetUp() override {
-    v1.add_label(dba_.Label("l1"));
-    v2.add_label(dba_.Label("l2"));
-    v3.add_label(dba_.Label("l3"));
-    dba_.AdvanceCommand();
+    v1.add_label(dba_->Label("l1"));
+    v2.add_label(dba_->Label("l2"));
+    v3.add_label(dba_->Label("l3"));
+    dba_->AdvanceCommand();
   }
 };
 
@@ -420,22 +421,22 @@ TEST_F(ExpandFixture, Expand) {
         symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_m.op_, output);
 
-    return PullAll(produce, dba_, symbol_table);
+    return PullAll(produce, *dba_, symbol_table);
   };
 
   // test that expand works well for both old and new graph state
   v1.Reconstruct();
   v2.Reconstruct();
   v3.Reconstruct();
-  dba_.InsertEdge(v1, v2, edge_type);
-  dba_.InsertEdge(v1, v3, edge_type);
+  dba_->InsertEdge(v1, v2, edge_type);
+  dba_->InsertEdge(v1, v3, edge_type);
   EXPECT_EQ(2, test_expand(EdgeAtom::Direction::OUT, GraphView::OLD));
   EXPECT_EQ(2, test_expand(EdgeAtom::Direction::IN, GraphView::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, GraphView::NEW));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, GraphView::NEW));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::NEW));
-  dba_.AdvanceCommand();
+  dba_->AdvanceCommand();
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::OUT, GraphView::OLD));
   EXPECT_EQ(4, test_expand(EdgeAtom::Direction::IN, GraphView::OLD));
   EXPECT_EQ(8, test_expand(EdgeAtom::Direction::BOTH, GraphView::OLD));
@@ -456,7 +457,7 @@ TEST_F(ExpandFixture, ExpandPath) {
   auto produce = MakeProduce(path, output);
 
   std::vector<query::Path> expected_paths{{v1, r2, v3}, {v1, r1, v2}};
-  auto results = CollectProduce(produce.get(), symbol_table, dba_);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba_);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> results_paths;
   for (const auto &result : results)
@@ -484,11 +485,11 @@ class QueryPlanExpandVariable : public testing::Test {
   using map_int = std::unordered_map<int, int>;
 
   database::SingleNode db_;
-  database::GraphDbAccessor dba_{db_};
+  std::unique_ptr<database::GraphDbAccessor> dba_{db_.Access()};
   // labels for layers in the double chain
   std::vector<storage::Label> labels;
   // for all the edges
-  storage::EdgeType edge_type = dba_.EdgeType("edge_type");
+  storage::EdgeType edge_type = dba_->EdgeType("edge_type");
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -502,26 +503,26 @@ class QueryPlanExpandVariable : public testing::Test {
     std::vector<VertexAccessor> layer;
     for (int from_layer_ind = -1; from_layer_ind < chain_length - 1;
          from_layer_ind++) {
-      std::vector<VertexAccessor> new_layer{dba_.InsertVertex(),
-                                            dba_.InsertVertex()};
-      auto label = dba_.Label(std::to_string(from_layer_ind + 1));
+      std::vector<VertexAccessor> new_layer{dba_->InsertVertex(),
+                                            dba_->InsertVertex()};
+      auto label = dba_->Label(std::to_string(from_layer_ind + 1));
       labels.push_back(label);
       for (size_t v_to_ind = 0; v_to_ind < new_layer.size(); v_to_ind++) {
         auto &v_to = new_layer[v_to_ind];
         v_to.add_label(label);
         for (size_t v_from_ind = 0; v_from_ind < layer.size(); v_from_ind++) {
           auto &v_from = layer[v_from_ind];
-          auto edge = dba_.InsertEdge(v_from, v_to, edge_type);
-          edge.PropsSet(dba_.Property("p"),
+          auto edge = dba_->InsertEdge(v_from, v_to, edge_type);
+          edge.PropsSet(dba_->Property("p"),
                         fmt::format("V{}{}->V{}{}", from_layer_ind, v_from_ind,
                                     from_layer_ind + 1, v_to_ind));
         }
       }
       layer = new_layer;
     }
-    dba_.AdvanceCommand();
-    ASSERT_EQ(CountIterable(dba_.Vertices(false)), 2 * chain_length);
-    ASSERT_EQ(CountIterable(dba_.Edges(false)), 4 * (chain_length - 1));
+    dba_->AdvanceCommand();
+    ASSERT_EQ(CountIterable(dba_->Vertices(false)), 2 * chain_length);
+    ASSERT_EQ(CountIterable(dba_->Edges(false)), 4 * (chain_length - 1));
   }
 
   /**
@@ -591,8 +592,8 @@ class QueryPlanExpandVariable : public testing::Test {
   template <typename TResult>
   auto GetResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
-    auto cursor = input_op->MakeCursor(dba_);
-    Context context(dba_);
+    auto cursor = input_op->MakeCursor(*dba_);
+    Context context(*dba_);
     context.symbol_table_ = symbol_table;
     std::vector<TResult> results;
     while (cursor->Pull(frame, context))
@@ -686,7 +687,6 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
                          std::experimental::optional<size_t> upper,
                          bool single_expansion_before,
                          bool add_uniqueness_check) {
-
     std::shared_ptr<LogicalOperator> last_op{nullptr};
     std::vector<Symbol> symbols;
 
@@ -765,22 +765,22 @@ TEST_F(QueryPlanExpandVariable, GraphState) {
         e);
   };
 
-  auto new_edge_type = dba_.EdgeType("some_type");
+  auto new_edge_type = dba_->EdgeType("some_type");
   // add two vertices branching out from the second layer
-  for (VertexAccessor &vertex : dba_.Vertices(true))
+  for (VertexAccessor &vertex : dba_->Vertices(true))
     if (vertex.has_label(labels[1])) {
-      auto new_vertex = dba_.InsertVertex();
-      dba_.InsertEdge(vertex, new_vertex, new_edge_type);
+      auto new_vertex = dba_->InsertVertex();
+      dba_->InsertEdge(vertex, new_vertex, new_edge_type);
     }
-  ASSERT_EQ(CountIterable(dba_.Vertices(false)), 6);
-  ASSERT_EQ(CountIterable(dba_.Vertices(true)), 8);
+  ASSERT_EQ(CountIterable(dba_->Vertices(false)), 6);
+  ASSERT_EQ(CountIterable(dba_->Vertices(true)), 8);
 
   EXPECT_EQ(test_expand(GraphView::OLD, {}), (map_int{{2, 8}}));
   EXPECT_EQ(test_expand(GraphView::OLD, {new_edge_type}), (map_int{}));
   EXPECT_EQ(test_expand(GraphView::NEW, {}), (map_int{{2, 12}}));
   EXPECT_EQ(test_expand(GraphView::NEW, {edge_type}), (map_int{{2, 8}}));
   EXPECT_EQ(test_expand(GraphView::NEW, {new_edge_type}), (map_int{}));
-  dba_.AdvanceCommand();
+  dba_->AdvanceCommand();
   for (const auto graph_view : {GraphView::OLD, GraphView::NEW}) {
     EXPECT_EQ(test_expand(graph_view, {}), (map_int{{2, 12}}));
     EXPECT_EQ(test_expand(graph_view, {edge_type}), (map_int{{2, 8}}));
@@ -806,7 +806,7 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
       std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});
 
   std::vector<query::Path> expected_paths;
-  for (const auto &v : dba_.Vertices(labels[0], false))
+  for (const auto &v : dba_->Vertices(labels[0], false))
     for (const auto &e1 : v.out())
       for (const auto &e2 : e1.to().out())
         expected_paths.emplace_back(v, e1, e1.to(), e2, e2.to());
@@ -851,7 +851,8 @@ class QueryPlanExpandBfs
           if (cluster_) return cluster_->master();
           return single_node_.get();
         }()),
-        dba(*db_) {}
+        dba_ptr(db_->Access()),
+        dba(*dba_ptr) {}
 
   // Worker IDs where vertices are located.
   const std::vector<int> vertices = {0, 1, 1, 0, 1, 2};
@@ -861,7 +862,8 @@ class QueryPlanExpandBfs
 
   // Style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
   // macro requirements.
-  database::GraphDbAccessor dba;
+  std::unique_ptr<database::GraphDbAccessor> dba_ptr;
+  database::GraphDbAccessor &dba;
   std::vector<storage::VertexAddress> v;
 
   AstStorage storage;
@@ -883,8 +885,8 @@ class QueryPlanExpandBfs
         vertex.PropsSet(prop.second, id);
         v.push_back(vertex.GlobalAddress());
       } else {
-        auto vertex =
-            dba.InsertVertexIntoRemote(worker, {}, {{prop.second, id}});
+        auto vertex = database::InsertVertexIntoRemote(&dba, worker, {},
+                                                       {{prop.second, id}});
         v.push_back(vertex.GlobalAddress());
       }
     }
@@ -973,7 +975,7 @@ class QueryPlanExpandBfs
     if (GetParam().first == TestType::DISTRIBUTED)
       cluster_->AdvanceCommand(tx_id);
     else
-      database::GraphDbAccessor(*db_, tx_id).AdvanceCommand();
+      db_->Access(tx_id)->AdvanceCommand();
   }
 };
 
@@ -1240,7 +1242,8 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   // style-guide non-conformant name due to PROPERTY_PAIR and
   // PROPERTY_LOOKUP macro requirements
   database::SingleNode db;
-  database::GraphDbAccessor dba{db};
+  std::unique_ptr<database::GraphDbAccessor> dba_ptr{db.Access()};
+  database::GraphDbAccessor &dba{*dba_ptr};
   std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
   storage::EdgeType edge_type = dba.EdgeType("edge_type");
 
@@ -1592,23 +1595,23 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Exceptions) {
 
 TEST(QueryPlan, ExpandOptional) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   AstStorage storage;
   SymbolTable symbol_table;
 
   // graph (v2 {p: 2})<-[:T]-(v1 {p: 1})-[:T]->(v3 {p: 2})
-  auto prop = dba.Property("p");
-  auto edge_type = dba.EdgeType("T");
-  auto v1 = dba.InsertVertex();
+  auto prop = dba->Property("p");
+  auto edge_type = dba->EdgeType("T");
+  auto v1 = dba->InsertVertex();
   v1.PropsSet(prop, 1);
-  auto v2 = dba.InsertVertex();
+  auto v2 = dba->InsertVertex();
   v2.PropsSet(prop, 2);
-  dba.InsertEdge(v1, v2, edge_type);
-  auto v3 = dba.InsertVertex();
+  dba->InsertEdge(v1, v2, edge_type);
+  auto v3 = dba->InsertVertex();
   v3.PropsSet(prop, 2);
-  dba.InsertEdge(v1, v3, edge_type);
-  dba.AdvanceCommand();
+  dba->InsertEdge(v1, v3, edge_type);
+  dba->AdvanceCommand();
 
   // MATCH (n) OPTIONAL MATCH (n)-[r]->(m)
   auto n = MakeScanAll(storage, symbol_table, "n");
@@ -1630,7 +1633,7 @@ TEST(QueryPlan, ExpandOptional) {
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(4, results.size());
   int v1_is_n_count = 0;
   for (auto &row : results) {
@@ -1652,7 +1655,7 @@ TEST(QueryPlan, ExpandOptional) {
 
 TEST(QueryPlan, OptionalMatchEmptyDB) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1667,14 +1670,14 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
                                                    std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(1, results.size());
   EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
 }
 
 TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n)
@@ -1696,26 +1699,26 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(r_m.op_, m_ne);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(0, results.size());
 }
 
 TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   // Make a graph with 2 connected, unlabeled nodes.
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  auto edge_type = dba.EdgeType("edge_type");
-  dba.InsertEdge(v1, v2, edge_type);
-  dba.AdvanceCommand();
-  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
-  EXPECT_EQ(1, CountIterable(dba.Edges(false)));
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto edge_type = dba->EdgeType("edge_type");
+  dba->InsertEdge(v1, v2, edge_type);
+  dba->AdvanceCommand();
+  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
+  EXPECT_EQ(1, CountIterable(dba->Edges(false)));
   AstStorage storage;
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n :missing)
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto label_missing = dba.Label("missing");
+  auto label_missing = dba->Label("missing");
   n.node_->labels_.emplace_back(label_missing);
 
   auto *filter_expr =
@@ -1745,22 +1748,22 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   symbol_table[*m_ne->expression_] = m.sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(expand, m_ne);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(0, results.size());
 }
 
 TEST(QueryPlan, ExpandExistingNode) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   // make a graph (v1)->(v2) that
   // has a recursive edge (v1)->(v1)
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  auto edge_type = dba.EdgeType("Edge");
-  dba.InsertEdge(v1, v1, edge_type);
-  dba.InsertEdge(v1, v2, edge_type);
-  dba.AdvanceCommand();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto edge_type = dba->EdgeType("Edge");
+  dba->InsertEdge(v1, v1, edge_type);
+  dba->InsertEdge(v1, v2, edge_type);
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1783,7 +1786,7 @@ TEST(QueryPlan, ExpandExistingNode) {
         symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_n.op_, output);
 
-    auto results = CollectProduce(produce.get(), symbol_table, dba);
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
     EXPECT_EQ(results.size(), expected_result_count);
   };
 
@@ -1795,11 +1798,11 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   // we're testing that expanding on BOTH
   // does only one expansion for a cycle
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
-  auto v = dba.InsertVertex();
-  dba.InsertEdge(v, v, dba.EdgeType("et"));
-  dba.AdvanceCommand();
+  auto v = dba->InsertVertex();
+  dba->InsertEdge(v, v, dba->EdgeType("et"));
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1808,12 +1811,13 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   auto r_ =
       MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                  EdgeAtom::Direction::BOTH, {}, "_", false, GraphView::OLD);
-  EXPECT_EQ(1, PullAll(r_.op_, dba, symbol_table));
+  EXPECT_EQ(1, PullAll(r_.op_, *dba, symbol_table));
 }
 
 TEST(QueryPlan, EdgeFilter) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
 
   // make an N-star expanding from (v1)
   // where only one edge will qualify
@@ -1882,17 +1886,17 @@ TEST(QueryPlan, EdgeFilter) {
 
 TEST(QueryPlan, EdgeFilterMultipleTypes) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  auto type_1 = dba.EdgeType("type_1");
-  auto type_2 = dba.EdgeType("type_2");
-  auto type_3 = dba.EdgeType("type_3");
-  dba.InsertEdge(v1, v2, type_1);
-  dba.InsertEdge(v1, v2, type_2);
-  dba.InsertEdge(v1, v2, type_3);
-  dba.AdvanceCommand();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto type_1 = dba->EdgeType("type_1");
+  auto type_2 = dba->EdgeType("type_2");
+  auto type_3 = dba->EdgeType("type_3");
+  dba->InsertEdge(v1, v2, type_1);
+  dba->InsertEdge(v1, v2, type_2);
+  dba->InsertEdge(v1, v2, type_3);
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1911,13 +1915,14 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = r_m.node_sym_;
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 2);
 }
 
 TEST(QueryPlan, Filter) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
 
   // add a 6 nodes with property 'prop', 2 have true as value
   auto property = PROPERTY_PAIR("property");
@@ -1946,15 +1951,15 @@ TEST(QueryPlan, Filter) {
 
 TEST(QueryPlan, ExpandUniquenessFilter) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  auto edge_type = dba.EdgeType("edge_type");
-  dba.InsertEdge(v1, v2, edge_type);
-  dba.InsertEdge(v1, v1, edge_type);
-  dba.AdvanceCommand();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto edge_type = dba->EdgeType("edge_type");
+  dba->InsertEdge(v1, v2, edge_type);
+  dba->InsertEdge(v1, v1, edge_type);
+  dba->AdvanceCommand();
 
   auto check_expand_results = [&](bool vertex_uniqueness,
                                   bool edge_uniqueness) {
@@ -1981,7 +1986,7 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
           last_op, r2_n3.node_sym_,
           std::vector<Symbol>{n1.sym_, r1_n2.node_sym_});
 
-    return PullAll(last_op, dba, symbol_table);
+    return PullAll(last_op, *dba, symbol_table);
   };
 
   EXPECT_EQ(2, check_expand_results(false, false));
@@ -1994,14 +1999,13 @@ TEST(QueryPlan, Distinct) {
   // UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x
 
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
 
   auto check_distinct = [&](const std::vector<TypedValue> input,
                             const std::vector<TypedValue> output,
                             bool assume_int_value) {
-
     auto input_expr = LITERAL(TypedValue(input));
 
     auto x = symbol_table.CreateSymbol("x", true);
@@ -2016,7 +2020,7 @@ TEST(QueryPlan, Distinct) {
     symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
     auto produce = MakeProduce(distinct, x_ne);
 
-    auto results = CollectProduce(produce.get(), symbol_table, dba);
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
     ASSERT_EQ(output.size(), results.size());
     auto output_it = output.begin();
     for (const auto &row : results) {
@@ -2037,14 +2041,14 @@ TEST(QueryPlan, Distinct) {
 
 TEST(QueryPlan, ScanAllByLabel) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   // Add a vertex with a label and one without.
-  auto label = dba.Label("label");
-  auto labeled_vertex = dba.InsertVertex();
+  auto label = dba->Label("label");
+  auto labeled_vertex = dba->InsertVertex();
   labeled_vertex.add_label(label);
-  dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
   // MATCH (n :label)
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2055,7 +2059,7 @@ TEST(QueryPlan, ScanAllByLabel) {
   auto produce = MakeProduce(scan_all_by_label.op_, output);
   symbol_table[*output->expression_] = scan_all_by_label.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(results.size(), 1);
   auto result_row = results[0];
   ASSERT_EQ(result_row.size(), 1);
@@ -2065,8 +2069,8 @@ TEST(QueryPlan, ScanAllByLabel) {
 TEST(QueryPlan, ScanAllByLabelProperty) {
   database::SingleNode db;
   // Add 5 vertices with same label, but with different property values.
-  auto label = database::GraphDbAccessor(db).Label("label");
-  auto prop = database::GraphDbAccessor(db).Property("prop");
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
   // vertex property values that will be stored into the DB
   // clang-format off
   std::vector<TypedValue> values{
@@ -2075,17 +2079,17 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
       std::vector<TypedValue>{2}};
   // clang-format on
   {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
     for (const auto &value : values) {
-      auto vertex = dba.InsertVertex();
+      auto vertex = dba->InsertVertex();
       vertex.add_label(label);
       vertex.PropsSet(prop, value);
     }
-    dba.Commit();
-    database::GraphDbAccessor(db).BuildIndex(label, prop);
+    dba->Commit();
+    db.Access()->BuildIndex(label, prop);
   }
-  database::GraphDbAccessor dba(db);
-  ASSERT_EQ(14, CountIterable(dba.Vertices(false)));
+  auto dba = db.Access();
+  ASSERT_EQ(14, CountIterable(dba->Vertices(false)));
 
   auto check = [&dba, label, prop](TypedValue lower, Bound::Type lower_type,
                                    TypedValue upper, Bound::Type upper_type,
@@ -2100,7 +2104,7 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     auto produce = MakeProduce(scan_all.op_, output);
     symbol_table[*output->expression_] = scan_all.sym_;
     symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-    auto results = CollectProduce(produce.get(), symbol_table, dba);
+    auto results = CollectProduce(produce.get(), symbol_table, *dba);
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
       TypedValue equal =
@@ -2136,21 +2140,21 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   database::SingleNode db;
   // Add 2 vertices with same label, but with property values that cannot be
   // compared. On the other hand, equality works fine.
-  auto label = database::GraphDbAccessor(db).Label("label");
-  auto prop = database::GraphDbAccessor(db).Property("prop");
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
   {
-    database::GraphDbAccessor dba(db);
-    auto number_vertex = dba.InsertVertex();
+    auto dba = db.Access();
+    auto number_vertex = dba->InsertVertex();
     number_vertex.add_label(label);
     number_vertex.PropsSet(prop, 42);
-    auto string_vertex = dba.InsertVertex();
+    auto string_vertex = dba->InsertVertex();
     string_vertex.add_label(label);
     string_vertex.PropsSet(prop, "string");
-    dba.Commit();
-    database::GraphDbAccessor(db).BuildIndex(label, prop);
+    dba->Commit();
+    db.Access()->BuildIndex(label, prop);
   }
-  database::GraphDbAccessor dba(db);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  auto dba = db.Access();
+  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
   // MATCH (n :label {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2161,7 +2165,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   auto produce = MakeProduce(scan_all.op_, output);
   symbol_table[*output->expression_] = scan_all.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(results.size(), 1);
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
@@ -2173,20 +2177,20 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
 
 TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   database::SingleNode db;
-  auto label = database::GraphDbAccessor(db).Label("label");
-  auto prop = database::GraphDbAccessor(db).Property("prop");
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
   {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
     for (int i = 0; i < 2; ++i) {
-      auto vertex = dba.InsertVertex();
+      auto vertex = dba->InsertVertex();
       vertex.add_label(label);
       vertex.PropsSet(prop, i);
     }
-    dba.Commit();
+    dba->Commit();
   }
-  database::GraphDbAccessor(db).BuildIndex(label, prop);
-  database::GraphDbAccessor dba(db);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  db.Access()->BuildIndex(label, prop);
+  auto dba = db.Access();
+  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
   // MATCH (m), (n :label {prop: m})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2195,26 +2199,26 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   symbol_table[*ident_m] = scan_all.sym_;
   auto scan_index = MakeScanAllByLabelPropertyValue(
       storage, symbol_table, "n", label, prop, ident_m, scan_all.op_);
-  EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+  EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
                QueryRuntimeException);
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   database::SingleNode db;
-  auto label = database::GraphDbAccessor(db).Label("label");
-  auto prop = database::GraphDbAccessor(db).Property("prop");
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
   {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
     for (int i = 0; i < 2; ++i) {
-      auto vertex = dba.InsertVertex();
+      auto vertex = dba->InsertVertex();
       vertex.add_label(label);
       vertex.PropsSet(prop, i);
     }
-    dba.Commit();
+    dba->Commit();
   }
-  database::GraphDbAccessor(db).BuildIndex(label, prop);
-  database::GraphDbAccessor dba(db);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  db.Access()->BuildIndex(label, prop);
+  auto dba = db.Access();
+  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
   // MATCH (m), (n :label {prop: m})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2227,7 +2231,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
         storage, symbol_table, "n", label, prop,
         Bound{ident_m, Bound::Type::INCLUSIVE}, std::experimental::nullopt,
         scan_all.op_);
-    EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+    EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
                  QueryRuntimeException);
   }
   {
@@ -2235,7 +2239,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
     auto scan_index = MakeScanAllByLabelPropertyRange(
         storage, symbol_table, "n", label, prop, std::experimental::nullopt,
         Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+    EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
                  QueryRuntimeException);
   }
   {
@@ -2244,7 +2248,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
         storage, symbol_table, "n", label, prop,
         Bound{ident_m, Bound::Type::INCLUSIVE},
         Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    EXPECT_THROW(PullAll(scan_index.op_, dba, symbol_table),
+    EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
                  QueryRuntimeException);
   }
 }
@@ -2254,20 +2258,20 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   // Add 2 vertices with the same label, but one has a property value while
   // the other does not. Checking if the value is equal to null, should
   // yield no results.
-  auto label = database::GraphDbAccessor(db).Label("label");
-  auto prop = database::GraphDbAccessor(db).Property("prop");
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
   {
-    database::GraphDbAccessor dba(db);
-    auto vertex = dba.InsertVertex();
+    auto dba = db.Access();
+    auto vertex = dba->InsertVertex();
     vertex.add_label(label);
-    auto vertex_with_prop = dba.InsertVertex();
+    auto vertex_with_prop = dba->InsertVertex();
     vertex_with_prop.add_label(label);
     vertex_with_prop.PropsSet(prop, 42);
-    dba.Commit();
-    database::GraphDbAccessor(db).BuildIndex(label, prop);
+    dba->Commit();
+    db.Access()->BuildIndex(label, prop);
   }
-  database::GraphDbAccessor dba(db);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  auto dba = db.Access();
+  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
   // MATCH (n :label {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2278,7 +2282,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   auto produce = MakeProduce(scan_all.op_, output);
   symbol_table[*output->expression_] = scan_all.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 0);
 }
 
@@ -2287,20 +2291,20 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   // Add 2 vertices with the same label, but one has a property value while
   // the other does not. Checking if the value is between nulls, should
   // yield no results.
-  auto label = database::GraphDbAccessor(db).Label("label");
-  auto prop = database::GraphDbAccessor(db).Property("prop");
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
   {
-    database::GraphDbAccessor dba(db);
-    auto vertex = dba.InsertVertex();
+    auto dba = db.Access();
+    auto vertex = dba->InsertVertex();
     vertex.add_label(label);
-    auto vertex_with_prop = dba.InsertVertex();
+    auto vertex_with_prop = dba->InsertVertex();
     vertex_with_prop.add_label(label);
     vertex_with_prop.PropsSet(prop, 42);
-    dba.Commit();
-    database::GraphDbAccessor(db).BuildIndex(label, prop);
+    dba->Commit();
+    db.Access()->BuildIndex(label, prop);
   }
-  database::GraphDbAccessor dba(db);
-  EXPECT_EQ(2, CountIterable(dba.Vertices(false)));
+  auto dba = db.Access();
+  EXPECT_EQ(2, CountIterable(dba->Vertices(false)));
   // MATCH (n :label) WHERE null <= n.prop < null
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2313,24 +2317,24 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   auto produce = MakeProduce(scan_all.op_, output);
   symbol_table[*output->expression_] = scan_all.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(results.size(), 0);
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   database::SingleNode db;
-  auto label = database::GraphDbAccessor(db).Label("label");
-  auto prop = database::GraphDbAccessor(db).Property("prop");
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
   {
-    database::GraphDbAccessor dba(db);
-    auto v = dba.InsertVertex();
+    auto dba = db.Access();
+    auto v = dba->InsertVertex();
     v.add_label(label);
     v.PropsSet(prop, 2);
-    dba.Commit();
-    database::GraphDbAccessor(db).BuildIndex(label, prop);
+    dba->Commit();
+    db.Access()->BuildIndex(label, prop);
   }
-  database::GraphDbAccessor dba(db);
-  EXPECT_EQ(1, CountIterable(dba.Vertices(false)));
+  auto dba = db.Access();
+  EXPECT_EQ(1, CountIterable(dba->Vertices(false)));
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -2346,7 +2350,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n",
                                                   label, prop, x_expr, unwind);
 
-  EXPECT_EQ(PullAll(scan_all.op_, dba, symbol_table), 1);
+  EXPECT_EQ(PullAll(scan_all.op_, *dba, symbol_table), 1);
 }
 
 int main(int argc, char **argv) {

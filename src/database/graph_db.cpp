@@ -81,8 +81,8 @@ SingleNode::SingleNode(Config config)
     snapshot_creator_->Run(
         "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
         [this] {
-          GraphDbAccessor dba(*this);
-          this->MakeSnapshot(dba);
+          auto dba = this->Access();
+          this->MakeSnapshot(*dba);
         });
   }
 
@@ -114,9 +114,28 @@ SingleNode::~SingleNode() {
       [](auto &t) { t.set_should_abort(); });
 
   if (impl_->config_.snapshot_on_exit) {
-    GraphDbAccessor dba(*this);
-    MakeSnapshot(dba);
+    auto dba = this->Access();
+    MakeSnapshot(*dba);
   }
+}
+
+class SingleNodeAccessor : public GraphDbAccessor {
+ public:
+  explicit SingleNodeAccessor(GraphDb &db) : GraphDbAccessor(db) {}
+  SingleNodeAccessor(GraphDb &db, tx::TransactionId tx_id)
+      : GraphDbAccessor(db, tx_id) {}
+};
+
+std::unique_ptr<GraphDbAccessor> SingleNode::Access() {
+  // NOTE: We are doing a heap allocation to allow polymorphism. If this poses
+  // performance issues, we may want to have a stack allocated GraphDbAccessor
+  // which is constructed with a pointer to some global implementation struct
+  // which contains only pure functions (without any state).
+  return std::make_unique<SingleNodeAccessor>(*this);
+}
+
+std::unique_ptr<GraphDbAccessor> SingleNode::Access(tx::TransactionId tx_id) {
+  return std::make_unique<SingleNodeAccessor>(*this, tx_id);
 }
 
 Storage &SingleNode::storage() { return *impl_->storage_; }
@@ -140,10 +159,6 @@ storage::ConcurrentIdMapper<storage::Property> &SingleNode::property_mapper() {
 database::Counters &SingleNode::counters() { return impl_->counters_; }
 
 void SingleNode::CollectGarbage() { impl_->storage_gc_->CollectGarbage(); }
-
-int SingleNode::WorkerId() const { return impl_->config_.worker_id; }
-
-std::vector<int> SingleNode::GetWorkerIds() const { return {0}; }
 
 bool SingleNode::MakeSnapshot(GraphDbAccessor &accessor) {
   const bool status = durability::MakeSnapshot(

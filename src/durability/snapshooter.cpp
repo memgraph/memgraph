@@ -1,9 +1,10 @@
+#include "durability/snapshooter.hpp"
+
 #include <algorithm>
 
 #include <glog/logging.h>
 
-#include "durability/snapshooter.hpp"
-
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
@@ -31,9 +32,18 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
                      durability::kMagicNumber.size());
     encoder.WriteInt(durability::kVersion);
 
+    int worker_id = 0;
+    // TODO: Figure out a better solution for SingleNode recovery vs
+    // DistributedGraphDb.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
+      worker_id = distributed_db->WorkerId();
+    } else {
+      CHECK(dynamic_cast<database::SingleNode *>(&dba.db()));
+    }
     // Writes the worker id to snapshot, used to guarantee consistent cluster
     // state after recovery
-    encoder.WriteInt(db.WorkerId());
+    encoder.WriteInt(worker_id);
 
     // Write the number of generated vertex and edges, used to recover
     // generators internal states
@@ -125,8 +135,17 @@ bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
                   const fs::path &durability_dir,
                   const int snapshot_max_retained) {
   if (!utils::EnsureDir(durability_dir / kSnapshotDir)) return false;
+  int worker_id = 0;
+  // TODO: Figure out a better solution for SingleNode recovery vs
+  // DistributedGraphDb.
+  if (auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(&db)) {
+    worker_id = distributed_db->WorkerId();
+  } else {
+    CHECK(dynamic_cast<database::SingleNode *>(&db));
+  }
   const auto snapshot_file =
-      MakeSnapshotPath(durability_dir, db.WorkerId(), dba.transaction_id());
+      MakeSnapshotPath(durability_dir, worker_id, dba.transaction_id());
   if (fs::exists(snapshot_file)) return false;
   if (Encode(snapshot_file, db, dba)) {
     RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);

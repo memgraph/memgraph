@@ -35,12 +35,12 @@ class Base {
  public:
   explicit Base(const std::string &query) : query_string_(query) {}
   database::SingleNode db_;
-  database::GraphDbAccessor db_accessor_{db_};
-  Context context_{db_accessor_};
+  std::unique_ptr<database::GraphDbAccessor> db_accessor_{db_.Access()};
+  Context context_{*db_accessor_};
   std::string query_string_;
 
   auto Prop(const std::string &prop_name) {
-    return db_accessor_.Property(prop_name);
+    return db_accessor_->Property(prop_name);
   }
 
   auto PropPair(const std::string &prop_name) {
@@ -203,7 +203,7 @@ TYPED_TEST(CypherMainVisitorTest, PropertyLookup) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_EQ(property_lookup->property_,
-            ast_generator.db_accessor_.Property("x"));
+            ast_generator.db_accessor_->Property("x"));
 }
 
 TYPED_TEST(CypherMainVisitorTest, LabelsTest) {
@@ -220,8 +220,8 @@ TYPED_TEST(CypherMainVisitorTest, LabelsTest) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_.Label("x"),
-                          ast_generator.db_accessor_.Label("y")));
+              ElementsAre(ast_generator.db_accessor_->Label("x"),
+                          ast_generator.db_accessor_->Label("y")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
@@ -236,7 +236,7 @@ TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_.Label("l-$\"'ab`e``l")));
+              ElementsAre(ast_generator.db_accessor_->Label("l-$\"'ab`e``l")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
@@ -251,7 +251,7 @@ TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_.Label("DEletE")));
+              ElementsAre(ast_generator.db_accessor_->Label("DEletE")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
@@ -266,7 +266,7 @@ TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   EXPECT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_.Label("a")));
+              ElementsAre(ast_generator.db_accessor_->Label("a")));
 }
 
 TYPED_TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
@@ -946,10 +946,10 @@ TYPED_TEST(CypherMainVisitorTest, NodePattern) {
   EXPECT_EQ(node->identifier_->name_,
             CypherMainVisitor::kAnonPrefix + std::to_string(1));
   EXPECT_FALSE(node->identifier_->user_declared_);
-  EXPECT_THAT(node->labels_,
-              UnorderedElementsAre(ast_generator.db_accessor_.Label("label1"),
-                                   ast_generator.db_accessor_.Label("label2"),
-                                   ast_generator.db_accessor_.Label("label3")));
+  EXPECT_THAT(node->labels_, UnorderedElementsAre(
+                                 ast_generator.db_accessor_->Label("label1"),
+                                 ast_generator.db_accessor_->Label("label2"),
+                                 ast_generator.db_accessor_->Label("label3")));
   std::map<std::pair<std::string, storage::Property>, int64_t> properties;
   for (auto x : node->properties_) {
     TypedValue value = LiteralValue(ast_generator.context_, x.second);
@@ -1048,8 +1048,8 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::IN);
   EXPECT_THAT(
       edge->edge_types_,
-      UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
-                           ast_generator.db_accessor_.EdgeType("type2")));
+      UnorderedElementsAre(ast_generator.db_accessor_->EdgeType("type1"),
+                           ast_generator.db_accessor_->EdgeType("type2")));
   std::map<std::pair<std::string, storage::Property>, int64_t> properties;
   for (auto x : edge->properties_) {
     TypedValue value = LiteralValue(ast_generator.context_, x.second);
@@ -1205,7 +1205,7 @@ TYPED_TEST(CypherMainVisitorTest,
   CheckLiteral(ast_generator.context_,
                edge->properties_[ast_generator.PropPair("prop")], 42);
   ASSERT_EQ(edge->edge_types_.size(), 1U);
-  auto edge_type = ast_generator.db_accessor_.EdgeType("edge_type");
+  auto edge_type = ast_generator.db_accessor_->EdgeType("edge_type");
   EXPECT_EQ(edge->edge_types_[0], edge_type);
 }
 
@@ -1341,7 +1341,7 @@ TYPED_TEST(CypherMainVisitorTest, Set) {
     ASSERT_TRUE(identifier1);
     ASSERT_EQ(identifier1->name_, "a");
     ASSERT_EQ(set_property->property_lookup_->property_,
-              ast_generator.db_accessor_.Property("x"));
+              ast_generator.db_accessor_->Property("x"));
     auto *identifier2 = dynamic_cast<Identifier *>(set_property->expression_);
     ASSERT_EQ(identifier2->name_, "b");
   }
@@ -1376,8 +1376,8 @@ TYPED_TEST(CypherMainVisitorTest, Set) {
     ASSERT_TRUE(set_labels->identifier_);
     ASSERT_EQ(set_labels->identifier_->name_, "g");
     ASSERT_THAT(set_labels->labels_,
-                UnorderedElementsAre(ast_generator.db_accessor_.Label("h"),
-                                     ast_generator.db_accessor_.Label("i")));
+                UnorderedElementsAre(ast_generator.db_accessor_->Label("h"),
+                                     ast_generator.db_accessor_->Label("i")));
   }
 }
 
@@ -1398,7 +1398,7 @@ TYPED_TEST(CypherMainVisitorTest, Remove) {
     ASSERT_TRUE(identifier1);
     ASSERT_EQ(identifier1->name_, "a");
     ASSERT_EQ(remove_property->property_lookup_->property_,
-              ast_generator.db_accessor_.Property("x"));
+              ast_generator.db_accessor_->Property("x"));
   }
   {
     auto *remove_labels =
@@ -1407,8 +1407,8 @@ TYPED_TEST(CypherMainVisitorTest, Remove) {
     ASSERT_TRUE(remove_labels->identifier_);
     ASSERT_EQ(remove_labels->identifier_->name_, "g");
     ASSERT_THAT(remove_labels->labels_,
-                UnorderedElementsAre(ast_generator.db_accessor_.Label("h"),
-                                     ast_generator.db_accessor_.Label("i")));
+                UnorderedElementsAre(ast_generator.db_accessor_->Label("h"),
+                                     ast_generator.db_accessor_->Label("i")));
   }
 }
 
@@ -1601,9 +1601,9 @@ TYPED_TEST(CypherMainVisitorTest, CreateIndex) {
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *create_index = dynamic_cast<CreateIndex *>(single_query->clauses_[0]);
   ASSERT_TRUE(create_index);
-  ASSERT_EQ(create_index->label_, ast_generator.db_accessor_.Label("mirko"));
+  ASSERT_EQ(create_index->label_, ast_generator.db_accessor_->Label("mirko"));
   ASSERT_EQ(create_index->property_,
-            ast_generator.db_accessor_.Property("slavko"));
+            ast_generator.db_accessor_->Property("slavko"));
 }
 
 TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
@@ -1700,8 +1700,8 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   EXPECT_EQ(bfs->direction_, EdgeAtom::Direction::OUT);
   EXPECT_THAT(
       bfs->edge_types_,
-      UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
-                           ast_generator.db_accessor_.EdgeType("type2")));
+      UnorderedElementsAre(ast_generator.db_accessor_->EdgeType("type1"),
+                           ast_generator.db_accessor_->EdgeType("type2")));
   EXPECT_EQ(bfs->identifier_->name_, "r");
   EXPECT_EQ(bfs->filter_lambda_.inner_edge->name_, "e");
   EXPECT_TRUE(bfs->filter_lambda_.inner_edge->user_declared_);
@@ -1748,8 +1748,8 @@ TYPED_TEST(CypherMainVisitorTest, MatchWShortestReturn) {
   EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
   EXPECT_THAT(
       shortest->edge_types_,
-      UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
-                           ast_generator.db_accessor_.EdgeType("type2")));
+      UnorderedElementsAre(ast_generator.db_accessor_->EdgeType("type1"),
+                           ast_generator.db_accessor_->EdgeType("type2")));
   CheckLiteral(ast_generator.context_, shortest->upper_bound_, 10);
   EXPECT_FALSE(shortest->lower_bound_);
   EXPECT_EQ(shortest->identifier_->name_, "r");
@@ -1788,8 +1788,8 @@ TYPED_TEST(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
   EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
   EXPECT_THAT(
       shortest->edge_types_,
-      UnorderedElementsAre(ast_generator.db_accessor_.EdgeType("type1"),
-                           ast_generator.db_accessor_.EdgeType("type2")));
+      UnorderedElementsAre(ast_generator.db_accessor_->EdgeType("type1"),
+                           ast_generator.db_accessor_->EdgeType("type2")));
   CheckLiteral(ast_generator.context_, shortest->upper_bound_, 10);
   EXPECT_FALSE(shortest->lower_bound_);
   EXPECT_EQ(shortest->identifier_->name_, "r");

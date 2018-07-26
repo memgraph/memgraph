@@ -15,7 +15,7 @@ using testing::UnorderedElementsAreArray;
 TEST(LabelsIndex, UniqueInsert) {
   database::KeyIndex<storage::Label, Vertex> index;
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   tx::SingleNodeEngine engine;
 
   auto t1 = engine.Begin();
@@ -23,28 +23,28 @@ TEST(LabelsIndex, UniqueInsert) {
   engine.Commit(*t1);
   auto t2 = engine.Begin();
 
-  vlist.find(*t2)->labels_.push_back(dba.Label("1"));
-  index.Update(dba.Label("1"), &vlist, vlist.find(*t2));
+  vlist.find(*t2)->labels_.push_back(dba->Label("1"));
+  index.Update(dba->Label("1"), &vlist, vlist.find(*t2));
   // Try multiple inserts
-  index.Update(dba.Label("1"), &vlist, vlist.find(*t2));
+  index.Update(dba->Label("1"), &vlist, vlist.find(*t2));
 
-  vlist.find(*t2)->labels_.push_back(dba.Label("2"));
-  index.Update(dba.Label("2"), &vlist, vlist.find(*t2));
+  vlist.find(*t2)->labels_.push_back(dba->Label("2"));
+  index.Update(dba->Label("2"), &vlist, vlist.find(*t2));
 
-  vlist.find(*t2)->labels_.push_back(dba.Label("3"));
-  index.Update(dba.Label("3"), &vlist, vlist.find(*t2));
+  vlist.find(*t2)->labels_.push_back(dba->Label("3"));
+  index.Update(dba->Label("3"), &vlist, vlist.find(*t2));
   engine.Commit(*t2);
 
-  EXPECT_EQ(index.Count(dba.Label("1")), 1);
-  EXPECT_EQ(index.Count(dba.Label("2")), 1);
-  EXPECT_EQ(index.Count(dba.Label("3")), 1);
+  EXPECT_EQ(index.Count(dba->Label("1")), 1);
+  EXPECT_EQ(index.Count(dba->Label("2")), 1);
+  EXPECT_EQ(index.Count(dba->Label("3")), 1);
 }
 
 // Check if index filters duplicates.
 TEST(LabelsIndex, UniqueFilter) {
   database::SingleNode db;
   database::KeyIndex<storage::Label, Vertex> index;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   tx::SingleNodeEngine engine;
 
   auto t1 = engine.Begin();
@@ -55,7 +55,7 @@ TEST(LabelsIndex, UniqueFilter) {
   auto r1v2 = vlist2.find(*t1);
   EXPECT_NE(vlist1.find(*t1), nullptr);
 
-  auto label1 = dba.Label("1");
+  auto label1 = dba->Label("1");
   vlist1.find(*t1)->labels_.push_back(label1);
   vlist2.find(*t1)->labels_.push_back(label1);
   index.Update(label1, &vlist1, r1v1);
@@ -84,7 +84,7 @@ TEST(LabelsIndex, UniqueFilter) {
 TEST(LabelsIndex, Refresh) {
   database::KeyIndex<storage::Label, Vertex> index;
   database::SingleNode db;
-  database::GraphDbAccessor access(db);
+  auto access = db.Access();
   tx::SingleNodeEngine engine;
 
   // add two vertices to  database
@@ -98,7 +98,7 @@ TEST(LabelsIndex, Refresh) {
   EXPECT_NE(v1r1, nullptr);
   EXPECT_NE(v2r1, nullptr);
 
-  auto label = access.Label("label");
+  auto label = access->Label("label");
   v1r1->labels_.push_back(label);
   v2r1->labels_.push_back(label);
   index.Update(label, &vlist1, v1r1);
@@ -123,10 +123,10 @@ TEST(LabelsIndex, Refresh) {
 // Transaction hasn't ended and so the vertex is not visible.
 TEST(LabelsIndexDb, AddGetZeroLabels) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  auto vertex = dba.InsertVertex();
-  vertex.add_label(dba.Label("test"));
-  auto collection = dba.Vertices(dba.Label("test"), false);
+  auto dba = db.Access();
+  auto vertex = dba->InsertVertex();
+  vertex.add_label(dba->Label("test"));
+  auto collection = dba->Vertices(dba->Label("test"), false);
   std::vector<VertexAccessor> collection_vector(collection.begin(),
                                                 collection.end());
   EXPECT_EQ(collection_vector.size(), (size_t)0);
@@ -137,61 +137,61 @@ TEST(LabelsIndexDb, AddGetZeroLabels) {
 TEST(LabelsIndexDb, AddGetRemoveLabel) {
   database::SingleNode db;
   {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
 
-    auto vertex1 = dba.InsertVertex();
-    vertex1.add_label(dba.Label("test"));
+    auto vertex1 = dba->InsertVertex();
+    vertex1.add_label(dba->Label("test"));
 
-    auto vertex2 = dba.InsertVertex();
-    vertex2.add_label(dba.Label("test2"));
+    auto vertex2 = dba->InsertVertex();
+    vertex2.add_label(dba->Label("test2"));
 
-    auto vertex3 = dba.InsertVertex();
-    vertex3.add_label(dba.Label("test"));
+    auto vertex3 = dba->InsertVertex();
+    vertex3.add_label(dba->Label("test"));
 
-    dba.Commit();
+    dba->Commit();
   }  // Finish transaction.
   {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
 
-    auto filtered = dba.Vertices(dba.Label("test"), false);
+    auto filtered = dba->Vertices(dba->Label("test"), false);
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());
-    auto vertices = dba.Vertices(false);
+    auto vertices = dba->Vertices(false);
 
     std::vector<VertexAccessor> expected_collection;
     for (auto vertex : vertices) {
-      if (vertex.has_label(dba.Label("test"))) {
+      if (vertex.has_label(dba->Label("test"))) {
         expected_collection.push_back(vertex);
       } else {
-        EXPECT_TRUE(vertex.has_label(dba.Label("test2")));
+        EXPECT_TRUE(vertex.has_label(dba->Label("test2")));
       }
     }
 
     EXPECT_EQ(expected_collection.size(), collection.size());
-    EXPECT_TRUE(collection[0].has_label(dba.Label("test")));
-    EXPECT_TRUE(collection[1].has_label(dba.Label("test")));
-    EXPECT_FALSE(collection[0].has_label(dba.Label("test2")));
-    EXPECT_FALSE(collection[1].has_label(dba.Label("test2")));
-    dba.RemoveVertex(collection[0]);  // Remove from database and test if
-                                      // index won't return it.
+    EXPECT_TRUE(collection[0].has_label(dba->Label("test")));
+    EXPECT_TRUE(collection[1].has_label(dba->Label("test")));
+    EXPECT_FALSE(collection[0].has_label(dba->Label("test2")));
+    EXPECT_FALSE(collection[1].has_label(dba->Label("test2")));
+    dba->RemoveVertex(collection[0]);  // Remove from database and test if
+                                       // index won't return it.
 
     // Remove label from the vertex and add new label.
-    collection[1].remove_label(dba.Label("test"));
-    collection[1].add_label(dba.Label("test2"));
-    dba.Commit();
+    collection[1].remove_label(dba->Label("test"));
+    collection[1].add_label(dba->Label("test2"));
+    dba->Commit();
   }
   {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
 
-    auto filtered = dba.Vertices(dba.Label("test"), false);
+    auto filtered = dba->Vertices(dba->Label("test"), false);
     std::vector<VertexAccessor> collection(filtered.begin(), filtered.end());
-    auto vertices = dba.Vertices(false);
+    auto vertices = dba->Vertices(false);
 
     std::vector<VertexAccessor> expected_collection;
     for (auto vertex : vertices) {
-      if (vertex.has_label(dba.Label("test"))) {
+      if (vertex.has_label(dba->Label("test"))) {
         expected_collection.push_back(vertex);
       } else {
-        EXPECT_TRUE(vertex.has_label(dba.Label("test2")));
+        EXPECT_TRUE(vertex.has_label(dba->Label("test2")));
       }
     }
 

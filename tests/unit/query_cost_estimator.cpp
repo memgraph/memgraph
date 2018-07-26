@@ -24,7 +24,7 @@ using MiscParam = CostEstimator<database::GraphDbAccessor>::MiscParam;
 class QueryCostEstimator : public ::testing::Test {
  protected:
   database::SingleNode db;
-  std::experimental::optional<database::GraphDbAccessor> dba{db};
+  std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
   storage::Label label = dba->Label("label");
   storage::Property property = dba->Property("property");
 
@@ -40,7 +40,7 @@ class QueryCostEstimator : public ::testing::Test {
   void SetUp() {
     // create the index in the current db accessor and then swap it to a new one
     dba->BuildIndex(label, property);
-    dba.emplace(db);
+    dba = db.Access();
   }
 
   Symbol NextSymbol() {

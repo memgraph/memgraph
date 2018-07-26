@@ -38,8 +38,8 @@ class DistributedQueryPlan : public DistributedGraphDbTest {
 };
 
 TEST_F(DistributedQueryPlan, PullProduceRpc) {
-  GraphDbAccessor dba{master()};
-  Context ctx{dba};
+  auto dba = master().Access();
+  Context ctx{*dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstStorage storage;
 
@@ -56,13 +56,13 @@ TEST_F(DistributedQueryPlan, PullProduceRpc) {
   auto produce = MakeProduce(unwind, x_ne);
 
   // Test that the plan works locally.
-  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+  auto results = CollectProduce(produce.get(), ctx.symbol_table_, *dba);
   ASSERT_EQ(results.size(), 5);
 
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
 
-  tx::CommandId command_id = dba.transaction().cid();
+  tx::CommandId command_id = dba->transaction().cid();
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
   auto remote_pull = [this, &command_id, &params, &symbols](
@@ -86,17 +86,17 @@ TEST_F(DistributedQueryPlan, PullProduceRpc) {
     EXPECT_EQ(batch.frames[1][0].ValueInt(), 2);
   };
 
-  GraphDbAccessor dba_1{master()};
-  GraphDbAccessor dba_2{master()};
+  auto dba_1 = master().Access();
+  auto dba_2 = master().Access();
   for (int worker_id : {1, 2}) {
     // TODO flor, proper test async here.
-    auto tx1_batch1 = remote_pull(dba_1, worker_id).get();
+    auto tx1_batch1 = remote_pull(*dba_1, worker_id).get();
     expect_first_batch(tx1_batch1);
-    auto tx2_batch1 = remote_pull(dba_2, worker_id).get();
+    auto tx2_batch1 = remote_pull(*dba_2, worker_id).get();
     expect_first_batch(tx2_batch1);
-    auto tx2_batch2 = remote_pull(dba_2, worker_id).get();
+    auto tx2_batch2 = remote_pull(*dba_2, worker_id).get();
     expect_second_batch(tx2_batch2);
-    auto tx1_batch2 = remote_pull(dba_1, worker_id).get();
+    auto tx1_batch2 = remote_pull(*dba_1, worker_id).get();
     expect_second_batch(tx1_batch2);
   }
 }
@@ -107,8 +107,8 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   // sequence ID, so we can check we retrieved all.
   storage::Property prop;
   {
-    GraphDbAccessor dba{master()};
-    prop = dba.Property("prop");
+    auto dba = master().Access();
+    prop = dba->Property("prop");
     auto create_data = [prop](GraphDbAccessor &dba, int worker_id) {
       auto v1 = dba.InsertVertex();
       v1.PropsSet(prop, worker_id * 10);
@@ -117,16 +117,16 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
       auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("et"));
       e12.PropsSet(prop, worker_id * 10 + 2);
     };
-    create_data(dba, 0);
-    GraphDbAccessor dba_w1{worker(1), dba.transaction_id()};
-    create_data(dba_w1, 1);
-    GraphDbAccessor dba_w2{worker(2), dba.transaction_id()};
-    create_data(dba_w2, 2);
-    dba.Commit();
+    create_data(*dba, 0);
+    auto dba_w1 = worker(1).Access(dba->transaction_id());
+    create_data(*dba_w1, 1);
+    auto dba_w2 = worker(2).Access(dba->transaction_id());
+    create_data(*dba_w2, 2);
+    dba->Commit();
   }
 
-  GraphDbAccessor dba{master()};
-  Context ctx{dba};
+  auto dba = master().Access();
+  Context ctx{*dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstStorage storage;
 
@@ -175,13 +175,13 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   };
 
   // Test that the plan works locally.
-  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+  auto results = CollectProduce(produce.get(), ctx.symbol_table_, *dba);
   check_result(0, results);
 
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
 
-  tx::CommandId command_id = dba.transaction().cid();
+  tx::CommandId command_id = dba->transaction().cid();
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
                                      ctx.symbol_table_[*return_m], p_sym};
@@ -190,8 +190,8 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
     return master().pull_clients().Pull(&dba, worker_id, plan_id, command_id,
                                         params, symbols, 0, false, 3);
   };
-  auto future_w1_results = remote_pull(dba, 1);
-  auto future_w2_results = remote_pull(dba, 2);
+  auto future_w1_results = remote_pull(*dba, 1);
+  auto future_w2_results = remote_pull(*dba, 2);
   check_result(1, future_w1_results.get().frames);
   check_result(2, future_w2_results.get().frames);
 }
@@ -204,8 +204,8 @@ TEST_F(DistributedQueryPlan, Synchronize) {
   // Query: MATCH (n)--(m) SET m.prop = 2 RETURN n.prop
   // This query ensures that a remote update gets applied and the local stuff
   // gets reconstructed.
-  auto &db = master();
-  GraphDbAccessor dba{db};
+  auto dba_ptr = master().Access();
+  auto &dba = *dba_ptr;
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstStorage storage;
@@ -252,9 +252,8 @@ TEST_F(DistributedQueryPlan, Synchronize) {
 
 TEST_F(DistributedQueryPlan, Create) {
   // Query: UNWIND range(0, 1000) as x CREATE ()
-  auto &db = master();
-  GraphDbAccessor dba{db};
-  Context ctx{dba};
+  auto dba = master().Access();
+  Context ctx{*dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstStorage storage;
   auto range = FN("range", LITERAL(0), LITERAL(1000));
@@ -264,8 +263,8 @@ TEST_F(DistributedQueryPlan, Create) {
   ctx.symbol_table_[*node->identifier_] =
       ctx.symbol_table_.CreateSymbol("n", true);
   auto create = std::make_shared<query::plan::CreateNode>(unwind, node, true);
-  PullAll(create, dba, ctx.symbol_table_);
-  dba.Commit();
+  PullAll(create, *dba, ctx.symbol_table_);
+  dba->Commit();
 
   EXPECT_GT(VertexCount(master()), 200);
   EXPECT_GT(VertexCount(worker(1)), 200);
@@ -276,11 +275,11 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
   // Create some data on the master and both workers.
   storage::Property prop;
   {
-    GraphDbAccessor dba{master()};
-    auto tx_id = dba.transaction_id();
-    GraphDbAccessor dba1{worker(1), tx_id};
-    GraphDbAccessor dba2{worker(2), tx_id};
-    prop = dba.Property("prop");
+    auto dba = master().Access();
+    auto tx_id = dba->transaction_id();
+    auto dba1 = worker(1).Access(tx_id);
+    auto dba2 = worker(2).Access(tx_id);
+    prop = dba->Property("prop");
     auto add_data = [prop](GraphDbAccessor &dba, int value) {
       dba.InsertVertex().PropsSet(prop, value);
     };
@@ -289,15 +288,15 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
     for (int i = 0; i < 300; ++i) data.push_back(i);
     std::random_shuffle(data.begin(), data.end());
 
-    for (int i = 0; i < 100; ++i) add_data(dba, data[i]);
-    for (int i = 100; i < 200; ++i) add_data(dba1, data[i]);
-    for (int i = 200; i < 300; ++i) add_data(dba2, data[i]);
+    for (int i = 0; i < 100; ++i) add_data(*dba, data[i]);
+    for (int i = 100; i < 200; ++i) add_data(*dba1, data[i]);
+    for (int i = 200; i < 300; ++i) add_data(*dba2, data[i]);
 
-    dba.Commit();
+    dba->Commit();
   }
 
-  auto &db = master();
-  GraphDbAccessor dba{db};
+  auto dba_ptr = master().Access();
+  auto &dba = *dba_ptr;
   Context ctx{dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstStorage storage;
@@ -341,8 +340,8 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
   InsertVertex(worker(1));
   InsertVertex(worker(1));
 
-  GraphDbAccessor dba{master()};
-  Context ctx{dba};
+  auto dba = master().Access();
+  Context ctx{*dba};
   SymbolGenerator symbol_generator{ctx.symbol_table_};
   AstStorage storage;
 
@@ -356,14 +355,14 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
 
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
-  tx::CommandId command_id = dba.transaction().cid();
+  tx::CommandId command_id = dba->transaction().cid();
 
   Parameters params;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*output]};
   auto remote_pull = [this, &command_id, &params, &symbols, &dba]() {
     return master()
         .pull_clients()
-        .Pull(&dba, 1, plan_id, command_id, params, symbols, 0, false, 1)
+        .Pull(dba.get(), 1, plan_id, command_id, params, symbols, 0, false, 1)
         .get()
         .pull_state;
   };

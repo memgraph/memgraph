@@ -64,10 +64,10 @@ class Cluster {
 
   auto Execute(const std::string &query,
                std::map<std::string, query::TypedValue> params = {}) {
-    database::GraphDbAccessor dba(*master_);
+    auto dba = master_->Access();
     ResultStreamFaker<query::TypedValue> result;
-    interpreter_->operator()(query, dba, params, false).PullAll(result);
-    dba.Commit();
+    interpreter_->operator()(query, *dba, params, false).PullAll(result);
+    dba->Commit();
     return result.GetResults();
   };
 

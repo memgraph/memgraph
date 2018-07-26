@@ -1,6 +1,5 @@
 #include <functional>
 
-#include "distributed/data_manager.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
@@ -12,13 +11,14 @@ utils::Future<PullData> PullRpcClients::Pull(
     tx::CommandId command_id, const Parameters &params,
     const std::vector<query::Symbol> &symbols, int64_t timestamp,
     bool accumulate, int batch_size) {
-  return clients_.ExecuteOnWorker<
-      PullData>(worker_id, [dba, plan_id, command_id, params, symbols,
-                            timestamp, accumulate, batch_size](
-                               int worker_id, ClientPool &client_pool) {
-    auto load_pull_res = [dba](const auto &res_reader) {
+  return clients_->ExecuteOnWorker<
+      PullData>(worker_id, [data_manager = data_manager_, dba, plan_id,
+                            command_id, params, symbols, timestamp, accumulate,
+                            batch_size](int worker_id,
+                                        ClientPool &client_pool) {
+    auto load_pull_res = [data_manager, dba](const auto &res_reader) {
       PullRes res;
-      res.Load(res_reader, dba);
+      res.Load(res_reader, dba, data_manager);
       return res;
     };
     auto result = client_pool.CallWithLoad<PullRpc>(
@@ -32,7 +32,7 @@ utils::Future<PullData> PullRpcClients::Pull(
 utils::Future<void> PullRpcClients::ResetCursor(database::GraphDbAccessor *dba,
                                                 int worker_id, int64_t plan_id,
                                                 tx::CommandId command_id) {
-  return clients_.ExecuteOnWorker<void>(
+  return clients_->ExecuteOnWorker<void>(
       worker_id, [dba, plan_id, command_id](int worker_id, auto &client) {
         auto res = client.template Call<ResetCursorRpc>(dba->transaction_id(),
                                                         plan_id, command_id);
@@ -42,7 +42,7 @@ utils::Future<void> PullRpcClients::ResetCursor(database::GraphDbAccessor *dba,
 
 std::vector<utils::Future<void>>
 PullRpcClients::NotifyAllTransactionCommandAdvanced(tx::TransactionId tx_id) {
-  return clients_.ExecuteOnWorkers<void>(
+  return clients_->ExecuteOnWorkers<void>(
       0, [tx_id](int worker_id, auto &client) {
         auto res = client.template Call<TransactionCommandAdvancedRpc>(tx_id);
         CHECK(res) << "TransactionCommandAdvanceRpc failed";

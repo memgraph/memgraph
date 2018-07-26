@@ -3,15 +3,21 @@
 #include "communication/rpc/server.hpp"
 #include "database/graph_db.hpp"
 
+namespace database {
+class DistributedGraphDb;
+}
+
 namespace distributed {
 
 /// Serves this worker's data to others.
 class DataRpcServer {
  public:
-  DataRpcServer(database::GraphDb &db, communication::rpc::Server &server);
+  DataRpcServer(database::DistributedGraphDb *db,
+                communication::rpc::Server *server);
 
  private:
-  database::GraphDb &db_;
-  communication::rpc::Server &rpc_server_;
+  database::DistributedGraphDb *db_;
+  communication::rpc::Server *rpc_server_;
 };
+
 }  // namespace distributed

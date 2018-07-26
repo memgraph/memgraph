@@ -1,8 +1,9 @@
+#include "distributed/updates_rpc_server.hpp"
+
 #include <utility>
 
-#include "glog/logging.h"
+#include <glog/logging.h>
 
-#include "distributed/updates_rpc_server.hpp"
 #include "utils/thread/sync.hpp"
 
 namespace distributed {
@@ -63,7 +64,7 @@ gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
     const std::vector<storage::Label> &labels,
     const std::unordered_map<storage::Property, query::TypedValue>
         &properties) {
-  auto result = db_accessor_.InsertVertex();
+  auto result = db_accessor_->InsertVertex();
   for (auto &label : labels) result.add_label(label);
   for (auto &kv : properties) result.PropsSet(kv.first, kv.second);
   std::lock_guard<utils::SpinLock> guard{lock_};
@@ -74,12 +75,13 @@ gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
 
 template <typename TRecordAccessor>
 gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
-    gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type) {
-  auto &db = db_accessor_.db();
+    gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type,
+    int worker_id) {
+  auto &db = db_accessor_->db();
   auto from_addr = db.storage().LocalizedAddressIfPossible(
-      storage::VertexAddress(from, db.WorkerId()));
+      storage::VertexAddress(from, worker_id));
   auto to_addr = db.storage().LocalizedAddressIfPossible(to);
-  auto edge = db_accessor_.InsertOnlyEdge(from_addr, to_addr, edge_type);
+  auto edge = db_accessor_->InsertOnlyEdge(from_addr, to_addr, edge_type);
   std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(edge.gid(),
                   std::make_pair(edge, std::vector<database::StateDelta>{}));
@@ -96,7 +98,7 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
     record_accessor.Reconstruct();
     for (database::StateDelta &delta : kv.second.second) {
       try {
-        auto &dba = db_accessor_;
+        auto &dba = *db_accessor_;
         switch (delta.type) {
           case database::StateDelta::Type::TRANSACTION_BEGIN:
           case database::StateDelta::Type::TRANSACTION_COMMIT:
@@ -147,7 +149,7 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
             // We only remove the edge as a result of this StateDelta,
             // because the removal of edge from vertex in/out is performed
             // in REMOVE_[IN/OUT]_EDGE deltas.
-            db_accessor_.RemoveEdge(
+            db_accessor_->RemoveEdge(
                 reinterpret_cast<EdgeAccessor &>(record_accessor), false,
                 false);
             break;
@@ -172,10 +174,11 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
   return UpdateResult::DONE;
 }
 
-UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
-                                   communication::rpc::Server &server)
+UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
+                                   communication::rpc::Server *server)
     : db_(db) {
-  server.Register<UpdateRpc>([this](const auto &req_reader, auto *res_builder) {
+  server->Register<UpdateRpc>([this](const auto &req_reader,
+                                     auto *res_builder) {
     UpdateReq req;
     req.Load(req_reader);
     using DeltaType = database::StateDelta::Type;
@@ -203,7 +206,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
     }
   });
 
-  server.Register<UpdateApplyRpc>(
+  server->Register<UpdateApplyRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         UpdateApplyReq req;
         req.Load(req_reader);
@@ -211,8 +214,8 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
         res.Save(res_builder);
       });
 
-  server.Register<CreateVertexRpc>([this](const auto &req_reader,
-                                          auto *res_builder) {
+  server->Register<CreateVertexRpc>([this](const auto &req_reader,
+                                           auto *res_builder) {
     CreateVertexReq req;
     req.Load(req_reader);
     gid::Gid gid = GetUpdates(vertex_updates_, req.member.tx_id)
@@ -221,7 +224,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
     res.Save(res_builder);
   });
 
-  server.Register<CreateEdgeRpc>(
+  server->Register<CreateEdgeRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         CreateEdgeReq req;
         req.Load(req_reader);
@@ -231,10 +234,10 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
         // If `from` and `to` are both on this worker, we handle it in this
         // RPC call. Do it only if CreateEdge succeeded.
         if (creation_result.result == UpdateResult::DONE &&
-            data.to.worker_id() == db_.WorkerId()) {
+            data.to.worker_id() == db_->WorkerId()) {
           auto to_delta = database::StateDelta::AddInEdge(
-              data.tx_id, data.to.gid(), {data.from, db_.WorkerId()},
-              {creation_result.gid, db_.WorkerId()}, data.edge_type);
+              data.tx_id, data.to.gid(), {data.from, db_->WorkerId()},
+              {creation_result.gid, db_->WorkerId()}, data.edge_type);
           creation_result.result =
               GetUpdates(vertex_updates_, data.tx_id).Emplace(to_delta);
         }
@@ -243,7 +246,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
         res.Save(res_builder);
       });
 
-  server.Register<AddInEdgeRpc>(
+  server->Register<AddInEdgeRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         AddInEdgeReq req;
         req.Load(req_reader);
@@ -256,7 +259,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
         res.Save(res_builder);
       });
 
-  server.Register<RemoveVertexRpc>(
+  server->Register<RemoveVertexRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         RemoveVertexReq req;
         req.Load(req_reader);
@@ -268,7 +271,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
         res.Save(res_builder);
       });
 
-  server.Register<RemoveEdgeRpc>(
+  server->Register<RemoveEdgeRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         RemoveEdgeReq req;
         req.Load(req_reader);
@@ -276,8 +279,8 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb &db,
         res.Save(res_builder);
       });
 
-  server.Register<RemoveInEdgeRpc>([this](const auto &req_reader,
-                                          auto *res_builder) {
+  server->Register<RemoveInEdgeRpc>([this](const auto &req_reader,
+                                           auto *res_builder) {
     RemoveInEdgeReq req;
     req.Load(req_reader);
     auto data = req.member;
@@ -335,10 +338,10 @@ UpdatesRpcServer::TransactionUpdates<TAccessor> &UpdatesRpcServer::GetUpdates(
 
 CreateResult UpdatesRpcServer::CreateEdge(const CreateEdgeReqData &req) {
   auto gid = GetUpdates(edge_updates_, req.tx_id)
-                 .CreateEdge(req.from, req.to, req.edge_type);
+                 .CreateEdge(req.from, req.to, req.edge_type, db_->WorkerId());
 
   auto from_delta = database::StateDelta::AddOutEdge(
-      req.tx_id, req.from, req.to, {gid, db_.WorkerId()}, req.edge_type);
+      req.tx_id, req.from, req.to, {gid, db_->WorkerId()}, req.edge_type);
 
   auto result = GetUpdates(vertex_updates_, req.tx_id).Emplace(from_delta);
   return {result, gid};
@@ -353,16 +356,16 @@ UpdateResult UpdatesRpcServer::RemoveEdge(const RemoveEdgeData &data) {
   // Out-edge removal, for sure is local.
   if (result == UpdateResult::DONE) {
     auto remove_out_delta = database::StateDelta::RemoveOutEdge(
-        data.tx_id, data.vertex_from_id, {data.edge_id, db_.WorkerId()});
+        data.tx_id, data.vertex_from_id, {data.edge_id, db_->WorkerId()});
     result = GetUpdates(vertex_updates_, data.tx_id).Emplace(remove_out_delta);
   }
 
   // In-edge removal, might not be local.
   if (result == UpdateResult::DONE &&
-      data.vertex_to_address.worker_id() == db_.WorkerId()) {
+      data.vertex_to_address.worker_id() == db_->WorkerId()) {
     auto remove_in_delta = database::StateDelta::RemoveInEdge(
         data.tx_id, data.vertex_to_address.gid(),
-        {data.edge_id, db_.WorkerId()});
+        {data.edge_id, db_->WorkerId()});
     result = GetUpdates(vertex_updates_, data.tx_id).Emplace(remove_in_delta);
   }
 
@@ -373,13 +376,13 @@ template <>
 VertexAccessor
 UpdatesRpcServer::TransactionUpdates<VertexAccessor>::FindAccessor(
     gid::Gid gid) {
-  return db_accessor_.FindVertex(gid, false);
+  return db_accessor_->FindVertex(gid, false);
 }
 
 template <>
 EdgeAccessor UpdatesRpcServer::TransactionUpdates<EdgeAccessor>::FindAccessor(
     gid::Gid gid) {
-  return db_accessor_.FindEdge(gid, false);
+  return db_accessor_->FindEdge(gid, false);
 }
 
 }  // namespace distributed

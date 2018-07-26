@@ -14,19 +14,19 @@ TEST(TransactionTimeout, TransactionTimeout) {
   auto interpret = [&](auto &dba, const std::string &query) {
     ResultStreamFaker<query::TypedValue> stream;
     interpreter(query, dba, {}, false).PullAll(stream);
-
   };
   {
-    database::GraphDbAccessor dba(db);
-    interpret(dba, "MATCH (n) RETURN n");
+    auto dba = db.Access();
+    interpret(*dba, "MATCH (n) RETURN n");
   }
   {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
     std::this_thread::sleep_for(std::chrono::seconds(5));
-    ASSERT_THROW(interpret(dba, "MATCH (n) RETURN n"), query::HintedAbortError);
+    ASSERT_THROW(interpret(*dba, "MATCH (n) RETURN n"),
+                 query::HintedAbortError);
   }
   {
-    database::GraphDbAccessor dba(db);
-    interpret(dba, "MATCH (n) RETURN n");
+    auto dba = db.Access();
+    interpret(*dba, "MATCH (n) RETURN n");
   }
 }

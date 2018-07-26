@@ -31,6 +31,188 @@ using namespace std::literals::chrono_literals;
 
 namespace database {
 
+// Accessors
+namespace {
+
+class DistributedAccessor : public GraphDbAccessor {
+  distributed::UpdatesRpcClients *updates_clients_{nullptr};
+  distributed::DataManager *data_manager_{nullptr};
+
+ protected:
+  DistributedAccessor(DistributedGraphDb *db, tx::TransactionId tx_id)
+      : GraphDbAccessor(*db, tx_id),
+        updates_clients_(&db->updates_clients()),
+        data_manager_(&db->data_manager()) {}
+
+  explicit DistributedAccessor(DistributedGraphDb *db)
+      : GraphDbAccessor(*db),
+        updates_clients_(&db->updates_clients()),
+        data_manager_(&db->data_manager()) {}
+
+ public:
+  bool RemoveVertex(VertexAccessor &vertex_accessor,
+                    bool check_empty = true) override {
+    if (!vertex_accessor.is_local()) {
+      auto address = vertex_accessor.address();
+      updates_clients_->RemoveVertex(address.worker_id(), transaction_id(),
+                                     address.gid(), check_empty);
+      // We can't know if we are going to be able to remove vertex until
+      // deferred updates on a remote worker are executed
+      return true;
+    }
+    return GraphDbAccessor::RemoveVertex(vertex_accessor, check_empty);
+  }
+
+  void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
+                  bool remove_in_edge = true) override {
+    if (edge.is_local()) {
+      return GraphDbAccessor::RemoveEdge(edge, remove_out_edge, remove_in_edge);
+    }
+    auto edge_addr = edge.GlobalAddress();
+    auto from_addr = db().storage().GlobalizedAddress(edge.from_addr());
+    CHECK(edge_addr.worker_id() == from_addr.worker_id())
+        << "Edge and it's 'from' vertex not on the same worker";
+    auto to_addr = db().storage().GlobalizedAddress(edge.to_addr());
+    updates_clients_->RemoveEdge(transaction_id(), edge_addr.worker_id(),
+                                 edge_addr.gid(), from_addr.gid(), to_addr);
+    // Another RPC is necessary only if the first did not handle vertices on
+    // both sides.
+    if (edge_addr.worker_id() != to_addr.worker_id()) {
+      updates_clients_->RemoveInEdge(transaction_id(), to_addr.worker_id(),
+                                     to_addr.gid(), edge_addr);
+    }
+  }
+
+  storage::EdgeAddress InsertEdgeOnFrom(
+      VertexAccessor *from, VertexAccessor *to,
+      const storage::EdgeType &edge_type,
+      const std::experimental::optional<gid::Gid> &requested_gid,
+      const std::experimental::optional<int64_t> &cypher_id) override {
+    if (from->is_local()) {
+      return GraphDbAccessor::InsertEdgeOnFrom(from, to, edge_type,
+                                               requested_gid, cypher_id);
+    }
+    auto edge_address =
+        updates_clients_->CreateEdge(transaction_id(), *from, *to, edge_type);
+    auto *from_updated =
+        data_manager_->Elements<Vertex>(transaction_id()).FindNew(from->gid());
+    // Create an Edge and insert it into the Cache so we see it locally.
+    data_manager_->Elements<Edge>(transaction_id())
+        .emplace(
+            edge_address.gid(), nullptr,
+            std::make_unique<Edge>(from->address(), to->address(), edge_type));
+    from_updated->out_.emplace(
+        db().storage().LocalizedAddressIfPossible(to->address()), edge_address,
+        edge_type);
+    return edge_address;
+  }
+
+  void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
+                      const storage::EdgeType &edge_type,
+                      const storage::EdgeAddress &edge_address) override {
+    if (to->is_local()) {
+      return GraphDbAccessor::InsertEdgeOnTo(from, to, edge_type, edge_address);
+    }
+    // The RPC call for the `to` side is already handled if `from` is not
+    // local.
+    if (from->is_local() ||
+        from->address().worker_id() != to->address().worker_id()) {
+      updates_clients_->AddInEdge(
+          transaction_id(), *from,
+          db().storage().GlobalizedAddress(edge_address), *to, edge_type);
+    }
+    auto *to_updated =
+        data_manager_->Elements<Vertex>(transaction_id()).FindNew(to->gid());
+    to_updated->in_.emplace(
+        db().storage().LocalizedAddressIfPossible(from->address()),
+        edge_address, edge_type);
+  }
+};
+
+class MasterAccessor final : public DistributedAccessor {
+  distributed::IndexRpcClients *index_rpc_clients_{nullptr};
+  int worker_id_{0};
+
+ public:
+  explicit MasterAccessor(Master *db,
+                          distributed::IndexRpcClients *index_rpc_clients)
+      : DistributedAccessor(db),
+        index_rpc_clients_(index_rpc_clients),
+        worker_id_(db->WorkerId()) {}
+  MasterAccessor(Master *db, tx::TransactionId tx_id,
+                 distributed::IndexRpcClients *index_rpc_clients)
+      : DistributedAccessor(db, tx_id),
+        index_rpc_clients_(index_rpc_clients),
+        worker_id_(db->WorkerId()) {}
+
+  void PostCreateIndex(const LabelPropertyIndex::Key &key) override {
+    std::experimental::optional<std::vector<utils::Future<bool>>>
+        index_rpc_completions;
+
+    // Notify all workers to create the index
+    index_rpc_completions.emplace(index_rpc_clients_->GetCreateIndexFutures(
+        key.label_, key.property_, worker_id_));
+
+    if (index_rpc_completions) {
+      // Wait first, check later - so that every thread finishes and none
+      // terminates - this can probably be optimized in case we fail early so
+      // that we notify other workers to stop building indexes
+      for (auto &index_built : *index_rpc_completions) index_built.wait();
+      for (auto &index_built : *index_rpc_completions) {
+        if (!index_built.get()) {
+          db().storage().label_property_index().DeleteIndex(key);
+          throw IndexCreationOnWorkerException("Index exists on a worker");
+        }
+      }
+    }
+  }
+
+  void PopulateIndexFromBuildIndex(
+      const LabelPropertyIndex::Key &key) override {
+    // Notify all workers to start populating an index if we are the master
+    // since they don't have to wait anymore
+    std::experimental::optional<std::vector<utils::Future<bool>>>
+        index_rpc_completions;
+    index_rpc_completions.emplace(index_rpc_clients_->GetPopulateIndexFutures(
+        key.label_, key.property_, transaction_id(), worker_id_));
+
+    // Populate our own storage
+    GraphDbAccessor::PopulateIndexFromBuildIndex(key);
+
+    // Check if all workers successfully built their indexes and after this we
+    // can set the index as built
+    if (index_rpc_completions) {
+      // Wait first, check later - so that every thread finishes and none
+      // terminates - this can probably be optimized in case we fail early so
+      // that we notify other workers to stop building indexes
+      for (auto &index_built : *index_rpc_completions) index_built.wait();
+      for (auto &index_built : *index_rpc_completions) {
+        if (!index_built.get()) {
+          db().storage().label_property_index().DeleteIndex(key);
+          throw IndexCreationOnWorkerException("Index exists on a worker");
+        }
+      }
+    }
+  }
+};
+
+class WorkerAccessor final : public DistributedAccessor {
+ public:
+  explicit WorkerAccessor(Worker *db) : DistributedAccessor(db) {}
+  WorkerAccessor(Worker *db, tx::TransactionId tx_id)
+      : DistributedAccessor(db, tx_id) {}
+
+  void BuildIndex(storage::Label, storage::Property) override {
+    // TODO: Rethink BuildIndex API or inheritance. It's rather strange that a
+    // derived type blocks this functionality.
+    LOG(FATAL) << "BuildIndex invoked on worker.";
+  }
+};
+
+}  // namespace
+
+// GraphDb implementations
+
 namespace impl {
 
 template <template <typename TId> class TMapper>
@@ -80,12 +262,12 @@ class Master {
   distributed::BfsRpcClients bfs_subcursor_clients_{
       self_, &subcursor_storage_, &rpc_worker_clients_, &data_manager_};
   distributed::DurabilityRpcMaster durability_rpc_{rpc_worker_clients_};
-  distributed::DataRpcServer data_server_{*self_, server_};
+  distributed::DataRpcServer data_server_{self_, &server_};
   distributed::DataRpcClients data_clients_{rpc_worker_clients_};
   distributed::PlanDispatcher plan_dispatcher_{rpc_worker_clients_};
-  distributed::PullRpcClients pull_clients_{rpc_worker_clients_};
+  distributed::PullRpcClients pull_clients_{&rpc_worker_clients_, &data_manager_};
   distributed::IndexRpcClients index_rpc_clients_{rpc_worker_clients_};
-  distributed::UpdatesRpcServer updates_server_{*self_, server_};
+  distributed::UpdatesRpcServer updates_server_{self_, &server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
   distributed::DataManager data_manager_{*self_, data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{
@@ -159,8 +341,8 @@ Master::Master(Config config)
     snapshot_creator_->Run(
         "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
         [this] {
-          GraphDbAccessor dba(*this);
-          MakeSnapshot(dba);
+          auto dba = this->Access();
+          MakeSnapshot(*dba);
         });
   }
 
@@ -194,9 +376,18 @@ Master::~Master() {
   // We are not a worker, so we can do a snapshot on exit if it's enabled. Doing
   // this on the master forces workers to do the same through rpcs
   if (impl_->config_.snapshot_on_exit) {
-    GraphDbAccessor dba(*this);
-    MakeSnapshot(dba);
+    auto dba = Access();
+    MakeSnapshot(*dba);
   }
+}
+
+std::unique_ptr<GraphDbAccessor> Master::Access() {
+  return std::make_unique<MasterAccessor>(this, &impl_->index_rpc_clients_);
+}
+
+std::unique_ptr<GraphDbAccessor> Master::Access(tx::TransactionId tx_id) {
+  return std::make_unique<MasterAccessor>(this, tx_id,
+                                          &impl_->index_rpc_clients_);
 }
 
 Storage &Master::storage() { return *impl_->storage_; }
@@ -299,6 +490,30 @@ distributed::IndexRpcClients &Master::index_rpc_clients() {
   return impl_->index_rpc_clients_;
 }
 
+VertexAccessor InsertVertexIntoRemote(
+    GraphDbAccessor *dba, int worker_id,
+    const std::vector<storage::Label> &labels,
+    const std::unordered_map<storage::Property, query::TypedValue>
+        &properties) {
+  // TODO: Replace this with virtual call or some other mechanism.
+  auto *distributed_db =
+      dynamic_cast<database::DistributedGraphDb *>(&dba->db());
+  CHECK(distributed_db);
+  CHECK(worker_id != distributed_db->WorkerId())
+      << "Not allowed to call InsertVertexIntoRemote for local worker";
+  auto *updates_clients = &distributed_db->updates_clients();
+  auto *data_manager = &distributed_db->data_manager();
+  CHECK(updates_clients && data_manager);
+  gid::Gid gid = updates_clients->CreateVertex(worker_id, dba->transaction_id(),
+                                               labels, properties);
+  auto vertex = std::make_unique<Vertex>();
+  vertex->labels_ = labels;
+  for (auto &kv : properties) vertex->properties_.set(kv.first, kv.second);
+  data_manager->Elements<Vertex>(dba->transaction_id())
+      .emplace(gid, nullptr, std::move(vertex));
+  return VertexAccessor({gid, worker_id}, *dba);
+}
+
 // Worker
 
 namespace impl {
@@ -341,13 +556,13 @@ class Worker {
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{
       self_, &subcursor_storage_, &rpc_worker_clients_, &data_manager_};
-  distributed::DataRpcServer data_server_{*self_, server_};
+  distributed::DataRpcServer data_server_{self_, &server_};
   distributed::DataRpcClients data_clients_{rpc_worker_clients_};
   distributed::PlanConsumer plan_consumer_{server_};
-  distributed::ProduceRpcServer produce_server_{*self_, tx_engine_, server_,
+  distributed::ProduceRpcServer produce_server_{self_, &tx_engine_, server_,
                                                 plan_consumer_, &data_manager_};
   distributed::IndexRpcServer index_rpc_server_{*self_, server_};
-  distributed::UpdatesRpcServer updates_server_{*self_, server_};
+  distributed::UpdatesRpcServer updates_server_{self_, &server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
   distributed::DataManager data_manager_{*self_, data_clients_};
   distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
@@ -373,8 +588,7 @@ Worker::Worker(Config config)
   // Durability recovery.
   {
     // What we should recover.
-    std::experimental::optional<tx::TransactionId> snapshot_to_recover;
-    snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
+    auto snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
 
     // What we recover.
     std::experimental::optional<durability::RecoveryInfo> recovery_info;
@@ -424,6 +638,14 @@ Worker::~Worker() {
   is_accepting_transactions_ = false;
   impl_->tx_engine_.LocalForEachActiveTransaction(
       [](auto &t) { t.set_should_abort(); });
+}
+
+std::unique_ptr<GraphDbAccessor> Worker::Access() {
+  return std::make_unique<WorkerAccessor>(this);
+}
+
+std::unique_ptr<GraphDbAccessor> Worker::Access(tx::TransactionId tx_id) {
+  return std::make_unique<WorkerAccessor>(this, tx_id);
 }
 
 Storage &Worker::storage() { return *impl_->storage_; }

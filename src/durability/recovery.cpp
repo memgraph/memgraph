@@ -4,6 +4,7 @@
 #include <limits>
 #include <unordered_map>
 
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/indexes/label_property_index.hpp"
 #include "durability/hashed_file_reader.hpp"
@@ -66,9 +67,18 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
 
+  int worker_id = 0;
+  // TODO: Figure out a better solution for SingleNode recovery vs
+  // DistributedGraphDb.
+  if (auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(db)) {
+    worker_id = distributed_db->WorkerId();
+  } else {
+    CHECK(dynamic_cast<database::SingleNode *>(db));
+  }
   // Checks worker id was set correctly
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
-                dv.ValueInt() == db->WorkerId());
+                dv.ValueInt() == worker_id);
 
   // Vertex and edge generator ids
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
@@ -101,7 +111,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
                                         property.ValueString());
   }
 
-  database::GraphDbAccessor dba(*db);
+  auto dba = db->Access();
   std::unordered_map<gid::Gid,
                      std::pair<storage::VertexAddress, storage::VertexAddress>>
       edge_gid_endpoints_mapping;
@@ -110,47 +120,47 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     auto vertex = decoder.ReadSnapshotVertex();
     RETURN_IF_NOT(vertex);
 
-    auto vertex_accessor = dba.InsertVertex(vertex->gid, vertex->cypher_id);
+    auto vertex_accessor = dba->InsertVertex(vertex->gid, vertex->cypher_id);
     for (const auto &label : vertex->labels) {
-      vertex_accessor.add_label(dba.Label(label));
+      vertex_accessor.add_label(dba->Label(label));
     }
     for (const auto &property_pair : vertex->properties) {
-      vertex_accessor.PropsSet(dba.Property(property_pair.first),
+      vertex_accessor.PropsSet(dba->Property(property_pair.first),
                                glue::ToTypedValue(property_pair.second));
     }
     auto vertex_record = vertex_accessor.GetNew();
     for (const auto &edge : vertex->in) {
       vertex_record->in_.emplace(edge.vertex, edge.address,
-                                 dba.EdgeType(edge.type));
+                                 dba->EdgeType(edge.type));
       edge_gid_endpoints_mapping[edge.address.gid()] = {
           edge.vertex, vertex_accessor.GlobalAddress()};
     }
     for (const auto &edge : vertex->out) {
       vertex_record->out_.emplace(edge.vertex, edge.address,
-                                  dba.EdgeType(edge.type));
+                                  dba->EdgeType(edge.type));
       edge_gid_endpoints_mapping[edge.address.gid()] = {
           vertex_accessor.GlobalAddress(), edge.vertex};
     }
   }
 
   auto vertex_transform_to_local_if_possible =
-      [&db, &dba](storage::VertexAddress &address) {
+      [&dba, worker_id](storage::VertexAddress &address) {
         if (address.is_local()) return;
         // If the worker id matches it should be a local apperance
-        if (address.worker_id() == db->WorkerId()) {
+        if (address.worker_id() == worker_id) {
           address = storage::VertexAddress(
-              dba.db().storage().LocalAddress<Vertex>(address.gid()));
+              dba->db().storage().LocalAddress<Vertex>(address.gid()));
           CHECK(address.is_local()) << "Address should be local but isn't";
         }
       };
 
   auto edge_transform_to_local_if_possible =
-      [&db, &dba](storage::EdgeAddress &address) {
+      [&dba, worker_id](storage::EdgeAddress &address) {
         if (address.is_local()) return;
         // If the worker id matches it should be a local apperance
-        if (address.worker_id() == db->WorkerId()) {
+        if (address.worker_id() == worker_id) {
           address = storage::EdgeAddress(
-              dba.db().storage().LocalAddress<Edge>(address.gid()));
+              dba->db().storage().LocalAddress<Edge>(address.gid()));
           CHECK(address.is_local()) << "Address should be local but isn't";
         }
       };
@@ -181,11 +191,11 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     vertex_transform_to_local_if_possible(from);
     vertex_transform_to_local_if_possible(to);
 
-    auto edge_accessor = dba.InsertOnlyEdge(from, to, dba.EdgeType(edge.type),
-                                            edge.id.AsUint(), cypher_id);
+    auto edge_accessor = dba->InsertOnlyEdge(from, to, dba->EdgeType(edge.type),
+                                             edge.id.AsUint(), cypher_id);
 
     for (const auto &property_pair : edge.properties)
-      edge_accessor.PropsSet(dba.Property(property_pair.first),
+      edge_accessor.PropsSet(dba->Property(property_pair.first),
                              glue::ToTypedValue(property_pair.second));
   }
 
@@ -194,14 +204,14 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   reader.ReadType(vertex_count);
   reader.ReadType(edge_count);
   if (!reader.Close() || reader.hash() != hash) {
-    dba.Abort();
+    dba->Abort();
     return false;
   }
 
   // We have to replace global_ids with local ids where possible for all edges
   // in every vertex and this can only be done after we inserted the edges; this
   // is to speedup execution
-  for (auto &vertex_accessor : dba.Vertices(true)) {
+  for (auto &vertex_accessor : dba->Vertices(true)) {
     auto vertex = vertex_accessor.GetNew();
     auto iterate_and_transform =
         [vertex_transform_to_local_if_possible,
@@ -231,8 +241,8 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   tx::TransactionId max_id = recovery_data->snapshooter_tx_id;
   auto &snap = recovery_data->snapshooter_tx_snapshot;
   if (!snap.empty()) max_id = *std::max_element(snap.begin(), snap.end());
-  dba.db().tx_engine().EnsureNextIdGreater(max_id);
-  dba.Commit();
+  dba->db().tx_engine().EnsureNextIdGreater(max_id);
+  dba->Commit();
   return true;
 }
 
@@ -319,7 +329,9 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
             !utils::Contains(common_wal_tx, tx_id);
   };
 
-  std::unordered_map<tx::TransactionId, database::GraphDbAccessor> accessors;
+  std::unordered_map<tx::TransactionId,
+                     std::unique_ptr<database::GraphDbAccessor>>
+      accessors;
   auto get_accessor =
       [db, &accessors](tx::TransactionId tx_id) -> database::GraphDbAccessor & {
     auto found = accessors.find(tx_id);
@@ -328,12 +340,13 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
     // don't have a transaction begin, the accessors are not created.
     if (db->type() == database::GraphDb::Type::DISTRIBUTED_WORKER &&
         found == accessors.end()) {
-      std::tie(found, std::ignore) = accessors.emplace(tx_id, *db);
+      // TODO: Do we want to call db->Access with tx_id?
+      std::tie(found, std::ignore) = accessors.emplace(tx_id, db->Access());
     }
 
     CHECK(found != accessors.end())
         << "Accessor does not exist for transaction: " << tx_id;
-    return found->second;
+    return *found->second;
   };
 
   // Ensure that the next transaction ID in the recovered DB will be greater
@@ -353,7 +366,7 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
           case database::StateDelta::Type::TRANSACTION_BEGIN:
             CHECK(accessors.find(delta.transaction_id) == accessors.end())
                 << "Double transaction start";
-            accessors.emplace(delta.transaction_id, *db);
+            accessors.emplace(delta.transaction_id, db->Access());
             break;
           case database::StateDelta::Type::TRANSACTION_ABORT:
             get_accessor(delta.transaction_id).Abort();
@@ -381,6 +394,7 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
   db->tx_engine().EnsureNextIdGreater(max_observed_tx_id);
   return true;
 }
+
 }  // anonymous namespace
 
 RecoveryInfo RecoverOnlySnapshot(
@@ -439,15 +453,16 @@ void RecoverWalAndIndexes(const fs::path &durability_dir, database::GraphDb *db,
   RecoverWal(durability_dir / kWalDir, db, recovery_data);
 
   // Index recovery.
-  database::GraphDbAccessor db_accessor_indices{*db};
+  auto db_accessor_indices = db->Access();
   for (const auto &label_prop : recovery_data->indexes) {
     const database::LabelPropertyIndex::Key key{
-        db_accessor_indices.Label(label_prop.first),
-        db_accessor_indices.Property(label_prop.second)};
-    db_accessor_indices.db().storage().label_property_index().CreateIndex(key);
-    db_accessor_indices.PopulateIndex(key);
-    db_accessor_indices.EnableIndex(key);
+        db_accessor_indices->Label(label_prop.first),
+        db_accessor_indices->Property(label_prop.second)};
+    db_accessor_indices->db().storage().label_property_index().CreateIndex(key);
+    db_accessor_indices->PopulateIndex(key);
+    db_accessor_indices->EnableIndex(key);
   }
-  db_accessor_indices.Commit();
+  db_accessor_indices->Commit();
 }
+
 }  // namespace durability

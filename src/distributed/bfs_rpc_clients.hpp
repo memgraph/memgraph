@@ -5,6 +5,10 @@
 #include "distributed/rpc_worker_clients.hpp"
 #include "transactions/transaction.hpp"
 
+namespace database {
+class DistributedGraphDb;
+}
+
 namespace distributed {
 
 class DataManager;
@@ -17,7 +21,7 @@ class DataManager;
 /// directly.
 class BfsRpcClients {
  public:
-  BfsRpcClients(database::GraphDb *db,
+  BfsRpcClients(database::DistributedGraphDb *db,
                 BfsSubcursorStorage *subcursor_storage,
                 RpcWorkerClients *clients,
                 DataManager *data_manager);
@@ -60,7 +64,7 @@ class BfsRpcClients {
       const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear);
 
  private:
-  database::GraphDb *db_{nullptr};
+  database::DistributedGraphDb *db_{nullptr};
   distributed::BfsSubcursorStorage *subcursor_storage_{nullptr};
   distributed::RpcWorkerClients *clients_{nullptr};
   distributed::DataManager *data_manager_{nullptr};

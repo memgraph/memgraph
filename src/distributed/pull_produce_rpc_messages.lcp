@@ -36,6 +36,9 @@ cpp<#
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 
 #>cpp
+// Forward declare for LoadGraphElement.
+class DataManager;
+
 /// The default number of results returned via RPC from remote execution to the
 /// master that requested it.
 constexpr int kDefaultBatchSize = 20;
@@ -97,8 +100,8 @@ the relevant parts of the response, ready for use."))
                  query::TypedValue value;
                  utils::LoadCapnpTypedValue(
                      value_reader, &value,
-                     [this, dba](const auto &reader, auto *value) {
-                       this->LoadGraphElement(dba, reader, value);
+                     [this, dba, data_manager](const auto &reader, auto *value) {
+                       this->LoadGraphElement(dba, reader, value, data_manager);
                      });
                  current_frame.emplace_back(value);
                }
@@ -302,9 +305,10 @@ to the appropriate value. Not used on side that generates the response.")
                          distributed::capnp::TypedValue::Builder *) const;
    void LoadGraphElement(database::GraphDbAccessor *,
                          const distributed::capnp::TypedValue::Reader &,
-                         query::TypedValue *);
+                         query::TypedValue *, distributed::DataManager *);
    cpp<#)
-  (:serialize :capnp :load-args '((dba "database::GraphDbAccessor *"))))
+  (:serialize :capnp :load-args '((dba "database::GraphDbAccessor *")
+                                  (data-manager "distributed::DataManager *"))))
 
 (lcp:in-impl
  #>cpp
@@ -369,14 +373,7 @@ to the appropriate value. Not used on side that generates the response.")
 void PullResData::LoadGraphElement(
     database::GraphDbAccessor *dba,
     const distributed::capnp::TypedValue::Reader &reader,
-    query::TypedValue *value) {
-  distributed::DataManager *data_manager = nullptr;
-  // TODO: Pass in a DistributedGraphDb or data_manager.
-  if (auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(&dba->db())) {
-    data_manager = &distributed_db->data_manager();
-  }
-  CHECK(data_manager);
+    query::TypedValue *value, distributed::DataManager *data_manager) {
   auto load_vertex = [dba, data_manager](const auto &vertex_reader) {
     storage::VertexAddress global_address(vertex_reader.getAddress());
     auto old_record =
@@ -537,7 +534,8 @@ cpp<#)
             }
           }
           "))
-   (:serialize :capnp :base t :load-args '((dba "database::GraphDbAccessor *")))))
+   (:serialize :capnp :base t :load-args '((dba "database::GraphDbAccessor *")
+                                           (data-manager "distributed::DataManager *")))))
 
 ;; TODO make a separate RPC for the continuation of an existing pull, as an
 ;; optimization not to have to send the full PullReqData pack every time.

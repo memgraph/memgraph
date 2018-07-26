@@ -23,7 +23,7 @@ using namespace query::plan;
 
 TEST(QueryPlan, Skip) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -31,28 +31,28 @@ TEST(QueryPlan, Skip) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Skip>(n.op_, LITERAL(2));
 
-  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
+  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
 
-  dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
+  dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
 
-  dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
+  dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
 
-  dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(1, PullAll(skip, dba, symbol_table));
+  dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
 
-  for (int i = 0; i < 10; ++i) dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(11, PullAll(skip, dba, symbol_table));
+  for (int i = 0; i < 10; ++i) dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(11, PullAll(skip, *dba, symbol_table));
 }
 
 TEST(QueryPlan, Limit) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -60,23 +60,23 @@ TEST(QueryPlan, Limit) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Limit>(n.op_, LITERAL(2));
 
-  EXPECT_EQ(0, PullAll(skip, dba, symbol_table));
+  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
 
-  dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(1, PullAll(skip, dba, symbol_table));
+  dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
 
-  dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, dba, symbol_table));
+  dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
 
-  dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, dba, symbol_table));
+  dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
 
-  for (int i = 0; i < 10; ++i) dba.InsertVertex();
-  dba.AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, dba, symbol_table));
+  for (int i = 0; i < 10; ++i) dba->InsertVertex();
+  dba->AdvanceCommand();
+  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
 }
 
 TEST(QueryPlan, CreateLimit) {
@@ -84,10 +84,10 @@ TEST(QueryPlan, CreateLimit) {
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  dba.InsertVertex();
-  dba.InsertVertex();
-  dba.AdvanceCommand();
+  auto dba = db.Access();
+  dba->InsertVertex();
+  dba->InsertVertex();
+  dba->AdvanceCommand();
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -98,14 +98,15 @@ TEST(QueryPlan, CreateLimit) {
   auto c = std::make_shared<CreateNode>(n.op_, m, false);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
-  EXPECT_EQ(1, PullAll(skip, dba, symbol_table));
-  dba.AdvanceCommand();
-  EXPECT_EQ(3, CountIterable(dba.Vertices(false)));
+  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
+  dba->AdvanceCommand();
+  EXPECT_EQ(3, CountIterable(dba->Vertices(false)));
 }
 
 TEST(QueryPlan, OrderBy) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");
@@ -166,7 +167,8 @@ TEST(QueryPlan, OrderBy) {
 
 TEST(QueryPlan, OrderByMultiple) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -202,7 +204,8 @@ TEST(QueryPlan, OrderByMultiple) {
   auto order_by = std::make_shared<plan::OrderBy>(
       n.op_,
       std::vector<std::pair<Ordering, Expression *>>{
-          {Ordering::ASC, n_p1}, {Ordering::DESC, n_p2},
+          {Ordering::ASC, n_p1},
+          {Ordering::DESC, n_p2},
       },
       std::vector<Symbol>{n.sym_});
   auto n_p1_ne = NEXPR("n.p1", n_p1);
@@ -222,7 +225,8 @@ TEST(QueryPlan, OrderByMultiple) {
 
 TEST(QueryPlan, OrderByExceptions) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
   AstStorage storage;
   SymbolTable symbol_table;
   auto prop = dba.Property("prop");

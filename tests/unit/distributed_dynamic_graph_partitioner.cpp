@@ -32,8 +32,8 @@ TEST_F(DistributedDynamicGraphPartitionerTest, CountLabels) {
   for (int i = 0; i < 6; ++i) InsertEdge(vc, va, "edge");
 
   DynamicGraphPartitioner dgp(&master());
-  GraphDbAccessor dba(master());
-  VertexAccessor v(va, dba);
+  auto dba = master().Access();
+  VertexAccessor v(va, *dba);
   auto count_labels = dgp.CountLabels(v);
 
   // Self loops counted twice
@@ -53,8 +53,8 @@ TEST_F(DistributedDynamicGraphPartitionerTest, FindMigrationsMoveVertex) {
 
   for (int i = 0; i < 100; ++i) InsertEdge(va, vb, "edge");
   DynamicGraphPartitioner dgp(&master());
-  GraphDbAccessor dba(master());
-  auto migrations = dgp.FindMigrations(dba);
+  auto dba = master().Access();
+  auto migrations = dgp.FindMigrations(*dba);
   // Expect `va` to try to move to another worker, the one connected to it
   ASSERT_EQ(migrations.size(), 1);
   EXPECT_EQ(migrations[0].second, worker(1).WorkerId());
@@ -68,8 +68,8 @@ TEST_F(DistributedDynamicGraphPartitionerTest, FindMigrationsNoChange) {
   // Everything is balanced, there should be no movement
 
   DynamicGraphPartitioner dgp(&master());
-  GraphDbAccessor dba(master());
-  auto migrations = dgp.FindMigrations(dba);
+  auto dba = master().Access();
+  auto migrations = dgp.FindMigrations(*dba);
   EXPECT_EQ(migrations.size(), 0);
 }
 
@@ -86,9 +86,9 @@ TEST_F(DistributedDynamicGraphPartitionerTest, FindMigrationsMultipleAndLimit) {
   for (int i = 0; i < 100; ++i) InsertEdge(va, vc, "edge");
   for (int i = 0; i < 100; ++i) InsertEdge(vb, vc, "edge");
   DynamicGraphPartitioner dgp(&master());
-  GraphDbAccessor dba(master());
+  auto dba = master().Access();
   {
-    auto migrations = dgp.FindMigrations(dba);
+    auto migrations = dgp.FindMigrations(*dba);
     // Expect vertices to try to move to another worker
     ASSERT_EQ(migrations.size(), 2);
   }
@@ -96,7 +96,7 @@ TEST_F(DistributedDynamicGraphPartitionerTest, FindMigrationsMultipleAndLimit) {
   // See if flag affects number of returned results
   {
     FLAGS_dgp_max_batch_size = 1;
-    auto migrations = dgp.FindMigrations(dba);
+    auto migrations = dgp.FindMigrations(*dba);
     // Expect vertices to try to move to another worker
     ASSERT_EQ(migrations.size(), 1);
   }
@@ -151,8 +151,8 @@ TEST_F(DistributedDynamicGraphPartitionerTest, Run) {
     return cnt;
   };
 
-  GraphDbAccessor dba_m(master());
-  GraphDbAccessor dba_w1(worker(1));
-  EXPECT_EQ(CountRemotes(dba_m), 50);
-  EXPECT_EQ(CountRemotes(dba_w1), 50);
+  auto dba_m = master().Access();
+  auto dba_w1 = worker(1).Access();
+  EXPECT_EQ(CountRemotes(*dba_m), 50);
+  EXPECT_EQ(CountRemotes(*dba_w1), 50);
 }

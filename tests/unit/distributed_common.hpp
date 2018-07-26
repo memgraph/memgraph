@@ -98,9 +98,6 @@ class DistributedGraphDbTest : public ::testing::Test {
   }
 
   database::Master &master() { return *master_; }
-  auto &master_tx_engine() {
-    return dynamic_cast<tx::MasterEngine &>(master_->tx_engine());
-  }
 
   database::Worker &worker(int worker_id) {
     return workers_[worker_id - 1]->worker_;
@@ -109,9 +106,9 @@ class DistributedGraphDbTest : public ::testing::Test {
   /// Inserts a vertex and returns it's global address. Does it in a new
   /// transaction.
   storage::VertexAddress InsertVertex(database::GraphDb &db) {
-    database::GraphDbAccessor dba{db};
-    auto r_val = dba.InsertVertex().GlobalAddress();
-    dba.Commit();
+    auto dba = db.Access();
+    auto r_val = dba->InsertVertex().GlobalAddress();
+    dba->Commit();
     return r_val;
   }
 
@@ -121,27 +118,27 @@ class DistributedGraphDbTest : public ::testing::Test {
                   const std::string &edge_type_name) {
     CHECK(from_addr.is_remote() && to_addr.is_remote())
         << "Distributed test InsertEdge only takes global addresses";
-    database::GraphDbAccessor dba{master()};
-    VertexAccessor from{from_addr, dba};
-    VertexAccessor to{to_addr, dba};
+    auto dba = master().Access();
+    VertexAccessor from{from_addr, *dba};
+    VertexAccessor to{to_addr, *dba};
     auto r_val =
-        dba.InsertEdge(from, to, dba.EdgeType(edge_type_name)).GlobalAddress();
-    master().updates_server().Apply(dba.transaction_id());
-    worker(1).updates_server().Apply(dba.transaction_id());
-    worker(2).updates_server().Apply(dba.transaction_id());
-    dba.Commit();
+        dba->InsertEdge(from, to, dba->EdgeType(edge_type_name)).GlobalAddress();
+    master().updates_server().Apply(dba->transaction_id());
+    worker(1).updates_server().Apply(dba->transaction_id());
+    worker(2).updates_server().Apply(dba->transaction_id());
+    dba->Commit();
     return r_val;
   }
 
   auto VertexCount(database::GraphDb &db) {
-    database::GraphDbAccessor dba{db};
-    auto vertices = dba.Vertices(false);
+    auto dba = db.Access();
+    auto vertices = dba->Vertices(false);
     return std::distance(vertices.begin(), vertices.end());
   };
 
   auto EdgeCount(database::GraphDb &db) {
-    database::GraphDbAccessor dba(db);
-    auto edges = dba.Edges(false);
+    auto dba = db.Access();
+    auto edges = dba->Edges(false);
     return std::distance(edges.begin(), edges.end());
   };
 

@@ -5,9 +5,10 @@
 ///
 ///     AstStorage storage;  // Macros rely on storage being in scope.
 ///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros
-///     // rely on a DbAccessor named dba.
+///     // rely on a DbAccessor *reference* named dba.
 ///     database::SingleNode db;
-///     database::GraphDbAccessor dba(db);
+///     auto dba_ptr = db.Access();
+///     auto &dba = *dba_ptr;
 ///
 ///     QUERY(MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("m"))),
 ///           WHERE(LESS(PROPERTY_LOOKUP("e", edge_prop), LITERAL(3))),

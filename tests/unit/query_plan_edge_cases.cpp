@@ -17,15 +17,15 @@ DECLARE_bool(query_cost_planner);
 class QueryExecution : public testing::Test {
  protected:
   std::experimental::optional<database::SingleNode> db_;
-  std::experimental::optional<database::GraphDbAccessor> dba_;
+  std::unique_ptr<database::GraphDbAccessor> dba_;
 
   void SetUp() {
     db_.emplace();
-    dba_.emplace(*db_);
+    dba_ = db_->Access();
   }
 
   void TearDown() {
-    dba_ = std::experimental::nullopt;
+    dba_ = nullptr;
     db_ = std::experimental::nullopt;
   }
 
@@ -33,7 +33,7 @@ class QueryExecution : public testing::Test {
    * variable to hold a new accessor with a new transaction */
   void Commit() {
     dba_->Commit();
-    dba_.emplace(*db_);
+    dba_ = db_->Access();
   }
 
   /** Executes the query and returns the results.

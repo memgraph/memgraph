@@ -832,10 +832,10 @@ int main(int argc, char *argv[]) {
     std::exit(EXIT_FAILURE);
   }
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   Timer planning_timer;
   InteractiveDbAccessor interactive_db(
-      dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0,
+      *dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0,
       planning_timer);
   if (!in_db_filename.empty()) {
     std::ifstream db_file(in_db_filename);
@@ -846,7 +846,7 @@ int main(int argc, char *argv[]) {
     if (!line || *line == "quit") break;
     if (line->empty()) continue;
     try {
-      auto ast = MakeAst(*line, dba);
+      auto ast = MakeAst(*line, *dba);
       auto symbol_table = MakeSymbolTable(ast);
       planning_timer.Start();
       auto plans = MakeLogicalPlans(ast, symbol_table, interactive_db);
@@ -856,7 +856,7 @@ int main(int argc, char *argv[]) {
           << std::chrono::duration<double, std::milli>(planning_time).count()
           << "ms" << std::endl;
       std::cout << "Generated " << plans.size() << " plans" << std::endl;
-      ExaminePlans(dba, symbol_table, plans);
+      ExaminePlans(*dba, symbol_table, plans);
     } catch (const utils::BasicException &e) {
       std::cout << "Error: " << e.what() << std::endl;
     }

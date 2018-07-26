@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include "database/graph_db.hpp"
@@ -28,6 +30,9 @@ class Worker;
 /// Abstract base class for concrete distributed versions of GraphDb
 class DistributedGraphDb : public GraphDb {
  public:
+  virtual int WorkerId() const = 0;
+  virtual std::vector<int> GetWorkerIds() const = 0;
+
   virtual distributed::BfsRpcClients &bfs_subcursor_clients() = 0;
   virtual distributed::DataRpcClients &data_clients() = 0;
   virtual distributed::UpdatesRpcServer &updates_server() = 0;
@@ -43,6 +48,9 @@ class Master final : public DistributedGraphDb {
   GraphDb::Type type() const override {
     return GraphDb::Type::DISTRIBUTED_MASTER;
   }
+
+  std::unique_ptr<GraphDbAccessor> Access() override;
+  std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;
 
   Storage &storage() override;
   durability::WriteAheadLog &wal() override;
@@ -89,6 +97,9 @@ class Worker final : public DistributedGraphDb {
     return GraphDb::Type::DISTRIBUTED_WORKER;
   }
 
+  std::unique_ptr<GraphDbAccessor> Access() override;
+  std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;
+
   Storage &storage() override;
   durability::WriteAheadLog &wal() override;
   tx::Engine &tx_engine() override;
@@ -123,5 +134,12 @@ class Worker final : public DistributedGraphDb {
 
   utils::Scheduler transaction_killer_;
 };
+
+/// Creates a new Vertex on the given worker.
+/// It is NOT allowed to call this function with this worker's id.
+VertexAccessor InsertVertexIntoRemote(
+    GraphDbAccessor *dba, int worker_id,
+    const std::vector<storage::Label> &labels,
+    const std::unordered_map<storage::Property, query::TypedValue> &properties);
 
 }  // namespace database

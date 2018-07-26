@@ -18,7 +18,7 @@ ExpandBfsSubcursor::ExpandBfsSubcursor(
     std::vector<storage::EdgeType> edge_types, query::GraphView graph_view,
     BfsRpcClients *bfs_subcursor_clients)
     : bfs_subcursor_clients_(bfs_subcursor_clients),
-      dba_(*db, tx_id),
+      dba_(db->Access(tx_id)),
       direction_(direction),
       edge_types_(std::move(edge_types)),
       graph_view_(graph_view) {
@@ -34,7 +34,7 @@ void ExpandBfsSubcursor::Reset() {
 
 void ExpandBfsSubcursor::SetSource(storage::VertexAddress source_address) {
   Reset();
-  auto source = VertexAccessor(source_address, dba_);
+  auto source = VertexAccessor(source_address, *dba_);
   SwitchAccessor(source, graph_view_);
   processed_.emplace(source, std::experimental::nullopt);
   ExpandFromVertex(source);
@@ -70,7 +70,7 @@ bool ExpandBfsSubcursor::ExpandToLocalVertex(storage::EdgeAddress edge,
   CHECK(vertex.address().is_local())
       << "ExpandToLocalVertex called with remote vertex";
 
-  edge = dba_.db().storage().LocalizedAddressIfPossible(edge);
+  edge = dba_->db().storage().LocalizedAddressIfPossible(edge);
   SwitchAccessor(vertex, graph_view_);
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -83,13 +83,13 @@ bool ExpandBfsSubcursor::ExpandToLocalVertex(storage::EdgeAddress edge,
 
 bool ExpandBfsSubcursor::ExpandToLocalVertex(storage::EdgeAddress edge,
                                              storage::VertexAddress vertex) {
-  auto vertex_accessor = VertexAccessor(vertex, dba_);
-  return ExpandToLocalVertex(edge, VertexAccessor(vertex, dba_));
+  auto vertex_accessor = VertexAccessor(vertex, *dba_);
+  return ExpandToLocalVertex(edge, VertexAccessor(vertex, *dba_));
 }
 
 PathSegment ExpandBfsSubcursor::ReconstructPath(
     storage::EdgeAddress edge_address) {
-  EdgeAccessor edge(edge_address, dba_);
+  EdgeAccessor edge(edge_address, *dba_);
   CHECK(edge.address().is_local()) << "ReconstructPath called with remote edge";
   DCHECK(edge.from_addr().is_local()) << "`from` vertex should always be local";
   DCHECK(!edge.to_addr().is_local()) << "`to` vertex should be remote when "
@@ -103,7 +103,7 @@ PathSegment ExpandBfsSubcursor::ReconstructPath(
 
 PathSegment ExpandBfsSubcursor::ReconstructPath(
     storage::VertexAddress vertex_addr) {
-  VertexAccessor vertex(vertex_addr, dba_);
+  VertexAccessor vertex(vertex_addr, *dba_);
   CHECK(vertex.address().is_local())
       << "ReconstructPath called with remote vertex";
   PathSegment result;
@@ -126,7 +126,7 @@ void ExpandBfsSubcursor::ReconstructPathHelper(VertexAccessor vertex,
       break;
     }
 
-    result->edges.emplace_back(*in_edge_address, dba_);
+    result->edges.emplace_back(*in_edge_address, *dba_);
 
     auto &in_edge = result->edges.back();
     auto next_vertex_address =
@@ -139,7 +139,7 @@ void ExpandBfsSubcursor::ReconstructPathHelper(VertexAccessor vertex,
       break;
     }
 
-    vertex = VertexAccessor(next_vertex_address, dba_);
+    vertex = VertexAccessor(next_vertex_address, *dba_);
     in_edge_address = processed_[vertex];
   }
 }

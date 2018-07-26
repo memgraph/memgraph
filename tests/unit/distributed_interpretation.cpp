@@ -48,9 +48,9 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
   }
 
   auto Run(const std::string &query) {
-    GraphDbAccessor dba(master());
-    auto results = RunWithDba(query, dba);
-    dba.Commit();
+    auto dba = master().Access();
+    auto results = RunWithDba(query, *dba);
+    dba->Commit();
     return results;
   }
 
@@ -164,20 +164,20 @@ TEST_F(DistributedInterpretationTest, Cartesian) {
   // Create some data on the master and both workers.
   storage::Property prop;
   {
-    GraphDbAccessor dba{master()};
-    auto tx_id = dba.transaction_id();
-    GraphDbAccessor dba1{worker(1), tx_id};
-    GraphDbAccessor dba2{worker(2), tx_id};
-    prop = dba.Property("prop");
+    auto dba = master().Access();
+    auto tx_id = dba->transaction_id();
+    auto dba1 = worker(1).Access(tx_id);
+    auto dba2 = worker(2).Access(tx_id);
+    prop = dba->Property("prop");
     auto add_data = [prop](GraphDbAccessor &dba, int value) {
       dba.InsertVertex().PropsSet(prop, value);
     };
 
-    for (int i = 0; i < 10; ++i) add_data(dba, i);
-    for (int i = 10; i < 20; ++i) add_data(dba1, i);
-    for (int i = 20; i < 30; ++i) add_data(dba2, i);
+    for (int i = 0; i < 10; ++i) add_data(*dba, i);
+    for (int i = 10; i < 20; ++i) add_data(*dba1, i);
+    for (int i = 20; i < 30; ++i) add_data(*dba2, i);
 
-    dba.Commit();
+    dba->Commit();
   }
 
   std::vector<std::vector<int64_t>> expected;
@@ -214,14 +214,14 @@ class TestQueryWaitsOnFutures : public DistributedInterpretationTest {
 TEST_F(TestQueryWaitsOnFutures, Test) {
   const int kVertexCount = 10;
   auto make_fully_connected = [](database::GraphDb &db) {
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
     std::vector<VertexAccessor> vertices;
     for (int i = 0; i < kVertexCount; ++i)
-      vertices.emplace_back(dba.InsertVertex());
-    auto et = dba.EdgeType("et");
+      vertices.emplace_back(dba->InsertVertex());
+    auto et = dba->EdgeType("et");
     for (auto &from : vertices)
-      for (auto &to : vertices) dba.InsertEdge(from, to, et);
-    dba.Commit();
+      for (auto &to : vertices) dba->InsertEdge(from, to, et);
+    dba->Commit();
   };
 
   make_fully_connected(worker(1));
@@ -292,25 +292,25 @@ TEST_F(DistributedInterpretationTest, OngoingProduceKeyTest) {
     InsertVertex(worker(2));
   }
 
-  GraphDbAccessor dba(master());
-  auto count1 = RunWithDba("MATCH (n) RETURN count(n)", dba);
-  dba.AdvanceCommand();
-  auto count2 = RunWithDba("MATCH (n) RETURN count(n)", dba);
+  auto dba = master().Access();
+  auto count1 = RunWithDba("MATCH (n) RETURN count(n)", *dba);
+  dba->AdvanceCommand();
+  auto count2 = RunWithDba("MATCH (n) RETURN count(n)", *dba);
 
   ASSERT_EQ(count1[0][0].ValueInt(), 3 * worker_count);
   ASSERT_EQ(count2[0][0].ValueInt(), 3 * worker_count);
 }
 
 TEST_F(DistributedInterpretationTest, AdvanceCommandOnWorkers) {
-  GraphDbAccessor dba(master());
-  RunWithDba("UNWIND RANGE(1, 10) as x CREATE (:A {id: x})", dba);
-  dba.AdvanceCommand();
+  auto dba = master().Access();
+  RunWithDba("UNWIND RANGE(1, 10) as x CREATE (:A {id: x})", *dba);
+  dba->AdvanceCommand();
   // Advance commands on workers also.
   auto futures = master().pull_clients().NotifyAllTransactionCommandAdvanced(
-      dba.transaction_id());
+      dba->transaction_id());
   for (auto &future : futures) future.wait();
 
-  auto count = RunWithDba("MATCH (n) RETURN count(n)", dba);
+  auto count = RunWithDba("MATCH (n) RETURN count(n)", *dba);
   ASSERT_EQ(count[0][0].ValueInt(), 10);
 }
 

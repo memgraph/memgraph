@@ -29,20 +29,20 @@ DynamicGraphPartitioner::DynamicGraphPartitioner(
     : db_(db) {}
 
 void DynamicGraphPartitioner::Run() {
-  database::GraphDbAccessor dba(*db_);
+  auto dba = db_->Access();
   VLOG(21) << "Starting DynamicGraphPartitioner in tx: "
-           << dba.transaction().id_;
+           << dba->transaction().id_;
 
-  auto migrations = FindMigrations(dba);
+  auto migrations = FindMigrations(*dba);
 
   try {
-    VertexMigrator migrator(&dba);
+    VertexMigrator migrator(dba.get());
     for (auto &migration : migrations) {
       migrator.MigrateVertex(migration.first, migration.second);
     }
 
     auto apply_futures = db_->updates_clients().UpdateApplyAll(
-        db_->WorkerId(), dba.transaction().id_);
+        db_->WorkerId(), dba->transaction().id_);
 
     for (auto &future : apply_futures) {
       switch (future.get()) {
@@ -62,11 +62,11 @@ void DynamicGraphPartitioner::Run() {
       }
     }
 
-    dba.Commit();
+    dba->Commit();
     VLOG(21) << "Sucesfully migrated " << migrations.size() << " vertices..";
   } catch (const utils::BasicException &e) {
     VLOG(21) << "Didn't succeed in relocating; " << e.what();
-    dba.Abort();
+    dba->Abort();
   }
 }
 

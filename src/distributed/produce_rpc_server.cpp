@@ -1,4 +1,6 @@
 #include "distributed/produce_rpc_server.hpp"
+
+#include "database/distributed_graph_db.hpp"
 #include "distributed/data_manager.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/common.hpp"
@@ -8,15 +10,15 @@
 namespace distributed {
 
 ProduceRpcServer::OngoingProduce::OngoingProduce(
-    database::GraphDb &db, tx::TransactionId tx_id,
+    database::Worker *db, tx::TransactionId tx_id,
     std::shared_ptr<query::plan::LogicalOperator> op,
     query::SymbolTable symbol_table, Parameters parameters, int64_t timestamp,
     std::vector<query::Symbol> pull_symbols)
-    : dba_{db, tx_id},
-      context_(dba_),
+    : dba_(db->Access(tx_id)),
+      context_(*dba_),
       pull_symbols_(std::move(pull_symbols)),
       frame_(symbol_table.max_position()),
-      cursor_(op->MakeCursor(dba_)) {
+      cursor_(op->MakeCursor(*dba_)) {
   context_.symbol_table_ = std::move(symbol_table);
   context_.parameters_ = std::move(parameters);
   context_.timestamp_ = timestamp;
@@ -95,11 +97,11 @@ ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
   return std::make_pair(std::move(results), cursor_state_);
 }
 
-ProduceRpcServer::ProduceRpcServer(
-    database::GraphDb &db, tx::Engine &tx_engine,
-    communication::rpc::Server &server,
-    const PlanConsumer &plan_consumer,
-    DataManager *data_manager)
+ProduceRpcServer::ProduceRpcServer(database::Worker *db,
+                                   tx::WorkerEngine *tx_engine,
+                                   communication::rpc::Server &server,
+                                   const PlanConsumer &plan_consumer,
+                                   DataManager *data_manager)
     : db_(db),
       produce_rpc_server_(server),
       plan_consumer_(plan_consumer),
@@ -127,7 +129,7 @@ ProduceRpcServer::ProduceRpcServer(
       [this, data_manager](const auto &req_reader, auto *res_builder) {
         TransactionCommandAdvancedReq req;
         req.Load(req_reader);
-        tx_engine_.UpdateCommand(req.member);
+        tx_engine_->UpdateCommand(req.member);
         data_manager->ClearCacheForSingleTransaction(req.member);
         TransactionCommandAdvancedRes res;
         res.Save(res_builder);
@@ -154,11 +156,8 @@ ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
   if (found != ongoing_produces_.end()) {
     return found->second;
   }
-  if (db_.type() == database::GraphDb::Type::DISTRIBUTED_WORKER) {
-    // On the worker cache the snapshot to have one RPC less.
-    dynamic_cast<tx::WorkerEngine &>(tx_engine_)
-        .RunningTransaction(req.tx_id, req.tx_snapshot);
-  }
+  // On the worker cache the snapshot to have one RPC less.
+  tx_engine_->RunningTransaction(req.tx_id, req.tx_snapshot);
   auto &plan_pack = plan_consumer_.PlanForId(req.plan_id);
   return ongoing_produces_
       .emplace(std::piecewise_construct, std::forward_as_tuple(key_tuple),
@@ -171,7 +170,7 @@ ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
 PullResData ProduceRpcServer::Pull(const PullReq &req) {
   auto &ongoing_produce = GetOngoingProduce(req);
 
-  PullResData result(db_.WorkerId(), req.send_old, req.send_new);
+  PullResData result(db_->WorkerId(), req.send_old, req.send_new);
   result.pull_state = PullState::CURSOR_IN_PROGRESS;
 
   if (req.accumulate) {

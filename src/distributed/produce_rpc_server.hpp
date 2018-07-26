@@ -16,8 +16,15 @@
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
-#include "transactions/engine.hpp"
 #include "transactions/type.hpp"
+
+namespace database {
+class Worker;
+}
+
+namespace tx {
+class WorkerEngine;
+}
 
 namespace distributed {
 
@@ -34,7 +41,7 @@ class ProduceRpcServer {
   /// MG (see query::plan::Synchronize).
   class OngoingProduce {
    public:
-    OngoingProduce(database::GraphDb &db, tx::TransactionId tx_id,
+    OngoingProduce(database::Worker *db, tx::TransactionId tx_id,
                    std::shared_ptr<query::plan::LogicalOperator> op,
                    query::SymbolTable symbol_table, Parameters parameters,
                    int64_t timestamp, std::vector<query::Symbol> pull_symbols);
@@ -51,7 +58,7 @@ class ProduceRpcServer {
     void Reset();
 
    private:
-    database::GraphDbAccessor dba_;
+    std::unique_ptr<database::GraphDbAccessor> dba_;
     query::Context context_;
     std::vector<query::Symbol> pull_symbols_;
     query::Frame frame_;
@@ -64,7 +71,7 @@ class ProduceRpcServer {
   };
 
  public:
-  ProduceRpcServer(database::GraphDb &db, tx::Engine &tx_engine,
+  ProduceRpcServer(database::Worker *db, tx::WorkerEngine *tx_engine,
                    communication::rpc::Server &server,
                    const PlanConsumer &plan_consumer,
                    DataManager *data_manager);
@@ -81,10 +88,10 @@ class ProduceRpcServer {
   std::map<std::tuple<tx::TransactionId, tx::CommandId, int64_t>,
            OngoingProduce>
       ongoing_produces_;
-  database::GraphDb &db_;
+  database::Worker *db_;
   communication::rpc::Server &produce_rpc_server_;
   const distributed::PlanConsumer &plan_consumer_;
-  tx::Engine &tx_engine_;
+  tx::WorkerEngine *tx_engine_;
 
   /// Gets an ongoing produce for the given pull request. Creates a new one if
   /// there is none currently existing.

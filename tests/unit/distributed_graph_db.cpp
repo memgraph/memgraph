@@ -49,8 +49,8 @@ TEST_F(DistributedGraphDb, Coordination) {
 }
 
 TEST_F(DistributedGraphDb, TxEngine) {
-  auto *tx1 = master_tx_engine().Begin();
-  auto *tx2 = master_tx_engine().Begin();
+  auto *tx1 = master().tx_engine().Begin();
+  auto *tx2 = master().tx_engine().Begin();
   EXPECT_EQ(tx2->snapshot().size(), 1);
   EXPECT_EQ(
       worker(1).tx_engine().RunningTransaction(tx1->id_)->snapshot().size(), 0);
@@ -134,43 +134,43 @@ TEST_F(DistributedGraphDb, BuildIndexDistributed) {
   storage::Property property;
 
   {
-    GraphDbAccessor dba0{master()};
-    label = dba0.Label("label");
-    property = dba0.Property("property");
-    auto tx_id = dba0.transaction_id();
+    auto dba0 = master().Access();
+    label = dba0->Label("label");
+    property = dba0->Property("property");
+    auto tx_id = dba0->transaction_id();
 
-    GraphDbAccessor dba1{worker(1), tx_id};
-    GraphDbAccessor dba2{worker(2), tx_id};
+    auto dba1 = worker(1).Access(tx_id);
+    auto dba2 = worker(2).Access(tx_id);
     auto add_vertex = [label, property](GraphDbAccessor &dba) {
       auto vertex = dba.InsertVertex();
       vertex.add_label(label);
       vertex.PropsSet(property, 1);
     };
-    for (int i = 0; i < 100; ++i) add_vertex(dba0);
-    for (int i = 0; i < 50; ++i) add_vertex(dba1);
-    for (int i = 0; i < 300; ++i) add_vertex(dba2);
-    dba0.Commit();
+    for (int i = 0; i < 100; ++i) add_vertex(*dba0);
+    for (int i = 0; i < 50; ++i) add_vertex(*dba1);
+    for (int i = 0; i < 300; ++i) add_vertex(*dba2);
+    dba0->Commit();
   }
 
   {
-    GraphDbAccessor dba{master()};
-    dba.BuildIndex(label, property);
-    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
-    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 100);
+    auto dba = master().Access();
+    dba->BuildIndex(label, property);
+    EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba->Vertices(label, property, false)), 100);
   }
 
-  GraphDbAccessor dba_master{master()};
+  auto dba_master = master().Access();
 
   {
-    GraphDbAccessor dba{worker(1), dba_master.transaction_id()};
-    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
-    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 50);
+    auto dba = worker(1).Access(dba_master->transaction_id());
+    EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba->Vertices(label, property, false)), 50);
   }
 
   {
-    GraphDbAccessor dba{worker(2), dba_master.transaction_id()};
-    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
-    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 300);
+    auto dba = worker(2).Access(dba_master->transaction_id());
+    EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba->Vertices(label, property, false)), 300);
   }
 }
 
@@ -178,9 +178,9 @@ TEST_F(DistributedGraphDb, BuildIndexConcurrentInsert) {
   storage::Label label;
   storage::Property property;
 
-  GraphDbAccessor dba0{master()};
-  label = dba0.Label("label");
-  property = dba0.Property("property");
+  auto dba0 = master().Access();
+  label = dba0->Label("label");
+  property = dba0->Property("property");
 
   int cnt = 0;
   auto add_vertex = [label, property, &cnt](GraphDbAccessor &dba) {
@@ -188,40 +188,40 @@ TEST_F(DistributedGraphDb, BuildIndexConcurrentInsert) {
     vertex.add_label(label);
     vertex.PropsSet(property, ++cnt);
   };
-  dba0.Commit();
+  dba0->Commit();
 
   auto worker_insert = std::thread([this, &add_vertex]() {
     for (int i = 0; i < 10000; ++i) {
-      GraphDbAccessor dba1{worker(1)};
-      add_vertex(dba1);
-      dba1.Commit();
+      auto dba1 = worker(1).Access();
+      add_vertex(*dba1);
+      dba1->Commit();
     }
   });
 
   std::this_thread::sleep_for(0.5s);
   {
-    GraphDbAccessor dba{master()};
-    dba.BuildIndex(label, property);
-    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
+    auto dba = master().Access();
+    dba->BuildIndex(label, property);
+    EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
   }
 
   worker_insert.join();
   {
-    GraphDbAccessor dba{worker(1)};
-    EXPECT_TRUE(dba.LabelPropertyIndexExists(label, property));
-    EXPECT_EQ(CountIterable(dba.Vertices(label, property, false)), 10000);
+    auto dba = worker(1).Access();
+    EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
+    EXPECT_EQ(CountIterable(dba->Vertices(label, property, false)), 10000);
   }
 }
 
 TEST_F(DistributedGraphDb, WorkerOwnedDbAccessors) {
-  GraphDbAccessor dba_w1(worker(1));
-  auto v = dba_w1.InsertVertex();
-  auto prop = dba_w1.Property("p");
+  auto dba_w1 = worker(1).Access();
+  auto v = dba_w1->InsertVertex();
+  auto prop = dba_w1->Property("p");
   v.PropsSet(prop, 42);
   auto v_ga = v.GlobalAddress();
-  dba_w1.Commit();
+  dba_w1->Commit();
 
-  GraphDbAccessor dba_w2(worker(2));
-  VertexAccessor v_in_w2{v_ga, dba_w2};
+  auto dba_w2 = worker(2).Access();
+  VertexAccessor v_in_w2{v_ga, *dba_w2};
   EXPECT_EQ(v_in_w2.PropsAt(prop).Value<int64_t>(), 42);
 }

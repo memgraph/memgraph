@@ -11,12 +11,11 @@ TEST(GraphDbTest, GarbageCollectIndices) {
   database::Config config;
   config.gc_cycle_sec = -1;
   database::SingleNode graph_db{config};
-  std::unique_ptr<database::GraphDbAccessor> dba =
-      std::make_unique<database::GraphDbAccessor>(graph_db);
+  std::unique_ptr<database::GraphDbAccessor> dba = graph_db.Access();
 
   auto commit = [&] {
     dba->Commit();
-    dba = std::make_unique<database::GraphDbAccessor>(graph_db);
+    dba = graph_db.Access();
   };
   auto label = dba->Label("label");
   auto property = dba->Property("property");

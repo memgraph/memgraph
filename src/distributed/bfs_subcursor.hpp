@@ -94,7 +94,7 @@ class ExpandBfsSubcursor {
 
   BfsRpcClients *bfs_subcursor_clients_{nullptr};
 
-  database::GraphDbAccessor dba_;
+  std::unique_ptr<database::GraphDbAccessor> dba_;
 
   /// IDs of subcursors on other workers, used when sending RPCs.
   std::unordered_map<int16_t, int64_t> subcursor_ids_;

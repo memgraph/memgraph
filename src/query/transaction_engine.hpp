@@ -60,7 +60,7 @@ class TransactionEngine final {
 
     // Create a DB accessor if we don't yet have one.
     if (!db_accessor_)
-      db_accessor_ = std::make_unique<database::GraphDbAccessor>(db_);
+      db_accessor_ = db_.Access();
 
     // Interpret the query and return the headers.
     try {

@@ -120,10 +120,9 @@ cpp<#
           << "Only global addresses should be used with SerializedGraphElement";
     }
 
-    SerializedGraphElement(const RecordAccessor<TElement> &accessor)
+    SerializedGraphElement(const RecordAccessor<TElement> &accessor, int16_t worker_id)
         : SerializedGraphElement(accessor.GlobalAddress(), accessor.GetOld(),
-                                 accessor.GetNew(),
-                                 accessor.db_accessor().db().WorkerId()) {}
+                                 accessor.GetNew(), worker_id) {}
 
     SerializedGraphElement() {}
    cpp<#)
@@ -265,12 +264,13 @@ cpp<#
     ReconstructPathRes(
         const std::vector<EdgeAccessor> &edge_accessors,
         std::experimental::optional<storage::VertexAddress> next_vertex,
-        std::experimental::optional<storage::EdgeAddress> next_edge)
+        std::experimental::optional<storage::EdgeAddress> next_edge,
+        int16_t worker_id)
         : next_vertex(std::move(next_vertex)), next_edge(std::move(next_edge)) {
       CHECK(!static_cast<bool>(next_vertex) || !static_cast<bool>(next_edge))
           << "At most one of `next_vertex` and `next_edge` should be set";
       for (const auto &edge : edge_accessors) {
-        edges.emplace_back(edge);
+        edges.emplace_back(edge, worker_id);
       }
     }
     cpp<#)))

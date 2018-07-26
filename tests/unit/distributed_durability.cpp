@@ -47,21 +47,21 @@ class DistributedDurability : public DistributedGraphDbTest {
 
  private:
   void AddVertex(database::GraphDb &db, const std::string &label) {
-    database::GraphDbAccessor dba(db);
-    auto vertex = dba.InsertVertex();
-    vertex.add_label(dba.Label(label));
-    dba.Commit();
+    auto dba = db.Access();
+    auto vertex = dba->InsertVertex();
+    vertex.add_label(dba->Label(label));
+    dba->Commit();
   }
 
   void CheckVertex(database::GraphDb &db, int expected_count,
                    const std::string &label) {
-    database::GraphDbAccessor dba(db);
-    auto it = dba.Vertices(false);
+    auto dba = db.Access();
+    auto it = dba->Vertices(false);
     std::vector<VertexAccessor> vertices{it.begin(), it.end()};
     EXPECT_EQ(vertices.size(), expected_count);
     for (auto &vertex : vertices) {
       ASSERT_EQ(vertex.labels().size(), 1);
-      EXPECT_EQ(vertex.labels()[0], dba.Label(label));
+      EXPECT_EQ(vertex.labels()[0], dba->Label(label));
     }
   }
 };
@@ -71,8 +71,8 @@ TEST_F(DistributedDurability, MakeSnapshot) {
   // of it
   {
     AddVertices();
-    database::GraphDbAccessor dba(master());
-    master().MakeSnapshot(dba);
+    auto dba = master().Access();
+    master().MakeSnapshot(*dba);
   }
   // Recover the graph and check if it's the same as before
   {
@@ -101,15 +101,15 @@ TEST_F(DistributedDurability, RecoveryFromSameSnapshot) {
   {
     AddVertices();
     // Make snapshot on one worker, expect it won't recover from that.
-    database::GraphDbAccessor dba(worker(1));
-    worker(1).MakeSnapshot(dba);
+    auto dba = worker(1).Access();
+    worker(1).MakeSnapshot(*dba);
   }
   {
     RestartWithRecovery();
     CheckVertices(0);
     AddVertices();
-    database::GraphDbAccessor dba(master());
-    master().MakeSnapshot(dba);
+    auto dba = master().Access();
+    master().MakeSnapshot(*dba);
   }
   {
     RestartWithRecovery();
@@ -117,8 +117,8 @@ TEST_F(DistributedDurability, RecoveryFromSameSnapshot) {
     AddVertices();
     CheckVertices(2);
     // Make snapshot on one worker, expect it won't recover from that.
-    database::GraphDbAccessor dba(worker(1));
-    worker(1).MakeSnapshot(dba);
+    auto dba = worker(1).Access();
+    worker(1).MakeSnapshot(*dba);
   }
   {
     RestartWithRecovery();
@@ -130,8 +130,8 @@ TEST_F(DistributedDurability, RecoveryFailure) {
   {
     AddVertices();
     // Make a snapshot on the master without the right snapshots on workers.
-    database::GraphDbAccessor dba(master());
-    bool status = durability::MakeSnapshot(master(), dba, tmp_dir_, 100);
+    auto dba = master().Access();
+    bool status = durability::MakeSnapshot(master(), *dba, tmp_dir_, 100);
     ASSERT_TRUE(status);
   }
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
@@ -171,8 +171,8 @@ void CheckDeltas(fs::path wal_dir, database::StateDelta::Type op) {
 
 TEST_F(DistributedDurability, WriteCommittedTx) {
   RestartWithWal();
-  database::GraphDbAccessor dba(master());
-  dba.Commit();
+  auto dba = master().Access();
+  dba->Commit();
   FlushAllWal();
   CheckDeltas(tmp_dir_ / durability::kWalDir,
               database::StateDelta::Type::TRANSACTION_COMMIT);
@@ -180,8 +180,8 @@ TEST_F(DistributedDurability, WriteCommittedTx) {
 
 TEST_F(DistributedDurability, WriteAbortedTx) {
   RestartWithWal();
-  database::GraphDbAccessor dba(master());
-  dba.Abort();
+  auto dba = master().Access();
+  dba->Abort();
   FlushAllWal();
   CheckDeltas(tmp_dir_ / durability::kWalDir,
               database::StateDelta::Type::TRANSACTION_ABORT);

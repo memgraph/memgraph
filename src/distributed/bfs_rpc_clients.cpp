@@ -6,7 +6,7 @@
 
 namespace distributed {
 
-BfsRpcClients::BfsRpcClients(database::GraphDb *db,
+BfsRpcClients::BfsRpcClients(database::DistributedGraphDb *db,
                              BfsSubcursorStorage *subcursor_storage,
                              RpcWorkerClients *clients,
                              DataManager *data_manager)

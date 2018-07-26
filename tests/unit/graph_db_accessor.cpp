@@ -17,22 +17,22 @@ auto Count(TIterable iterable) {
 
 TEST(GraphDbAccessorTest, InsertVertex) {
   SingleNode db;
-  GraphDbAccessor accessor(db);
+  auto accessor = db.Access();
   gid::Generator generator(0);
 
-  EXPECT_EQ(Count(accessor.Vertices(false)), 0);
+  EXPECT_EQ(Count(accessor->Vertices(false)), 0);
 
-  EXPECT_EQ(accessor.InsertVertex().gid(), generator.Next());
-  EXPECT_EQ(Count(accessor.Vertices(false)), 0);
-  EXPECT_EQ(Count(accessor.Vertices(true)), 1);
-  accessor.AdvanceCommand();
-  EXPECT_EQ(Count(accessor.Vertices(false)), 1);
+  EXPECT_EQ(accessor->InsertVertex().gid(), generator.Next());
+  EXPECT_EQ(Count(accessor->Vertices(false)), 0);
+  EXPECT_EQ(Count(accessor->Vertices(true)), 1);
+  accessor->AdvanceCommand();
+  EXPECT_EQ(Count(accessor->Vertices(false)), 1);
 
-  EXPECT_EQ(accessor.InsertVertex().gid(), generator.Next());
-  EXPECT_EQ(Count(accessor.Vertices(false)), 1);
-  EXPECT_EQ(Count(accessor.Vertices(true)), 2);
-  accessor.AdvanceCommand();
-  EXPECT_EQ(Count(accessor.Vertices(false)), 2);
+  EXPECT_EQ(accessor->InsertVertex().gid(), generator.Next());
+  EXPECT_EQ(Count(accessor->Vertices(false)), 1);
+  EXPECT_EQ(Count(accessor->Vertices(true)), 2);
+  accessor->AdvanceCommand();
+  EXPECT_EQ(Count(accessor->Vertices(false)), 2);
 }
 
 TEST(GraphDbAccessorTest, UniqueVertexId) {
@@ -42,9 +42,9 @@ TEST(GraphDbAccessorTest, UniqueVertexId) {
   std::vector<std::thread> threads;
   for (int i = 0; i < 50; i++) {
     threads.emplace_back([&db, &ids]() {
-      GraphDbAccessor dba(db);
+      auto dba = db.Access();
       auto access = ids.access();
-      for (int i = 0; i < 200; i++) access.insert(dba.InsertVertex().gid());
+      for (int i = 0; i < 200; i++) access.insert(dba->InsertVertex().gid());
     });
   }
 
@@ -54,66 +54,66 @@ TEST(GraphDbAccessorTest, UniqueVertexId) {
 
 TEST(GraphDbAccessorTest, RemoveVertexSameTransaction) {
   SingleNode db;
-  GraphDbAccessor accessor(db);
+  auto accessor = db.Access();
 
-  EXPECT_EQ(Count(accessor.Vertices(false)), 0);
+  EXPECT_EQ(Count(accessor->Vertices(false)), 0);
 
-  auto va1 = accessor.InsertVertex();
-  accessor.AdvanceCommand();
-  EXPECT_EQ(Count(accessor.Vertices(false)), 1);
+  auto va1 = accessor->InsertVertex();
+  accessor->AdvanceCommand();
+  EXPECT_EQ(Count(accessor->Vertices(false)), 1);
 
-  EXPECT_TRUE(accessor.RemoveVertex(va1));
-  EXPECT_EQ(Count(accessor.Vertices(false)), 1);
-  EXPECT_EQ(Count(accessor.Vertices(true)), 0);
-  accessor.AdvanceCommand();
-  EXPECT_EQ(Count(accessor.Vertices(false)), 0);
-  EXPECT_EQ(Count(accessor.Vertices(true)), 0);
+  EXPECT_TRUE(accessor->RemoveVertex(va1));
+  EXPECT_EQ(Count(accessor->Vertices(false)), 1);
+  EXPECT_EQ(Count(accessor->Vertices(true)), 0);
+  accessor->AdvanceCommand();
+  EXPECT_EQ(Count(accessor->Vertices(false)), 0);
+  EXPECT_EQ(Count(accessor->Vertices(true)), 0);
 }
 
 TEST(GraphDbAccessorTest, RemoveVertexDifferentTransaction) {
   SingleNode db;
   // first transaction creates a vertex
   {
-    GraphDbAccessor accessor(db);
-    accessor.InsertVertex();
-    accessor.Commit();
+    auto accessor = db.Access();
+    accessor->InsertVertex();
+    accessor->Commit();
   }
   // second transaction checks that it sees it, and deletes it
   {
-    GraphDbAccessor accessor(db);
-    EXPECT_EQ(Count(accessor.Vertices(false)), 1);
-    EXPECT_EQ(Count(accessor.Vertices(true)), 1);
-    for (auto vertex_accessor : accessor.Vertices(false))
-      accessor.RemoveVertex(vertex_accessor);
-    accessor.Commit();
+    auto accessor = db.Access();
+    EXPECT_EQ(Count(accessor->Vertices(false)), 1);
+    EXPECT_EQ(Count(accessor->Vertices(true)), 1);
+    for (auto vertex_accessor : accessor->Vertices(false))
+      accessor->RemoveVertex(vertex_accessor);
+    accessor->Commit();
   }
   // third transaction checks that it does not see the vertex
   {
-    GraphDbAccessor accessor(db);
-    EXPECT_EQ(Count(accessor.Vertices(false)), 0);
-    EXPECT_EQ(Count(accessor.Vertices(true)), 0);
+    auto accessor = db.Access();
+    EXPECT_EQ(Count(accessor->Vertices(false)), 0);
+    EXPECT_EQ(Count(accessor->Vertices(true)), 0);
   }
 }
 
 TEST(GraphDbAccessorTest, InsertEdge) {
   SingleNode db;
-  GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
-  auto va1 = dba.InsertVertex();
-  auto va2 = dba.InsertVertex();
-  dba.AdvanceCommand();
+  auto va1 = dba->InsertVertex();
+  auto va2 = dba->InsertVertex();
+  dba->AdvanceCommand();
   EXPECT_EQ(va1.in_degree(), 0);
   EXPECT_EQ(va1.out_degree(), 0);
   EXPECT_EQ(va2.in_degree(), 0);
   EXPECT_EQ(va2.out_degree(), 0);
 
   // setup (v1) - [:likes] -> (v2)
-  dba.InsertEdge(va1, va2, dba.EdgeType("likes"));
-  EXPECT_EQ(Count(dba.Edges(false)), 0);
-  EXPECT_EQ(Count(dba.Edges(true)), 1);
-  dba.AdvanceCommand();
-  EXPECT_EQ(Count(dba.Edges(false)), 1);
-  EXPECT_EQ(Count(dba.Edges(true)), 1);
+  dba->InsertEdge(va1, va2, dba->EdgeType("likes"));
+  EXPECT_EQ(Count(dba->Edges(false)), 0);
+  EXPECT_EQ(Count(dba->Edges(true)), 1);
+  dba->AdvanceCommand();
+  EXPECT_EQ(Count(dba->Edges(false)), 1);
+  EXPECT_EQ(Count(dba->Edges(true)), 1);
   EXPECT_EQ(va1.out().begin()->to(), va2);
   EXPECT_EQ(va2.in().begin()->from(), va1);
   EXPECT_EQ(va1.in_degree(), 0);
@@ -122,12 +122,12 @@ TEST(GraphDbAccessorTest, InsertEdge) {
   EXPECT_EQ(va2.out_degree(), 0);
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
-  auto va3 = dba.InsertVertex();
-  dba.InsertEdge(va3, va2, dba.EdgeType("hates"));
-  EXPECT_EQ(Count(dba.Edges(false)), 1);
-  EXPECT_EQ(Count(dba.Edges(true)), 2);
-  dba.AdvanceCommand();
-  EXPECT_EQ(Count(dba.Edges(false)), 2);
+  auto va3 = dba->InsertVertex();
+  dba->InsertEdge(va3, va2, dba->EdgeType("hates"));
+  EXPECT_EQ(Count(dba->Edges(false)), 1);
+  EXPECT_EQ(Count(dba->Edges(true)), 2);
+  dba->AdvanceCommand();
+  EXPECT_EQ(Count(dba->Edges(false)), 2);
   EXPECT_EQ(va3.out().begin()->to(), va2);
   EXPECT_EQ(va1.in_degree(), 0);
   EXPECT_EQ(va1.out_degree(), 1);
@@ -144,13 +144,13 @@ TEST(GraphDbAccessorTest, UniqueEdgeId) {
   std::vector<std::thread> threads;
   for (int i = 0; i < 50; i++) {
     threads.emplace_back([&db, &ids]() {
-      GraphDbAccessor dba(db);
-      auto v1 = dba.InsertVertex();
-      auto v2 = dba.InsertVertex();
-      auto edge_type = dba.EdgeType("edge_type");
+      auto dba = db.Access();
+      auto v1 = dba->InsertVertex();
+      auto v2 = dba->InsertVertex();
+      auto edge_type = dba->EdgeType("edge_type");
       auto access = ids.access();
       for (int i = 0; i < 200; i++)
-        access.insert(dba.InsertEdge(v1, v2, edge_type).gid());
+        access.insert(dba->InsertEdge(v1, v2, edge_type).gid());
     });
   }
 
@@ -160,37 +160,37 @@ TEST(GraphDbAccessorTest, UniqueEdgeId) {
 
 TEST(GraphDbAccessorTest, RemoveEdge) {
   SingleNode db;
-  GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
-  auto va1 = dba.InsertVertex();
-  auto va2 = dba.InsertVertex();
-  auto va3 = dba.InsertVertex();
-  dba.InsertEdge(va1, va2, dba.EdgeType("likes"));
-  dba.InsertEdge(va3, va2, dba.EdgeType("hates"));
-  dba.AdvanceCommand();
-  EXPECT_EQ(Count(dba.Edges(false)), 2);
-  EXPECT_EQ(Count(dba.Edges(true)), 2);
+  auto va1 = dba->InsertVertex();
+  auto va2 = dba->InsertVertex();
+  auto va3 = dba->InsertVertex();
+  dba->InsertEdge(va1, va2, dba->EdgeType("likes"));
+  dba->InsertEdge(va3, va2, dba->EdgeType("hates"));
+  dba->AdvanceCommand();
+  EXPECT_EQ(Count(dba->Edges(false)), 2);
+  EXPECT_EQ(Count(dba->Edges(true)), 2);
 
   // remove all [:hates] edges
-  for (auto edge : dba.Edges(false))
-    if (edge.EdgeType() == dba.EdgeType("hates")) dba.RemoveEdge(edge);
-  EXPECT_EQ(Count(dba.Edges(false)), 2);
-  EXPECT_EQ(Count(dba.Edges(true)), 1);
+  for (auto edge : dba->Edges(false))
+    if (edge.EdgeType() == dba->EdgeType("hates")) dba->RemoveEdge(edge);
+  EXPECT_EQ(Count(dba->Edges(false)), 2);
+  EXPECT_EQ(Count(dba->Edges(true)), 1);
 
   // current state: (v1) - [:likes] -> (v2), (v3)
-  dba.AdvanceCommand();
-  EXPECT_EQ(Count(dba.Edges(false)), 1);
-  EXPECT_EQ(Count(dba.Edges(true)), 1);
-  EXPECT_EQ(Count(dba.Vertices(false)), 3);
-  EXPECT_EQ(Count(dba.Vertices(true)), 3);
-  for (auto edge : dba.Edges(false)) {
-    EXPECT_EQ(edge.EdgeType(), dba.EdgeType("likes"));
+  dba->AdvanceCommand();
+  EXPECT_EQ(Count(dba->Edges(false)), 1);
+  EXPECT_EQ(Count(dba->Edges(true)), 1);
+  EXPECT_EQ(Count(dba->Vertices(false)), 3);
+  EXPECT_EQ(Count(dba->Vertices(true)), 3);
+  for (auto edge : dba->Edges(false)) {
+    EXPECT_EQ(edge.EdgeType(), dba->EdgeType("likes"));
     auto v1 = edge.from();
     auto v2 = edge.to();
 
     // ensure correct connectivity for all the vertices
-    for (auto vertex : dba.Vertices(false)) {
+    for (auto vertex : dba->Vertices(false)) {
       if (vertex == v1) {
         EXPECT_EQ(vertex.in_degree(), 0);
         EXPECT_EQ(vertex.out_degree(), 1);
@@ -207,73 +207,73 @@ TEST(GraphDbAccessorTest, RemoveEdge) {
 
 TEST(GraphDbAccessorTest, DetachRemoveVertex) {
   SingleNode db;
-  GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   // setup (v0)- []->(v1)<-[]-(v2)<-[]-(v3)
   std::vector<VertexAccessor> vertices;
-  for (int i = 0; i < 4; ++i) vertices.emplace_back(dba.InsertVertex());
+  for (int i = 0; i < 4; ++i) vertices.emplace_back(dba->InsertVertex());
 
-  auto edge_type = dba.EdgeType("type");
-  dba.InsertEdge(vertices[0], vertices[1], edge_type);
-  dba.InsertEdge(vertices[2], vertices[1], edge_type);
-  dba.InsertEdge(vertices[3], vertices[2], edge_type);
+  auto edge_type = dba->EdgeType("type");
+  dba->InsertEdge(vertices[0], vertices[1], edge_type);
+  dba->InsertEdge(vertices[2], vertices[1], edge_type);
+  dba->InsertEdge(vertices[3], vertices[2], edge_type);
 
-  dba.AdvanceCommand();
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
 
   // ensure that plain remove does NOT work
-  EXPECT_EQ(Count(dba.Vertices(false)), 4);
-  EXPECT_EQ(Count(dba.Edges(false)), 3);
-  EXPECT_FALSE(dba.RemoveVertex(vertices[0]));
-  EXPECT_FALSE(dba.RemoveVertex(vertices[1]));
-  EXPECT_FALSE(dba.RemoveVertex(vertices[2]));
-  EXPECT_EQ(Count(dba.Vertices(false)), 4);
-  EXPECT_EQ(Count(dba.Edges(false)), 3);
+  EXPECT_EQ(Count(dba->Vertices(false)), 4);
+  EXPECT_EQ(Count(dba->Edges(false)), 3);
+  EXPECT_FALSE(dba->RemoveVertex(vertices[0]));
+  EXPECT_FALSE(dba->RemoveVertex(vertices[1]));
+  EXPECT_FALSE(dba->RemoveVertex(vertices[2]));
+  EXPECT_EQ(Count(dba->Vertices(false)), 4);
+  EXPECT_EQ(Count(dba->Edges(false)), 3);
 
-  dba.DetachRemoveVertex(vertices[2]);
-  EXPECT_EQ(Count(dba.Vertices(false)), 4);
-  EXPECT_EQ(Count(dba.Vertices(true)), 3);
-  EXPECT_EQ(Count(dba.Edges(false)), 3);
-  EXPECT_EQ(Count(dba.Edges(true)), 1);
-  dba.AdvanceCommand();
+  dba->DetachRemoveVertex(vertices[2]);
+  EXPECT_EQ(Count(dba->Vertices(false)), 4);
+  EXPECT_EQ(Count(dba->Vertices(true)), 3);
+  EXPECT_EQ(Count(dba->Edges(false)), 3);
+  EXPECT_EQ(Count(dba->Edges(true)), 1);
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
 
-  EXPECT_EQ(Count(dba.Vertices(false)), 3);
-  EXPECT_EQ(Count(dba.Edges(false)), 1);
-  EXPECT_TRUE(dba.RemoveVertex(vertices[3]));
-  EXPECT_EQ(Count(dba.Vertices(true)), 2);
-  EXPECT_EQ(Count(dba.Vertices(false)), 3);
-  dba.AdvanceCommand();
+  EXPECT_EQ(Count(dba->Vertices(false)), 3);
+  EXPECT_EQ(Count(dba->Edges(false)), 1);
+  EXPECT_TRUE(dba->RemoveVertex(vertices[3]));
+  EXPECT_EQ(Count(dba->Vertices(true)), 2);
+  EXPECT_EQ(Count(dba->Vertices(false)), 3);
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
 
-  EXPECT_EQ(Count(dba.Vertices(false)), 2);
-  EXPECT_EQ(Count(dba.Edges(false)), 1);
-  for (auto va : dba.Vertices(false)) EXPECT_FALSE(dba.RemoveVertex(va));
-  dba.AdvanceCommand();
+  EXPECT_EQ(Count(dba->Vertices(false)), 2);
+  EXPECT_EQ(Count(dba->Edges(false)), 1);
+  for (auto va : dba->Vertices(false)) EXPECT_FALSE(dba->RemoveVertex(va));
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
 
-  EXPECT_EQ(Count(dba.Vertices(false)), 2);
-  EXPECT_EQ(Count(dba.Edges(false)), 1);
-  for (auto va : dba.Vertices(false)) {
-    EXPECT_FALSE(dba.RemoveVertex(va));
-    dba.DetachRemoveVertex(va);
+  EXPECT_EQ(Count(dba->Vertices(false)), 2);
+  EXPECT_EQ(Count(dba->Edges(false)), 1);
+  for (auto va : dba->Vertices(false)) {
+    EXPECT_FALSE(dba->RemoveVertex(va));
+    dba->DetachRemoveVertex(va);
     break;
   }
-  EXPECT_EQ(Count(dba.Vertices(true)), 1);
-  EXPECT_EQ(Count(dba.Vertices(false)), 2);
-  dba.AdvanceCommand();
+  EXPECT_EQ(Count(dba->Vertices(true)), 1);
+  EXPECT_EQ(Count(dba->Vertices(false)), 2);
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
 
-  EXPECT_EQ(Count(dba.Vertices(false)), 1);
-  EXPECT_EQ(Count(dba.Edges(false)), 0);
+  EXPECT_EQ(Count(dba->Vertices(false)), 1);
+  EXPECT_EQ(Count(dba->Edges(false)), 0);
 
   // remove the last vertex, it has no connections
   // so that should work
-  for (auto va : dba.Vertices(false)) EXPECT_TRUE(dba.RemoveVertex(va));
-  dba.AdvanceCommand();
+  for (auto va : dba->Vertices(false)) EXPECT_TRUE(dba->RemoveVertex(va));
+  dba->AdvanceCommand();
 
-  EXPECT_EQ(Count(dba.Vertices(false)), 0);
-  EXPECT_EQ(Count(dba.Edges(false)), 0);
+  EXPECT_EQ(Count(dba->Vertices(false)), 0);
+  EXPECT_EQ(Count(dba->Edges(false)), 0);
 }
 
 TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
@@ -281,113 +281,113 @@ TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
   // same vertex / edge multiple times
 
   SingleNode db;
-  GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
   // setup: make a fully connected N graph
   // with cycles too!
   int N = 7;
   std::vector<VertexAccessor> vertices;
-  auto edge_type = dba.EdgeType("edge");
-  for (int i = 0; i < N; ++i) vertices.emplace_back(dba.InsertVertex());
+  auto edge_type = dba->EdgeType("edge");
+  for (int i = 0; i < N; ++i) vertices.emplace_back(dba->InsertVertex());
   for (int j = 0; j < N; ++j)
     for (int k = 0; k < N; ++k)
-      dba.InsertEdge(vertices[j], vertices[k], edge_type);
+      dba->InsertEdge(vertices[j], vertices[k], edge_type);
 
-  dba.AdvanceCommand();
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
 
-  EXPECT_EQ(Count(dba.Vertices(false)), N);
-  EXPECT_EQ(Count(dba.Edges(false)), N * N);
+  EXPECT_EQ(Count(dba->Vertices(false)), N);
+  EXPECT_EQ(Count(dba->Edges(false)), N * N);
 
   // detach delete one edge
-  dba.DetachRemoveVertex(vertices[0]);
-  dba.AdvanceCommand();
+  dba->DetachRemoveVertex(vertices[0]);
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
-  EXPECT_EQ(Count(dba.Vertices(false)), N - 1);
-  EXPECT_EQ(Count(dba.Edges(false)), (N - 1) * (N - 1));
+  EXPECT_EQ(Count(dba->Vertices(false)), N - 1);
+  EXPECT_EQ(Count(dba->Edges(false)), (N - 1) * (N - 1));
 
   // detach delete two neighboring edges
-  dba.DetachRemoveVertex(vertices[1]);
-  dba.DetachRemoveVertex(vertices[2]);
-  dba.AdvanceCommand();
+  dba->DetachRemoveVertex(vertices[1]);
+  dba->DetachRemoveVertex(vertices[2]);
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
-  EXPECT_EQ(Count(dba.Vertices(false)), N - 3);
-  EXPECT_EQ(Count(dba.Edges(false)), (N - 3) * (N - 3));
+  EXPECT_EQ(Count(dba->Vertices(false)), N - 3);
+  EXPECT_EQ(Count(dba->Edges(false)), (N - 3) * (N - 3));
 
   // detach delete everything, buwahahahaha
-  for (int l = 3; l < N; ++l) dba.DetachRemoveVertex(vertices[l]);
-  dba.AdvanceCommand();
+  for (int l = 3; l < N; ++l) dba->DetachRemoveVertex(vertices[l]);
+  dba->AdvanceCommand();
   for (auto &vertex : vertices) vertex.Reconstruct();
-  EXPECT_EQ(Count(dba.Vertices(false)), 0);
-  EXPECT_EQ(Count(dba.Edges(false)), 0);
+  EXPECT_EQ(Count(dba->Vertices(false)), 0);
+  EXPECT_EQ(Count(dba->Edges(false)), 0);
 }
 
 TEST(GraphDbAccessorTest, Labels) {
   SingleNode db;
-  GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
-  Label label_friend = dba.Label("friend");
-  EXPECT_EQ(label_friend, dba.Label("friend"));
-  EXPECT_NE(label_friend, dba.Label("friend2"));
-  EXPECT_EQ(dba.LabelName(label_friend), "friend");
+  Label label_friend = dba->Label("friend");
+  EXPECT_EQ(label_friend, dba->Label("friend"));
+  EXPECT_NE(label_friend, dba->Label("friend2"));
+  EXPECT_EQ(dba->LabelName(label_friend), "friend");
 
   // test that getting labels through a different accessor works
-  EXPECT_EQ(label_friend, GraphDbAccessor(db).Label("friend"));
-  EXPECT_NE(label_friend, GraphDbAccessor(db).Label("friend2"));
+  EXPECT_EQ(label_friend, db.Access()->Label("friend"));
+  EXPECT_NE(label_friend, db.Access()->Label("friend2"));
 }
 
 TEST(GraphDbAccessorTest, EdgeTypes) {
   SingleNode db;
-  GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
-  EdgeType edge_type = dba.EdgeType("likes");
-  EXPECT_EQ(edge_type, dba.EdgeType("likes"));
-  EXPECT_NE(edge_type, dba.EdgeType("hates"));
-  EXPECT_EQ(dba.EdgeTypeName(edge_type), "likes");
+  EdgeType edge_type = dba->EdgeType("likes");
+  EXPECT_EQ(edge_type, dba->EdgeType("likes"));
+  EXPECT_NE(edge_type, dba->EdgeType("hates"));
+  EXPECT_EQ(dba->EdgeTypeName(edge_type), "likes");
 
   // test that getting labels through a different accessor works
-  EXPECT_EQ(edge_type, GraphDbAccessor(db).EdgeType("likes"));
-  EXPECT_NE(edge_type, GraphDbAccessor(db).EdgeType("hates"));
+  EXPECT_EQ(edge_type, db.Access()->EdgeType("likes"));
+  EXPECT_NE(edge_type, db.Access()->EdgeType("hates"));
 }
 
 TEST(GraphDbAccessorTest, Properties) {
   SingleNode db;
-  GraphDbAccessor dba(db);
+  auto dba = db.Access();
 
-  Property prop = dba.Property("name");
-  EXPECT_EQ(prop, dba.Property("name"));
-  EXPECT_NE(prop, dba.Property("surname"));
-  EXPECT_EQ(dba.PropertyName(prop), "name");
+  Property prop = dba->Property("name");
+  EXPECT_EQ(prop, dba->Property("name"));
+  EXPECT_NE(prop, dba->Property("surname"));
+  EXPECT_EQ(dba->PropertyName(prop), "name");
 
   // test that getting labels through a different accessor works
-  EXPECT_EQ(prop, GraphDbAccessor(db).Property("name"));
-  EXPECT_NE(prop, GraphDbAccessor(db).Property("surname"));
+  EXPECT_EQ(prop, db.Access()->Property("name"));
+  EXPECT_NE(prop, db.Access()->Property("surname"));
 }
 
 TEST(GraphDbAccessorTest, Transfer) {
   SingleNode db;
 
-  GraphDbAccessor dba1(db);
-  auto prop = dba1.Property("property");
-  VertexAccessor v1 = dba1.InsertVertex();
+  auto dba1 = db.Access();
+  auto prop = dba1->Property("property");
+  VertexAccessor v1 = dba1->InsertVertex();
   v1.PropsSet(prop, 1);
-  VertexAccessor v2 = dba1.InsertVertex();
+  VertexAccessor v2 = dba1->InsertVertex();
   v2.PropsSet(prop, 2);
-  EdgeAccessor e12 = dba1.InsertEdge(v1, v2, dba1.EdgeType("et"));
+  EdgeAccessor e12 = dba1->InsertEdge(v1, v2, dba1->EdgeType("et"));
   e12.PropsSet(prop, 12);
 
   // make dba2 that has dba1 in it's snapshot, so data isn't visible
-  GraphDbAccessor dba2(db);
-  EXPECT_EQ(dba2.Transfer(v1), std::experimental::nullopt);
-  EXPECT_EQ(dba2.Transfer(e12), std::experimental::nullopt);
+  auto dba2 = db.Access();
+  EXPECT_EQ(dba2->Transfer(v1), std::experimental::nullopt);
+  EXPECT_EQ(dba2->Transfer(e12), std::experimental::nullopt);
 
   // make dba3 that does not have dba1 in it's snapshot
-  dba1.Commit();
-  GraphDbAccessor dba3(db);
+  dba1->Commit();
+  auto dba3 = db.Access();
   // we can transfer accessors even though the GraphDbAccessor they
   // belong to is not alive anymore
-  EXPECT_EQ(dba3.Transfer(v1)->PropsAt(prop).Value<int64_t>(), 1);
-  EXPECT_EQ(dba3.Transfer(e12)->PropsAt(prop).Value<int64_t>(), 12);
+  EXPECT_EQ(dba3->Transfer(v1)->PropsAt(prop).Value<int64_t>(), 1);
+  EXPECT_EQ(dba3->Transfer(e12)->PropsAt(prop).Value<int64_t>(), 12);
 }
 
 int main(int argc, char **argv) {

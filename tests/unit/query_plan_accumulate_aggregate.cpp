@@ -28,7 +28,8 @@ TEST(QueryPlan, Accumulate) {
 
   auto check = [&](bool accumulate) {
     database::SingleNode db;
-    database::GraphDbAccessor dba(db);
+    auto dba_ptr = db.Access();
+    auto &dba = *dba_ptr;
     auto prop = dba.Property("x");
 
     auto v1 = dba.InsertVertex();
@@ -88,7 +89,7 @@ TEST(QueryPlan, AccumulateAdvance) {
 
   auto check = [&](bool advance) {
     database::SingleNode db;
-    database::GraphDbAccessor dba(db);
+    auto dba = db.Access();
     AstStorage storage;
     SymbolTable symbol_table;
 
@@ -99,7 +100,7 @@ TEST(QueryPlan, AccumulateAdvance) {
     auto accumulate = std::make_shared<Accumulate>(
         create, std::vector<Symbol>{sym_n}, advance);
     auto match = MakeScanAll(storage, symbol_table, "m", accumulate);
-    EXPECT_EQ(advance ? 1 : 0, PullAll(match.op_, dba, symbol_table));
+    EXPECT_EQ(advance ? 1 : 0, PullAll(match.op_, *dba, symbol_table));
   };
   check(false);
   check(true);
@@ -150,7 +151,8 @@ std::shared_ptr<Produce> MakeAggregationProduce(
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
   database::SingleNode db;
-  database::GraphDbAccessor dba{db};
+  std::unique_ptr<database::GraphDbAccessor> dba_ptr{db.Access()};
+  database::GraphDbAccessor &dba{*dba_ptr};
   storage::Property prop = dba.Property("prop");
 
   AstStorage storage;
@@ -289,7 +291,8 @@ TEST(QueryPlan, AggregateGroupByValues) {
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
 
   // a vector of TypedValue to be set as property values on vertices
   // most of them should result in a distinct group (commented where not)
@@ -348,7 +351,8 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   // for different records and assert that we get the correct combination
   // of values in our groups
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
 
   auto prop1 = dba.Property("prop1");
   auto prop2 = dba.Property("prop2");
@@ -383,7 +387,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
 
 TEST(QueryPlan, AggregateNoInput) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -393,7 +397,7 @@ TEST(QueryPlan, AggregateNoInput) {
 
   auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
                                         {Aggregation::Op::COUNT}, {}, {});
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(1, results[0].size());
   EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
@@ -410,7 +414,8 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on both
 
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
   auto prop = dba.Property("prop");
 
   AstStorage storage;
@@ -462,7 +467,8 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   // type check
 
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
 
   auto v1 = dba.InsertVertex();
   auto prop_string = dba.Property("string");
@@ -519,7 +525,8 @@ TEST(QueryPlan, AggregateTypes) {
   // (that logic is defined and tested by TypedValue)
 
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
 
   auto p1 = dba.Property("p1");  // has only string props
   dba.InsertVertex().PropsSet(p1, "string");
@@ -575,7 +582,7 @@ TEST(QueryPlan, AggregateTypes) {
 
 TEST(QueryPlan, Unwind) {
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
 
@@ -598,7 +605,7 @@ TEST(QueryPlan, Unwind) {
   symbol_table[*y_ne] = symbol_table.CreateSymbol("y_ne", true);
   auto produce = MakeProduce(unwind_1, x_ne, y_ne);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  auto results = CollectProduce(produce.get(), symbol_table, *dba);
   ASSERT_EQ(4, results.size());
   const std::vector<int> expected_x_card{3, 3, 3, 1};
   auto expected_x_card_it = expected_x_card.begin();

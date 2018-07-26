@@ -31,8 +31,8 @@ struct NoContextExpressionEvaluator {
   NoContextExpressionEvaluator() {}
   Frame frame{128};
   database::SingleNode db;
-  database::GraphDbAccessor dba{db};
-  Context ctx{dba};
+  std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
+  Context ctx{*dba};
   ExpressionEvaluator eval{frame, &ctx, GraphView::OLD};
 };
 
@@ -54,8 +54,8 @@ TypedValue EvaluateFunction(const std::string &function_name,
 TypedValue EvaluateFunction(const std::string &function_name,
                             const std::vector<TypedValue> &args) {
   database::SingleNode db;
-  database::GraphDbAccessor dba{db};
-  Context ctx{dba};
+  auto dba = db.Access();
+  Context ctx{*dba};
   return EvaluateFunction(function_name, args, &ctx);
 }
 
@@ -415,7 +415,8 @@ TEST(ExpressionEvaluator, MapIndexing) {
   AstStorage storage;
   NoContextExpressionEvaluator eval;
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
+  auto dba_ptr = db.Access();
+  auto &dba = *dba_ptr;
   auto *map_literal = storage.Create<MapLiteral>(
       std::unordered_map<std::pair<std::string, storage::Property>,
                          Expression *>{
@@ -454,7 +455,7 @@ TEST(ExpressionEvaluator, MapIndexing) {
 TEST(ExpressionEvaluator, VertexAndEdgeIndexing) {
   AstStorage storage;
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
 
   auto edge_type = dba.EdgeType("edge_type");
   auto prop = dba.Property("prop");
@@ -684,7 +685,8 @@ class ExpressionEvaluatorPropertyLookup : public testing::Test {
   AstStorage storage;
   NoContextExpressionEvaluator eval;
   database::SingleNode db;
-  database::GraphDbAccessor dba{db};
+  std::unique_ptr<database::GraphDbAccessor> dba_ptr{db.Access()};
+  database::GraphDbAccessor &dba{*dba_ptr};
   std::pair<std::string, storage::Property> prop_age = PROPERTY_PAIR("age");
   std::pair<std::string, storage::Property> prop_height =
       PROPERTY_PAIR("height");
@@ -732,11 +734,11 @@ TEST(ExpressionEvaluator, LabelsTest) {
   AstStorage storage;
   NoContextExpressionEvaluator eval;
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  auto v1 = dba.InsertVertex();
-  v1.add_label(dba.Label("ANIMAL"));
-  v1.add_label(dba.Label("DOG"));
-  v1.add_label(dba.Label("NICE_DOG"));
+  auto dba = db.Access();
+  auto v1 = dba->InsertVertex();
+  v1.add_label(dba->Label("ANIMAL"));
+  v1.add_label(dba->Label("DOG"));
+  v1.add_label(dba->Label("NICE_DOG"));
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = eval.ctx.symbol_table_.CreateSymbol("n", true);
   eval.ctx.symbol_table_[*identifier] = node_symbol;
@@ -744,15 +746,15 @@ TEST(ExpressionEvaluator, LabelsTest) {
   {
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<storage::Label>{dba.Label("DOG"), dba.Label("ANIMAL")});
+        std::vector<storage::Label>{dba->Label("DOG"), dba->Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), true);
   }
   {
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<storage::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
-                                    dba.Label("ANIMAL")});
+        std::vector<storage::Label>{dba->Label("DOG"), dba->Label("BAD_DOG"),
+                                    dba->Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_EQ(value.Value<bool>(), false);
   }
@@ -760,8 +762,8 @@ TEST(ExpressionEvaluator, LabelsTest) {
     eval.frame[node_symbol] = TypedValue::Null;
     auto *op = storage.Create<LabelsTest>(
         identifier,
-        std::vector<storage::Label>{dba.Label("DOG"), dba.Label("BAD_DOG"),
-                                    dba.Label("ANIMAL")});
+        std::vector<storage::Label>{dba->Label("DOG"), dba->Label("BAD_DOG"),
+                                    dba->Label("ANIMAL")});
     auto value = op->Accept(eval.eval);
     EXPECT_TRUE(value.IsNull());
   }
@@ -772,8 +774,8 @@ TEST(ExpressionEvaluator, Aggregation) {
   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),
                                           nullptr, Aggregation::Op::COUNT);
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  Context ctx(dba);
+  auto dba = db.Access();
+  Context ctx(*dba);
   auto aggr_sym = ctx.symbol_table_.CreateSymbol("aggr", true);
   ctx.symbol_table_[*aggr] = aggr_sym;
   Frame frame{ctx.symbol_table_.max_position()};
@@ -815,15 +817,15 @@ TEST(ExpressionEvaluator, FunctionEndNode) {
   ASSERT_EQ(EvaluateFunction("ENDNODE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  auto v1 = dba.InsertVertex();
-  v1.add_label(dba.Label("label1"));
-  auto v2 = dba.InsertVertex();
-  v2.add_label(dba.Label("label2"));
-  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
+  auto dba = db.Access();
+  auto v1 = dba->InsertVertex();
+  v1.add_label(dba->Label("label1"));
+  auto v2 = dba->InsertVertex();
+  v2.add_label(dba->Label("label2"));
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("ENDNODE", {e})
                   .Value<VertexAccessor>()
-                  .has_label(dba.Label("label2")));
+                  .has_label(dba->Label("label2")));
   ASSERT_THROW(EvaluateFunction("ENDNODE", {2}), QueryRuntimeException);
 }
 
@@ -844,7 +846,7 @@ TEST(ExpressionEvaluator, FunctionProperties) {
   ASSERT_EQ(EvaluateFunction("PROPERTIES", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -900,12 +902,12 @@ TEST(ExpressionEvaluator, FunctionSize) {
   ASSERT_THROW(EvaluateFunction("SIZE", {5}), QueryRuntimeException);
 
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  auto v0 = dba.InsertVertex();
+  auto dba = db.Access();
+  auto v0 = dba->InsertVertex();
   query::Path path(v0);
   EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 0);
-  auto v1 = dba.InsertVertex();
-  path.Expand(dba.InsertEdge(v0, v1, dba.EdgeType("type")));
+  auto v1 = dba->InsertVertex();
+  path.Expand(dba->InsertEdge(v0, v1, dba->EdgeType("type")));
   path.Expand(v1);
   EXPECT_EQ(EvaluateFunction("SIZE", {path}).ValueInt(), 1);
 }
@@ -915,15 +917,15 @@ TEST(ExpressionEvaluator, FunctionStartNode) {
   ASSERT_EQ(EvaluateFunction("STARTNODE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  auto v1 = dba.InsertVertex();
-  v1.add_label(dba.Label("label1"));
-  auto v2 = dba.InsertVertex();
-  v2.add_label(dba.Label("label2"));
-  auto e = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
+  auto dba = db.Access();
+  auto v1 = dba->InsertVertex();
+  v1.add_label(dba->Label("label1"));
+  auto v2 = dba->InsertVertex();
+  v2.add_label(dba->Label("label2"));
+  auto e = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
   ASSERT_TRUE(EvaluateFunction("STARTNODE", {e})
                   .Value<VertexAccessor>()
-                  .has_label(dba.Label("label1")));
+                  .has_label(dba->Label("label1")));
   ASSERT_THROW(EvaluateFunction("STARTNODE", {2}), QueryRuntimeException);
 }
 
@@ -932,12 +934,12 @@ TEST(ExpressionEvaluator, FunctionDegree) {
   ASSERT_EQ(EvaluateFunction("DEGREE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
   database::SingleNode db;
-  database::GraphDbAccessor dba(db);
-  auto v1 = dba.InsertVertex();
-  auto v2 = dba.InsertVertex();
-  auto v3 = dba.InsertVertex();
-  auto e12 = dba.InsertEdge(v1, v2, dba.EdgeType("t"));
-  dba.InsertEdge(v3, v2, dba.EdgeType("t"));
+  auto dba = db.Access();
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
   ASSERT_EQ(EvaluateFunction("DEGREE", {v1}).Value<int64_t>(), 1);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v2}).Value<int64_t>(), 2);
   ASSERT_EQ(EvaluateFunction("DEGREE", {v3}).Value<int64_t>(), 1);
@@ -992,7 +994,7 @@ TEST(ExpressionEvaluator, FunctionType) {
   ASSERT_EQ(EvaluateFunction("TYPE", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   auto v1 = dba.InsertVertex();
   v1.add_label(dba.Label("label1"));
   auto v2 = dba.InsertVertex();
@@ -1008,7 +1010,7 @@ TEST(ExpressionEvaluator, FunctionLabels) {
   ASSERT_EQ(EvaluateFunction("LABELS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   auto v = dba.InsertVertex();
   v.add_label(dba.Label("label1"));
   v.add_label(dba.Label("label2"));
@@ -1031,7 +1033,7 @@ TEST(ExpressionEvaluator, FunctionNodesRelationships) {
 
   {
     NoContextExpressionEvaluator eval;
-    auto &dba = eval.dba;
+    auto &dba = *eval.dba;
     auto v1 = dba.InsertVertex();
     auto v2 = dba.InsertVertex();
     auto v3 = dba.InsertVertex();
@@ -1089,7 +1091,7 @@ TEST(ExpressionEvaluator, FunctionKeys) {
   ASSERT_EQ(EvaluateFunction("KEYS", {TypedValue::Null}).type(),
             TypedValue::Type::Null);
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   auto v1 = dba.InsertVertex();
   v1.PropsSet(dba.Property("height"), 5);
   v1.PropsSet(dba.Property("age"), 10);
@@ -1456,7 +1458,7 @@ TEST(ExpressionEvaluator, FunctionIndexInfo) {
   EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}, &eval.ctx),
                QueryRuntimeException);
   EXPECT_EQ(EvaluateFunction("INDEXINFO", {}, &eval.ctx).ValueList().size(), 0);
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   dba.InsertVertex().add_label(dba.Label("l1"));
   {
     auto info =
@@ -1475,7 +1477,7 @@ TEST(ExpressionEvaluator, FunctionIndexInfo) {
 
 TEST(ExpressionEvaluator, FunctionId) {
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   auto va = dba.InsertVertex();
   auto ea = dba.InsertEdge(va, va, dba.EdgeType("edge"));
   auto vb = dba.InsertVertex();
@@ -1491,7 +1493,7 @@ TEST(ExpressionEvaluator, FunctionId) {
 TEST(ExpressionEvaluator, FunctionWorkerIdException) {
   database::SingleNode db;
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   auto va = dba.InsertVertex();
   EXPECT_THROW(EvaluateFunction("WORKERID", {}, &eval.ctx),
                QueryRuntimeException);
@@ -1501,10 +1503,9 @@ TEST(ExpressionEvaluator, FunctionWorkerIdException) {
 
 TEST(ExpressionEvaluator, FunctionWorkerIdSingleNode) {
   NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
+  auto &dba = *eval.dba;
   auto va = dba.InsertVertex();
-  EXPECT_EQ(EvaluateFunction("WORKERID", {va}, &eval.ctx).Value<int64_t>(),
-            eval.db.WorkerId());
+  EXPECT_EQ(EvaluateFunction("WORKERID", {va}, &eval.ctx).Value<int64_t>(), 0);
 }
 
 TEST(ExpressionEvaluator, FunctionToStringNull) {

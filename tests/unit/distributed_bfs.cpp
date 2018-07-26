@@ -33,18 +33,18 @@ class BfsTest : public DistributedGraphDbTest {
 };
 
 TEST_F(BfsTest, Expansion) {
-  GraphDbAccessor dba{master()};
+  auto dba = master().Access();
 
   auto &clients = master().bfs_subcursor_clients();
   auto subcursor_ids = clients.CreateBfsSubcursors(
-      dba.transaction_id(), query::EdgeAtom::Direction::BOTH,
-      {dba.EdgeType("Edge")}, query::GraphView::OLD);
+      dba->transaction_id(), query::EdgeAtom::Direction::BOTH,
+      {dba->EdgeType("Edge")}, query::GraphView::OLD);
   clients.RegisterSubcursors(subcursor_ids);
 
   clients.SetSource(subcursor_ids, vertices[0]);
 
   auto pull = [&clients, &subcursor_ids, &dba](int worker_id) {
-    return clients.Pull(worker_id, subcursor_ids[worker_id], &dba);
+    return clients.Pull(worker_id, subcursor_ids[worker_id], dba.get());
   };
 
   EXPECT_EQ(pull(0), std::experimental::nullopt);
@@ -87,17 +87,17 @@ TEST_F(BfsTest, Expansion) {
 
   distributed::PathSegment ps;
 
-  ps = clients.ReconstructPath(subcursor_ids, vertices[3], &dba);
+  ps = clients.ReconstructPath(subcursor_ids, vertices[3], dba.get());
   ASSERT_EQ(ps.next_vertex, vertices[4]);
   ASSERT_EQ(ps.next_edge, std::experimental::nullopt);
   compare(ps.edges, {{3, 4}});
 
-  ps = clients.ReconstructPath(subcursor_ids, vertices[4], &dba);
+  ps = clients.ReconstructPath(subcursor_ids, vertices[4], dba.get());
   EXPECT_EQ(ps.next_vertex, std::experimental::nullopt);
   EXPECT_EQ(ps.next_edge, (edges[{0, 1}]));
   compare(ps.edges, {{2, 4}, {1, 2}});
 
-  ps = clients.ReconstructPath(subcursor_ids, edges[{0, 1}], &dba);
+  ps = clients.ReconstructPath(subcursor_ids, edges[{0, 1}], dba.get());
   EXPECT_EQ(ps.next_vertex, std::experimental::nullopt);
   EXPECT_EQ(ps.next_edge, std::experimental::nullopt);
   compare(ps.edges, {{0, 1}});

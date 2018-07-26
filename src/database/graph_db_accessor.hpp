@@ -1,24 +1,22 @@
 #pragma once
 
 #include <experimental/optional>
-#include <unordered_map>
+#include <string>
 #include <vector>
 
-#include "cppitertools/filter.hpp"
-#include "cppitertools/imap.hpp"
-#include "glog/logging.h"
+#include <cppitertools/filter.hpp>
+#include <cppitertools/imap.hpp>
+#include <glog/logging.h>
 
 #include "database/graph_db.hpp"
-#include "distributed/cache.hpp"
-#include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
-#include "transactions/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 #include "transactions/type.hpp"
 #include "utils/bound.hpp"
+#include "utils/exceptions.hpp"
 
 namespace database {
 
@@ -33,27 +31,28 @@ class IndexCreationOnWorkerException : public utils::BasicException {
 };
 
 /**
- * An accessor for the database object: exposes functions for operating on the
+ * Base accessor for the database object: exposes functions for operating on the
  * database. All the functions in this class should be self-sufficient: for
  * example the function for creating a new Vertex should take care of all the
  * book-keeping around the creation.
  */
-
 class GraphDbAccessor {
   // We need to make friends with this guys since they need to access private
   // methods for updating indices.
   friend class ::RecordAccessor<Vertex>;
-  friend class ::RecordAccessor<Edge>;
   friend class ::VertexAccessor;
-  friend class ::EdgeAccessor;
 
- public:
+ protected:
+  // Construction should only be done through GraphDb::Access function and
+  // concrete GraphDbAccessor type.
+
   /// Creates a new accessor by starting a new transaction.
   explicit GraphDbAccessor(GraphDb &db);
-
   /// Creates an accessor for a running transaction.
   GraphDbAccessor(GraphDb &db, tx::TransactionId tx_id);
-  ~GraphDbAccessor();
+
+ public:
+  virtual ~GraphDbAccessor();
 
   GraphDbAccessor(const GraphDbAccessor &other) = delete;
   GraphDbAccessor(GraphDbAccessor &&other) = delete;
@@ -82,13 +81,6 @@ class GraphDbAccessor {
                               std::experimental::optional<int64_t> cypher_id =
                                   std::experimental::nullopt);
 
-  /** Creates a new Vertex on the given worker. It is NOT allowed to call this
-   * function with this worker's id. */
-  VertexAccessor InsertVertexIntoRemote(
-      int worker_id, const std::vector<storage::Label> &labels,
-      const std::unordered_map<storage::Property, query::TypedValue>
-          &properties);
-
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or
    * incoming edges, it is not deleted. See `DetachRemoveVertex` if you want to
@@ -102,7 +94,8 @@ class GraphDbAccessor {
    * before deletion.
    * @return  If or not the vertex was deleted.
    */
-  bool RemoveVertex(VertexAccessor &vertex_accessor, bool check_empty = true);
+  virtual bool RemoveVertex(VertexAccessor &vertex_accessor,
+                            bool check_empty = true);
 
   /**
    * Removes the vertex of the given accessor along with all it's outgoing
@@ -340,8 +333,8 @@ class GraphDbAccessor {
    * @param remove_in_edge If the edge should be removed from the its
    * destination side.
    */
-  void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
-                  bool remove_in_edge = true);
+  virtual void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
+                          bool remove_in_edge = true);
 
   /**
    * Obtains the edge for the given ID. If there is no edge for the given
@@ -444,7 +437,7 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  void BuildIndex(storage::Label label, storage::Property property);
+  virtual void BuildIndex(storage::Label label, storage::Property property);
 
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);
@@ -607,6 +600,34 @@ class GraphDbAccessor {
   /* Returns a list of index names present in the database. */
   std::vector<std::string> IndexInfo() const;
 
+ protected:
+  /** Called in `BuildIndex` after creating an index, but before populating. */
+  virtual void PostCreateIndex(const LabelPropertyIndex::Key &key) {}
+
+  /** Populates the index from a *new* transaction after creating the index. */
+  virtual void PopulateIndexFromBuildIndex(const LabelPropertyIndex::Key &key) {
+    PopulateIndex(key);
+  }
+
+  /**
+   * Insert a new edge to `from` vertex and return the address.
+   * Called from `InsertEdge` as the first step in edge insertion.
+   * */
+  virtual storage::EdgeAddress InsertEdgeOnFrom(
+      VertexAccessor *from, VertexAccessor *to,
+      const storage::EdgeType &edge_type,
+      const std::experimental::optional<gid::Gid> &requested_gid,
+      const std::experimental::optional<int64_t> &cypher_id);
+
+  /**
+   * Set the newly created edge on `to` vertex.
+   * Called after `InsertEdgeOnFrom` in `InsertEdge`. The given `edge_address`
+   * is from the created edge, returned by `InsertEdgeOnFrom`.
+   */
+  virtual void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
+                              const storage::EdgeType &edge_type,
+                              const storage::EdgeAddress &edge_address);
+
  private:
   GraphDb &db_;
   tx::Transaction &transaction_;
@@ -640,4 +661,5 @@ class GraphDbAccessor {
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
 };
+
 }  // namespace database

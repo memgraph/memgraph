@@ -12,12 +12,12 @@ using namespace database;
 class LabelPropertyIndexComplexTest : public ::testing::Test {
  protected:
   virtual void SetUp() {
-    GraphDbAccessor accessor(db_);
+    auto accessor = db_.Access();
 
-    label = accessor.Label("label");
-    property = accessor.Property("property");
-    label2 = accessor.Label("label2");
-    property2 = accessor.Property("property2");
+    label = accessor->Label("label");
+    property = accessor->Property("property");
+    label2 = accessor->Label("label2");
+    property2 = accessor->Property("property2");
 
     key = new LabelPropertyIndex::Key(label, property);
     EXPECT_EQ(index.CreateIndex(*key), true);
@@ -59,9 +59,9 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
 
 TEST(LabelPropertyIndex, CreateIndex) {
   SingleNode db;
-  GraphDbAccessor accessor(db);
-  LabelPropertyIndex::Key key(accessor.Label("test"),
-                              accessor.Property("test2"));
+  auto accessor = db.Access();
+  LabelPropertyIndex::Key key(accessor->Label("test"),
+                              accessor->Property("test2"));
   LabelPropertyIndex index;
   EXPECT_EQ(index.CreateIndex(key), true);
   EXPECT_EQ(index.CreateIndex(key), false);
@@ -69,9 +69,9 @@ TEST(LabelPropertyIndex, CreateIndex) {
 
 TEST(LabelPropertyIndex, DeleteIndex) {
   SingleNode db;
-  GraphDbAccessor accessor(db);
-  LabelPropertyIndex::Key key(accessor.Label("test"),
-                              accessor.Property("test2"));
+  auto accessor = db.Access();
+  LabelPropertyIndex::Key key(accessor->Label("test"),
+                              accessor->Property("test2"));
   LabelPropertyIndex index;
   EXPECT_EQ(index.CreateIndex(key), true);
   EXPECT_EQ(index.CreateIndex(key), false);
@@ -81,9 +81,9 @@ TEST(LabelPropertyIndex, DeleteIndex) {
 
 TEST(LabelPropertyIndex, IndexExistance) {
   SingleNode db;
-  GraphDbAccessor accessor(db);
-  LabelPropertyIndex::Key key(accessor.Label("test"),
-                              accessor.Property("test2"));
+  auto accessor = db.Access();
+  LabelPropertyIndex::Key key(accessor->Label("test"),
+                              accessor->Property("test2"));
   LabelPropertyIndex index;
   EXPECT_EQ(index.CreateIndex(key), true);
   // Index doesn't exist - and can't be used untill it's been notified as built.
@@ -94,9 +94,9 @@ TEST(LabelPropertyIndex, IndexExistance) {
 
 TEST(LabelPropertyIndex, Count) {
   SingleNode db;
-  GraphDbAccessor accessor(db);
-  auto label = accessor.Label("label");
-  auto property = accessor.Property("property");
+  auto accessor = db.Access();
+  auto label = accessor->Label("label");
+  auto property = accessor->Property("property");
   LabelPropertyIndex::Key key(label, property);
   LabelPropertyIndex index;
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";

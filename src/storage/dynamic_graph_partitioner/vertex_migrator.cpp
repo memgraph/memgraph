@@ -1,5 +1,6 @@
 #include "storage/dynamic_graph_partitioner/vertex_migrator.hpp"
 
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"
 
@@ -20,8 +21,8 @@ void VertexMigrator::MigrateVertex(VertexAccessor &vertex, int destination) {
     }
   };
 
-  auto relocated_vertex = dba_->InsertVertexIntoRemote(
-      destination, vertex.labels(), get_props(vertex));
+  auto relocated_vertex = database::InsertVertexIntoRemote(
+      dba_, destination, vertex.labels(), get_props(vertex));
 
   vertex_migrated_to_[vertex.gid()] = relocated_vertex.address();
 

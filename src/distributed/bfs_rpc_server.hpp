@@ -16,7 +16,8 @@ namespace distributed {
 /// subcursor storage.
 class BfsRpcServer {
  public:
-  BfsRpcServer(database::GraphDb *db, communication::rpc::Server *server,
+  BfsRpcServer(database::DistributedGraphDb *db,
+               communication::rpc::Server *server,
                BfsSubcursorStorage *subcursor_storage)
       : db_(db), server_(server), subcursor_storage_(subcursor_storage) {
     server_->Register<CreateBfsSubcursorRpc>(
@@ -38,14 +39,14 @@ class BfsRpcServer {
           res.Save(res_builder);
         });
 
-    server_->Register<ResetSubcursorRpc>([this](const auto &req_reader,
-                                                auto *res_builder) {
-      ResetSubcursorReq req;
-      req.Load(req_reader);
-      subcursor_storage_->Get(req.subcursor_id)->Reset();
-      ResetSubcursorRes res;
-      res.Save(res_builder);
-    });
+    server_->Register<ResetSubcursorRpc>(
+        [this](const auto &req_reader, auto *res_builder) {
+          ResetSubcursorReq req;
+          req.Load(req_reader);
+          subcursor_storage_->Get(req.subcursor_id)->Reset();
+          ResetSubcursorRes res;
+          res.Save(res_builder);
+        });
 
     server_->Register<RemoveBfsSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
@@ -83,7 +84,7 @@ class BfsRpcServer {
             res.Save(res_builder);
             return;
           }
-          SubcursorPullRes res(*vertex);
+          SubcursorPullRes res(SerializedVertex(*vertex, db_->WorkerId()));
           res.Save(res_builder);
         });
 
@@ -111,7 +112,7 @@ class BfsRpcServer {
         LOG(FATAL) << "`edge` or `vertex` should be set in ReconstructPathReq";
       }
       ReconstructPathRes res(result.edges, result.next_vertex,
-                             result.next_edge);
+                             result.next_edge, db_->WorkerId());
       res.Save(res_builder);
     });
 
@@ -126,7 +127,7 @@ class BfsRpcServer {
   }
 
  private:
-  database::GraphDb *db_;
+  database::DistributedGraphDb *db_;
 
   communication::rpc::Server *server_;
   BfsSubcursorStorage *subcursor_storage_;

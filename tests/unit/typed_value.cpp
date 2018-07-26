@@ -19,7 +19,7 @@ class AllTypesFixture : public testing::Test {
  protected:
   std::vector<TypedValue> values_;
   database::SingleNode db_;
-  database::GraphDbAccessor dba_{db_};
+  std::unique_ptr<database::GraphDbAccessor> dba_{db_.Access()};
 
   void SetUp() override {
     values_.emplace_back(TypedValue::Null);
@@ -35,10 +35,11 @@ class AllTypesFixture : public testing::Test {
                                           {"c", 42},
                                           {"d", 0.5},
                                           {"e", TypedValue::Null}});
-    auto vertex = dba_.InsertVertex();
+    auto vertex = dba_->InsertVertex();
     values_.emplace_back(vertex);
-    values_.emplace_back(dba_.InsertEdge(vertex, vertex, dba_.EdgeType("et")));
-    values_.emplace_back(query::Path(dba_.InsertVertex()));
+    values_.emplace_back(
+        dba_->InsertEdge(vertex, vertex, dba_->EdgeType("et")));
+    values_.emplace_back(query::Path(dba_->InsertVertex()));
   }
 };
 

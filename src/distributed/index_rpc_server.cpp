@@ -1,5 +1,6 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "distributed/index_rpc_messages.hpp"
 #include "distributed/index_rpc_server.hpp"
 
 namespace distributed {
@@ -20,9 +21,9 @@ IndexRpcServer::IndexRpcServer(database::GraphDb &db,
         PopulateIndexReq req;
         req.Load(req_reader);
         database::LabelPropertyIndex::Key key{req.label, req.property};
-        database::GraphDbAccessor dba(db_, req.tx_id);
-        dba.PopulateIndex(key);
-        dba.EnableIndex(key);
+        auto dba = db_.Access(req.tx_id);
+        dba->PopulateIndex(key);
+        dba->EnableIndex(key);
       });
 }
 

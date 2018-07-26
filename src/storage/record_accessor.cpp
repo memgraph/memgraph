@@ -109,9 +109,17 @@ typename RecordAccessor<TRecord>::AddressT RecordAccessor<TRecord>::address()
 template <typename TRecord>
 typename RecordAccessor<TRecord>::AddressT
 RecordAccessor<TRecord>::GlobalAddress() const {
-  return is_local() ? storage::Address<mvcc::VersionList<TRecord>>(
-                          gid(), db_accessor_->db_.WorkerId())
-                    : address_;
+  // TODO: Replace this with some other mechanism, i.e. virtual call.
+  int worker_id = 0;
+  if (auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(&db_accessor_->db())) {
+    worker_id = distributed_db->WorkerId();
+  } else {
+    CHECK(dynamic_cast<database::SingleNode *>(&db_accessor_->db()));
+  }
+  return is_local()
+             ? storage::Address<mvcc::VersionList<TRecord>>(gid(), worker_id)
+             : address_;
 }
 
 template <typename TRecord>

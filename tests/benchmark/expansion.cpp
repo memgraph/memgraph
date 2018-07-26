@@ -18,24 +18,24 @@ class ExpansionBenchFixture : public benchmark::Fixture {
   void SetUp(const benchmark::State &state) override {
     db_.emplace();
     interpreter_.emplace(db_.value());
-    database::GraphDbAccessor dba(*db_);
-    for (int i = 0; i < state.range(0); i++) dba.InsertVertex();
+    auto dba = db_->Access();
+    for (int i = 0; i < state.range(0); i++) dba->InsertVertex();
 
     // the fixed part is one vertex expanding to 1000 others
-    auto start = dba.InsertVertex();
-    start.add_label(dba.Label("Starting"));
-    auto edge_type = dba.EdgeType("edge_type");
+    auto start = dba->InsertVertex();
+    start.add_label(dba->Label("Starting"));
+    auto edge_type = dba->EdgeType("edge_type");
     for (int i = 0; i < 1000; i++) {
-      auto dest = dba.InsertVertex();
-      dba.InsertEdge(start, dest, edge_type);
+      auto dest = dba->InsertVertex();
+      dba->InsertEdge(start, dest, edge_type);
     }
-    dba.Commit();
+    dba->Commit();
   }
 
   void TearDown(const benchmark::State &) override {
-    database::GraphDbAccessor dba(*db_);
-    for (auto vertex : dba.Vertices(false)) dba.DetachRemoveVertex(vertex);
-    dba.Commit();
+    auto dba = db_->Access();
+    for (auto vertex : dba->Vertices(false)) dba->DetachRemoveVertex(vertex);
+    dba->Commit();
     interpreter_ = std::experimental::nullopt;
     db_ = std::experimental::nullopt;
   }
@@ -45,10 +45,10 @@ class ExpansionBenchFixture : public benchmark::Fixture {
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Match)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) return s";
-  database::GraphDbAccessor dba(*db_);
+  auto dba = db_->Access();
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, dba, {}, false).PullAll(results);
+    interpreter()(query, *dba, {}, false).PullAll(results);
   }
 }
 
@@ -59,10 +59,10 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Match)
 
 BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
   auto query = "MATCH (s:Starting) WITH s MATCH (s)--(d) RETURN count(d)";
-  database::GraphDbAccessor dba(*db_);
+  auto dba = db_->Access();
   while (state.KeepRunning()) {
     ResultStreamFaker<query::TypedValue> results;
-    interpreter()(query, dba, {}, false).PullAll(results);
+    interpreter()(query, *dba, {}, false).PullAll(results);
   }
 }
 

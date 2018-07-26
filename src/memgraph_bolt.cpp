@@ -268,14 +268,14 @@ void SingleNodeMain() {
   auto stream_writer =
       [&session_data](const std::vector<std::string> &queries) {
         for (auto &query : queries) {
-          database::GraphDbAccessor dba(session_data.db);
+          auto dba = session_data.db.Access();
           KafkaResultStream stream;
           try {
-            session_data.interpreter(query, dba, {}, false).PullAll(stream);
-            dba.Commit();
+            session_data.interpreter(query, *dba, {}, false).PullAll(stream);
+            dba->Commit();
           } catch (const query::QueryException &e) {
             LOG(ERROR) << e.what();
-            dba.Abort();
+            dba->Abort();
           }
         }
       };
@@ -314,8 +314,8 @@ void SingleNodeMain() {
             "telemetry",
         std::chrono::minutes(10));
     telemetry->AddCollector("db", [&db]() -> nlohmann::json {
-      database::GraphDbAccessor dba(db);
-      return {{"vertices", dba.VerticesCount()}, {"edges", dba.EdgesCount()}};
+      auto dba = db.Access();
+      return {{"vertices", dba->VerticesCount()}, {"edges", dba->EdgesCount()}};
     });
   }
 
@@ -358,14 +358,14 @@ void MasterMain() {
   auto stream_writer =
       [&session_data](const std::vector<std::string> &queries) {
         for (auto &query : queries) {
-          database::GraphDbAccessor dba(session_data.db);
+          auto dba = session_data.db.Access();
           KafkaResultStream stream;
           try {
-            session_data.interpreter(query, dba, {}, false).PullAll(stream);
-            dba.Commit();
+            session_data.interpreter(query, *dba, {}, false).PullAll(stream);
+            dba->Commit();
           } catch (const query::QueryException &e) {
             LOG(ERROR) << e.what();
-            dba.Abort();
+            dba->Abort();
           }
         }
       };

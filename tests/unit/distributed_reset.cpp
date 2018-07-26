@@ -16,10 +16,10 @@ TEST_F(DistributedReset, ResetTest) {
   auto pull_remote = std::make_shared<query::plan::PullRemote>(
       once, 42, std::vector<query::Symbol>());
   master().plan_dispatcher().DispatchPlan(42, once, symbol_table);
-  database::GraphDbAccessor dba{master()};
+  auto dba = master().Access();
   query::Frame frame(0);
-  query::Context context(dba);
-  auto pull_remote_cursor = pull_remote->MakeCursor(dba);
+  query::Context context(*dba);
+  auto pull_remote_cursor = pull_remote->MakeCursor(*dba);
 
   for (int i = 0; i < 3; ++i) {
     EXPECT_TRUE(pull_remote_cursor->Pull(frame, context));

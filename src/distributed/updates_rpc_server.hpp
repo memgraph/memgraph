@@ -7,7 +7,7 @@
 
 #include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/graph_db.hpp"
+#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
 #include "distributed/updates_rpc_messages.hpp"
@@ -32,8 +32,9 @@ class UpdatesRpcServer {
   template <typename TRecordAccessor>
   class TransactionUpdates {
    public:
-    TransactionUpdates(database::GraphDb &db, tx::TransactionId tx_id)
-        : db_accessor_(db, tx_id) {}
+    TransactionUpdates(database::DistributedGraphDb *db,
+                       tx::TransactionId tx_id)
+        : db_accessor_(db->Access(tx_id)) {}
 
     /// Adds a delta and returns the result. Does not modify the state (data) of
     /// the graph element the update is for, but calls the `update` method to
@@ -49,15 +50,15 @@ class UpdatesRpcServer {
     /// Creates a new edge and returns it's gid. Does not update vertices at the
     /// end of the edge.
     gid::Gid CreateEdge(gid::Gid from, storage::VertexAddress to,
-                        storage::EdgeType edge_type);
+                        storage::EdgeType edge_type, int worker_id);
 
     /// Applies all the deltas on the record.
     UpdateResult Apply();
 
-    auto &db_accessor() { return db_accessor_; }
+    auto &db_accessor() { return *db_accessor_; }
 
    private:
-    database::GraphDbAccessor db_accessor_;
+    std::unique_ptr<database::GraphDbAccessor> db_accessor_;
     std::unordered_map<
         gid::Gid, std::pair<TRecordAccessor, std::vector<database::StateDelta>>>
         deltas_;
@@ -69,7 +70,8 @@ class UpdatesRpcServer {
   };
 
  public:
-  UpdatesRpcServer(database::GraphDb &db, communication::rpc::Server &server);
+  UpdatesRpcServer(database::DistributedGraphDb *db,
+                   communication::rpc::Server *server);
 
   /// Applies all existsing updates for the given transaction ID. If there are
   /// no updates for that transaction, nothing happens. Clears the updates cache
@@ -81,11 +83,10 @@ class UpdatesRpcServer {
   void ClearTransactionalCache(tx::TransactionId oldest_active);
 
  private:
-  database::GraphDb &db_;
+  database::DistributedGraphDb *db_;
 
   template <typename TAccessor>
-  using MapT =
-      ConcurrentMap<tx::TransactionId, TransactionUpdates<TAccessor>>;
+  using MapT = ConcurrentMap<tx::TransactionId, TransactionUpdates<TAccessor>>;
   MapT<VertexAccessor> vertex_updates_;
   MapT<EdgeAccessor> edge_updates_;
 

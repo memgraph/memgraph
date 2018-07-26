@@ -24,14 +24,13 @@ class DistributedUpdateTest : public DistributedGraphDbTest {
   void SetUp() override {
     DistributedGraphDbTest::SetUp();
 
-    database::GraphDbAccessor dba_tx1{worker(1)};
-    auto v = dba_tx1.InsertVertex();
+    auto dba_tx1 = worker(1).Access();
+    auto v = dba_tx1->InsertVertex();
     auto v_ga = v.GlobalAddress();
-    dba_tx1.Commit();
+    dba_tx1->Commit();
 
-    dba1 = std::make_unique<database::GraphDbAccessor>(worker(1));
-    dba2 = std::make_unique<database::GraphDbAccessor>(worker(2),
-                                                       dba1->transaction_id());
+    dba1 = worker(1).Access();
+    dba2 = worker(2).Access(dba1->transaction_id());
 
     v1_dba1 = std::make_unique<VertexAccessor>(v_ga, *dba1);
     v1_dba2 = std::make_unique<VertexAccessor>(v_ga, *dba2);
@@ -77,14 +76,14 @@ class DistributedGraphDbSimpleUpdatesTest : public DistributedGraphDbTest {
 TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertex) {
   gid::Gid gid;
   {
-    database::GraphDbAccessor dba{worker(1)};
-    auto v = dba.InsertVertexIntoRemote(2, {}, {});
+    auto dba = worker(1).Access();
+    auto v = database::InsertVertexIntoRemote(dba.get(), 2, {}, {});
     gid = v.gid();
-    dba.Commit();
+    dba->Commit();
   }
   {
-    database::GraphDbAccessor dba{worker(2)};
-    auto v = dba.FindVertexOptional(gid, false);
+    auto dba = worker(2).Access();
+    auto v = dba->FindVertexOptional(gid, false);
     ASSERT_TRUE(v);
   }
 }
@@ -93,17 +92,17 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertexWithUpdate) {
   gid::Gid gid;
   storage::Property prop;
   {
-    database::GraphDbAccessor dba{worker(1)};
-    auto v = dba.InsertVertexIntoRemote(2, {}, {});
+    auto dba = worker(1).Access();
+    auto v = database::InsertVertexIntoRemote(dba.get(), 2, {}, {});
     gid = v.gid();
-    prop = dba.Property("prop");
+    prop = dba->Property("prop");
     v.PropsSet(prop, 42);
-    worker(2).updates_server().Apply(dba.transaction_id());
-    dba.Commit();
+    worker(2).updates_server().Apply(dba->transaction_id());
+    dba->Commit();
   }
   {
-    database::GraphDbAccessor dba{worker(2)};
-    auto v = dba.FindVertexOptional(gid, false);
+    auto dba = worker(2).Access();
+    auto v = dba->FindVertexOptional(gid, false);
     ASSERT_TRUE(v);
     EXPECT_EQ(v->PropsAt(prop).Value<int64_t>(), 42);
   }
@@ -115,11 +114,12 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertexWithData) {
   storage::Label l2;
   storage::Property prop;
   {
-    database::GraphDbAccessor dba{worker(1)};
-    l1 = dba.Label("l1");
-    l2 = dba.Label("l2");
-    prop = dba.Property("prop");
-    auto v = dba.InsertVertexIntoRemote(2, {l1, l2}, {{prop, 42}});
+    auto dba = worker(1).Access();
+    l1 = dba->Label("l1");
+    l2 = dba->Label("l2");
+    prop = dba->Property("prop");
+    auto v =
+        database::InsertVertexIntoRemote(dba.get(), 2, {l1, l2}, {{prop, 42}});
     gid = v.gid();
 
     // Check local visibility before commit.
@@ -127,12 +127,12 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, CreateVertexWithData) {
     EXPECT_TRUE(v.has_label(l2));
     EXPECT_EQ(v.PropsAt(prop).Value<int64_t>(), 42);
 
-    worker(2).updates_server().Apply(dba.transaction_id());
-    dba.Commit();
+    worker(2).updates_server().Apply(dba->transaction_id());
+    dba->Commit();
   }
   {
-    database::GraphDbAccessor dba{worker(2)};
-    auto v = dba.FindVertexOptional(gid, false);
+    auto dba = worker(2).Access();
+    auto v = dba->FindVertexOptional(gid, false);
     ASSERT_TRUE(v);
     // Check remote data after commit.
     EXPECT_TRUE(v->has_label(l1));
@@ -148,23 +148,23 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, UpdateVertexRemoteAndLocal) {
   storage::Label l1;
   storage::Label l2;
   {
-    database::GraphDbAccessor dba{worker(1)};
-    auto v = dba.InsertVertex();
+    auto dba = worker(1).Access();
+    auto v = dba->InsertVertex();
     gid = v.gid();
-    l1 = dba.Label("label1");
-    l2 = dba.Label("label2");
-    dba.Commit();
+    l1 = dba->Label("label1");
+    l2 = dba->Label("label2");
+    dba->Commit();
   }
   {
-    database::GraphDbAccessor dba0{master()};
-    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v_local = dba1.FindVertex(gid, false);
-    auto v_remote = VertexAccessor(storage::VertexAddress(gid, 1), dba0);
+    auto dba0 = master().Access();
+    auto dba1 = worker(1).Access(dba0->transaction_id());
+    auto v_local = dba1->FindVertex(gid, false);
+    auto v_remote = VertexAccessor(storage::VertexAddress(gid, 1), *dba0);
 
     v_remote.add_label(l2);
     v_local.add_label(l1);
 
-    auto result = worker(1).updates_server().Apply(dba0.transaction_id());
+    auto result = worker(1).updates_server().Apply(dba0->transaction_id());
     EXPECT_EQ(result, distributed::UpdateResult::DONE);
   }
 }
@@ -172,20 +172,20 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, UpdateVertexRemoteAndLocal) {
 TEST_F(DistributedGraphDbSimpleUpdatesTest, AddSameLabelRemoteAndLocal) {
   auto v_address = InsertVertex(worker(1));
   {
-    database::GraphDbAccessor dba0{master()};
-    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v_local = dba1.FindVertex(v_address.gid(), false);
-    auto v_remote = VertexAccessor(v_address, dba0);
-    auto l1 = dba1.Label("label");
+    auto dba0 = master().Access();
+    auto dba1 = worker(1).Access(dba0->transaction_id());
+    auto v_local = dba1->FindVertex(v_address.gid(), false);
+    auto v_remote = VertexAccessor(v_address, *dba0);
+    auto l1 = dba1->Label("label");
     v_remote.add_label(l1);
     v_local.add_label(l1);
-    worker(1).updates_server().Apply(dba0.transaction_id());
-    dba0.Commit();
+    worker(1).updates_server().Apply(dba0->transaction_id());
+    dba0->Commit();
   }
   {
-    database::GraphDbAccessor dba0{master()};
-    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v = dba1.FindVertex(v_address.gid(), false);
+    auto dba0 = master().Access();
+    auto dba1 = worker(1).Access(dba0->transaction_id());
+    auto v = dba1->FindVertex(v_address.gid(), false);
     EXPECT_EQ(v.labels().size(), 1);
   }
 }
@@ -194,44 +194,44 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, IndexGetsUpdatedRemotely) {
   storage::VertexAddress v_remote = InsertVertex(worker(1));
   storage::Label label;
   {
-    database::GraphDbAccessor dba0{master()};
-    label = dba0.Label("label");
-    VertexAccessor va(v_remote, dba0);
+    auto dba0 = master().Access();
+    label = dba0->Label("label");
+    VertexAccessor va(v_remote, *dba0);
     va.add_label(label);
-    worker(1).updates_server().Apply(dba0.transaction_id());
-    dba0.Commit();
+    worker(1).updates_server().Apply(dba0->transaction_id());
+    dba0->Commit();
   }
   {
-    database::GraphDbAccessor dba1{worker(1)};
-    auto vertices = dba1.Vertices(label, false);
+    auto dba1 = worker(1).Access();
+    auto vertices = dba1->Vertices(label, false);
     EXPECT_EQ(std::distance(vertices.begin(), vertices.end()), 1);
   }
 }
 
 TEST_F(DistributedGraphDbSimpleUpdatesTest, DeleteVertexRemoteCommit) {
   auto v_address = InsertVertex(worker(1));
-  database::GraphDbAccessor dba0{master()};
-  database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-  auto v_remote = VertexAccessor(v_address, dba0);
-  dba0.RemoveVertex(v_remote);
-  EXPECT_TRUE(dba1.FindVertexOptional(v_address.gid(), true));
-  EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+  auto dba0 = master().Access();
+  auto dba1 = worker(1).Access(dba0->transaction_id());
+  auto v_remote = VertexAccessor(v_address, *dba0);
+  dba0->RemoveVertex(v_remote);
+  EXPECT_TRUE(dba1->FindVertexOptional(v_address.gid(), true));
+  EXPECT_EQ(worker(1).updates_server().Apply(dba0->transaction_id()),
             distributed::UpdateResult::DONE);
-  EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
+  EXPECT_FALSE(dba1->FindVertexOptional(v_address.gid(), true));
 }
 
 TEST_F(DistributedGraphDbSimpleUpdatesTest, DeleteVertexRemoteBothDelete) {
   auto v_address = InsertVertex(worker(1));
   {
-    database::GraphDbAccessor dba0{master()};
-    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v_local = dba1.FindVertex(v_address.gid(), false);
-    auto v_remote = VertexAccessor(v_address, dba0);
-    EXPECT_TRUE(dba1.RemoveVertex(v_local));
-    EXPECT_TRUE(dba0.RemoveVertex(v_remote));
-    EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+    auto dba0 = master().Access();
+    auto dba1 = worker(1).Access(dba0->transaction_id());
+    auto v_local = dba1->FindVertex(v_address.gid(), false);
+    auto v_remote = VertexAccessor(v_address, *dba0);
+    EXPECT_TRUE(dba1->RemoveVertex(v_local));
+    EXPECT_TRUE(dba0->RemoveVertex(v_remote));
+    EXPECT_EQ(worker(1).updates_server().Apply(dba0->transaction_id()),
               distributed::UpdateResult::DONE);
-    EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
+    EXPECT_FALSE(dba1->FindVertexOptional(v_address.gid(), true));
   }
 }
 
@@ -240,27 +240,27 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, DeleteVertexRemoteStillConnected) {
   auto e_address = InsertEdge(v_address, v_address, "edge");
 
   {
-    database::GraphDbAccessor dba0{master()};
-    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto v_remote = VertexAccessor(v_address, dba0);
-    dba0.RemoveVertex(v_remote);
-    EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+    auto dba0 = master().Access();
+    auto dba1 = worker(1).Access(dba0->transaction_id());
+    auto v_remote = VertexAccessor(v_address, *dba0);
+    dba0->RemoveVertex(v_remote);
+    EXPECT_EQ(worker(1).updates_server().Apply(dba0->transaction_id()),
               distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR);
-    EXPECT_TRUE(dba1.FindVertexOptional(v_address.gid(), true));
+    EXPECT_TRUE(dba1->FindVertexOptional(v_address.gid(), true));
   }
   {
-    database::GraphDbAccessor dba0{master()};
-    database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-    auto e_local = dba1.FindEdge(e_address.gid(), false);
-    auto v_local = dba1.FindVertex(v_address.gid(), false);
-    auto v_remote = VertexAccessor(v_address, dba0);
+    auto dba0 = master().Access();
+    auto dba1 = worker(1).Access(dba0->transaction_id());
+    auto e_local = dba1->FindEdge(e_address.gid(), false);
+    auto v_local = dba1->FindVertex(v_address.gid(), false);
+    auto v_remote = VertexAccessor(v_address, *dba0);
 
-    dba1.RemoveEdge(e_local);
-    dba0.RemoveVertex(v_remote);
+    dba1->RemoveEdge(e_local);
+    dba0->RemoveVertex(v_remote);
 
-    EXPECT_EQ(worker(1).updates_server().Apply(dba0.transaction_id()),
+    EXPECT_EQ(worker(1).updates_server().Apply(dba0->transaction_id()),
               distributed::UpdateResult::DONE);
-    EXPECT_FALSE(dba1.FindVertexOptional(v_address.gid(), true));
+    EXPECT_FALSE(dba1->FindVertexOptional(v_address.gid(), true));
   }
 }
 
@@ -282,28 +282,21 @@ class DistributedDetachDeleteTest : public DistributedGraphDbTest {
   template <typename TF>
   void Run(storage::VertexAddress v_address, TF check_func) {
     for (int i : {0, 1, 2}) {
-      database::GraphDbAccessor dba0{master()};
-      database::GraphDbAccessor dba1{worker(1), dba0.transaction_id()};
-      database::GraphDbAccessor dba2{worker(2), dba0.transaction_id()};
+      auto dba0 = master().Access();
+      auto dba1 = worker(1).Access(dba0->transaction_id());
+      auto dba2 = worker(2).Access(dba0->transaction_id());
 
-      std::vector<std::reference_wrapper<database::GraphDbAccessor>> dba;
-      dba.emplace_back(dba0);
-      dba.emplace_back(dba1);
-      dba.emplace_back(dba2);
+      std::vector<std::reference_wrapper<database::GraphDbAccessor>> dba{
+          *dba0, *dba1, *dba2};
+      std::vector<database::DistributedGraphDb *> dbs{&master(), &worker(1),
+                                                      &worker(2)};
 
       auto &accessor = dba[i].get();
       auto v_accessor = VertexAccessor(v_address, accessor);
       accessor.DetachRemoveVertex(v_accessor);
 
-      for (auto db_accessor : dba) {
-        distributed::UpdatesRpcServer *updates_server = nullptr;
-        auto *db = &db_accessor.get().db();
-        if (auto *distributed_db =
-                dynamic_cast<database::DistributedGraphDb *>(db)) {
-          updates_server = &distributed_db->updates_server();
-        }
-        ASSERT_TRUE(updates_server);
-        ASSERT_EQ(updates_server->Apply(dba[0].get().transaction_id()),
+      for (auto *db : dbs) {
+        ASSERT_EQ(db->updates_server().Apply(dba[0].get().transaction_id()),
                   distributed::UpdateResult::DONE);
       }
 
@@ -388,29 +381,29 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
                   storage::VertexAddress to_addr) {
     CHECK(from_addr.is_remote() && to_addr.is_remote())
         << "Local address given to CreateEdge";
-    database::GraphDbAccessor dba{creator};
-    auto edge_type = dba.EdgeType("et");
-    VertexAccessor v1{from_addr, dba};
-    VertexAccessor v2{to_addr, dba};
-    auto edge = dba.InsertEdge(v1, v2, edge_type);
+    auto dba = creator.Access();
+    auto edge_type = dba->EdgeType("et");
+    VertexAccessor v1{from_addr, *dba};
+    VertexAccessor v2{to_addr, *dba};
+    auto edge = dba->InsertEdge(v1, v2, edge_type);
     e_ga = edge.GlobalAddress();
 
-    for (auto &kv : props) edge.PropsSet(dba.Property(kv.first), kv.second);
+    for (auto &kv : props) edge.PropsSet(dba->Property(kv.first), kv.second);
 
-    master().updates_server().Apply(dba.transaction_id());
-    worker(1).updates_server().Apply(dba.transaction_id());
-    worker(2).updates_server().Apply(dba.transaction_id());
-    dba.Commit();
+    master().updates_server().Apply(dba->transaction_id());
+    worker(1).updates_server().Apply(dba->transaction_id());
+    worker(2).updates_server().Apply(dba->transaction_id());
+    dba->Commit();
   }
 
   void CheckState(database::GraphDb &db, bool edge_is_local,
                   storage::VertexAddress from_addr,
                   storage::VertexAddress to_addr) {
-    database::GraphDbAccessor dba{db};
+    auto dba = db.Access();
 
     // Check edge data.
     {
-      EdgeAccessor edge{e_ga, dba};
+      EdgeAccessor edge{e_ga, *dba};
       EXPECT_EQ(edge.address().is_local(), edge_is_local);
       EXPECT_EQ(edge.GlobalAddress(), e_ga);
       auto from = edge.from();
@@ -422,7 +415,7 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
 
       EXPECT_EQ(edge.Properties().size(), props.size());
       for (auto &kv : props) {
-        auto equality = edge.PropsAt(dba.Property(kv.first)) ==
+        auto equality = edge.PropsAt(dba->Property(kv.first)) ==
                         query::TypedValue(kv.second);
         EXPECT_TRUE(equality.IsBool() && equality.ValueBool());
       }
@@ -436,7 +429,7 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
 
     // Check `from` data.
     {
-      VertexAccessor from{from_addr, dba};
+      VertexAccessor from{from_addr, *dba};
       ASSERT_EQ(edges(from.out()).size(), 1);
       EXPECT_EQ(edges(from.out())[0].GlobalAddress(), e_ga);
       // In case of cycles we have 1 in the `in` edges.
@@ -445,7 +438,7 @@ class DistributedEdgeCreateTest : public DistributedGraphDbTest {
 
     // Check `to` data.
     {
-      VertexAccessor to{to_addr, dba};
+      VertexAccessor to{to_addr, *dba};
       // In case of cycles we have 1 in the `out` edges.
       EXPECT_EQ(edges(to.out()).size(), from_addr == to_addr);
       ASSERT_EQ(edges(to.in()).size(), 1);
@@ -505,13 +498,13 @@ class DistributedEdgeRemoveTest : public DistributedGraphDbTest {
   }
 
   void Delete(database::GraphDb &db) {
-    database::GraphDbAccessor dba{db};
-    EdgeAccessor edge{edge_addr, dba};
-    dba.RemoveEdge(edge);
-    master().updates_server().Apply(dba.transaction_id());
-    worker(1).updates_server().Apply(dba.transaction_id());
-    worker(2).updates_server().Apply(dba.transaction_id());
-    dba.Commit();
+    auto dba = db.Access();
+    EdgeAccessor edge{edge_addr, *dba};
+    dba->RemoveEdge(edge);
+    master().updates_server().Apply(dba->transaction_id());
+    worker(1).updates_server().Apply(dba->transaction_id());
+    worker(2).updates_server().Apply(dba->transaction_id());
+    dba->Commit();
   }
 
   template <typename TIterable>
@@ -526,12 +519,12 @@ class DistributedEdgeRemoveTest : public DistributedGraphDbTest {
     ASSERT_EQ(EdgeCount(worker(1)), wid == 1);
     ASSERT_EQ(EdgeCount(worker(2)), wid == 2);
 
-    database::GraphDbAccessor dba{master()};
-    VertexAccessor from{from_addr, dba};
+    auto dba = master().Access();
+    VertexAccessor from{from_addr, *dba};
     EXPECT_EQ(Size(from.out()), 1);
     EXPECT_EQ(Size(from.in()), 0);
 
-    VertexAccessor to{to_addr, dba};
+    VertexAccessor to{to_addr, *dba};
     EXPECT_EQ(Size(to.out()), 0);
     EXPECT_EQ(Size(to.in()), 1);
   }
@@ -541,13 +534,13 @@ class DistributedEdgeRemoveTest : public DistributedGraphDbTest {
     EXPECT_EQ(EdgeCount(worker(1)), 0);
     EXPECT_EQ(EdgeCount(worker(2)), 0);
 
-    database::GraphDbAccessor dba{master()};
+    auto dba = master().Access();
 
-    VertexAccessor from{from_addr, dba};
+    VertexAccessor from{from_addr, *dba};
     EXPECT_EQ(Size(from.out()), 0);
     EXPECT_EQ(Size(from.in()), 0);
 
-    VertexAccessor to{to_addr, dba};
+    VertexAccessor to{to_addr, *dba};
     EXPECT_EQ(Size(to.out()), 0);
     EXPECT_EQ(Size(to.in()), 0);
   }

@@ -44,29 +44,29 @@ struct Config {
   int recovering_cluster_size{0};
 };
 
-/**
- * An abstract base class for a SingleNode/Master/Worker graph db.
- *
- * Always be sure that GraphDb object is destructed before main exits, i. e.
- * GraphDb object shouldn't be part of global/static variable, except if its
- * destructor is explicitly called before main exits. Consider code:
- *
- * GraphDb db;  // KeyIndex is created as a part of database::Storage
- * int main() {
- *   GraphDbAccessor dba(db);
- *   auto v = dba.InsertVertex();
- *   v.add_label(dba.Label(
- *       "Start"));  // New SkipList is created in KeyIndex for LabelIndex.
- *                   // That SkipList creates SkipListGc which
- *                   // initialises static Executor object.
- *   return 0;
- * }
- *
- * After main exits: 1. Executor is destructed, 2. KeyIndex is destructed.
- * Destructor of KeyIndex calls delete on created SkipLists which destroy
- * SkipListGc that tries to use Excutioner object that doesn't exist anymore.
- * -> CRASH
- */
+class GraphDbAccessor;
+
+/// An abstract base class for a SingleNode/Master/Worker graph db.
+///
+/// Always be sure that GraphDb object is destructed before main exits, i. e.
+/// GraphDb object shouldn't be part of global/static variable, except if its
+/// destructor is explicitly called before main exits. Consider code:
+///
+/// GraphDb db;  // KeyIndex is created as a part of database::Storage
+/// int main() {
+///   GraphDbAccessor dba(db);
+///   auto v = dba.InsertVertex();
+///   v.add_label(dba.Label(
+///       "Start"));  // New SkipList is created in KeyIndex for LabelIndex.
+///                   // That SkipList creates SkipListGc which
+///                   // initialises static Executor object.
+///   return 0;
+/// }
+///
+/// After main exits: 1. Executor is destructed, 2. KeyIndex is destructed.
+/// Destructor of KeyIndex calls delete on created SkipLists which destroy
+/// SkipListGc that tries to use Excutioner object that doesn't exist anymore.
+/// -> CRASH
 class GraphDb {
  public:
   enum class Type { SINGLE_NODE, DISTRIBUTED_MASTER, DISTRIBUTED_WORKER };
@@ -80,6 +80,12 @@ class GraphDb {
   virtual ~GraphDb() {}
 
   virtual Type type() const = 0;
+
+  /// Create a new accessor by starting a new transaction.
+  virtual std::unique_ptr<GraphDbAccessor> Access() = 0;
+  /// Create an accessor for a running transaction.
+  virtual std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) = 0;
+
   virtual Storage &storage() = 0;
   virtual durability::WriteAheadLog &wal() = 0;
   virtual tx::Engine &tx_engine() = 0;
@@ -89,19 +95,17 @@ class GraphDb {
   virtual storage::ConcurrentIdMapper<storage::Property> &property_mapper() = 0;
   virtual database::Counters &counters() = 0;
   virtual void CollectGarbage() = 0;
-  virtual int WorkerId() const = 0;
-  virtual std::vector<int> GetWorkerIds() const = 0;
 
-  // Makes a snapshot from the visibility of the given accessor
+  /// Makes a snapshot from the visibility of the given accessor
   virtual bool MakeSnapshot(GraphDbAccessor &accessor) = 0;
 
-  // Releases the storage object safely and creates a new object.
-  // This is needed because of recovery, otherwise we might try to recover into
-  // a storage which has already been polluted because of a failed previous
-  // recovery
+  /// Releases the storage object safely and creates a new object.
+  /// This is needed because of recovery, otherwise we might try to recover into
+  /// a storage which has already been polluted because of a failed previous
+  /// recovery
   virtual void ReinitializeStorage() = 0;
 
-  /** When this is false, no new transactions should be created. */
+  /// When this is false, no new transactions should be created.
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
 
  protected:
@@ -118,6 +122,10 @@ class SingleNode final : public GraphDb {
   ~SingleNode();
 
   Type type() const override { return GraphDb::Type::SINGLE_NODE; }
+
+  std::unique_ptr<GraphDbAccessor> Access() override;
+  std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;
+
   Storage &storage() override;
   durability::WriteAheadLog &wal() override;
   tx::Engine &tx_engine() override;
@@ -126,8 +134,6 @@ class SingleNode final : public GraphDb {
   storage::ConcurrentIdMapper<storage::Property> &property_mapper() override;
   database::Counters &counters() override;
   void CollectGarbage() override;
-  int WorkerId() const override;
-  std::vector<int> GetWorkerIds() const override;
 
   bool MakeSnapshot(GraphDbAccessor &accessor) override;
   void ReinitializeStorage() override;

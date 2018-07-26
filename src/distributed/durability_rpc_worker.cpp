@@ -11,8 +11,8 @@ DurabilityRpcWorker::DurabilityRpcWorker(database::Worker *db,
     : db_(db), rpc_server_(server) {
   rpc_server_->Register<MakeSnapshotRpc>(
       [this](const auto &req_reader, auto *res_builder) {
-        database::GraphDbAccessor dba(*this->db_, req_reader.getMember());
-        MakeSnapshotRes res(this->db_->MakeSnapshot(dba));
+        auto dba = db_->Access(req_reader.getMember());
+        MakeSnapshotRes res(db_->MakeSnapshot(*dba));
         res.Save(res_builder);
       });
 

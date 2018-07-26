@@ -31,21 +31,21 @@ class RecoveryTest : public ::testing::Test {
 };
 
 TEST_F(RecoveryTest, TestVerticesRecovered) {
-  database::GraphDbAccessor dba(db_);
-  EXPECT_EQ(dba.VerticesCount(), 10);
-  EXPECT_EQ(dba.VerticesCount(dba.Label("Comment")), 5);
-  for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
-    EXPECT_TRUE(vertex.has_label(dba.Label("Message")));
+  auto dba = db_.Access();
+  EXPECT_EQ(dba->VerticesCount(), 10);
+  EXPECT_EQ(dba->VerticesCount(dba->Label("Comment")), 5);
+  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
+    EXPECT_TRUE(vertex.has_label(dba->Label("Message")));
   }
-  EXPECT_EQ(dba.VerticesCount(dba.Label("Forum")), 5);
+  EXPECT_EQ(dba->VerticesCount(dba->Label("Forum")), 5);
 }
 
 TEST_F(RecoveryTest, TestPropertyNull) {
-  database::GraphDbAccessor dba(db_);
+  auto dba = db_.Access();
   bool found = false;
-  for (const auto &vertex : dba.Vertices(dba.Label("Comment"), false)) {
-    auto id_prop = query::TypedValue(vertex.PropsAt(dba.Property("id")));
-    auto browser = query::TypedValue(vertex.PropsAt(dba.Property("browser")));
+  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
+    auto id_prop = query::TypedValue(vertex.PropsAt(dba->Property("id")));
+    auto browser = query::TypedValue(vertex.PropsAt(dba->Property("browser")));
     if (id_prop.IsString() && id_prop.Value<std::string>() == "2") {
       EXPECT_FALSE(found);
       found = true;
@@ -58,10 +58,10 @@ TEST_F(RecoveryTest, TestPropertyNull) {
 }
 
 TEST_F(RecoveryTest, TestEdgesRecovered) {
-  database::GraphDbAccessor dba(db_);
-  EXPECT_EQ(dba.EdgesCount(), 5);
-  for (const auto &edge : dba.Edges(false)) {
-    EXPECT_TRUE(edge.EdgeType() == dba.EdgeType("POSTED_ON"));
+  auto dba = db_.Access();
+  EXPECT_EQ(dba->EdgesCount(), 5);
+  for (const auto &edge : dba->Edges(false)) {
+    EXPECT_TRUE(edge.EdgeType() == dba->EdgeType("POSTED_ON"));
   }
 }
 

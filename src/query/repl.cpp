@@ -63,14 +63,14 @@ void query::Repl(database::GraphDb &db) {
 
     // regular cypher queries
     try {
-      database::GraphDbAccessor dba(db);
+      auto dba = db.Access();
       ResultStreamFaker<query::TypedValue> stream;
-      auto results = interpeter(command, dba, {}, false);
+      auto results = interpeter(command, *dba, {}, false);
       stream.Header(results.header());
       results.PullAll(stream);
       stream.Summary(results.summary());
       std::cout << stream;
-      dba.Commit();
+      dba->Commit();
     } catch (const query::SyntaxException &e) {
       std::cout << "SYNTAX EXCEPTION: " << e.what() << std::endl;
     } catch (const query::LexingException &e) {
