@@ -160,15 +160,15 @@ include_directories(SYSTEM ${LIBRDKAFKA_INCLUDE_DIR})
 # openCypher parser -----------------------------------------------------------
 set(opencypher_frontend ${CMAKE_SOURCE_DIR}/src/query/frontend/opencypher)
 set(opencypher_generated ${opencypher_frontend}/generated)
-set(opencypher_lexer_grammar ${opencypher_frontend}/grammar/CypherLexer.g4)
-set(opencypher_parser_grammar ${opencypher_frontend}/grammar/CypherParser.g4)
+set(opencypher_lexer_grammar ${opencypher_frontend}/grammar/MemgraphCypherLexer.g4)
+set(opencypher_parser_grammar ${opencypher_frontend}/grammar/MemgraphCypher.g4)
 
 # enumerate all files that are generated from antlr
 set(antlr_opencypher_generated_src
-   ${opencypher_generated}/CypherLexer.cpp
-   ${opencypher_generated}/CypherParser.cpp
-   ${opencypher_generated}/CypherParserBaseVisitor.cpp
-   ${opencypher_generated}/CypherParserVisitor.cpp
+   ${opencypher_generated}/MemgraphCypherLexer.cpp
+   ${opencypher_generated}/MemgraphCypher.cpp
+   ${opencypher_generated}/MemgraphCypherBaseVisitor.cpp
+   ${opencypher_generated}/MemgraphCypherVisitor.cpp
 )
 
 # Provide a command to generate sources if missing. If this were a

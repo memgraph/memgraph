@@ -4,8 +4,8 @@
 
 #include "antlr4-runtime.h"
 #include "query/exceptions.hpp"
-#include "query/frontend/opencypher/generated/CypherLexer.h"
-#include "query/frontend/opencypher/generated/CypherParser.h"
+#include "query/frontend/opencypher/generated/MemgraphCypher.h"
+#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 
 namespace query {
 namespace frontend {
@@ -51,11 +51,11 @@ class Parser {
   FirstMessageErrorListener error_listener_;
   std::string query_;
   antlr4::ANTLRInputStream input_{query_.c_str()};
-  antlropencypher::CypherLexer lexer_{&input_};
+  antlropencypher::MemgraphCypherLexer lexer_{&input_};
   antlr4::CommonTokenStream tokens_{&lexer_};
 
   // generate ast
-  antlropencypher::CypherParser parser_{&tokens_};
+  antlropencypher::MemgraphCypher parser_{&tokens_};
   antlr4::tree::ParseTree *tree_ = nullptr;
 };
 }  // namespace opencypher

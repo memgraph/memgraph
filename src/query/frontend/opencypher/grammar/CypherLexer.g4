@@ -1,3 +1,9 @@
+/*
+ * When changing this grammar make sure to update constants in
+ * src/query/frontend/stripped_lexer_constants.hpp (kKeywords, kSpecialTokens
+ * and bitsets) if needed.
+ */
+
 lexer grammar CypherLexer ;
 
 import UnicodeCategories ;
@@ -22,36 +28,37 @@ fragment Comment     : '/*' .*? '*/'
                      ;
 
 /* Special symbols. */
-LPAREN   : '(' ;
-RPAREN   : ')' ;
-LBRACK   : '[' ;
-RBRACK   : ']' ;
-LBRACE   : '{' ;
-RBRACE   : '}' ;
+LPAREN    : '(' ;
+RPAREN    : ')' ;
+LBRACK    : '[' ;
+RBRACK    : ']' ;
+LBRACE    : '{' ;
+RBRACE    : '}' ;
 
-COMMA    : ',' ;
-DOT      : '.' ;
-DOTS     : '..' ;
-COLON    : ':' ;
-DOLLAR   : '$' ;
-PIPE     : '|' ;
+COMMA     : ',' ;
+DOT       : '.' ;
+DOTS      : '..' ;
+COLON     : ':' ;
+SEMICOLON : ';' ;
+DOLLAR    : '$' ;
+PIPE      : '|' ;
 
-EQ       : '=' ;
-LT       : '<' ;
-GT       : '>' ;
-LTE      : '<=' ;
-GTE      : '>=' ;
-NEQ1     : '<>' ;
-NEQ2     : '!=' ;
-SIM      : '=~' ;
+EQ        : '=' ;
+LT        : '<' ;
+GT        : '>' ;
+LTE       : '<=' ;
+GTE       : '>=' ;
+NEQ1      : '<>' ;
+NEQ2      : '!=' ;
+SIM       : '=~' ;
 
-PLUS     : '+' ;
-MINUS    : '-' ;
-ASTERISK : '*' ;
-SLASH    : '/' ;
-PERCENT  : '%' ;
-CARET    : '^' ;
-PLUS_EQ  : '+=' ;
+PLUS      : '+' ;
+MINUS     : '-' ;
+ASTERISK  : '*' ;
+SLASH     : '/' ;
+PERCENT   : '%' ;
+CARET     : '^' ;
+PLUS_EQ   : '+=' ;
 
 /* Some random unicode characters that can be used to draw arrows. */
 LeftArrowHeadPart  : '⟨' | '〈' | '﹤' | '＜' ;
@@ -62,15 +69,11 @@ DashPart           : '­' | '‐' | '‑' | '‒' | '–' | '—' | '―'
 
 /* Cypher reserved words. */
 ALL            : A L L ;
-ALTER          : A L T E R ;
 AND            : A N D ;
 ANY            : A N Y ;
 AS             : A S ;
 ASC            : A S C ;
 ASCENDING      : A S C E N D I N G ;
-BATCHES        : B A T C H E S ;
-BATCH_INTERVAL : B A T C H '_' I N T E R V A L ;
-BATCH_SIZE     : B A T C H '_' S I Z E ;
 BFS            : B F S ;
 BY             : B Y ;
 CASE           : C A S E ;
@@ -78,13 +81,11 @@ CONTAINS       : C O N T A I N S ;
 COUNT          : C O U N T ;
 CREATE         : C R E A T E ;
 CYPHERNULL     : N U L L ;
-DATA           : D A T A ;
 DELETE         : D E L E T E ;
 DESC           : D E S C ;
 DESCENDING     : D E S C E N D I N G ;
 DETACH         : D E T A C H ;
 DISTINCT       : D I S T I N C T ;
-DROP           : D R O P ;
 ELSE           : E L S E ;
 END            : E N D ;
 ENDS           : E N D S ;
@@ -94,10 +95,7 @@ FILTER         : F I L T E R ;
 IN             : I N ;
 INDEX          : I N D E X ;
 IS             : I S ;
-KAFKA          : K A F K A ;
-K_TEST         : T E S T ;
 LIMIT          : L I M I T ;
-LOAD           : L O A D ;
 L_SKIP         : S K I P ;
 MATCH          : M A T C H ;
 MERGE          : M E R G E ;
@@ -107,25 +105,17 @@ ON             : O N ;
 OPTIONAL       : O P T I O N A L ;
 OR             : O R ;
 ORDER          : O R D E R ;
-PASSWORD       : P A S S W O R D ;
 REDUCE         : R E D U C E ;
 REMOVE         : R E M O V E ;
 RETURN         : R E T U R N ;
 SET            : S E T ;
 SHOW           : S H O W ;
 SINGLE         : S I N G L E ;
-START          : S T A R T ;
 STARTS         : S T A R T S ;
-STOP           : S T O P ;
-STREAM         : S T R E A M ;
-STREAMS        : S T R E A M S ;
 THEN           : T H E N ;
-TOPIC          : T O P I C ;
-TRANSFORM      : T R A N S F O R M ;
 TRUE           : T R U E ;
 UNION          : U N I O N ;
 UNWIND         : U N W I N D ;
-USER           : U S E R ;
 WHEN           : W H E N ;
 WHERE          : W H E R E ;
 WITH           : W I T H ;

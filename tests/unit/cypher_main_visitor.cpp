@@ -240,18 +240,20 @@ TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
 }
 
 TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
-  TypeParam ast_generator("RETURN n:DEletE");
-  auto *query = ast_generator.query_;
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
-  auto *labels_test = dynamic_cast<LabelsTest *>(
-      return_clause->body_.named_expressions[0]->expression_);
-  auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
-  ASSERT_EQ(identifier->name_, "n");
-  ASSERT_THAT(labels_test->labels_,
-              ElementsAre(ast_generator.db_accessor_->Label("DEletE")));
+  for (const auto &label : {"DeLete", "UsER"}) {
+    TypeParam ast_generator(fmt::format("RETURN n:{}", label));
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+    auto *labels_test = dynamic_cast<LabelsTest *>(
+        return_clause->body_.named_expressions[0]->expression_);
+    auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
+    ASSERT_EQ(identifier->name_, "n");
+    ASSERT_THAT(labels_test->labels_,
+                ElementsAre(ast_generator.db_accessor_->Label(label)));
+  }
 }
 
 TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
@@ -777,21 +779,6 @@ TYPED_TEST(CypherMainVisitorTest, UndefinedFunction) {
                          "IHopeWeWillNeverHaveAwesomeMemgraphProcedureWithS"
                          "uchALongAndAwesomeNameSinceThisTestWouldFail(1)"),
                SemanticException);
-}
-
-TYPED_TEST(CypherMainVisitorTest, FunctionSpecialCase) {
-  // For some reason parsing of function calls with single letter name in a-f
-  // range would fail, so here's a test for that (also see D1464).
-  TypeParam ast_generator("RETURN e()");
-  auto *query = ast_generator.query_;
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
-  ASSERT_EQ(return_clause->body_.named_expressions.size(), 1);
-  auto *function = dynamic_cast<Function *>(
-      return_clause->body_.named_expressions[0]->expression_);
-  ASSERT_TRUE(function);
-  ASSERT_TRUE(function->function());
 }
 
 TYPED_TEST(CypherMainVisitorTest, Function) {
@@ -2023,40 +2010,40 @@ TYPED_TEST(CypherMainVisitorTest, CreateStream) {
   check_create_stream(
       "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
       "WitH TopIC 'tropika' "
-      "WITH TRAnsFORM 'localhost/test.py' bAtCH_inTErvAL 168",
+      "WITH TRAnsFORM 'localhost/test.py' bAtCH inTErvAL 168",
       "strim", "localhost", "tropika", "localhost/test.py", 168,
       std::experimental::nullopt);
 
   check_create_stream(
       "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
       "WITH TopIC 'tropika' "
-      "WITH TRAnsFORM 'localhost/test.py' bAtCH_SizE 17",
+      "WITH TRAnsFORM 'localhost/test.py' bAtCH SizE 17",
       "strim", "localhost", "tropika", "localhost/test.py",
       std::experimental::nullopt, 17);
 
   check_create_stream(
       "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
       "WitH TOPic 'tropika' "
-      "WITH TRAnsFORM 'localhost/test.py' bAtCH_inTErvAL 168 Batch_SIze 17",
+      "WITH TRAnsFORM 'localhost/test.py' bAtCH inTErvAL 168 Batch SIze 17",
       "strim", "localhost", "tropika", "localhost/test.py", 168, 17);
 
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
-                   "WITH TRANSFORM 'localhost/test.py' BATCH_INTERVAL 'jedan' ",
+                   "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 'jedan' ",
                    "strim", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika' "
-                   "WITH TRANSFORM 'localhost/test.py' BATCH_SIZE 'jedan' ",
+                   "WITH TRANSFORM 'localhost/test.py' BATCH SIZE 'jedan' ",
                    "strim", "localhost", "tropika", "localhost/test.py",
                    std::experimental::nullopt, 17),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM 123 AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika' "
-                   "WITH TRANSFORM 'localhost/test.py' BATCH_INTERVAL 168 ",
+                   "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 168 ",
                    "strim", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);
@@ -2070,14 +2057,14 @@ TYPED_TEST(CypherMainVisitorTest, CreateStream) {
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 2"
-                   "WITH TRANSFORM localhost/test.py BATCH_INTERVAL 168 ",
+                   "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
                    "strim", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika'"
-                   "WITH TRANSFORM localhost/test.py BATCH_INTERVAL 168 ",
+                   "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
                    "strim", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);

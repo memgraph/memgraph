@@ -10,9 +10,9 @@
 
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/opencypher/generated/CypherLexer.h"
-#include "query/frontend/opencypher/generated/CypherParser.h"
-#include "query/frontend/opencypher/generated/CypherParserBaseVisitor.h"
+#include "query/frontend/opencypher/generated/MemgraphCypher.h"
+#include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
+#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 #include "query/frontend/stripped_lexer_constants.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string.hpp"

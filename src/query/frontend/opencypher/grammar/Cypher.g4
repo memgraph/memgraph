@@ -1,13 +1,13 @@
 /*
  * Copyright (c) 2015-2016 "Neo Technology,"
  * Network Engine for Objects in Lund AB [http://neotechnology.com]
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -15,17 +15,11 @@
  * limitations under the License.
  */
 
-/*
- * When changing this grammar make sure to update constants in
- * src/query/frontend/stripped_lexer_constants.hpp (kKeywords, kSpecialTokens
- * and bitsets) if needed.
- */
-
-parser grammar CypherParser ;
+parser grammar Cypher;
 
 options { tokenVocab=CypherLexer; }
 
-cypher : statement ;
+cypher : statement ';'? EOF ;
 
 statement : query ;
 
@@ -49,14 +43,6 @@ clause : cypherMatch
        | with
        | cypherReturn
        | createIndex
-       | modifyUser
-       | dropUser
-       | createStream
-       | dropStream
-       | showStreams
-       | startStopStream
-       | startStopAllStreams
-       | testStream
        ;
 
 cypherMatch : OPTIONAL? MATCH pattern where? ;
@@ -249,9 +235,7 @@ idInColl : variable IN expression ;
 
 functionInvocation : functionName '(' ( DISTINCT )? ( expression ( ',' expression )* )? ')' ;
 
-functionName : UnescapedSymbolicName
-             | EscapedSymbolicName
-             | COUNT ;
+functionName : symbolicName ;
 
 listComprehension : '[' filterExpression ( '|' expression )? ']' ;
 
@@ -281,112 +265,67 @@ integerLiteral : DecimalLiteral
                | OctalLiteral
                | HexadecimalLiteral
                ;
- 
+
 createIndex : CREATE INDEX ON ':' labelName '(' propertyKeyName ')' ;
-
-userName : UnescapedSymbolicName ;
-
-createUser : CREATE USER ; 
-
-alterUser : ALTER USER ; 
-
-modifyUser : ( createUser | alterUser ) userName ( WITH ( modifyUserOption )+ )? ;
-
-modifyUserOption : passwordOption ;
-
-passwordOption : PASSWORD literal;
-
-dropUser : DROP USER userName ( ',' userName )* ;
-
-streamName : UnescapedSymbolicName ;
-
-createStream : CREATE STREAM streamName AS LOAD DATA KAFKA 
-streamUri=literal WITH TOPIC streamTopic=literal WITH TRANSFORM
-transformUri=literal ( batchIntervalOption )? (batchSizeOption )? ;
-
-batchIntervalOption : BATCH_INTERVAL literal ;
-
-batchSizeOption : BATCH_SIZE literal ;
-
-dropStream : DROP STREAM streamName ;
-
-showStreams : SHOW STREAMS ; 
-
-startStopStream : ( START | STOP ) STREAM streamName ( limitBatchesOption )? ;
-
-limitBatchesOption : LIMIT limitBatches=literal BATCHES ;
-
-startStopAllStreams : ( START | STOP ) ALL STREAMS ;
-
-testStream : K_TEST STREAM streamName ( limitBatchesOption )? ;
 
 doubleLiteral : FloatingLiteral ;
 
+cypherKeyword : ALL
+              | AND
+              | ANY
+              | AS
+              | ASC
+              | ASCENDING
+              | BFS
+              | BY
+              | CASE
+              | CONTAINS
+              | COUNT
+              | CREATE
+              | CYPHERNULL
+              | DELETE
+              | DESC
+              | DESCENDING
+              | DETACH
+              | DISTINCT
+              | ELSE
+              | END
+              | ENDS
+              | EXTRACT
+              | FALSE
+              | FILTER
+              | IN
+              | INDEX
+              | IS
+              | LIMIT
+              | L_SKIP
+              | MATCH
+              | MERGE
+              | NONE
+              | NOT
+              | ON
+              | OPTIONAL
+              | OR
+              | ORDER
+              | REDUCE
+              | REMOVE
+              | RETURN
+              | SET
+              | SHOW
+              | SINGLE
+              | STARTS
+              | THEN
+              | TRUE
+              | UNION
+              | UNWIND
+              | WHEN
+              | WHERE
+              | WITH
+              | WSHORTEST
+              | XOR
+              ;
+
 symbolicName : UnescapedSymbolicName
              | EscapedSymbolicName
-             | UNION
-             | ALL
-             | REDUCE
-             | OPTIONAL
-             | MATCH
-             | UNWIND
-             | AS
-             | MERGE
-             | ON
-             | CREATE
-             | SET
-             | DETACH
-             | DELETE
-             | REMOVE
-             | WITH
-             | DISTINCT
-             | RETURN
-             | ORDER
-             | BY
-             | L_SKIP
-             | LIMIT
-             | ASCENDING
-             | ASC
-             | DESCENDING
-             | DESC
-             | WHERE
-             | OR
-             | XOR
-             | AND
-             | NOT
-             | IN
-             | STARTS
-             | ENDS
-             | CONTAINS
-             | IS
-             | CYPHERNULL
-             | CASE
-             | WHEN
-             | THEN
-             | ELSE
-             | END
-             | COUNT
-             | FILTER
-             | EXTRACT
-             | ANY
-             | NONE
-             | SINGLE
-             | TRUE
-             | FALSE
-             | USER
-             | PASSWORD
-             | ALTER
-             | DROP
-             | STREAM
-             | STREAMS
-             | LOAD
-             | DATA
-             | KAFKA
-             | TRANSFORM
-             | BATCH_SIZE
-             | BATCH_INTERVAL
-             | SHOW
-             | START
-             | STOP
+             | cypherKeyword
              ;
-

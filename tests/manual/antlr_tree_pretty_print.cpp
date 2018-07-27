@@ -5,8 +5,8 @@
 #include <string>
 
 #include "antlr4-runtime.h"
-#include "query/frontend/opencypher/generated/CypherLexer.h"
-#include "query/frontend/opencypher/generated/CypherParser.h"
+#include "query/frontend/opencypher/generated/MemgraphCypher.h"
+#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 
 using namespace antlropencypher;
 using namespace antlr4;
@@ -22,10 +22,10 @@ std::string ReadAllInput() {
   return results;
 }
 
-int main(int, const char**) {
+int main(int, const char **) {
   std::string input_string = ReadAllInput();
   ANTLRInputStream input(input_string);
-  CypherLexer lexer(&input);
+  MemgraphCypherLexer lexer(&input);
   CommonTokenStream tokens(&lexer);
 
   tokens.fill();
@@ -33,8 +33,8 @@ int main(int, const char**) {
     std::cout << token->toString() << std::endl;
   }
 
-  CypherParser parser(&tokens);
-  tree::ParseTree* tree = parser.cypher();
+  MemgraphCypher parser(&tokens);
+  tree::ParseTree *tree = parser.cypher();
 
   // Print tree indented. This is a hacky implementation and not very correct.
   std::string indent;

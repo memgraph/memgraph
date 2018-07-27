@@ -1,8 +1,8 @@
 #include <iostream>
 
 #include "antlr4-runtime.h"
-#include "query/frontend/opencypher/generated/CypherLexer.h"
-#include "query/frontend/opencypher/generated/CypherParser.h"
+#include "query/frontend/opencypher/generated/MemgraphCypher.h"
+#include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"
 
 using namespace antlropencypher;
 using namespace antlr4;
@@ -11,7 +11,7 @@ int main(int, const char **a) {
   const char *query = a[1];
 
   ANTLRInputStream input(query);
-  CypherLexer lexer(&input);
+  MemgraphCypherLexer lexer(&input);
   CommonTokenStream tokens(&lexer);
 
   const auto &vocabulary = lexer.getVocabulary();
@@ -22,7 +22,7 @@ int main(int, const char **a) {
               << "; STRING: " << token->toString() << std::endl;
   }
 
-  CypherParser parser(&tokens);
+  MemgraphCypher parser(&tokens);
   tree::ParseTree *tree = parser.cypher();
 
   std::cout << tree->toStringTree(&parser) << std::endl << std::endl;
