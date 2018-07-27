@@ -21,10 +21,10 @@ foreach(test_cpp ${test_type_cpps})
     # requires unique logical target names
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
-    # link libraries
-    target_link_libraries(${target_name} memgraph_lib mg-integrations kvstore_dummy_lib)
-    # gtest
-    target_link_libraries(${target_name} gtest gmock gtest_main)
+    # Regular link of libraries we depend on.
+    target_link_libraries(${target_name} gtest gmock gtest_main memgraph_lib)
+    # Link the appropriate kvstore library for required components.
+    target_link_libraries(${target_name} kvstore_dummy_lib)
 
     # register test
     add_test(${target_name} ${exec_name})
