@@ -302,3 +302,8 @@ target_link_libraries(${test_prefix}utils_timestamp mg-utils)
 
 add_unit_test(utils_watchdog.cpp)
 target_link_libraries(${test_prefix}utils_watchdog mg-utils)
+
+# Test mg-auth
+
+add_unit_test(auth.cpp)
+target_link_libraries(${test_prefix}auth mg-auth kvstore_lib)

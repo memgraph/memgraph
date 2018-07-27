@@ -11,6 +11,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "config.hpp"
 #include "database/distributed_graph_db.hpp"
@@ -67,6 +68,8 @@ DECLARE_string(durability_directory);
 struct SessionData {
   database::GraphDb &db;
   query::Interpreter interpreter{db};
+  auth::Auth auth{
+      std::experimental::filesystem::path(FLAGS_durability_directory) / "auth"};
 };
 
 class BoltSession final
@@ -78,7 +81,8 @@ class BoltSession final
       : communication::bolt::Session<communication::InputStream,
                                      communication::OutputStream>(
             input_stream, output_stream),
-        transaction_engine_(data.db, data.interpreter) {}
+        transaction_engine_(data.db, data.interpreter),
+        auth_(&data.auth) {}
 
   using communication::bolt::Session<communication::InputStream,
                                      communication::OutputStream>::TEncoder;
@@ -118,6 +122,13 @@ class BoltSession final
 
   void Abort() override { transaction_engine_.Abort(); }
 
+  bool Authenticate(const std::string &username,
+                    const std::string &password) override {
+    if (!auth_->HasUsers()) return true;
+    user_ = auth_->Authenticate(username, password);
+    return !!user_;
+  }
+
  private:
   // Wrapper around TEncoder which converts TypedValue to Value
   // before forwarding the calls to original TEncoder.
@@ -139,6 +150,8 @@ class BoltSession final
   };
 
   query::TransactionEngine transaction_engine_;
+  auth::Auth *auth_;
+  std::experimental::optional<auth::User> user_;
 };
 
 using ServerT = communication::Server<BoltSession, SessionData>;
@@ -292,6 +305,7 @@ void SingleNodeMain() {
     LOG(ERROR) << e.what();
   }
 
+  session_data.interpreter.auth_ = &session_data.auth;
   session_data.interpreter.kafka_streams_ = &kafka_streams;
 
   ServerContext context;

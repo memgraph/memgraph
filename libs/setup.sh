@@ -91,6 +91,11 @@ clone git://deps.memgraph.io/glog.git glog $glog_tag
 gflags_tag="b37ceb03a0e56c9f15ce80409438a555f8a67b7c" # custom version (May 6, 2017)
 clone git://deps.memgraph.io/gflags.git gflags $gflags_tag
 
+# libbcrypt
+# git clone https://github.com/rg3/libbcrypt
+libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
+clone git://deps.memgraph.io/libbcrypt.git libbcrypt $libbcrypt_tag
+
 # neo4j
 wget -nv http://deps.memgraph.io/neo4j-community-3.2.3-unix.tar.gz -O neo4j.tar.gz
 tar -xzf neo4j.tar.gz

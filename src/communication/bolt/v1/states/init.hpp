@@ -6,6 +6,7 @@
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "communication/exceptions.hpp"
 #include "utils/likely.hpp"
 
 namespace communication::bolt {
@@ -59,6 +60,33 @@ State StateInitRun(Session &session) {
   LOG(INFO) << fmt::format("Client connected '{}'", client_name.ValueString())
             << std::endl;
 
+  // Get authentication data.
+  auto &data = metadata.ValueMap();
+  if (!data.count("scheme") || !data.count("principal") ||
+      !data.count("credentials")) {
+    LOG(WARNING) << "The client didn't supply authentication information!";
+    return State::Close;
+  }
+  if (data["scheme"].ValueString() != "basic") {
+    LOG(WARNING) << "Unsupported authentication scheme: "
+                 << data["scheme"].ValueString();
+    return State::Close;
+  }
+
+  // Authenticate the user.
+  if (!session.Authenticate(data["principal"].ValueString(),
+                            data["credentials"].ValueString())) {
+    if (!session.encoder_.MessageFailure(
+            {{"code", "Memgraph.ClientError.Security.Unauthenticated"},
+             {"message", "Authentication failure"}})) {
+      DLOG(WARNING) << "Couldn't send failure message to the client!";
+    }
+    // Throw an exception to indicate to the network stack that the session
+    // should be closed and cleaned up.
+    throw SessionClosedException("The client is not authenticated!");
+  }
+
+  // Return success.
   if (!session.encoder_.MessageSuccess()) {
     DLOG(WARNING) << "Couldn't send success message to the client!";
     return State::Close;

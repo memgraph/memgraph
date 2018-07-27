@@ -16,6 +16,7 @@
 #include "boost/serialization/export.hpp"
 #include "glog/logging.h"
 
+#include "auth/auth.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
@@ -34,6 +35,7 @@
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
+#include "utils/string.hpp"
 #include "utils/thread/sync.hpp"
 
 DEFINE_HIDDEN_int32(remote_pull_sleep_micros, 10,
@@ -3903,20 +3905,59 @@ WITHOUT_SINGLE_INPUT(ModifyUser)
 
 class ModifyUserCursor : public Cursor {
  public:
-  bool Pull(Frame &frame, Context &context) override {
-    if (context.in_explicit_transaction_) {
+  ModifyUserCursor(const ModifyUser &self) : self_(self) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (ctx.in_explicit_transaction_) {
       throw UserModificationInMulticommandTxException();
     }
-    ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
-    throw utils::NotYetImplemented("user auth");
+    ExpressionEvaluator evaluator(frame, &ctx, GraphView::OLD);
+
+    TypedValue password_tv = self_.password()->Accept(evaluator);
+    if (password_tv.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException(fmt::format(
+          "Password must be a string, not '{}'", password_tv.type()));
+    }
+
+    // All of the following operations are done with a lock.
+    std::lock_guard<std::mutex> guard(ctx.auth_->WithLock());
+
+    std::experimental::optional<auth::User> user;
+    if (self_.is_create()) {
+      // Create a new user.
+      user = ctx.auth_->AddUser(self_.username());
+      if (!user) {
+        throw QueryRuntimeException(
+            fmt::format("User '{}' already exists!", self_.username()));
+      }
+    } else {
+      // Update an existing user.
+      auto user = ctx.auth_->GetUser(self_.username());
+      if (!user) {
+        throw QueryRuntimeException(
+            fmt::format("User '{}' doesn't exist!", self_.username()));
+      }
+    }
+
+    // Set the password and save the user.
+    user->UpdatePassword(password_tv.Value<std::string>());
+    if (!ctx.auth_->SaveUser(*user)) {
+      throw QueryRuntimeException(
+          fmt::format("Couldn't save user '{}'!", self_.username()));
+    }
+
+    return false;
   }
 
-  void Reset() override { throw utils::NotYetImplemented("user auth"); }
+  void Reset() override {}
+
+ private:
+  const ModifyUser &self_;
 };
 
 std::unique_ptr<Cursor> ModifyUser::MakeCursor(
-    database::GraphDbAccessor &db) const {
-  return std::make_unique<ModifyUserCursor>();
+    database::GraphDbAccessor &) const {
+  return std::make_unique<ModifyUserCursor>(*this);
 }
 
 bool DropUser::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
@@ -3927,21 +3968,51 @@ WITHOUT_SINGLE_INPUT(DropUser)
 
 class DropUserCursor : public Cursor {
  public:
-  DropUserCursor() {}
+  DropUserCursor(const DropUser &self) : self_(self) {}
 
   bool Pull(Frame &, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
       throw UserModificationInMulticommandTxException();
     }
-    throw utils::NotYetImplemented("user auth");
+
+    // All of the following operations are done with a lock.
+    std::lock_guard<std::mutex> guard(ctx.auth_->WithLock());
+
+    // Check if all users exist.
+    for (const auto &username : self_.usernames()) {
+      auto user = ctx.auth_->GetUser(username);
+      if (!user) {
+        throw QueryRuntimeException(
+            fmt::format("User '{}' doesn't exist!", username));
+      }
+    }
+
+    // Delete all users.
+    std::vector<std::string> failed;
+    for (const auto &username : self_.usernames()) {
+      if (!ctx.auth_->RemoveUser(username)) {
+        failed.push_back(username);
+      }
+    }
+
+    // Check for failures.
+    if (failed.size() > 0) {
+      throw QueryRuntimeException(fmt::format("Couldn't remove users: '{}'!",
+                                              utils::Join(failed, "', '")));
+    }
+
+    return false;
   }
 
-  void Reset() override { throw utils::NotYetImplemented("user auth"); }
+  void Reset() override {}
+
+ private:
+  const DropUser &self_;
 };
 
 std::unique_ptr<Cursor> DropUser::MakeCursor(
-    database::GraphDbAccessor &db) const {
-  return std::make_unique<DropUserCursor>();
+    database::GraphDbAccessor &) const {
+  return std::make_unique<DropUserCursor>(*this);
 }
 
 CreateStream::CreateStream(std::string stream_name, Expression *stream_uri,

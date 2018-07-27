@@ -15,21 +15,13 @@
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
+#include "communication/exceptions.hpp"
 #include "communication/helpers.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/thread/sync.hpp"
 
 namespace communication {
-
-/**
- * This exception is thrown to indicate to the communication stack that the
- * session is closed and that cleanup should be performed.
- */
-class SessionClosedException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
 
 /**
  * This is used to provide input to user sessions. All sessions used with the

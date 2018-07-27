@@ -5,11 +5,13 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
 
-namespace integrations {
-namespace kafka {
+namespace auth {
+class Auth;
+}  // namespace auth
+
+namespace integrations::kafka {
 class Streams;
-}  // namespace kafka
-}  // namespace integrations
+}  // namespace integrations::kafka
 
 namespace query {
 
@@ -32,6 +34,7 @@ class Context {
   bool is_index_created_ = false;
   int64_t timestamp_{-1};
 
+  auth::Auth *auth_ = nullptr;
   integrations::kafka::Streams *kafka_streams_ = nullptr;
 };
 

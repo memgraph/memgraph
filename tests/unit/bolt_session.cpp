@@ -50,6 +50,11 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
   void Abort() override {}
 
+  bool Authenticate(const std::string &username,
+                    const std::string &password) override {
+    return true;
+  }
+
  private:
   std::string query_;
 };

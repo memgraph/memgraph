@@ -20,11 +20,13 @@ namespace distributed {
 class PlanDispatcher;
 }
 
-namespace integrations {
-namespace kafka {
+namespace auth {
+class Auth;
+}  // namespace auth
+
+namespace integrations::kafka {
 class Streams;
-}  // namespace kafka
-}  // namespace integrations
+}  // namespace integrations::kafka
 
 namespace query {
 
@@ -165,6 +167,7 @@ class Interpreter {
                      const std::map<std::string, TypedValue> &params,
                      bool in_explicit_transaction);
 
+  auth::Auth *auth_ = nullptr;
   integrations::kafka::Streams *kafka_streams_ = nullptr;
 
  private:

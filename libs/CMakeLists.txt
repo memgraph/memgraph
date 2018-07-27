@@ -249,3 +249,13 @@ import_external_library(librdkafka STATIC
 import_library(librdkafka++ STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
   librdkafka-proj)
+
+# Setup libbcrypt
+import_external_library(libbcrypt STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/bcrypt.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt
+  CONFIGURE_COMMAND sed s/-Wcast-align// -i ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt/crypt_blowfish/Makefile
+  BUILD_COMMAND make -C ${CMAKE_CURRENT_SOURCE_DIR}/libbcrypt
+                     CC=${CMAKE_C_COMPILER}
+                     CXX=${CMAKE_CXX_COMPILER}
+  INSTALL_COMMAND true)
