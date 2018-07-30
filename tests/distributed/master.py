@@ -21,7 +21,7 @@ def parse_args():
     Parse command line arguments
     """
     argp = ArgumentParser(description=__doc__)
-    argp.add_argument("--test-suite", default="raft",
+    argp.add_argument("--test-suite", default="card_fraud",
                       help="Tests suite")
     argp.add_argument("--test", default="example_test",
                       help="Test specification in python module")

@@ -56,9 +56,6 @@ target_link_libraries(${test_prefix}query_hash memgraph_lib kvstore_dummy_lib)
 add_manual_test(query_planner.cpp)
 target_link_libraries(${test_prefix}query_planner memgraph_lib kvstore_dummy_lib)
 
-add_manual_test(raft_rpc.cpp)
-target_link_libraries(${test_prefix}raft_rpc memgraph_lib kvstore_dummy_lib)
-
 add_manual_test(repl.cpp)
 target_link_libraries(${test_prefix}repl memgraph_lib kvstore_dummy_lib)
 
