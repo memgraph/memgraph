@@ -61,21 +61,27 @@ State StateInitRun(Session &session) {
             << std::endl;
 
   // Get authentication data.
+  std::string username, password;
   auto &data = metadata.ValueMap();
-  if (!data.count("scheme") || !data.count("principal") ||
-      !data.count("credentials")) {
+  if (!data.count("scheme")) {
     LOG(WARNING) << "The client didn't supply authentication information!";
     return State::Close;
   }
-  if (data["scheme"].ValueString() != "basic") {
+  if (data["scheme"].ValueString() == "basic") {
+    if (!data.count("principal") || !data.count("credentials")) {
+      LOG(WARNING) << "The client didn't supply authentication information!";
+      return State::Close;
+    }
+    username = data["principal"].ValueString();
+    password = data["credentials"].ValueString();
+  } else if (data["scheme"].ValueString() != "none") {
     LOG(WARNING) << "Unsupported authentication scheme: "
                  << data["scheme"].ValueString();
     return State::Close;
   }
 
   // Authenticate the user.
-  if (!session.Authenticate(data["principal"].ValueString(),
-                            data["credentials"].ValueString())) {
+  if (!session.Authenticate(username, password)) {
     if (!session.encoder_.MessageFailure(
             {{"code", "Memgraph.ClientError.Security.Unauthenticated"},
              {"message", "Authentication failure"}})) {
