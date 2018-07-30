@@ -1,8 +1,7 @@
 #include <gtest/gtest.h>
 #include <sstream>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
+#include <capnp/message.h>
 
 #include "distributed/serialization.hpp"
 #include "mvcc/version_list.hpp"
@@ -69,15 +68,14 @@ bool CheckEdge(const Edge &e1, int w1, const Edge &e2, int w2) {
 
 #undef CHECK_RETURN
 
-#define SAVE_AND_LOAD(type, name, element)        \
-  std::unique_ptr<type> name;                     \
-  {                                               \
-    std::ostringstream ostream;                   \
-    boost::archive::binary_oarchive oar{ostream}; \
-    distributed::Save##type(oar, element, 0);     \
-    std::istringstream istream{ostream.str()};    \
-    boost::archive::binary_iarchive iar{istream}; \
-    name = distributed::Load##type(iar);          \
+#define SAVE_AND_LOAD(type, name, element)                       \
+  std::unique_ptr<type> name;                                    \
+  {                                                              \
+    ::capnp::MallocMessageBuilder message;                       \
+    auto builder = message.initRoot<distributed::capnp::type>(); \
+    distributed::Save##type(element, &builder, 0);               \
+    auto reader = message.getRoot<distributed::capnp::type>();   \
+    name = distributed::Load##type(reader);                      \
   }
 
 TEST(DistributedSerialization, Empty) {

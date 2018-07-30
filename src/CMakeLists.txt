@@ -190,8 +190,6 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
-    ${Boost_IOSTREAMS_LIBRARY_RELEASE}
-    ${Boost_SERIALIZATION_LIBRARY_RELEASE}
     mg-utils mg-io mg-integrations mg-requests mg-communication mg-auth)
 
 if (USE_LTALLOC)

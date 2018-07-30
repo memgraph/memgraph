@@ -215,31 +215,9 @@ void ReconstructTypedValue(TypedValue &value) {
   }
 }
 
-bool TypedValueVectorCompare::operator()(
-    const std::vector<TypedValue> &c1,
-    const std::vector<TypedValue> &c2) const {
-  // ordering is invalid if there are more elements in the collections
-  // then there are in the ordering_ vector
-  DCHECK(c1.size() <= ordering_.size() && c2.size() <= ordering_.size())
-      << "Collections contain more elements then there are orderings";
+namespace {
 
-  auto c1_it = c1.begin();
-  auto c2_it = c2.begin();
-  auto ordering_it = ordering_.begin();
-  for (; c1_it != c1.end() && c2_it != c2.end();
-       c1_it++, c2_it++, ordering_it++) {
-    if (TypedValueCompare(*c1_it, *c2_it)) return *ordering_it == Ordering::ASC;
-    if (TypedValueCompare(*c2_it, *c1_it))
-      return *ordering_it == Ordering::DESC;
-  }
-
-  // at least one collection is exhausted
-  // c1 is less then c2 iff c1 reached the end but c2 didn't
-  return (c1_it == c1.end()) && (c2_it != c2.end());
-}
-
-bool TypedValueVectorCompare::TypedValueCompare(const TypedValue &a,
-                                                const TypedValue &b) const {
+bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // in ordering null comes after everything else
   // at the same time Null is not less that null
   // first deal with Null < Whatever case
@@ -279,6 +257,31 @@ bool TypedValueVectorCompare::TypedValueCompare(const TypedValue &a,
     default:
       LOG(FATAL) << "Unhandled comparison for types";
   }
+}
+
+}  // namespace
+
+bool TypedValueVectorCompare::operator()(
+    const std::vector<TypedValue> &c1,
+    const std::vector<TypedValue> &c2) const {
+  // ordering is invalid if there are more elements in the collections
+  // then there are in the ordering_ vector
+  DCHECK(c1.size() <= ordering_.size() && c2.size() <= ordering_.size())
+      << "Collections contain more elements then there are orderings";
+
+  auto c1_it = c1.begin();
+  auto c2_it = c2.begin();
+  auto ordering_it = ordering_.begin();
+  for (; c1_it != c1.end() && c2_it != c2.end();
+       c1_it++, c2_it++, ordering_it++) {
+    if (TypedValueCompare(*c1_it, *c2_it)) return *ordering_it == Ordering::ASC;
+    if (TypedValueCompare(*c2_it, *c1_it))
+      return *ordering_it == Ordering::DESC;
+  }
+
+  // at least one collection is exhausted
+  // c1 is less then c2 iff c1 reached the end but c2 didn't
+  return (c1_it == c1.end()) && (c2_it != c2.end());
 }
 
 void TypedValueVectorCompare::Save(

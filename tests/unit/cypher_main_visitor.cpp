@@ -6,8 +6,6 @@
 #include <vector>
 
 #include "antlr4-runtime.h"
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -113,33 +111,6 @@ class CachedAstGenerator : public Base {
   Query *query_;
 };
 
-// This generator serializes the parsed ast and uses the deserialized one.
-class SerializedAstGenerator : public Base {
- public:
-  SerializedAstGenerator(const std::string &query)
-      : Base(query),
-        storage_([&]() {
-          ::frontend::opencypher::Parser parser(query);
-          CypherMainVisitor visitor(context_);
-          visitor.visit(parser.tree());
-          std::stringstream stream;
-          {
-            boost::archive::binary_oarchive out_archive(stream);
-            out_archive << *visitor.query();
-          }
-          AstStorage new_ast;
-          {
-            boost::archive::binary_iarchive in_archive(stream);
-            new_ast.Load(in_archive);
-          }
-          return new_ast;
-        }()),
-        query_(storage_.query()) {}
-
-  AstStorage storage_;
-  Query *query_;
-};
-
 class CapnpAstGenerator : public Base {
  public:
   CapnpAstGenerator(const std::string &query)
@@ -177,7 +148,7 @@ class CypherMainVisitorTest : public ::testing::Test {};
 
 typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
                          ClonedAstGenerator, CachedAstGenerator,
-                         SerializedAstGenerator, CapnpAstGenerator>
+                         CapnpAstGenerator>
     AstGeneratorTypes;
 TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
 

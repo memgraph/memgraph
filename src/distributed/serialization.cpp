@@ -1,5 +1,7 @@
 #include "distributed/serialization.hpp"
 
+#include "utils/serialization.hpp"
+
 namespace {
 
 template <class TAddress>
@@ -74,7 +76,6 @@ void SaveVertex(const Vertex &vertex, capnp::Vertex::Builder *builder,
   SaveProperties(vertex.properties_, &properties_builder);
 }
 
-template <>
 std::unique_ptr<Vertex> LoadVertex(const capnp::Vertex::Reader &reader) {
   auto vertex = std::make_unique<Vertex>();
   auto load_edges = [](const auto &edges_reader) {
@@ -107,7 +108,6 @@ void SaveEdge(const Edge &edge, capnp::Edge::Builder *builder,
   SaveProperties(edge.properties_, &properties_builder);
 }
 
-template <>
 std::unique_ptr<Edge> LoadEdge(const capnp::Edge::Reader &reader) {
   auto from = LoadVertexAddress(reader.getFrom());
   auto to = LoadVertexAddress(reader.getTo());

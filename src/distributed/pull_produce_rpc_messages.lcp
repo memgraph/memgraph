@@ -378,13 +378,11 @@ void PullResData::LoadGraphElement(
     storage::VertexAddress global_address(vertex_reader.getAddress());
     auto old_record =
         vertex_reader.hasOld()
-            ? distributed::LoadVertex<const distributed::capnp::Vertex::Reader>(
-                  vertex_reader.getOld())
+            ? distributed::LoadVertex(vertex_reader.getOld())
             : nullptr;
     auto new_record =
         vertex_reader.hasNew()
-            ? distributed::LoadVertex<const distributed::capnp::Vertex::Reader>(
-                  vertex_reader.getNew())
+            ? distributed::LoadVertex(vertex_reader.getNew())
             : nullptr;
     data_manager->Elements<Vertex>(dba->transaction_id())
         .emplace(global_address.gid(), std::move(old_record),
@@ -395,13 +393,11 @@ void PullResData::LoadGraphElement(
     storage::EdgeAddress global_address(edge_reader.getAddress());
     auto old_record =
         edge_reader.hasOld()
-            ? distributed::LoadEdge<const distributed::capnp::Edge::Reader>(
-                  edge_reader.getOld())
+            ? distributed::LoadEdge(edge_reader.getOld())
             : nullptr;
     auto new_record =
         edge_reader.hasNew()
-            ? distributed::LoadEdge<const distributed::capnp::Edge::Reader>(
-                  edge_reader.getNew())
+            ? distributed::LoadEdge(edge_reader.getNew())
             : nullptr;
     data_manager->Elements<Edge>(dba->transaction_id())
         .emplace(global_address.gid(), std::move(old_record),

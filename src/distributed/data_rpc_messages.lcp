@@ -40,7 +40,7 @@ cpp<#
                   (lambda (reader member)
                     (declare (ignore member))
                     #>cpp
-                    vertex_output = LoadVertex<const capnp::Vertex::Reader>(${reader});
+                    vertex_output = LoadVertex(${reader});
                     cpp<#))
     (worker-id :int64_t :save-fun "" :load-fun "" :capnp-save :dont-save)
     (vertex-output "std::unique_ptr<Vertex>" :initarg nil
@@ -62,7 +62,7 @@ cpp<#
                 (lambda (reader member)
                   (declare (ignore member))
                   #>cpp
-                  edge_output = LoadEdge<const capnp::Edge::Reader>(${reader});
+                  edge_output = LoadEdge(${reader});
                   cpp<#))
     (worker-id :int64_t :save-fun "" :load-fun "" :capnp-save :dont-save)
     (edge-output "std::unique_ptr<Edge>" :initarg nil

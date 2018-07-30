@@ -11,9 +11,6 @@
 #include <unordered_set>
 #include <utility>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/export.hpp"
 #include "glog/logging.h"
 
 #include "auth/auth.hpp"
@@ -4333,48 +4330,3 @@ std::unique_ptr<Cursor> TestStream::MakeCursor(
 }
 
 }  // namespace query::plan
-
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Once);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateNode);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateExpand);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ScanAll);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ScanAllByLabel);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ScanAllByLabelPropertyRange);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ScanAllByLabelPropertyValue);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Expand);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ExpandVariable);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Filter);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Produce);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ConstructNamedPath);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Delete);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::SetProperty);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::SetProperties);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::SetLabels);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::RemoveProperty);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::RemoveLabels);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ExpandUniquenessFilter<EdgeAccessor>);
-BOOST_CLASS_EXPORT_IMPLEMENT(
-    query::plan::ExpandUniquenessFilter<VertexAccessor>);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Accumulate);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Aggregate);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Skip);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Limit);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::OrderBy);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Merge);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Optional);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Unwind);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Distinct);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateIndex);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Union);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemote);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Synchronize);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::Cartesian);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::PullRemoteOrderBy);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ModifyUser);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::DropUser);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::CreateStream);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::DropStream);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::ShowStreams);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::StartStopStream);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::StartStopAllStreams);
-BOOST_CLASS_EXPORT_IMPLEMENT(query::plan::TestStream);

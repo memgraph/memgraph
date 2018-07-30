@@ -2,11 +2,9 @@
 
 #include <memory>
 
-// TODO: Remove these includes for hacked cloning of logical operators via boost
+// TODO: Remove these includes for hacked cloning of logical operators via
 // serialization when proper cloning is added.
-#include <sstream>
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
+#include <capnp/message.h>
 
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
@@ -19,17 +17,17 @@ namespace {
 std::pair<std::unique_ptr<LogicalOperator>, AstStorage> Clone(
     const LogicalOperator &original_plan) {
   // TODO: Add a proper Clone method to LogicalOperator
-  std::stringstream stream;
+  ::capnp::MallocMessageBuilder message;
   {
-    boost::archive::binary_oarchive out_archive(stream);
-    out_archive << &original_plan;
+    auto builder = message.initRoot<query::plan::capnp::LogicalOperator>();
+    LogicalOperator::SaveHelper helper;
+    original_plan.Save(&builder, &helper);
   }
-  boost::archive::binary_iarchive in_archive(stream);
-  LogicalOperator *plan_copy = nullptr;
-  in_archive >> plan_copy;
-  return {std::unique_ptr<LogicalOperator>(plan_copy),
-          std::move(in_archive.template get_helper<AstStorage>(
-              AstStorage::kHelperId))};
+  auto reader = message.getRoot<query::plan::capnp::LogicalOperator>();
+  auto plan_copy = LogicalOperator::Construct(reader);
+  LogicalOperator::LoadHelper helper;
+  plan_copy->Load(reader, &helper);
+  return std::make_pair(std::move(plan_copy), std::move(helper.ast_storage));
 }
 
 int64_t AddWorkerPlan(DistributedPlan &distributed_plan,

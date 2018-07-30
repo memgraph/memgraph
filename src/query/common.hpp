@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <string>
 
-#include "boost/serialization/serialization.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/typed_value.hpp"
 
@@ -54,20 +53,6 @@ class TypedValueVectorCompare final {
 
  private:
   std::vector<Ordering> ordering_;
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &ordering_;
-  }
-  // Custom comparison for TypedValue objects.
-  //
-  // Behaves generally like Neo's ORDER BY comparison operator:
-  //  - null is greater than anything else
-  //  - primitives compare naturally, only implicit cast is int->double
-  //  - (list, map, path, vertex, edge) can't compare to anything
-  bool TypedValueCompare(const TypedValue &a, const TypedValue &b) const;
 };
 
 // Switch the given [Vertex/Edge]Accessor to the desired state.

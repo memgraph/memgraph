@@ -58,7 +58,7 @@ cpp<#
            :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
            :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult"))
    (gid "gid::Gid" :documentation "Only valid if creation was successful."))
-  (:serialize :boost :capnp))
+  (:serialize :capnp))
 
 (lcp:define-struct create-vertex-req-data ()
   ((tx-id "tx::TransactionId")

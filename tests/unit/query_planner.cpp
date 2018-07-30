@@ -5,10 +5,8 @@
 #include <typeinfo>
 #include <unordered_set>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -17,7 +15,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 
-#include "capnp/message.h"
+#include <capnp/message.h>
 #include "query/plan/operator.capnp.h"
 
 #include "query_common.hpp"
@@ -655,31 +653,6 @@ class ExpectDropUser : public OpChecker<DropUser> {
   std::vector<std::string> usernames_;
 };
 
-class SerializedPlanner {
- public:
-  template <class TDbAccessor>
-  SerializedPlanner(std::vector<SingleQueryPart> single_query_parts,
-                    PlanningContext<TDbAccessor> &context) {
-    std::stringstream stream;
-    {
-      auto original_plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
-          single_query_parts, context);
-      boost::archive::binary_oarchive out_archive(stream);
-      out_archive << original_plan;
-    }
-    {
-      boost::archive::binary_iarchive in_archive(stream);
-      std::tie(plan_, ast_storage_) = LoadPlan(in_archive);
-    }
-  }
-
-  auto &plan() { return *plan_; }
-
- private:
-  AstStorage ast_storage_;
-  std::unique_ptr<LogicalOperator> plan_;
-};
-
 void SavePlan(const LogicalOperator &plan, ::capnp::MessageBuilder *message) {
   auto builder = message->initRoot<query::plan::capnp::LogicalOperator>();
   LogicalOperator::SaveHelper helper;
@@ -928,7 +901,7 @@ ExpectedDistributedPlan ExpectDistributed(
 template <class T>
 class TestPlanner : public ::testing::Test {};
 
-using PlannerTypes = ::testing::Types<Planner, SerializedPlanner, CapnpPlanner>;
+using PlannerTypes = ::testing::Types<Planner, CapnpPlanner>;
 
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 

@@ -3,10 +3,6 @@
 
 #include <benchmark/benchmark.h>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/vector.hpp"
-
 #include <capnp/serialize.h>
 #include <kj/std/iostream.h>
 
@@ -32,39 +28,6 @@ class SymbolVectorFixture : public benchmark::Fixture {
 
   void TearDown(const benchmark::State &) override { symbols_.clear(); }
 };
-
-BENCHMARK_DEFINE_F(SymbolVectorFixture, BoostSerial)(benchmark::State &state) {
-  while (state.KeepRunning()) {
-    std::stringstream stream(std::ios_base::out | std::ios_base::binary);
-    {
-      boost::archive::binary_oarchive archive(stream);
-      archive << symbols_;
-    }
-  }
-}
-
-BENCHMARK_DEFINE_F(SymbolVectorFixture, BoostDeserial)
-(benchmark::State &state) {
-  auto serialize = [this]() {
-    std::stringstream stream(std::ios_base::in | std::ios_base::out |
-                             std::ios_base::binary);
-    {
-      boost::archive::binary_oarchive archive(stream);
-      archive << symbols_;
-    }
-    return stream;
-  };
-  while (state.KeepRunning()) {
-    state.PauseTiming();
-    auto stream = serialize();
-    state.ResumeTiming();
-    std::vector<query::Symbol> symbols;
-    {
-      boost::archive::binary_iarchive archive(stream);
-      archive >> symbols;
-    }
-  }
-}
 
 void SymbolVectorToCapnpMessage(const std::vector<query::Symbol> &symbols,
                                 capnp::MessageBuilder &message) {
@@ -120,17 +83,7 @@ BENCHMARK_DEFINE_F(SymbolVectorFixture, CapnpDeserial)
   }
 }
 
-BENCHMARK_REGISTER_F(SymbolVectorFixture, BoostSerial)
-    ->RangeMultiplier(4)
-    ->Range(4, 1 << 12)
-    ->Unit(benchmark::kNanosecond);
-
 BENCHMARK_REGISTER_F(SymbolVectorFixture, CapnpSerial)
-    ->RangeMultiplier(4)
-    ->Range(4, 1 << 12)
-    ->Unit(benchmark::kNanosecond);
-
-BENCHMARK_REGISTER_F(SymbolVectorFixture, BoostDeserial)
     ->RangeMultiplier(4)
     ->Range(4, 1 << 12)
     ->Unit(benchmark::kNanosecond);

@@ -41,15 +41,6 @@ struct RecoveryInfo {
     auto list_reader = reader.getWalRecovered();
     utils::LoadVector(&wal_recovered, list_reader);
   }
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &snapshot_tx_id;
-    ar &wal_recovered;
-  }
 };
 
 // A data structure for exchanging info between main recovery function and
@@ -108,17 +99,6 @@ struct RecoveryData {
             return std::make_pair(reader.getFirst(), reader.getSecond());
           });
     }
-  }
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &snapshooter_tx_id;
-    ar &wal_tx_to_recover;
-    ar &snapshooter_tx_snapshot;
-    ar &indexes;
   }
 };
 
