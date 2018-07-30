@@ -3929,7 +3929,7 @@ class ModifyUserCursor : public Cursor {
       }
     } else {
       // Update an existing user.
-      auto user = ctx.auth_->GetUser(self_.username());
+      user = ctx.auth_->GetUser(self_.username());
       if (!user) {
         throw QueryRuntimeException(
             fmt::format("User '{}' doesn't exist!", self_.username()));
