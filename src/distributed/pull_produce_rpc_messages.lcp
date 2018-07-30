@@ -179,125 +179,6 @@ to the appropriate value. Not used on side that generates the response.")
     PullResData &operator=(const PullResData &) = delete;
     PullResData(PullResData &&) = default;
     PullResData &operator=(PullResData &&) = default;
-
-
-    /// Saves a typed value that is a vertex/edge/path.
-    template <class TArchive>
-    void SaveGraphElement(TArchive &ar, const query::TypedValue &value) const {
-      // Helper template function for storing a vertex or an edge.
-      auto save_element = [&ar, this](auto element_accessor) {
-        ar << element_accessor.GlobalAddress().raw();
-
-        // If both old and new are null, we need to reconstruct.
-        if (!(element_accessor.GetOld() || element_accessor.GetNew())) {
-          bool result = element_accessor.Reconstruct();
-          CHECK(result) << "Attempting to serialize an element not visible to "
-                           "current transaction.";
-        }
-        auto *old_rec = element_accessor.GetOld();
-        if (send_old && old_rec) {
-          ar << true;
-          distributed::SaveElement(ar, *old_rec, worker_id);
-        } else {
-          ar << false;
-        }
-        if (send_new) {
-          // Must call SwitchNew as that will trigger a potentially necesary
-          // Reconstruct.
-          element_accessor.SwitchNew();
-          auto *new_rec = element_accessor.GetNew();
-          if (new_rec) {
-            ar << true;
-            distributed::SaveElement(ar, *new_rec, worker_id);
-          } else {
-            ar << false;
-          }
-        } else {
-          ar << false;
-        }
-      };
-      switch (value.type()) {
-        case query::TypedValue::Type::Vertex:
-          save_element(value.ValueVertex());
-          break;
-        case query::TypedValue::Type::Edge:
-          save_element(value.ValueEdge());
-          break;
-        case query::TypedValue::Type::Path: {
-          auto &path = value.ValuePath();
-          ar << path.size();
-          save_element(path.vertices()[0]);
-          for (size_t i = 0; i < path.size(); ++i) {
-            save_element(path.edges()[i]);
-            save_element(path.vertices()[i + 1]);
-          }
-          break;
-        }
-        default:
-          LOG(FATAL) << "Unsupported graph element type: " << value.type();
-      }
-    }
-
-    /// Loads a typed value that is a vertex/edge/path. Part of the
-    /// deserialization process, populates the temporary data caches which are
-    /// processed later.
-    template <class TArchive>
-    void LoadGraphElement(TArchive &ar, query::TypedValue::Type type,
-                          query::TypedValue &value) {
-      auto load_edge = [](auto &ar) {
-        bool exists;
-        ar >> exists;
-        return exists ? LoadEdge(ar) : nullptr;
-      };
-      auto load_vertex = [](auto &ar) {
-        bool exists;
-        ar >> exists;
-        return exists ? LoadVertex(ar) : nullptr;
-      };
-
-      switch (type) {
-        case query::TypedValue::Type::Vertex: {
-          storage::VertexAddress::StorageT address;
-          ar >> address;
-          vertices.emplace_back(storage::VertexAddress(address), load_vertex(ar),
-                                load_vertex(ar), &value);
-          break;
-        }
-        case query::TypedValue::Type::Edge: {
-          storage::VertexAddress::StorageT address;
-          ar >> address;
-          edges.emplace_back(storage::EdgeAddress(address), load_edge(ar),
-                             load_edge(ar), &value);
-          break;
-        }
-        case query::TypedValue::Type::Path: {
-          size_t path_size;
-          ar >> path_size;
-
-          paths.emplace_back(&value);
-          auto &path_data = paths.back();
-
-          storage::VertexAddress::StorageT vertex_address;
-          storage::EdgeAddress::StorageT edge_address;
-          ar >> vertex_address;
-          path_data.vertices.emplace_back(storage::VertexAddress(vertex_address),
-                                          load_vertex(ar), load_vertex(ar),
-                                          nullptr);
-          for (size_t i = 0; i < path_size; ++i) {
-            ar >> edge_address;
-            path_data.edges.emplace_back(storage::EdgeAddress(edge_address),
-                                         load_edge(ar), load_edge(ar), nullptr);
-            ar >> vertex_address;
-            path_data.vertices.emplace_back(
-                storage::VertexAddress(vertex_address), load_vertex(ar),
-                load_vertex(ar), nullptr);
-          }
-          break;
-        }
-        default:
-          LOG(FATAL) << "Unsupported graph element type: " << type;
-      }
-    }
    cpp<#)
   (:private
    #>cpp
@@ -436,28 +317,6 @@ cpp<#)
       (plan-id :int64_t)
       (command-id "tx::CommandId")
       (params "Parameters"
-              :save-fun
-              "
-              ar << params.size();
-              for (auto &kv : params) {
-                ar << kv.first;
-                // Params never contain a vertex/edge, so save plan TypedValue.
-                utils::SaveTypedValue(ar, kv.second);
-              }
-              "
-              :load-fun
-              "
-              size_t params_size;
-              ar >> params_size;
-              for (size_t i = 0; i < params_size; ++i) {
-                int token_pos;
-                ar >> token_pos;
-                query::TypedValue param;
-                // Params never contain a vertex/edge, so load plan TypedValue.
-                utils::LoadTypedValue(ar, param);
-                params.Add(token_pos, param);
-              }
-              "
               :capnp-type "Utils.Map(Utils.BoxInt64, Dis.TypedValue)"
               :capnp-save
               (lambda (builder member)
@@ -490,46 +349,7 @@ cpp<#)
       (send-old :bool)
       (send-new :bool)))
   (:response
-   ((data "PullResData" :initarg :move
-          :save-fun
-          "
-          ar << data.pull_state;
-          ar << data.frames.size();
-          // We need to indicate how many values are in each frame.
-          // Assume all the frames have an equal number of elements.
-          ar << (data.frames.size() == 0 ? 0 : data.frames[0].size());
-          for (const auto &frame : data.frames) {
-            for (const auto &value : frame) {
-              utils::SaveTypedValue<TArchive>(
-                  ar, value, [this](TArchive &ar, const query::TypedValue &value) {
-                    data.SaveGraphElement(ar, value);
-                  });
-            }
-          }
-          "
-          :load-fun
-          "
-          ar >> data.pull_state;
-          size_t frame_count;
-          ar >> frame_count;
-          data.frames.reserve(frame_count);
-          size_t frame_size;
-          ar >> frame_size;
-          for (size_t i = 0; i < frame_count; ++i) {
-            data.frames.emplace_back();
-            auto &current_frame = data.frames.back();
-            current_frame.reserve(frame_size);
-            for (size_t j = 0; j < frame_size; ++j) {
-              current_frame.emplace_back();
-              utils::LoadTypedValue<TArchive>(
-                  ar, current_frame.back(),
-                  [this](TArchive &ar, query::TypedValue::TypedValue::Type type,
-                         query::TypedValue &value) {
-                    data.LoadGraphElement(ar, type, value);
-                  });
-            }
-          }
-          "))
+   ((data "PullResData" :initarg :move))
    (:serialize :capnp :base t :load-args '((dba "database::GraphDbAccessor *")
                                            (data-manager "distributed::DataManager *")))))
 

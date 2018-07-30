@@ -66,26 +66,6 @@ cpp<#
      :capnp-save (lcp:capnp-save-vector "storage::capnp::Common" "storage::Label")
      :capnp-load (lcp:capnp-load-vector "storage::capnp::Common" "storage::Label"))
    (properties "std::unordered_map<storage::Property, query::TypedValue>"
-               :save-fun
-               #>cpp
-               ar << properties.size();
-               for (auto &kv : properties) {
-                 ar << kv.first;
-                 utils::SaveTypedValue(ar, kv.second);
-               }
-               cpp<#
-               :load-fun
-               #>cpp
-               size_t props_size;
-               ar >> props_size;
-               for (size_t i = 0; i < props_size; ++i) {
-                 storage::Property p;
-                 ar >> p;
-                 query::TypedValue tv;
-                 utils::LoadTypedValue(ar, tv);
-                 properties.emplace(p, std::move(tv));
-               }
-               cpp<#
                :capnp-type "Utils.Map(Storage.Common, Dis.TypedValue)"
                :capnp-save
                (lambda (builder member)

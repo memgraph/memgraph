@@ -219,14 +219,12 @@ produces:
   ;; TODO: Support giving a name for reader function.
   (reader nil :type boolean :read-only t)
   (documentation nil :type (or null string) :read-only t)
-  ;; Custom saving and loading code. May be a function which takes 2
-  ;; args: (archive member-name) and needs to return C++ code.
-  (save-fun nil :type (or null string raw-cpp function) :read-only t)
-  (load-fun nil :type (or null string raw-cpp function) :read-only t)
   ;; CAPNP-TYPE may be a string specifying the type, or a list of
   ;; (member-symbol "capnp-type") specifying a union type.
   (capnp-type nil :type (or null string list) :read-only t)
   (capnp-init t :type boolean :read-only t)
+  ;; Custom saving and loading code. May be a function which takes 2
+  ;; args: (builder-or-reader member-name) and needs to return C++ code.
   (capnp-save nil :type (or null function (eql :dont-save)) :read-only t)
   (capnp-load nil :type (or null function) :read-only t))
 
@@ -1319,8 +1317,16 @@ slot-options are keyword arguments. Currently supported options are:
   * :reader -- if t, generates a public getter for the member.
   * :scope -- class scope of the member, either :public, :protected or :private (default).
   * :documentation -- Doxygen documentation of the member.
-  * :save-fun -- Custom code for serializing this member.
-  * :load-fun -- Custom code for deserializing this member.
+  * :capnp-type -- String or list specifying which Cap'n Proto type to use for
+    serialization.  If a list of (member-symbol \"capnp-type\") then a union
+    type is specified.
+  * :capnp-init -- Boolean indicating whether the member needs to be
+    initialized in Cap'n Proto structure, by calling `builder.init<member>`.
+    This is T by default, you may need to set it to NIL if the LCP doesn't
+    correctly recognize a primitive type or you wish to call `init<member>`
+    yourself.
+  * :capnp-save -- Custom code for serializing this member.
+  * :capnp-load -- Custom code for deserializing this member.
 
 Currently supported class-options are:
   * :documentation -- Doxygen documentation of the class.

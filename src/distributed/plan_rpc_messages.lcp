@@ -46,10 +46,7 @@ cpp<#
             :capnp-type "Utils.SharedPtr(Plan.LogicalOperator)"
             :capnp-save #'save-plan :capnp-load #'load-plan)
       (symbol-table "query::SymbolTable" :capnp-type "Sem.SymbolTable")
-      (storage "query::AstStorage" :initarg nil
-               :save-fun ""
-               :load-fun "storage = std::move(ar.template get_helper<query::AstStorage>(query::AstStorage::kHelperId));"
-               :capnp-save :dont-save)))
+      (storage "query::AstStorage" :initarg nil :capnp-save :dont-save)))
   (:response ()))
 
 (lcp:define-rpc remove-plan

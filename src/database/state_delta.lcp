@@ -50,13 +50,6 @@ cpp<#
    (property "storage::Property")
    (property-name "std::string")
    (value "PropertyValue" :initval "PropertyValue::Null"
-          :save-fun #>cpp utils::SaveTypedValue(ar, value); cpp<#
-          :load-fun
-          #>cpp
-          query::TypedValue tv;
-          utils::LoadTypedValue(ar, tv);
-          value = tv;
-          cpp<#
           :capnp-type "Dis.TypedValue"
           :capnp-save
           (lambda (builder member)

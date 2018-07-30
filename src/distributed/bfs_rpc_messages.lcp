@@ -57,54 +57,14 @@ cpp<#
   ((global-address "storage::Address<mvcc::VersionList<TElement>>"
                    :capnp-type "Storage.Address")
    (old-element-input "TElement *"
-                      :save-fun
-                      "if (old_element_input) {
-                         ar << true;
-                         SaveElement(ar, *old_element_input, worker_id);
-                       } else {
-                         ar << false;
-                       }"
-                      :load-fun ""
                       :capnp-type '((null "Void") (vertex "Dis.Vertex") (edge "Dis.Edge"))
                       :capnp-save #'save-element :capnp-load #'load-element)
-   (old-element-output "std::unique_ptr<TElement>"
-                       :save-fun ""
-                       :load-fun
-                       "bool has_old;
-                        ar >> has_old;
-                        if (has_old) {
-                          if constexpr (std::is_same<TElement, Vertex>::value) {
-                            old_element_output = std::move(LoadVertex(ar));
-                          } else {
-                            old_element_output = std::move(LoadEdge(ar));
-                          }
-                        }"
-                       :capnp-save :dont-save)
+   (old-element-output "std::unique_ptr<TElement>" :capnp-save :dont-save)
    (new-element-input "TElement *"
-                      :save-fun
-                      "if (new_element_input) {
-                         ar << true;
-                         SaveElement(ar, *new_element_input, worker_id);
-                       } else {
-                         ar << false;
-                       }"
-                      :load-fun ""
                       :capnp-type '((null "Void") (vertex "Dis.Vertex") (edge "Dis.Edge"))
                       :capnp-save #'save-element :capnp-load #'load-element)
-   (new-element-output "std::unique_ptr<TElement>"
-                       :save-fun ""
-                       :load-fun
-                       "bool has_new;
-                        ar >> has_new;
-                        if (has_new) {
-                          if constexpr (std::is_same<TElement, Vertex>::value) {
-                            new_element_output = std::move(LoadVertex(ar));
-                          } else {
-                            new_element_output = std::move(LoadEdge(ar));
-                          }
-                        }"
-                       :capnp-save :dont-save)
-   (worker-id :int16_t :save-fun "" :load-fun "" :capnp-save :dont-save))
+   (new-element-output "std::unique_ptr<TElement>" :capnp-save :dont-save)
+   (worker-id :int16_t :capnp-save :dont-save))
   (:public
    #>cpp
     SerializedGraphElement(storage::Address<mvcc::VersionList<TElement>> global_address,
@@ -146,7 +106,7 @@ cpp<#
                                                   '(in out both)))
       ;; TODO(mtomic): Why isn't edge-types serialized?
       (edge-types "std::vector<storage::EdgeType>"
-                  :save-fun "" :load-fun "" :capnp-save :dont-save)
+                  :capnp-save :dont-save)
       (graph-view "query::GraphView"
                   :capnp-type "Query.GraphView" :capnp-init nil
                   :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView"
@@ -244,7 +204,7 @@ cpp<#
       cpp<#))
   (:response
    ((subcursor-id :int64_t ;; TODO(mtomic): Unused?
-                  :save-fun "" :load-fun "" :capnp-save :dont-save)
+                  :capnp-save :dont-save)
     (edges "std::vector<SerializedEdge>" :capnp-type "List(SerializedGraphElement)"
            :capnp-save (lcp:capnp-save-vector "capnp::SerializedGraphElement" "SerializedEdge")
            :capnp-load (lcp:capnp-load-vector "capnp::SerializedGraphElement" "SerializedEdge"))
