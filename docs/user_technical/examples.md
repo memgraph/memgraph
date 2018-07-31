@@ -72,7 +72,7 @@ RETURN m.title;
 
 ```opencypher
 MATCH (n:Speaker)-[:Gave]->(m)
-RETURN n.name, COUNT(m) as TalksGiven
+RETURN n.name, COUNT(m) AS TalksGiven
 ORDER BY TalksGiven DESC LIMIT 20;
 ```
 
@@ -90,7 +90,7 @@ ORDER BY TalksCount DESC;
 
 ```opencypher
 MATCH (t:Tag)<-[:HasTag]-(n:Talk)
-RETURN t.name as Tag, COUNT(n) AS TalksCount
+RETURN t.name AS Tag, COUNT(n) AS TalksCount
 ORDER BY TalksCount DESC, Tag LIMIT 20;
 ```
 
@@ -500,6 +500,7 @@ It is not surprising to see that they are all in Siberia.
 
 To learn more about these algorithms, we suggest you check out their Wikipedia
 pages:
+
 * [Breadth-first search](https://en.wikipedia.org/wiki/Breadth-first_search)
 * [Dijkstra's algorithm](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm)
 

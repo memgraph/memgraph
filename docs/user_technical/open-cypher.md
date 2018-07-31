@@ -283,13 +283,13 @@ Restrictions when using `UNION` or `UNION ALL`:
 Example, get distinct names that are shared between persons and movies:
 
 ```opencypher
-MATCH(n: Person) RETURN n.name as name UNION MATCH(n: Movie) RETURN n.name as name
+MATCH(n: Person) RETURN n.name AS name UNION MATCH(n: Movie) RETURN n.name AS name
 ```
 
 Example, get all names that are shared between persons and movies (including duplicates):
 
 ```opencypher
-MATCH(n: Person) RETURN n.name as name UNION ALL MATCH(n: Movie) RETURN n.name as name
+MATCH(n: Person) RETURN n.name AS name UNION ALL MATCH(n: Movie) RETURN n.name AS name
 ```
 
 ### Writing New Data
@@ -568,7 +568,7 @@ allowed only over edges whose `x` property is greater than `12` and nodes `y`
 whose property is less than `3`:
 
 ```opencypher
-MATCH (a {id: 723})-[*bfs..10 (e, n | e.x > 12 and n.y < 3)]-() RETURN *
+MATCH (a {id: 723})-[*bfs..10 (e, n | e.x > 12 AND n.y < 3)]-() RETURN *
 ```
 
 The filter is defined as a lambda function over `e` and `n`, which denote the edge
@@ -625,7 +625,7 @@ and nodes `y` whose property is less than `3`:
 
 ```opencypher
 MATCH (a {id: 723})-[
-        edge_list *wShortest 10 (e, n | e.weight) total_weight (e, n | e.x > 12 and n.y < 3)
+        edge_list *wShortest 10 (e, n | e.weight) total_weight (e, n | e.x > 12 AND n.y < 3)
     ]-(b {id: 882})
 RETURN exp(total_weight)
 ```
@@ -836,13 +836,16 @@ here (especially subtle semantic ones).
 #### Unsupported Functions
 
 General purpose functions:
+
 * `exists(n.property)` - This can be expressed using `n.property IS NOT NULL`.
 * `length()` is named `size()` in Memgraph.
 
 Aggregation functions:
+
 * `count(DISTINCT variable)` - This can be expressed using `WITH DISTINCT variable RETURN count(variable)`.
 
 Mathematical functions:
+
 * `percentileDisc()`
 * `stDev()`
 * `point()`
@@ -850,5 +853,6 @@ Mathematical functions:
 * `degrees()`
 
 List functions:
+
 * `any()`
 * `none()`
