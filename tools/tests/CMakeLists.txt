@@ -8,6 +8,7 @@ target_link_libraries(mg_statsd_client memgraph_lib kvstore_dummy_lib)
 
 # Copy CSV data to CMake build dir
 configure_file(csv/comment_nodes.csv csv/comment_nodes.csv COPYONLY)
+configure_file(csv/comment_nodes_2.csv csv/comment_nodes_2.csv COPYONLY)
 configure_file(csv/forum_nodes.csv csv/forum_nodes.csv COPYONLY)
 configure_file(csv/relationships_0.csv csv/relationships_0.csv COPYONLY)
 configure_file(csv/relationships_1.csv csv/relationships_1.csv COPYONLY)

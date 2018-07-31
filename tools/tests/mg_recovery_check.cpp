@@ -65,6 +65,34 @@ TEST_F(RecoveryTest, TestEdgesRecovered) {
   }
 }
 
+TEST_F(RecoveryTest, TestQuote) {
+  auto dba = db_.Access();
+  for (const auto &vertex : dba->Vertices(dba->Label("Comment"), false)) {
+    auto id_prop = query::TypedValue(vertex.PropsAt(dba->Property("id")));
+    auto country = query::TypedValue(vertex.PropsAt(dba->Property("country")));
+    if (id_prop.IsString() && id_prop.Value<std::string>() == "1") {
+      EXPECT_TRUE(country.IsString());
+      EXPECT_EQ(country.Value<std::string>(), "United Kingdom");
+    }
+  }
+}
+
+TEST_F(RecoveryTest, TestNodeLabelFlag) {
+  auto dba = db_.Access();
+  for (const auto &vertex : dba->Vertices(false)) {
+    EXPECT_TRUE(vertex.has_label(dba->Label("First")));
+    EXPECT_TRUE(vertex.has_label(dba->Label("Second")));
+  }
+}
+
+TEST_F(RecoveryTest, TestRelationshipType) {
+  auto dba = db_.Access();
+  EXPECT_EQ(dba->EdgesCount(), 5);
+  for (const auto &edge : dba->Edges(false)) {
+    EXPECT_TRUE(edge.EdgeType() == dba->EdgeType("TYPE"));
+  }
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   gflags::SetUsageMessage(usage);

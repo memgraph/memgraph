@@ -13,8 +13,8 @@
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
 #include "durability/snapshooter.hpp"
-#include "durability/snapshot_value.hpp"
 #include "durability/snapshot_encoder.hpp"
+#include "durability/snapshot_value.hpp"
 #include "durability/version.hpp"
 #include "storage/address_types.hpp"
 #include "utils/cast.hpp"
@@ -29,6 +29,30 @@ bool ValidateNotEmpty(const char *flagname, const std::string &value) {
   return true;
 }
 
+bool ValidateNotNewline(const char *flagname, const std::string &value) {
+  auto has_no_newline = value.find('\n') == std::string::npos;
+  if (!has_no_newline) {
+    printf("The argument '%s' cannot contain newline character\n", flagname);
+  }
+  return has_no_newline;
+}
+
+bool ValidateNoWhitespace(const char *flagname, const std::string &value) {
+  auto trimmed = utils::Trim(value);
+  if (trimmed.empty() && !value.empty()) {
+    printf("The argument '%s' cannot be only whitespace\n", flagname);
+    return false;
+  } else if (!trimmed.empty()) {
+    for (auto c : trimmed) {
+      if (std::isspace(c)) {
+        printf("The argument '%s' cannot contain whitespace\n", flagname);
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
 DEFINE_string(out, "",
               "Destination for the created snapshot file. Without it, snapshot "
               "is written inside the expected snapshots directory of Memgraph "
@@ -38,14 +62,24 @@ DEFINE_string(array_delimiter, ";",
               "Delimiter between elements of array values, default is ';'");
 DEFINE_string(csv_delimiter, ",",
               "Delimiter between each field in the CSV, default is ','");
+DEFINE_string(quote, "\"",
+              "Quotation character, default is '\"'. Cannot contain '\n'");
+DEFINE_validator(quote, &ValidateNotNewline);
 DEFINE_bool(skip_duplicate_nodes, false,
             "Skip duplicate nodes or raise an error (default)");
 // Arguments `--nodes` and `--relationships` can be input multiple times and are
 // handled with custom parsing.
 DEFINE_string(nodes, "", "CSV file containing graph nodes (vertices)");
 DEFINE_validator(nodes, &ValidateNotEmpty);
+DEFINE_string(node_label, "",
+              "Specify additional label for nodes. To add multiple labels, "
+              "repeat the flag multiple times");
+DEFINE_validator(node_label, &ValidateNoWhitespace);
 DEFINE_string(relationships, "",
               "CSV file containing graph relationships (edges)");
+DEFINE_string(relationship_type, "",
+              "Overwrite the relationship type from csv with the given value");
+DEFINE_validator(relationship_type, &ValidateNoWhitespace);
 
 auto ParseRepeatedFlag(const std::string &flagname, int argc, char *argv[]) {
   std::vector<std::string> values;
@@ -128,29 +162,40 @@ class MemgraphNodeIdMap {
 
 std::vector<std::string> ReadRow(std::istream &stream) {
   std::vector<std::string> row;
-  char quoting = 0;
+  bool quoting = false;
   std::vector<char> column;
-  char c;
-  while (!stream.get(c).eof()) {
-    if (!stream) LOG(FATAL) << "Unable to read CSV row";
-    if (quoting) {
-      if (c == quoting)
-        quoting = 0;
-      else
+  std::string line;
+
+  auto check_quote = [&line](int curr_idx) {
+    return curr_idx + FLAGS_quote.size() <= line.size() &&
+           line.compare(curr_idx, FLAGS_quote.size(), FLAGS_quote) == 0;
+  };
+
+  do {
+    std::getline(stream, line);
+    auto line_size = line.size();
+    for (auto i = 0; i < line_size; ++i) {
+      auto c = line[i];
+      if (quoting) {
+        if (check_quote(i)) {
+          quoting = false;
+          i += FLAGS_quote.size() - 1;
+        } else {
+          column.push_back(c);
+        }
+      } else if (check_quote(i)) {
+        // Hopefully, escaping isn't needed
+        quoting = true;
+        i += FLAGS_quote.size() - 1;
+      } else if (c == FLAGS_csv_delimiter.front()) {
+        row.emplace_back(column.begin(), column.end());
+        column.clear();
+      } else {
         column.push_back(c);
-    } else if (c == '"') {
-      // Hopefully, escaping isn't needed.
-      quoting = c;
-    } else if (c == FLAGS_csv_delimiter.front()) {
-      row.emplace_back(column.begin(), column.end());
-      column.clear();
-    } else if (c == '\n') {
-      row.emplace_back(column.begin(), column.end());
-      return row;
-    } else {
-      column.push_back(c);
+      }
     }
-  }
+  } while (quoting);
+
   if (!column.empty()) row.emplace_back(column.begin(), column.end());
   return row;
 }
@@ -176,8 +221,8 @@ std::vector<Field> ReadHeader(std::istream &stream) {
   return fields;
 }
 
-communication::bolt::Value StringToValue(
-    const std::string &str, const std::string &type) {
+communication::bolt::Value StringToValue(const std::string &str,
+                                         const std::string &type) {
   // Empty string signifies Null.
   if (str.empty()) return communication::bolt::Value();
   auto convert = [](const auto &str,
@@ -217,9 +262,9 @@ std::string GetIdSpace(const std::string &type) {
 }
 
 void WriteNodeRow(
-    std::unordered_map<gid::Gid, durability::SnapshotVertex>
-        &partial_vertices,
+    std::unordered_map<gid::Gid, durability::SnapshotVertex> &partial_vertices,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
+    const std::vector<std::string> &additional_labels,
     MemgraphNodeIdMap &node_id_map) {
   std::experimental::optional<gid::Gid> id;
   std::vector<std::string> labels;
@@ -250,14 +295,17 @@ void WriteNodeRow(
       properties[field.name] = StringToValue(value, field.type);
     }
   }
+  labels.insert(labels.end(), additional_labels.begin(),
+                additional_labels.end());
   CHECK(id) << "Node ID must be specified";
   partial_vertices[*id] = {
       *id, utils::MemcpyCast<int64_t>(*id), labels, properties, {}};
 }
 
-auto PassNodes(std::unordered_map<gid::Gid, durability::SnapshotVertex>
-                   &partial_vertices,
-               const std::string &nodes_path, MemgraphNodeIdMap &node_id_map) {
+auto PassNodes(
+    std::unordered_map<gid::Gid, durability::SnapshotVertex> &partial_vertices,
+    const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
+    const std::vector<std::string> &additional_labels) {
   int64_t node_count = 0;
   std::ifstream nodes_file(nodes_path);
   CHECK(nodes_file) << fmt::format("Unable to open '{}'", nodes_path);
@@ -266,7 +314,7 @@ auto PassNodes(std::unordered_map<gid::Gid, durability::SnapshotVertex>
   while (!row.empty()) {
     CHECK_EQ(row.size(), fields.size())
         << "Expected as many values as there are header fields";
-    WriteNodeRow(partial_vertices, fields, row, node_id_map);
+    WriteNodeRow(partial_vertices, fields, row, additional_labels, node_id_map);
     // Increase count and move to next row.
     node_count += 1;
     row = ReadRow(nodes_file);
@@ -305,6 +353,10 @@ void WriteRelationshipsRow(
       properties[field.name] = StringToValue(value, field.type);
     }
   }
+  auto rel_type = utils::Trim(FLAGS_relationship_type);
+  if (!rel_type.empty()) {
+    relationship_type = FLAGS_relationship_type;
+  }
   CHECK(start_id) << "START_ID must be set";
   CHECK(end_id) << "END_ID must be set";
   CHECK(relationship_type) << "Relationship TYPE must be set";
@@ -338,6 +390,7 @@ int PassRelationships(
 }
 
 void Convert(const std::vector<std::string> &nodes,
+             const std::vector<std::string> &additional_labels,
              const std::vector<std::string> &relationships,
              const std::string &output_path) {
   try {
@@ -376,7 +429,8 @@ void Convert(const std::vector<std::string> &nodes,
     std::unordered_map<gid::Gid, durability::SnapshotVertex> vertices;
     std::unordered_map<gid::Gid, communication::bolt::Edge> edges;
     for (const auto &nodes_file : nodes) {
-      node_count += PassNodes(vertices, nodes_file, node_id_map);
+      node_count +=
+          PassNodes(vertices, nodes_file, node_id_map, additional_labels);
     }
     for (const auto &relationships_file : relationships) {
       edge_count += PassRelationships(edges, relationships_file, node_id_map,
@@ -512,6 +566,7 @@ std::string GetOutputPath() {
 int main(int argc, char *argv[]) {
   gflags::SetUsageMessage(usage);
   auto nodes = ParseRepeatedFlag("nodes", argc, argv);
+  auto additional_labels = ParseRepeatedFlag("node-label", argc, argv);
   auto relationships = ParseRepeatedFlag("relationships", argc, argv);
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
@@ -527,7 +582,7 @@ int main(int argc, char *argv[]) {
   LOG(INFO) << fmt::format("Converting {} to '{}'",
                            utils::Join(all_inputs, ", "), output_path);
   utils::Timer conversion_timer;
-  Convert(nodes, relationships, output_path);
+  Convert(nodes, additional_labels, relationships, output_path);
   double conversion_sec = conversion_timer.Elapsed().count();
   LOG(INFO) << fmt::format("Created '{}' in {:.2f} seconds", output_path,
                            conversion_sec);
