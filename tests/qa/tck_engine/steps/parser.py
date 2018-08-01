@@ -1,3 +1,6 @@
+# -*- coding: utf-8 -*-
+
+
 def parse(el, ignore_order):
     """
     Function used to parse result element. Result element can be

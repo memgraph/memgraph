@@ -1,18 +1,22 @@
-class TestResults:
+# -*- coding: utf-8 -*-
 
+
+class TestResults:
     """
-    Class used to store test results. It has parameters total
-    and passed.
+    Class used to store test results.
 
     @attribute total:
         int, total number of scenarios.
     @attribute passed:
         int, number of passed scenarios.
+    @attribute restarts:
+        int, number of restarts of underlying tested system.
     """
 
     def __init__(self):
         self.total = 0
         self.passed = 0
+        self.restarts = 0
 
     def num_passed(self):
         """
@@ -26,7 +30,13 @@ class TestResults:
         """
         return self.total
 
-    def add_test(self, status):
+    def num_restarts(self):
+        """
+        Getter for param restarts.
+        """
+        return self.restarts
+
+    def add_test(self, status, is_tested_system_restarted):
         """
         Method adds one scenario to current results. If
         scenario passed, number of passed scenarios increases.
@@ -37,3 +47,5 @@ class TestResults:
         if status == "passed":
             self.passed += 1
         self.total += 1
+        if is_tested_system_restarted:
+            self.restarts += 1

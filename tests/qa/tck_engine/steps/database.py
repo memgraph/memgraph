@@ -1,4 +1,7 @@
+# -*- coding: utf-8 -*-
+
 import time
+
 
 def query(q, context, params={}):
     """
@@ -16,13 +19,13 @@ def query(q, context, params={}):
     results_list = []
 
     if (context.config.database == "neo4j" or
-        context.config.database == "memgraph"):
+            context.config.database == "memgraph"):
         session = context.driver.session()
         start = time.time()
         try:
             # executing query
             results = session.run(q, params)
-            if not context.config.no_side_effects:
+            if context.config.side_effects:
                 summary = results.summary()
                 add_side_effects(context, summary.counters)
             results_list = list(results)
@@ -33,7 +36,7 @@ def query(q, context, params={}):
             with session.begin_transaction() as tx:
                 results = tx.run(q, params)
                 summary = results.summary()
-                if not context.config.no_side_effects:
+                if context.config.side_effects:
                     add_side_effects(context, summary.counters)
                 results_list = list(results)
                 tx.success = True

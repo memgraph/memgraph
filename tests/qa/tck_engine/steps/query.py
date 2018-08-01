@@ -1,7 +1,8 @@
+# -*- coding: utf-8 -*-
 
 import database
 import parser
-from behave import *
+from behave import given, then, step, when
 from neo4j.v1.types import Node, Path, Relationship
 
 
@@ -52,7 +53,7 @@ def parse_props(prop_json):
         elif isinstance(prop_json[prop], str):
             properties += prop + ": " + "'" + prop_json[prop] + "', "
         elif isinstance(prop_json[prop], bool):
-            if prop_json[prop] == True:
+            if prop_json[prop]:
                 properties += prop + ": true, "
             else:
                 properties += prop + ": false, "
@@ -192,7 +193,8 @@ def get_result_rows(context, ignore_order):
         values = result.values()
         for i in range(0, len(keys)):
             result_rows.append(keys[i] + ":" + parser.parse(
-                to_string(values[i]).replace("\n", "\\n").replace(" ", ""), ignore_order))
+                to_string(values[i]).replace("\n", "\\n").replace(" ", ""),
+                ignore_order))
     return result_rows
 
 
@@ -211,7 +213,8 @@ def get_expected_rows(context, ignore_order):
     for row in context.table:
         for col in context.table.headings:
             expected_rows.append(
-                col + ":" + parser.parse(row[col].replace(" ", ""), ignore_order))
+                col + ":" + parser.parse(row[col].replace(" ", ""),
+                                         ignore_order))
     return expected_rows
 
 
@@ -324,7 +327,7 @@ def side_effects_number(prop, table):
 
 @then('the side effects should be')
 def side_effects_step(context):
-    if context.config.no_side_effects:
+    if not context.config.side_effects:
         return
     table = context.table
     # get side effects from db queries
@@ -334,12 +337,12 @@ def side_effects_step(context):
     properties_dif = side_effects_number("properties", table)
     # compare side effects
     assert(context.graph_properties.compare(nodes_dif,
-           relationships_dif, labels_dif, properties_dif) == True)
+           relationships_dif, labels_dif, properties_dif))
 
 
 @then('no side effects')
 def side_effects_step(context):
-    if context.config.no_side_effects:
+    if not context.config.side_effects:
         return
     # check if side effects are non existing
-    assert(context.graph_properties.compare([], [], [], []) == True)
+    assert(context.graph_properties.compare([], [], [], []))

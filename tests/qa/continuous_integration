@@ -18,7 +18,11 @@ import json
 import logging
 import subprocess
 
+from argparse import ArgumentParser
+
 log = logging.getLogger(__name__)
+SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+
 
 class Test:
     """
@@ -43,7 +47,7 @@ class Test:
         self.memgraph_params = memgraph_params
         self.mandatory = mandatory
 
-# constants
+# Constants
 suites = [
     Test(
         name="memgraph_V1",
@@ -70,6 +74,16 @@ suite_suffix = "memgraph-{}.json"
 qa_status_path = ".quality_assurance_status"
 measurements_path = ".apollo_measurements"
 
+
+def parse_args():
+    """
+    Parse command line arguments
+    """
+    argp = ArgumentParser(description=__doc__)
+    argp.add_argument("--distributed", action="store_true")
+    return argp.parse_args()
+
+
 def get_newest_path(folder, suffix):
     """
     :param folder: Scanned folder.
@@ -95,12 +109,12 @@ def generate_measurements(suite, result_path):
     with open(result_path) as f:
         result = json.load(f)
     ret = ""
-    for i in ["total", "passed"]:
+    for i in ["total", "passed", "restarts"]:
         ret += "{}.{} {}\n".format(suite, i, result[i])
     return ret
 
 
-def generate_status(suite, result_path, required = False):
+def generate_status(suite, result_path, required=False):
     """
     :param suite: Test suite name.
     :param result_path: File path with json status report.
@@ -112,6 +126,7 @@ def generate_status(suite, result_path, required = False):
         result = json.load(f)
     total = result["total"]
     passed = result["passed"]
+    restarts = result["restarts"]
     ratio = passed / total
     msg = "{} / {} //({:.2%})//".format(passed, total, ratio)
     if required:
@@ -119,16 +134,17 @@ def generate_status(suite, result_path, required = False):
             msg += " {icon check color=green}"
         else:
             msg += " {icon times color=red}"
-    return (msg, passed, total)
+    return (msg, passed, total, restarts)
 
 
-def generate_remarkup(data):
+def generate_remarkup(data, distributed=False):
     """
     :param data: Tabular data to convert to remarkup.
 
     :return: Remarkup formatted status string.
     """
-    ret = "==== Quality assurance status: ====\n\n"
+    extra_desc = "distributed " if distributed else ""
+    ret = "==== Quality assurance {}status: ====\n\n".format(extra_desc)
     ret += "<table>\n"
     for row in data:
         ret += "  <tr>\n"
@@ -144,52 +160,68 @@ def generate_remarkup(data):
 
 
 if __name__ == "__main__":
-    # logger config
+    args = parse_args()
+    distributed = []
+    # Tests are not mandatory for distributed
+    if args.distributed:
+        distributed = ["--distributed"]
+        for suite in suites:
+            suite.mandatory = False
+
+    # Logger config
     logging.basicConfig(level=logging.INFO)
 
-    # run suites
+    venv_python = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
+    exec_dir = os.path.realpath(os.path.join(SCRIPT_DIR, "tck_engine"))
+    tests_dir = os.path.realpath(os.path.join(exec_dir, "tests"))
+    # Run suites
     for suite in suites:
         log.info("Starting suite '{}' scenarios.".format(suite.name))
-        subprocess.run(["./run",
-                        "--test-suite", suite.test_suite,
-                        "--name", suite.name,
-                        # "--verbose",
-                        "--memgraph-params", suite.memgraph_params],
-                       check = False)
+        test = os.path.realpath(os.path.join(tests_dir, suite.test_suite))
+        cmd = [venv_python, "-u",
+               os.path.join(exec_dir, "test_executor.py"),
+               "--root", test,
+               "--test-name", "{}".format(suite.name),
+               "--db", "memgraph",
+               "--memgraph-params",
+               "\"{}\"".format(suite.memgraph_params)] + distributed
+        subprocess.run(cmd, check=False)
 
-    # measurements
+    # Measurements
     measurements = ""
 
-    # status table headers
-    status_data = [["Suite", "Scenarios"]]
+    # Status table headers
+    status_data = [["Suite", "Scenarios", "Restarts"]]
 
     # List of mandatory suites that have failed
     mandatory_fails = []
 
     for suite in suites:
-        # get data files for test suite
+        # Get data files for test suite
         suite_result_path = get_newest_path(results_folder,
-                suite_suffix.format(suite.name))
+                                            suite_suffix.format(suite.name))
         log.info("Memgraph result path is {}".format(suite_result_path))
 
-        # read scenarios
-        suite_status, suite_passed, suite_total = generate_status(
-                suite.name, suite_result_path, required = suite.mandatory)
+        # Read scenarios
+        suite_status, suite_passed, suite_total, suite_restarts = \
+            generate_status(suite.name, suite_result_path,
+                            required=suite.mandatory)
 
-        if suite.mandatory and suite_passed != suite_total:
+        if suite.mandatory and suite_passed != suite_total or \
+                not args.distributed and suite_restarts > 0:
             mandatory_fails.append(suite.name)
 
-        status_data.append([suite.name, suite_status])
+        status_data.append([suite.name, suite_status, suite_restarts])
         measurements += generate_measurements(suite.name, suite_result_path)
 
-    # create status message
-    qa_status_message = generate_remarkup(status_data)
+    # Create status message
+    qa_status_message = generate_remarkup(status_data, args.distributed)
 
-    # create the report file
+    # Create the report file
     with open(qa_status_path, "w") as f:
         f.write(qa_status_message)
 
-    #create the measurements file
+    # Create the measurements file
     with open(measurements_path, "w") as f:
         f.write(measurements)
 

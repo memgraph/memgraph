@@ -1,13 +1,14 @@
 #!/bin/bash
 
 function print_usage_and_exit {
-    echo "./run --test-suite test_suite [--unstable]"
+    echo "./local_runner --test-suite test_suite [--distributed] [--num-machines num_machines]"
     echo "Required arguments:"
     echo -e "  --test-suite test_suite\trun test_suite scenarios, test_suite must be test folder in tck_engine/tests."
     echo -e "  --name name\tunique identifer of test_suite and its parameters"
     echo "Optional arguments:"
-    echo -e "  --unstable\trun unstable scenarios"
     echo -e "  --memgraph-params \"param1=value1 param2=value2\"\tcommand line arguments for memgraph"
+    echo -e "  --distributed\trun memgraph in distributed"
+    echo -e "  --num-machines num-machines\tnumber of machines for distributed, default is 3"
     exit 1
 }
 
@@ -15,18 +16,25 @@ function print_usage_and_exit {
 set -e
 
 # read arguments
-unstable=false
+distributed=false
+num_machines=3
 memgraph_params=""
-
-loglevel=2
 while [[ $# -gt 0 ]]; do
     case $1 in
-        --unstable)
-            unstable=true
+        --distributed)
+            distributed=true
             shift
             ;;
-        --verbose)
-            loglevel=0
+        --num-machines)
+            if [ $# -eq 1 ]; then
+                print_usage_and_exit
+            fi
+            num_machines=$2
+            re='^[0-9]+$'
+            if ! [[ $num_machines =~ $re  ]] ; then
+                print_usage_and_exit
+            fi
+            shift
             shift
             ;;
         --memgraph-params)
@@ -66,45 +74,24 @@ fi
 
 # save the path where this script is
 script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-memgraph_src_dir=${script_dir}/../..
-
-memgraph_build_dir=${memgraph_src_dir}/build
-if [ ! -d ${memgraph_build_dir} ]; then
-    memgraph_build_dir=${memgraph_src_dir}/build_debug
-fi
-memgraph_binary=${memgraph_build_dir}/memgraph
 
 # activate virtualenv
 source $script_dir/ve3/bin/activate
-
-# get full path to memgraph config for interpreted queries
-config_path="${memgraph_src_dir}/config/testing.conf"
 
 # run scenarios
 cd ${script_dir}
 tck_flags="--root tck_engine/tests/$test_suite
            --test-name $name
-           --no-side-effects --db memgraph"
+           --db memgraph"
 
-if [[ $unstable = true ]]; then
-    tck_flags="$tck_flags --unstable"
+if [[ $distributed = true ]]; then
+    tck_flags="$tck_flags --distributed"
+    tck_flags="$tck_flags --num-machines $num_machines"
 fi
 
-# the script has to be careful because memgraph process will be detached
-set +e
+if [ -n "$memgraph_params" ]; then
+    python3 tck_engine/test_executor.py $tck_flags --memgraph-params \"$memgraph_params\"
+else
+    python3 tck_engine/test_executor.py $tck_flags
+fi
 
-# run memgraph
-MEMGRAPH_CONFIG="$config_path"
-"$memgraph_binary" --min-log-level=$loglevel "$memgraph_params" 1>&2 &
-background_pid=$!
-
-function cleanup_and_exit {
-    kill -9 $background_pid
-    sleep 2
-    exit $1
-}
-
-sleep 2
-
-python3 tck_engine/test_executor.py $tck_flags
-cleanup_and_exit $?

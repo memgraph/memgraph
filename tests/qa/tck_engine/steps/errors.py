@@ -1,4 +1,6 @@
-from behave import *
+# -*- coding: utf-8 -*-
+
+from behave import then
 
 # TODO check for exact error?
 

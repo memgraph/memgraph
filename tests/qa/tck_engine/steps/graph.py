@@ -1,11 +1,13 @@
+# -*- coding: utf-8 -*-
+
 import database
 import os
-from behave import *
+from behave import given
 
 
 def clear_graph(context):
     database.query("MATCH (n) DETACH DELETE n", context)
-    if context.exception != None:
+    if context.exception is not None:
         context.exception = None
         database.query("MATCH (n) DETACH DELETE n", context)
 
@@ -46,7 +48,8 @@ def create_graph(name, context):
         i = 0
         while i < len(content):
             ch = content[i]
-            if ch == '\\' and i != len(content) - 1 and content[i + 1] in q_marks:
+            if ch == '\\' and i != len(content) - 1 and \
+                    content[i + 1] in q_marks:
                 single_query += ch + content[i + 1]
                 i += 2
             else:
