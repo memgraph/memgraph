@@ -76,3 +76,13 @@ To make extra sure, run the unit tests:
 If you have any trouble running the above commands, contact your nearest
 developer who successfully built Memgraph. Ask for help and insist on getting
 this document updated with correct steps!
+
+## Next Steps
+
+Familiarise yourself with our code conventions:
+
+  * [C++ Code](cpp-code-conventions.md)
+  * [Other Code](other-code-conventions.md)
+
+Take a look at the list of [required reading](required-reading.md) for
+brushing up on technical skills.

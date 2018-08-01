@@ -5,15 +5,80 @@ C++ code.
 
 ## Code Style
 
-Memgraph uses the Google Style Guide for C++ in most of its code. You should
-follow them whenever writing new code. The style guide can be found
-[here](https://google.github.io/styleguide/cppguide.html).
+Memgraph uses the
+[Google Style Guide for C++](https://google.github.io/styleguide/cppguide.html)
+in most of its code.  You should follow them whenever writing new code.
+
+### Often Overlooked Style Conventions
+
+#### Pointers & References
+
+References provide a shorter syntax for accessing members and better declare
+the intent that a pointer *should* not be `nullptr`. They do not prevent
+accessing a `nullptr` and obfuscate the client/calling code because the
+reference argument is passed just like a value. Errors with such code have
+been very difficult to debug. Therefore, pointers are always used. They will
+not prevent bugs but will make some of them more obvious when reading code.
+
+The only time a reference can be used is if it is `const`. Note that this
+kind of reference is not allowed if it is stored somewhere, i.e. in a class.
+You should use a pointer to `const` then. The primary reason being is that
+references obscure the semantics of moving an object, thus making bugs with
+references pointing to invalid memory harder to track down.
+
+[Style guide reference](https://google.github.io/styleguide/cppguide.html#Reference_Arguments)
+
+#### Constructors & RAII
+
+RAII (Resource Acquisition is Initialization) is a nice mechanism for managing
+resources. It is especially useful when exceptions are used, such as in our
+code. Unfortunately, they do have 2 major downsides.
+
+  * Only exceptions can be used for to signal failure.
+  * Calls to virtual methods are not resolved as expected.
+
+For those reasons the style guide recommends minimal work that cannot fail.
+Using virtual methods or doing a lot more should be delegated to some form of
+`Init` method, possibly coupled with factory functions. Similar rules apply to
+destructors, which are not allowed to even throw exceptions.
+
+[Style guide reference](https://google.github.io/styleguide/cppguide.html#Doing_Work_in_Constructors)
 
 ### Additional Style Conventions
 
-Code style conventions which are left undefined by Google are specified here.
+Old code may have broken Google C++ Style accidentally, but the new code
+should adhere to it as close as possible. We do have some exceptions
+to Google style as well as additions for unspecified conventions.
 
-#### Template parameter naming
+#### Using C++ Exceptions
+
+Unlike Google, we do not forbid using exceptions.
+
+But, you should be very careful when using them and introducing new ones. They
+are indeed handy, but cause problems with understanding the control flow since
+exceptions are another form of `goto`. It also becomes very hard to determine
+that the program is in correct state after the stack is unwound and the thrown
+exception handled. Other than those issues, throwing exceptions in destructors
+will terminate the program. The same will happen if a thread doesn't handle an
+exception even though it is not the main thread.
+
+[Style guide reference](https://google.github.io/styleguide/cppguide.html#Exceptions)
+
+#### Assertions
+
+We use `CHECK` and `DCHECK` macros from glog library. You are encouraged to
+use them as often as possible to both document and validate various pre and
+post conditions of a function.
+
+`CHECK` remains even in release build and should be preferred over it's cousin
+`DCHECK` which only exists in debug builds. The primary reason is that you
+want to trigger assertions in release builds in case the tests didn't
+completely validate all code paths. It is better to fail fast and crash the
+program, than to leave it in undefined state and potentially corrupt end
+user's work. In cases when profiling shows that `CHECK` is causing visible
+slowdown you should switch to `DCHECK`.
+
+#### Template Parameter Naming
 
 Template parameter names should start with capital letter 'T' followed by a
 short descriptive name. For example:
@@ -63,11 +128,9 @@ containing 3 slashes (`///`). Take a look at the 2 examples below.
 ### Line Comment
 
 ```cpp
-///
 /// One sentence, brief description.
 ///
 /// Long form description.
-///
 ```
 
 If you only have a brief description, you may collapse the documentation into
