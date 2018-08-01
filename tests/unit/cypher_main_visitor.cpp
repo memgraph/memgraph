@@ -1565,24 +1565,29 @@ TYPED_TEST(CypherMainVisitorTest, CreateIndex) {
 }
 
 TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
-  TypeParam ast_generator("RETURN all(x IN [1,2,3] WHERE x = 2)");
-  auto *query = ast_generator.query_;
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 1U);
-  auto *ret = dynamic_cast<Return *>(single_query->clauses_[0]);
-  ASSERT_TRUE(ret);
-  ASSERT_EQ(ret->body_.named_expressions.size(), 1U);
-  auto *all = dynamic_cast<All *>(ret->body_.named_expressions[0]->expression_);
-  ASSERT_TRUE(all);
-  EXPECT_EQ(all->identifier_->name_, "x");
-  auto *list_literal = dynamic_cast<ListLiteral *>(all->list_expression_);
-  EXPECT_TRUE(list_literal);
-  auto *eq = dynamic_cast<EqualOperator *>(all->where_->expression_);
-  EXPECT_TRUE(eq);
+  { EXPECT_THROW(TypeParam("RETURN all(x in [1,2,3])"), SyntaxException); }
+  {
+    TypeParam ast_generator("RETURN all(x IN [1,2,3] WHERE x = 2)");
+    auto *query = ast_generator.query_;
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *ret = dynamic_cast<Return *>(single_query->clauses_[0]);
+    ASSERT_TRUE(ret);
+    ASSERT_EQ(ret->body_.named_expressions.size(), 1U);
+    auto *all =
+        dynamic_cast<All *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(all);
+    EXPECT_EQ(all->identifier_->name_, "x");
+    auto *list_literal = dynamic_cast<ListLiteral *>(all->list_expression_);
+    EXPECT_TRUE(list_literal);
+    auto *eq = dynamic_cast<EqualOperator *>(all->where_->expression_);
+    EXPECT_TRUE(eq);
+  }
 }
 
 TYPED_TEST(CypherMainVisitorTest, ReturnSingle) {
+  { EXPECT_THROW(TypeParam("RETURN single(x in [1,2,3])"), SyntaxException); }
   TypeParam ast_generator("RETURN single(x IN [1,2,3] WHERE x = 2)");
   auto *query = ast_generator.query_;
   ASSERT_TRUE(query->single_query_);

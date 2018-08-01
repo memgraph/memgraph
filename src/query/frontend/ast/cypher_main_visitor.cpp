@@ -1109,6 +1109,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
                                                   .as<std::string>());
     Expression *list_expr =
         ctx->filterExpression()->idInColl()->expression()->accept(this);
+    if (!ctx->filterExpression()->where()) {
+      throw SyntaxException("all(...) requires a WHERE predicate");
+    }
     Where *where = ctx->filterExpression()->where()->accept(this);
     return static_cast<Expression *>(
         storage_.Create<All>(ident, list_expr, where));
@@ -1120,6 +1123,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
                                                   .as<std::string>());
     Expression *list_expr =
         ctx->filterExpression()->idInColl()->expression()->accept(this);
+    if (!ctx->filterExpression()->where()) {
+      throw SyntaxException("single(...) requires a WHERE predicate");
+    }
     Where *where = ctx->filterExpression()->where()->accept(this);
     return static_cast<Expression *>(
         storage_.Create<Single>(ident, list_expr, where));
