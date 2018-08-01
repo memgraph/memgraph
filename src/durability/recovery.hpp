@@ -122,8 +122,22 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
 RecoveryInfo RecoverOnlySnapshot(
     const std::experimental::filesystem::path &durability_dir,
     database::GraphDb *db, durability::RecoveryData *recovery_data,
-    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id);
+    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id,
+    int worker_id);
+
+/** Interface for accessing transactions during WAL recovery. */
+class RecoveryTransactions {
+ public:
+  virtual ~RecoveryTransactions() {}
+
+  virtual void Begin(const tx::TransactionId &) = 0;
+  virtual void Abort(const tx::TransactionId &) = 0;
+  virtual void Commit(const tx::TransactionId &) = 0;
+  virtual void Apply(const database::StateDelta &) = 0;
+};
 
 void RecoverWalAndIndexes(const std::experimental::filesystem::path &dir,
-                          database::GraphDb *db, RecoveryData *recovery_data);
+                          database::GraphDb *db, RecoveryData *recovery_data,
+                          RecoveryTransactions *transactions);
+
 }  // namespace durability

@@ -303,9 +303,10 @@ class Durability : public ::testing::Test {
     return config;
   }
 
-  void MakeSnapshot(database::GraphDb &db, int snapshot_max_retained = -1) {
+  void MakeSnapshot(int worker_id, database::GraphDb &db,
+                    int snapshot_max_retained = -1) {
     auto dba = db.Access();
-    ASSERT_TRUE(durability::MakeSnapshot(db, *dba, durability_dir_,
+    ASSERT_TRUE(durability::MakeSnapshot(db, *dba, worker_id, durability_dir_,
                                          snapshot_max_retained));
   }
 
@@ -415,7 +416,7 @@ TEST_F(Durability, SnapshotEncoding) {
     ASSERT_EQ(e1.gid(), gid1);
     dba->BuildIndex(dba->Label("l1"), dba->Property("p1"));
     dba->Commit();
-    MakeSnapshot(db);
+    MakeSnapshot(0, db);
   }
 
   auto snapshot = GetLastFile(snapshot_dir_);
@@ -512,7 +513,7 @@ TEST_F(Durability, SnapshotRecovery) {
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
   MakeDb(db, 300, {3, 4});
-  MakeSnapshot(db);
+  MakeSnapshot(0, db);
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
@@ -534,7 +535,7 @@ TEST_F(Durability, SnapshotNoVerticesIdRecovery) {
     dba->Commit();
   }
 
-  MakeSnapshot(db);
+  MakeSnapshot(0, db);
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
@@ -551,7 +552,7 @@ TEST_F(Durability, SnapshotAndWalIdRecovery) {
   config.durability_enabled = true;
   database::SingleNode db{config};
   MakeDb(db, 300);
-  MakeSnapshot(db);
+  MakeSnapshot(0, db);
   MakeDb(db, 300);
   db.wal().Flush();
   ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
@@ -612,7 +613,7 @@ TEST_F(Durability, SnapshotAndWalRecovery) {
   database::SingleNode db{config};
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
-  MakeSnapshot(db);
+  MakeSnapshot(0, db);
   MakeDb(db, 300, {3, 4});
   MakeDb(db, 300);
   MakeDb(db, 300, {5});
@@ -648,7 +649,7 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
   MakeDb(db.wal(), *dba_3, 100);
   dba_3->Commit();
 
-  MakeSnapshot(db);  // Snapshooter takes the fourth transaction.
+  MakeSnapshot(0, db);  // Snapshooter takes the fourth transaction.
   dba_2->Commit();
 
   // The fifth transaction starts and commits after snapshot.
@@ -710,7 +711,7 @@ TEST_F(Durability, SnapshotRetention) {
     // Track the added snapshots to ensure the correct ones are pruned.
     std::unordered_set<std::string> snapshots;
     for (int i = 0; i < count; ++i) {
-      MakeSnapshot(db, retain);
+      MakeSnapshot(0, db, retain);
       auto latest = GetLastFile(snapshot_dir_);
       snapshots.emplace(GetLastFile(snapshot_dir_));
       // Ensures that the latest snapshot was not in the snapshots collection
@@ -730,13 +731,13 @@ TEST_F(Durability, WalRetention) {
     config.durability_enabled = true;
     database::SingleNode db{config};
     MakeDb(db, 100);
-    MakeSnapshot(db);
+    MakeSnapshot(0, db);
     MakeDb(db, 100);
     EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
     db.wal().Flush();
     // 1 current WAL file, plus retained ones
     EXPECT_GT(DirFiles(wal_dir_).size(), 1);
-    MakeSnapshot(db);
+    MakeSnapshot(0, db);
     db.wal().Flush();
   }
 
@@ -762,7 +763,7 @@ TEST_F(Durability, WorkerIdRecovery) {
   config.recovering_cluster_size = 1;
   database::Master db{config};
   MakeDb(db, 100);
-  MakeSnapshot(db);
+  MakeSnapshot(db.WorkerId(), db);
   EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
 
   // WorkerIds are equal and recovery should be sucessful
@@ -830,20 +831,20 @@ TEST_F(Durability, SequentialRecovery) {
     return threads;
   };
 
-  auto make_updates = [&run_updates, this](database::GraphDb &db,
+  auto make_updates = [&run_updates, this](database::SingleNode &db,
                                            bool snapshot_during,
                                            bool snapshot_after) {
     std::atomic<bool> keep_running{true};
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);
     if (snapshot_during) {
-      MakeSnapshot(db);
+      MakeSnapshot(0, db);
     }
     std::this_thread::sleep_for(25ms);
     keep_running = false;
     for (auto &t : update_theads) t.join();
     if (snapshot_after) {
-      MakeSnapshot(db);
+      MakeSnapshot(0, db);
     }
 
     db.wal().Flush();

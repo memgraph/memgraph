@@ -131,7 +131,8 @@ TEST_F(DistributedDurability, RecoveryFailure) {
     AddVertices();
     // Make a snapshot on the master without the right snapshots on workers.
     auto dba = master().Access();
-    bool status = durability::MakeSnapshot(master(), *dba, tmp_dir_, 100);
+    bool status = durability::MakeSnapshot(master(), *dba, master().WorkerId(),
+                                           tmp_dir_, 100);
     ASSERT_TRUE(status);
   }
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";

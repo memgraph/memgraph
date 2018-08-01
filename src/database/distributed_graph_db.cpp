@@ -425,6 +425,77 @@ class WorkerAccessor final : public DistributedAccessor {
   }
 };
 
+//////////////////////////////////////////////////////////////////////
+// RecoveryTransactions implementations
+//////////////////////////////////////////////////////////////////////
+
+class DistributedRecoveryTransanctions
+    : public durability::RecoveryTransactions {
+ public:
+  explicit DistributedRecoveryTransanctions(DistributedGraphDb *db) : db_(db) {}
+
+  void Begin(const tx::TransactionId &tx_id) override {
+    CHECK(accessors_.find(tx_id) == accessors_.end())
+        << "Double transaction start";
+    accessors_.emplace(tx_id, db_->Access());
+  }
+
+  void Abort(const tx::TransactionId &tx_id) final {
+    GetAccessor(tx_id)->Abort();
+    accessors_.erase(accessors_.find(tx_id));
+  }
+
+  void Commit(const tx::TransactionId &tx_id) final {
+    GetAccessor(tx_id)->Commit();
+    accessors_.erase(accessors_.find(tx_id));
+  }
+
+  void Apply(const database::StateDelta &delta) final {
+    delta.Apply(*GetAccessor(delta.transaction_id));
+  }
+
+ protected:
+  virtual GraphDbAccessor *GetAccessor(const tx::TransactionId &tx_id) {
+    auto found = accessors_.find(tx_id);
+    // Currently accessors are created on transaction_begin, but since workers
+    // don't have a transaction begin, the accessors are not created.
+    if (db_->type() == database::GraphDb::Type::DISTRIBUTED_WORKER &&
+        found == accessors_.end()) {
+      std::tie(found, std::ignore) = accessors_.emplace(tx_id, db_->Access());
+    }
+
+    CHECK(found != accessors_.end())
+        << "Accessor does not exist for transaction: " << tx_id;
+    return found->second.get();
+  }
+
+  DistributedGraphDb *db_;
+  std::unordered_map<tx::TransactionId, std::unique_ptr<GraphDbAccessor>>
+      accessors_;
+};
+
+class WorkerRecoveryTransactions final
+    : public DistributedRecoveryTransanctions {
+ public:
+  explicit WorkerRecoveryTransactions(Worker *db)
+      : DistributedRecoveryTransanctions(db) {}
+
+  void Begin(const tx::TransactionId &tx_id) override {
+    LOG(FATAL) << "Unexpected transaction begin on worker recovery.";
+  }
+
+ protected:
+  GraphDbAccessor *GetAccessor(const tx::TransactionId &tx_id) override {
+    auto found = accessors_.find(tx_id);
+    // Currently accessors are created on transaction_begin, but since workers
+    // don't have a transaction begin, the accessors are not created.
+    if (found == accessors_.end()) {
+      std::tie(found, std::ignore) = accessors_.emplace(tx_id, db_->Access());
+    }
+    return found->second.get();
+  }
+};
+
 }  // namespace
 
 //////////////////////////////////////////////////////////////////////
@@ -524,7 +595,7 @@ Master::Master(Config config)
     if (impl_->config_.db_recover_on_startup) {
       recovery_info = durability::RecoverOnlySnapshot(
           impl_->config_.durability_directory, this, &recovery_data,
-          std::experimental::nullopt);
+          std::experimental::nullopt, config.worker_id);
     }
 
     // Post-recovery setup and checking.
@@ -548,8 +619,9 @@ Master::Master(Config config)
       // workers and on master
       recovery_data.wal_tx_to_recover =
           impl_->coordination_.CommonWalTransactions(*recovery_info);
+      DistributedRecoveryTransanctions recovery_transactions(this);
       durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
-                                       this, &recovery_data);
+                                       this, &recovery_data, &recovery_transactions);
       auto workers_recovered_wal =
           impl_->durability_rpc_.RecoverWalAndIndexes(&recovery_data);
       workers_recovered_wal.get();
@@ -658,9 +730,10 @@ bool Master::MakeSnapshot(GraphDbAccessor &accessor) {
   // snapshot if we succeed in creating it and workers somehow fail. Because
   // we have an assumption that every snapshot that exists on master with
   // some tx_id visibility also exists on workers
-  const bool status = durability::MakeSnapshot(
-      *this, accessor, fs::path(impl_->config_.durability_directory),
-      impl_->config_.snapshot_max_retained);
+  const bool status =
+      durability::MakeSnapshot(*this, accessor, impl_->config_.worker_id,
+                               fs::path(impl_->config_.durability_directory),
+                               impl_->config_.snapshot_max_retained);
   if (status) {
     LOG(INFO) << "Snapshot created successfully.";
   } else {
@@ -834,7 +907,7 @@ Worker::Worker(Config config)
     if (snapshot_to_recover) {
       recovery_info = durability::RecoverOnlySnapshot(
           impl_->config_.durability_directory, this, &recovery_data,
-          snapshot_to_recover);
+          snapshot_to_recover, config.worker_id);
     }
 
     // Post-recovery setup and checking.
@@ -916,9 +989,10 @@ std::vector<int> Worker::GetWorkerIds() const {
 
 bool Worker::MakeSnapshot(GraphDbAccessor &accessor) {
   // Makes a local snapshot from the visibility of accessor
-  const bool status = durability::MakeSnapshot(
-      *this, accessor, fs::path(impl_->config_.durability_directory),
-      impl_->config_.snapshot_max_retained);
+  const bool status =
+      durability::MakeSnapshot(*this, accessor, impl_->config_.worker_id,
+                               fs::path(impl_->config_.durability_directory),
+                               impl_->config_.snapshot_max_retained);
   if (status) {
     LOG(INFO) << "Snapshot created successfully.";
   } else {
@@ -938,8 +1012,9 @@ void Worker::ReinitializeStorage() {
 }
 
 void Worker::RecoverWalAndIndexes(durability::RecoveryData *recovery_data) {
+  WorkerRecoveryTransactions recovery_transactions(this);
   durability::RecoverWalAndIndexes(impl_->config_.durability_directory, this,
-                                   recovery_data);
+                                   recovery_data, &recovery_transactions);
 }
 
 io::network::Endpoint Worker::endpoint() const {

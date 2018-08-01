@@ -197,6 +197,8 @@ class SingleNode {
 
 SingleNode::SingleNode(Config config)
     : impl_(std::make_unique<impl::SingleNode>(config)) {
+  CHECK(config.worker_id == 0)
+      << "Worker ID should only be set in distributed GraphDb";
   if (impl_->config_.durability_enabled)
     utils::CheckDir(impl_->config_.durability_directory);
 
@@ -210,14 +212,16 @@ SingleNode::SingleNode(Config config)
     if (impl_->config_.db_recover_on_startup) {
       recovery_info = durability::RecoverOnlySnapshot(
           impl_->config_.durability_directory, this, &recovery_data,
-          std::experimental::nullopt);
+          std::experimental::nullopt, 0);
     }
 
     // Post-recovery setup and checking.
     if (recovery_info) {
       recovery_data.wal_tx_to_recover = recovery_info->wal_recovered;
+      SingleNodeRecoveryTransanctions recovery_transactions(this);
       durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
-                                       this, &recovery_data);
+                                       this, &recovery_data,
+                                       &recovery_transactions);
     }
   }
 
@@ -301,7 +305,7 @@ void SingleNode::CollectGarbage() { impl_->storage_gc_->CollectGarbage(); }
 
 bool SingleNode::MakeSnapshot(GraphDbAccessor &accessor) {
   const bool status = durability::MakeSnapshot(
-      *this, accessor, fs::path(impl_->config_.durability_directory),
+      *this, accessor, 0, fs::path(impl_->config_.durability_directory),
       impl_->config_.snapshot_max_retained);
   if (status) {
     LOG(INFO) << "Snapshot created successfully.";
@@ -318,6 +322,41 @@ void SingleNode::ReinitializeStorage() {
       impl_->config_.worker_id, impl_->config_.properties_on_disk);
   impl_->storage_gc_ = std::make_unique<StorageGcSingleNode>(
       *impl_->storage_, impl_->tx_engine_, impl_->config_.gc_cycle_sec);
+}
+
+SingleNodeRecoveryTransanctions::SingleNodeRecoveryTransanctions(SingleNode *db)
+    : db_(db) {}
+
+SingleNodeRecoveryTransanctions::~SingleNodeRecoveryTransanctions() {}
+
+void SingleNodeRecoveryTransanctions::Begin(const tx::TransactionId &tx_id) {
+  CHECK(accessors_.find(tx_id) == accessors_.end())
+      << "Double transaction start";
+  accessors_.emplace(tx_id, db_->Access());
+}
+
+GraphDbAccessor *GetAccessor(
+    const std::unordered_map<tx::TransactionId,
+                             std::unique_ptr<GraphDbAccessor>> &accessors,
+    const tx::TransactionId &tx_id) {
+  auto found = accessors.find(tx_id);
+  CHECK(found != accessors.end())
+      << "Accessor does not exist for transaction: " << tx_id;
+  return found->second.get();
+}
+
+void SingleNodeRecoveryTransanctions::Abort(const tx::TransactionId &tx_id) {
+  GetAccessor(accessors_, tx_id)->Abort();
+  accessors_.erase(accessors_.find(tx_id));
+}
+
+void SingleNodeRecoveryTransanctions::Commit(const tx::TransactionId &tx_id) {
+  GetAccessor(accessors_, tx_id)->Commit();
+  accessors_.erase(accessors_.find(tx_id));
+}
+
+void SingleNodeRecoveryTransanctions::Apply(const database::StateDelta &delta) {
+  delta.Apply(*GetAccessor(accessors_, delta.transaction_id));
 }
 
 }  // namespace database

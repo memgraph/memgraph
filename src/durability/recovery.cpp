@@ -4,7 +4,6 @@
 #include <limits>
 #include <unordered_map>
 
-#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "database/indexes/label_property_index.hpp"
 #include "durability/hashed_file_reader.hpp"
@@ -45,7 +44,7 @@ using communication::bolt::Value;
   }
 
 bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
-                     RecoveryData *recovery_data) {
+                     RecoveryData *recovery_data, int worker_id) {
   HashedFileReader reader;
   SnapshotDecoder<HashedFileReader> decoder(reader);
 
@@ -67,15 +66,6 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
 
-  int worker_id = 0;
-  // TODO: Figure out a better solution for SingleNode recovery vs
-  // DistributedGraphDb.
-  if (auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(db)) {
-    worker_id = distributed_db->WorkerId();
-  } else {
-    CHECK(dynamic_cast<database::SingleNode *>(db));
-  }
   // Checks worker id was set correctly
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == worker_id);
@@ -307,7 +297,8 @@ std::vector<tx::TransactionId> ReadWalRecoverableTransactions(
 
 // TODO - finer-grained recovery feedback could be useful here.
 bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
-                RecoveryData *recovery_data) {
+                RecoveryData *recovery_data,
+                RecoveryTransactions *transactions) {
   auto wal_files = GetWalFiles(wal_dir);
   // Track which transaction should be recovered first, and define logic for
   // which transactions should be skipped in recovery.
@@ -326,27 +317,7 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
     return tx_id < first_to_recover ||
            (tx_id < recovery_data->snapshooter_tx_id &&
             !utils::Contains(tx_sn, tx_id)) ||
-            !utils::Contains(common_wal_tx, tx_id);
-  };
-
-  std::unordered_map<tx::TransactionId,
-                     std::unique_ptr<database::GraphDbAccessor>>
-      accessors;
-  auto get_accessor =
-      [db, &accessors](tx::TransactionId tx_id) -> database::GraphDbAccessor & {
-    auto found = accessors.find(tx_id);
-
-    // Currently accessors are created on transaction_begin, but since workers
-    // don't have a transaction begin, the accessors are not created.
-    if (db->type() == database::GraphDb::Type::DISTRIBUTED_WORKER &&
-        found == accessors.end()) {
-      // TODO: Do we want to call db->Access with tx_id?
-      std::tie(found, std::ignore) = accessors.emplace(tx_id, db->Access());
-    }
-
-    CHECK(found != accessors.end())
-        << "Accessor does not exist for transaction: " << tx_id;
-    return *found->second;
+           !utils::Contains(common_wal_tx, tx_id);
   };
 
   // Ensure that the next transaction ID in the recovered DB will be greater
@@ -364,17 +335,13 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
         if (should_skip(delta.transaction_id)) return;
         switch (delta.type) {
           case database::StateDelta::Type::TRANSACTION_BEGIN:
-            CHECK(accessors.find(delta.transaction_id) == accessors.end())
-                << "Double transaction start";
-            accessors.emplace(delta.transaction_id, db->Access());
+            transactions->Begin(delta.transaction_id);
             break;
           case database::StateDelta::Type::TRANSACTION_ABORT:
-            get_accessor(delta.transaction_id).Abort();
-            accessors.erase(accessors.find(delta.transaction_id));
+            transactions->Abort(delta.transaction_id);
             break;
           case database::StateDelta::Type::TRANSACTION_COMMIT:
-            get_accessor(delta.transaction_id).Commit();
-            accessors.erase(accessors.find(delta.transaction_id));
+            transactions->Commit(delta.transaction_id);
             break;
           case database::StateDelta::Type::BUILD_INDEX:
             // TODO index building might still be problematic in HA
@@ -382,7 +349,7 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
                                                 delta.property_name);
             break;
           default:
-            delta.Apply(get_accessor(delta.transaction_id));
+            transactions->Apply(delta);
         }
       });
 
@@ -400,7 +367,8 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
 RecoveryInfo RecoverOnlySnapshot(
     const fs::path &durability_dir, database::GraphDb *db,
     RecoveryData *recovery_data,
-    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id) {
+    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id,
+    int worker_id) {
   // Attempt to recover from snapshot files in reverse order (from newest
   // backwards).
   const auto snapshot_dir = durability_dir / kSnapshotDir;
@@ -422,7 +390,7 @@ RecoveryInfo RecoverOnlySnapshot(
       }
     }
     LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
-    if (!RecoverSnapshot(snapshot_file, db, recovery_data)) {
+    if (!RecoverSnapshot(snapshot_file, db, recovery_data, worker_id)) {
       db->ReinitializeStorage();
       recovery_data->Clear();
       LOG(WARNING) << "Snapshot recovery failed, trying older snapshot...";
@@ -445,12 +413,13 @@ RecoveryInfo RecoverOnlySnapshot(
 }
 
 void RecoverWalAndIndexes(const fs::path &durability_dir, database::GraphDb *db,
-                          RecoveryData *recovery_data) {
+                          RecoveryData *recovery_data,
+                          RecoveryTransactions *transactions) {
   // Write-ahead-log recovery.
   // WAL recovery does not have to be complete for the recovery to be
   // considered successful. For the time being ignore the return value,
   // consider a better system.
-  RecoverWal(durability_dir / kWalDir, db, recovery_data);
+  RecoverWal(durability_dir / kWalDir, db, recovery_data, transactions);
 
   // Index recovery.
   auto db_accessor_indices = db->Access();

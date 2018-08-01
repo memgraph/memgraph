@@ -7,6 +7,7 @@
 #include "database/counters.hpp"
 #include "database/storage.hpp"
 #include "database/storage_gc.hpp"
+#include "durability/recovery.hpp"
 #include "durability/wal.hpp"
 #include "io/network/endpoint.hpp"
 #include "storage/concurrent_id_mapper.hpp"
@@ -143,6 +144,23 @@ class SingleNode final : public GraphDb {
 
   std::unique_ptr<utils::Scheduler> snapshot_creator_;
   utils::Scheduler transaction_killer_;
+};
+
+class SingleNodeRecoveryTransanctions final
+    : public durability::RecoveryTransactions {
+ public:
+  explicit SingleNodeRecoveryTransanctions(SingleNode *db);
+  ~SingleNodeRecoveryTransanctions();
+
+  void Begin(const tx::TransactionId &tx_id) override;
+  void Abort(const tx::TransactionId &tx_id) override;
+  void Commit(const tx::TransactionId &tx_id) override;
+  void Apply(const database::StateDelta &delta) override;
+
+ private:
+  SingleNode *db_;
+  std::unordered_map<tx::TransactionId, std::unique_ptr<GraphDbAccessor>>
+      accessors_;
 };
 
 }  // namespace database

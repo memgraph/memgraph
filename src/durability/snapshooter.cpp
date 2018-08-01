@@ -4,7 +4,6 @@
 
 #include <glog/logging.h>
 
-#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
@@ -22,7 +21,7 @@ static_assert(durability::kVersion == 6,
 
 namespace {
 bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
-            database::GraphDbAccessor &dba) {
+            database::GraphDbAccessor &dba, int worker_id) {
   try {
     HashedFileWriter buffer(snapshot_file);
     SnapshotEncoder<HashedFileWriter> encoder(buffer);
@@ -32,15 +31,6 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
                      durability::kMagicNumber.size());
     encoder.WriteInt(durability::kVersion);
 
-    int worker_id = 0;
-    // TODO: Figure out a better solution for SingleNode recovery vs
-    // DistributedGraphDb.
-    if (auto *distributed_db =
-            dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
-      worker_id = distributed_db->WorkerId();
-    } else {
-      CHECK(dynamic_cast<database::SingleNode *>(&dba.db()));
-    }
     // Writes the worker id to snapshot, used to guarantee consistent cluster
     // state after recovery
     encoder.WriteInt(worker_id);
@@ -132,22 +122,13 @@ void RemoveOldWals(const fs::path &wal_dir,
 }  // namespace
 
 bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
-                  const fs::path &durability_dir,
-                  const int snapshot_max_retained) {
+                  int worker_id, const fs::path &durability_dir,
+                  int snapshot_max_retained) {
   if (!utils::EnsureDir(durability_dir / kSnapshotDir)) return false;
-  int worker_id = 0;
-  // TODO: Figure out a better solution for SingleNode recovery vs
-  // DistributedGraphDb.
-  if (auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(&db)) {
-    worker_id = distributed_db->WorkerId();
-  } else {
-    CHECK(dynamic_cast<database::SingleNode *>(&db));
-  }
   const auto snapshot_file =
       MakeSnapshotPath(durability_dir, worker_id, dba.transaction_id());
   if (fs::exists(snapshot_file)) return false;
-  if (Encode(snapshot_file, db, dba)) {
+  if (Encode(snapshot_file, db, dba, worker_id)) {
     RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);
     RemoveOldWals(durability_dir / kWalDir, dba.transaction());
     return true;
@@ -157,4 +138,5 @@ bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
     return false;
   }
 }
+
 }  // namespace durability
