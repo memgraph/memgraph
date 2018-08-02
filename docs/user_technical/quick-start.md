@@ -228,9 +228,10 @@ CREATE (u:User {name: "Alice"})-[:Likes]->(m:Software {name: "Memgraph"});
 
 The above will create 2 nodes in the database, one labeled "User" with name
 "Alice" and the other labeled "Software" with name "Memgraph". It will also
-create a relationship that "Alice" *likes* "Memgraph".
+create an edge labeled "Likes". Those three graph elements jointly represent
+the fact that "Alice" *likes* "Memgraph".
 
-To find created nodes and relationships, execute the following query:
+To find created nodes and edges, execute the following query:
 
 ```opencypher
 MATCH (u:User)-[r]->(x) RETURN u, r, x;
@@ -261,7 +262,7 @@ Telemetry is an automated process by which some useful data is collected at
 a remote point. At Memgraph, we use telemetry for the sole purpose of improving
 our product, thereby collecting some data about the machine that executes the
 database (CPU, memory, OS and kernel information) as well as some data about the
-database runtime (CPU usage, memory usage, vertices and edges count).
+database runtime (CPU usage, memory usage, node and edge count).
 
 Here at Memgraph, we deeply care about the privacy of our users and do not
 collect any sensitive information. If users wish to disable Memgraph's telemetry

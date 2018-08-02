@@ -24,15 +24,15 @@ session = driver.session()
 # After each query, call either `consume()` or `data()`
 session.run('CREATE (alice:Person {name: "Alice", age: 22})').consume()
 
-# Get all the vertices from the database (potentially multiple rows).
-vertices = session.run('MATCH (n) RETURN n').data()
+# Get all the nodes from the database (potentially multiple rows).
+nodes = session.run('MATCH (n) RETURN n').data()
 # Assuming we started with an empty database, we should have Alice
 # as the only row in the results.
-only_row = vertices.pop()
+only_row = nodes.pop()
 alice = only_row["n"]
 
 # Print out what we retrieved.
-print("Found a vertex with labels '{}', name '{}' and age {}".format(
+print("Found a node with labels '{}', name '{}' and age {}".format(
   alice['name'], alice.labels, alice['age'])
 
 # Remove all the data from the database.

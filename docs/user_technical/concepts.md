@@ -63,7 +63,7 @@ with total cost of `11`. Obviously, the second query can find the true shortest
 path because it has no restrictions on the length.
 
 To handle cases when the length restriction is set, *weighted shortest path*
-algorithm uses both vertex and distance as the state. This causes the search
+algorithm uses both node and distance as the state. This causes the search
 space to increase by the factor of the given upper bound. On the other hand, not
 setting the upper bound parameter, the search space might contain the whole
 graph.

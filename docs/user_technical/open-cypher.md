@@ -670,7 +670,7 @@ functions.
  `keys`          | Returns a list keys of properties from an edge or a node. Each key is represented as a string of characters.
  `labels`        | Returns a list of labels from a node. Each label is represented as a character string.
  `nodes`         | Returns a list of nodes from a path.
- `relationships` | Returns a list of relationships from a path.
+ `relationships` | Returns a list of relationships (edges) from a path.
  `range`         | Constructs a list of value in given range.
  `tail`          | Returns all elements after the first of a given list.
  `abs`           | Returns the absolute value of a number.

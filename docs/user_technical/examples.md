@@ -14,19 +14,19 @@ to model this data as a graph and demonstrate a few example queries.
 
 #### Data Model
 Each TED talk has a main speaker, so we
-identify two types of nodes &mdash; `Talk` and `Speaker`. Also, we will add
-an edge of type `Gave` pointing to a `Talk` from its main `Speaker`.
-Each speaker has a name so we can add property `name` to `Speaker` node.
-Likewise, we'll add properties `name`, `title` and `description` to node
-`Talk`. Furthermore, each talk is given in a specific TED event, so we can
-create node `Event` with property `name` and relationship `InEvent` between
+identify two node labels &mdash; `Talk` and `Speaker`. Also, we will add
+an edge labelled `Gave` pointing to a node labelled `Talk` from its
+main `Speaker`. Each speaker has a name so we can add property `name` to
+`Speaker` node. Likewise, we'll add properties `name`, `title` and `description`
+to node `Talk`. Furthermore, each talk is given in a specific TED event, so we
+can create a node `Event` with property `name` and an edge `InEvent` between
 talk and event.
 
 Talks are tagged with keywords to facilitate searching, hence we
-add node `Tag` with property `name` and relationship `HasTag` between talk and
+add a node `Tag` with property `name` and an edge `HasTag` between talk and
 tag. Moreover, users give ratings to each talk by selecting up to three
-predefined string values. Therefore we add node `Rating` with these values as
-property `name` and relationship`HasRating` with property `user_count` between
+predefined string values. Therefore we add a node `Rating` with these values as
+property `name` and an edge `HasRating` with property `user_count` between
 talk and rating nodes.
 
 #### Example Queries
@@ -171,7 +171,7 @@ ORDER BY Speaker;
 ### Football Example
 
 [Football](https://en.wikipedia.org/wiki/Association_football)
-(soccer for the heathens) is a team sport played between two teams of eleven
+is a team sport played between two teams of eleven
 players with a spherical ball. The game is played on a rectangular pitch with
 a goal at each and. The object of the game is to score by moving the ball
 beyond the goal line into the opposing goal. The game is played by more than
@@ -189,7 +189,7 @@ Two of the nodes will represent the teams that have played the match, while the
 third node will represent the game itself. Both edges are directed from the
 team nodes to the game node and are labeled as `:Played`.
 
-Let us consider a real life example of this model&mdash;Arsene Wenger's 1000th.
+Let us consider a real life example of this model&mdash;Arsene Wenger's 1000th
 game in charge of Arsenal. This was a regular fixture of a 2013/2014
 English Premier League, yet it was written in the stars that this historic
 moment would be a big London derby against Chelsea on Stanford Bridge. The
@@ -426,17 +426,17 @@ than 200 km in one go.
 
 ```opencypher
 MATCH p = (:City {name: "Zagreb"})
-          -[:Road * bfs (e, v | e.length <= 200)]->
+          -[:Road * bfs (e, n | e.length <= 200)]->
           (:City {name: "Paris"})
 RETURN nodes(p);
 ```
 
 "What is this special syntax?", you might wonder.
 
-`(e, v | e.length <= 200)` is called a *filter lambda*. It's a function that
-takes an edge symbol `e` and a vertex symbol `v` and decides whether this edge
-and vertex pair should be considered valid in breadth-first expansion by
-returning true or false (or nil). In the above example, lambda is returning
+`(e, n | e.length <= 200)` is called a *filter lambda*. It's a function that
+takes an edge symbol `e` and a node symbol `n` and decides whether this edge
+and node pair should be considered valid in breadth-first expansion by
+returning true or false (or Null). In the above example, lambda is returning
 true if edge length is not greater than 200, because we don't want to bike more
 than 200 km in one go.
 
@@ -446,7 +446,7 @@ time. We just have to update our filter lambda.
 
 ```opencypher
 MATCH p = (:City {name: "Zagreb"})
-          -[:Road * bfs (e, v | e.length <= 200 AND v.name != "Vienna")]->
+          -[:Road * bfs (e, n | e.length <= 200 AND n.name != "Vienna")]->
           (:City {name: "Paris"})
 RETURN nodes(p);
 ```
@@ -461,15 +461,15 @@ shortest path from Zagreb to Paris along with the total length of the path.
 
 ```opencypher
 MATCH p = (:City {name: "Zagreb"})
-          -[:Road * wShortest (e, v | e.length) total_weight]->
+          -[:Road * wShortest (e, n | e.length) total_weight]->
           (:City {name: "Paris"})
 RETURN nodes(p) as cities, total_weight;
 ```
 
 As you can see, the syntax is quite similar to breadth-first search syntax.
 Instead of a filter lambda, we need to provide a *weight lambda* and the *total
-weight symbol*. Given an edge and vertex pair, weight lambda must return the
-cost of expanding to the given vertex using the given edge. The path returned
+weight symbol*. Given an edge and node pair, weight lambda must return the
+cost of expanding to the given node using the given edge. The path returned
 will have the smallest possible sum of costs and it will be stored in the total
 weight symbol. A limitation of Dijkstra's algorithm is that the cost must be
 non-negative.
@@ -480,7 +480,7 @@ more that 200 km in one go for our bike route.
 
 ```opencypher
 MATCH p = (:City {name: "Zagreb"})
-      -[:Road * wShortest (e, v | e.length) total_weight (e, v | e.length <= 200)]->
+      -[:Road * wShortest (e, n | e.length) total_weight (e, n | e.length <= 200)]->
       (:City {name: "Paris"})
 RETURN nodes(p) as cities, total_weight;
 ```
@@ -489,7 +489,7 @@ RETURN nodes(p) as cities, total_weight;
 
 ```opencypher
 MATCH (:City {name: "Zagreb"})
-      -[:Road * wShortest (e, v | e.length) total_weight]->
+      -[:Road * wShortest (e, n | e.length) total_weight]->
       (c:City)
 RETURN c, total_weight
 ORDER BY total_weight DESC LIMIT 10;

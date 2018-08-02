@@ -21,7 +21,7 @@
 * [Enterprise Ed.] Improve Cartesian support in distributed queries.
 * [Enterprise Ed.] Improve distributed execution of BFS.
 * [Enterprise Ed.] Dynamic graph partitioner added.
-* Static vertices/edges id generators exposed through the Id Cypher function.
+* Static nodes/edges id generators exposed through the Id Cypher function.
 * Properties on disk added.
 * Telemetry added.
 * SSL support added.
@@ -83,7 +83,7 @@
 
 * CASE construct (without aggregations).
 * Named path support added.
-* Maps can now be stored as vertex/edge properties.
+* Maps can now be stored as node/edge properties.
 * Map indexing supported.
 * `rand` function added.
 * `assert` function added.
