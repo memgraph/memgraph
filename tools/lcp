@@ -1,9 +1,9 @@
 #!/bin/bash -e
 
 if [[ $# -ne 1 && $# -ne 2 ]]; then
-  echo "Usage: $0 LCP_FILE [CAPNP_EXE]"
+  echo "Usage: $0 LCP_FILE [CAPNP_ID]"
   echo "Convert a LCP_FILE to C++ header file and output to stdout."
-  echo "If CAPNP_EXE is provided, then the Cap'n Proto schema generated."
+  echo "If CAPNP_ID is provided, then the Cap'n Proto schema is generated."
   exit 1
 fi
 
