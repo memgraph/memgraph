@@ -160,11 +160,18 @@ produces:
   ;; type-args in template are recursively parsed
   ;; C++ may contain dependent names with 'typename' keyword, these aren't
   ;; supported here.
-  ;; TODO: Add support for raw pointers as if they are templated
-  ;; type. I.e. 'char *' should generate
-  ;; (cpp-type-decl :name * :type-args (cpp-type-decl :name "char"))
   (when (search "typename" type-decl)
     (error "'typename' not supported in '~A'" type-decl))
+  (when (find #\& type-decl)
+    (error "References not supported in '~A'" type-decl))
+  (setf type-decl (string-trim +whitespace-chars+ type-decl))
+  (let ((ptr-pos (position #\* type-decl :from-end t)))
+    (when (and ptr-pos (not (cl-ppcre:scan "[()<>]" type-decl :start ptr-pos)))
+      (return-from parse-cpp-type-declaration
+        (make-instance 'cpp-type
+                       :name (subseq type-decl ptr-pos)
+                       :type-args (list (parse-cpp-type-declaration
+                                         (subseq type-decl 0 ptr-pos)))))))
   (destructuring-bind (full-name &optional template)
       (cl-ppcre:split "<" type-decl :limit 2)
     (let* ((namespace-split (cl-ppcre:split "::" full-name))
@@ -174,7 +181,7 @@ produces:
         ;; template ends with '>' character
         (let ((arg-start 0))
           (cl-ppcre:do-scans (match-start match-end reg-starts reg-ends
-                                          "[a-zA-Z0-9_:<>()]+[,>]" template)
+                                          "[a-zA-Z0-9_:<>() *]+[,>]" template)
             (flet ((matchedp (open-char close-char)
                      "Return T if the TEMPLATE[ARG-START:MATCH-END] contains
                      matched OPEN-CHAR and CLOSE-CHAR."
@@ -206,12 +213,19 @@ produces:
                 do (push (cpp-type-name class) enclosing))
              enclosing)))
     (with-output-to-string (s)
-      (when namespace
-        (format s "~{~A::~}" (cpp-type-namespace cpp-type)))
-      (format s "~{~A~^::~}" (enclosing-classes cpp-type))
-      (when (and type-args (cpp-type-type-params cpp-type))
-        ;; TODO: What about applied type args?
-        (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name (cpp-type-type-params cpp-type)))))))
+      (let ((ptr-pos (position #\* (cpp-type-name cpp-type))))
+        (cond
+          ((and ptr-pos (= 0 ptr-pos))
+           ;; Special handle pointer
+           (write-string (cpp-type-decl (car (cpp-type-type-args cpp-type))) s)
+           (format s " ~A" (cpp-type-name cpp-type)))
+          (t
+           (when namespace
+             (format s "~{~A::~}" (cpp-type-namespace cpp-type)))
+           (format s "~{~A~^::~}" (enclosing-classes cpp-type))
+           (when (and type-args (cpp-type-type-params cpp-type))
+             ;; TODO: What about applied type args?
+             (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name (cpp-type-type-params cpp-type))))))))))
 
 (defclass cpp-enum (cpp-type)
   ((values :type list :initarg :values :initform nil :reader cpp-enum-values)
