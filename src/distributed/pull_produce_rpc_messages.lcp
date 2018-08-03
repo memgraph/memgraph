@@ -66,10 +66,7 @@ RPC. Indicates the state of execution on the worker.")
 the relevant parts of the response, ready for use."))
 
 (lcp:define-struct pull-res-data ()
-  ((pull-state "PullState"
-               :capnp-init nil
-               :capnp-save (lcp:capnp-save-enum "capnp::PullState" "PullState")
-               :capnp-load (lcp:capnp-load-enum "capnp::PullState" "PullState"))
+  ((pull-state "PullState")
    (frames "std::vector<std::vector<query::TypedValue>>"
            :capnp-type "List(List(Dis.TypedValue))"
            :capnp-save

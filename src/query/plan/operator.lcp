@@ -1176,9 +1176,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
    (rhs "Expression *" :reader t
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *"))
-   (op "Op" :capnp-init nil
-       :capnp-save (lcp:capnp-save-enum "capnp::SetProperties::Op" "Op")
-       :capnp-load (lcp:capnp-load-enum "capnp::SetProperties::Op" "Op")))
+   (op "Op"))
   (:documentation
    "Logical op for setting the whole properties set on a vertex or an edge.
 

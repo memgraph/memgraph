@@ -40,23 +40,14 @@ cpp<#
 
 (lcp:define-rpc update
     (:request ((member "database::StateDelta" :capnp-type "Db.StateDelta")))
-  (:response ((member "UpdateResult"
-                      :capnp-init nil
-                      :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
-                      :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult")))))
+  (:response ((member "UpdateResult"))))
 
 (lcp:define-rpc update-apply
     (:request ((member "tx::TransactionId")))
-  (:response ((member "UpdateResult"
-                      :capnp-init nil
-                      :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
-                      :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult")))))
+  (:response ((member "UpdateResult"))))
 
 (lcp:define-struct create-result ()
-  ((result "UpdateResult"
-           :capnp-init nil
-           :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
-           :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult"))
+  ((result "UpdateResult")
    (gid "gid::Gid" :documentation "Only valid if creation was successful."))
   (:serialize :capnp))
 
@@ -119,10 +110,7 @@ cpp<#
 
 (lcp:define-rpc add-in-edge
     (:request ((member "AddInEdgeReqData")))
-  (:response ((member "UpdateResult"
-                      :capnp-init nil
-                      :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
-                      :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult")))))
+  (:response ((member "UpdateResult"))))
 
 (lcp:define-struct remove-vertex-req-data ()
   ((gid "gid::Gid")
@@ -132,10 +120,7 @@ cpp<#
 
 (lcp:define-rpc remove-vertex
     (:request ((member "RemoveVertexReqData")))
-  (:response ((member "UpdateResult"
-                      :capnp-init nil
-                      :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
-                      :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult")))))
+  (:response ((member "UpdateResult"))))
 
 (lcp:define-struct remove-edge-data ()
   ((tx-id "tx::TransactionId")
@@ -146,10 +131,7 @@ cpp<#
 
 (lcp:define-rpc remove-edge
     (:request ((member "RemoveEdgeData")))
-  (:response ((member "UpdateResult"
-                      :capnp-init nil
-                      :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
-                      :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult")))))
+  (:response ((member "UpdateResult"))))
 
 (lcp:define-struct remove-in-edge-data ()
   ((tx-id "tx::TransactionId")
@@ -159,9 +141,6 @@ cpp<#
 
 (lcp:define-rpc remove-in-edge
     (:request ((member "RemoveInEdgeData")))
-  (:response ((member "UpdateResult"
-                      :capnp-init nil
-                      :capnp-save (lcp:capnp-save-enum "capnp::UpdateResult" "UpdateResult")
-                      :capnp-load (lcp:capnp-load-enum "capnp::UpdateResult" "UpdateResult")))))
+  (:response ((member "UpdateResult"))))
 
 (lcp:pop-namespace) ;; distributed

@@ -193,14 +193,25 @@ produces:
                      :name name
                      :type-args (reverse type-args)))))
 
-(defun cpp-type-decl (cpp-type)
+(defun cpp-type-decl (cpp-type &key (type-args t) (namespace t))
+  "Return the fully qualified name of given CPP-TYPE."
   (declare (type cpp-type cpp-type))
-  ;; TODO: Merge this and cpp-class-full-name
-  (with-output-to-string (s)
-    (format s "~{~A::~}" (cpp-type-namespace cpp-type))
-    (write-string (cpp-type-name cpp-type) s)
-    (when (cpp-type-type-args cpp-type)
-      (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-decl (cpp-type-type-args cpp-type))))))
+  (flet ((enclosing-classes (cpp-type)
+           (declare (type cpp-type cpp-type))
+           (let (enclosing)
+             (loop
+                for class = cpp-type
+                then (find-cpp-class (cpp-type-enclosing-class class))
+                while class
+                do (push (cpp-type-name class) enclosing))
+             enclosing)))
+    (with-output-to-string (s)
+      (when namespace
+        (format s "~{~A::~}" (cpp-type-namespace cpp-type)))
+      (format s "~{~A~^::~}" (enclosing-classes cpp-type))
+      (when (and type-args (cpp-type-type-params cpp-type))
+        ;; TODO: What about applied type args?
+        (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name (cpp-type-type-params cpp-type)))))))
 
 (defclass cpp-enum (cpp-type)
   ((values :type list :initarg :values :initform nil :reader cpp-enum-values)
@@ -396,24 +407,6 @@ NIL, returns a string."
                 (mapcar #'member-declaration (cpp-class-members-scoped :private))))
       (write-line "};" s))))
 
-(defun cpp-class-full-name (class &key (type-args t))
-  "Return the fully namespaced name of given CLASS."
-  (declare (type cpp-class class))
-  (flet ((enclosing-classes (cpp-class)
-           (declare (type cpp-class cpp-class))
-           (let (enclosing)
-             (loop
-                for class = cpp-class
-                then (find-cpp-class (cpp-type-enclosing-class class))
-                while class
-                do (push (cpp-type-name class) enclosing))
-             enclosing)))
-    (let* ((full-name (format nil "~{~A~^::~}" (enclosing-classes class)))
-           (type-args (if (or (not type-args) (not (cpp-type-type-params class)))
-                          ""
-                          (format nil "<~{~A~^, ~}>" (mapcar #'cpp-type-name (cpp-type-type-params class))))))
-      (concatenate 'string full-name type-args))))
-
 (defun cpp-method-declaration (class method-name
                                &key args (returns "void") (inline t) static
                                  virtual const override)
@@ -430,7 +423,7 @@ which generate the corresponding C++ keywords."
                            ((and inline static) "static")
                            ((and inline virtual) "virtual")
                            (t "")))
-         (namespace (if inline "" (format nil "~A::" (cpp-class-full-name class))))
+         (namespace (if inline "" (format nil "~A::" (cpp-type-decl class :namespace nil))))
          (args (format nil "~:{~A ~A~:^, ~}"
                        (mapcar (lambda (name-and-type)
                                  (list (cpp-type-name (second name-and-type))
@@ -797,8 +790,8 @@ used for outside definition."
   (declare (type cpp-class cpp-class))
   (let* ((parents (capnp-union-parents-rec cpp-class))
          (top-parent-class (if parents
-                               (cpp-class-full-name (find-cpp-class (car (last parents))) :type-args nil)
-                               (cpp-class-full-name cpp-class :type-args nil)))
+                               (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
+                               (cpp-type-decl cpp-class :type-args nil :namespace nil)))
          (builder-arg
           (list (if parents 'base-builder 'builder)
                 (format nil "capnp::~A::Builder *" top-parent-class))))
@@ -823,14 +816,22 @@ used for outside definition."
              namespace '("capnp")))
       (t ;; Just append capnp as final namespace
        (setf namespace (append namespace '("capnp")))))
-    (make-instance 'cpp-type :name name :namespace namespace)))
+    (make-instance 'cpp-type
+                   :name name :namespace namespace
+                   :enclosing-class (cpp-type-enclosing-class cpp-type))))
 
 (defun capnp-save-default (member-name member-type member-builder)
   "Generate the default call to save for member."
   (declare (type string member-name member-type member-builder))
   (let* ((type (parse-cpp-type-declaration member-type))
-         (type-name (cpp-type-base-name type)))
+         (type-name (cpp-type-base-name type))
+         (cpp-enum (find-cpp-enum member-type)))
     (cond
+      (cpp-enum
+       (funcall
+        (capnp-save-enum (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))
+                         member-type (cpp-enum-values cpp-enum))
+        member-builder member-name))
       ((string= "vector" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
@@ -924,7 +925,8 @@ used for outside definition."
                                                  (cpp-member-type member))))
                              (format nil "~A.size()" member-name)
                              "")))
-               (if (cpp-member-capnp-init member)
+               (if (and (cpp-member-capnp-init member)
+                        (not (find-cpp-enum (cpp-member-type member))))
                    (format s "  auto ~A = builder->init~A(~A);~%"
                            member-builder capnp-name size)
                    (setf member-builder "builder")))
@@ -961,10 +963,10 @@ used for outside definition."
              (direct-subclasses-of cpp-class))
     (return-from capnp-construct-declaration))
   (let ((reader-type (format nil "const capnp::~A::Reader &"
-                             (cpp-class-full-name cpp-class :type-args nil))))
+                             (cpp-type-decl cpp-class :type-args nil :namespace nil))))
     (cpp-method-declaration
      cpp-class "Construct" :args (list (list 'reader reader-type))
-     :returns (format nil "std::unique_ptr<~A>" (cpp-class-full-name cpp-class))
+     :returns (format nil "std::unique_ptr<~A>" (cpp-type-decl cpp-class :namespace nil))
      :inline inline :static t)))
 
 (defun capnp-construct-code (cpp-class)
@@ -1015,8 +1017,14 @@ used for outside definition."
   "Generate default load call for member."
   (declare (type string member-name member-type member-reader))
   (let* ((type (parse-cpp-type-declaration member-type))
-         (type-name (cpp-type-base-name type)))
+         (type-name (cpp-type-base-name type))
+         (cpp-enum (find-cpp-enum member-type)))
     (cond
+      (cpp-enum
+       (funcall
+        (capnp-load-enum (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))
+                         member-type (cpp-enum-values cpp-enum))
+        member-reader member-name))
       ((string= "vector" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
@@ -1052,8 +1060,8 @@ used for outside definition."
   (declare (type cpp-class cpp-class))
   (let* ((parents (capnp-union-parents-rec cpp-class))
          (top-parent-class (if parents
-                               (cpp-class-full-name (find-cpp-class (car (last parents))) :type-args nil)
-                               (cpp-class-full-name cpp-class :type-args nil)))
+                               (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
+                               (cpp-type-decl cpp-class :type-args nil :namespace nil)))
          (reader-arg
           (list (if parents 'base-reader 'reader)
                 (format nil "const capnp::~A::Reader &" top-parent-class))))
@@ -1104,7 +1112,8 @@ used for outside definition."
              (format s "  ~A = reader.get~A();~%" member-name capnp-name))
             (t
              (write-line "{" s) ;; Enclose larger load code in new scope
-             (if (cpp-member-capnp-init member)
+             (if (and (cpp-member-capnp-init member)
+                      (not (find-cpp-enum (cpp-member-type member))))
                  (format s "  auto ~A = reader.get~A();~%" member-reader capnp-name)
                  (setf member-reader "reader"))
              (if (cpp-member-capnp-load member)
@@ -1283,6 +1292,7 @@ CPP-TYPE among defined enums."
                                  :name ',name
                                  :documentation ,documentation
                                  :values ',values
+                                 :namespace (reverse *cpp-namespaces*)
                                  :enclosing-class *cpp-enclosing-class*
                                  :capnp-schema (and *capnp-serialize-p* ',(assoc :serialize options)))))
        (prog1 ,enum

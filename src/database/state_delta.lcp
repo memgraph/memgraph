@@ -30,9 +30,7 @@ cpp<#
 (lcp:define-struct state-delta ()
   (
    ;; Members valid for every delta.
-   (type "Type" :capnp-init nil
-         :capnp-save (lcp:capnp-save-enum "capnp::StateDelta::Type" "Type")
-         :capnp-load (lcp:capnp-load-enum "capnp::StateDelta::Type" "Type"))
+   (type "Type")
    (transaction-id "tx::TransactionId")
    ;; Members valid only for some deltas, see StateDelta::Type comments above.
    ;; TODO: when preparing the WAL for distributed, most likely remove Gids and
