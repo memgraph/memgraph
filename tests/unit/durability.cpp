@@ -353,6 +353,12 @@ TEST_F(Durability, WalEncoding) {
   ASSERT_TRUE(reader.Open(GetLastFile(wal_dir_)));
   communication::bolt::Decoder<HashedFileReader> decoder{reader};
   std::vector<database::StateDelta> deltas;
+
+  // check version
+  communication::bolt::Value dv;
+  decoder.ReadValue(&dv);
+  ASSERT_EQ(dv.ValueInt(), durability::kVersion);
+
   while (true) {
     auto delta = database::StateDelta::Decode(reader, decoder);
     if (delta) {

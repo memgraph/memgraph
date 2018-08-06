@@ -1,5 +1,11 @@
 # Change Log
 
+## v0.13.0
+
+### Breaking Changes
+
+* Write-ahead log format changed (not backward compatible).
+
 ## v0.12.0
 
 ### Breaking Changes

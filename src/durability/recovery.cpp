@@ -257,7 +257,16 @@ bool ApplyOverDeltas(
 
     HashedFileReader wal_reader;
     if (!wal_reader.Open(wal_file)) return false;
+
     communication::bolt::Decoder<HashedFileReader> decoder(wal_reader);
+
+    // check version
+    Value dv;
+    if (!decoder.ReadValue(&dv, Value::Type::Int) ||
+        dv.ValueInt() != durability::kVersion) {
+      return false;
+    }
+
     while (true) {
       auto delta = database::StateDelta::Decode(wal_reader, decoder);
       if (!delta) break;
@@ -321,14 +330,13 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
   };
 
   // Ensure that the next transaction ID in the recovered DB will be greater
-  // then the latest one we have recovered. Do this to make sure that
+  // than the latest one we have recovered. Do this to make sure that
   // subsequently created snapshots and WAL files will have transactional info
   // that does not interfere with that found in previous snapshots and WAL.
   tx::TransactionId max_observed_tx_id{0};
 
   // Read all the WAL files whose max_tx_id is not smaller than
   // min_tx_to_recover.
-  //
   ApplyOverDeltas(
       wal_files, first_to_recover, [&](const database::StateDelta &delta) {
         max_observed_tx_id = std::max(max_observed_tx_id, delta.transaction_id);

@@ -1,6 +1,7 @@
 #include "wal.hpp"
 
 #include "durability/paths.hpp"
+#include "durability/version.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 
@@ -54,6 +55,7 @@ void WriteAheadLog::WalFile::Init() {
     current_wal_file_ = WalFilenameForTransactionId(wal_dir_, worker_id_);
     try {
       writer_.Open(current_wal_file_);
+      encoder_.WriteInt(durability::kVersion);
     } catch (std::ios_base::failure &) {
       LOG(ERROR) << "Failed to open write-ahead log file: "
                  << current_wal_file_;

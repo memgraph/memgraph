@@ -5,6 +5,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "durability/paths.hpp"
 #include "durability/snapshooter.hpp"
+#include "durability/version.hpp"
 #include "utils/string.hpp"
 
 class DistributedDurability : public DistributedGraphDbTest {
@@ -155,6 +156,12 @@ void CheckDeltas(fs::path wal_dir, database::StateDelta::Type op) {
     ASSERT_TRUE(reader.Open(worker_wal));
     communication::bolt::Decoder<HashedFileReader> decoder{reader};
     std::vector<database::StateDelta> deltas;
+
+    // check version
+    communication::bolt::Value dv;
+    decoder.ReadValue(&dv);
+    ASSERT_EQ(dv.ValueInt(), durability::kVersion);
+
     while (true) {
       auto delta = database::StateDelta::Decode(reader, decoder);
       if (delta) {
