@@ -8,23 +8,36 @@ import Cypher ;
 
 memgraphCypherKeyword : cypherKeyword
                       | ALTER
+                      | AUTH
                       | BATCH
                       | BATCHES
                       | DATA
+                      | DENY
                       | DROP
+                      | FOR
+                      | FROM
+                      | GRANT
+                      | GRANTS
+                      | IDENTIFIED
                       | INTERVAL
                       | K_TEST
                       | KAFKA
                       | LOAD
                       | PASSWORD
+                      | PRIVILEGES
+                      | REVOKE
+                      | ROLE
+                      | ROLES
                       | SIZE
                       | START
                       | STOP
                       | STREAM
                       | STREAMS
+                      | TO
                       | TOPIC
                       | TRANSFORM
                       | USER
+                      | USERS
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -37,19 +50,60 @@ query : regularQuery
       | streamQuery
       ;
 
-authQuery : modifyUser
+authQuery : createRole
+          | dropRole
+          | showRoles
+          | createUser
+          | setPassword
           | dropUser
+          | showUsers
+          | grantRole
+          | revokeRole
+          | grantPrivilege
+          | denyPrivilege
+          | revokePrivilege
+          | showGrants
+          | showRoleForUser
+          | showUsersForRole
           ;
 
-modifyUser : ( CREATE | ALTER ) USER userName=UnescapedSymbolicName
-             ( WITH ( modifyUserOption )+ )? ;
+userOrRoleName : symbolicName ;
 
-modifyUserOption : passwordOption ;
+createRole : CREATE ROLE role=userOrRoleName ;
 
-passwordOption : PASSWORD literal;
+dropRole   : DROP ROLE role=userOrRoleName ;
 
-dropUser : DROP USER userName+=UnescapedSymbolicName
-           ( ',' userName+=UnescapedSymbolicName )* ;
+showRoles  : SHOW ROLES ;
+
+createUser : CREATE USER user=userOrRoleName
+             ( IDENTIFIED BY password=literal )? ;
+
+setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
+
+dropUser : DROP USER user=userOrRoleName ;
+
+showUsers : SHOW USERS ;
+
+grantRole : GRANT ROLE role=userOrRoleName TO user=userOrRoleName ;
+
+revokeRole : REVOKE ROLE role=userOrRoleName FROM user=userOrRoleName ;
+
+grantPrivilege : GRANT privilegeList TO userOrRole=userOrRoleName ;
+
+denyPrivilege : DENY privilegeList TO userOrRole=userOrRoleName ;
+
+revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
+
+privilege : CREATE | DELETE | MATCH | MERGE | SET
+          | AUTH | STREAM ;
+
+privilegeList : privilege ( ',' privilege )* ;
+
+showGrants : SHOW GRANTS FOR userOrRole=userOrRoleName ;
+
+showRoleForUser : SHOW ROLE FOR USER user=userOrRoleName ;
+
+showUsersForRole : SHOW USERS FOR ROLE role=userOrRoleName ;
 
 streamQuery : createStream
             | dropStream

@@ -220,9 +220,7 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::Visit(CreateIndex &) { return true; }
 
-bool SymbolGenerator::Visit(ModifyUser &) { return true; }
-
-bool SymbolGenerator::Visit(DropUser &) { return true; }
+bool SymbolGenerator::Visit(AuthQuery &) { return true; }
 
 bool SymbolGenerator::Visit(CreateStream &) { return true; }
 

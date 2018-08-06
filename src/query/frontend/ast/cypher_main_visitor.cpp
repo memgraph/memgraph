@@ -5,6 +5,7 @@
 #include <codecvt>
 #include <cstring>
 #include <limits>
+#include <regex>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -28,13 +29,10 @@ antlrcpp::Any CypherMainVisitor::visitAuthQuery(
     MemgraphCypher::AuthQueryContext *ctx) {
   query_ = storage_.query();
   query_->single_query_ = storage_.Create<SingleQuery>();
-  Clause *clause = nullptr;
-  if (ctx->modifyUser()) {
-    clause = ctx->modifyUser()->accept(this).as<ModifyUser *>();
-  } else if (ctx->dropUser()) {
-    clause = ctx->dropUser()->accept(this).as<DropUser *>();
-  }
-  query_->single_query_->clauses_ = {clause};
+  CHECK(ctx->children.size() == 1)
+      << "AuthQuery should have exactly one child!";
+  query_->single_query_->clauses_.push_back(
+      ctx->children[0]->accept(this).as<AuthQuery *>());
   return query_;
 }
 
@@ -259,46 +257,224 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
 }
 
 /**
- * @return ModifyUser*
+ * @return std::string
  */
-antlrcpp::Any CypherMainVisitor::visitModifyUser(
-    MemgraphCypher::ModifyUserContext *ctx) {
-  std::string username(ctx->userName->getText());
-  Expression *password = nullptr;
-  bool is_create = static_cast<bool>(ctx->CREATE());
-  for (auto option : ctx->modifyUserOption()) {
-    if (option->passwordOption()) {
-      if (password) {
-        throw QueryException("password should be set at most once");
-      }
-      password = option->passwordOption()->accept(this);
-      continue;
-    }
-    LOG(FATAL) << "Expected to handle all cases above.";
+antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(
+    MemgraphCypher::UserOrRoleNameContext *ctx) {
+  std::string value = ctx->symbolicName()->accept(this).as<std::string>();
+  const std::regex NAME_REGEX("[a-zA-Z0-9_.+-]+");
+  if (!std::regex_match(value, NAME_REGEX)) {
+    throw SyntaxException("invalid user or role name");
   }
-  return storage_.Create<ModifyUser>(username, password, is_create);
+  return value;
 }
 
 /**
- * @return Expression*
+ * @return AuthQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitPasswordOption(
-    MemgraphCypher::PasswordOptionContext *ctx) {
-  if (!ctx->literal()->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
+antlrcpp::Any CypherMainVisitor::visitCreateRole(
+    MemgraphCypher::CreateRoleContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::CREATE_ROLE;
+  auth->role_ = ctx->role->accept(this).as<std::string>();
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitDropRole(
+    MemgraphCypher::DropRoleContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::DROP_ROLE;
+  auth->role_ = ctx->role->accept(this).as<std::string>();
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitShowRoles(
+    MemgraphCypher::ShowRolesContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_ROLES;
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitCreateUser(
+    MemgraphCypher::CreateUserContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::CREATE_USER;
+  auth->user_ = ctx->user->accept(this).as<std::string>();
+  if (ctx->password) {
+    if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
+      throw SyntaxException("password should be a string literal or NULL");
+    }
+    auth->password_ = ctx->password->accept(this);
+  }
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitSetPassword(
+    MemgraphCypher::SetPasswordContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SET_PASSWORD;
+  auth->user_ = ctx->user->accept(this).as<std::string>();
+  if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
     throw SyntaxException("password should be a string literal or NULL");
   }
-  return ctx->literal()->accept(this);
+  auth->password_ = ctx->password->accept(this);
+  return auth;
 }
 
 /**
- * @return DropUser*
+ * @return AuthQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitDropUser(
     MemgraphCypher::DropUserContext *ctx) {
-  std::vector<std::string> usernames;
-  for (auto username_ptr : ctx->userName)
-    usernames.emplace_back(username_ptr->getText());
-  return storage_.Create<DropUser>(usernames);
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::DROP_USER;
+  auth->user_ = ctx->user->accept(this).as<std::string>();
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitShowUsers(
+    MemgraphCypher::ShowUsersContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_USERS;
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitGrantRole(
+    MemgraphCypher::GrantRoleContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::GRANT_ROLE;
+  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->user_ = ctx->user->accept(this).as<std::string>();
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitRevokeRole(
+    MemgraphCypher::RevokeRoleContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::REVOKE_ROLE;
+  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->user_ = ctx->user->accept(this).as<std::string>();
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(
+    MemgraphCypher::GrantPrivilegeContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
+  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  for (auto *privilege : ctx->privilegeList()->privilege()) {
+    auth->privileges_.push_back(privilege->accept(this));
+  }
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(
+    MemgraphCypher::DenyPrivilegeContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
+  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  for (auto *privilege : ctx->privilegeList()->privilege()) {
+    auth->privileges_.push_back(privilege->accept(this));
+  }
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(
+    MemgraphCypher::RevokePrivilegeContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::REVOKE_PRIVILEGE;
+  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  if (ctx->privilegeList()) {
+    for (auto *privilege : ctx->privilegeList()->privilege()) {
+      auth->privileges_.push_back(privilege->accept(this));
+    }
+  } else {
+    /* revoke all privileges */
+    auth->privileges_ = {
+        AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
+        AuthQuery::Privilege::MATCH,  AuthQuery::Privilege::MERGE,
+        AuthQuery::Privilege::SET,    AuthQuery::Privilege::AUTH,
+        AuthQuery::Privilege::STREAM};
+  }
+  return auth;
+}
+
+/**
+ * @return AuthQuery::Privilege
+ */
+antlrcpp::Any CypherMainVisitor::visitPrivilege(
+    MemgraphCypher::PrivilegeContext *ctx) {
+  if (ctx->CREATE()) return AuthQuery::Privilege::CREATE;
+  if (ctx->DELETE()) return AuthQuery::Privilege::DELETE;
+  if (ctx->MATCH()) return AuthQuery::Privilege::MATCH;
+  if (ctx->MERGE()) return AuthQuery::Privilege::MERGE;
+  if (ctx->SET()) return AuthQuery::Privilege::SET;
+  if (ctx->AUTH()) return AuthQuery::Privilege::AUTH;
+  if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
+  LOG(FATAL) << "Should not get here - unknown privilege!";
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitShowGrants(
+    MemgraphCypher::ShowGrantsContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_GRANTS;
+  auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(
+    MemgraphCypher::ShowRoleForUserContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_ROLE_FOR_USER;
+  auth->user_ = ctx->user->accept(this).as<std::string>();
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(
+    MemgraphCypher::ShowUsersForRoleContext *ctx) {
+  AuthQuery *auth = storage_.Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_USERS_FOR_ROLE;
+  auth->role_ = ctx->role->accept(this).as<std::string>();
+  return auth;
 }
 
 /**

@@ -132,14 +132,13 @@ struct Clause {
     merge @10 :Merge;
     unwind @11 :Unwind;
     createIndex @12 :CreateIndex;
-    modifyUser @13 :ModifyUser;
-    dropUser @14 :DropUser;
-    createStream @15 :CreateStream;
-    dropStream @16 :DropStream;
-    showStreams @17 :ShowStreams;
-    startStopStream @18 :StartStopStream;
-    startStopAllStreams @19 :StartStopAllStreams;
-    testStream @20 :TestStream;
+    authQuery @13 :AuthQuery;
+    createStream @14 :CreateStream;
+    dropStream @15 :DropStream;
+    showStreams @16 :ShowStreams;
+    startStopStream @17 :StartStopStream;
+    startStopAllStreams @18 :StartStopAllStreams;
+    testStream @19 :TestStream;
   }
 }
 
@@ -398,14 +397,39 @@ struct CreateIndex {
   property @1 :Storage.Common;
 }
 
-struct ModifyUser {
-  username @0 :Text;
-  password @1 :Tree;
-  isCreate @2 :Bool;
-}
-
-struct DropUser {
-  usernames @0 :List(Text);
+struct AuthQuery {
+  enum Action {
+    createRole @0;
+    dropRole @1;
+    showRoles @2;
+    createUser @3;
+    setPassword @4;
+    dropUser @5;
+    showUsers @6;
+    grantRole @7;
+    revokeRole @8;
+    grantPrivilege @9;
+    denyPrivilege @10;
+    revokePrivilege @11;
+    showGrants @12;
+    showRoleForUser @13;
+    showUsersForRole @14;
+  }
+  enum Privilege {
+    create @0;
+    delete @1;
+    match @2;
+    merge @3;
+    set @4;
+    auth @5;
+    stream @6;
+  }
+  action @0 :Action;
+  user @1 :Text;
+  role @2 :Text;
+  userOrRole @3 :Text;
+  password @4 :Tree;
+  privileges @5 :List(Privilege);  
 }
 
 struct CreateStream {

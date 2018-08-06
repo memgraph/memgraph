@@ -102,8 +102,7 @@ class PullRemote;
 class Synchronize;
 class Cartesian;
 class PullRemoteOrderBy;
-class ModifyUser;
-class DropUser;
+class AuthHandler;
 class CreateStream;
 class DropStream;
 class ShowStreams;
@@ -122,9 +121,9 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Cartesian, PullRemoteOrderBy>;
 
 using LogicalOperatorLeafVisitor =
-    ::utils::LeafVisitor<Once, CreateIndex, ModifyUser, DropUser,
-                         CreateStream, DropStream, ShowStreams,
-                         StartStopStream, StartStopAllStreams, TestStream>;
+    ::utils::LeafVisitor<Once, CreateIndex, AuthHandler, CreateStream,
+                         DropStream, ShowStreams, StartStopStream,
+                         StartStopAllStreams, TestStream>;
 
 /**
  * @brief Base class for hierarhical visitors of @c LogicalOperator class
@@ -1969,6 +1968,114 @@ and returns true, once.")
    cpp<#)
   (:serialize :capnp))
 
+(lcp:define-class auth-handler (logical-operator)
+  ((action "AuthQuery::Action" :reader t
+           :capnp-init nil
+           :capnp-type "Ast.AuthQuery.Action"
+           :capnp-save (lcp:capnp-save-enum "::query::capnp::AuthQuery::Action"
+                                            "AuthQuery::Action"
+                                            '(create-role drop-role show-roles
+                                              create-user set-password
+                                              drop-user show-users grant-role
+                                              revoke-role grant-privilege
+                                              deny-privilege revoke-privilege
+                                              show-grants show-role-for-user
+                                              show-users-for-role))
+           :capnp-load (lcp:capnp-load-enum "::query::capnp::AuthQuery::Action" 
+                                            "AuthQuery::Action"
+                                            '(create-role drop-role show-roles
+                                              create-user set-password
+                                              drop-user show-users grant-role
+                                              revoke-role grant-privilege
+                                              deny-privilege revoke-privilege
+                                              show-grants show-role-for-user
+                                              show-users-for-role)))
+   (user "std::string" :reader t)
+   (role "std::string" :reader t)
+   (user-or-role "std::string" :reader t)
+   (password "Expression *" :reader t
+             :capnp-type "Ast.Tree" :capnp-init nil
+             :capnp-save #'save-ast-pointer
+             :capnp-load (load-ast-pointer "Expression *"))
+   (privileges "std::vector<AuthQuery::Privilege>" :reader t
+               :capnp-type "List(Ast.AuthQuery.Privilege)"
+               :capnp-save
+                 (lambda (builder member-name)
+                   #>cpp
+                   for (size_t i = 0; i < ${member-name}.size(); ++i) {
+                    switch (privileges_[i]) {
+                      case AuthQuery::Privilege::CREATE:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::CREATE);
+                        break;
+                      case AuthQuery::Privilege::DELETE:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::DELETE);
+                        break;
+                      case AuthQuery::Privilege::MATCH:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::MATCH);
+                        break;
+                      case AuthQuery::Privilege::MERGE:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::MERGE);
+                        break;
+                      case AuthQuery::Privilege::SET:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::SET);
+                        break;
+                      case AuthQuery::Privilege::AUTH:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::AUTH);
+                        break;
+                      case AuthQuery::Privilege::STREAM:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::STREAM);
+                        break;
+                    }
+                  }
+                  cpp<#)
+               :capnp-load
+                 (lambda (reader member-name)
+                   #>cpp
+                   for (auto privilege : ${reader}) {
+                     switch (privilege) {
+                       case query::capnp::AuthQuery::Privilege::CREATE:
+                         ${member-name}.push_back(AuthQuery::Privilege::CREATE);
+                         break;
+                       case query::capnp::AuthQuery::Privilege::DELETE:
+                         ${member-name}.push_back(AuthQuery::Privilege::DELETE);
+                         break;
+                       case query::capnp::AuthQuery::Privilege::MATCH:
+                         ${member-name}.push_back(AuthQuery::Privilege::MATCH);
+                         break;
+                       case query::capnp::AuthQuery::Privilege::MERGE:
+                         ${member-name}.push_back(AuthQuery::Privilege::MERGE);
+                         break;
+                       case query::capnp::AuthQuery::Privilege::SET:
+                         ${member-name}.push_back(AuthQuery::Privilege::SET);
+                         break;
+                       case query::capnp::AuthQuery::Privilege::AUTH:
+                         ${member-name}.push_back(AuthQuery::Privilege::AUTH);
+                         break;
+                       case query::capnp::AuthQuery::Privilege::STREAM:
+                         ${member-name}.push_back(AuthQuery::Privilege::STREAM);
+                         break;
+                     }
+                   }
+                   cpp<#)))
+  (:public
+    #>cpp
+    AuthHandler(AuthQuery::Action action, std::string user, std::string role,
+                std::string user_or_role, Expression * password,
+                std::vector<AuthQuery::Privilege> privileges);
+
+    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+    std::unique_ptr<Cursor> MakeCursor(database::GraphDbAccessor & db)
+        const override;
+    virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &)
+        const override { return {}; }
+  
+    bool HasSingleInput() const override;
+    std::shared_ptr<LogicalOperator> input() const override;
+    void set_input(std::shared_ptr<LogicalOperator>) override;
+    cpp<#)
+  (:protected #>cpp AuthHandler() {} cpp<#)
+  (:serialize :capnp))
+
 (lcp:define-class unwind (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
@@ -1991,8 +2098,10 @@ Input is optional (unwind can be the first clause in a query).")
        database::GraphDbAccessor &db) const override;
    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-   bool HasSingleInput() const override { return true; }
-   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   bool HasSingleInput() const override {
+  return true; }
+   std::shared_ptr<LogicalOperator> input() const override {
+  return input_; }
    void set_input(std::shared_ptr<LogicalOperator> input) override {
      input_ = input;
    }
@@ -2336,70 +2445,6 @@ by having only one result from each worker.")
     }
   cpp<#)
   (:private #>cpp PullRemoteOrderBy() {} cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class modify-user (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
-   (username "std::string" :reader t)
-   (password "Expression *" :reader t
-             :capnp-type "Ast.Tree"
-             :capnp-init nil
-             :capnp-save #'save-ast-pointer
-             :capnp-load (load-ast-pointer "Expression *"))
-   (is-create :bool :reader t))
-  (:documentation
-   "Operator that creates a new database user or modifies an existing one.")
-  (:public
-   #>cpp
-    ModifyUser(std::string username, Expression *password, bool is_create);
-
-    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-    std::unique_ptr<Cursor> MakeCursor(
-        database::GraphDbAccessor &db) const override;
-
-    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
-      return std::vector<Symbol>();
-    }
-
-    bool HasSingleInput() const override;
-    std::shared_ptr<LogicalOperator> input() const override;
-    void set_input(std::shared_ptr<LogicalOperator> input) override;
-   cpp<#)
-  (:private
-   #>cpp
-   ModifyUser() {}
-   cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class drop-user (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
-   (usernames "std::vector<std::string>" :reader t))
-  (:documentation
-   "Operator that deletes one or more existing database users.")
-  (:public
-   #>cpp
-    DropUser(std::vector<std::string> usernames): usernames_(usernames) {}
-
-    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-    std::unique_ptr<Cursor> MakeCursor(
-        database::GraphDbAccessor &db) const override;
-
-    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override {
-      return std::vector<Symbol>();
-    }
-
-    bool HasSingleInput() const override;
-    std::shared_ptr<LogicalOperator> input() const override;
-    void set_input(std::shared_ptr<LogicalOperator> input) override;
-   cpp<#)
-  (:private
-   #>cpp
-    DropUser() {}
-   cpp<#)
   (:serialize :capnp))
 
 (lcp:define-class create-stream (logical-operator)

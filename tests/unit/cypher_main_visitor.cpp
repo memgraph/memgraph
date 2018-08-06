@@ -1866,72 +1866,203 @@ TYPED_TEST(CypherMainVisitorTest, UnionAll) {
   ASSERT_FALSE(return_clause->body_.distinct);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ModifyUser) {
-  auto check_modify_user = [](std::string input, std::string username,
-                              std::experimental::optional<TypedValue> password,
-                              bool is_create) {
-    TypeParam ast_generator(input);
-    auto *query = ast_generator.query_;
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *create_user = dynamic_cast<ModifyUser *>(single_query->clauses_[0]);
-    ASSERT_TRUE(create_user);
-    EXPECT_EQ(create_user->username_, username);
-    if (password) {
-      ASSERT_NE(create_user->password_, nullptr);
-      CheckLiteral(ast_generator.context_, create_user->password_, *password);
-    } else {
-      EXPECT_EQ(create_user->password_, nullptr);
-    }
-    EXPECT_EQ(create_user->is_create_, is_create);
-  };
+template <typename AstGeneratorT>
+void check_auth_query(std::string input, AuthQuery::Action action,
+                      std::string user, std::string role,
+                      std::string user_or_role,
+                      std::experimental::optional<TypedValue> password,
+                      std::vector<AuthQuery::Privilege> privileges) {
+  AstGeneratorT ast_generator(input);
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_ &&
+              query->single_query_->clauses_.size() == 1U);
+  auto auth_query =
+      dynamic_cast<AuthQuery *>(query->single_query_->clauses_[0]);
+  EXPECT_EQ(auth_query->action_, action);
+  EXPECT_EQ(auth_query->user_, user);
+  EXPECT_EQ(auth_query->role_, role);
+  EXPECT_EQ(auth_query->user_or_role_, user_or_role);
+  ASSERT_EQ(static_cast<bool>(auth_query->password_),
+            static_cast<bool>(password));
+  if (password) {
+    CheckLiteral(ast_generator.context_, auth_query->password_, *password);
+  }
+  EXPECT_EQ(auth_query->privileges_, privileges);
+}
 
-  check_modify_user("CreaTE UsEr dominik", "dominik",
-                    std::experimental::nullopt, true);
-  check_modify_user("CreaTE UsEr dominik WIth PaSSWORD 'spomenik'", "dominik",
-                    "spomenik", true);
-  check_modify_user("CreaTE UsEr dominik WIth PaSSWORD NULL", "dominik",
-                    TypedValue::Null, true);
-  check_modify_user("AlTeR UsEr dominik", "dominik", std::experimental::nullopt,
-                    false);
-  check_modify_user("ALtEr UsEr dominik", "dominik", std::experimental::nullopt,
-                    false);
-  check_modify_user("ALtEr UsEr dominik WIth PaSSWORD 'spomenik'", "dominik",
-                    "spomenik", false);
-  check_modify_user("ALtEr UsEr dominik WIth PaSSWORD NULL", "dominik",
-                    TypedValue::Null, false);
-  EXPECT_THROW(
-      check_modify_user(
-          "CreaTE UsEr dominik WIth PaSSWORD 'spomenik' PaSSwoRD 'u muzeju'",
-          "dominik", "spomenik", true),
-      QueryException);
-  EXPECT_THROW(check_modify_user("CreaTE UsEr dominik WIth PaSSWORD 12345",
-                                 "dominik", "spomenik", true),
+TYPED_TEST(CypherMainVisitorTest, UserOrRoleName) {
+  ASSERT_THROW(TypeParam("CREATE ROLE `us|er`"), SyntaxException);
+  ASSERT_THROW(TypeParam("CREATE ROLE `us er`"), SyntaxException);
+  check_auth_query<TypeParam>("CREATE ROLE `user`",
+                              AuthQuery::Action::CREATE_ROLE, "", "user", "",
+                              {}, {});
+  check_auth_query<TypeParam>("CREATE ROLE us___er",
+                              AuthQuery::Action::CREATE_ROLE, "", "us___er", "",
+                              {}, {});
+  check_auth_query<TypeParam>("CREATE ROLE `us+er`",
+                              AuthQuery::Action::CREATE_ROLE, "", "us+er", "",
+                              {}, {});
+}
+
+TYPED_TEST(CypherMainVisitorTest, CreateRole) {
+  ASSERT_THROW(TypeParam("CREATE ROLE"), SyntaxException);
+  check_auth_query<TypeParam>("CREATE ROLE rola",
+                              AuthQuery::Action::CREATE_ROLE, "", "rola", "",
+                              {}, {});
+  ASSERT_THROW(TypeParam("CREATE ROLE lagano rolamo"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, DropRole) {
+  ASSERT_THROW(TypeParam("DROP ROLE"), SyntaxException);
+  check_auth_query<TypeParam>("DROP ROLE rola", AuthQuery::Action::DROP_ROLE,
+                              "", "rola", "", {}, {});
+  ASSERT_THROW(TypeParam("DROP ROLE lagano rolamo"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, ShowRoles) {
+  ASSERT_THROW(TypeParam("SHOW ROLES ROLES"), SyntaxException);
+  check_auth_query<TypeParam>("SHOW ROLES", AuthQuery::Action::SHOW_ROLES, "",
+                              "", "", {}, {});
+}
+
+TYPED_TEST(CypherMainVisitorTest, CreateUser) {
+  ASSERT_THROW(TypeParam("CREATE USER"), SyntaxException);
+  ASSERT_THROW(TypeParam("CREATE USER 123"), SyntaxException);
+  check_auth_query<TypeParam>("CREATE USER user",
+                              AuthQuery::Action::CREATE_USER, "user", "", "",
+                              {}, {});
+  check_auth_query<TypeParam>("CREATE USER user IDENTIFIED BY 'password'",
+                              AuthQuery::Action::CREATE_USER, "user", "", "",
+                              "password", {});
+  check_auth_query<TypeParam>("CREATE USER user IDENTIFIED BY ''",
+                              AuthQuery::Action::CREATE_USER, "user", "", "",
+                              "", {});
+  check_auth_query<TypeParam>("CREATE USER user IDENTIFIED BY null",
+                              AuthQuery::Action::CREATE_USER, "user", "", "",
+                              TypedValue::Null, {});
+  ASSERT_THROW(TypeParam("CRATE USER user IDENTIFIED BY password"),
                SyntaxException);
+  ASSERT_THROW(TypeParam("CREATE USER user IDENTIFIED BY 5"), SyntaxException);
+  ASSERT_THROW(TypeParam("CREATE USER user IDENTIFIED BY "), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, SetPassword) {
+  ASSERT_THROW(TypeParam("SET PASSWORD FOR"), SyntaxException);
+  ASSERT_THROW(TypeParam("SET PASSWORD FOR user "), SyntaxException);
+  check_auth_query<TypeParam>("SET PASSWORD FOR user TO null",
+                              AuthQuery::Action::SET_PASSWORD, "user", "", "",
+                              TypedValue::Null, {});
+  check_auth_query<TypeParam>("SET PASSWORD FOR user TO 'password'",
+                              AuthQuery::Action::SET_PASSWORD, "user", "", "",
+                              "password", {});
+  ASSERT_THROW(TypeParam("SET PASSWORD FOR user To 5"), SyntaxException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, DropUser) {
-  auto check_drop_user = [](std::string input,
-                            const std::vector<std::string> &usernames) {
-    TypeParam ast_generator(input);
-    auto *query = ast_generator.query_;
-    ASSERT_TRUE(query->single_query_);
-    auto *single_query = query->single_query_;
-    ASSERT_EQ(single_query->clauses_.size(), 1U);
-    auto *drop_user = dynamic_cast<DropUser *>(single_query->clauses_[0]);
-    ASSERT_TRUE(drop_user);
-    EXPECT_EQ(drop_user->usernames_, usernames);
-  };
+  ASSERT_THROW(TypeParam("DROP USER"), SyntaxException);
+  check_auth_query<TypeParam>("DROP USER user", AuthQuery::Action::DROP_USER,
+                              "user", "", "", {}, {});
+  ASSERT_THROW(TypeParam("DROP USER lagano rolamo"), SyntaxException);
+}
 
-  EXPECT_THROW(check_drop_user("DrOp USER", {}), SyntaxException);
-  check_drop_user("DrOP UsEr dominik", {"dominik"});
-  check_drop_user("DrOP USER dominik  ,   spomenik", {"dominik", "spomenik"});
-  EXPECT_THROW(
-      check_drop_user("DrOP USER dominik, , spomenik", {"dominik", "spomenik"}),
-      SyntaxException);
-  check_drop_user("DrOP USER dominik , spomenik    ,   jackie, jackie , johnny",
-                  {"dominik", "spomenik", "jackie", "jackie", "johnny"});
+TYPED_TEST(CypherMainVisitorTest, ShowUsers) {
+  ASSERT_THROW(TypeParam("SHOW USERS ROLES"), SyntaxException);
+  check_auth_query<TypeParam>("SHOW USERS", AuthQuery::Action::SHOW_USERS, "",
+                              "", "", {}, {});
+}
+
+TYPED_TEST(CypherMainVisitorTest, GrantRole) {
+  ASSERT_THROW(TypeParam("GRANT ROLE"), SyntaxException);
+  ASSERT_THROW(TypeParam("GRANT ROLE role"), SyntaxException);
+  ASSERT_THROW(TypeParam("GRANT ROLE role TO"), SyntaxException);
+  ASSERT_THROW(TypeParam("GRANT ROLE TO user"), SyntaxException);
+  check_auth_query<TypeParam>("GRANT ROLE role TO user",
+                              AuthQuery::Action::GRANT_ROLE, "user", "role", "",
+                              {}, {});
+}
+
+TYPED_TEST(CypherMainVisitorTest, RevokeRole) {
+  ASSERT_THROW(TypeParam("REVOKE ROLE"), SyntaxException);
+  ASSERT_THROW(TypeParam("REVOKE ROLE role"), SyntaxException);
+  ASSERT_THROW(TypeParam("REVOKE ROLE role FROM"), SyntaxException);
+  ASSERT_THROW(TypeParam("REVOKE ROLE FROM user"), SyntaxException);
+  check_auth_query<TypeParam>("REVOKE ROLE role FROM user",
+                              AuthQuery::Action::REVOKE_ROLE, "user", "role",
+                              "", {}, {});
+}
+
+TYPED_TEST(CypherMainVisitorTest, GrantPrivilege) {
+  ASSERT_THROW(TypeParam("GRANT"), SyntaxException);
+  ASSERT_THROW(TypeParam("GRANT TO user"), SyntaxException);
+  ASSERT_THROW(TypeParam("GRANT BLABLA TO user"), SyntaxException);
+  ASSERT_THROW(TypeParam("GRANT MATCH, TO user"), SyntaxException);
+  ASSERT_THROW(TypeParam("GRANT MATCH, BLABLA TO user"), SyntaxException);
+  check_auth_query<TypeParam>("GRANT MATCH TO user",
+                              AuthQuery::Action::GRANT_PRIVILEGE, "", "",
+                              "user", {}, {AuthQuery::Privilege::MATCH});
+  check_auth_query<TypeParam>(
+      "GRANT MATCH, AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "",
+      "user", {}, {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+}
+
+TYPED_TEST(CypherMainVisitorTest, DenyPrivilege) {
+  ASSERT_THROW(TypeParam("DENY"), SyntaxException);
+  ASSERT_THROW(TypeParam("DENY TO user"), SyntaxException);
+  ASSERT_THROW(TypeParam("DENY BLABLA TO user"), SyntaxException);
+  ASSERT_THROW(TypeParam("DENY MATCH, TO user"), SyntaxException);
+  ASSERT_THROW(TypeParam("DENY MATCH, BLABLA TO user"), SyntaxException);
+  check_auth_query<TypeParam>("DENY MATCH TO user",
+                              AuthQuery::Action::DENY_PRIVILEGE, "", "",
+                              "user", {}, {AuthQuery::Privilege::MATCH});
+  check_auth_query<TypeParam>(
+      "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "",
+      "user", {}, {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+}
+
+TYPED_TEST(CypherMainVisitorTest, RevokePrivilege) {
+  ASSERT_THROW(TypeParam("REVOKE"), SyntaxException);
+  ASSERT_THROW(TypeParam("REVOKE FROM user"), SyntaxException);
+  ASSERT_THROW(TypeParam("REVOKE BLABLA FROM user"), SyntaxException);
+  ASSERT_THROW(TypeParam("REVOKE MATCH, FROM user"), SyntaxException);
+  ASSERT_THROW(TypeParam("REVOKE MATCH, BLABLA FROM user"), SyntaxException);
+  check_auth_query<TypeParam>("REVOKE MATCH FROM user",
+                              AuthQuery::Action::REVOKE_PRIVILEGE, "", "",
+                              "user", {}, {AuthQuery::Privilege::MATCH});
+  check_auth_query<TypeParam>(
+      "REVOKE MATCH, AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "",
+      "", "user", {},
+      {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+  check_auth_query<TypeParam>(
+      "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE,
+      "", "", "user", {},
+      {AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
+       AuthQuery::Privilege::MATCH, AuthQuery::Privilege::MERGE,
+       AuthQuery::Privilege::SET, AuthQuery::Privilege::AUTH,
+       AuthQuery::Privilege::STREAM});
+}
+
+TYPED_TEST(CypherMainVisitorTest, ShowGrants) {
+  ASSERT_THROW(TypeParam("SHOW GRANTS FOR"), SyntaxException);
+  check_auth_query<TypeParam>("SHOW GRANTS FOR user",
+                              AuthQuery::Action::SHOW_GRANTS, "", "", "user",
+                              {}, {});
+  ASSERT_THROW(TypeParam("SHOW GRANTS FOR user1, user2"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, ShowRoleForUser) {
+  ASSERT_THROW(TypeParam("SHOW ROLE FOR USER"), SyntaxException);
+  check_auth_query<TypeParam>("SHOW ROLE FOR USER user",
+                              AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", "",
+                              "", {}, {});
+  ASSERT_THROW(TypeParam("SHOW ROLE FOR USER user1, user2"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, ShowUsersForRole) {
+  ASSERT_THROW(TypeParam("SHOW USERS FOR ROLE"), SyntaxException);
+  check_auth_query<TypeParam>("SHOW USERS FOR ROLE role",
+                              AuthQuery::Action::SHOW_USERS_FOR_ROLE, "",
+                              "role", "", {}, {});
+  ASSERT_THROW(TypeParam("SHOW USERS FOR ROLE role1, role2"), SyntaxException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, CreateStream) {

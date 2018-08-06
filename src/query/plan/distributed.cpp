@@ -87,8 +87,7 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   // These don't use any symbols
   bool Visit(Once &) override { return true; }
   bool Visit(CreateIndex &) override { return true; }
-  bool Visit(ModifyUser &) override { return true; }
-  bool Visit(DropUser &) override { return true; }
+  bool Visit(AuthHandler &) override { return true; }
   bool Visit(CreateStream &) override { return true; }
   bool Visit(DropStream &) override { return true; }
   bool Visit(ShowStreams &) override { return true; }
@@ -1344,9 +1343,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
   bool Visit(CreateIndex &) override { return true; }
 
-  bool Visit(ModifyUser &) override { return true; }
-
-  bool Visit(DropUser &) override { return true; }
+  bool Visit(AuthHandler &) override { return true; }
 
   bool Visit(CreateStream &) override { return true; }
 

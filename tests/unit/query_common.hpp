@@ -574,10 +574,9 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define EXTRACT(variable, list, expr)                                         \
   storage.Create<query::Extract>(storage.Create<query::Identifier>(variable), \
                                  list, expr)
-#define CREATE_USER(username, password) \
-  storage.Create<query::ModifyUser>((username), LITERAL(password), true)
-#define ALTER_USER(username, password) \
-  storage.Create<query::ModifyUser>((username), LITERAL(password), false)
+#define AUTH_QUERY(action, user, role, user_or_role, password, privileges)   \
+  storage.Create<query::AuthQuery>((action), (user), (role), (user_or_role), \
+                                   LITERAL(password), (privileges))
 #define DROP_USER(usernames) storage.Create<query::DropUser>((usernames))
 #define CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri, \
                       batch_interval, batch_size)                           \

@@ -132,8 +132,7 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
 
   PRE_VISIT(PullRemoteOrderBy);
 
-  VISIT(ModifyUser);
-  VISIT(DropUser);
+  VISIT(AuthHandler);
 
   VISIT(CreateStream);
   VISIT(DropStream);
@@ -375,6 +374,37 @@ class ExpectScanAllByLabelPropertyRange
   storage::Property property_;
   std::experimental::optional<Bound> lower_bound_;
   std::experimental::optional<Bound> upper_bound_;
+};
+
+class ExpectAuthHandler : public OpChecker<AuthHandler> {
+ public:
+  ExpectAuthHandler(query::AuthQuery::Action action, std::string user,
+                    std::string role, std::string user_or_role,
+                    query::Expression *password,
+                    std::vector<query::AuthQuery::Privilege> privileges)
+      : action_(action),
+        user_(user),
+        role_(role),
+        user_or_role_(user_or_role),
+        password_(password),
+        privileges_(privileges) {}
+
+  void ExpectOp(AuthHandler &auth_handler, const SymbolTable &) override {
+    EXPECT_EQ(auth_handler.action(), action_);
+    EXPECT_EQ(auth_handler.user(), user_);
+    EXPECT_EQ(auth_handler.role(), role_);
+    EXPECT_EQ(auth_handler.user_or_role(), user_or_role_);
+    EXPECT_TRUE(auth_handler.password());
+    EXPECT_EQ(auth_handler.privileges(), privileges_);
+  }
+
+ private:
+  query::AuthQuery::Action action_;
+  std::string user_;
+  std::string role_;
+  std::string user_or_role_;
+  query::Expression *password_{nullptr};
+  std::vector<query::AuthQuery::Privilege> privileges_;
 };
 
 class ExpectCreateIndex : public OpChecker<CreateIndex> {
@@ -621,36 +651,6 @@ class Planner {
 
  private:
   std::unique_ptr<LogicalOperator> plan_;
-};
-
-class ExpectModifyUser : public OpChecker<ModifyUser> {
- public:
-  ExpectModifyUser(std::string username, bool is_create)
-      : username_(username), is_create_(is_create) {}
-
-  void ExpectOp(ModifyUser &modify_user, const SymbolTable &) override {
-    EXPECT_EQ(username_, modify_user.username());
-    // TODO(mtomic): proper password verification
-    EXPECT_NE(dynamic_cast<query::Expression *>(modify_user.password()),
-              nullptr);
-    EXPECT_EQ(is_create_, modify_user.is_create());
-  }
-
- private:
-  std::string username_;
-  bool is_create_;
-};
-
-class ExpectDropUser : public OpChecker<DropUser> {
- public:
-  ExpectDropUser(std::vector<std::string> usernames) : usernames_(usernames) {}
-
-  void ExpectOp(DropUser &drop_user, const SymbolTable &) override {
-    EXPECT_EQ(usernames_, drop_user.usernames());
-  }
-
- private:
-  std::vector<std::string> usernames_;
 };
 
 void SavePlan(const LogicalOperator &plan, ::capnp::MessageBuilder *message) {
@@ -2076,8 +2076,9 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
   AstStorage storage;
   auto lit_42 = LITERAL(42);
   auto n_prop = PROPERTY_LOOKUP("n", property);
-  auto check_planned_range = [&label, &property, &dba](
-      const auto &rel_expr, auto lower_bound, auto upper_bound) {
+  auto check_planned_range = [&label, &property, &dba](const auto &rel_expr,
+                                                       auto lower_bound,
+                                                       auto upper_bound) {
     // Shadow the first storage, so that the query is created in this one.
     AstStorage storage;
     QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), WHERE(rel_expr),
@@ -2318,36 +2319,25 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   }
 }
 
-TYPED_TEST(TestPlanner, ModifyUser) {
-  {
-    // Test CREATE USER user WITH PASSWORD 'password'
-    FakeDbAccessor dba;
-    AstStorage storage;
-    QUERY(SINGLE_QUERY(CREATE_USER("user", "password")));
-    CheckPlan<TypeParam>(storage, ExpectModifyUser("user", true));
-    auto expected =
-        ExpectDistributed(MakeCheckers(ExpectModifyUser("user", true)));
-    CheckDistributedPlan<TypeParam>(storage, expected);
-  }
-  {
-    // Test ALTER USER user WITH PASSWORD 'password'
-    FakeDbAccessor dba;
-    AstStorage storage;
-    QUERY(SINGLE_QUERY(ALTER_USER("user", "password")));
-    CheckPlan<TypeParam>(storage, ExpectModifyUser("user", false));
-    auto expected =
-        ExpectDistributed(MakeCheckers(ExpectModifyUser("user", false)));
-    CheckDistributedPlan<TypeParam>(storage, expected);
-  }
-}
-
-TYPED_TEST(TestPlanner, DropUser) {
-  // Test DROP USER user1, user2, user3
+TYPED_TEST(TestPlanner, AuthQuery) {
+  // Check if everything is properly forwarded from ast node to the operator
+  FakeDbAccessor dba;
   AstStorage storage;
-  std::vector<std::string> usernames({"user1", "user2", "user3"});
-  QUERY(SINGLE_QUERY(DROP_USER(usernames)));
-  CheckPlan<TypeParam>(storage, ExpectDropUser(usernames));
-  auto expected = ExpectDistributed(MakeCheckers(ExpectDropUser(usernames)));
+  QUERY(SINGLE_QUERY(AUTH_QUERY(query::AuthQuery::Action::DROP_ROLE, "user",
+                                "role", "user_or_role", LITERAL("password"),
+                                std::vector<query::AuthQuery::Privilege>(
+                                    {query::AuthQuery::Privilege::MATCH,
+                                     query::AuthQuery::Privilege::AUTH}))));
+  CheckPlan<TypeParam>(
+      storage, ExpectAuthHandler(query::AuthQuery::Action::DROP_ROLE, "user",
+                                 "role", "user_or_role", LITERAL("password"),
+                                 {query::AuthQuery::Privilege::MATCH,
+                                  query::AuthQuery::Privilege::AUTH}));
+  auto expected = ExpectDistributed(MakeCheckers(
+      ExpectAuthHandler(query::AuthQuery::Action::DROP_ROLE, "user", "role",
+                        "user_or_role", LITERAL("password"),
+                        {query::AuthQuery::Privilege::MATCH,
+                         query::AuthQuery::Privilege::AUTH})));
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
 

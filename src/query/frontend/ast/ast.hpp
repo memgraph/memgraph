@@ -2339,68 +2339,67 @@ class CreateIndex : public Clause {
                     std::vector<int> *saved_uids);
 };
 
-class ModifyUser : public Clause {
+class AuthQuery : public Clause {
   friend class AstStorage;
 
  public:
+  enum class Action {
+    CREATE_ROLE,
+    DROP_ROLE,
+    SHOW_ROLES,
+    CREATE_USER,
+    SET_PASSWORD,
+    DROP_USER,
+    SHOW_USERS,
+    GRANT_ROLE,
+    REVOKE_ROLE,
+    GRANT_PRIVILEGE,
+    DENY_PRIVILEGE,
+    REVOKE_PRIVILEGE,
+    SHOW_GRANTS,
+    SHOW_ROLE_FOR_USER,
+    SHOW_USERS_FOR_ROLE
+  };
+
+  enum class Privilege { CREATE, DELETE, MATCH, MERGE, SET, AUTH, STREAM };
+
+  Action action_;
+  std::string user_;
+  std::string role_;
+  std::string user_or_role_;
+  Expression *password_{nullptr};
+  std::vector<Privilege> privileges_;
+
   DEFVISITABLE(TreeVisitor<TypedValue>);
   DEFVISITABLE(HierarchicalTreeVisitor);
 
-  ModifyUser *Clone(AstStorage &storage) const override {
-    return storage.Create<ModifyUser>(
-        username_, password_ ? password_->Clone(storage) : nullptr, is_create_);
+  AuthQuery *Clone(AstStorage &storage) const override {
+    return storage.Create<AuthQuery>(
+        action_, user_, role_, user_or_role_,
+        password_ ? password_->Clone(storage) : nullptr, privileges_);
   }
 
-  static ModifyUser *Construct(const capnp::ModifyUser::Reader &reader,
-                               AstStorage *storage);
+  static AuthQuery *Construct(const capnp::AuthQuery::Reader &reader,
+                              AstStorage *storage);
   using Clause::Save;
 
-  std::string username_;
-  Expression *password_;
-  bool is_create_;
-
  protected:
-  explicit ModifyUser(int uid) : Clause(uid) {}
-  ModifyUser(int uid, std::string username, Expression *password,
-             bool is_create)
+  explicit AuthQuery(int uid) : Clause(uid) {}
+
+  explicit AuthQuery(int uid, Action action, std::string user, std::string role,
+                     std::string user_or_role, Expression *password,
+                     std::vector<Privilege> privileges)
       : Clause(uid),
-        username_(std::move(username)),
+        action_(action),
+        user_(user),
+        role_(role),
+        user_or_role_(user_or_role),
         password_(password),
-        is_create_(is_create) {}
+        privileges_(privileges) {}
 
   void Save(capnp::Clause::Builder *builder,
             std::vector<int> *saved_uids) override;
-  virtual void Save(capnp::ModifyUser::Builder *builder,
-                    std::vector<int> *saved_uids);
-  void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
-            std::vector<int> *loaded_uids) override;
-};
-
-class DropUser : public Clause {
-  friend class AstStorage;
-
- public:
-  DEFVISITABLE(TreeVisitor<TypedValue>);
-  DEFVISITABLE(HierarchicalTreeVisitor);
-
-  DropUser *Clone(AstStorage &storage) const override {
-    return storage.Create<DropUser>(usernames_);
-  }
-
-  static DropUser *Construct(const capnp::DropUser::Reader &reader,
-                             AstStorage *storage);
-  using Clause::Save;
-
-  std::vector<std::string> usernames_;
-
- protected:
-  explicit DropUser(int uid) : Clause(uid) {}
-  DropUser(int uid, std::vector<std::string> usernames)
-      : Clause(uid), usernames_(usernames) {}
-
-  void Save(capnp::Clause::Builder *builder,
-            std::vector<int> *saved_uids) override;
-  virtual void Save(capnp::DropUser::Builder *builder,
+  virtual void Save(capnp::AuthQuery::Builder *builder,
                     std::vector<int> *saved_uids);
   void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;

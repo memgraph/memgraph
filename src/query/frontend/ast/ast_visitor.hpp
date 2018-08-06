@@ -61,8 +61,7 @@ class RemoveLabels;
 class Merge;
 class Unwind;
 class CreateIndex;
-class ModifyUser;
-class DropUser;
+class AuthQuery;
 class CreateStream;
 class DropStream;
 class ShowStreams;
@@ -84,9 +83,9 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup,
-                         CreateIndex, ModifyUser, DropUser, CreateStream,
-                         DropStream, ShowStreams, StartStopStream,
-                         StartStopAllStreams, TestStream>;
+                         CreateIndex, AuthQuery, CreateStream, DropStream,
+                         ShowStreams, StartStopStream, StartStopAllStreams,
+                         TestStream>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {
@@ -109,8 +108,7 @@ using TreeVisitor = ::utils::Visitor<
     Aggregation, Function, Reduce, Extract, All, Single, ParameterLookup,
     Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind, Identifier, PrimitiveLiteral, CreateIndex, ModifyUser, DropUser,
-    CreateStream, DropStream, ShowStreams, StartStopStream, StartStopAllStreams,
-    TestStream>;
+    Unwind, Identifier, PrimitiveLiteral, CreateIndex, AuthQuery, CreateStream,
+    DropStream, ShowStreams, StartStopStream, StartStopAllStreams, TestStream>;
 
 }  // namespace query

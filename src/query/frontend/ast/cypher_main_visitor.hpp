@@ -178,24 +178,106 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCreate(MemgraphCypher::CreateContext *ctx) override;
 
   /**
+   * @return std::string
+   */
+  antlrcpp::Any visitUserOrRoleName(
+      MemgraphCypher::UserOrRoleNameContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitCreateRole(
+      MemgraphCypher::CreateRoleContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitDropRole(MemgraphCypher::DropRoleContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowRoles(MemgraphCypher::ShowRolesContext *ctx) override;
+
+  /**
    * @return CreateIndex*
    */
   antlrcpp::Any visitCreateIndex(
       MemgraphCypher::CreateIndexContext *ctx) override;
 
   /**
-   * @return ModifyUser*
+   * @return AuthQuery*
    */
-  antlrcpp::Any visitModifyUser(
-      MemgraphCypher::ModifyUserContext *ctx) override;
-
-  antlrcpp::Any visitPasswordOption(
-      MemgraphCypher::PasswordOptionContext *ctx) override;
+  antlrcpp::Any visitCreateUser(
+      MemgraphCypher::CreateUserContext *ctx) override;
 
   /**
-   * @return DropUser*
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitSetPassword(
+      MemgraphCypher::SetPasswordContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
    */
   antlrcpp::Any visitDropUser(MemgraphCypher::DropUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowUsers(MemgraphCypher::ShowUsersContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitGrantRole(MemgraphCypher::GrantRoleContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitRevokeRole(
+      MemgraphCypher::RevokeRoleContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitGrantPrivilege(
+      MemgraphCypher::GrantPrivilegeContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitDenyPrivilege(
+      MemgraphCypher::DenyPrivilegeContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitRevokePrivilege(
+      MemgraphCypher::RevokePrivilegeContext *ctx) override;
+
+  /**
+   * @return AuthQuery::Privilege
+   */
+  antlrcpp::Any visitPrivilege(MemgraphCypher::PrivilegeContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowGrants(
+      MemgraphCypher::ShowGrantsContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowRoleForUser(
+      MemgraphCypher::ShowRoleForUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowUsersForRole(
+      MemgraphCypher::ShowUsersForRoleContext *ctx) override;
 
   /**
    * @return CreateStream*

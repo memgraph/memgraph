@@ -159,7 +159,7 @@ VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
   int current_worker_id = 0;
   // TODO: Figure out a better solution.
   if (auto *distributed_db =
-      dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
+          dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
     current_worker_id = distributed_db->WorkerId();
   } else {
     CHECK(dynamic_cast<database::SingleNode *>(&dba.db()));
@@ -1392,7 +1392,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](
-        EdgeAccessor edge, VertexAccessor vertex, double weight, int depth) {
+                           EdgeAccessor edge, VertexAccessor vertex,
+                           double weight, int depth) {
       SwitchAccessor(edge, self_.graph_view_);
       SwitchAccessor(vertex, self_.graph_view_);
 
@@ -3889,129 +3890,119 @@ std::unique_ptr<Cursor> PullRemoteOrderBy::MakeCursor(
   return std::make_unique<PullRemoteOrderByCursor>(*this, db);
 }
 
-ModifyUser::ModifyUser(std::string username, Expression *password,
-                       bool is_create)
-    : username_(std::move(username)),
+AuthHandler::AuthHandler(AuthQuery::Action action, std::string user,
+                         std::string role, std::string user_or_role,
+                         Expression *password,
+                         std::vector<AuthQuery::Privilege> privileges)
+    : action_(action),
+      user_(user),
+      role_(role),
+      user_or_role_(user_or_role),
       password_(password),
-      is_create_(is_create) {}
+      privileges_(privileges) {}
 
-bool ModifyUser::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+bool AuthHandler::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.Visit(*this);
 }
 
-WITHOUT_SINGLE_INPUT(ModifyUser)
-
-class ModifyUserCursor : public Cursor {
+class AuthHandlerCursor : public Cursor {
  public:
-  ModifyUserCursor(const ModifyUser &self) : self_(self) {}
+  AuthHandlerCursor(const AuthHandler &self) : self_(self) {}
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
       throw UserModificationInMulticommandTxException();
     }
+
     ExpressionEvaluator evaluator(frame, &ctx, GraphView::OLD);
-
-    TypedValue password_tv = self_.password()->Accept(evaluator);
-    if (password_tv.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException(fmt::format(
-          "Password must be a string, not '{}'", password_tv.type()));
-    }
-
-    // All of the following operations are done with a lock.
-    std::lock_guard<std::mutex> guard(ctx.auth_->WithLock());
-
-    std::experimental::optional<auth::User> user;
-    if (self_.is_create()) {
-      // Create a new user.
-      user = ctx.auth_->AddUser(self_.username());
-      if (!user) {
-        throw QueryRuntimeException(
-            fmt::format("User '{}' already exists!", self_.username()));
+    std::experimental::optional<std::string> password;
+    /* TODO(mferencevic): handle null passwords properly */
+    if (self_.password()) {
+      auto password_tv = self_.password()->Accept(evaluator);
+      if (!password_tv.IsString()) {
+        throw QueryRuntimeException("Password must be a string, not '{}'!",
+                                    password_tv.type());
       }
-    } else {
-      // Update an existing user.
-      user = ctx.auth_->GetUser(self_.username());
-      if (!user) {
-        throw QueryRuntimeException(
-            fmt::format("User '{}' doesn't exist!", self_.username()));
+      password = password_tv.ValueString();
+    }
+
+    auto &auth = *ctx.auth_;
+    std::lock_guard<std::mutex> lock(auth.WithLock());
+
+    switch (self_.action()) {
+      case AuthQuery::Action::CREATE_USER: {
+        if (!password) {
+          throw QueryRuntimeException(
+              "Password must be provided when creating a user!");
+        }
+        auto user = auth.AddUser(self_.user());
+        if (!user) {
+          throw QueryRuntimeException("User '{}' already exists!",
+                                      self_.user());
+        }
+        user->UpdatePassword(*password);
+        if (!auth.SaveUser(*user)) {
+          throw QueryRuntimeException("Couldn't save user '{}'!", self_.user());
+        }
+        break;
       }
+      case AuthQuery::Action::DROP_USER: {
+        auto user = auth.GetUser(self_.user());
+        if (!user) {
+          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+        }
+        if (!auth.RemoveUser(self_.user())) {
+          throw QueryRuntimeException("Couldn't remove user '{}'!",
+                                      self_.user());
+        }
+        break;
+      }
+      case AuthQuery::Action::SET_PASSWORD: {
+        if (!password) {
+          throw QueryRuntimeException("Password must be provided!");
+        }
+        auto user = auth.GetUser(self_.user());
+        if (!user) {
+          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+        }
+        user->UpdatePassword(*password);
+        if (!auth.SaveUser(*user)) {
+          throw QueryRuntimeException("Couldn't set password for user '{}'!",
+                                      self_.user());
+        }
+        break;
+      }
+      case AuthQuery::Action::CREATE_ROLE:
+      case AuthQuery::Action::DROP_ROLE:
+      case AuthQuery::Action::SHOW_ROLES:
+      case AuthQuery::Action::SHOW_USERS:
+      case AuthQuery::Action::GRANT_ROLE:
+      case AuthQuery::Action::REVOKE_ROLE:
+      case AuthQuery::Action::GRANT_PRIVILEGE:
+      case AuthQuery::Action::DENY_PRIVILEGE:
+      case AuthQuery::Action::REVOKE_PRIVILEGE:
+      case AuthQuery::Action::SHOW_GRANTS:
+      case AuthQuery::Action::SHOW_ROLE_FOR_USER:
+      case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
+        throw utils::NotYetImplemented("user auth");
     }
-
-    // Set the password and save the user.
-    user->UpdatePassword(password_tv.Value<std::string>());
-    if (!ctx.auth_->SaveUser(*user)) {
-      throw QueryRuntimeException(
-          fmt::format("Couldn't save user '{}'!", self_.username()));
-    }
-
     return false;
   }
 
-  void Reset() override {}
-
- private:
-  const ModifyUser &self_;
-};
-
-std::unique_ptr<Cursor> ModifyUser::MakeCursor(
-    database::GraphDbAccessor &) const {
-  return std::make_unique<ModifyUserCursor>(*this);
-}
-
-bool DropUser::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
-  return visitor.Visit(*this);
-}
-
-WITHOUT_SINGLE_INPUT(DropUser)
-
-class DropUserCursor : public Cursor {
- public:
-  DropUserCursor(const DropUser &self) : self_(self) {}
-
-  bool Pull(Frame &, Context &ctx) override {
-    if (ctx.in_explicit_transaction_) {
-      throw UserModificationInMulticommandTxException();
-    }
-
-    // All of the following operations are done with a lock.
-    std::lock_guard<std::mutex> guard(ctx.auth_->WithLock());
-
-    // Check if all users exist.
-    for (const auto &username : self_.usernames()) {
-      auto user = ctx.auth_->GetUser(username);
-      if (!user) {
-        throw QueryRuntimeException(
-            fmt::format("User '{}' doesn't exist!", username));
-      }
-    }
-
-    // Delete all users.
-    std::vector<std::string> failed;
-    for (const auto &username : self_.usernames()) {
-      if (!ctx.auth_->RemoveUser(username)) {
-        failed.push_back(username);
-      }
-    }
-
-    // Check for failures.
-    if (failed.size() > 0) {
-      throw QueryRuntimeException(fmt::format("Couldn't remove users: '{}'!",
-                                              utils::Join(failed, "', '")));
-    }
-
-    return false;
+  void Reset() override {
+    LOG(FATAL) << "AuthHandler cursor should never be reset";
   }
 
-  void Reset() override {}
-
  private:
-  const DropUser &self_;
+  const AuthHandler &self_;
 };
 
-std::unique_ptr<Cursor> DropUser::MakeCursor(
-    database::GraphDbAccessor &) const {
-  return std::make_unique<DropUserCursor>(*this);
+std::unique_ptr<Cursor> AuthHandler::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<AuthHandlerCursor>(*this);
 }
+
+WITHOUT_SINGLE_INPUT(AuthHandler)
 
 CreateStream::CreateStream(std::string stream_name, Expression *stream_uri,
                            Expression *stream_topic, Expression *transform_uri,

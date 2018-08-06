@@ -1268,13 +1268,9 @@ Clause *Clause::Construct(const capnp::Clause::Reader &reader,
       auto with_reader = reader.getWith();
       return With::Construct(with_reader, storage);
     }
-    case capnp::Clause::MODIFY_USER: {
-      auto mu_reader = reader.getModifyUser();
-      return ModifyUser::Construct(mu_reader, storage);
-    }
-    case capnp::Clause::DROP_USER: {
-      auto du_reader = reader.getDropUser();
-      return DropUser::Construct(du_reader, storage);
+    case capnp::Clause::AUTH_QUERY: {
+      auto aq_reader = reader.getAuthQuery();
+      return AuthQuery::Construct(aq_reader, storage);
     }
     case capnp::Clause::CREATE_STREAM: {
       auto cs_reader = reader.getCreateStream();
@@ -2067,69 +2063,188 @@ With *With::Construct(const capnp::With::Reader &reader, AstStorage *storage) {
   return storage->Create<With>();
 }
 
-// ModifyUser.
-void ModifyUser::Save(capnp::Clause::Builder *clause_builder,
-                      std::vector<int> *saved_uids) {
+// AuthQuery.
+void AuthQuery::Save(capnp::Clause::Builder *clause_builder,
+                     std::vector<int> *saved_uids) {
   Clause::Save(clause_builder, saved_uids);
-  auto builder = clause_builder->initModifyUser();
-  ModifyUser::Save(&builder, saved_uids);
+  auto builder = clause_builder->initAuthQuery();
+  AuthQuery::Save(&builder, saved_uids);
 }
 
-void ModifyUser::Save(capnp::ModifyUser::Builder *builder,
-                      std::vector<int> *saved_uids) {
-  builder->setUsername(username_);
+void AuthQuery::Save(capnp::AuthQuery::Builder *builder,
+                     std::vector<int> *saved_uids) {
+  switch (action_) {
+    case Action::CREATE_ROLE:
+      builder->setAction(capnp::AuthQuery::Action::CREATE_ROLE);
+      break;
+    case Action::DROP_ROLE:
+      builder->setAction(capnp::AuthQuery::Action::DROP_ROLE);
+      break;
+    case Action::SHOW_ROLES:
+      builder->setAction(capnp::AuthQuery::Action::SHOW_ROLES);
+      break;
+    case Action::CREATE_USER:
+      builder->setAction(capnp::AuthQuery::Action::CREATE_USER);
+      break;
+    case Action::SET_PASSWORD:
+      builder->setAction(capnp::AuthQuery::Action::SET_PASSWORD);
+      break;
+    case Action::DROP_USER:
+      builder->setAction(capnp::AuthQuery::Action::DROP_USER);
+      break;
+    case Action::SHOW_USERS:
+      builder->setAction(capnp::AuthQuery::Action::SHOW_USERS);
+      break;
+    case Action::GRANT_ROLE:
+      builder->setAction(capnp::AuthQuery::Action::GRANT_ROLE);
+      break;
+    case Action::REVOKE_ROLE:
+      builder->setAction(capnp::AuthQuery::Action::REVOKE_ROLE);
+      break;
+    case Action::GRANT_PRIVILEGE:
+      builder->setAction(capnp::AuthQuery::Action::GRANT_PRIVILEGE);
+      break;
+    case Action::DENY_PRIVILEGE:
+      builder->setAction(capnp::AuthQuery::Action::DENY_PRIVILEGE);
+      break;
+    case Action::REVOKE_PRIVILEGE:
+      builder->setAction(capnp::AuthQuery::Action::REVOKE_PRIVILEGE);
+      break;
+    case Action::SHOW_GRANTS:
+      builder->setAction(capnp::AuthQuery::Action::SHOW_GRANTS);
+      break;
+    case Action::SHOW_ROLE_FOR_USER:
+      builder->setAction(capnp::AuthQuery::Action::SHOW_ROLE_FOR_USER);
+      break;
+    case Action::SHOW_USERS_FOR_ROLE:
+      builder->setAction(capnp::AuthQuery::Action::SHOW_USERS_FOR_ROLE);
+      break;
+  }
+  builder->setUser(user_);
+  builder->setRole(role_);
+  builder->setUserOrRole(user_or_role_);
   if (password_) {
-    auto password_builder = builder->getPassword();
+    auto password_builder = builder->initPassword();
     password_->Save(&password_builder, saved_uids);
   }
-  builder->setIsCreate(is_create_);
+  ::capnp::List<capnp::AuthQuery::Privilege>::Builder privileges_builder =
+      builder->initPrivileges(privileges_.size());
+  for (size_t i = 0; i < privileges_.size(); ++i) {
+    switch (privileges_[i]) {
+      case Privilege::CREATE:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::CREATE);
+        break;
+      case Privilege::DELETE:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::DELETE);
+        break;
+      case Privilege::MATCH:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::MATCH);
+        break;
+      case Privilege::MERGE:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::MERGE);
+        break;
+      case Privilege::SET:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::SET);
+        break;
+      case Privilege::AUTH:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::AUTH);
+        break;
+      case Privilege::STREAM:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::STREAM);
+        break;
+    }
+  }
 }
 
-void ModifyUser::Load(const capnp::Tree::Reader &base_reader,
-                      AstStorage *storage, std::vector<int> *loaded_uids) {
+void AuthQuery::Load(const capnp::Tree::Reader &base_reader,
+                     AstStorage *storage, std::vector<int> *loaded_uids) {
   Clause::Load(base_reader, storage, loaded_uids);
-  auto reader = base_reader.getClause().getModifyUser();
-  username_ = reader.getUsername();
-  if (reader.hasPassword()) {
-    const auto password_reader = reader.getPassword();
+  auto auth_reader = base_reader.getClause().getAuthQuery();
+  switch (auth_reader.getAction()) {
+    case capnp::AuthQuery::Action::CREATE_ROLE:
+      action_ = Action::CREATE_ROLE;
+      break;
+    case capnp::AuthQuery::Action::DROP_ROLE:
+      action_ = Action::DROP_ROLE;
+      break;
+    case capnp::AuthQuery::Action::SHOW_ROLES:
+      action_ = Action::SHOW_ROLES;
+      break;
+    case capnp::AuthQuery::Action::CREATE_USER:
+      action_ = Action::CREATE_USER;
+      break;
+    case capnp::AuthQuery::Action::SET_PASSWORD:
+      action_ = Action::SET_PASSWORD;
+      break;
+    case capnp::AuthQuery::Action::DROP_USER:
+      action_ = Action::DROP_USER;
+      break;
+    case capnp::AuthQuery::Action::SHOW_USERS:
+      action_ = Action::SHOW_USERS;
+      break;
+    case capnp::AuthQuery::Action::GRANT_ROLE:
+      action_ = Action::GRANT_ROLE;
+      break;
+    case capnp::AuthQuery::Action::REVOKE_ROLE:
+      action_ = Action::REVOKE_ROLE;
+      break;
+    case capnp::AuthQuery::Action::GRANT_PRIVILEGE:
+      action_ = Action::GRANT_PRIVILEGE;
+      break;
+    case capnp::AuthQuery::Action::DENY_PRIVILEGE:
+      action_ = Action::DENY_PRIVILEGE;
+      break;
+    case capnp::AuthQuery::Action::REVOKE_PRIVILEGE:
+      action_ = Action::REVOKE_PRIVILEGE;
+      break;
+    case capnp::AuthQuery::Action::SHOW_GRANTS:
+      action_ = Action::SHOW_GRANTS;
+      break;
+    case capnp::AuthQuery::Action::SHOW_ROLE_FOR_USER:
+      action_ = Action::SHOW_ROLE_FOR_USER;
+      break;
+    case capnp::AuthQuery::Action::SHOW_USERS_FOR_ROLE:
+      action_ = Action::SHOW_USERS_FOR_ROLE;
+      break;
+  }
+  user_ = auth_reader.getUser();
+  role_ = auth_reader.getRole();
+  user_or_role_ = auth_reader.getUserOrRole();
+  if (auth_reader.hasPassword()) {
+    const auto password_reader = auth_reader.getPassword();
     password_ =
         dynamic_cast<Expression *>(storage->Load(password_reader, loaded_uids));
-  } else {
-    password_ = nullptr;
   }
-  is_create_ = reader.getIsCreate();
+  for (const auto &privilege : auth_reader.getPrivileges()) {
+    switch (privilege) {
+      case capnp::AuthQuery::Privilege::CREATE:
+        privileges_.push_back(Privilege::CREATE);
+        break;
+      case capnp::AuthQuery::Privilege::DELETE:
+        privileges_.push_back(Privilege::DELETE);
+        break;
+      case capnp::AuthQuery::Privilege::MATCH:
+        privileges_.push_back(Privilege::MATCH);
+        break;
+      case capnp::AuthQuery::Privilege::MERGE:
+        privileges_.push_back(Privilege::MERGE);
+        break;
+      case capnp::AuthQuery::Privilege::SET:
+        privileges_.push_back(Privilege::SET);
+        break;
+      case capnp::AuthQuery::Privilege::AUTH:
+        privileges_.push_back(Privilege::AUTH);
+        break;
+      case capnp::AuthQuery::Privilege::STREAM:
+        privileges_.push_back(Privilege::STREAM);
+        break;
+    }
+  }
 }
 
-ModifyUser *ModifyUser::Construct(const capnp::ModifyUser::Reader &reader,
-                                  AstStorage *storage) {
-  return storage->Create<ModifyUser>();
-}
-
-// DropUser.
-void DropUser::Save(capnp::Clause::Builder *clause_builder,
-                    std::vector<int> *saved_uids) {
-  Clause::Save(clause_builder, saved_uids);
-  auto builder = clause_builder->initDropUser();
-  DropUser::Save(&builder, saved_uids);
-}
-
-void DropUser::Save(capnp::DropUser::Builder *builder,
-                    std::vector<int> *saved_uids) {
-  auto usernames_builder = builder->initUsernames(usernames_.size());
-  utils::SaveVector(usernames_, &usernames_builder);
-}
-
-void DropUser::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
-                    std::vector<int> *loaded_uids) {
-  Clause::Load(base_reader, storage, loaded_uids);
-  auto reader = base_reader.getClause().getDropUser();
-  usernames_.clear();
-  utils::LoadVector(&usernames_, reader.getUsernames());
-}
-
-DropUser *DropUser::Construct(const capnp::DropUser::Reader &reader,
-                              AstStorage *storage) {
-  return storage->Create<DropUser>();
+AuthQuery *AuthQuery::Construct(const capnp::AuthQuery::Reader &reader,
+                                AstStorage *storage) {
+  return storage->Create<AuthQuery>();
 }
 
 // CypherUnion

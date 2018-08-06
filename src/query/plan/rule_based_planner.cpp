@@ -402,12 +402,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(query::ModifyUser &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool Visit(query::DropUser &) override {
+  bool Visit(query::AuthQuery &) override {
     has_aggregation_.emplace_back(false);
     return true;
   }

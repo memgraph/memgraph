@@ -514,13 +514,8 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool Visit(query::plan::ModifyUser &op) override {
-    WithPrintLn([](auto &out) { out << "* ModifyUser "; });
-    return true;
-  }
-
-  bool Visit(query::plan::DropUser &op) override {
-    WithPrintLn([](auto &out) { out << "* DropUser"; });
+  bool Visit(query::plan::AuthHandler &op) override {
+    WithPrintLn([](auto &out) { out << "* AuthHandler"; });
     return true;
   }
 
