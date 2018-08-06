@@ -4,8 +4,8 @@
 
 #include <fmt/format.h>
 
-namespace integrations {
-namespace kafka {
+namespace integrations::kafka {
+
 class KafkaStreamException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
@@ -117,5 +117,8 @@ class TransformScriptCouldNotBeDeletedException : public KafkaStreamException {
             "Couldn't delete transform script for stream {}", stream_name)) {}
 };
 
-}  // namespace kafka
-}  // namespace integrations
+class TransformExecutionException : public KafkaStreamException {
+  using KafkaStreamException::KafkaStreamException;
+};
+
+}  // namespace integrations::kafka

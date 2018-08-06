@@ -10,6 +10,7 @@
 
 #include "rdkafkacpp.h"
 
+#include "communication/bolt/v1/value.hpp"
 #include "integrations/kafka/transform.hpp"
 
 namespace integrations {
@@ -28,12 +29,23 @@ struct StreamInfo {
   bool is_running = false;
 };
 
+struct StreamStatus {
+  std::string stream_name;
+  std::string stream_uri;
+  std::string stream_topic;
+  std::string transform_uri;
+  std::string stream_status;
+};
+
 class Consumer final : public RdKafka::EventCb {
  public:
   Consumer() = delete;
 
   Consumer(const StreamInfo &info, const std::string &transform_script_path,
-           std::function<void(const std::vector<std::string> &)> stream_writer);
+           std::function<
+               void(const std::string &,
+                    const std::map<std::string, communication::bolt::Value> &)>
+               stream_writer);
 
   Consumer(const Consumer &other) = delete;
   Consumer(Consumer &&other) = delete;
@@ -49,19 +61,23 @@ class Consumer final : public RdKafka::EventCb {
 
   void StopIfRunning();
 
-  std::vector<std::string> Test(
-      std::experimental::optional<int64_t> limit_batches);
+  std::vector<
+      std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
+  Test(std::experimental::optional<int64_t> limit_batches);
+
+  StreamStatus Status();
 
   StreamInfo info();
 
  private:
   StreamInfo info_;
   std::string transform_script_path_;
-  std::function<void(const std::vector<std::string> &)> stream_writer_;
-
-  Transform transform_;
+  std::function<void(const std::string &,
+                     const std::map<std::string, communication::bolt::Value> &)>
+      stream_writer_;
 
   std::atomic<bool> is_running_{false};
+  std::atomic<bool> transform_alive_{false};
   std::thread thread_;
 
   std::unique_ptr<RdKafka::KafkaConsumer,

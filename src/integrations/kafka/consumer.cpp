@@ -7,9 +7,9 @@
 
 #include "integrations/kafka/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/thread.hpp"
 
-namespace integrations {
-namespace kafka {
+namespace integrations::kafka {
 
 using namespace std::chrono_literals;
 
@@ -30,10 +30,13 @@ void Consumer::event_cb(RdKafka::Event &event) {
 
 Consumer::Consumer(
     const StreamInfo &info, const std::string &transform_script_path,
-    std::function<void(const std::vector<std::string> &)> stream_writer)
+    std::function<
+        void(const std::string &,
+             const std::map<std::string, communication::bolt::Value> &)>
+        stream_writer)
     : info_(info),
-      stream_writer_(stream_writer),
-      transform_(transform_script_path) {
+      transform_script_path_(transform_script_path),
+      stream_writer_(stream_writer) {
   std::unique_ptr<RdKafka::Conf> conf(
       RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL));
   std::string error;
@@ -112,13 +115,41 @@ void Consumer::StartConsuming(
   is_running_.store(true);
 
   thread_ = std::thread([this, limit_batches]() {
+    utils::ThreadSetName("StreamKafka");
+
     int64_t batch_count = 0;
+    Transform transform(transform_script_path_);
+
+    transform_alive_.store(false);
+    if (!transform.Start()) {
+      LOG(WARNING) << "[Kafka] stream " << info_.stream_name
+                   << " couldn't start the transform script!";
+      return;
+    }
+    transform_alive_.store(true);
 
     while (is_running_) {
       // TODO (msantl): Figure out what to do with potential exceptions here.
       auto batch = this->GetBatch();
-      auto transformed_batch = transform_.Apply(batch);
-      stream_writer_(transformed_batch);
+
+      if (batch.empty()) continue;
+
+      // All exceptions that could be possibly thrown by the `Apply` function
+      // must be handled here because they *will* crash the database if
+      // uncaught!
+      // TODO (mferencevic): Figure out what to do with all other exceptions.
+      try {
+        transform.Apply(batch, stream_writer_);
+      } catch (const TransformExecutionException) {
+        LOG(WARNING) << "[Kafka] stream " << info_.stream_name
+                     << " the transform process has died!";
+        break;
+      } catch (const utils::BasicException &e) {
+        LOG(WARNING) << "[Kafka] stream " << info_.stream_name
+                     << " the transform process received an exception: "
+                     << e.what();
+        break;
+      }
 
       if (limit_batches != std::experimental::nullopt) {
         if (limit_batches <= ++batch_count) {
@@ -127,6 +158,8 @@ void Consumer::StartConsuming(
         }
       }
     }
+
+    transform_alive_.store(false);
   });
 }
 
@@ -153,7 +186,8 @@ std::vector<std::unique_ptr<RdKafka::Message>> Consumer::GetBatch() {
         break;
 
       default:
-        LOG(ERROR) << "[Kafka] Consumer error: " << msg->errstr();
+        LOG(WARNING) << "[Kafka] stream " << info_.stream_name
+                     << " consumer error: " << msg->errstr();
         run_batch = false;
         is_running_.store(false);
         break;
@@ -217,8 +251,10 @@ void Consumer::StopIfRunning() {
   }
 }
 
-std::vector<std::string> Consumer::Test(
-    std::experimental::optional<int64_t> limit_batches) {
+std::vector<
+    std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
+Consumer::Test(std::experimental::optional<int64_t> limit_batches) {
+  // All exceptions thrown here are handled by the Bolt protocol.
   if (!consumer_) {
     throw ConsumerNotAvailableException(info_.stream_name);
   }
@@ -227,23 +263,66 @@ std::vector<std::string> Consumer::Test(
     throw ConsumerRunningException(info_.stream_name);
   }
 
+  Transform transform(transform_script_path_);
+
   int64_t num_of_batches = limit_batches.value_or(kDefaultTestBatchLimit);
-  std::vector<std::string> results;
+  std::vector<
+      std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
+      results;
 
   is_running_.store(true);
 
   utils::OnScopeExit cleanup([this]() { is_running_.store(false); });
 
+  transform_alive_.store(false);
+  if (!transform.Start()) {
+    LOG(WARNING) << "[Kafka] stream " << info_.stream_name
+                 << " couldn't start the transform script!";
+    throw TransformExecutionException("Couldn't start the transform script!");
+  }
+  transform_alive_.store(true);
+
   for (int64_t i = 0; i < num_of_batches; ++i) {
     auto batch = GetBatch();
-    auto transformed_batch = transform_.Apply(batch);
 
-    for (auto &record : transformed_batch) {
-      results.emplace_back(std::move(record));
+    // Exceptions thrown by `Apply` are handled in Bolt.
+    // Wrap the `TransformExecutionException` into a new exception with a
+    // message that isn't so specific so the user doesn't get confused.
+    try {
+      transform.Apply(
+          batch,
+          [&results](
+              const std::string &query,
+              const std::map<std::string, communication::bolt::Value> &params) {
+            results.push_back({query, params});
+          });
+    } catch (const TransformExecutionException) {
+      LOG(WARNING) << "[Kafka] stream " << info_.stream_name
+                   << " the transform process has died!";
+      throw TransformExecutionException(
+          "The transform script contains a runtime error!");
     }
   }
 
+  transform_alive_.store(false);
+
   return results;
+}
+
+StreamStatus Consumer::Status() {
+  StreamStatus ret;
+  ret.stream_name = info_.stream_name;
+  ret.stream_uri = info_.stream_uri;
+  ret.stream_topic = info_.stream_topic;
+  ret.transform_uri = info_.transform_uri;
+  if (!is_running_) {
+    ret.stream_status = "stopped";
+  } else if (!transform_alive_) {
+    ret.stream_status = "error";
+  } else {
+    ret.stream_status = "running";
+  }
+  return ret;
 }
 
 StreamInfo Consumer::info() {
@@ -251,5 +330,4 @@ StreamInfo Consumer::info() {
   return info_;
 }
 
-}  // namespace kafka
-}  // namespace integrations
+}  // namespace integrations::kafka

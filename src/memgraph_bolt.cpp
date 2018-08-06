@@ -279,17 +279,22 @@ void SingleNodeMain() {
   SessionData session_data{db};
 
   auto stream_writer =
-      [&session_data](const std::vector<std::string> &queries) {
-        for (auto &query : queries) {
-          auto dba = session_data.db.Access();
-          KafkaResultStream stream;
-          try {
-            session_data.interpreter(query, *dba, {}, false).PullAll(stream);
-            dba->Commit();
-          } catch (const query::QueryException &e) {
-            LOG(ERROR) << e.what();
-            dba->Abort();
-          }
+      [&session_data](
+          const std::string &query,
+          const std::map<std::string, communication::bolt::Value> &params) {
+        auto dba = session_data.db.Access();
+        KafkaResultStream stream;
+        std::map<std::string, query::TypedValue> params_tv;
+        for (const auto &kv : params)
+          params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
+        try {
+          session_data.interpreter(query, *dba, params_tv, false)
+              .PullAll(stream);
+          dba->Commit();
+        } catch (const query::QueryException &e) {
+          LOG(WARNING) << "[Kafka] query execution failed with an exception: "
+                       << e.what();
+          dba->Abort();
         }
       };
 
@@ -370,17 +375,22 @@ void MasterMain() {
   SessionData session_data{db};
 
   auto stream_writer =
-      [&session_data](const std::vector<std::string> &queries) {
-        for (auto &query : queries) {
-          auto dba = session_data.db.Access();
-          KafkaResultStream stream;
-          try {
-            session_data.interpreter(query, *dba, {}, false).PullAll(stream);
-            dba->Commit();
-          } catch (const query::QueryException &e) {
-            LOG(ERROR) << e.what();
-            dba->Abort();
-          }
+      [&session_data](
+          const std::string &query,
+          const std::map<std::string, communication::bolt::Value> &params) {
+        auto dba = session_data.db.Access();
+        KafkaResultStream stream;
+        std::map<std::string, query::TypedValue> params_tv;
+        for (const auto &kv : params)
+          params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
+        try {
+          session_data.interpreter(query, *dba, params_tv, false)
+              .PullAll(stream);
+          dba->Commit();
+        } catch (const query::QueryException &e) {
+          LOG(WARNING) << "[Kafka] query execution failed with an exception: "
+                       << e.what();
+          dba->Abort();
         }
       };
 

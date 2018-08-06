@@ -10,8 +10,7 @@
 #include "requests/requests.hpp"
 #include "utils/file.hpp"
 
-namespace integrations {
-namespace kafka {
+namespace integrations::kafka {
 
 namespace fs = std::experimental::filesystem;
 
@@ -101,9 +100,11 @@ StreamInfo Deserialize(const nlohmann::json &data) {
 
 }  // namespace
 
-Streams::Streams(
-    const std::string &streams_directory,
-    std::function<void(const std::vector<std::string> &)> stream_writer)
+Streams::Streams(const std::string &streams_directory,
+                 std::function<void(
+                     const std::string &,
+                     const std::map<std::string, communication::bolt::Value> &)>
+                     stream_writer)
     : streams_directory_(streams_directory),
       stream_writer_(stream_writer),
       metadata_store_(fs::path(streams_directory) / kMetadataDir) {}
@@ -240,19 +241,20 @@ void Streams::StopAll() {
   }
 }
 
-std::vector<StreamInfo> Streams::Show() {
-  std::vector<StreamInfo> streams;
+std::vector<StreamStatus> Streams::Show() {
+  std::vector<StreamStatus> streams;
   std::lock_guard<std::mutex> g(mutex_);
   for (auto &consumer_kv : consumers_) {
-    streams.emplace_back(consumer_kv.second.info());
+    streams.emplace_back(consumer_kv.second.Status());
   }
 
   return streams;
 }
 
-std::vector<std::string> Streams::Test(
-    const std::string &stream_name,
-    std::experimental::optional<int64_t> limit_batches) {
+std::vector<
+    std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
+Streams::Test(const std::string &stream_name,
+              std::experimental::optional<int64_t> limit_batches) {
   std::lock_guard<std::mutex> g(mutex_);
   auto find_it = consumers_.find(stream_name);
   if (find_it == consumers_.end())
@@ -269,5 +271,4 @@ std::string Streams::GetTransformScriptPath(const std::string &stream_name) {
   return fs::path(GetTransformScriptDir()) / (stream_name + kTransformExt);
 }
 
-}  // namespace kafka
-}  // namespace integrations
+}  // namespace integrations::kafka

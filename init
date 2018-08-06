@@ -6,6 +6,7 @@ required_pkgs=(git arcanist # source code control
                uuid-dev default-jre-headless # required by antlr
                libreadline-dev # for memgraph console
                libssl-dev
+               libseccomp-dev
                python3 python-virtualenv python3-pip # for qa, macro_benchmark and stress tests
                uuid-dev # mg-utils
                libcurl4-openssl-dev # mg-requests

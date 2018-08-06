@@ -81,6 +81,17 @@ void CheckDir(const std::string &dir) {
   }
 }
 
+bool DeleteDir(const fs::path &dir) {
+  if (!fs::exists(dir)) return true;
+  std::error_code error_code;  // Just for exception suppression.
+  return fs::remove_all(dir, error_code) > 0;
+}
+
+bool CopyFile(const fs::path &src, const fs::path &dst) {
+  std::error_code error_code;  // Just for exception suppression.
+  return fs::copy_file(src, dst);
+}
+
 File::File() : fd_(-1), path_() {}
 
 File::File(int fd, fs::path path) : fd_(fd), path_(std::move(path)) {}

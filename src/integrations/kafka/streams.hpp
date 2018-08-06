@@ -8,13 +8,15 @@
 
 #include "storage/kvstore.hpp"
 
-namespace integrations {
-namespace kafka {
+namespace integrations::kafka {
 
 class Streams final {
  public:
   Streams(const std::string &streams_directory,
-          std::function<void(const std::vector<std::string> &)> stream_writer);
+          std::function<
+              void(const std::string &,
+                   const std::map<std::string, communication::bolt::Value> &)>
+              stream_writer);
 
   void Recover();
 
@@ -32,15 +34,19 @@ class Streams final {
 
   void StopAll();
 
-  std::vector<StreamInfo> Show();
+  std::vector<StreamStatus> Show();
 
-  std::vector<std::string> Test(const std::string &stream_name,
-                                std::experimental::optional<int64_t>
-                                    batch_limit = std::experimental::nullopt);
+  std::vector<
+      std::pair<std::string, std::map<std::string, communication::bolt::Value>>>
+  Test(const std::string &stream_name,
+       std::experimental::optional<int64_t> batch_limit =
+           std::experimental::nullopt);
 
  private:
   std::string streams_directory_;
-  std::function<void(const std::vector<std::string> &)> stream_writer_;
+  std::function<void(const std::string &,
+                     const std::map<std::string, communication::bolt::Value> &)>
+      stream_writer_;
 
   storage::KVStore metadata_store_;
 
@@ -51,5 +57,4 @@ class Streams final {
   std::string GetTransformScriptPath(const std::string &stream_name);
 };
 
-}  // namespace kafka
-}  // namespace integrations
+}  // namespace integrations::kafka

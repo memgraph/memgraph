@@ -21,6 +21,7 @@
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
+#include "glue/conversion.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
 #include "query/context.hpp"
@@ -4152,7 +4153,7 @@ class ShowStreamsCursor : public Cursor {
     frame[self_.uri_symbol()] = streams_it_->stream_uri;
     frame[self_.topic_symbol()] = streams_it_->stream_topic;
     frame[self_.transform_symbol()] = streams_it_->transform_uri;
-    frame[self_.status_symbol()] = streams_it_->is_running;
+    frame[self_.status_symbol()] = streams_it_->stream_status;
 
     streams_it_++;
 
@@ -4165,9 +4166,9 @@ class ShowStreamsCursor : public Cursor {
   const ShowStreams &self_;
 
   bool is_initialized_ = false;
-  using StreamInfo = integrations::kafka::StreamInfo;
-  std::vector<StreamInfo> streams_;
-  std::vector<StreamInfo>::iterator streams_it_ = streams_.begin();
+  using StreamStatus = integrations::kafka::StreamStatus;
+  std::vector<StreamStatus> streams_;
+  std::vector<StreamStatus>::iterator streams_it_ = streams_.begin();
 };
 
 std::unique_ptr<Cursor> ShowStreams::MakeCursor(
@@ -4267,15 +4268,16 @@ std::unique_ptr<Cursor> StartStopAllStreams::MakeCursor(
 }
 
 TestStream::TestStream(std::string stream_name, Expression *limit_batches,
-                       Symbol test_result_symbol)
+                       Symbol query_symbol, Symbol params_symbol)
     : stream_name_(stream_name),
       limit_batches_(limit_batches),
-      test_result_symbol_(test_result_symbol) {}
+      query_symbol_(query_symbol),
+      params_symbol_(params_symbol) {}
 
 WITHOUT_SINGLE_INPUT(TestStream)
 
 std::vector<Symbol> TestStream::OutputSymbols(const SymbolTable &) const {
-  return {test_result_symbol_};
+  return {query_symbol_, params_symbol_};
 }
 
 class TestStreamCursor : public Cursor {
@@ -4298,7 +4300,15 @@ class TestStreamCursor : public Cursor {
       }
 
       try {
-        results_ = ctx.kafka_streams_->Test(self_.stream_name(), limit_batches);
+        auto results =
+            ctx.kafka_streams_->Test(self_.stream_name(), limit_batches);
+        for (const auto &result : results) {
+          std::map<std::string, query::TypedValue> params_tv;
+          for (const auto &kv : result.second) {
+            params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
+          }
+          results_.emplace_back(result.first, params_tv);
+        }
       } catch (const integrations::kafka::KafkaStreamException &e) {
         throw QueryRuntimeException(e.what());
       }
@@ -4308,7 +4318,8 @@ class TestStreamCursor : public Cursor {
 
     if (results_it_ == results_.end()) return false;
 
-    frame[self_.test_result_symbol()] = *results_it_;
+    frame[self_.query_symbol()] = results_it_->first;
+    frame[self_.params_symbol()] = results_it_->second;
     results_it_++;
 
     return true;
@@ -4320,8 +4331,9 @@ class TestStreamCursor : public Cursor {
   const TestStream &self_;
 
   bool is_initialized_ = false;
-  std::vector<std::string> results_;
-  std::vector<std::string>::iterator results_it_ = results_.begin();
+  std::vector<std::pair<std::string, TypedValue>> results_;
+  std::vector<std::pair<std::string, TypedValue>>::iterator results_it_ =
+      results_.begin();
 };
 
 std::unique_ptr<Cursor> TestStream::MakeCursor(

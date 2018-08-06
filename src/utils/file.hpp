@@ -59,6 +59,17 @@ bool EnsureDir(const std::experimental::filesystem::path &dir);
  */
 void CheckDir(const std::string &dir);
 
+/**
+ * Deletes everything from the given dir including the dir.
+ */
+bool DeleteDir(const std::experimental::filesystem::path &dir);
+
+/**
+ * Copies the file from src to dst.
+ */
+bool CopyFile(const std::experimental::filesystem::path &src,
+              const std::experimental::filesystem::path &dst);
+
 // End higher level operations.
 
 // Lower level wrappers around C system calls follow.

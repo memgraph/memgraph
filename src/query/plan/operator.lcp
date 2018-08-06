@@ -2570,14 +2570,15 @@ stream is importing.")
              :capnp-init nil
              :capnp-save #'save-ast-pointer
              :capnp-load (load-ast-pointer "Expression *"))
-   (test-result-symbol "Symbol" :reader t))
+   (query-symbol "Symbol" :reader t)
+   (params-symbol "Symbol" :reader t))
   (:documentation
    "Test a stream. This will start consuming messages but wont insert anything
 in the db.")
   (:public
    #>cpp
    TestStream(std::string stream_name, Expression *limit_batches,
-              Symbol test_result_symbol);
+              Symbol query_symbol, Symbol params_symbol);
    DEFVISITABLE(HierarchicalLogicalOperatorVisitor);
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
