@@ -1,0 +1,64 @@
+#!/bin/bash
+
+## README
+# In order to use this script to make a coverage profile of the memgraph binary
+# you should create a new build directory in the project root (eg.
+# build_coverage) and in that directory you should execute
+# `../tools/coverage_memgraph`.
+#
+# This script will run `cmake`, `make` and then start the `memgraph` process.
+# When you wish to stop recording coverage data you should terminate the
+# memgraph process using C-c. Then the coverage will be processed and opened in
+# a browser.
+#
+# All parameters passed to this script will be forwarded to the memgraph
+# process.
+#
+# After the binary is compiled the first time, this script *WON'T* recompile
+# memgraph. It does it for the first time just for convenience.
+
+# Find system paths
+CWD="$( pwd )"
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+PROJECT_DIR="$( realpath --relative-to="$CWD" "$DIR/../" )"
+CPUS=$( cat /proc/cpuinfo | grep processor | wc -l )
+NOW=$( date '+%Y%m%d%H%M%S' )
+
+# Run `cmake` if it hasn't been run
+if [ ! -f Makefile ]; then
+    cmake -DTEST_COVERAGE=ON "$PROJECT_DIR"
+fi
+
+# Run `make` if it hasn't been run
+if [ ! -f memgraph ]; then
+    make -j$CPUS memgraph
+fi
+
+# Make the output directory
+output_dir="coverage-$NOW"
+coverage_raw_file="$output_dir/coverage.profraw"
+coverage_data_file="$output_dir/coverage.profdata"
+mkdir "$output_dir"
+
+# Run the `memgraph` binary
+LLVM_PROFILE_FILE="$coverage_raw_file" ./memgraph $@
+
+# Find all source files
+src_files=$( find "$PROJECT_DIR/src" \( -name '*.cpp' -o -name '*.hpp' \) -print | sort | tr '\n' ' ' )
+
+# Process the coverage
+llvm-profdata-5.0 merge -sparse "$coverage_raw_file" -o "$coverage_data_file"
+
+# Generate the html output
+binary_file="$( readlink memgraph )"
+llvm-cov-5.0 show "$binary_file" \
+    -format html \
+    -instr-profile "$coverage_data_file" \
+    -o "$output_dir" \
+    -show-line-counts-or-regions \
+    -Xdemangler c++filt -Xdemangler -n \
+    $src_files
+
+# Print where the coverage is and display it.
+echo "Coverage files stored in: $output_dir"
+chromium "$output_dir/index.html" >/dev/null 2>/dev/null &
