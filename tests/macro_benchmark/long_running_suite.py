@@ -34,34 +34,38 @@ class LongRunningSuite:
         runner.stop()
 
         measurements = []
-        summary_format = "{:>15} {:>22}\n"
+        summary_format = "{:>15} {:>22} {:>22}\n"
         self.summary = summary_format.format(
-                "elapsed_time", "num_executed_queries")
+                "elapsed_time", "num_executed_queries", "num_executed_steps")
         for result in results:
             self.summary += summary_format.format(
-                    result["elapsed_time"], result["num_executed_queries"])
+                    result["elapsed_time"], result["num_executed_queries"],
+                    result["num_executed_steps"])
             measurements.append({
                 "target": "throughput",
                 "time": result["elapsed_time"],
                 "value": result["num_executed_queries"],
+                "steps": result["num_executed_steps"],
                 "unit": "number of executed queries",
                 "type": "throughput"})
-        self.summary += "\n\nThroughtput: " + str(measurements[-1]["value"])
+        self.summary += "\n\nThroughput: " + str(measurements[-1]["value"])
+        self.summary += "\nExecuted steps: " + str(measurements[-1]["steps"])
         return measurements
 
     def runners(self):
         return {"MemgraphRunner": MemgraphRunner, "NeoRunner": NeoRunner}
 
     def groups(self):
-        return ["pokec", "card_fraud"]
+        return ["pokec", "card_fraud", "bfs_pokec"]
 
 
 class _LongRunningRunner:
-    def __init__(self, args, database, num_client_workers):
+    def __init__(self, args, database, num_client_workers, workload):
         self.log = logging.getLogger("_LongRunningRunner")
         self.database = database
         self.query_client = QueryClient(args, num_client_workers)
-        self.long_running_client = LongRunningClient(args, num_client_workers)
+        self.long_running_client = LongRunningClient(args, num_client_workers,
+                                                     workload)
 
     def start(self):
         self.database.start()
@@ -93,6 +97,9 @@ class MemgraphRunner(_LongRunningRunner):
                           help="Number of workers")
         argp.add_argument("--num-client-workers", type=int, default=24,
                           help="Number of clients")
+        argp.add_argument("--workload", type=str, default="",
+                          help="Type of client workload. Sets \
+                          scenario flag for 'TestClient'")
         self.args, remaining_args = argp.parse_known_args(args)
         assert not APOLLO or self.args.num_database_workers, \
             "--num-database-workers is obligatory flag on apollo"
@@ -101,7 +108,8 @@ class MemgraphRunner(_LongRunningRunner):
         database = Memgraph(remaining_args, self.args.runner_config,
                             self.args.num_database_workers)
         super(MemgraphRunner, self).__init__(
-                remaining_args, database, self.args.num_client_workers)
+                remaining_args, database, self.args.num_client_workers,
+                self.args.workload)
 
 
 class NeoRunner(_LongRunningRunner):
@@ -115,9 +123,13 @@ class NeoRunner(_LongRunningRunner):
                           help="Path to neo config file")
         argp.add_argument("--num-client-workers", type=int, default=24,
                           help="Number of clients")
+        argp.add_argument("--workload", type=str, default="",
+                          help="Type of client workload. Sets \
+                          scenario flag for 'TestClient'")
         self.args, remaining_args = argp.parse_known_args(args)
         assert not APOLLO or self.args.num_client_workers, \
             "--client-num-clients is obligatory flag on apollo"
         database = Neo(remaining_args, self.args.runner_config)
         super(NeoRunner, self).__init__(
-                remaining_args, database, self.args.num_client_workers)
+                remaining_args, database, self.args.num_client_workers,
+                self.args.workload)

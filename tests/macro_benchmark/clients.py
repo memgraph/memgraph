@@ -78,11 +78,12 @@ class QueryClient:
 
 
 class LongRunningClient:
-    def __init__(self, args, default_num_workers):
+    def __init__(self, args, default_num_workers, workload):
         self.log = logging.getLogger("LongRunningClient")
         self.client = jail.get_process()
         set_cpus("client-cpu-ids", self.client, args)
         self.default_num_workers = default_num_workers
+        self.workload = workload
 
     # TODO: This is quite similar to __call__ method of QueryClient. Remove
     # duplication.
@@ -114,7 +115,9 @@ class LongRunningClient:
         client_args = ["--port", database.args.port,
                        "--num-workers", str(num_workers),
                        "--output", output,
-                       "--duration", str(duration)]
+                       "--duration", str(duration),
+                       "--db", database.name,
+                       "--scenario", self.workload]
 
         return_code = self.client.run_and_wait(
             client, client_args, timeout=600, stdin=config_path)

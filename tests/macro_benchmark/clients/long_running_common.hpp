@@ -22,6 +22,7 @@
 
 const int MAX_RETRIES = 30;
 
+DEFINE_string(db, "", "Database queries are executed on.");
 DEFINE_string(address, "127.0.0.1", "Server address");
 DEFINE_int32(port, 7687, "Server port");
 DEFINE_int32(num_workers, 1, "Number of workers");
@@ -35,6 +36,7 @@ DEFINE_string(group, "unknown", "Test group name");
 DEFINE_string(scenario, "unknown", "Test scenario name");
 
 auto &executed_queries = stats::GetCounter("executed_queries");
+auto &executed_steps = stats::GetCounter("executed_steps");
 auto &serialization_errors = stats::GetCounter("serialization_errors");
 
 class TestClient {
@@ -59,6 +61,7 @@ class TestClient {
     runner_thread_ = std::thread([&] {
       while (keep_running_) {
         Step();
+        executed_steps.Bump();
       }
     });
   }
@@ -185,6 +188,7 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
     }
 
     out << "{\"num_executed_queries\": " << executed_queries.Value() << ", "
+        << "\"num_executed_steps\": " << executed_steps.Value() << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
     utils::PrintIterable(

@@ -40,6 +40,7 @@ class Memgraph:
         self.config = config
         self.num_workers = num_workers
         self.database_bin = jail.get_process()
+        self.name = "memgraph"
         set_cpus("database-cpu-ids", self.database_bin, args)
 
     def start(self):
@@ -90,6 +91,7 @@ class Neo:
         self.args, _ = argp.parse_known_args(args)
         self.config = config
         self.database_bin = jail.get_process()
+        self.name = "neo4j"
         set_cpus("database-cpu-ids", self.database_bin, args)
 
     def start(self):

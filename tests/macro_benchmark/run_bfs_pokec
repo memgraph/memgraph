@@ -1,0 +1,23 @@
+#!/bin/bash -e
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Run bfs pokec bench (download dataset, run neo and memgraph, plot the results).
+
+cd ${script_dir}
+mkdir -p .results/bfs_pokec/
+
+${script_dir}/groups/bfs_pokec/download_dataset
+
+./harness LongRunningSuite MemgraphRunner --groups bfs_pokec --workload with_destination_node
+mv .harness_summary ${script_dir}/.results/bfs_pokec/memgraph_bfs_1.summary
+
+./harness LongRunningSuite NeoRunner --groups bfs_pokec --workload with_destination_node
+mv .harness_summary ${script_dir}/.results/bfs_pokec/neo4j_bfs_1.summary
+
+./harness LongRunningSuite MemgraphRunner --groups bfs_pokec --workload without_destination_node
+mv .harness_summary ${script_dir}/.results/bfs_pokec/memgraph_bfs_2.summary
+
+./harness LongRunningSuite NeoRunner --groups bfs_pokec --workload without_destination_node
+mv .harness_summary ${script_dir}/.results/bfs_pokec/neo4j_bfs_2.summary
+
