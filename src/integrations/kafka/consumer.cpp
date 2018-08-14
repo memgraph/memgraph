@@ -134,6 +134,9 @@ void Consumer::StartConsuming(
 
       if (batch.empty()) continue;
 
+      DLOG(INFO) << "[Kafka] stream " << info_.stream_name
+                 << " processing a batch";
+
       // All exceptions that could be possibly thrown by the `Apply` function
       // must be handled here because they *will* crash the database if
       // uncaught!
