@@ -421,8 +421,10 @@ struct AuthQuery {
     match @2;
     merge @3;
     set @4;
-    auth @5;
-    stream @6;
+    remove @5;
+    index @6;
+    auth @7;
+    stream @8;
   }
   action @0 :Action;
   user @1 :Text;

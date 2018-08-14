@@ -2,8 +2,10 @@
 
 #include <experimental/filesystem>
 #include <experimental/optional>
+#include <map>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "utils/exceptions.hpp"
 
@@ -50,6 +52,16 @@ class KVStore final {
   bool Put(const std::string &key, const std::string &value);
 
   /**
+   * Store values under the given keys.
+   *
+   * @param items
+   *
+   * @return true if the items have been successfully stored.
+   *         In case of any error false is going to be returned.
+   */
+  bool PutMultiple(const std::map<std::string, std::string> &items);
+
+  /**
    * Retrieve value for the given key.
    *
    * @param key
@@ -72,6 +84,17 @@ class KVStore final {
   bool Delete(const std::string &key);
 
   /**
+   * Deletes the keys and corresponding values from storage.
+   *
+   * @param keys
+   *
+   * @return True on success, false on error. The return value is
+   *         true if the keys don't exist and underlying storage
+   *         didn't encounter any error.
+   */
+  bool DeleteMultiple(const std::vector<std::string> &keys);
+
+  /**
    * Delete all (key, value) pairs where key begins with a given prefix.
    *
    * @param prefix - prefix of the keys in (key, value) pairs to be deleted.
@@ -82,6 +105,18 @@ class KVStore final {
    *         didn't encounter any error.
    */
   bool DeletePrefix(const std::string &prefix = "");
+
+  /**
+   * Store values under the given keys and delete the keys.
+   *
+   * @param items
+   * @param keys
+   *
+   * @return true if the items have been successfully stored and deleted.
+   *         In case of any error false is going to be returned.
+   */
+  bool PutAndDeleteMultiple(const std::map<std::string, std::string> &items,
+                            const std::vector<std::string> &keys);
 
   /**
    * Returns total number of stored (key, value) pairs. The function takes an

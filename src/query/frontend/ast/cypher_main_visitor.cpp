@@ -386,8 +386,13 @@ antlrcpp::Any CypherMainVisitor::visitGrantPrivilege(
   AuthQuery *auth = storage_.Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::GRANT_PRIVILEGE;
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
-  for (auto *privilege : ctx->privilegeList()->privilege()) {
-    auth->privileges_.push_back(privilege->accept(this));
+  if (ctx->privilegeList()) {
+    for (auto *privilege : ctx->privilegeList()->privilege()) {
+      auth->privileges_.push_back(privilege->accept(this));
+    }
+  } else {
+    /* grant all privileges */
+    auth->privileges_ = kPrivilegesAll;
   }
   return auth;
 }
@@ -400,8 +405,13 @@ antlrcpp::Any CypherMainVisitor::visitDenyPrivilege(
   AuthQuery *auth = storage_.Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DENY_PRIVILEGE;
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
-  for (auto *privilege : ctx->privilegeList()->privilege()) {
-    auth->privileges_.push_back(privilege->accept(this));
+  if (ctx->privilegeList()) {
+    for (auto *privilege : ctx->privilegeList()->privilege()) {
+      auth->privileges_.push_back(privilege->accept(this));
+    }
+  } else {
+    /* deny all privileges */
+    auth->privileges_ = kPrivilegesAll;
   }
   return auth;
 }
@@ -420,11 +430,7 @@ antlrcpp::Any CypherMainVisitor::visitRevokePrivilege(
     }
   } else {
     /* revoke all privileges */
-    auth->privileges_ = {
-        AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
-        AuthQuery::Privilege::MATCH,  AuthQuery::Privilege::MERGE,
-        AuthQuery::Privilege::SET,    AuthQuery::Privilege::AUTH,
-        AuthQuery::Privilege::STREAM};
+    auth->privileges_ = kPrivilegesAll;
   }
   return auth;
 }
@@ -439,6 +445,8 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(
   if (ctx->MATCH()) return AuthQuery::Privilege::MATCH;
   if (ctx->MERGE()) return AuthQuery::Privilege::MERGE;
   if (ctx->SET()) return AuthQuery::Privilege::SET;
+  if (ctx->REMOVE()) return AuthQuery::Privilege::REMOVE;
+  if (ctx->INDEX()) return AuthQuery::Privilege::INDEX;
   if (ctx->AUTH()) return AuthQuery::Privilege::AUTH;
   if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
   LOG(FATAL) << "Should not get here - unknown privilege!";

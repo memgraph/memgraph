@@ -88,14 +88,14 @@ grantRole : GRANT ROLE role=userOrRoleName TO user=userOrRoleName ;
 
 revokeRole : REVOKE ROLE role=userOrRoleName FROM user=userOrRoleName ;
 
-grantPrivilege : GRANT privilegeList TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY privilegeList TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole=userOrRoleName ;
 
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE | DELETE | MATCH | MERGE | SET
-          | AUTH | STREAM ;
+          | REMOVE | INDEX | AUTH | STREAM ;
 
 privilegeList : privilege ( ',' privilege )* ;
 

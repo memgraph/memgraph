@@ -3893,21 +3893,107 @@ std::unique_ptr<Cursor> PullRemoteOrderBy::MakeCursor(
 AuthHandler::AuthHandler(AuthQuery::Action action, std::string user,
                          std::string role, std::string user_or_role,
                          Expression *password,
-                         std::vector<AuthQuery::Privilege> privileges)
+                         std::vector<AuthQuery::Privilege> privileges,
+                         Symbol user_symbol, Symbol role_symbol,
+                         Symbol grants_symbol)
     : action_(action),
       user_(user),
       role_(role),
       user_or_role_(user_or_role),
       password_(password),
-      privileges_(privileges) {}
+      privileges_(privileges),
+      user_symbol_(user_symbol),
+      role_symbol_(role_symbol),
+      grants_symbol_(grants_symbol) {}
 
 bool AuthHandler::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.Visit(*this);
 }
 
+std::vector<Symbol> AuthHandler::OutputSymbols(const SymbolTable &) const {
+  switch (action_) {
+    case AuthQuery::Action::SHOW_USERS:
+    case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
+      return {user_symbol_};
+
+    case AuthQuery::Action::SHOW_ROLES:
+    case AuthQuery::Action::SHOW_ROLE_FOR_USER:
+      return {role_symbol_};
+
+    case AuthQuery::Action::SHOW_GRANTS:
+      return {grants_symbol_};
+
+    case AuthQuery::Action::CREATE_USER:
+    case AuthQuery::Action::DROP_USER:
+    case AuthQuery::Action::SET_PASSWORD:
+    case AuthQuery::Action::CREATE_ROLE:
+    case AuthQuery::Action::DROP_ROLE:
+    case AuthQuery::Action::GRANT_ROLE:
+    case AuthQuery::Action::REVOKE_ROLE:
+    case AuthQuery::Action::GRANT_PRIVILEGE:
+    case AuthQuery::Action::DENY_PRIVILEGE:
+    case AuthQuery::Action::REVOKE_PRIVILEGE:
+      return {};
+  }
+}
+
 class AuthHandlerCursor : public Cursor {
  public:
   AuthHandlerCursor(const AuthHandler &self) : self_(self) {}
+
+  std::vector<auth::Permission> GetAuthPermissions() {
+    std::vector<auth::Permission> ret;
+    for (const auto &privilege : self_.privileges()) {
+      switch (privilege) {
+        case AuthQuery::Privilege::MATCH:
+          ret.push_back(auth::Permission::MATCH);
+          break;
+        case AuthQuery::Privilege::CREATE:
+          ret.push_back(auth::Permission::CREATE);
+          break;
+        case AuthQuery::Privilege::MERGE:
+          ret.push_back(auth::Permission::MERGE);
+          break;
+        case AuthQuery::Privilege::DELETE:
+          ret.push_back(auth::Permission::DELETE);
+          break;
+        case AuthQuery::Privilege::SET:
+          ret.push_back(auth::Permission::SET);
+          break;
+        case AuthQuery::Privilege::REMOVE:
+          ret.push_back(auth::Permission::REMOVE);
+          break;
+        case AuthQuery::Privilege::INDEX:
+          ret.push_back(auth::Permission::INDEX);
+          break;
+        case AuthQuery::Privilege::AUTH:
+          ret.push_back(auth::Permission::AUTH);
+          break;
+        case AuthQuery::Privilege::STREAM:
+          ret.push_back(auth::Permission::STREAM);
+          break;
+      }
+    }
+    return ret;
+  }
+
+  std::vector<std::string> GetGrantsFromAuthPermissions(
+      auth::Permissions &permissions) {
+    std::vector<std::string> grants, denies, ret;
+    for (const auto &permission : permissions.GetGrants()) {
+      grants.push_back(auth::PermissionToString(permission));
+    }
+    for (const auto &permission : permissions.GetDenies()) {
+      denies.push_back(auth::PermissionToString(permission));
+    }
+    if (grants.size() > 0) {
+      ret.push_back(fmt::format("GRANT {}", utils::Join(grants, ", ")));
+    }
+    if (denies.size() > 0) {
+      ret.push_back(fmt::format("DENY {}", utils::Join(denies, ", ")));
+    }
+    return ret;
+  }
 
   bool Pull(Frame &frame, Context &ctx) override {
     if (ctx.in_explicit_transaction_) {
@@ -3916,37 +4002,32 @@ class AuthHandlerCursor : public Cursor {
 
     ExpressionEvaluator evaluator(frame, &ctx, GraphView::OLD);
     std::experimental::optional<std::string> password;
-    /* TODO(mferencevic): handle null passwords properly */
     if (self_.password()) {
       auto password_tv = self_.password()->Accept(evaluator);
-      if (!password_tv.IsString()) {
-        throw QueryRuntimeException("Password must be a string, not '{}'!",
-                                    password_tv.type());
+      if (!password_tv.IsString() && !password_tv.IsNull()) {
+        throw QueryRuntimeException(
+            "Password must be a string or null, not '{}'!", password_tv.type());
       }
-      password = password_tv.ValueString();
+      if (password_tv.IsString()) {
+        password = password_tv.ValueString();
+      }
     }
 
     auto &auth = *ctx.auth_;
-    std::lock_guard<std::mutex> lock(auth.WithLock());
 
     switch (self_.action()) {
       case AuthQuery::Action::CREATE_USER: {
-        if (!password) {
-          throw QueryRuntimeException(
-              "Password must be provided when creating a user!");
-        }
-        auto user = auth.AddUser(self_.user());
+        std::lock_guard<std::mutex> lock(auth.WithLock());
+        auto user = auth.AddUser(self_.user(), password);
         if (!user) {
-          throw QueryRuntimeException("User '{}' already exists!",
+          throw QueryRuntimeException("User or role '{}' already exists!",
                                       self_.user());
         }
-        user->UpdatePassword(*password);
-        if (!auth.SaveUser(*user)) {
-          throw QueryRuntimeException("Couldn't save user '{}'!", self_.user());
-        }
-        break;
+        return false;
       }
+
       case AuthQuery::Action::DROP_USER: {
+        std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
           throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
@@ -3955,38 +4036,216 @@ class AuthHandlerCursor : public Cursor {
           throw QueryRuntimeException("Couldn't remove user '{}'!",
                                       self_.user());
         }
-        break;
+        return false;
       }
+
       case AuthQuery::Action::SET_PASSWORD: {
-        if (!password) {
-          throw QueryRuntimeException("Password must be provided!");
-        }
+        std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
           throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
         }
-        user->UpdatePassword(*password);
-        if (!auth.SaveUser(*user)) {
-          throw QueryRuntimeException("Couldn't set password for user '{}'!",
-                                      self_.user());
-        }
-        break;
+        user->UpdatePassword(password);
+        auth.SaveUser(*user);
+        return false;
       }
-      case AuthQuery::Action::CREATE_ROLE:
-      case AuthQuery::Action::DROP_ROLE:
-      case AuthQuery::Action::SHOW_ROLES:
-      case AuthQuery::Action::SHOW_USERS:
-      case AuthQuery::Action::GRANT_ROLE:
-      case AuthQuery::Action::REVOKE_ROLE:
+
+      case AuthQuery::Action::CREATE_ROLE: {
+        std::lock_guard<std::mutex> lock(auth.WithLock());
+        auto role = auth.AddRole(self_.role());
+        if (!role) {
+          throw QueryRuntimeException("User or role '{}' already exists!",
+                                      self_.role());
+        }
+        return false;
+      }
+
+      case AuthQuery::Action::DROP_ROLE: {
+        std::lock_guard<std::mutex> lock(auth.WithLock());
+        auto role = auth.GetRole(self_.role());
+        if (!role) {
+          throw QueryRuntimeException("Role '{}' doesn't exist!", self_.role());
+        }
+        if (!auth.RemoveRole(self_.role())) {
+          throw QueryRuntimeException("Couldn't remove role '{}'!",
+                                      self_.role());
+        }
+        return false;
+      }
+
+      case AuthQuery::Action::SHOW_USERS: {
+        if (!users_) {
+          std::lock_guard<std::mutex> lock(auth.WithLock());
+          users_.emplace(auth.AllUsers());
+          users_it_ = users_->begin();
+        }
+
+        if (users_it_ == users_->end()) return false;
+
+        frame[self_.user_symbol()] = users_it_->username();
+        users_it_++;
+
+        return true;
+      }
+
+      case AuthQuery::Action::SHOW_ROLES: {
+        if (!roles_) {
+          std::lock_guard<std::mutex> lock(auth.WithLock());
+          roles_.emplace(auth.AllRoles());
+          roles_it_ = roles_->begin();
+        }
+
+        if (roles_it_ == roles_->end()) return false;
+
+        frame[self_.role_symbol()] = roles_it_->rolename();
+        roles_it_++;
+
+        return true;
+      }
+
+      case AuthQuery::Action::GRANT_ROLE: {
+        std::lock_guard<std::mutex> lock(auth.WithLock());
+        auto user = auth.GetUser(self_.user());
+        if (!user) {
+          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+        }
+        auto role = auth.GetRole(self_.role());
+        if (!role) {
+          throw QueryRuntimeException("Role '{}' doesn't exist!", self_.role());
+        }
+        if (user->role()) {
+          throw QueryRuntimeException(
+              "User '{}' is already a member of role '{}'!", self_.user(),
+              user->role()->rolename());
+        }
+        user->SetRole(*role);
+        auth.SaveUser(*user);
+        return false;
+      }
+
+      case AuthQuery::Action::REVOKE_ROLE: {
+        std::lock_guard<std::mutex> lock(auth.WithLock());
+        auto user = auth.GetUser(self_.user());
+        if (!user) {
+          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+        }
+        auto role = auth.GetRole(self_.role());
+        if (!role) {
+          throw QueryRuntimeException("Role '{}' doesn't exist!", self_.role());
+        }
+        if (user->role() != role) {
+          throw QueryRuntimeException("User '{}' isn't a member of role '{}'!",
+                                      self_.user(), self_.role());
+        }
+        user->ClearRole();
+        auth.SaveUser(*user);
+        return false;
+      }
+
       case AuthQuery::Action::GRANT_PRIVILEGE:
       case AuthQuery::Action::DENY_PRIVILEGE:
-      case AuthQuery::Action::REVOKE_PRIVILEGE:
-      case AuthQuery::Action::SHOW_GRANTS:
-      case AuthQuery::Action::SHOW_ROLE_FOR_USER:
-      case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
-        throw utils::NotYetImplemented("user auth");
+      case AuthQuery::Action::REVOKE_PRIVILEGE: {
+        std::lock_guard<std::mutex> lock(auth.WithLock());
+        auto user = auth.GetUser(self_.user_or_role());
+        auto role = auth.GetRole(self_.user_or_role());
+        if (!user && !role) {
+          throw QueryRuntimeException("User or role '{}' doesn't exist!",
+                                      self_.user_or_role());
+        }
+        auto permissions = GetAuthPermissions();
+        if (user) {
+          for (const auto &permission : permissions) {
+            // TODO (mferencevic): should we first check that the privilege
+            // is granted/denied/revoked before unconditionally
+            // granting/denying/revoking it?
+            if (self_.action() == AuthQuery::Action::GRANT_PRIVILEGE) {
+              user->permissions().Grant(permission);
+            } else if (self_.action() == AuthQuery::Action::DENY_PRIVILEGE) {
+              user->permissions().Deny(permission);
+            } else {
+              user->permissions().Revoke(permission);
+            }
+          }
+          auth.SaveUser(*user);
+        } else {
+          for (const auto &permission : permissions) {
+            // TODO (mferencevic): should we first check that the privilege
+            // is granted/denied/revoked before unconditionally
+            // granting/denying/revoking it?
+            if (self_.action() == AuthQuery::Action::GRANT_PRIVILEGE) {
+              role->permissions().Grant(permission);
+            } else if (self_.action() == AuthQuery::Action::DENY_PRIVILEGE) {
+              role->permissions().Deny(permission);
+            } else {
+              role->permissions().Revoke(permission);
+            }
+          }
+          auth.SaveRole(*role);
+        }
+        return false;
+      }
+
+      case AuthQuery::Action::SHOW_GRANTS: {
+        if (!grants_) {
+          std::lock_guard<std::mutex> lock(auth.WithLock());
+          auto user = auth.GetUser(self_.user_or_role());
+          auto role = auth.GetRole(self_.user_or_role());
+          if (!user && !role) {
+            throw QueryRuntimeException("User or role '{}' doesn't exist!",
+                                        self_.user_or_role());
+          }
+          if (user) {
+            grants_.emplace(GetGrantsFromAuthPermissions(user->permissions()));
+          } else {
+            grants_.emplace(GetGrantsFromAuthPermissions(role->permissions()));
+          }
+          grants_it_ = grants_->begin();
+        }
+
+        if (grants_it_ == grants_->end()) return false;
+
+        frame[self_.grants_symbol()] = *grants_it_;
+        grants_it_++;
+
+        return true;
+      }
+
+      case AuthQuery::Action::SHOW_ROLE_FOR_USER: {
+        if (returned_role_for_user_) return false;
+        std::lock_guard<std::mutex> lock(auth.WithLock());
+        auto user = auth.GetUser(self_.user());
+        if (!user) {
+          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+        }
+        if (user->role()) {
+          frame[self_.role_symbol()] = user->role()->rolename();
+        } else {
+          frame[self_.role_symbol()] = TypedValue::Null;
+        }
+        returned_role_for_user_ = true;
+        return true;
+      }
+
+      case AuthQuery::Action::SHOW_USERS_FOR_ROLE: {
+        if (!users_) {
+          std::lock_guard<std::mutex> lock(auth.WithLock());
+          auto role = auth.GetRole(self_.role());
+          if (!role) {
+            throw QueryRuntimeException("Role '{}' doesn't exist!",
+                                        self_.role());
+          }
+          users_.emplace(auth.AllUsersForRole(self_.role()));
+          users_it_ = users_->begin();
+        }
+
+        if (users_it_ == users_->end()) return false;
+
+        frame[self_.user_symbol()] = users_it_->username();
+        users_it_++;
+
+        return true;
+      }
     }
-    return false;
   }
 
   void Reset() override {
@@ -3995,6 +4254,13 @@ class AuthHandlerCursor : public Cursor {
 
  private:
   const AuthHandler &self_;
+  std::experimental::optional<std::vector<auth::User>> users_;
+  std::vector<auth::User>::iterator users_it_;
+  std::experimental::optional<std::vector<auth::Role>> roles_;
+  std::vector<auth::Role>::iterator roles_it_;
+  std::experimental::optional<std::vector<std::string>> grants_;
+  std::vector<std::string>::iterator grants_it_;
+  bool returned_role_for_user_{false};
 };
 
 std::unique_ptr<Cursor> AuthHandler::MakeCursor(

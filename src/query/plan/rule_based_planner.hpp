@@ -185,10 +185,14 @@ class RuleBasedPlanner {
         } else if (auto *auth_query =
                        dynamic_cast<query::AuthQuery *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before AuthQuery";
+          auto &symbol_table = context.symbol_table;
           input_op = std::make_unique<plan::AuthHandler>(
               auth_query->action_, auth_query->user_, auth_query->role_,
               auth_query->user_or_role_, auth_query->password_,
-              auth_query->privileges_);
+              auth_query->privileges_,
+              symbol_table.CreateSymbol("user", false),
+              symbol_table.CreateSymbol("role", false),
+              symbol_table.CreateSymbol("grants", false));
         } else if (auto *create_stream =
                        dynamic_cast<query::CreateStream *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before CreateStream";

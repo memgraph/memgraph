@@ -16,6 +16,11 @@ bool KVStore::Put(const std::string &key, const std::string &value) {
       << "Unsupported operation (KVStore::Put) -- this is a dummy kvstore";
 }
 
+bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
+  CHECK(false) << "Unsupported operation (KVStore::PutMultiple) -- this is a "
+                  "dummy kvstore";
+}
+
 std::experimental::optional<std::string> KVStore::Get(
     const std::string &key) const noexcept {
   CHECK(false)
@@ -27,9 +32,22 @@ bool KVStore::Delete(const std::string &key) {
       << "Unsupported operation (KVStore::Delete) -- this is a dummy kvstore";
 }
 
+bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
+  CHECK(false) << "Unsupported operation (KVStore::DeleteMultiple) -- this is "
+                  "a dummy kvstore";
+}
+
 bool KVStore::DeletePrefix(const std::string &prefix) {
   CHECK(false) << "Unsupported operation (KVStore::DeletePrefix) -- this is a "
                   "dummy kvstore";
+}
+
+bool KVStore::PutAndDeleteMultiple(
+    const std::map<std::string, std::string> &items,
+    const std::vector<std::string> &keys) {
+  CHECK(false)
+      << "Unsupported operation (KVStore::PutAndDeleteMultiple) -- this is a "
+         "dummy kvstore";
 }
 
 // iterator

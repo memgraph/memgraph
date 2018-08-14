@@ -2146,6 +2146,12 @@ void AuthQuery::Save(capnp::AuthQuery::Builder *builder,
       case Privilege::SET:
         privileges_builder.set(i, capnp::AuthQuery::Privilege::SET);
         break;
+      case Privilege::REMOVE:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::REMOVE);
+        break;
+      case Privilege::INDEX:
+        privileges_builder.set(i, capnp::AuthQuery::Privilege::INDEX);
+        break;
       case Privilege::AUTH:
         privileges_builder.set(i, capnp::AuthQuery::Privilege::AUTH);
         break;
@@ -2231,6 +2237,12 @@ void AuthQuery::Load(const capnp::Tree::Reader &base_reader,
         break;
       case capnp::AuthQuery::Privilege::SET:
         privileges_.push_back(Privilege::SET);
+        break;
+      case capnp::AuthQuery::Privilege::REMOVE:
+        privileges_.push_back(Privilege::REMOVE);
+        break;
+      case capnp::AuthQuery::Privilege::INDEX:
+        privileges_.push_back(Privilege::INDEX);
         break;
       case capnp::AuthQuery::Privilege::AUTH:
         privileges_.push_back(Privilege::AUTH);

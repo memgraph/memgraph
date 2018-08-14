@@ -2,7 +2,7 @@
 
 #include <libbcrypt/bcrypt.h>
 
-#include "utils/exceptions.hpp"
+#include "auth/exceptions.hpp"
 
 namespace auth {
 
@@ -14,11 +14,11 @@ const std::string EncryptPassword(const std::string &password) {
   // its default value of `12`. Increasing the workfactor increases the time
   // needed to generate the salt.
   if (bcrypt_gensalt(-1, salt) != 0) {
-    throw utils::BasicException("Couldn't generate hashing salt!");
+    throw AuthException("Couldn't generate hashing salt!");
   }
 
   if (bcrypt_hashpw(password.c_str(), salt, hash) != 0) {
-    throw utils::BasicException("Couldn't hash password!");
+    throw AuthException("Couldn't hash password!");
   }
 
   return std::string(hash);
@@ -27,7 +27,7 @@ const std::string EncryptPassword(const std::string &password) {
 bool VerifyPassword(const std::string &password, const std::string &hash) {
   int ret = bcrypt_checkpw(password.c_str(), hash.c_str());
   if (ret == -1) {
-    throw utils::BasicException("Couldn't check password!");
+    throw AuthException("Couldn't check password!");
   }
   return ret == 0;
 }

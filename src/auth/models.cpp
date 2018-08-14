@@ -1,10 +1,44 @@
 #include "auth/models.hpp"
 
+#include <regex>
+
+#include <gflags/gflags.h>
+
 #include "auth/crypto.hpp"
+#include "auth/exceptions.hpp"
 #include "utils/cast.hpp"
-#include "utils/exceptions.hpp"
+
+DEFINE_bool(auth_password_permit_null, true,
+            "Set to false to disable null passwords.");
+
+DEFINE_string(auth_password_strength_regex, ".+",
+              "The regular expression that should be used to match the entire "
+              "entered password to ensure its strength.");
 
 namespace auth {
+
+std::string PermissionToString(Permission permission) {
+  switch (permission) {
+    case Permission::MATCH:
+      return "MATCH";
+    case Permission::CREATE:
+      return "CREATE";
+    case Permission::MERGE:
+      return "MERGE";
+    case Permission::DELETE:
+      return "DELETE";
+    case Permission::SET:
+      return "SET";
+    case Permission::REMOVE:
+      return "REMOVE";
+    case Permission::INDEX:
+      return "INDEX";
+    case Permission::AUTH:
+      return "AUTH";
+    case Permission::STREAM:
+      return "STREAM";
+  }
+}
 
 Permissions::Permissions(uint64_t grants, uint64_t denies) {
   // The deny bitmask has higher priority than the grant bitmask.
@@ -16,11 +50,11 @@ Permissions::Permissions(uint64_t grants, uint64_t denies) {
 PermissionLevel Permissions::Has(Permission permission) const {
   // Check for the deny first because it has greater priority than a grant.
   if (denies_ & utils::UnderlyingCast(permission)) {
-    return PermissionLevel::Deny;
+    return PermissionLevel::DENY;
   } else if (grants_ & utils::UnderlyingCast(permission)) {
-    return PermissionLevel::Grant;
+    return PermissionLevel::GRANT;
   }
-  return PermissionLevel::Neutral;
+  return PermissionLevel::NEUTRAL;
 }
 
 void Permissions::Grant(Permission permission) {
@@ -44,6 +78,26 @@ void Permissions::Deny(Permission permission) {
   grants_ &= ~utils::UnderlyingCast(permission);
 }
 
+std::vector<Permission> Permissions::GetGrants() const {
+  std::vector<Permission> ret;
+  for (const auto &permission : kPermissionsAll) {
+    if (Has(permission) == PermissionLevel::GRANT) {
+      ret.push_back(permission);
+    }
+  }
+  return ret;
+}
+
+std::vector<Permission> Permissions::GetDenies() const {
+  std::vector<Permission> ret;
+  for (const auto &permission : kPermissionsAll) {
+    if (Has(permission) == PermissionLevel::DENY) {
+      ret.push_back(permission);
+    }
+  }
+  return ret;
+}
+
 nlohmann::json Permissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data["grants"] = grants_;
@@ -53,11 +107,11 @@ nlohmann::json Permissions::Serialize() const {
 
 Permissions Permissions::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
-    throw utils::BasicException("Couldn't load permissions data!");
+    throw AuthException("Couldn't load permissions data!");
   }
   if (!data["grants"].is_number_unsigned() ||
       !data["denies"].is_number_unsigned()) {
-    throw utils::BasicException("Couldn't load permissions data!");
+    throw AuthException("Couldn't load permissions data!");
   }
   return {data["grants"], data["denies"]};
 }
@@ -91,10 +145,10 @@ nlohmann::json Role::Serialize() const {
 
 Role Role::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
-    throw utils::BasicException("Couldn't load role data!");
+    throw AuthException("Couldn't load role data!");
   }
   if (!data["rolename"].is_string() || !data["permissions"].is_object()) {
-    throw utils::BasicException("Couldn't load role data!");
+    throw AuthException("Couldn't load role data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
   return {data["rolename"], permissions};
@@ -114,14 +168,32 @@ User::User(const std::string &username, const std::string &password_hash,
       permissions_(permissions) {}
 
 bool User::CheckPassword(const std::string &password) {
+  if (password_hash_ == "") return true;
   return VerifyPassword(password, password_hash_);
 }
 
-void User::UpdatePassword(const std::string &password) {
-  password_hash_ = EncryptPassword(password);
+void User::UpdatePassword(
+    const std::experimental::optional<std::string> &password) {
+  if (password) {
+    std::regex re(FLAGS_auth_password_strength_regex);
+    if (!std::regex_match(*password, re)) {
+      throw AuthException(
+          "The user password doesn't conform to the required strength! Regex: "
+          "{}",
+          FLAGS_auth_password_strength_regex);
+    }
+    password_hash_ = EncryptPassword(*password);
+  } else {
+    if (!FLAGS_auth_password_permit_null) {
+      throw AuthException("Null passwords aren't permitted!");
+    }
+    password_hash_ = "";
+  }
 }
 
 void User::SetRole(const Role &role) { role_.emplace(role); }
+
+void User::ClearRole() { role_ = std::experimental::nullopt; }
 
 const Permissions User::GetPermissions() const {
   if (role_) {
@@ -148,11 +220,11 @@ nlohmann::json User::Serialize() const {
 
 User User::Deserialize(const nlohmann::json &data) {
   if (!data.is_object()) {
-    throw utils::BasicException("Couldn't load user data!");
+    throw AuthException("Couldn't load user data!");
   }
   if (!data["username"].is_string() || !data["password_hash"].is_string() ||
       !data["permissions"].is_object()) {
-    throw utils::BasicException("Couldn't load user data!");
+    throw AuthException("Couldn't load user data!");
   }
   auto permissions = Permissions::Deserialize(data["permissions"]);
   return {data["username"], data["password_hash"], permissions};

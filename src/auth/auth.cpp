@@ -1,6 +1,6 @@
 #include "auth/auth.hpp"
 
-#include "utils/string.hpp"
+#include "auth/exceptions.hpp"
 
 namespace auth {
 
@@ -44,7 +44,7 @@ std::experimental::optional<User> Auth::GetUser(const std::string &username) {
   try {
     data = nlohmann::json::parse(*existing_user);
   } catch (const nlohmann::json::parse_error &e) {
-    throw utils::BasicException("Couldn't load user data!");
+    throw AuthException("Couldn't load user data!");
   }
 
   auto user = User::Deserialize(data);
@@ -59,38 +59,59 @@ std::experimental::optional<User> Auth::GetUser(const std::string &username) {
   return user;
 }
 
-bool Auth::SaveUser(const User &user) {
-  if (!storage_.Put(kUserPrefix + user.username(), user.Serialize().dump())) {
-    return false;
-  }
+void Auth::SaveUser(const User &user) {
+  bool success = false;
   if (user.role()) {
-    return storage_.Put(kLinkPrefix + user.username(), user.role()->rolename());
+    success = storage_.PutMultiple(
+        {{kUserPrefix + user.username(), user.Serialize().dump()},
+         {kLinkPrefix + user.username(), user.role()->rolename()}});
   } else {
-    return storage_.Delete(kLinkPrefix + user.username());
+    success = storage_.PutAndDeleteMultiple(
+        {{kUserPrefix + user.username(), user.Serialize().dump()}},
+        {kLinkPrefix + user.username()});
+  }
+  if (!success) {
+    throw AuthException("Couldn't save user '{}'!", user.username());
   }
 }
 
-std::experimental::optional<User> Auth::AddUser(const std::string &username) {
+std::experimental::optional<User> Auth::AddUser(
+    const std::string &username,
+    const std::experimental::optional<std::string> &password) {
   auto existing_user = GetUser(username);
   if (existing_user) return std::experimental::nullopt;
+  auto existing_role = GetRole(username);
+  if (existing_role) return std::experimental::nullopt;
   auto new_user = User(username);
-  if (!SaveUser(new_user)) return std::experimental::nullopt;
+  new_user.UpdatePassword(password);
+  SaveUser(new_user);
   return new_user;
 }
 
 bool Auth::RemoveUser(const std::string &username) {
   if (!storage_.Get(kUserPrefix + username)) return false;
-  if (!storage_.Delete(kLinkPrefix + username)) return false;
-  return storage_.Delete(kUserPrefix + username);
+  std::vector<std::string> keys(
+      {kLinkPrefix + username, kUserPrefix + username});
+  if (!storage_.DeleteMultiple(keys)) {
+    throw AuthException("Couldn't remove user '{}'!", username);
+  }
+  return true;
+}
+
+std::vector<auth::User> Auth::AllUsers() {
+  std::vector<auth::User> ret;
+  for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix);
+       ++it) {
+    auto user = GetUser(it->first.substr(kUserPrefix.size()));
+    if (user) {
+      ret.push_back(*user);
+    }
+  }
+  return ret;
 }
 
 bool Auth::HasUsers() {
-  for (auto it = storage_.begin(); it != storage_.end(); ++it) {
-    if (utils::StartsWith(it->first, kUserPrefix)) {
-      return true;
-    }
-  }
-  return false;
+  return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix);
 }
 
 std::experimental::optional<Role> Auth::GetRole(const std::string &rolename) {
@@ -101,36 +122,74 @@ std::experimental::optional<Role> Auth::GetRole(const std::string &rolename) {
   try {
     data = nlohmann::json::parse(*existing_role);
   } catch (const nlohmann::json::parse_error &e) {
-    throw utils::BasicException("Couldn't load role data!");
+    throw AuthException("Couldn't load role data!");
   }
 
   return Role::Deserialize(data);
 }
 
-bool Auth::SaveRole(const Role &role) {
-  return storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump());
+void Auth::SaveRole(const Role &role) {
+  if (!storage_.Put(kRolePrefix + role.rolename(), role.Serialize().dump())) {
+    throw AuthException("Couldn't save role '{}'!", role.rolename());
+  }
 }
 
 std::experimental::optional<Role> Auth::AddRole(const std::string &rolename) {
   auto existing_role = GetRole(rolename);
   if (existing_role) return std::experimental::nullopt;
+  auto existing_user = GetUser(rolename);
+  if (existing_user) return std::experimental::nullopt;
   auto new_role = Role(rolename);
-  if (!SaveRole(new_role)) return std::experimental::nullopt;
+  SaveRole(new_role);
   return new_role;
 }
 
 bool Auth::RemoveRole(const std::string &rolename) {
   if (!storage_.Get(kRolePrefix + rolename)) return false;
-  std::vector<std::string> links;
-  for (auto it = storage_.begin(); it != storage_.end(); ++it) {
-    if (utils::StartsWith(it->first, kLinkPrefix) && it->second == rolename) {
-      links.push_back(it->first);
+  std::vector<std::string> keys;
+  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix);
+       ++it) {
+    if (it->second == rolename) {
+      keys.push_back(it->first);
     }
   }
-  for (const auto &link : links) {
-    storage_.Delete(link);
+  keys.push_back(kRolePrefix + rolename);
+  if (!storage_.DeleteMultiple(keys)) {
+    throw AuthException("Couldn't remove role '{}'!", rolename);
   }
-  return storage_.Delete(kRolePrefix + rolename);
+  return true;
+}
+
+std::vector<auth::Role> Auth::AllRoles() {
+  std::vector<auth::Role> ret;
+  for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix);
+       ++it) {
+    auto rolename = it->first.substr(kRolePrefix.size());
+    auto role = GetRole(rolename);
+    if (role) {
+      ret.push_back(*role);
+    } else {
+      throw AuthException("Couldn't load role '{}'!", rolename);
+    }
+  }
+  return ret;
+}
+
+std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename) {
+  std::vector<auth::User> ret;
+  for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix);
+       ++it) {
+    auto username = it->first.substr(kLinkPrefix.size());
+    if (it->second == rolename) {
+      auto user = GetUser(username);
+      if (user) {
+        ret.push_back(*user);
+      } else {
+        throw AuthException("Couldn't load user '{}'!", username);
+      }
+    }
+  }
+  return ret;
 }
 
 std::mutex &Auth::WithLock() { return lock_; }

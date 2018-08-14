@@ -2361,7 +2361,19 @@ class AuthQuery : public Clause {
     SHOW_USERS_FOR_ROLE
   };
 
-  enum class Privilege { CREATE, DELETE, MATCH, MERGE, SET, AUTH, STREAM };
+  // When adding new privileges, please add them to the `kPrivilegesAll`
+  // constant.
+  enum class Privilege {
+    CREATE,
+    DELETE,
+    MATCH,
+    MERGE,
+    SET,
+    REMOVE,
+    INDEX,
+    AUTH,
+    STREAM
+  };
 
   Action action_;
   std::string user_;
@@ -2404,6 +2416,14 @@ class AuthQuery : public Clause {
   void Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
             std::vector<int> *loaded_uids) override;
 };
+
+// Constant that holds all available privileges.
+const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
+    AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
+    AuthQuery::Privilege::MATCH,  AuthQuery::Privilege::MERGE,
+    AuthQuery::Privilege::SET,    AuthQuery::Privilege::REMOVE,
+    AuthQuery::Privilege::INDEX,  AuthQuery::Privilege::AUTH,
+    AuthQuery::Privilege::STREAM};
 
 class CreateStream : public Clause {
   friend class AstStorage;

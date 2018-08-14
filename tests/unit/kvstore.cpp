@@ -26,12 +26,41 @@ TEST_F(KVStore, PutGet) {
   ASSERT_EQ(kvstore.Get("key").value(), "value");
 }
 
+TEST_F(KVStore, PutMultipleGet) {
+  storage::KVStore kvstore(test_folder_ / "PutMultipleGet");
+  ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
+  ASSERT_EQ(kvstore.Get("key1").value(), "value1");
+  ASSERT_EQ(kvstore.Get("key2").value(), "value2");
+}
+
 TEST_F(KVStore, PutGetDeleteGet) {
   storage::KVStore kvstore(test_folder_ / "PutGetDeleteGet");
   ASSERT_TRUE(kvstore.Put("key", "value"));
   ASSERT_EQ(kvstore.Get("key").value(), "value");
   ASSERT_TRUE(kvstore.Delete("key"));
   ASSERT_FALSE(static_cast<bool>(kvstore.Get("key")));
+}
+
+TEST_F(KVStore, PutMultipleGetDeleteMultipleGet) {
+  storage::KVStore kvstore(test_folder_ / "PutMultipleGetDeleteMultipleGet");
+  ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
+  ASSERT_EQ(kvstore.Get("key1").value(), "value1");
+  ASSERT_EQ(kvstore.Get("key2").value(), "value2");
+  ASSERT_TRUE(kvstore.DeleteMultiple({"key1", "key2", "key3"}));
+  ASSERT_FALSE(static_cast<bool>(kvstore.Get("key1")));
+  ASSERT_FALSE(static_cast<bool>(kvstore.Get("key2")));
+  ASSERT_FALSE(static_cast<bool>(kvstore.Get("key3")));
+}
+
+TEST_F(KVStore, PutMultipleGetPutAndDeleteMultipleGet) {
+  storage::KVStore kvstore(test_folder_ / "PutMultipleGetPutAndDeleteMultipleGet");
+  ASSERT_TRUE(kvstore.PutMultiple({{"key1", "value1"}, {"key2", "value2"}}));
+  ASSERT_EQ(kvstore.Get("key1").value(), "value1");
+  ASSERT_EQ(kvstore.Get("key2").value(), "value2");
+  ASSERT_TRUE(kvstore.PutAndDeleteMultiple({{"key3", "value3"}}, {"key1", "key2"}));
+  ASSERT_FALSE(static_cast<bool>(kvstore.Get("key1")));
+  ASSERT_FALSE(static_cast<bool>(kvstore.Get("key2")));
+  ASSERT_EQ(kvstore.Get("key3").value(), "value3");
 }
 
 TEST_F(KVStore, Durability) {

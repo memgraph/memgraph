@@ -2037,7 +2037,8 @@ TYPED_TEST(CypherMainVisitorTest, RevokePrivilege) {
       "", "", "user", {},
       {AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
        AuthQuery::Privilege::MATCH, AuthQuery::Privilege::MERGE,
-       AuthQuery::Privilege::SET, AuthQuery::Privilege::AUTH,
+       AuthQuery::Privilege::SET, AuthQuery::Privilege::REMOVE,
+       AuthQuery::Privilege::INDEX, AuthQuery::Privilege::AUTH,
        AuthQuery::Privilege::STREAM});
 }
 

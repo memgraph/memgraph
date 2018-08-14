@@ -40,6 +40,15 @@ bool KVStore::Put(const std::string &key, const std::string &value) {
   return s.ok();
 }
 
+bool KVStore::PutMultiple(const std::map<std::string, std::string> &items) {
+  rocksdb::WriteBatch batch;
+  for (const auto &item : items) {
+    batch.Put(item.first, item.second);
+  }
+  auto s = pimpl_->db->Write(rocksdb::WriteOptions(), &batch);
+  return s.ok();
+}
+
 std::experimental::optional<std::string> KVStore::Get(
     const std::string &key) const noexcept {
   std::string value;
@@ -53,6 +62,15 @@ bool KVStore::Delete(const std::string &key) {
   return s.ok();
 }
 
+bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
+  rocksdb::WriteBatch batch;
+  for (const auto &key : keys) {
+    batch.Delete(key);
+  }
+  auto s = pimpl_->db->Write(rocksdb::WriteOptions(), &batch);
+  return s.ok();
+}
+
 bool KVStore::DeletePrefix(const std::string &prefix) {
   std::unique_ptr<rocksdb::Iterator> iter = std::unique_ptr<rocksdb::Iterator>(
       pimpl_->db->NewIterator(rocksdb::ReadOptions()));
@@ -62,6 +80,20 @@ bool KVStore::DeletePrefix(const std::string &prefix) {
       return false;
   }
   return true;
+}
+
+bool KVStore::PutAndDeleteMultiple(
+    const std::map<std::string, std::string> &items,
+    const std::vector<std::string> &keys) {
+  rocksdb::WriteBatch batch;
+  for (const auto &item : items) {
+    batch.Put(item.first, item.second);
+  }
+  for (const auto &key : keys) {
+    batch.Delete(key);
+  }
+  auto s = pimpl_->db->Write(rocksdb::WriteOptions(), &batch);
+  return s.ok();
 }
 
 // iterator

@@ -2019,6 +2019,12 @@ and returns true, once.")
                       case AuthQuery::Privilege::SET:
                         ${builder}.set(i, query::capnp::AuthQuery::Privilege::SET);
                         break;
+                      case AuthQuery::Privilege::REMOVE:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::REMOVE);
+                        break;
+                      case AuthQuery::Privilege::INDEX:
+                        ${builder}.set(i, query::capnp::AuthQuery::Privilege::INDEX);
+                        break;
                       case AuthQuery::Privilege::AUTH:
                         ${builder}.set(i, query::capnp::AuthQuery::Privilege::AUTH);
                         break;
@@ -2048,6 +2054,12 @@ and returns true, once.")
                        case query::capnp::AuthQuery::Privilege::SET:
                          ${member-name}.push_back(AuthQuery::Privilege::SET);
                          break;
+                       case query::capnp::AuthQuery::Privilege::REMOVE:
+                         ${member-name}.push_back(AuthQuery::Privilege::REMOVE);
+                         break;
+                       case query::capnp::AuthQuery::Privilege::INDEX:
+                         ${member-name}.push_back(AuthQuery::Privilege::INDEX);
+                         break;
                        case query::capnp::AuthQuery::Privilege::AUTH:
                          ${member-name}.push_back(AuthQuery::Privilege::AUTH);
                          break;
@@ -2056,16 +2068,21 @@ and returns true, once.")
                          break;
                      }
                    }
-                   cpp<#)))
+                   cpp<#))
+   (user-symbol "Symbol" :reader t)
+   (role-symbol "Symbol" :reader t)
+   (grants-symbol "Symbol" :reader t))
   (:public
     #>cpp
     AuthHandler(AuthQuery::Action action, std::string user, std::string role,
                 std::string user_or_role, Expression * password,
-                std::vector<AuthQuery::Privilege> privileges);
+                std::vector<AuthQuery::Privilege> privileges,
+                Symbol user_symbol, Symbol role_symbol, Symbol grants_symbol);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
     std::unique_ptr<Cursor> MakeCursor(database::GraphDbAccessor & db)
         const override;
+    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
     virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &)
         const override { return {}; }
   
