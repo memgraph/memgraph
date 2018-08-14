@@ -62,7 +62,7 @@ void Buffer::Written(size_t len) {
 }
 
 void Buffer::Resize(size_t len) {
-  if (len < data_.size()) return;
+  if (len <= data_.size()) return;
   data_.resize(len, 0);
 }
 
