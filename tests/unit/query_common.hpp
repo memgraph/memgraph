@@ -576,7 +576,7 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
                                  list, expr)
 #define AUTH_QUERY(action, user, role, user_or_role, password, privileges)   \
   storage.Create<query::AuthQuery>((action), (user), (role), (user_or_role), \
-                                   LITERAL(password), (privileges))
+                                   password, (privileges))
 #define DROP_USER(usernames) storage.Create<query::DropUser>((usernames))
 #define CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri, \
                       batch_interval, batch_size)                           \

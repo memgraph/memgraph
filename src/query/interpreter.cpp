@@ -8,6 +8,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -80,6 +81,10 @@ Interpreter::Results Interpreter::operator()(
     }
     ctx.parameters_.Add(param_pair.first, param_it->second);
   }
+  AstStorage ast_storage = QueryToAst(stripped, ctx);
+  // TODO: Maybe cache required privileges to improve performance on very simple
+  // queries.
+  auto required_privileges = query::GetRequiredPrivileges(ast_storage);
   auto frontend_time = frontend_timer.Elapsed();
 
   // Try to get a cached plan. Note that this local shared_ptr might be the only
@@ -96,8 +101,9 @@ Interpreter::Results Interpreter::operator()(
   }
   utils::Timer planning_timer;
   if (!plan) {
-    plan = plan_cache_access.insert(stripped.hash(), QueryToPlan(stripped, ctx))
-               .first->second;
+    plan =
+        plan_cache_access.insert(stripped.hash(), AstToPlan(ast_storage, ctx))
+            .first->second;
   }
   auto planning_time = planning_timer.Elapsed();
 
@@ -128,12 +134,11 @@ Interpreter::Results Interpreter::operator()(
   }
 
   return Results(std::move(ctx), plan, std::move(cursor), output_symbols,
-                 header, summary, plan_cache_);
+                 header, summary, plan_cache_, required_privileges);
 }
 
-std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
-    const StrippedQuery &stripped, Context &ctx) {
-  AstStorage ast_storage = QueryToAst(stripped, ctx);
+std::shared_ptr<Interpreter::CachedPlan> Interpreter::AstToPlan(
+    AstStorage &ast_storage, Context &ctx) {
   SymbolGenerator symbol_generator(ctx.symbol_table_);
   ast_storage.query()->Accept(symbol_generator);
 

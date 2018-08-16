@@ -74,7 +74,8 @@ class Interpreter {
     Results(Context ctx, std::shared_ptr<CachedPlan> plan,
             std::unique_ptr<query::plan::Cursor> cursor,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
-            std::map<std::string, TypedValue> summary, PlanCacheT &plan_cache)
+            std::map<std::string, TypedValue> summary, PlanCacheT &plan_cache,
+            std::vector<AuthQuery::Privilege> privileges)
         : ctx_(std::move(ctx)),
           plan_(plan),
           cursor_(std::move(cursor)),
@@ -82,7 +83,8 @@ class Interpreter {
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),
-          plan_cache_(plan_cache) {}
+          plan_cache_(plan_cache),
+          privileges_(std::move(privileges)) {}
 
    public:
     Results(const Results &) = delete;
@@ -137,6 +139,10 @@ class Interpreter {
     const std::vector<std::string> &header() { return header_; }
     const std::map<std::string, TypedValue> &summary() { return summary_; }
 
+    const std::vector<AuthQuery::Privilege> &privileges() {
+      return privileges_;
+    }
+
    private:
     Context ctx_;
     std::shared_ptr<CachedPlan> plan_;
@@ -150,6 +156,8 @@ class Interpreter {
     double execution_time_{0};
     // Gets invalidated after if an index has been built.
     PlanCacheT &plan_cache_;
+
+    std::vector<AuthQuery::Privilege> privileges_;
   };
 
   explicit Interpreter(database::GraphDb &db);
@@ -185,9 +193,8 @@ class Interpreter {
   // Optional, not null only in a distributed master.
   distributed::PlanDispatcher *plan_dispatcher_{nullptr};
 
-  // stripped query -> CachedPlan
-  std::shared_ptr<CachedPlan> QueryToPlan(const StrippedQuery &stripped,
-                                          Context &ctx);
+  // high level tree -> CachedPlan
+  std::shared_ptr<CachedPlan> AstToPlan(AstStorage &ast_storage, Context &ctx);
   // stripped query -> high level tree
   AstStorage QueryToAst(const StrippedQuery &stripped, Context &ctx);
 

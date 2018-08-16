@@ -169,6 +169,9 @@ target_link_libraries(${test_prefix}query_plan_match_filter_return memgraph_lib 
 add_unit_test(query_planner.cpp)
 target_link_libraries(${test_prefix}query_planner memgraph_lib kvstore_dummy_lib)
 
+add_unit_test(query_required_privileges.cpp)
+target_link_libraries(${test_prefix}query_required_privileges memgraph_lib kvstore_dummy_lib)
+
 add_unit_test(query_semantic.cpp)
 target_link_libraries(${test_prefix}query_semantic memgraph_lib kvstore_dummy_lib)
 

@@ -47,6 +47,7 @@ set(memgraph_src_files
     query/common.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp
+    query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp
     query/frontend/stripped.cpp
     query/interpret/awesome_memgraph_functions.cpp
