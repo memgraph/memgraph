@@ -260,12 +260,20 @@ int WithInit(int argc, char **argv,
   // Start memory warning logger.
   utils::Scheduler mem_log_scheduler;
   if (FLAGS_memory_warning_threshold > 0) {
-    mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
-      auto free_ram_mb = utils::sysinfo::AvailableMem() / 1024;
-      if (free_ram_mb < FLAGS_memory_warning_threshold)
-        LOG(WARNING) << "Running out of available RAM, only " << free_ram_mb
-                     << " MB left.";
-    });
+    auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
+    if (free_ram) {
+      mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
+        auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
+        if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
+          LOG(WARNING) << "Running out of available RAM, only "
+                       << *free_ram / 1024 << " MB left.";
+      });
+    } else {
+      // Kernel version for the `MemAvailable` value is from: man procfs
+      LOG(WARNING) << "You have an older kernel version (<3.14) or the /proc "
+                      "filesystem isn't available so remaining memory warnings "
+                      "won't be available.";
+    }
   }
   requests::Init();
 

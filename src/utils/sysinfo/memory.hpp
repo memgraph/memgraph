@@ -1,3 +1,4 @@
+#include <experimental/optional>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -8,24 +9,25 @@ namespace utils::sysinfo {
 
 /**
  * Gets the amount of available RAM in kilobytes. If the information is
- * unavalable zero is returned.
+ * unavalable an empty value is returned.
  */
-inline auto AvailableMem() {
+inline std::experimental::optional<uint64_t> AvailableMemoryKilobytes() {
   std::string token;
   std::ifstream meminfo("/proc/meminfo");
   while (meminfo >> token) {
     if (token == "MemAvailable:") {
-      unsigned long mem;
+      uint64_t mem = 0;
       if (meminfo >> mem) {
         return mem;
       } else {
-        return 0UL;
+        return std::experimental::nullopt;
       }
     }
     meminfo.ignore(std::numeric_limits<std::streamsize>::max(), '\n');
   }
-  LOG(ERROR) << "Failed to read amount of available memory from /proc/meminfo";
-  return 0UL;
+  DLOG(WARNING)
+      << "Failed to read amount of available memory from /proc/meminfo";
+  return std::experimental::nullopt;
 }
 
 }  // namespace utils::sysinfo
