@@ -8,6 +8,7 @@
 namespace durability {
 const std::string kSnapshotDir = "snapshots";
 const std::string kWalDir = "wal";
+const std::string kBackupDir = ".backup";
 
 /// Returns the transaction id contained in the file name. If the filename is
 /// not a parseable WAL file name, nullopt is returned. If the filename

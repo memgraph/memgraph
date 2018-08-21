@@ -108,6 +108,34 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
                          int64_t &edge_count, uint64_t &hash);
 
 /**
+ * Checks version consistency within the durability directory.
+ *
+ * @param durability_dir - Path to durability directory.
+ * @return - True if snapshot and WAL versions are compatible with
+ *  `        current memgraph binary.
+ */
+bool VersionConsistency(
+    const std::experimental::filesystem::path &durability_dir);
+
+/**
+ * Checks whether the durability directory contains snapshot
+ * or write-ahead log file.
+ *
+ * @param durability_dir - Path to durability directory.
+ * @return - True if durability directory contains either a snapshot
+ *           or WAL file.
+ */
+bool ContainsDurabilityFiles(
+    const std::experimental::filesystem::path &durabilty_dir);
+
+/**
+ * Backup snapshots and WAL files to a backup folder.
+ *
+ * @param durability_dir - Path to durability directory.
+ */
+void MoveToBackup(const std::experimental::filesystem::path &durability_dir);
+
+/**
  * Recovers database from the latest possible snapshot. If recovering fails,
  * false is returned and db_accessor aborts transaction, else true is returned
  * and transaction is commited.

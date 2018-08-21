@@ -17,11 +17,13 @@
 #include "storage/address_types.hpp"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
+#include "utils/file.hpp"
 
 namespace fs = std::experimental::filesystem;
 
 namespace durability {
 
+using communication::bolt::Value;
 bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
                          int64_t &edge_count, uint64_t &hash) {
   auto pos = buffer.Tellg();
@@ -32,6 +34,68 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
                buffer.ReadType(hash, false);
   buffer.Seek(pos);
   return r_val;
+}
+
+bool VersionConsistency(const fs::path &durability_dir) {
+  const auto snapshot_dir = durability_dir / kSnapshotDir;
+  if (fs::exists(snapshot_dir) && fs::is_directory(snapshot_dir)) {
+    for (auto &file : fs::directory_iterator(snapshot_dir)) {
+      HashedFileReader reader;
+      SnapshotDecoder<HashedFileReader> decoder(reader);
+
+      // This is ok because we are only trying to detect version
+      // inconsistencies.
+      if (!reader.Open(fs::path(file))) continue;
+
+      auto magic_number = durability::kMagicNumber;
+      if (!reader.Read(magic_number.data(), magic_number.size())) continue;
+
+      Value dv;
+      if (!decoder.ReadValue(&dv, Value::Type::Int) ||
+          dv.ValueInt() != durability::kVersion)
+        return false;
+    }
+  }
+
+  const auto wal_dir = durability_dir / kWalDir;
+  if (fs::exists(snapshot_dir) && fs::is_directory(wal_dir)) {
+    for (auto &file : fs::directory_iterator(wal_dir)) {
+      HashedFileReader reader;
+      communication::bolt::Decoder<HashedFileReader> decoder(reader);
+      if (!reader.Open(fs::path(file))) continue;
+      Value dv;
+      if (!decoder.ReadValue(&dv, Value::Type::Int) ||
+          dv.ValueInt() != durability::kVersion)
+        return false;
+    }
+  }
+
+  return true;
+}
+
+bool ContainsDurabilityFiles(const fs::path &durability_dir) {
+  for (auto &durability_type : {kSnapshotDir, kWalDir}) {
+    const auto dtype_dir = durability_dir / durability_type;
+    if (fs::exists(dtype_dir) && fs::is_directory(dtype_dir) &&
+        !fs::is_empty(dtype_dir))
+      return true;
+  }
+  return false;
+}
+
+void MoveToBackup(const fs::path &durability_dir) {
+  const auto backup_dir = durability_dir / kBackupDir;
+  utils::CheckDir(backup_dir);
+  utils::CheckDir(backup_dir / kSnapshotDir);
+  utils::CheckDir(backup_dir / kWalDir);
+  for (auto &durability_type : {kSnapshotDir, kWalDir}) {
+    const auto dtype_dir = durability_dir / durability_type;
+    if (!fs::exists(dtype_dir) || !fs::is_directory(dtype_dir)) continue;
+    for (auto &file : fs::directory_iterator(dtype_dir)) {
+      const auto filename = fs::path(file).filename();
+      fs::rename(file, backup_dir / durability_type / filename);
+    }
+  }
 }
 
 namespace {
@@ -62,7 +126,6 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
       durability::ReadSnapshotSummary(reader, vertex_count, edge_count, hash));
 
   Value dv;
-
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
 
@@ -260,12 +323,10 @@ bool ApplyOverDeltas(
 
     communication::bolt::Decoder<HashedFileReader> decoder(wal_reader);
 
-    // check version
     Value dv;
     if (!decoder.ReadValue(&dv, Value::Type::Int) ||
-        dv.ValueInt() != durability::kVersion) {
+        dv.ValueInt() != durability::kVersion)
       return false;
-    }
 
     while (true) {
       auto delta = database::StateDelta::Decode(wal_reader, decoder);

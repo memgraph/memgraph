@@ -203,17 +203,18 @@ SingleNode::SingleNode(Config config)
     utils::CheckDir(impl_->config_.durability_directory);
 
   // Durability recovery.
-  {
+  if (impl_->config_.db_recover_on_startup) {
+    CHECK(durability::VersionConsistency(impl_->config_.durability_directory))
+        << "Contents of durability directory are not compatible with the "
+           "current version of Memgraph binary!";
+
     // What we recover.
     std::experimental::optional<durability::RecoveryInfo> recovery_info;
-
     durability::RecoveryData recovery_data;
-    // Recover only if necessary.
-    if (impl_->config_.db_recover_on_startup) {
-      recovery_info = durability::RecoverOnlySnapshot(
-          impl_->config_.durability_directory, this, &recovery_data,
-          std::experimental::nullopt, 0);
-    }
+
+    recovery_info = durability::RecoverOnlySnapshot(
+        impl_->config_.durability_directory, this, &recovery_data,
+        std::experimental::nullopt, 0);
 
     // Post-recovery setup and checking.
     if (recovery_info) {
@@ -226,6 +227,17 @@ SingleNode::SingleNode(Config config)
   }
 
   if (impl_->config_.durability_enabled) {
+    // move any existing snapshots or wal files to a deprecated folder.
+    if (!impl_->config_.db_recover_on_startup &&
+        durability::ContainsDurabilityFiles(
+            impl_->config_.durability_directory)) {
+      durability::MoveToBackup(impl_->config_.durability_directory);
+      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
+                      "and durability is enabled, your current durability "
+                      "files will likely be overriden. To prevent important "
+                      "data loss, Memgraph has stored those files into a "
+                      ".backup directory inside durability directory";
+    }
     impl_->wal_.Enable();
     snapshot_creator_ = std::make_unique<utils::Scheduler>();
     snapshot_creator_->Run(
@@ -340,8 +352,8 @@ GraphDbAccessor *GetAccessor(
                              std::unique_ptr<GraphDbAccessor>> &accessors,
     const tx::TransactionId &tx_id) {
   auto found = accessors.find(tx_id);
-  CHECK(found != accessors.end())
-      << "Accessor does not exist for transaction: " << tx_id;
+  CHECK(found != accessors.end()) << "Accessor does not exist for transaction: "
+                                  << tx_id;
   return found->second.get();
 }
 

@@ -26,7 +26,6 @@ WriteAheadLog::WriteAheadLog(
     : deltas_{FLAGS_wal_buffer_size}, wal_file_{worker_id, durability_dir} {
   if (durability_enabled) {
     utils::CheckDir(durability_dir);
-    wal_file_.Init();
     scheduler_.Run("WAL",
                    std::chrono::milliseconds(FLAGS_wal_flush_interval_millis),
                    [this]() { wal_file_.Flush(deltas_); });
@@ -44,7 +43,9 @@ WriteAheadLog::WalFile::WalFile(
     : worker_id_(worker_id), wal_dir_{durability_dir / kWalDir} {}
 
 WriteAheadLog::WalFile::~WalFile() {
-  if (!current_wal_file_.empty()) writer_.Close();
+  if (current_wal_file_ != std::experimental::nullopt &&
+      !current_wal_file_->empty())
+    writer_.Close();
 }
 
 void WriteAheadLog::WalFile::Init() {
@@ -54,11 +55,11 @@ void WriteAheadLog::WalFile::Init() {
   } else {
     current_wal_file_ = WalFilenameForTransactionId(wal_dir_, worker_id_);
     try {
-      writer_.Open(current_wal_file_);
+      writer_.Open(*current_wal_file_);
       encoder_.WriteInt(durability::kVersion);
     } catch (std::ios_base::failure &) {
       LOG(ERROR) << "Failed to open write-ahead log file: "
-                 << current_wal_file_;
+                 << *current_wal_file_;
       current_wal_file_ = std::experimental::filesystem::path();
     }
   }
@@ -68,7 +69,8 @@ void WriteAheadLog::WalFile::Init() {
 
 void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
   std::lock_guard<std::mutex> flush_lock(flush_mutex_);
-  if (current_wal_file_.empty()) {
+  if (current_wal_file_ == std::experimental::nullopt) Init();
+  if (current_wal_file_->empty()) {
     LOG(ERROR) << "Write-ahead log file uninitialized, discarding data.";
     buffer.clear();
     return;
@@ -98,7 +100,7 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
 void WriteAheadLog::WalFile::RotateFile() {
   writer_.Close();
   std::experimental::filesystem::rename(
-      current_wal_file_,
+      *current_wal_file_,
       WalFilenameForTransactionId(wal_dir_, worker_id_, latest_tx_));
   Init();
 }

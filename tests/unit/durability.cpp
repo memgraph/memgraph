@@ -288,6 +288,7 @@ class Durability : public ::testing::Test {
   fs::path durability_dir_;
   fs::path snapshot_dir_;
   fs::path wal_dir_;
+  fs::path backup_dir_;
 
   void CleanDurability() {
     if (fs::exists(tmp_dir_)) fs::remove_all(tmp_dir_);
@@ -303,6 +304,16 @@ class Durability : public ::testing::Test {
     return config;
   }
 
+  auto DbConfig(bool durability_enabled, bool db_recover_on_startup) {
+    database::Config config;
+    config.durability_enabled = durability_enabled;
+    config.db_recover_on_startup = db_recover_on_startup;
+    config.snapshot_on_exit = false;
+    config.durability_directory = durability_dir_;
+
+    return config;
+  }
+
   void MakeSnapshot(int worker_id, database::GraphDb &db,
                     int snapshot_max_retained = -1) {
     auto dba = db.Access();
@@ -314,6 +325,7 @@ class Durability : public ::testing::Test {
     durability_dir_ = tmp_dir_ / utils::RandomString(24);
     snapshot_dir_ = durability_dir_ / durability::kSnapshotDir;
     wal_dir_ = durability_dir_ / durability::kWalDir;
+    backup_dir_ = durability_dir_ / durability::kBackupDir;
     FLAGS_wal_rotate_deltas_count = 1000;
     FLAGS_durability_directory = "MG_test_unit_durability";
     CleanDurability();
@@ -837,9 +849,8 @@ TEST_F(Durability, SequentialRecovery) {
     return threads;
   };
 
-  auto make_updates = [&run_updates, this](database::SingleNode &db,
-                                           bool snapshot_during,
-                                           bool snapshot_after) {
+  auto make_updates = [&run_updates, this](
+      database::SingleNode &db, bool snapshot_during, bool snapshot_after) {
     std::atomic<bool> keep_running{true};
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);
@@ -880,4 +891,56 @@ TEST_F(Durability, SequentialRecovery) {
       }
     }
   }
+}
+
+TEST_F(Durability, ContainsDurabilityFilesSnapshot) {
+  ASSERT_FALSE(durability::ContainsDurabilityFiles(durability_dir_));
+  {
+    database::SingleNode db{DbConfig()};
+    auto dba = db.Access();
+    auto v0 = dba->InsertVertex();
+    MakeSnapshot(0, db);
+  }
+  ASSERT_TRUE(durability::ContainsDurabilityFiles(durability_dir_));
+}
+
+TEST_F(Durability, ContainsDurabilityFilesWal) {
+  ASSERT_FALSE(durability::ContainsDurabilityFiles(durability_dir_));
+  {
+    database::SingleNode db{DbConfig(true, false)};
+    auto dba = db.Access();
+    auto v0 = dba->InsertVertex();
+    dba->Commit();
+    db.wal().Flush();
+  }
+  ASSERT_TRUE(durability::ContainsDurabilityFiles(durability_dir_));
+}
+
+TEST_F(Durability, MoveToBackupSnapshot) {
+  ASSERT_FALSE(durability::ContainsDurabilityFiles(backup_dir_));
+  {
+    database::SingleNode db{DbConfig()};
+    auto dba = db.Access();
+    auto v0 = dba->InsertVertex();
+    MakeSnapshot(0, db);
+  }
+
+  // durability-enabled=true, db-recover-on-startup=false
+  database::SingleNode db{DbConfig(true, false)};
+  ASSERT_TRUE(durability::ContainsDurabilityFiles(backup_dir_));
+}
+
+TEST_F(Durability, MoveToBackupWal) {
+  ASSERT_FALSE(durability::ContainsDurabilityFiles(backup_dir_));
+  {
+    database::SingleNode db{DbConfig(true, false)};
+    auto dba = db.Access();
+    auto v0 = dba->InsertVertex();
+    dba->Commit();
+    db.wal().Flush();
+  }
+
+  // durability-enabled=true, db-recover-on-startup=false
+  database::SingleNode db{DbConfig(true, false)};
+  ASSERT_TRUE(durability::ContainsDurabilityFiles(backup_dir_));
 }

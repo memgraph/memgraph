@@ -71,7 +71,8 @@ class WriteAheadLog {
 
     // The file to which the WAL flushes data. The path is fixed, the file gets
     // moved when the WAL gets rotated.
-    std::experimental::filesystem::path current_wal_file_;
+    std::experimental::optional<std::experimental::filesystem::path>
+        current_wal_file_;
 
     // Number of deltas in the current wal file.
     int current_wal_file_delta_count_{0};
