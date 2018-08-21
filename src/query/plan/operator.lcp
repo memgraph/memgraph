@@ -1981,7 +1981,7 @@ and returns true, once.")
                                               deny-privilege revoke-privilege
                                               show-grants show-role-for-user
                                               show-users-for-role))
-           :capnp-load (lcp:capnp-load-enum "::query::capnp::AuthQuery::Action" 
+           :capnp-load (lcp:capnp-load-enum "::query::capnp::AuthQuery::Action"
                                             "AuthQuery::Action"
                                             '(create-role drop-role show-roles
                                               create-user set-password
@@ -2085,7 +2085,7 @@ and returns true, once.")
     std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
     virtual std::vector<Symbol> ModifiedSymbols(const SymbolTable &)
         const override { return {}; }
-  
+
     bool HasSingleInput() const override;
     std::shared_ptr<LogicalOperator> input() const override;
     void set_input(std::shared_ptr<LogicalOperator>) override;
