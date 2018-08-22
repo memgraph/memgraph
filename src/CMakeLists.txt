@@ -77,6 +77,7 @@ set(memgraph_src_files
     transactions/engine_single_node.cpp
     transactions/engine_worker.cpp
     transactions/snapshot.cpp
+    memgraph_init.cpp
 )
 # -----------------------------------------------------------------------------
 

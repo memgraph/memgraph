@@ -1,38 +1,23 @@
 #include <algorithm>
 #include <chrono>
-#include <csignal>
 #include <cstdint>
 #include <exception>
 #include <functional>
 #include <limits>
-#include <string>
 #include <thread>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "auth/auth.hpp"
-#include "communication/bolt/v1/session.hpp"
-#include "config.hpp"
 #include "database/distributed_graph_db.hpp"
 #include "database/graph_db.hpp"
-#include "distributed/pull_rpc_clients.hpp"
-#include "glue/auth.hpp"
-#include "glue/communication.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
+#include "memgraph_init.hpp"
 #include "query/distributed_interpreter.hpp"
 #include "query/exceptions.hpp"
-#include "query/interpreter.hpp"
-#include "query/transaction_engine.hpp"
-#include "requests/requests.hpp"
-#include "stats/stats.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
-#include "utils/signals.hpp"
-#include "utils/sysinfo/memory.hpp"
-#include "utils/terminate_handler.hpp"
-#include "version.hpp"
 
 // Common stuff for enterprise and community editions
 
@@ -50,251 +35,15 @@ DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
                        FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_string(cert_file, "", "Certificate file to use.");
 DEFINE_string(key_file, "", "Key file to use.");
-DEFINE_string(log_file, "", "Path to where the log should be stored.");
-DEFINE_HIDDEN_string(
-    log_link_basename, "",
-    "Basename used for symlink creation to the last log file.");
-DEFINE_uint64(memory_warning_threshold, 1024,
-              "Memory warning threshold, in MB. If Memgraph detects there is "
-              "less available RAM it will log a warning. Set to 0 to "
-              "disable.");
+
 DEFINE_bool(telemetry_enabled, false,
             "Set to true to enable telemetry. We collect information about the "
             "running system (CPU and memory information) and information about "
             "the database runtime (vertex and edge counts and resource usage) "
             "to allow for easier improvement of the product.");
-DECLARE_string(durability_directory);
-
-/** Encapsulates Dbms and Interpreter that are passed through the network server
- * and worker to the session. */
-struct SessionData {
-  database::GraphDb *db{nullptr};
-  query::Interpreter *interpreter{nullptr};
-  auth::Auth auth{
-      std::experimental::filesystem::path(FLAGS_durability_directory) / "auth"};
-};
-
-class BoltSession final
-    : public communication::bolt::Session<communication::InputStream,
-                                          communication::OutputStream> {
- public:
-  BoltSession(SessionData &data, communication::InputStream &input_stream,
-              communication::OutputStream &output_stream)
-      : communication::bolt::Session<communication::InputStream,
-                                     communication::OutputStream>(
-            input_stream, output_stream),
-        transaction_engine_(data.db, data.interpreter),
-        auth_(&data.auth) {}
-
-  using communication::bolt::Session<communication::InputStream,
-                                     communication::OutputStream>::TEncoder;
-
-  std::vector<std::string> Interpret(
-      const std::string &query,
-      const std::map<std::string, communication::bolt::Value> &params)
-      override {
-    std::map<std::string, query::TypedValue> params_tv;
-    for (const auto &kv : params)
-      params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
-    try {
-      auto result = transaction_engine_.Interpret(query, params_tv);
-      if (user_) {
-        const auto &permissions = user_->GetPermissions();
-        for (const auto &privilege : result.second) {
-          if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
-              auth::PermissionLevel::GRANT) {
-            transaction_engine_.Abort();
-            throw communication::bolt::ClientError(
-                "You are not authorized to execute this query! Please contact "
-                "your database administrator.");
-          }
-        }
-      }
-      return result.first;
-    } catch (const query::QueryException &e) {
-      // Wrap QueryException into ClientError, because we want to allow the
-      // client to fix their query.
-      throw communication::bolt::ClientError(e.what());
-    }
-  }
-
-  std::map<std::string, communication::bolt::Value> PullAll(
-      TEncoder *encoder) override {
-    try {
-      TypedValueResultStream stream(encoder);
-      const auto &summary = transaction_engine_.PullAll(&stream);
-      std::map<std::string, communication::bolt::Value> decoded_summary;
-      for (const auto &kv : summary) {
-        decoded_summary.emplace(kv.first, glue::ToBoltValue(kv.second));
-      }
-      return decoded_summary;
-    } catch (const query::QueryException &e) {
-      // Wrap QueryException into ClientError, because we want to allow the
-      // client to fix their query.
-      throw communication::bolt::ClientError(e.what());
-    }
-  }
-
-  void Abort() override { transaction_engine_.Abort(); }
-
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override {
-    if (!auth_->HasUsers()) return true;
-    user_ = auth_->Authenticate(username, password);
-    return !!user_;
-  }
-
- private:
-  // Wrapper around TEncoder which converts TypedValue to Value
-  // before forwarding the calls to original TEncoder.
-  class TypedValueResultStream {
-   public:
-    TypedValueResultStream(TEncoder *encoder) : encoder_(encoder) {}
-
-    void Result(const std::vector<query::TypedValue> &values) {
-      std::vector<communication::bolt::Value> decoded_values;
-      decoded_values.reserve(values.size());
-      for (const auto &v : values) {
-        decoded_values.push_back(glue::ToBoltValue(v));
-      }
-      encoder_->MessageRecord(decoded_values);
-    }
-
-   private:
-    TEncoder *encoder_;
-  };
-
-  query::TransactionEngine transaction_engine_;
-  auth::Auth *auth_;
-  std::experimental::optional<auth::User> user_;
-};
 
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
-
-/**
- * Class that implements ResultStream API for Kafka.
- *
- * Kafka doesn't need to stream the import results back to the client so we
- * don't need any functionality here.
- */
-class KafkaResultStream {
- public:
-  void Result(const std::vector<query::TypedValue> &) {}
-};
-
-// Needed to correctly handle memgraph destruction from a signal handler.
-// Without having some sort of a flag, it is possible that a signal is handled
-// when we are exiting main, inside destructors of database::GraphDb and
-// similar. The signal handler may then initiate another shutdown on memgraph
-// which is in half destructed state, causing invalid memory access and crash.
-volatile sig_atomic_t is_shutting_down = 0;
-
-/// Set up signal handlers and register `shutdown` on SIGTERM and SIGINT.
-/// In most cases you don't have to call this. If you are using a custom server
-/// startup function for `WithInit`, then you probably need to use this to
-/// shutdown your server.
-void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
-  // Prevent handling shutdown inside a shutdown. For example, SIGINT handler
-  // being interrupted by SIGTERM before is_shutting_down is set, thus causing
-  // double shutdown.
-  sigset_t block_shutdown_signals;
-  sigemptyset(&block_shutdown_signals);
-  sigaddset(&block_shutdown_signals, SIGTERM);
-  sigaddset(&block_shutdown_signals, SIGINT);
-
-  // Wrap the shutdown function in a safe way to prevent recursive shutdown.
-  auto shutdown = [shutdown_fun]() {
-    if (is_shutting_down) return;
-    is_shutting_down = 1;
-    shutdown_fun();
-  };
-
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Terminate,
-                                              shutdown, block_shutdown_signals))
-      << "Unable to register SIGTERM handler!";
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::Interupt, shutdown,
-                                              block_shutdown_signals))
-      << "Unable to register SIGINT handler!";
-
-  // Setup SIGUSR1 to be used for reopening log files, when e.g. logrotate
-  // rotates our logs.
-  CHECK(utils::SignalHandler::RegisterHandler(utils::Signal::User1, []() {
-    google::CloseLogDestination(google::INFO);
-  })) << "Unable to register SIGUSR1 handler!";
-}
-
-/// Run the Memgraph server.
-///
-/// Sets up all the required state before running `memgraph_main` and does any
-/// required cleanup afterwards.  `get_stats_prefix` is used to obtain the
-/// prefix when logging Memgraph's statistics.
-///
-/// Command line arguments and configuration files are read before calling any
-/// of the supplied functions. Therefore, you should use flags only from those
-/// functions, and *not before* invoking `WithInit`.
-///
-/// This should be the first and last thing a OS specific main function does.
-///
-/// A common example of usage is:
-///
-/// @code
-/// int main(int argc, char *argv[]) {
-///   auto get_stats_prefix = []() -> std::string { return "memgraph"; };
-///   return WithInit(argc, argv, get_stats_prefix, SingleNodeMain);
-/// }
-/// @endcode
-///
-/// If you wish to start Memgraph server in another way, you can pass a
-/// `memgraph_main` functions which does that. You should take care to call
-/// `InitSignalHandlers` with appropriate function to shutdown the server you
-/// started.
-int WithInit(int argc, char **argv,
-             const std::function<std::string()> &get_stats_prefix,
-             const std::function<void()> &memgraph_main) {
-  gflags::SetVersionString(version_string);
-
-  // Load config before parsing arguments, so that flags from the command line
-  // overwrite the config.
-  LoadConfig();
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-
-  google::InitGoogleLogging(argv[0]);
-  google::SetLogDestination(google::INFO, FLAGS_log_file.c_str());
-  google::SetLogSymlink(google::INFO, FLAGS_log_link_basename.c_str());
-
-  // Unhandled exception handler init.
-  std::set_terminate(&utils::TerminateHandler);
-
-  stats::InitStatsLogging(get_stats_prefix());
-  utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
-
-  // Initialize the communication library.
-  communication::Init();
-
-  // Start memory warning logger.
-  utils::Scheduler mem_log_scheduler;
-  if (FLAGS_memory_warning_threshold > 0) {
-    auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
-    if (free_ram) {
-      mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
-        auto free_ram = utils::sysinfo::AvailableMemoryKilobytes();
-        if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
-          LOG(WARNING) << "Running out of available RAM, only "
-                       << *free_ram / 1024 << " MB left.";
-      });
-    } else {
-      // Kernel version for the `MemAvailable` value is from: man procfs
-      LOG(WARNING) << "You have an older kernel version (<3.14) or the /proc "
-                      "filesystem isn't available so remaining memory warnings "
-                      "won't be available.";
-    }
-  }
-  requests::Init();
-
-  memgraph_main();
-  return 0;
-}
 
 void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
@@ -302,30 +51,14 @@ void SingleNodeMain() {
   query::Interpreter interpreter;
   SessionData session_data{&db, &interpreter};
 
-  auto stream_writer =
-      [&session_data](
-          const std::string &query,
-          const std::map<std::string, communication::bolt::Value> &params) {
-        auto dba = session_data.db->Access();
-        KafkaResultStream stream;
-        std::map<std::string, query::TypedValue> params_tv;
-        for (const auto &kv : params)
-          params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
-        try {
-          (*session_data.interpreter)(query, *dba, params_tv, false)
-              .PullAll(stream);
-          dba->Commit();
-        } catch (const query::QueryException &e) {
-          LOG(WARNING) << "[Kafka] query execution failed with an exception: "
-                       << e.what();
-          dba->Abort();
-        }
-      };
-
   integrations::kafka::Streams kafka_streams{
       std::experimental::filesystem::path(FLAGS_durability_directory) /
           "streams",
-      stream_writer};
+      [&session_data](
+          const std::string &query,
+          const std::map<std::string, communication::bolt::Value> &params) {
+        KafkaStreamWriter(session_data, query, params);
+      }};
 
   try {
     // Recover possible streams.
@@ -399,30 +132,14 @@ void MasterMain() {
   query::DistributedInterpreter interpreter(&db);
   SessionData session_data{&db, &interpreter};
 
-  auto stream_writer =
-    [&session_data](
-      const std::string &query,
-      const std::map<std::string, communication::bolt::Value> &params) {
-    auto dba = session_data.db->Access();
-    KafkaResultStream stream;
-    std::map<std::string, query::TypedValue> params_tv;
-    for (const auto &kv : params)
-      params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
-    try {
-      (*session_data.interpreter)(query, *dba, params_tv, false)
-        .PullAll(stream);
-      dba->Commit();
-    } catch (const query::QueryException &e) {
-      LOG(WARNING) << "[Kafka] query execution failed with an exception: "
-                   << e.what();
-      dba->Abort();
-    }
-  };
-
   integrations::kafka::Streams kafka_streams{
       std::experimental::filesystem::path(FLAGS_durability_directory) /
           "streams",
-      stream_writer};
+      [&session_data](
+          const std::string &query,
+          const std::map<std::string, communication::bolt::Value> &params) {
+        KafkaStreamWriter(session_data, query, params);
+      }};
 
   try {
     // Recover possible streams.
@@ -431,6 +148,7 @@ void MasterMain() {
     LOG(ERROR) << e.what();
   }
 
+  session_data.interpreter->auth_ = &session_data.auth;
   session_data.interpreter->kafka_streams_ = &kafka_streams;
 
   ServerContext context;

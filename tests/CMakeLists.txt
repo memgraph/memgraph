@@ -27,3 +27,6 @@ add_subdirectory(property_based)
 
 # integration test binaries
 add_subdirectory(integration)
+
+# feature benchmark test binaries
+add_subdirectory(feature_benchmark)

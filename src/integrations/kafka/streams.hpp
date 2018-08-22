@@ -67,6 +67,7 @@ class Streams final {
   /// @param batch_limit number of batches we want to import before stopping
   ///
   /// @throws StreamDoesntExistException if the stream doesn't exist
+  /// @throws ConsumerRunningException if the consumer is already running
   /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
   void Start(const std::string &stream_name,
              std::experimental::optional<int64_t> batch_limit =
@@ -77,6 +78,7 @@ class Streams final {
   /// @param stream_name name of the stream we wanto to stop consuming
   ///
   /// @throws StreamDoesntExistException if the stream doesn't exist
+  /// @throws ConsumerStoppedException if the consumer is already stopped
   /// @throws StreamMetadataCouldNotBeStored if it can't persist metadata
   void Stop(const std::string &stream_name);
 

@@ -31,7 +31,7 @@
     mkdir build_release
     cd build_release
     cmake -DCMAKE_BUILD_TYPE=release ..
-    TIMEOUT=1200 make -j$THREADS memgraph tools memgraph__macro_benchmark memgraph__stress memgraph__manual__card_fraud_generate_snapshot
+    TIMEOUT=1200 make -j$THREADS memgraph tools memgraph__macro_benchmark memgraph__stress memgraph__manual__card_fraud_generate_snapshot memgraph__feature_benchmark__kafka__benchmark
 
     # Generate distributed card fraud dataset.
     cd ../tests/distributed/card_fraud

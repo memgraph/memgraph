@@ -1,0 +1,10 @@
+- name: feature_benchmark__kafka
+  cd: kafka
+  commands: ./runner.sh
+  infiles:
+    - runner.sh # runner script
+    - transform.py # transform script
+    - generate.py # dataset generator script
+    - ../../../build_release/tests/feature_benchmark/kafka/kafka.py # kafka script
+    - ../../../build_release/tests/feature_benchmark/kafka/benchmark # benchmark binary
+  enable_network: true

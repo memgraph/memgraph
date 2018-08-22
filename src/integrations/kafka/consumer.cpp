@@ -129,7 +129,6 @@ void Consumer::StartConsuming(
     transform_alive_.store(true);
 
     while (is_running_) {
-      // TODO (msantl): Figure out what to do with potential exceptions here.
       auto batch = this->GetBatch();
 
       if (batch.empty()) continue;
@@ -143,7 +142,7 @@ void Consumer::StartConsuming(
       // TODO (mferencevic): Figure out what to do with all other exceptions.
       try {
         transform.Apply(batch, stream_writer_);
-      } catch (const TransformExecutionException) {
+      } catch (const TransformExecutionException &) {
         LOG(WARNING) << "[Kafka] stream " << info_.stream_name
                      << " the transform process has died!";
         break;
