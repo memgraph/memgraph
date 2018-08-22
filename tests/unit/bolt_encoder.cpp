@@ -4,7 +4,7 @@
 #include "communication/bolt/v1/encoder/encoder.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "glue/conversion.hpp"
+#include "glue/communication.hpp"
 
 using communication::bolt::Value;
 

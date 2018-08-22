@@ -8,7 +8,8 @@
 
 ### Major Features and Improvements
 
-* Kafka integration
+* [Enterprise Ed.] Authentication and authorization support.
+* [Enterprise Ed.] Kafka integration.
 
 ## v0.12.0
 

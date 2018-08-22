@@ -17,9 +17,9 @@ class TransactionEngine final {
 
   ~TransactionEngine() { Abort(); }
 
-  std::vector<std::string> Interpret(
-      const std::string &query,
-      const std::map<std::string, TypedValue> &params) {
+  std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
+  Interpret(const std::string &query,
+            const std::map<std::string, TypedValue> &params) {
     // Clear pending results.
     results_ = std::experimental::nullopt;
 
@@ -59,14 +59,13 @@ class TransactionEngine final {
     if (in_explicit_transaction_ && db_accessor_) AdvanceCommand();
 
     // Create a DB accessor if we don't yet have one.
-    if (!db_accessor_)
-      db_accessor_ = db_.Access();
+    if (!db_accessor_) db_accessor_ = db_.Access();
 
     // Interpret the query and return the headers.
     try {
       results_.emplace(
           interpreter_(query, *db_accessor_, params, in_explicit_transaction_));
-      return results_->header();
+      return {results_->header(), results_->privileges()};
     } catch (const utils::BasicException &) {
       AbortCommand();
       throw;

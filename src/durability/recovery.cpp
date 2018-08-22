@@ -12,7 +12,7 @@
 #include "durability/snapshot_value.hpp"
 #include "durability/version.hpp"
 #include "durability/wal.hpp"
-#include "glue/conversion.hpp"
+#include "glue/communication.hpp"
 #include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "transactions/type.hpp"

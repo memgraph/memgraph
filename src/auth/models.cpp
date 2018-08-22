@@ -40,6 +40,17 @@ std::string PermissionToString(Permission permission) {
   }
 }
 
+std::string PermissionLevelToString(PermissionLevel level) {
+  switch (level) {
+    case PermissionLevel::GRANT:
+      return "GRANT";
+    case PermissionLevel::NEUTRAL:
+      return "NEUTRAL";
+    case PermissionLevel::DENY:
+      return "DENY";
+  }
+}
+
 Permissions::Permissions(uint64_t grants, uint64_t denies) {
   // The deny bitmask has higher priority than the grant bitmask.
   denies_ = denies;
@@ -205,6 +216,7 @@ const Permissions User::GetPermissions() const {
 
 const std::string &User::username() const { return username_; }
 
+const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
 
 std::experimental::optional<Role> User::role() const { return role_; }

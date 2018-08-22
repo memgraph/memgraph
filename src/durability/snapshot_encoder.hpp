@@ -2,7 +2,7 @@
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "glue/conversion.hpp"
+#include "glue/communication.hpp"
 #include "utils/cast.hpp"
 
 namespace durability {

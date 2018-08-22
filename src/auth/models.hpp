@@ -37,6 +37,9 @@ enum class PermissionLevel {
   DENY,
 };
 
+// Function that converts a permission level to its string representation.
+std::string PermissionLevelToString(PermissionLevel level);
+
 class Permissions final {
  public:
   Permissions(uint64_t grants = 0, uint64_t denies = 0);
@@ -113,6 +116,7 @@ class User final {
 
   const std::string &username() const;
 
+  const Permissions &permissions() const;
   Permissions &permissions();
 
   std::experimental::optional<Role> role() const;

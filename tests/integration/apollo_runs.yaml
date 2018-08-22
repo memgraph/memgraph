@@ -33,3 +33,12 @@
     - ../../../build_debug/kafka.py # kafka script
     - ../../../build_debug/tests/integration/kafka/tester # tester binary
   enable_network: true
+
+- name: integration__auth
+  cd: auth
+  commands: TIMEOUT=600 ./runner.py
+  infiles:
+    - runner.py # runner script
+    - ../../../build_debug/memgraph # memgraph binary
+    - ../../../build_debug/tests/integration/auth/checker # checker binary
+    - ../../../build_debug/tests/integration/auth/tester # tester binary

@@ -2071,13 +2071,17 @@ and returns true, once.")
                    cpp<#))
    (user-symbol "Symbol" :reader t)
    (role-symbol "Symbol" :reader t)
-   (grants-symbol "Symbol" :reader t))
+   (privilege-symbol "Symbol" :reader t)
+   (effective-symbol "Symbol" :reader t)
+   (details-symbol "Symbol" :reader t))
   (:public
     #>cpp
     AuthHandler(AuthQuery::Action action, std::string user, std::string role,
                 std::string user_or_role, Expression * password,
                 std::vector<AuthQuery::Privilege> privileges,
-                Symbol user_symbol, Symbol role_symbol, Symbol grants_symbol);
+                Symbol user_symbol, Symbol role_symbol,
+                Symbol privilege_symbol, Symbol effective_symbol,
+                Symbol details_symbol);
 
     bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
     std::unique_ptr<Cursor> MakeCursor(database::GraphDbAccessor & db)

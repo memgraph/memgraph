@@ -7,7 +7,7 @@
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
 #include "durability/version.hpp"
-#include "glue/conversion.hpp"
+#include "glue/communication.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
 

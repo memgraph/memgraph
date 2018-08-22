@@ -43,7 +43,8 @@ set(memgraph_src_files
     durability/recovery.cpp
     durability/snapshooter.cpp
     durability/wal.cpp
-    glue/conversion.cpp
+    glue/auth.cpp
+    glue/communication.cpp
     query/common.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp

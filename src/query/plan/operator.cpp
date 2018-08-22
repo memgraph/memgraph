@@ -21,7 +21,8 @@
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
-#include "glue/conversion.hpp"
+#include "glue/auth.hpp"
+#include "glue/communication.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
 #include "query/context.hpp"
@@ -3895,7 +3896,8 @@ AuthHandler::AuthHandler(AuthQuery::Action action, std::string user,
                          Expression *password,
                          std::vector<AuthQuery::Privilege> privileges,
                          Symbol user_symbol, Symbol role_symbol,
-                         Symbol grants_symbol)
+                         Symbol privilege_symbol, Symbol effective_symbol,
+                         Symbol details_symbol)
     : action_(action),
       user_(user),
       role_(role),
@@ -3904,7 +3906,9 @@ AuthHandler::AuthHandler(AuthQuery::Action action, std::string user,
       privileges_(privileges),
       user_symbol_(user_symbol),
       role_symbol_(role_symbol),
-      grants_symbol_(grants_symbol) {}
+      privilege_symbol_(privilege_symbol),
+      effective_symbol_(effective_symbol),
+      details_symbol_(details_symbol) {}
 
 bool AuthHandler::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.Visit(*this);
@@ -3921,7 +3925,7 @@ std::vector<Symbol> AuthHandler::OutputSymbols(const SymbolTable &) const {
       return {role_symbol_};
 
     case AuthQuery::Action::SHOW_GRANTS:
-      return {grants_symbol_};
+      return {privilege_symbol_, effective_symbol_, details_symbol_};
 
     case AuthQuery::Action::CREATE_USER:
     case AuthQuery::Action::DROP_USER:
@@ -3944,53 +3948,59 @@ class AuthHandlerCursor : public Cursor {
   std::vector<auth::Permission> GetAuthPermissions() {
     std::vector<auth::Permission> ret;
     for (const auto &privilege : self_.privileges()) {
-      switch (privilege) {
-        case AuthQuery::Privilege::MATCH:
-          ret.push_back(auth::Permission::MATCH);
-          break;
-        case AuthQuery::Privilege::CREATE:
-          ret.push_back(auth::Permission::CREATE);
-          break;
-        case AuthQuery::Privilege::MERGE:
-          ret.push_back(auth::Permission::MERGE);
-          break;
-        case AuthQuery::Privilege::DELETE:
-          ret.push_back(auth::Permission::DELETE);
-          break;
-        case AuthQuery::Privilege::SET:
-          ret.push_back(auth::Permission::SET);
-          break;
-        case AuthQuery::Privilege::REMOVE:
-          ret.push_back(auth::Permission::REMOVE);
-          break;
-        case AuthQuery::Privilege::INDEX:
-          ret.push_back(auth::Permission::INDEX);
-          break;
-        case AuthQuery::Privilege::AUTH:
-          ret.push_back(auth::Permission::AUTH);
-          break;
-        case AuthQuery::Privilege::STREAM:
-          ret.push_back(auth::Permission::STREAM);
-          break;
+      ret.push_back(glue::PrivilegeToPermission(privilege));
+    }
+    return ret;
+  }
+
+  std::vector<std::tuple<std::string, std::string, std::string>>
+  GetGrantsForAuthUser(const auth::User &user) {
+    std::vector<std::tuple<std::string, std::string, std::string>> ret;
+    const auto &permissions = user.GetPermissions();
+    for (const auto &privilege : kPrivilegesAll) {
+      auto permission = glue::PrivilegeToPermission(privilege);
+      auto effective = permissions.Has(permission);
+      if (permissions.Has(permission) != auth::PermissionLevel::NEUTRAL) {
+        std::vector<std::string> description;
+        auto user_level = user.permissions().Has(permission);
+        if (user_level == auth::PermissionLevel::GRANT) {
+          description.push_back("GRANTED TO USER");
+        } else if (user_level == auth::PermissionLevel::DENY) {
+          description.push_back("DENIED TO USER");
+        }
+        if (user.role()) {
+          auto role_level = user.role()->permissions().Has(permission);
+          if (role_level == auth::PermissionLevel::GRANT) {
+            description.push_back("GRANTED TO ROLE");
+          } else if (role_level == auth::PermissionLevel::DENY) {
+            description.push_back("DENIED TO ROLE");
+          }
+        }
+        ret.push_back({auth::PermissionToString(permission),
+                       auth::PermissionLevelToString(effective),
+                       utils::Join(description, ", ")});
       }
     }
     return ret;
   }
 
-  std::vector<std::string> GetGrantsFromAuthPermissions(
-      auth::Permissions &permissions) {
-    std::vector<std::string> grants, denies, ret;
-    for (const auto &permission : permissions.GetGrants()) {
-      grants.push_back(auth::PermissionToString(permission));
-    }
-    for (const auto &permission : permissions.GetDenies()) {
-      denies.push_back(auth::PermissionToString(permission));
-    }
-    if (grants.size() > 0) {
-      ret.push_back(fmt::format("GRANT {}", utils::Join(grants, ", ")));
-    }
-    if (denies.size() > 0) {
-      ret.push_back(fmt::format("DENY {}", utils::Join(denies, ", ")));
+  std::vector<std::tuple<std::string, std::string, std::string>>
+  GetGrantsForAuthRole(const auth::Role &role) {
+    std::vector<std::tuple<std::string, std::string, std::string>> ret;
+    const auto &permissions = role.permissions();
+    for (const auto &privilege : kPrivilegesAll) {
+      auto permission = glue::PrivilegeToPermission(privilege);
+      auto effective = permissions.Has(permission);
+      if (effective != auth::PermissionLevel::NEUTRAL) {
+        std::string description;
+        if (effective == auth::PermissionLevel::GRANT) {
+          description = "GRANTED TO ROLE";
+        } else if (effective == auth::PermissionLevel::DENY) {
+          description = "DENIED TO ROLE";
+        }
+        ret.push_back({auth::PermissionToString(permission),
+                       auth::PermissionLevelToString(effective), description});
+      }
     }
     return ret;
   }
@@ -4195,16 +4205,18 @@ class AuthHandlerCursor : public Cursor {
                                         self_.user_or_role());
           }
           if (user) {
-            grants_.emplace(GetGrantsFromAuthPermissions(user->permissions()));
+            grants_.emplace(GetGrantsForAuthUser(*user));
           } else {
-            grants_.emplace(GetGrantsFromAuthPermissions(role->permissions()));
+            grants_.emplace(GetGrantsForAuthRole(*role));
           }
           grants_it_ = grants_->begin();
         }
 
         if (grants_it_ == grants_->end()) return false;
 
-        frame[self_.grants_symbol()] = *grants_it_;
+        frame[self_.privilege_symbol()] = std::get<0>(*grants_it_);
+        frame[self_.effective_symbol()] = std::get<1>(*grants_it_);
+        frame[self_.details_symbol()] = std::get<2>(*grants_it_);
         grants_it_++;
 
         return true;
@@ -4258,8 +4270,11 @@ class AuthHandlerCursor : public Cursor {
   std::vector<auth::User>::iterator users_it_;
   std::experimental::optional<std::vector<auth::Role>> roles_;
   std::vector<auth::Role>::iterator roles_it_;
-  std::experimental::optional<std::vector<std::string>> grants_;
-  std::vector<std::string>::iterator grants_it_;
+  std::experimental::optional<
+      std::vector<std::tuple<std::string, std::string, std::string>>>
+      grants_;
+  std::vector<std::tuple<std::string, std::string, std::string>>::iterator
+      grants_it_;
   bool returned_role_for_user_{false};
 };
 

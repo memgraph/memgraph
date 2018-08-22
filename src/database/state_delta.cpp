@@ -4,7 +4,7 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "glue/conversion.hpp"
+#include "glue/communication.hpp"
 
 namespace database {
 

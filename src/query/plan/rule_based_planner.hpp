@@ -192,7 +192,9 @@ class RuleBasedPlanner {
               auth_query->privileges_,
               symbol_table.CreateSymbol("user", false),
               symbol_table.CreateSymbol("role", false),
-              symbol_table.CreateSymbol("grants", false));
+              symbol_table.CreateSymbol("privilege", false),
+              symbol_table.CreateSymbol("effective", false),
+              symbol_table.CreateSymbol("details", false));
         } else if (auto *create_stream =
                        dynamic_cast<query::CreateStream *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before CreateStream";

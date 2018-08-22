@@ -5,7 +5,7 @@
 
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
-#include "glue/conversion.hpp"
+#include "glue/communication.hpp"
 #include "storage/pod_buffer.hpp"
 #include "storage/property_value_store.hpp"
 

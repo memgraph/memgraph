@@ -17,7 +17,8 @@
 #include "database/distributed_graph_db.hpp"
 #include "database/graph_db.hpp"
 #include "distributed/pull_rpc_clients.hpp"
-#include "glue/conversion.hpp"
+#include "glue/auth.hpp"
+#include "glue/communication.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
 #include "query/exceptions.hpp"
@@ -95,7 +96,20 @@ class BoltSession final
     for (const auto &kv : params)
       params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
     try {
-      return transaction_engine_.Interpret(query, params_tv);
+      auto result = transaction_engine_.Interpret(query, params_tv);
+      if (user_) {
+        const auto &permissions = user_->GetPermissions();
+        for (const auto &privilege : result.second) {
+          if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
+              auth::PermissionLevel::GRANT) {
+            transaction_engine_.Abort();
+            throw communication::bolt::ClientError(
+                "You are not authorized to execute this query! Please contact "
+                "your database administrator.");
+          }
+        }
+      }
+      return result.first;
     } catch (const query::QueryException &e) {
       // Wrap QueryException into ClientError, because we want to allow the
       // client to fix their query.
