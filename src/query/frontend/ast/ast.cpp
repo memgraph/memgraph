@@ -7,7 +7,10 @@
 
 namespace query {
 
-AstStorage::AstStorage() { storage_.emplace_back(new Query(next_uid_++)); }
+AstStorage::AstStorage() {
+  std::unique_ptr<Query> root(new Query(next_uid_++));
+  storage_.emplace_back(std::move(root));
+}
 
 Query *AstStorage::query() const {
   return dynamic_cast<Query *>(storage_[0].get());
