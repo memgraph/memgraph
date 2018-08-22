@@ -12,51 +12,52 @@ class Storage;
 
 namespace distributed {
 
-/**
- * Used for caching Vertices and Edges that are stored on another worker in a
- * distributed system. Maps global IDs to (old, new) Vertex/Edge pointer
- * pairs.  It is possible that either "old" or "new" are nullptrs, but at
- * least one must be not-null. The Cache is the owner of TRecord
- * objects it points to.
- *
- * @tparam TRecord - Edge or Vertex
- */
-template <typename TRecord>
+// TODO Improvements:
+// 1) Use combination of std::unoredered_map<TKey, list<...>::iterator
+// and std::list<std::pair<TKey, TValue>>. Use map for quick access and
+// checking if TKey exists in map, list for keeping track of LRU order.
+//
+// 2) Implement adaptive replacement cache policy instead of LRU.
+// http://theory.stanford.edu/~megiddo/pdf/IEEE_COMPUTER_0404.pdf/
+
+/// Used for caching objects. Uses least recently used page replacement
+/// algorithm for evicting elements when maximum size is reached. This class
+/// is NOT thread safe.
+///
+/// @see ThreadSafeCache
+/// @tparam TKey - any object that has hash() defined
+/// @tparam TValue - any object
+template <typename TKey, typename TValue>
 class Cache {
-  using rec_uptr = std::unique_ptr<TRecord>;
-
  public:
-  Cache(database::Storage &storage, distributed::DataRpcClients &data_clients)
-      : storage_(storage), data_clients_(data_clients) {}
+  using Iterator = typename std::unordered_map<TKey, TValue>::iterator;
 
-  /// Returns the new data for the given ID. Creates it (as copy of old) if
-  /// necessary.
-  TRecord *FindNew(gid::Gid gid);
+  Cache() = default;
 
-  /// For the Vertex/Edge with the given global ID, looks for the data visible
-  /// from the given transaction's ID and command ID, and caches it. Sets the
-  /// given pointers to point to the fetched data. Analogue to
-  /// mvcc::VersionList::find_set_old_new.
-  void FindSetOldNew(tx::TransactionId tx_id, int worker_id, gid::Gid gid,
-                     TRecord *&old_record, TRecord *&new_record);
+  Iterator find(const TKey &key) { return cache_.find(key); }
 
-  /// Sets the given records as (new, old) data for the given gid.
-  void emplace(gid::Gid gid, rec_uptr old_record, rec_uptr new_record);
+  std::pair<Iterator, bool> emplace(TKey &&key, TValue &&value) {
+    return cache_.emplace(std::forward<TKey>(key), std::forward<TValue>(value));
+  }
 
-  /// Removes all the data from the cache.
-  void ClearCache();
+  void erase(const TKey &key) {
+    cache_.erase(key);
+  }
+  
+  Iterator end() {
+    return cache_.end();
+  }
+
+  bool contains(const TKey &key) {
+    return find(key) != end();
+  } 
+
+  void clear() {
+    cache_.clear();
+  }
 
  private:
-  database::Storage &storage_;
-
-  std::mutex lock_;
-  distributed::DataRpcClients &data_clients_;
-  // TODO it'd be better if we had VertexData and EdgeData in here, as opposed
-  // to Vertex and Edge.
-  std::unordered_map<gid::Gid, std::pair<rec_uptr, rec_uptr>> cache_;
-
-  // Localizes all the addresses in the record.
-  void LocalizeAddresses(TRecord &record);
+  std::unordered_map<TKey, TValue> cache_;
 };
 
 }  // namespace distributed

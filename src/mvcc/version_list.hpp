@@ -181,14 +181,14 @@ class VersionList {
    *
    * @param t The transaction
    */
-  void find_set_old_new(const tx::Transaction &t, T *&old_ref, T *&new_ref) {
+  void find_set_old_new(const tx::Transaction &t, T **old_ref, T **new_ref) {
     // assume that the sought old record is further down the list
     // from new record, so that if we found old we can stop looking
-    new_ref = nullptr;
-    old_ref = head_;
-    while (old_ref != nullptr && !old_ref->visible(t)) {
-      if (!new_ref && old_ref->is_created_by(t)) new_ref = old_ref;
-      old_ref = old_ref->next(std::memory_order_seq_cst);
+    *new_ref = nullptr;
+    *old_ref = head_;
+    while (*old_ref != nullptr && !(*old_ref)->visible(t)) {
+      if (!*new_ref && (*old_ref)->is_created_by(t)) *new_ref = *old_ref;
+      *old_ref = (*old_ref)->next(std::memory_order_seq_cst);
     }
   }
 
@@ -205,7 +205,7 @@ class VersionList {
     DCHECK(head_ != nullptr) << "Head is nullptr on update.";
     T *old_record = nullptr;
     T *new_record = nullptr;
-    find_set_old_new(t, old_record, new_record);
+    find_set_old_new(t, &old_record, &new_record);
 
     // check if current transaction in current cmd has
     // already updated version list

@@ -73,7 +73,7 @@ class DistributedRecordAccessor final {
     auto &dba = record_accessor.db_accessor();
     const auto &address = record_accessor.address();
     if (record_accessor.is_local()) {
-      address.local()->find_set_old_new(dba.transaction(), *old, *newr);
+      address.local()->find_set_old_new(dba.transaction(), old, newr);
       return;
     }
     // It's not possible that we have a global address for a graph element
@@ -81,10 +81,8 @@ class DistributedRecordAccessor final {
     // TODO in write queries it's possible the command has been advanced and
     // we need to invalidate the Cache and really get the latest stuff.
     // But only do that after the command has been advanced.
-    auto &cache =
-        data_manager_->template Elements<TRecord>(dba.transaction_id());
-    cache.FindSetOldNew(dba.transaction().id_, address.worker_id(),
-                        address.gid(), *old, *newr);
+    data_manager_->FindSetOldNew(dba.transaction_id(), address.worker_id(),
+                                 address.gid(), old, newr);
   }
 
   TRecord *FindNew(const RecordAccessor<TRecord> &record_accessor) {
@@ -93,9 +91,8 @@ class DistributedRecordAccessor final {
     if (address.is_local()) {
       return address.local()->update(dba.transaction());
     }
-    auto &cache =
-        data_manager_->template Elements<TRecord>(dba.transaction_id());
-    return cache.FindNew(address.gid());
+    return data_manager_->FindNew<TRecord>(dba.transaction_id(),
+                                           address.gid());
   }
 
   void ProcessDelta(const RecordAccessor<TRecord> &record_accessor,
@@ -302,12 +299,11 @@ class DistributedAccessor : public GraphDbAccessor {
     auto edge_address =
         updates_clients_->CreateEdge(transaction_id(), *from, *to, edge_type);
     auto *from_updated =
-        data_manager_->Elements<Vertex>(transaction_id()).FindNew(from->gid());
+        data_manager_->FindNew<Vertex>(transaction_id(), from->gid());
     // Create an Edge and insert it into the Cache so we see it locally.
-    data_manager_->Elements<Edge>(transaction_id())
-        .emplace(
-            edge_address.gid(), nullptr,
-            std::make_unique<Edge>(from->address(), to->address(), edge_type));
+    data_manager_->Emplace<Edge>(
+        transaction_id(), edge_address.gid(), nullptr,
+        std::make_unique<Edge>(from->address(), to->address(), edge_type));
     from_updated->out_.emplace(
         db().storage().LocalizedAddressIfPossible(to->address()), edge_address,
         edge_type);
@@ -329,7 +325,7 @@ class DistributedAccessor : public GraphDbAccessor {
           db().storage().GlobalizedAddress(edge_address), *to, edge_type);
     }
     auto *to_updated =
-        data_manager_->Elements<Vertex>(transaction_id()).FindNew(to->gid());
+        data_manager_->FindNew<Vertex>(transaction_id(), to->gid());
     to_updated->in_.emplace(
         db().storage().LocalizedAddressIfPossible(from->address()),
         edge_address, edge_type);
@@ -621,7 +617,8 @@ Master::Master(Config config)
           impl_->coordination_.CommonWalTransactions(*recovery_info);
       DistributedRecoveryTransanctions recovery_transactions(this);
       durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
-                                       this, &recovery_data, &recovery_transactions);
+                                       this, &recovery_data,
+                                       &recovery_transactions);
       auto workers_recovered_wal =
           impl_->durability_rpc_.RecoverWalAndIndexes(&recovery_data);
       workers_recovered_wal.get();
@@ -811,8 +808,7 @@ VertexAccessor InsertVertexIntoRemote(
   auto vertex = std::make_unique<Vertex>();
   vertex->labels_ = labels;
   for (auto &kv : properties) vertex->properties_.set(kv.first, kv.second);
-  data_manager->Elements<Vertex>(dba->transaction_id())
-      .emplace(gid, nullptr, std::move(vertex));
+  data_manager->Emplace<Vertex>(dba->transaction_id(), gid, nullptr, std::move(vertex));
   return VertexAccessor({gid, worker_id}, *dba);
 }
 

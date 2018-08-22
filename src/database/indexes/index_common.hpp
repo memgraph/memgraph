@@ -99,7 +99,7 @@ static auto GetVlists(
         // TODO when refactoring MVCC reconsider the return-value-arg idiom
         // here
         TRecord *old_record, *new_record;
-        entry.vlist_->find_set_old_new(t, old_record, new_record);
+        entry.vlist_->find_set_old_new(t, &old_record, &new_record);
         // filtering out records not visible to the current
         // transaction+command
         // taking into account the current_state flag

@@ -262,9 +262,8 @@ void PullResData::LoadGraphElement(
         vertex_reader.hasNew()
             ? distributed::LoadVertex(vertex_reader.getNew())
             : nullptr;
-    data_manager->Elements<Vertex>(dba->transaction_id())
-        .emplace(global_address.gid(), std::move(old_record),
-                 std::move(new_record));
+    data_manager->Emplace<Vertex>(dba->transaction_id(), global_address.gid(), 
+                 std::move(old_record), std::move(new_record));
     return VertexAccessor(global_address, *dba);
   };
   auto load_edge = [dba, data_manager](const auto &edge_reader) {
@@ -277,9 +276,8 @@ void PullResData::LoadGraphElement(
         edge_reader.hasNew()
             ? distributed::LoadEdge(edge_reader.getNew())
             : nullptr;
-    data_manager->Elements<Edge>(dba->transaction_id())
-        .emplace(global_address.gid(), std::move(old_record),
-                 std::move(new_record));
+    data_manager->Emplace<Edge>(dba->transaction_id(), global_address.gid(),
+                 std::move(old_record), std::move(new_record));
     return EdgeAccessor(global_address, *dba);
   };
   switch (reader.which()) {

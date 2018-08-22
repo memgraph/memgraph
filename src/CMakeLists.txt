@@ -20,7 +20,6 @@ set(memgraph_src_files
     database/state_delta.cpp
     distributed/bfs_rpc_clients.cpp
     distributed/bfs_subcursor.cpp
-    distributed/cache.cpp
     distributed/cluster_discovery_master.cpp
     distributed/cluster_discovery_worker.cpp
     distributed/coordination.cpp

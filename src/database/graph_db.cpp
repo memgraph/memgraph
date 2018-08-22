@@ -38,7 +38,7 @@ class SingleNodeRecordAccessor final {
     auto &dba = record_accessor.db_accessor();
     const auto &address = record_accessor.address();
     CHECK(record_accessor.is_local());
-    address.local()->find_set_old_new(dba.transaction(), *old, *newr);
+    address.local()->find_set_old_new(dba.transaction(), old, newr);
   }
 
   TRecord *FindNew(const RecordAccessor<TRecord> &record_accessor) {
