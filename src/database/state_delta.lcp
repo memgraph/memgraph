@@ -4,12 +4,12 @@
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/state_delta.capnp.h"
+#include "distributed/serialization.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "storage/address_types.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
-#include "utils/serialization.hpp"
 cpp<#
 
 (lcp:namespace database)
@@ -52,13 +52,13 @@ cpp<#
           :capnp-save
           (lambda (builder member)
             #>cpp
-            utils::SaveCapnpTypedValue(${member}, &${builder});
+            distributed::SaveCapnpTypedValue(${member}, &${builder});
             cpp<#)
           :capnp-load
           (lambda (reader member)
             #>cpp
             query::TypedValue tv;
-            utils::LoadCapnpTypedValue(${reader}, &tv);
+            distributed::LoadCapnpTypedValue(${reader}, &tv);
             ${member} = tv;
             cpp<#))
    (label "storage::Label")

@@ -1,6 +1,7 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
+#include "communication/rpc/client.hpp"
 #include "stats/stats.hpp"
 #include "stats/stats_rpc_messages.hpp"
 #include "utils/string.hpp"

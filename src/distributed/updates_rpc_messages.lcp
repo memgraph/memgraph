@@ -67,7 +67,7 @@ cpp<#
                        auto key_builder = builder->initKey();
                        entry.first.Save(&key_builder);
                        auto value_builder = builder->initValue();
-                       utils::SaveCapnpTypedValue(entry.second, &value_builder);
+                       distributed::SaveCapnpTypedValue(entry.second, &value_builder);
                      });
                  cpp<#)
                :capnp-load
@@ -79,7 +79,7 @@ cpp<#
                        storage::Property prop;
                        prop.Load(reader.getKey());
                        query::TypedValue value;
-                       utils::LoadCapnpTypedValue(reader.getValue(), &value);
+                       distributed::LoadCapnpTypedValue(reader.getValue(), &value);
                        return std::make_pair(prop, value);
                      });
                  cpp<#)))

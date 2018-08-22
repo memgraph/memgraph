@@ -4,9 +4,9 @@
 
 #include "communication/rpc/client.hpp"
 #include "data_structures/concurrent/push_queue.hpp"
-#include "utils/thread.hpp"
-
+#include "stats/metrics.hpp"
 #include "stats/stats_rpc_messages.hpp"
+#include "utils/thread.hpp"
 
 DEFINE_HIDDEN_string(statsd_address, "", "Stats server IP address");
 DEFINE_HIDDEN_int32(statsd_port, 2500, "Stats server port");

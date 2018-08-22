@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "distributed/serialization.hpp"
 #include "utils/serialization.capnp.h"
 
 namespace query {
@@ -235,7 +236,7 @@ void PrimitiveLiteral::Save(capnp::BaseLiteral::Builder *base_literal_builder,
   auto primitive_literal_builder = base_literal_builder->initPrimitiveLiteral();
   primitive_literal_builder.setTokenPosition(token_position_);
   auto typed_value_builder = primitive_literal_builder.getValue();
-  utils::SaveCapnpTypedValue(value_, &typed_value_builder);
+  distributed::SaveCapnpTypedValue(value_, &typed_value_builder);
 }
 
 void PrimitiveLiteral::Load(const capnp::Tree::Reader &reader,
@@ -245,7 +246,7 @@ void PrimitiveLiteral::Load(const capnp::Tree::Reader &reader,
   auto pl_reader =
       reader.getExpression().getBaseLiteral().getPrimitiveLiteral();
   auto typed_value_reader = pl_reader.getValue();
-  utils::LoadCapnpTypedValue(typed_value_reader, &value_);
+  distributed::LoadCapnpTypedValue(typed_value_reader, &value_);
   token_position_ = pl_reader.getTokenPosition();
 }
 

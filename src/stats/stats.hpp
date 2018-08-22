@@ -7,7 +7,7 @@
 
 #include "gflags/gflags.h"
 
-#include "stats/metrics.hpp"
+#include "io/network/endpoint.hpp"
 
 namespace stats {
 

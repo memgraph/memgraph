@@ -78,7 +78,7 @@ the relevant parts of the response, ready for use."))
                for (size_t val_i = 0; val_i < frame.size(); ++val_i) {
                  const auto &value = frame[val_i];
                  auto value_builder = frame_builder[val_i];
-                 utils::SaveCapnpTypedValue(
+                 distributed::SaveCapnpTypedValue(
                      value, &value_builder,
                      [this](const auto &value, auto *builder) {
                        this->SaveGraphElement(value, builder);
@@ -95,7 +95,7 @@ the relevant parts of the response, ready for use."))
                current_frame.reserve(frame_reader.size());
                for (const auto &value_reader : frame_reader) {
                  query::TypedValue value;
-                 utils::LoadCapnpTypedValue(
+                 distributed::LoadCapnpTypedValue(
                      value_reader, &value,
                      [this, dba, data_manager](const auto &reader, auto *value) {
                        this->LoadGraphElement(dba, reader, value, data_manager);
@@ -323,7 +323,7 @@ cpp<#)
                   auto key_builder = builder.initKey();
                   key_builder.setValue(entry.first);
                   auto value_builder = builder.initValue();
-                  utils::SaveCapnpTypedValue(entry.second, &value_builder);
+                  distributed::SaveCapnpTypedValue(entry.second, &value_builder);
                   ++i;
                 }
                 cpp<#)
@@ -332,7 +332,7 @@ cpp<#)
                 #>cpp
                 for (const auto &entry_reader : ${reader}.getEntries()) {
                   query::TypedValue value;
-                  utils::LoadCapnpTypedValue(entry_reader.getValue(), &value);
+                  distributed::LoadCapnpTypedValue(entry_reader.getValue(), &value);
                   ${member}.Add(entry_reader.getKey().getValue(), value);
                 }
                 cpp<#))

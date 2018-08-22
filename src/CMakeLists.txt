@@ -7,6 +7,7 @@ add_subdirectory(integrations)
 add_subdirectory(io)
 add_subdirectory(telemetry)
 add_subdirectory(communication)
+add_subdirectory(stats)
 add_subdirectory(auth)
 
 # all memgraph src files
@@ -59,8 +60,6 @@ set(memgraph_src_files
     query/plan/variable_start_planner.cpp
     query/repl.cpp
     query/typed_value.cpp
-    stats/metrics.cpp
-    stats/stats.cpp
     storage/concurrent_id_mapper_master.cpp
     storage/concurrent_id_mapper_worker.cpp
     storage/dynamic_graph_partitioner/dgp.cpp
@@ -161,8 +160,6 @@ add_lcp(distributed/updates_rpc_messages.lcp CAPNP_SCHEMA @0x82d5f38d73c7b53a)
 add_capnp(distributed/updates_rpc_messages.capnp)
 add_lcp(query/plan/operator.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42)
 add_capnp(query/plan/operator.capnp)
-add_lcp(stats/stats_rpc_messages.lcp CAPNP_SCHEMA @0xc19a87c81b9b4512)
-add_capnp(stats/stats_rpc_messages.capnp)
 add_lcp(storage/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
 add_capnp(storage/concurrent_id_mapper_rpc_messages.capnp)
 add_lcp(transactions/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5)
@@ -180,7 +177,6 @@ add_capnp(query/frontend/ast/ast.capnp)
 add_capnp(query/frontend/semantic/symbol.capnp)
 add_capnp(storage/serialization.capnp)
 add_capnp(transactions/common.capnp)
-add_capnp(utils/serialization.capnp)
 
 add_custom_target(generate_capnp DEPENDS generate_lcp ${generated_capnp_files})
 
@@ -191,7 +187,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
-    mg-utils mg-io mg-integrations mg-requests mg-communication mg-auth)
+    mg-utils mg-io mg-integrations mg-requests mg-communication mg-auth mg-stats)
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)

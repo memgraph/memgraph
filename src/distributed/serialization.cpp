@@ -1,7 +1,5 @@
 #include "distributed/serialization.hpp"
 
-#include "utils/serialization.hpp"
-
 namespace {
 
 template <class TAddress>
@@ -30,7 +28,7 @@ void SaveProperties(
     auto prop_builder = (*builder)[i];
     prop_builder.setId(kv.first.Id());
     auto value_builder = prop_builder.initValue();
-    utils::SaveCapnpTypedValue(kv.second, &value_builder);
+    distributed::SaveCapnpTypedValue(kv.second, &value_builder);
     ++i;
   }
 }
@@ -40,7 +38,7 @@ PropertyValueStore LoadProperties(
   PropertyValueStore props;
   for (const auto &prop_reader : reader) {
     query::TypedValue value;
-    utils::LoadCapnpTypedValue(prop_reader.getValue(), &value);
+    distributed::LoadCapnpTypedValue(prop_reader.getValue(), &value);
     props.set(storage::Property(prop_reader.getId()), value);
   }
   return props;

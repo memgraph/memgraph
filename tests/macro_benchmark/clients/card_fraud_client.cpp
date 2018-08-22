@@ -5,6 +5,7 @@
 
 #include "gflags/gflags.h"
 
+#include "communication/rpc/client.hpp"
 #include "stats/stats.hpp"
 #include "stats/stats_rpc_messages.hpp"
 #include "utils/thread/sync.hpp"
@@ -363,10 +364,10 @@ int main(int argc, char **argv) {
     CHECK(FLAGS_num_workers >= 2)
         << "There should be at least 2 client workers (analytic and cleanup)";
     CHECK(num_pos == config["num_workers"].get<int>() *
-                         config["pos_per_worker"].get<int>())
+              config["pos_per_worker"].get<int>())
         << "Wrong number of POS per worker";
     CHECK(num_cards == config["num_workers"].get<int>() *
-                           config["cards_per_worker"].get<int>())
+              config["cards_per_worker"].get<int>())
         << "Wrong number of cards per worker";
     for (int i = 0; i < FLAGS_num_workers - 2; ++i) {
       clients.emplace_back(std::make_unique<CardFraudClient>(i, config));
