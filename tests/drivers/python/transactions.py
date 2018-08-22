@@ -41,10 +41,16 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=basic_auth("", ""),
         session.run("UNWIND range(1, 100000) AS x CREATE ()")
 
     # Query that will run for a very long time, transient error expected.
-    with driver.session() as session:
-        try:
+    timed_out = False
+    try:
+        with driver.session() as session:
             session.run("MATCH (a), (b), (c), (d), (e), (f) RETURN COUNT(*) AS cnt")
-        except TransientError:
-            print("transient error")
+    except TransientError:
+        timed_out = True
+
+    if timed_out:
+        print("The query timed out as was expected.")
+    else:
+        raise Exception("The query should have timed out, but it didn't!")
 
     print("All ok!")

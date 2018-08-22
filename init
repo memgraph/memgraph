@@ -16,6 +16,7 @@ required_pkgs=(git arcanist # source code control
 optional_pkgs=(clang-format # source code formatting
                doxygen graphviz # source documentation generators
                php-cli # for user technical documentation generators
+               mono-runtime mono-mcs nodejs # for driver tests
               )
 
 use_sudo=0

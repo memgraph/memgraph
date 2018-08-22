@@ -1,21 +1,19 @@
-#!/bin/bash
+#!/bin/bash -e
 
-set -e
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
 
-NODE=nodejs
-NPM=npm
-
-if ! which $NODE >/dev/null; then
-    echo "Please install Node.JS!"
+if ! which nodejs >/dev/null; then
+    echo "Please install nodejs!"
     exit 1
 fi
 
-if ! which $NPM >/dev/null; then
-    echo "Please install NPM!"
-    exit 1
+if [ ! -d node_modules ]; then
+    # Driver generated with: `npm install neo4j-driver`
+    wget -nv http://deps.memgraph.io/drivers/javascript/neo4j-javascript-driver-1.6.1.tar.gz -O driver.tar.gz || exit 1
+    tar -xzf driver.tar.gz || exit 1
+    rm driver.tar.gz || exit 1
 fi
 
-$NPM install neo4j-driver
-
-$NODE basic.js
-$NODE max_query_length.js
+nodejs basic.js
+nodejs max_query_length.js

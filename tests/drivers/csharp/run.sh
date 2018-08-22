@@ -1,37 +1,30 @@
-#!/bin/bash
+#!/bin/bash -e
 
-set -e
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
 
-script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd $script_dir
+for i in mono mcs; do
+    if ! which $i >/dev/null; then
+        echo "Please install $i!"
+        exit 1
+    fi
+done
 
-if ! which nuget >/dev/null; then
-    echo "Please install nuget!"
-    exit 1
+DRIVER=Neo4j.Driver.dll
+
+if [ ! -f $DRIVER ]; then
+    driver_dir=$( mktemp -d driver.XXXXXXXX ) || exit 1
+    cd $driver_dir || exit 1
+    # Driver downloaded from: https://www.nuget.org/packages/Neo4j.Driver/1.5.3
+    wget -nv http://deps.memgraph.io/drivers/csharp/neo4j.driver.1.5.3.nupkg || exit 1
+    unzip -q neo4j.driver.1.5.3.nupkg || exit 1
+    cp lib/net452/Neo4j.Driver.dll .. || exit 1
+    cd .. || exit 1
+    rm -rf $driver_dir || exit 1
 fi
 
-if ! which mono >/dev/null; then
-    echo "Please install mono!"
-    exit 1
-fi
-
-if ! which mcs >/dev/null; then
-    echo "Please install mcs!"
-    exit 1
-fi
-
-driver=Neo4j.Driver
-version=1.5.0
-
-if [ ! -f $driver.dll ]; then
-  nuget_dir=`mktemp -d nuget.XXXXXXXX` || exit 1
-  nuget install $driver -Version $version -OutputDirectory $nuget_dir || exit 1
-  cp $nuget_dir/$driver.$version/lib/net452/$driver.dll ./ || exit 1
-  rm -rf $nuget_dir || exit 1
-fi
-
-mcs -reference:$driver.dll Basic.cs
+mcs -reference:$DRIVER Basic.cs
 mono Basic.exe
 
-mcs -reference:$driver.dll Transactions.cs
+mcs -reference:$DRIVER Transactions.cs
 mono Transactions.exe

@@ -1,10 +1,11 @@
 # csharp driver
 csharp/*.dll
 csharp/*.exe
+csharp/driver.*
 
 # java driver
-java/*.jar
 java/*.class
+java/*.jar
 
 # javascript driver
 javascript/node_modules
