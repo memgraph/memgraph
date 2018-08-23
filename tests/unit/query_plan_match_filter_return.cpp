@@ -2353,6 +2353,74 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   EXPECT_EQ(PullAll(scan_all.op_, *dba, symbol_table), 1);
 }
 
+TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
+  database::SingleNode db;
+  auto label = db.Access()->Label("label");
+  auto prop = db.Access()->Property("prop");
+
+  // Insert vertices
+  const int vertex_count = 300, vertex_prop_count = 50;
+  const int prop_value1 = 42, prop_value2 = 69;
+
+  for (int i = 0; i < vertex_count; ++i) {
+    auto dba = db.Access();
+    auto v = dba->InsertVertex();
+    v.add_label(label);
+    v.PropsSet(prop, i < vertex_prop_count ? prop_value1 : prop_value2);
+    dba->Commit();
+  }
+
+  db.Access()->BuildIndex(label, prop);
+
+  // Make sure there are `vertex_count` vertices
+  {
+    auto dba = db.Access();
+    EXPECT_EQ(vertex_count, CountIterable(dba->Vertices(false)));
+  }
+
+  // Make sure there are `vertex_prop_count` results when using index
+  auto count_with_index = [&db, &label, &prop](int prop_value, int prop_count) {
+    AstStorage storage;
+    SymbolTable symbol_table;
+    auto dba = db.Access();
+    auto scan_all_by_label_property_value = MakeScanAllByLabelPropertyValue(
+        storage, symbol_table, "n", label, prop, LITERAL(prop_value));
+    auto output = NEXPR("n", IDENT("n"));
+    auto produce = MakeProduce(scan_all_by_label_property_value.op_, output);
+    symbol_table[*output->expression_] = scan_all_by_label_property_value.sym_;
+    symbol_table[*output] =
+        symbol_table.CreateSymbol("named_expression_1", true);
+    EXPECT_EQ(PullAll(produce, *dba, symbol_table), prop_count);
+  };
+
+  // Make sure there are `vertex_count` results when using scan all
+  auto count_with_scan_all = [&db, &label, &prop](int prop_value,
+                                                  int prop_count) {
+    AstStorage storage;
+    SymbolTable symbol_table;
+    auto dba_ptr = db.Access();
+    auto &dba = *dba_ptr;
+    auto scan_all = MakeScanAll(storage, symbol_table, "n");
+    auto e = storage.Create<PropertyLookup>(storage.Create<Identifier>("n"),
+                                            std::make_pair("prop", prop));
+    symbol_table[*e->expression_] = scan_all.sym_;
+    auto filter =
+        std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
+    auto output = NEXPR("n", IDENT("n"));
+    auto produce = MakeProduce(filter, output);
+    symbol_table[*output->expression_] = scan_all.sym_;
+    symbol_table[*output] =
+        symbol_table.CreateSymbol("named_expression_1", true);
+    EXPECT_EQ(PullAll(produce, dba, symbol_table), prop_count);
+  };
+
+  count_with_index(prop_value1, vertex_prop_count);
+  count_with_scan_all(prop_value1, vertex_prop_count);
+
+  count_with_index(prop_value2, vertex_count - vertex_prop_count);
+  count_with_scan_all(prop_value2, vertex_count - vertex_prop_count);
+}
+
 int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
   ::testing::InitGoogleTest(&argc, argv);
