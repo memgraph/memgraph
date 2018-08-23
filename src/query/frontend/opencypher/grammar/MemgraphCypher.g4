@@ -48,7 +48,10 @@ symbolicName : UnescapedSymbolicName
 query : regularQuery
       | authQuery
       | streamQuery
+      | explainQuery
       ;
+
+explainQuery : EXPLAIN regularQuery ;
 
 authQuery : createRole
           | dropRole

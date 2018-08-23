@@ -155,6 +155,7 @@ struct CypherUnion {
 struct Query {
   singleQuery @0 :Tree;
   cypherUnions @1 :List(Tree);
+  explain @2 :Bool;
 }
 
 struct BinaryOperator {
@@ -431,7 +432,7 @@ struct AuthQuery {
   role @2 :Text;
   userOrRole @3 :Text;
   password @4 :Tree;
-  privileges @5 :List(Privilege);  
+  privileges @5 :List(Privilege);
 }
 
 struct CreateStream {

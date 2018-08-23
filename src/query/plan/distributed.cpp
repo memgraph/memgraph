@@ -95,6 +95,16 @@ class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
   bool Visit(StartStopAllStreams &) override { return true; }
   bool Visit(TestStream &) override { return true; }
 
+  // Treat Explain as if the query is planned without it
+  bool PreVisit(Explain &explain) override {
+    prev_ops_.push_back(&explain);
+    return true;
+  }
+  bool PostVisit(Explain &explain) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ScanAll &scan) override {
     prev_ops_.push_back(&scan);
     return true;
@@ -1041,6 +1051,26 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  // Treat Explain as if the query is planned without it
+  bool PreVisit(Explain &explain) override {
+    CHECK(prev_ops_.empty());
+    prev_ops_.push_back(&explain);
+    return true;
+  }
+
+  bool PostVisit(Explain &explain) override {
+    // Set Explain as the final operator on master.
+    if (ShouldSplit()) {
+      auto input = explain.input();
+      auto pull_id = AddWorkerPlan(input);
+      Split(explain, std::make_shared<PullRemote>(
+                         input, pull_id,
+                         input->OutputSymbols(distributed_plan_.symbol_table)));
+    }
+    prev_ops_.pop_back();
+    return false;
+  }
+
   // Skip needs to skip only the first N results from *all* of the results.
   // Therefore, the earliest (deepest in the plan tree) encountered Skip will
   // break the plan in 2 parts.
@@ -1140,9 +1170,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // Shallow copy Distinct
       auto pull_id = AddWorkerPlan(std::make_shared<Distinct>(distinct));
       auto input = distinct.input();
-      Split(distinct, std::make_shared<PullRemote>(
-                          input, pull_id, input->OutputSymbols(
-                                              distributed_plan_.symbol_table)));
+      Split(distinct,
+            std::make_shared<PullRemote>(
+                input, pull_id,
+                input->OutputSymbols(distributed_plan_.symbol_table)));
     }
     return true;
   }

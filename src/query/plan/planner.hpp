@@ -98,6 +98,12 @@ auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
         prev_op, prev_op->OutputSymbols(context.symbol_table));
   }
 
+  if (context.ast_storage.query()->explain_) {
+    last_op = std::make_unique<Explain>(
+        std::move(last_op),
+        context.symbol_table.CreateSymbol("QUERY PLAN", false));
+  }
+
   return std::make_pair(std::move(last_op), total_cost);
 }
 

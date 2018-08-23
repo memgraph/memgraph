@@ -477,29 +477,28 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table,
-                             AstStorage &storage) {
-  auto query = storage.query();
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage) {
+  auto *query = storage.query();
   std::vector<QueryPart> query_parts;
+
+  auto *single_query = query->single_query_;
+  CHECK(single_query) << "Expected at least a single query";
+  query_parts.push_back(
+      QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
+
   bool distinct = false;
-
-  if (auto *single_query = query->single_query_) {
-    query_parts.push_back(QueryPart{
-        CollectSingleQueryParts(symbol_table, storage, single_query)});
-  }
-
   for (auto *cypher_union : query->cypher_unions_) {
     if (cypher_union->distinct_) {
       distinct = true;
     }
 
-    if (auto *single_query = cypher_union->single_query_) {
-      query_parts.push_back(QueryPart{
-          CollectSingleQueryParts(symbol_table, storage, single_query),
-          cypher_union});
-    }
+    auto *single_query = cypher_union->single_query_;
+    CHECK(single_query) << "Expected UNION to have a query";
+    query_parts.push_back(
+        QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query),
+                  cypher_union});
   }
   return QueryParts{query_parts, distinct};
-};
+}
 
 }  // namespace query::plan

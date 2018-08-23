@@ -6,7 +6,7 @@
  * and bitsets) if needed.
  */
 
-lexer grammar MemgraphCypherLexer ; 
+lexer grammar MemgraphCypherLexer ;
 
 import CypherLexer ;
 
@@ -17,6 +17,7 @@ BATCHES        : B A T C H E S ;
 DATA           : D A T A ;
 DENY           : D E N Y ;
 DROP           : D R O P ;
+EXPLAIN        : E X P L A I N ;
 FOR            : F O R ;
 FROM           : F R O M ;
 GRANT          : G R A N T ;

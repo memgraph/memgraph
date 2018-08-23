@@ -31,6 +31,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
+#include "query/plan/pretty_print.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
@@ -4611,6 +4612,54 @@ class TestStreamCursor : public Cursor {
 std::unique_ptr<Cursor> TestStream::MakeCursor(
     database::GraphDbAccessor &db) const {
   return std::make_unique<TestStreamCursor>(*this, db);
+}
+
+Explain::Explain(const std::shared_ptr<LogicalOperator> &input,
+                 const Symbol &output_symbol)
+    : input_(input), output_symbol_(output_symbol) {}
+
+ACCEPT_WITH_INPUT(Explain);
+
+std::vector<Symbol> Explain::OutputSymbols(const SymbolTable &) const {
+  return {output_symbol_};
+}
+
+std::vector<Symbol> Explain::ModifiedSymbols(const SymbolTable &table) const {
+  return OutputSymbols(table);
+}
+
+class ExplainCursor : public Cursor {
+ public:
+  ExplainCursor(const Explain &self, const database::GraphDbAccessor &dba,
+                const Symbol &output_symbol)
+      : printed_plan_rows_([&dba, &self]() {
+          std::stringstream stream;
+          PrettyPrint(dba, self.input().get(), &stream);
+          return utils::Split(stream.str(), "\n");
+        }()),
+        print_it_(printed_plan_rows_.begin()),
+        output_symbol_(output_symbol) {}
+
+  bool Pull(Frame &frame, Context &ctx) override {
+    if (print_it_ != printed_plan_rows_.end()) {
+      frame[output_symbol_] = *print_it_;
+      print_it_++;
+      return true;
+    }
+    return false;
+  }
+
+  void Reset() override { print_it_ = printed_plan_rows_.begin(); }
+
+ private:
+  std::vector<std::string> printed_plan_rows_;
+  std::vector<std::string>::iterator print_it_;
+  Symbol output_symbol_;
+};
+
+std::unique_ptr<Cursor> Explain::MakeCursor(
+    database::GraphDbAccessor &dba) const {
+  return std::make_unique<ExplainCursor>(*this, dba, output_symbol_);
 }
 
 }  // namespace query::plan

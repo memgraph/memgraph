@@ -1728,6 +1728,7 @@ class Query : public Tree {
     for (auto *cypher_union : cypher_unions_) {
       query->cypher_unions_.push_back(cypher_union->Clone(storage));
     }
+    query->explain_ = explain_;
     return query;
   }
 
@@ -1736,7 +1737,11 @@ class Query : public Tree {
   void Save(capnp::Tree::Builder *builder,
             std::vector<int> *saved_uids) override;
 
+  /// True if this is an EXPLAIN query
+  bool explain_ = false;
+  /// First and potentially only query
   SingleQuery *single_query_ = nullptr;
+  /// Contains remaining queries that should form a union with `single_query_`
   std::vector<CypherUnion *> cypher_unions_;
 
  protected:

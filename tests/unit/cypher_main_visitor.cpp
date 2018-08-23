@@ -2330,4 +2330,33 @@ TYPED_TEST(CypherMainVisitorTest, TestStream) {
                SyntaxException);
 }
 
+TYPED_TEST(CypherMainVisitorTest, TestExplainRegularQuery) {
+  {
+    TypeParam ast_generator("RETURN n");
+    EXPECT_FALSE(ast_generator.query_->explain_);
+  }
+  {
+    TypeParam ast_generator("EXPLAIN RETURN n");
+    EXPECT_TRUE(ast_generator.query_->explain_);
+  }
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestExplainExplainQuery) {
+  EXPECT_THROW(TypeParam ast_generator("EXPLAIN EXPLAIN RETURN n"),
+               SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestExplainAuthQuery) {
+  TypeParam ast_generator("SHOW ROLES");
+  EXPECT_FALSE(ast_generator.query_->explain_);
+  EXPECT_THROW(TypeParam ast_generator("EXPLAIN SHOW ROLES"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestExplainStreamQuery) {
+  TypeParam ast_generator("SHOW STREAMS");
+  EXPECT_FALSE(ast_generator.query_->explain_);
+  EXPECT_THROW(TypeParam ast_generator("EXPLAIN SHOW STREAMS"),
+               SyntaxException);
+}
+
 }  // namespace

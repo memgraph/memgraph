@@ -10,6 +10,7 @@
 
 * [Enterprise Ed.] Authentication and authorization support.
 * [Enterprise Ed.] Kafka integration.
+* Add `EXPLAIN` clause to openCypher
 
 ## v0.12.0
 

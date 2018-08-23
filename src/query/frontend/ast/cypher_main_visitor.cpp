@@ -25,6 +25,14 @@ namespace query::frontend {
 
 const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
+antlrcpp::Any CypherMainVisitor::visitExplainQuery(
+    MemgraphCypher::ExplainQueryContext *ctx) {
+  visitChildren(ctx);
+  CHECK(query_);
+  query_->explain_ = true;
+  return query_;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAuthQuery(
     MemgraphCypher::AuthQueryContext *ctx) {
   query_ = storage_.query();

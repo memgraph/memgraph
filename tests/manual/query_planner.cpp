@@ -21,6 +21,7 @@
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/distributed.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string.hpp"
@@ -364,285 +365,6 @@ class InteractiveDbAccessor {
   }
 };
 
-class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
- public:
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
-
-  explicit PlanPrinter(database::GraphDbAccessor &dba) : dba_(dba) {}
-
-#define PRE_VISIT(TOp)                                   \
-  bool PreVisit(query::plan::TOp &) override {           \
-    WithPrintLn([](auto &out) { out << "* " << #TOp; }); \
-    return true;                                         \
-  }
-
-  PRE_VISIT(CreateNode);
-  PRE_VISIT(CreateExpand);
-  PRE_VISIT(Delete);
-
-  bool PreVisit(query::plan::ScanAll &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* ScanAll"
-          << " (" << op.output_symbol().name() << ")";
-    });
-    return true;
-  }
-
-  bool PreVisit(query::plan::ScanAllByLabel &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* ScanAllByLabel"
-          << " (" << op.output_symbol().name() << " :"
-          << dba_.LabelName(op.label()) << ")";
-    });
-    return true;
-  }
-
-  bool PreVisit(query::plan::ScanAllByLabelPropertyValue &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* ScanAllByLabelPropertyValue"
-          << " (" << op.output_symbol().name() << " :"
-          << dba_.LabelName(op.label()) << " {"
-          << dba_.PropertyName(op.property()) << "})";
-    });
-    return true;
-  }
-
-  bool PreVisit(query::plan::ScanAllByLabelPropertyRange &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* ScanAllByLabelPropertyRange"
-          << " (" << op.output_symbol().name() << " :"
-          << dba_.LabelName(op.label()) << " {"
-          << dba_.PropertyName(op.property()) << "})";
-    });
-    return true;
-  }
-
-  bool PreVisit(query::plan::Expand &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* Expand";
-      PrintExpand(out, op);
-    });
-    return true;
-  }
-
-  bool PreVisit(query::plan::ExpandVariable &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* ExpandVariable";
-      PrintExpand(out, op);
-    });
-    return true;
-  }
-
-  bool PreVisit(query::plan::Produce &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* Produce {";
-      utils::PrintIterable(
-          out, op.named_expressions(), ", ",
-          [](auto &out, const auto &nexpr) { out << nexpr->name_; });
-      out << "}";
-    });
-    return true;
-  }
-
-  PRE_VISIT(ConstructNamedPath);
-  PRE_VISIT(Filter);
-  PRE_VISIT(SetProperty);
-  PRE_VISIT(SetProperties);
-  PRE_VISIT(SetLabels);
-  PRE_VISIT(RemoveProperty);
-  PRE_VISIT(RemoveLabels);
-  PRE_VISIT(ExpandUniquenessFilter<VertexAccessor>);
-  PRE_VISIT(ExpandUniquenessFilter<EdgeAccessor>);
-  PRE_VISIT(Accumulate);
-
-  bool PreVisit(query::plan::Aggregate &op) override {
-    WithPrintLn([&](auto &out) {
-      out << "* Aggregate {";
-      utils::PrintIterable(
-          out, op.aggregations(), ", ",
-          [](auto &out, const auto &aggr) { out << aggr.output_sym.name(); });
-      out << "} {";
-      utils::PrintIterable(
-          out, op.remember(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << "}";
-    });
-    return true;
-  }
-
-  PRE_VISIT(Skip);
-  PRE_VISIT(Limit);
-
-  bool PreVisit(query::plan::OrderBy &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* OrderBy {";
-      utils::PrintIterable(
-          out, op.output_symbols(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << "}";
-    });
-    return true;
-  }
-
-  bool PreVisit(query::plan::Merge &op) override {
-    WithPrintLn([](auto &out) { out << "* Merge"; });
-    Branch(*op.merge_match(), "On Match");
-    Branch(*op.merge_create(), "On Create");
-    op.input()->Accept(*this);
-    return false;
-  }
-
-  bool PreVisit(query::plan::Optional &op) override {
-    WithPrintLn([](auto &out) { out << "* Optional"; });
-    Branch(*op.optional());
-    op.input()->Accept(*this);
-    return false;
-  }
-
-  PRE_VISIT(Unwind);
-  PRE_VISIT(Distinct);
-
-  bool Visit(query::plan::Once &op) override {
-    // Ignore checking Once, it is implicitly at the end.
-    return true;
-  }
-
-  bool Visit(query::plan::CreateIndex &op) override {
-    WithPrintLn([](auto &out) { out << "* CreateIndex"; });
-    return true;
-  }
-
-  bool Visit(query::plan::AuthHandler &op) override {
-    WithPrintLn([](auto &out) { out << "* AuthHandler"; });
-    return true;
-  }
-
-  bool Visit(query::plan::CreateStream &op) override {
-    WithPrintLn([](auto &out) { out << "* CreateStream"; });
-    return true;
-  }
-
-  bool Visit(query::plan::DropStream &op) override {
-    WithPrintLn([](auto &out) { out << "* DropStream"; });
-    return true;
-  }
-
-  bool Visit(query::plan::ShowStreams &op) override {
-    WithPrintLn([](auto &out) { out << "* ShowStreams"; });
-    return true;
-  }
-
-  bool Visit(query::plan::StartStopStream &op) override {
-    WithPrintLn([](auto &out) { out << "* StartStopStream"; });
-    return true;
-  }
-
-  bool Visit(query::plan::StartStopAllStreams &op) override {
-    WithPrintLn([](auto &out) { out << "* StartStopAllStreams"; });
-    return true;
-  }
-
-  bool Visit(query::plan::TestStream &op) override {
-    WithPrintLn([](auto &out) { out << "* TestStream"; });
-    return true;
-  }
-
-  bool PreVisit(query::plan::PullRemote &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* PullRemote [" << op.plan_id() << "] {";
-      utils::PrintIterable(
-          out, op.symbols(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << "}";
-    });
-    WithPrintLn([](auto &out) { out << "|\\"; });
-    ++depth_;
-    WithPrintLn([](auto &out) { out << "* workers"; });
-    --depth_;
-    return true;
-  }
-
-  bool PreVisit(query::plan::Synchronize &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* Synchronize";
-      if (op.advance_command()) out << " (ADV CMD)";
-    });
-    if (op.pull_remote()) Branch(*op.pull_remote());
-    op.input()->Accept(*this);
-    return false;
-  }
-
-  bool PreVisit(query::plan::Cartesian &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* Cartesian {";
-      utils::PrintIterable(
-          out, op.left_symbols(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << " : ";
-      utils::PrintIterable(
-          out, op.right_symbols(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << "}";
-    });
-    Branch(*op.right_op());
-    op.left_op()->Accept(*this);
-    return false;
-  }
-
-  bool PreVisit(query::plan::PullRemoteOrderBy &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* PullRemoteOrderBy {";
-      utils::PrintIterable(
-          out, op.symbols(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << "}";
-    });
-
-    WithPrintLn([](auto &out) { out << "|\\"; });
-    ++depth_;
-    WithPrintLn([](auto &out) { out << "* workers"; });
-    --depth_;
-    return true;
-  }
-#undef PRE_VISIT
-
- private:
-  // Call fun with output stream. The stream is prefixed with amount of spaces
-  // corresponding to the current depth_.
-  template <class TFun>
-  void WithPrintLn(TFun fun) {
-    std::cout << " ";
-    for (int i = 0; i < depth_; ++i) {
-      std::cout << "|  ";
-    }
-    fun(std::cout);
-    std::cout << std::endl;
-  }
-
-  // Forward this printer to another operator branch by incrementing the depth
-  // and printing the branch name.
-  void Branch(query::plan::LogicalOperator &op,
-              const std::string &branch_name = "") {
-    WithPrintLn([&](auto &out) { out << "|\\ " << branch_name; });
-    ++depth_;
-    op.Accept(*this);
-    --depth_;
-  }
-
-  void PrintExpand(std::ostream &out, const query::plan::ExpandCommon &op) {
-    out << " (" << op.input_symbol().name() << ")"
-        << (op.direction() == query::EdgeAtom::Direction::IN ? "<-" : "-")
-        << "[" << op.edge_symbol().name() << "]"
-        << (op.direction() == query::EdgeAtom::Direction::OUT ? "->" : "-")
-        << "(" << op.node_symbol().name() << ")";
-  }
-
-  int depth_ = 0;
-  database::GraphDbAccessor &dba_;
-};
-
 // Shorthand for a vector of pairs (logical_plan, cost).
 typedef std::vector<
     std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
@@ -671,13 +393,12 @@ DEFCOMMAND(Top) {
   std::stringstream ss(args[0]);
   ss >> n_plans;
   if (ss.fail() || !ss.eof()) return;
-  PlanPrinter printer(dba);
   n_plans = std::min(static_cast<int64_t>(plans.size()), n_plans);
   for (int64_t i = 0; i < n_plans; ++i) {
     auto &plan_pair = plans[i];
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plan_pair.second << std::endl;
-    plan_pair.first->Accept(printer);
+    query::plan::PrettyPrint(dba, plan_pair.first.get());
     std::cout << std::endl;
   }
 }
@@ -690,8 +411,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].first;
   auto cost = plans[plan_ix].second;
   std::cout << "Plan cost: " << cost << std::endl;
-  PlanPrinter printer(dba);
-  plan->Accept(printer);
+  query::plan::PrettyPrint(dba, plan.get());
 }
 
 DEFCOMMAND(ShowDistributed) {
@@ -704,8 +424,7 @@ DEFCOMMAND(ShowDistributed) {
   auto distributed_plan = MakeDistributedPlan(*plan, symbol_table, plan_id);
   {
     std::cout << "---- Master Plan ---- " << std::endl;
-    PlanPrinter printer(dba);
-    distributed_plan.master_plan->Accept(printer);
+    query::plan::PrettyPrint(dba, distributed_plan.master_plan.get());
     std::cout << std::endl;
   }
   for (size_t i = 0; i < distributed_plan.worker_plans.size(); ++i) {
@@ -713,8 +432,7 @@ DEFCOMMAND(ShowDistributed) {
     std::shared_ptr<query::plan::LogicalOperator> worker_plan;
     std::tie(id, worker_plan) = distributed_plan.worker_plans[i];
     std::cout << "---- Worker Plan #" << id << " ---- " << std::endl;
-    PlanPrinter printer(dba);
-    worker_plan->Accept(printer);
+    query::plan::PrettyPrint(dba, worker_plan.get());
     std::cout << std::endl;
   }
 }

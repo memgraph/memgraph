@@ -168,7 +168,7 @@ class Interpreter {
 
   /**
    * Generates an Results object for the parameters. The resulting object
-   * can the be Pulled with it's results written to an arbitrary stream.
+   * can be Pulled with its results written to an arbitrary stream.
    */
   Results operator()(const std::string &query,
                      database::GraphDbAccessor &db_accessor,

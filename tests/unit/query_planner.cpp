@@ -141,6 +141,8 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
   VISIT(StartStopAllStreams);
   VISIT(TestStream);
 
+  PRE_VISIT(Explain);
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -394,6 +396,8 @@ class ExpectAuthHandler : public OpChecker<AuthHandler> {
     EXPECT_EQ(auth_handler.user(), user_);
     EXPECT_EQ(auth_handler.role(), role_);
     EXPECT_EQ(auth_handler.user_or_role(), user_or_role_);
+    // TODO(mtomic): We need to somehow test the password expression.
+    EXPECT_TRUE(password_);
     EXPECT_TRUE(auth_handler.password());
     EXPECT_EQ(auth_handler.privileges(), privileges_);
   }

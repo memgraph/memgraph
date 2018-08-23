@@ -56,6 +56,7 @@ set(memgraph_src_files
     query/plan/distributed.cpp
     query/plan/operator.cpp
     query/plan/preprocess.cpp
+    query/plan/pretty_print.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/repl.cpp

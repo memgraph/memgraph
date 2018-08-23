@@ -2700,6 +2700,7 @@ void Query::Save(capnp::Tree::Builder *tree_builder,
 }
 
 void Query::Save(capnp::Query::Builder *builder, std::vector<int> *saved_uids) {
+  builder->setExplain(explain_);
   if (single_query_) {
     auto sq_builder = builder->initSingleQuery();
     single_query_->Save(&sq_builder, saved_uids);
@@ -2716,6 +2717,7 @@ void Query::Load(const capnp::Tree::Reader &reader, AstStorage *storage,
                  std::vector<int> *loaded_uids) {
   Tree::Load(reader, storage, loaded_uids);
   auto query_reader = reader.getQuery();
+  explain_ = query_reader.getExplain();
   if (query_reader.hasSingleQuery()) {
     const auto sq_reader = query_reader.getSingleQuery();
     single_query_ =
