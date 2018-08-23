@@ -1,4 +1,4 @@
-## Quick Start {#tutorial-quick-start}
+## Quick Start
 
 This article briefly outlines the basic steps necessary to install and run
 Memgraph. It also gives a brief glimpse into the world of OpenCypher and
@@ -256,7 +256,7 @@ for some popular programming languages are listed below:
   * [PHP](https://github.com/graphaware/neo4j-bolt-php)
 
 We have included some basic usage examples for some of the supported languages
-in the article about [programmatic querying](tutorial__programmatic_querying.md).
+in the article about [programmatic querying](how-to_guides/programmatic_querying.md).
 
 ### Telemetry {#telemetry}
 
@@ -276,16 +276,15 @@ as a command-line argument when running the executable.
 ### Where to Next
 
 To learn more about the openCypher language, the user should visit our
-[openCypher Query Language](open-cypher.md) article. For real-world examples
-of how to use Memgraph, we strongly suggest reading through the following
-articles:
+[reference guide](reference_guide/reference_overview.md) article.
+For real-world examples of how to use Memgraph, we strongly suggest reading
+through the following articles:
 
-  * [Analyzing TED Talks](tutorial__analyzing_TED_talks.md)
-  * [Graphing the Premier League](tutorial__graphing_the_premier_league.md)
-  * [Exploring the European Road Network](tutorial__exploring_the_european_road_network.md)
+  * [Analyzing TED Talks](tutorials/analyzing_TED_talks.md)
+  * [Graphing the Premier League](tutorials/graphing_the_premier_league.md)
+  * [Exploring the European Road Network](tutorials/exploring_the_european_road_network.md)
 
-<!--- TODO(ipaljak) Possible broken link on docs update -->
 Details on what can be stored in Memgraph can be found in the article about
-[Data Storage](storage.md).
+[Data Storage](concepts/storage.md).
 
 We *welcome and encourage* your feedback!

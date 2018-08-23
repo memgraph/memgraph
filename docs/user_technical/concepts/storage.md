@@ -26,7 +26,8 @@ usually found in `/etc/memgraph/memgraph.conf`.
 
 In addition to the above mentioned data durability and recovery, a
 snapshot file may be generated using *Memgraph's* import tools. For more
-information, take a look at [Import Tools](import-tools.md) chapter.
+information, take a look at the [Import Tools](../how-to_guides/import_tools.md)
+article.
 
 ## Storable Data Types
 

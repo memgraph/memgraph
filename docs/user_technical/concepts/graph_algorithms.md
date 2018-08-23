@@ -1,6 +1,6 @@
-# Graph Algorithms
+## Graph Algorithms
 
-## Introduction
+### Introduction
 
 The graph is a mathematical structure used to describe a set of objects in which
 some pairs of objects are "related" in some sense. Generally, we consider
@@ -27,7 +27,7 @@ Contents of this article include:
   * [Weighted Shortest Path (WSP)](#weighted-shortest-path)
 
 
-## Breadth First Search
+### Breadth First Search
 
 [Breadth First Search](https://en.wikipedia.org/wiki/Breadth-first_search)
 is a way of traversing a graph data structure. The
@@ -62,16 +62,16 @@ a FIFO (first in, first out) queue data structure. Nevertheless, the
 functionality is equivalent and its runtime is bounded by `O(|V| + |E|)` where
 `V` denotes the set of nodes and `E` denotes the set of edges. Therefore,
 it provides a more efficient way of finding unweighted shortest paths than
-running [Dijkstra's algorithm](concept__weighted_shortest_path.md) on a graph
+running [Dijkstra's algorithm](#weighted-shortest-path) on a graph
 with edge weights equal to `1`.
 
-## Weighted Shortest Path
+### Weighted Shortest Path
 
 In [graph theory](https://en.wikipedia.org/wiki/Graph_theory), weighted shortest
 path problem is the problem of finding a path between two nodes in a graph such
 that the sum of the weights of edges connecting nodes on the path is minimized.
 
-### Dijkstra's algorithm
+#### Dijkstra's algorithm
 
 One of the most important algorithms for finding weighted shortest paths is
 [Dijkstra's algorithm](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm).
@@ -112,14 +112,14 @@ MATCH (a {id: 723})-[edge_list *wShortest 10 (e, n | e.weight) total_weight]-(b 
 This query has an upper bound length restriction set to `10`. This means that no
 path that traverses more than `10` edges will be considered as a valid result.
 
-#### Upper Bound Implications
+##### Upper Bound Implications
 
 Since the upper bound parameter is optional, we can have different results based
 on this parameter.
 
 Consider the following graph and sample queries.
 
-![sample-graph](data/graph.png)
+![sample-graph](../data/graph.png)
 
 ```opencypher
 MATCH (a {id: 0})-[edge_list *wShortest 3 (e, n | e.weight) total_weight]-(b {id: 5}) RETURN *
@@ -149,8 +149,8 @@ graph.
 Because of this, one should always try to narrow down the upper bound limit to
 be as precise as possible in order to have a more performant query.
 
-## Where to next?
+### Where to next?
 
 For some real-world application of WSP we encourage you to visit our article
-on [exploring the European road network](tutorial__exploring_the_european_road_network.md)
+on [exploring the European road network](../tutorials/exploring_the_european_road_network.md)
 which was specially crafted to showcase our graph algorithms.

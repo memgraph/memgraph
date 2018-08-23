@@ -12,13 +12,10 @@ data structures, multi-version concurrency control and asynchronous IO.
 
   * [About Memgraph](#about-memgraph)
   * [Quick Start](quick-start.md)
-  * [Examples](examples.md)
-  * [Drivers](drivers.md)
-  * [Data Storage](storage.md)
-  * [Integrations](integrations.md)
-  * [openCypher Query Language](open-cypher.md)
-  * [Import Tools](import-tools.md)
-  * [Concepts](concepts.md)
+  * [Tutorials](tutorials/tutorials_overview.md)
+  * [How-to Guides](how-to_guides/how-to_guides_overview.md)
+  * [Concepts](concepts/concepts_overview.md)
+  * [Reference Guide](reference_guide/reference_overview.md)
   * [Upcoming Features](upcoming-features.md)
 
 [//]: # (Nothing should go below the contents section)

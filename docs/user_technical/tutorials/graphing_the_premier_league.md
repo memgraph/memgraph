@@ -6,8 +6,8 @@ information.
 
 We highly recommend checking out the other articles from this series:
 
-  * [Analyzing TED Talks](tutorial__analyzing_ted_talks.md)
-  * [Exploring the European Road Network](tutorial__exploring_the_european_road_network.md)
+  * [Analyzing TED Talks](analyzing_TED_talks.md)
+  * [Exploring the European Road Network](exploring_the_european_road_network.md)
 
 ### Introduction
 

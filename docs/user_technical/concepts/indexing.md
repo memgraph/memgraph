@@ -1,4 +1,4 @@
-## Indexing {#indexing-concept}
+## Indexing
 
 ### Introduction
 
@@ -90,7 +90,3 @@ in a skip list):
   * Average deletion time is `O(log(n))`
   * Average search time is `O(log(n))`
   * Average memory consumption is `O(n)`
-
-### Index Commands
-
-  * [CREATE INDEX ON](reference__create_index.md)
