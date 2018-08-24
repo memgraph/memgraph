@@ -8,4 +8,4 @@ So far we have covered the following topics:
 
   * [Import Tools](import_tools.md)
   * [Programmatic Querying](programmatic_querying.md)
-  * [Integrations](integrations.md)
+  * [How to Ingest Data Using Kafka](how_to_ingest_data_using_kafka.md)

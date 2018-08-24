@@ -1,6 +1,9 @@
 ## Dynamic Graph Partitioner
 
-Memgraph supports dynamic graph partitioning which improves performance on badly
-partitioned dataset over workers dynamically. To enable it, use the
+Memgraph supports dynamic graph partitioning which dynamically improves
+performance on badly partitioned dataset over workers. To enable it, the user
+should use the following flag when firing up the *master* node:
 
-```--dynamic_graph_partitioner_enabled``` flag.
+```plaintext
+--dynamic_graph_partitioner_enable
+```

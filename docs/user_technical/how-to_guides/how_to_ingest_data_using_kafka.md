@@ -1,6 +1,4 @@
-## Integrations
-
-### Kafka
+## How to Ingest Data Using Kafka
 
 Apache Kafka is an open-source stream-processing software platform. The project
 aims to provide a unified, high-throughput, low-latency platform for handling
@@ -10,7 +8,7 @@ Memgraph offers easy data import at the source using Kafka as the
 high-throughput messaging system.
 
 At this point, we strongly advise you to read the streaming section of our
-[reference guide](../reference_guide/streaming.md)
+[reference guide](../reference_guide/graph_streams.md)
 
 In this article, we assume you have a local instance of Kafka. You can find
 more about running Kafka [here](https://kafka.apache.org/quickstart).

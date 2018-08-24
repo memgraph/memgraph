@@ -211,14 +211,3 @@ public class Basic {
   }
 }
 ```
-
-### Limitations
-
-Memgraph is currently in an early stage, and therefore has certain limitations
-we plan to remove in future versions.
-
-#### Multiple Users & Authorization
-
-At the moment, Memgraph is single-user only and there is no way to control user
-privileges, meaning that the default user has read and write privileges over
-the whole database.

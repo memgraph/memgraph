@@ -1,5 +1,7 @@
 ## Graph Streams
 
+### Kafka
+
 Memgraphs custom openCypher clause for creating a stream is:
 ```opencypher
 CREATE STREAM stream_name AS
@@ -66,7 +68,7 @@ is inserted into the graph.
 A stream needs to be stopped in order to test it. When the batch limit is
 omitted, `TEST STREAM` will run for only one batch by default.
 
-### Transform
+#### Transform
 
 The transform script allows Memgraph users to have custom Kafka messages and
 still be able to import data in Memgraph by adding the logic to decode the
