@@ -32,6 +32,11 @@ DEFINE_string(properties_on_disk, "",
               "Property names of properties which will be stored on available "
               "disk. Property names have to be separated with comma (,).");
 
+// Full durability.
+DEFINE_bool(synchronous_commit, false,
+            "Should a transaction end wait for WAL records to be written to "
+            "disk before the transaction finishes.");
+
 #ifndef MG_COMMUNITY
 // Distributed master/worker flags.
 DEFINE_VALIDATED_HIDDEN_int32(worker_id, 0,
@@ -76,6 +81,7 @@ database::Config::Config()
       snapshot_cycle_sec{FLAGS_snapshot_cycle_sec},
       snapshot_max_retained{FLAGS_snapshot_max_retained},
       snapshot_on_exit{FLAGS_snapshot_on_exit},
+      synchronous_commit{FLAGS_synchronous_commit},
       // Misc flags.
       gc_cycle_sec{FLAGS_gc_cycle_sec},
       query_execution_time_sec{FLAGS_query_execution_time_sec},

@@ -16,9 +16,17 @@ characteristics.
 
 Ensuring that the log is written before the transaction is committed can
 slow down the database. For that reason this guarantee is most often
-configurable in databases. In Memgraph it is at the moment not
-guaranteed, nor configurable. The WAL is flushed to the disk
-periodically and transactions do not wait for this to complete.
+configurable in databases.
+
+Memgraph offers two options for the WAL. The default option, where the WAL is
+flushed to the disk periodically and transactions do not wait for this to
+complete, introduces the risk of database inconsistency because an operating
+system or hardware crash might lead to missing transactions in the WAL. Memgraph
+will handle this as if those transactions never happened. The second option,
+called synchronous commit, will instruct Memgraph to wait for the WAL to be
+flushed to the disk when a transactions completes and the transaction will wait
+for this to complete. This option can be turned on with the
+`--synchronous-commit` command line flag.
 
 ### Format
 

@@ -19,19 +19,21 @@ DEFINE_VALIDATED_HIDDEN_int32(wal_buffer_size, 4096,
                               FLAG_IN_RANGE(1, 1 << 30));
 
 namespace durability {
-
 WriteAheadLog::WriteAheadLog(
     int worker_id, const std::experimental::filesystem::path &durability_dir,
-    bool durability_enabled)
-    : deltas_{FLAGS_wal_buffer_size}, wal_file_{worker_id, durability_dir} {
-  if (durability_enabled) {
+    bool durability_enabled, bool synchronous_commit)
+    : deltas_{FLAGS_wal_buffer_size},
+      wal_file_{worker_id, durability_dir},
+      durability_enabled_(durability_enabled),
+      synchronous_commit_(synchronous_commit) {
+  if (durability_enabled_) {
     utils::CheckDir(durability_dir);
   }
 }
 
 WriteAheadLog::~WriteAheadLog() {
-  if (enabled_) {
-    scheduler_.Stop();
+  if (durability_enabled_) {
+    if (!synchronous_commit_) scheduler_.Stop();
     wal_file_.Flush(deltas_);
   }
 }
@@ -101,23 +103,53 @@ void WriteAheadLog::WalFile::RotateFile() {
 }
 
 void WriteAheadLog::Init() {
-  enabled_ = true;
-  wal_file_.Init();
-  scheduler_.Run("WAL",
-                 std::chrono::milliseconds(FLAGS_wal_flush_interval_millis),
-                 [this]() { wal_file_.Flush(deltas_); });
-}
-
-void WriteAheadLog::Emplace(database::StateDelta &&delta) {
-  if (enabled_ && FLAGS_wal_flush_interval_millis >= 0)
-    deltas_.emplace(std::move(delta));
+  if (durability_enabled_) {
+    enabled_ = true;
+    wal_file_.Init();
+    if (!synchronous_commit_) {
+      scheduler_.Run("WAL",
+                     std::chrono::milliseconds(FLAGS_wal_flush_interval_millis),
+                     [this]() { wal_file_.Flush(deltas_); });
+    }
+  }
 }
 
 void WriteAheadLog::Emplace(const database::StateDelta &delta) {
-  if (enabled_ && FLAGS_wal_flush_interval_millis >= 0) deltas_.emplace(delta);
+  if (durability_enabled_ && enabled_) {
+    deltas_.emplace(delta);
+    if (synchronous_commit_ && IsStateDeltaTransactionEnd(delta)) {
+      wal_file_.Flush(deltas_);
+    }
+  }
+}
+
+bool WriteAheadLog::IsStateDeltaTransactionEnd(
+    const database::StateDelta &delta) {
+  switch (delta.type) {
+    case database::StateDelta::Type::TRANSACTION_COMMIT:
+    case database::StateDelta::Type::TRANSACTION_ABORT:
+      return true;
+    case database::StateDelta::Type::TRANSACTION_BEGIN:
+    case database::StateDelta::Type::CREATE_VERTEX:
+    case database::StateDelta::Type::CREATE_EDGE:
+    case database::StateDelta::Type::ADD_OUT_EDGE:
+    case database::StateDelta::Type::REMOVE_OUT_EDGE:
+    case database::StateDelta::Type::ADD_IN_EDGE:
+    case database::StateDelta::Type::REMOVE_IN_EDGE:
+    case database::StateDelta::Type::SET_PROPERTY_VERTEX:
+    case database::StateDelta::Type::SET_PROPERTY_EDGE:
+    case database::StateDelta::Type::ADD_LABEL:
+    case database::StateDelta::Type::REMOVE_LABEL:
+    case database::StateDelta::Type::REMOVE_VERTEX:
+    case database::StateDelta::Type::REMOVE_EDGE:
+    case database::StateDelta::Type::BUILD_INDEX:
+      return false;
+  }
 }
 
 void WriteAheadLog::Flush() {
-  if (enabled_) wal_file_.Flush(deltas_);
+  if (enabled_) {
+    wal_file_.Flush(deltas_);
+  }
 }
 }  // namespace durability

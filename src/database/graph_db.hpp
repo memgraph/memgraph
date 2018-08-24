@@ -28,6 +28,7 @@ struct Config {
   int snapshot_cycle_sec;
   int snapshot_max_retained;
   int snapshot_on_exit;
+  bool synchronous_commit;
 
   // Misc flags.
   int gc_cycle_sec;

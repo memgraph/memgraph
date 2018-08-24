@@ -249,13 +249,12 @@ fs::path GetLastFile(fs::path dir) {
   return *std::max_element(files.begin(), files.end());
 }
 
-void MakeDb(durability::WriteAheadLog &wal, database::GraphDbAccessor &dba,
-            int scale, std::vector<int> indices = {}) {
+void MakeDb(database::GraphDbAccessor &dba, int scale,
+            std::vector<int> indices = {}) {
   DbGenerator generator{dba};
   for (int i = 0; i < scale; i++) generator.InsertVertex();
   for (int i = 0; i < scale * 2; i++) generator.InsertEdge();
   for (int i = 0; i < scale / 2; i++) generator.InsertCycleEdge();
-  wal.Flush();
 
   for (int i = 0; i < scale * 3; i++) {
     generator.SetVertexProperty();
@@ -278,7 +277,7 @@ void MakeDb(durability::WriteAheadLog &wal, database::GraphDbAccessor &dba,
 
 void MakeDb(database::GraphDb &db, int scale, std::vector<int> indices = {}) {
   auto dba = db.Access();
-  MakeDb(db.wal(), *dba, scale, indices);
+  MakeDb(*dba, scale, indices);
   dba->Commit();
 }
 
@@ -606,22 +605,35 @@ TEST_F(Durability, OnlyWalIdRecovery) {
 }
 
 TEST_F(Durability, WalRecovery) {
-  auto config = DbConfig();
-  config.durability_enabled = true;
-  database::SingleNode db{config};
-  MakeDb(db, 300, {0, 1, 2});
-  MakeDb(db, 300);
-  MakeDb(db, 300, {3, 4});
+  auto modify_config = [](database::Config config, bool durability_enabled,
+                          bool synchronous_commit) {
+    config.durability_enabled = durability_enabled;
+    config.synchronous_commit = synchronous_commit;
+    return config;
+  };
 
-  db.wal().Flush();
-  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
-  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
+  for (auto &synchronous_commit : {false, true}) {
+    CleanDurability();
+    auto config = modify_config(DbConfig(), true, synchronous_commit);
+    database::SingleNode db{config};
+    MakeDb(db, 100, {0, 1, 2});
+    MakeDb(db, 100);
+    MakeDb(db, 100, {3, 4});
 
-  {
-    auto recovered_config = DbConfig();
-    recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
-    CompareDbs(db, recovered);
+    // When synchronous_commit is true, we don't need to flush the WAL.
+    if (!synchronous_commit) {
+      db.wal().Flush();
+    }
+
+    ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
+    EXPECT_GT(DirFiles(wal_dir_).size(), 1);
+
+    {
+      auto recovered_config = DbConfig();
+      recovered_config.db_recover_on_startup = true;
+      database::SingleNode recovered{recovered_config};
+      CompareDbs(db, recovered);
+    }
   }
 }
 
@@ -655,16 +667,16 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
 
   // The first transaction modifies and commits.
   auto dba_1 = db.Access();
-  MakeDb(db.wal(), *dba_1, 100);
+  MakeDb(*dba_1, 100);
   dba_1->Commit();
 
   // The second transaction will commit after snapshot.
   auto dba_2 = db.Access();
-  MakeDb(db.wal(), *dba_2, 100);
+  MakeDb(*dba_2, 100);
 
   // The third transaction modifies and commits.
   auto dba_3 = db.Access();
-  MakeDb(db.wal(), *dba_3, 100);
+  MakeDb(*dba_3, 100);
   dba_3->Commit();
 
   MakeSnapshot(0, db);  // Snapshooter takes the fourth transaction.
@@ -672,12 +684,12 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
 
   // The fifth transaction starts and commits after snapshot.
   auto dba_5 = db.Access();
-  MakeDb(db.wal(), *dba_5, 100);
+  MakeDb(*dba_5, 100);
   dba_5->Commit();
 
   // The sixth transaction will not commit at all.
   auto dba_6 = db.Access();
-  MakeDb(db.wal(), *dba_6, 100);
+  MakeDb(*dba_6, 100);
 
   auto VisibleVertexCount = [](database::GraphDb &db) {
     auto dba = db.Access();

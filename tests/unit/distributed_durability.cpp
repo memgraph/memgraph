@@ -31,16 +31,16 @@ class DistributedDurability : public DistributedGraphDbTest {
     });
   }
 
-  void RestartWithWal() {
+  void RestartWithWal(bool synchronous_commit) {
     DistributedGraphDbTest::ShutDown();
-    Initialize([](database::Config config) {
+    Initialize([synchronous_commit](database::Config config) {
       config.durability_enabled = true;
+      config.synchronous_commit = synchronous_commit;
       return config;
     });
   }
 
   void FlushAllWal() {
-    // TODO(buda): Extend this when we have a fully durable mode
     master().wal().Flush();
     worker(1).wal().Flush();
     worker(2).wal().Flush();
@@ -177,20 +177,42 @@ void CheckDeltas(fs::path wal_dir, database::StateDelta::Type op) {
   }
 }
 
-TEST_F(DistributedDurability, WriteCommittedTx) {
-  RestartWithWal();
-  auto dba = master().Access();
-  dba->Commit();
-  FlushAllWal();
-  CheckDeltas(tmp_dir_ / durability::kWalDir,
-              database::StateDelta::Type::TRANSACTION_COMMIT);
+TEST_F(DistributedDurability, WalWrite) {
+  {
+    CleanDurability();
+    RestartWithWal(false);
+    auto dba = master().Access();
+    dba->Abort();
+    FlushAllWal();
+    CheckDeltas(tmp_dir_ / durability::kWalDir,
+                database::StateDelta::Type::TRANSACTION_ABORT);
+  }
+  {
+    CleanDurability();
+    RestartWithWal(false);
+    auto dba = master().Access();
+    dba->Abort();
+    FlushAllWal();
+    CheckDeltas(tmp_dir_ / durability::kWalDir,
+                database::StateDelta::Type::TRANSACTION_ABORT);
+  }
 }
 
-TEST_F(DistributedDurability, WriteAbortedTx) {
-  RestartWithWal();
-  auto dba = master().Access();
-  dba->Abort();
-  FlushAllWal();
-  CheckDeltas(tmp_dir_ / durability::kWalDir,
-              database::StateDelta::Type::TRANSACTION_ABORT);
+TEST_F(DistributedDurability, WalSynchronizedWrite) {
+  {
+    CleanDurability();
+    RestartWithWal(true);
+    auto dba = master().Access();
+    dba->Commit();
+    CheckDeltas(tmp_dir_ / durability::kWalDir,
+                database::StateDelta::Type::TRANSACTION_COMMIT);
+  }
+  {
+    CleanDurability();
+    RestartWithWal(true);
+    auto dba = master().Access();
+    dba->Abort();
+    CheckDeltas(tmp_dir_ / durability::kWalDir,
+                database::StateDelta::Type::TRANSACTION_ABORT);
+  }
 }

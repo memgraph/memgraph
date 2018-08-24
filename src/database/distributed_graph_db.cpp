@@ -537,7 +537,8 @@ class Master {
       std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
   durability::WriteAheadLog wal_{config_.worker_id,
                                  config_.durability_directory,
-                                 config_.durability_enabled};
+                                 config_.durability_enabled,
+                                 config_.synchronous_commit};
   // Shared implementations for all RecordAccessor in this Db.
   DistributedEdgeAccessor edge_accessor_{config_.worker_id, &data_manager_,
                                          &updates_clients_};
@@ -837,7 +838,8 @@ class Worker {
       std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
   durability::WriteAheadLog wal_{config_.worker_id,
                                  config_.durability_directory,
-                                 config_.durability_enabled};
+                                 config_.durability_enabled,
+                                 config_.synchronous_commit};
   // Shared implementations for all RecordAccessor in this Db.
   DistributedEdgeAccessor edge_accessor_{config_.worker_id, &data_manager_,
                                          &updates_clients_};

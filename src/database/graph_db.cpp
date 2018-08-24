@@ -180,9 +180,9 @@ class SingleNode {
   Config config_;
   std::unique_ptr<Storage> storage_ =
       std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
-  durability::WriteAheadLog wal_{config_.worker_id,
-                                 config_.durability_directory,
-                                 config_.durability_enabled};
+  durability::WriteAheadLog wal_{
+      config_.worker_id, config_.durability_directory,
+      config_.durability_enabled, config_.synchronous_commit};
 
   tx::SingleNodeEngine tx_engine_{&wal_};
   std::unique_ptr<StorageGcSingleNode> storage_gc_ =
