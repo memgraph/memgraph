@@ -631,7 +631,7 @@ Master::Master(Config config)
   }
 
   if (impl_->config_.durability_enabled) {
-    impl_->wal_.Enable();
+    impl_->wal_.Init();
     snapshot_creator_ = std::make_unique<utils::Scheduler>();
     snapshot_creator_->Run(
         "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
@@ -916,7 +916,7 @@ Worker::Worker(Config config)
   }
 
   if (impl_->config_.durability_enabled) {
-    impl_->wal_.Enable();
+    impl_->wal_.Init();
   }
 
   // Start transaction killer.

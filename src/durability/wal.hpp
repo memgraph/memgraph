@@ -33,9 +33,10 @@ class WriteAheadLog {
                 bool durability_enabled);
   ~WriteAheadLog();
 
-  /** Enables the WAL. Called at the end of GraphDb construction, after
-   * (optional) recovery. */
-  void Enable() { enabled_ = true; }
+  /** Initializes the WAL. Called at the end of GraphDb construction, after
+   * (optional) recovery. Also responsible for initializing the wal_file.
+   */
+  void Init();
 
   /// Emplaces the given DeltaState onto the buffer, if the WAL is enabled.
   void Emplace(database::StateDelta &&delta);
@@ -71,8 +72,7 @@ class WriteAheadLog {
 
     // The file to which the WAL flushes data. The path is fixed, the file gets
     // moved when the WAL gets rotated.
-    std::experimental::optional<std::experimental::filesystem::path>
-        current_wal_file_;
+    std::experimental::filesystem::path current_wal_file_;
 
     // Number of deltas in the current wal file.
     int current_wal_file_delta_count_{0};

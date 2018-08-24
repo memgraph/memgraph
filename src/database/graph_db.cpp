@@ -238,7 +238,7 @@ SingleNode::SingleNode(Config config)
                       "data loss, Memgraph has stored those files into a "
                       ".backup directory inside durability directory";
     }
-    impl_->wal_.Enable();
+    impl_->wal_.Init();
     snapshot_creator_ = std::make_unique<utils::Scheduler>();
     snapshot_creator_->Run(
         "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
