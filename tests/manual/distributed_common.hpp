@@ -7,7 +7,7 @@
 #include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "glue/communication.hpp"
-#include "query/interpreter.hpp"
+#include "query/distributed_interpreter.hpp"
 #include "query/typed_value.hpp"
 
 class WorkerInThread {
@@ -33,7 +33,8 @@ class Cluster {
     database::Config masterconfig;
     masterconfig.master_endpoint = {kLocal, 0};
     master_ = std::make_unique<database::Master>(masterconfig);
-    interpreter_ = std::make_unique<query::Interpreter>(*master_);
+    interpreter_ =
+        std::make_unique<query::DistributedInterpreter>(master_.get());
     std::this_thread::sleep_for(kInitTime);
 
     auto worker_config = [this](int worker_id) {
@@ -66,7 +67,7 @@ class Cluster {
                std::map<std::string, query::TypedValue> params = {}) {
     auto dba = master_->Access();
     ResultStreamFaker<query::TypedValue> result;
-    interpreter_->operator()(query, *dba, params, false).PullAll(result);
+    (*interpreter_)(query, *dba, params, false).PullAll(result);
     dba->Commit();
     return result.GetResults();
   };
@@ -74,7 +75,7 @@ class Cluster {
  private:
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;
-  std::unique_ptr<query::Interpreter> interpreter_;
+  std::unique_ptr<query::DistributedInterpreter> interpreter_;
 };
 
 void CheckResults(

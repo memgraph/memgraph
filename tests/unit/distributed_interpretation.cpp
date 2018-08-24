@@ -10,7 +10,7 @@
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed_common.hpp"
-#include "query/interpreter.hpp"
+#include "query/distributed_interpreter.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
 #include "utils/timer.hpp"
@@ -29,7 +29,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
 
   void SetUp() override {
     DistributedGraphDbTest::SetUp();
-    interpreter_.emplace(master());
+    interpreter_.emplace(&master());
   }
 
   void TearDown() override {
@@ -55,7 +55,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
   }
 
  private:
-  std::experimental::optional<query::Interpreter> interpreter_;
+  std::experimental::optional<query::DistributedInterpreter> interpreter_;
 };
 
 TEST_F(DistributedInterpretationTest, PullTest) {

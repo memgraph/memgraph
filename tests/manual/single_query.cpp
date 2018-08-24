@@ -14,7 +14,7 @@ int main(int argc, char *argv[]) {
   database::SingleNode db;
   auto dba = db.Access();
   ResultStreamFaker<query::TypedValue> stream;
-  auto results = query::Interpreter{db}(argv[1], *dba, {}, false);
+  auto results = query::Interpreter()(argv[1], *dba, {}, false);
   stream.Header(results.header());
   results.PullAll(stream);
   stream.Summary(results.summary());

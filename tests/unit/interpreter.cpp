@@ -15,7 +15,7 @@
 class InterpreterTest : public ::testing::Test {
  protected:
   database::SingleNode db_;
-  query::Interpreter interpreter_{db_};
+  query::Interpreter interpreter_;
 
   auto Interpret(const std::string &query,
                  const std::map<std::string, query::TypedValue> &params = {}) {

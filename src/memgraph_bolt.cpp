@@ -21,6 +21,7 @@
 #include "glue/communication.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
+#include "query/distributed_interpreter.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/transaction_engine.hpp"
@@ -67,8 +68,8 @@ DECLARE_string(durability_directory);
 /** Encapsulates Dbms and Interpreter that are passed through the network server
  * and worker to the session. */
 struct SessionData {
-  database::GraphDb &db;
-  query::Interpreter interpreter{db};
+  database::GraphDb *db{nullptr};
+  query::Interpreter *interpreter{nullptr};
   auth::Auth auth{
       std::experimental::filesystem::path(FLAGS_durability_directory) / "auth"};
 };
@@ -298,27 +299,28 @@ int WithInit(int argc, char **argv,
 void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
   database::SingleNode db;
-  SessionData session_data{db};
+  query::Interpreter interpreter;
+  SessionData session_data{&db, &interpreter};
 
   auto stream_writer =
-    [&session_data](
-      const std::string &query,
-      const std::map<std::string, communication::bolt::Value> &params) {
-    auto dba = session_data.db.Access();
-    KafkaResultStream stream;
-    std::map<std::string, query::TypedValue> params_tv;
-    for (const auto &kv : params)
-      params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
-    try {
-      session_data.interpreter(query, *dba, params_tv, false)
-        .PullAll(stream);
-      dba->Commit();
-    } catch (const query::QueryException &e) {
-      LOG(WARNING) << "[Kafka] query execution failed with an exception: "
-                   << e.what();
-      dba->Abort();
-    }
-  };
+      [&session_data](
+          const std::string &query,
+          const std::map<std::string, communication::bolt::Value> &params) {
+        auto dba = session_data.db->Access();
+        KafkaResultStream stream;
+        std::map<std::string, query::TypedValue> params_tv;
+        for (const auto &kv : params)
+          params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
+        try {
+          (*session_data.interpreter)(query, *dba, params_tv, false)
+              .PullAll(stream);
+          dba->Commit();
+        } catch (const query::QueryException &e) {
+          LOG(WARNING) << "[Kafka] query execution failed with an exception: "
+                       << e.what();
+          dba->Abort();
+        }
+      };
 
   integrations::kafka::Streams kafka_streams{
       std::experimental::filesystem::path(FLAGS_durability_directory) /
@@ -332,8 +334,8 @@ void SingleNodeMain() {
     LOG(ERROR) << e.what();
   }
 
-  session_data.interpreter.auth_ = &session_data.auth;
-  session_data.interpreter.kafka_streams_ = &kafka_streams;
+  session_data.interpreter->auth_ = &session_data.auth;
+  session_data.interpreter->kafka_streams_ = &kafka_streams;
 
   ServerContext context;
   std::string service_name = "Bolt";
@@ -394,19 +396,20 @@ void MasterMain() {
   google::SetUsageMessage("Memgraph distributed master");
 
   database::Master db;
-  SessionData session_data{db};
+  query::DistributedInterpreter interpreter(&db);
+  SessionData session_data{&db, &interpreter};
 
   auto stream_writer =
     [&session_data](
       const std::string &query,
       const std::map<std::string, communication::bolt::Value> &params) {
-    auto dba = session_data.db.Access();
+    auto dba = session_data.db->Access();
     KafkaResultStream stream;
     std::map<std::string, query::TypedValue> params_tv;
     for (const auto &kv : params)
       params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
     try {
-      session_data.interpreter(query, *dba, params_tv, false)
+      (*session_data.interpreter)(query, *dba, params_tv, false)
         .PullAll(stream);
       dba->Commit();
     } catch (const query::QueryException &e) {
@@ -428,7 +431,7 @@ void MasterMain() {
     LOG(ERROR) << e.what();
   }
 
-  session_data.interpreter.kafka_streams_ = &kafka_streams;
+  session_data.interpreter->kafka_streams_ = &kafka_streams;
 
   ServerContext context;
   std::string service_name = "Bolt";

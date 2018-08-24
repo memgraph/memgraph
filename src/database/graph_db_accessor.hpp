@@ -572,7 +572,7 @@ class GraphDbAccessor {
   tx::TransactionId transaction_id() const;
 
   /** Advances transaction's command id by 1. */
-  void AdvanceCommand();
+  virtual void AdvanceCommand();
 
   /** Commit transaction. */
   void Commit();

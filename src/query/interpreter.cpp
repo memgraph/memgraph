@@ -3,8 +3,6 @@
 #include <glog/logging.h>
 #include <limits>
 
-#include "database/distributed_graph_db.hpp"
-#include "distributed/plan_dispatcher.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -22,37 +20,8 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
 
 namespace query {
 
-Interpreter::CachedPlan::CachedPlan(
-    plan::DistributedPlan distributed_plan, double cost,
-    distributed::PlanDispatcher *plan_dispatcher)
-    : distributed_plan_(std::move(distributed_plan)),
-      cost_(cost),
-      plan_dispatcher_(plan_dispatcher) {
-  if (plan_dispatcher_) {
-    for (const auto &plan_pair : distributed_plan_.worker_plans) {
-      const auto &plan_id = plan_pair.first;
-      const auto &worker_plan = plan_pair.second;
-      plan_dispatcher_->DispatchPlan(plan_id, worker_plan,
-                                     distributed_plan_.symbol_table);
-    }
-  }
-}
-
-Interpreter::CachedPlan::~CachedPlan() {
-  if (plan_dispatcher_) {
-    for (const auto &plan_pair : distributed_plan_.worker_plans) {
-      const auto &plan_id = plan_pair.first;
-      plan_dispatcher_->RemovePlan(plan_id);
-    }
-  }
-}
-
-Interpreter::Interpreter(database::GraphDb &db)
-    : plan_dispatcher_(
-          db.type() == database::GraphDb::Type::DISTRIBUTED_MASTER
-              // TODO: Replace this with virtual call or some other mechanism.
-              ? &dynamic_cast<database::Master *>(&db)->plan_dispatcher()
-              : nullptr) {}
+Interpreter::CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan)
+    : plan_(std::move(plan)) {}
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query, database::GraphDbAccessor &db_accessor,
@@ -101,9 +70,9 @@ Interpreter::Results Interpreter::operator()(
   }
   utils::Timer planning_timer;
   if (!plan) {
-    plan =
-        plan_cache_access.insert(stripped.hash(), AstToPlan(ast_storage, ctx))
-            .first->second;
+    plan = plan_cache_access
+               .insert(stripped.hash(), AstToPlan(std::move(ast_storage), &ctx))
+               .first->second;
   }
   auto planning_time = planning_timer.Elapsed();
 
@@ -138,35 +107,11 @@ Interpreter::Results Interpreter::operator()(
 }
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::AstToPlan(
-    AstStorage &ast_storage, Context &ctx) {
-  SymbolGenerator symbol_generator(ctx.symbol_table_);
+    AstStorage ast_storage, Context *ctx) {
+  SymbolGenerator symbol_generator(ctx->symbol_table_);
   ast_storage.query()->Accept(symbol_generator);
-
-  std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
-  double query_plan_cost_estimation = 0.0;
-  std::tie(tmp_logical_plan, query_plan_cost_estimation) =
-      MakeLogicalPlan(ast_storage, ctx);
-
-  DCHECK(ctx.db_accessor_.db().type() !=
-         database::GraphDb::Type::DISTRIBUTED_WORKER);
-  if (ctx.db_accessor_.db().type() ==
-      database::GraphDb::Type::DISTRIBUTED_MASTER) {
-    auto distributed_plan = MakeDistributedPlan(
-        *tmp_logical_plan, ctx.symbol_table_, next_plan_id_);
-    VLOG(10) << "[Interpreter] Created plan for distributed execution "
-             << next_plan_id_ - 1;
-    return std::make_shared<CachedPlan>(std::move(distributed_plan),
-                                        query_plan_cost_estimation,
-                                        plan_dispatcher_);
-  } else {
-    return std::make_shared<CachedPlan>(
-        plan::DistributedPlan{0,
-                              std::move(tmp_logical_plan),
-                              {},
-                              std::move(ast_storage),
-                              ctx.symbol_table_},
-        query_plan_cost_estimation, plan_dispatcher_);
-  }
+  return std::make_shared<CachedPlan>(
+      MakeLogicalPlan(std::move(ast_storage), ctx));
 }
 
 AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
@@ -219,13 +164,38 @@ AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
   return new_ast;
 }
 
-std::pair<std::unique_ptr<plan::LogicalOperator>, double>
-Interpreter::MakeLogicalPlan(AstStorage &ast_storage, Context &context) {
-  std::unique_ptr<plan::LogicalOperator> logical_plan;
-  auto vertex_counts = plan::MakeVertexCountCache(context.db_accessor_);
-  auto planning_context = plan::MakePlanningContext(
-      ast_storage, context.symbol_table_, vertex_counts);
-  return plan::MakeLogicalPlan(planning_context, context.parameters_,
-                               FLAGS_query_cost_planner);
+class SingleNodeLogicalPlan final : public LogicalPlan {
+ public:
+  SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root,
+                        double cost, AstStorage storage,
+                        const SymbolTable &symbol_table)
+      : root_(std::move(root)),
+        cost_(cost),
+        storage_(std::move(storage)),
+        symbol_table_(symbol_table) {}
+
+  const plan::LogicalOperator &GetRoot() const override { return *root_; }
+  double GetCost() const override { return cost_; }
+  const SymbolTable &GetSymbolTable() const override { return symbol_table_; }
+
+ private:
+  std::unique_ptr<plan::LogicalOperator> root_;
+  double cost_;
+  AstStorage storage_;
+  SymbolTable symbol_table_;
 };
+
+std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(
+    AstStorage ast_storage, Context *context) {
+  auto vertex_counts = plan::MakeVertexCountCache(context->db_accessor_);
+  auto planning_context = plan::MakePlanningContext(
+      ast_storage, context->symbol_table_, vertex_counts);
+  std::unique_ptr<plan::LogicalOperator> root;
+  double cost;
+  std::tie(root, cost) = plan::MakeLogicalPlan(
+      planning_context, context->parameters_, FLAGS_query_cost_planner);
+  return std::make_unique<SingleNodeLogicalPlan>(
+      std::move(root), cost, std::move(ast_storage), context->symbol_table_);
+}
+
 }  // namespace query

@@ -7,7 +7,7 @@
 #include <glog/logging.h>
 
 #include "database/distributed_graph_db.hpp"
-#include "query/interpreter.hpp"
+#include "query/distributed_interpreter.hpp"
 #include "query/repl.hpp"
 #include "utils/flag_validation.hpp"
 
@@ -54,7 +54,10 @@ int main(int argc, char *argv[]) {
   }
 
   // Start the REPL
-  query::Repl(*master);
+  {
+    query::DistributedInterpreter interpreter(master.get());
+    query::Repl(master.get(), &interpreter);
+  }
 
   master = nullptr;
   return 0;

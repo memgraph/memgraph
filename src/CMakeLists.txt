@@ -46,6 +46,7 @@ set(memgraph_src_files
     glue/auth.cpp
     glue/communication.cpp
     query/common.cpp
+    query/distributed_interpreter.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/semantic/required_privileges.cpp

@@ -79,6 +79,7 @@ int main(int argc, char *argv[]) {
   std::cout << "Generating graph..." << std::endl;
   //  fill_db;
   random_generate(db, node_count, edge_count);
-  query::Repl(db);
+  query::Interpreter interpreter;
+  query::Repl(&db, &interpreter);
   return 0;
 }

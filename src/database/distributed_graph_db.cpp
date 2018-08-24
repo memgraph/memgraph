@@ -334,22 +334,27 @@ class DistributedAccessor : public GraphDbAccessor {
 
 class MasterAccessor final : public DistributedAccessor {
   distributed::IndexRpcClients *index_rpc_clients_{nullptr};
+  distributed::PullRpcClients *pull_clients_{nullptr};
   int worker_id_{0};
 
  public:
   MasterAccessor(Master *db, distributed::IndexRpcClients *index_rpc_clients,
+                 distributed::PullRpcClients *pull_clients_,
                  DistributedVertexAccessor *vertex_accessor,
                  DistributedEdgeAccessor *edge_accessor)
       : DistributedAccessor(db, vertex_accessor, edge_accessor),
         index_rpc_clients_(index_rpc_clients),
+        pull_clients_(pull_clients_),
         worker_id_(db->WorkerId()) {}
 
   MasterAccessor(Master *db, tx::TransactionId tx_id,
                  distributed::IndexRpcClients *index_rpc_clients,
+                 distributed::PullRpcClients *pull_clients_,
                  DistributedVertexAccessor *vertex_accessor,
                  DistributedEdgeAccessor *edge_accessor)
       : DistributedAccessor(db, tx_id, vertex_accessor, edge_accessor),
         index_rpc_clients_(index_rpc_clients),
+        pull_clients_(pull_clients_),
         worker_id_(db->WorkerId()) {}
 
   void PostCreateIndex(const LabelPropertyIndex::Key &key) override {
@@ -400,6 +405,13 @@ class MasterAccessor final : public DistributedAccessor {
         }
       }
     }
+  }
+
+  void AdvanceCommand() override {
+    DistributedAccessor::AdvanceCommand();
+    auto tx_id = transaction_id();
+    auto futures = pull_clients_->NotifyAllTransactionCommandAdvanced(tx_id);
+    for (auto &future : futures) future.wait();
   }
 };
 
@@ -677,15 +689,15 @@ Master::~Master() {
 }
 
 std::unique_ptr<GraphDbAccessor> Master::Access() {
-  return std::make_unique<MasterAccessor>(this, &impl_->index_rpc_clients_,
-                                          &impl_->vertex_accessor_,
-                                          &impl_->edge_accessor_);
+  return std::make_unique<MasterAccessor>(
+      this, &impl_->index_rpc_clients_, &impl_->pull_clients_,
+      &impl_->vertex_accessor_, &impl_->edge_accessor_);
 }
 
 std::unique_ptr<GraphDbAccessor> Master::Access(tx::TransactionId tx_id) {
   return std::make_unique<MasterAccessor>(
-      this, tx_id, &impl_->index_rpc_clients_, &impl_->vertex_accessor_,
-      &impl_->edge_accessor_);
+      this, tx_id, &impl_->index_rpc_clients_, &impl_->pull_clients_,
+      &impl_->vertex_accessor_, &impl_->edge_accessor_);
 }
 
 Storage &Master::storage() { return *impl_->storage_; }

@@ -14,6 +14,7 @@
 #include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
+DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
 
 namespace distributed {
@@ -30,23 +31,28 @@ class Streams;
 
 namespace query {
 
+// TODO: Maybe this should move to query/plan/planner.
+/// Interface for accessing the root operator of a logical plan.
+class LogicalPlan {
+ public:
+  virtual ~LogicalPlan() {}
+
+  virtual const plan::LogicalOperator &GetRoot() const = 0;
+  virtual double GetCost() const = 0;
+  virtual const SymbolTable &GetSymbolTable() const = 0;
+};
+
 class Interpreter {
  private:
   /// Encapsulates a plan for caching. Takes care of remote (worker) cache
   /// updating in distributed memgraph.
   class CachedPlan {
    public:
-    /// Creates a cached plan and sends it to all the workers.
-    CachedPlan(plan::DistributedPlan distributed_plan, double cost,
-               distributed::PlanDispatcher *plan_dispatcher);
+    CachedPlan(std::unique_ptr<LogicalPlan> plan);
 
-    /// Removes the cached plan from all the workers.
-    ~CachedPlan();
-
-    const auto &plan() const { return *distributed_plan_.master_plan; }
-    const auto &distributed_plan() const { return distributed_plan_; }
-    double cost() const { return cost_; }
-    const auto &symbol_table() const { return distributed_plan_.symbol_table; }
+    const auto &plan() const { return plan_->GetRoot(); }
+    double cost() const { return plan_->GetCost(); }
+    const auto &symbol_table() const { return plan_->GetSymbolTable(); }
 
     bool IsExpired() const {
       return cache_timer_.Elapsed() >
@@ -54,12 +60,8 @@ class Interpreter {
     };
 
    private:
-    plan::DistributedPlan distributed_plan_;
-    double cost_;
+    std::unique_ptr<LogicalPlan> plan_;
     utils::Timer cache_timer_;
-
-    // Optional, only available in a distributed master.
-    distributed::PlanDispatcher *plan_dispatcher_{nullptr};
   };
 
   using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
@@ -160,11 +162,13 @@ class Interpreter {
     std::vector<AuthQuery::Privilege> privileges_;
   };
 
-  explicit Interpreter(database::GraphDb &db);
+  Interpreter() = default;
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
   Interpreter &operator=(Interpreter &&) = delete;
+
+  virtual ~Interpreter() {}
 
   /**
    * Generates an Results object for the parameters. The resulting object
@@ -178,10 +182,15 @@ class Interpreter {
   auth::Auth *auth_ = nullptr;
   integrations::kafka::Streams *kafka_streams_ = nullptr;
 
+ protected:
+  // high level tree -> logical plan
+  // AstStorage and SymbolTable may be modified during planning. The created
+  // LogicalPlan must take ownership of AstStorage and SymbolTable.
+  virtual std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage, Context *);
+
  private:
   ConcurrentMap<HashType, AstStorage> ast_cache_;
   PlanCacheT plan_cache_;
-  std::atomic<int64_t> next_plan_id_{0};
   // Antlr has singleton instance that is shared between threads. It is
   // protected by locks inside of antlr. Unfortunately, they are not protected
   // in a very good way. Once we have antlr version without race conditions we
@@ -190,18 +199,10 @@ class Interpreter {
   // so this lock probably won't impact performance much...
   utils::SpinLock antlr_lock_;
 
-  // Optional, not null only in a distributed master.
-  distributed::PlanDispatcher *plan_dispatcher_{nullptr};
-
   // high level tree -> CachedPlan
-  std::shared_ptr<CachedPlan> AstToPlan(AstStorage &ast_storage, Context &ctx);
+  std::shared_ptr<CachedPlan> AstToPlan(AstStorage ast_storage, Context *ctx);
   // stripped query -> high level tree
   AstStorage QueryToAst(const StrippedQuery &stripped, Context &ctx);
-
-  // high level tree -> (logical plan, plan cost)
-  // AstStorage and SymbolTable may be modified during planning.
-  std::pair<std::unique_ptr<plan::LogicalOperator>, double> MakeLogicalPlan(
-      AstStorage &, Context &);
 };
 
 }  // namespace query

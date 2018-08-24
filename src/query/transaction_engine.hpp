@@ -12,7 +12,7 @@ namespace query {
 
 class TransactionEngine final {
  public:
-  TransactionEngine(database::GraphDb &db, Interpreter &interpreter)
+  TransactionEngine(database::GraphDb *db, Interpreter *interpreter)
       : db_(db), interpreter_(interpreter) {}
 
   ~TransactionEngine() { Abort(); }
@@ -59,12 +59,12 @@ class TransactionEngine final {
     if (in_explicit_transaction_ && db_accessor_) AdvanceCommand();
 
     // Create a DB accessor if we don't yet have one.
-    if (!db_accessor_) db_accessor_ = db_.Access();
+    if (!db_accessor_) db_accessor_ = db_->Access();
 
     // Interpret the query and return the headers.
     try {
-      results_.emplace(
-          interpreter_(query, *db_accessor_, params, in_explicit_transaction_));
+      results_.emplace((*interpreter_)(query, *db_accessor_, params,
+                                       in_explicit_transaction_));
       return {results_->header(), results_->privileges()};
     } catch (const utils::BasicException &) {
       AbortCommand();
@@ -100,8 +100,8 @@ class TransactionEngine final {
   }
 
  private:
-  database::GraphDb &db_;
-  Interpreter &interpreter_;
+  database::GraphDb *db_{nullptr};
+  Interpreter *interpreter_{nullptr};
   std::unique_ptr<database::GraphDbAccessor> db_accessor_;
   // The `query::Interpreter::Results` object MUST be destroyed before the
   // `database::GraphDbAccessor` is destroyed because the `Results` object holds
@@ -122,14 +122,6 @@ class TransactionEngine final {
     results_ = std::experimental::nullopt;
     if (!db_accessor_) return;
     db_accessor_->AdvanceCommand();
-    // TODO: this logic shouldn't be here!
-    if (db_.type() == database::GraphDb::Type::DISTRIBUTED_MASTER) {
-      auto *master_db = dynamic_cast<database::Master *>(&db_);
-      auto tx_id = db_accessor_->transaction_id();
-      auto futures =
-          master_db->pull_clients().NotifyAllTransactionCommandAdvanced(tx_id);
-      for (auto &future : futures) future.wait();
-    }
   }
 
   void AbortCommand() {
