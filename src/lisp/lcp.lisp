@@ -1570,7 +1570,7 @@ code generation."
       (declare (ignore to-close))
       (format cpp-out "~%}"))))
 
-(defun process-file (lcp-file &key capnp-id)
+(defun process-file (lcp-file &key capnp-id capnp-declaration)
   "Process a LCP-FILE and write the output to .hpp file in the same directory.
 If CAPNP-ID is passed, generates the Cap'n Proto schema to .capnp file in the
 same directory, while the loading code is generated in LCP-FILE.cpp source
@@ -1584,7 +1584,7 @@ file."
           (cpp-file (concatenate 'string lcp-file ".cpp"))
           (capnp-file (concatenate 'string filename ".capnp"))
           ;; Reset globals
-          (*capnp-serialize-p* capnp-id)
+          (*capnp-serialize-p* (or capnp-id capnp-declaration))
           (*capnp-namespace* nil)
           (*capnp-imports* nil)
           (*capnp-type-converters* nil)

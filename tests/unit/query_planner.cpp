@@ -12,11 +12,11 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/distributed.hpp"
+#include "query/plan/distributed_ops.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 
 #include <capnp/message.h>
-#include "query/plan/operator.capnp.h"
 
 #include "query_common.hpp"
 

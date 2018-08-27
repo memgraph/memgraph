@@ -55,6 +55,7 @@ set(memgraph_src_files
     query/interpret/awesome_memgraph_functions.cpp
     query/interpreter.cpp
     query/plan/distributed.cpp
+    query/plan/distributed_ops.cpp
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/pretty_print.cpp
@@ -112,11 +113,13 @@ set(lcp_src_files lisp/lcp.lisp ${lcp_exe})
 #
 # NOTE: memgraph_src_files and generated_lcp_files are globally updated.
 function(add_lcp lcp_file)
+  set(options CAPNP_DECLARATION)
   set(one_value_kwargs CAPNP_SCHEMA)
-  cmake_parse_arguments(KW "" "${one_value_kwargs}" "" ${ARGN})
+  set(multi_value_kwargs DEPENDS)
+  cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${ARGN})
   string(REGEX REPLACE "\.lcp$" ".hpp" h_file
          "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
-  if (KW_CAPNP_SCHEMA)
+  if (KW_CAPNP_SCHEMA AND NOT KW_CAPNP_DECLARATION)
     string(REGEX REPLACE "\.lcp$" ".capnp" capnp_file
            "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
     set(capnp_id ${KW_CAPNP_SCHEMA})
@@ -125,10 +128,13 @@ function(add_lcp lcp_file)
     # Update *global* memgraph_src_files
     set(memgraph_src_files ${memgraph_src_files} ${cpp_file} PARENT_SCOPE)
   endif()
+  if (KW_CAPNP_DECLARATION)
+    set(capnp_id "--capnp-declaration")
+  endif()
   add_custom_command(OUTPUT ${h_file} ${cpp_file} ${capnp_file}
     COMMAND ${lcp_exe} ${lcp_file} ${capnp_id}
     VERBATIM
-    DEPENDS ${lcp_file} ${lcp_src_files} ${capnp_depend}
+    DEPENDS ${lcp_file} ${lcp_src_files} ${capnp_depend} ${KW_DEPENDS}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
   # Update *global* generated_lcp_files
   set(generated_lcp_files ${generated_lcp_files} ${h_file} ${cpp_file} ${capnp_file} PARENT_SCOPE)
@@ -160,8 +166,14 @@ add_lcp(distributed/transactional_cache_cleaner_rpc_messages.lcp CAPNP_SCHEMA @0
 add_capnp(distributed/transactional_cache_cleaner_rpc_messages.capnp)
 add_lcp(distributed/updates_rpc_messages.lcp CAPNP_SCHEMA @0x82d5f38d73c7b53a)
 add_capnp(distributed/updates_rpc_messages.capnp)
-add_lcp(query/plan/operator.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42)
-add_capnp(query/plan/operator.capnp)
+
+# distributed_ops.lcp is leading the capnp code generation, so we only want
+# function declarations in generated operator.hpp
+add_lcp(query/plan/operator.lcp CAPNP_DECLARATION)
+add_lcp(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
+        DEPENDS query/plan/operator.lcp)
+add_capnp(query/plan/distributed_ops.capnp)
+
 add_lcp(storage/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
 add_capnp(storage/concurrent_id_mapper_rpc_messages.capnp)
 add_lcp(transactions/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5)

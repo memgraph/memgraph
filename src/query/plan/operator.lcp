@@ -10,7 +10,6 @@
 #include <utility>
 #include <vector>
 
-#include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -21,7 +20,13 @@
 #include "utils/hashing/fnv.hpp"
 #include "utils/visitor.hpp"
 
-#include "query/plan/operator.capnp.h"
+// TODO: It makes no sense for this file to include distributed_ops Cap'n
+// Proto schema. Unfortunately, forward declares of nested capnp types do not
+// work, so we cannot use that mechanism. Perhaps we want to generate
+// serialization code based only on type info, similarly to RPCs. This
+// requires rework of LCP and we will need to have a sort of 'register'
+// mechanism to fill the table of (type info -> operator constructor).
+#include "query/plan/distributed_ops.capnp.h"
 
 namespace database {
 class GraphDbAccessor;
@@ -2289,105 +2294,8 @@ vectors of symbols used  by each of the inputs.")
    cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class pull-remote (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
-   (plan-id :int64_t :initval 0 :reader t)
-   (symbols "std::vector<Symbol>" :reader t
-            :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
-            :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
-  (:documentation
-   "An operator in distributed Memgraph that yields both local and remote (from
-other workers) frames. Obtaining remote frames is done through RPC calls to
-`distributed::ProduceRpcServer`s running on all the workers.
-
-This operator aims to yield results as fast as possible and lose minimal
-time on data transfer. It gives no guarantees on result order.")
-  (:public
-   #>cpp
-   PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-              const std::vector<Symbol> &symbols)
-       : input_(input), plan_id_(plan_id), symbols_(symbols) {}
-   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
-   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
-   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-
-   bool HasSingleInput() const override { return true; }
-   std::shared_ptr<LogicalOperator> input() const override { return input_; }
-   void set_input(std::shared_ptr<LogicalOperator> input) override {
-     input_ = input;
-   }
-   cpp<#)
-  (:private #>cpp PullRemote() {} cpp<#)
-  (:serialize :capnp))
-
-(defun load-pull-remote (reader member-name)
-  #>cpp
-  ${member-name} = std::static_pointer_cast<PullRemote>(
-      utils::LoadSharedPtr<capnp::LogicalOperator, LogicalOperator>(${reader},
-                       [helper](const auto &reader) {
-                         auto op = LogicalOperator::Construct(reader);
-                         op->Load(reader, helper);
-                         return op.release();
-                       }, &helper->loaded_ops));
-  cpp<#)
-
-(lcp:define-class synchronize (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
-   (pull-remote "std::shared_ptr<PullRemote>" :reader t
-                :capnp-save #'save-operator-pointer
-                :capnp-load #'load-pull-remote)
-   (advance-command :bool :initval "false" :reader t))
-  (:documentation
-   "Operator used to synchronize stages of plan execution between the master and
-all the workers. Synchronization is necessary in queries that update that
-graph state because updates (as well as creations and deletions) are deferred
-to avoid multithreaded modification of graph element data (as it's not
-thread-safe).
-
-Logic of the synchronize operator is:
-
-1. If there is a Pull, tell all the workers to pull on that plan and
-   accumulate results without sending them to the master. This is async.
-2. Accumulate local results, in parallel with 1. getting executed on workers.
-3. Wait till the master and all the workers are done accumulating.
-4. Advance the command, if necessary.
-5. Tell all the workers to apply their updates. This is async.
-6. Apply local updates, in parallel with 5. on the workers.
-7. Notify workers that the command has advanced, if necessary.
-8. Yield all the results, first local, then from Pull if available.")
-  (:public
-   #>cpp
-   Synchronize(const std::shared_ptr<LogicalOperator> &input,
-               const std::shared_ptr<PullRemote> &pull_remote,
-               bool advance_command)
-       : input_(input),
-         pull_remote_(pull_remote),
-         advance_command_(advance_command) {}
-   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-   std::unique_ptr<Cursor> MakeCursor(
-       database::GraphDbAccessor &db) const override;
-   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-
-   std::vector<Symbol> OutputSymbols(
-       const SymbolTable &symbol_table) const override {
-     return input_->OutputSymbols(symbol_table);
-   }
-
-   bool HasSingleInput() const override { return true; }
-   std::shared_ptr<LogicalOperator> input() const override { return input_; }
-   void set_input(std::shared_ptr<LogicalOperator> input) override {
-     input_ = input;
-   }
-   cpp<#)
-  (:private #>cpp Synchronize() {} cpp<#)
-  (:serialize :capnp))
-
+;; TODO: We should probably output this operator in regular planner, not just
+;; distributed planner.
 (lcp:define-class cartesian (logical-operator)
   ((left-op "std::shared_ptr<LogicalOperator>" :reader t
             :capnp-save #'save-operator-pointer
@@ -2427,48 +2335,7 @@ Logic of the synchronize operator is:
   (:private #>cpp Cartesian() {} cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class pull-remote-order-by (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
-   (plan-id :int64_t :initval 0 :reader t)
-   (symbols "std::vector<Symbol>" :reader t
-            :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
-            :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
-   (order-by "std::vector<Expression *>" :reader t
-             :capnp-type "List(Ast.Tree)"
-             :capnp-save (save-ast-vector "Expression *")
-             :capnp-load (load-ast-vector "Expression *"))
-   (compare "TypedValueVectorCompare" :reader t
-            :capnp-type "Common.TypedValueVectorCompare"))
-  (:documentation
-   "Operator that merges distributed OrderBy operators.
-Instead of using a regular OrderBy on master (which would collect all remote
-results and order them), we can have each worker do an OrderBy locally and
-have the master rely on the fact that the results are ordered and merge them
-by having only one result from each worker.")
-  (:public
-   #>cpp
-    PullRemoteOrderBy(
-        const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-        const std::vector<std::pair<Ordering, Expression *>> &order_by,
-        const std::vector<Symbol> &symbols);
-    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-    std::unique_ptr<Cursor> MakeCursor(
-        database::GraphDbAccessor &db) const override;
-
-    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
-
-    bool HasSingleInput() const override { return true; }
-    std::shared_ptr<LogicalOperator> input() const override { return input_; }
-    void set_input(std::shared_ptr<LogicalOperator> input) override {
-      input_ = input;
-    }
-  cpp<#)
-  (:private #>cpp PullRemoteOrderBy() {} cpp<#)
-  (:serialize :capnp))
-
+;;; KAFKA STREAM OPERATORS
 (lcp:define-class create-stream (logical-operator)
   ((stream-name "std::string" :reader t)
     (stream-uri "Expression *"
@@ -2661,6 +2528,8 @@ in the db.")
   (:private
     #>cpp TestStream() {} cpp<#)
   (:serialize :capnp))
+
+;;; END KAFKA STREAM OPERATORS
 
 (lcp:define-class explain (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>"

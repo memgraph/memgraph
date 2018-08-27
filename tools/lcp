@@ -1,9 +1,11 @@
 #!/bin/bash -e
 
 if [[ $# -ne 1 && $# -ne 2 ]]; then
-  echo "Usage: $0 LCP_FILE [CAPNP_ID]"
+  echo "Usage: $0 LCP_FILE [--capnp-declaration | CAPNP_ID]"
   echo "Convert a LCP_FILE to C++ header file and output to stdout."
   echo "If CAPNP_ID is provided, then the Cap'n Proto schema is generated."
+  echo "Passing --capnp-declaration flag will declare serialization functions in "
+  echo "C++ header without actually generating the Cap'n Proto schema or code."
   exit 1
 fi
 
@@ -22,7 +24,11 @@ fi
 
 capnp=""
 if [[ $# -eq 2 ]]; then
-  capnp=":capnp-id \"$2\""
+  if [[ "$2" == "--capnp-declaration" ]]; then
+    capnp=":capnp-declaration t"
+  else
+    capnp=":capnp-id \"$2\""
+  fi
 fi
 
 echo \

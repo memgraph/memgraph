@@ -66,7 +66,8 @@ src/distributed/transactional_cache_cleaner_rpc_messages.capnp
 src/distributed/transactional_cache_cleaner_rpc_messages.hpp
 src/distributed/updates_rpc_messages.capnp
 src/distributed/updates_rpc_messages.hpp
-src/query/plan/operator.capnp
+src/query/plan/distributed_ops.capnp
+src/query/plan/distributed_ops.hpp
 src/query/plan/operator.hpp
 src/stats/stats_rpc_messages.capnp
 src/stats/stats_rpc_messages.hpp

@@ -20,6 +20,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpreter.hpp"
+#include "query/plan/distributed_ops.hpp"
 #include "query/plan/planner.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"

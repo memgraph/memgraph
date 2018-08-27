@@ -6,6 +6,7 @@
 // serialization when proper cloning is added.
 #include <capnp/message.h>
 
+#include "query/plan/distributed_ops.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/exceptions.hpp"

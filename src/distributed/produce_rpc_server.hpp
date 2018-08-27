@@ -1,3 +1,4 @@
+/// @file
 #pragma once
 
 #include <cstdint>
@@ -10,6 +11,7 @@
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/plan_consumer.hpp"
+#include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/context.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"

@@ -1,6 +1,7 @@
 #include "query/plan/pretty_print.hpp"
 
 #include "database/graph_db_accessor.hpp"
+#include "query/plan/distributed_ops.hpp"
 #include "query/plan/operator.hpp"
 
 namespace query::plan {
