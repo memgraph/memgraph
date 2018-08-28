@@ -1,12 +1,14 @@
+/// @file
+
 #pragma once
 
 #include <experimental/optional>
 #include <string>
 #include <vector>
 
+#include <glog/logging.h>
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
-#include <glog/logging.h>
 
 #include "database/graph_db.hpp"
 #include "storage/address_types.hpp"

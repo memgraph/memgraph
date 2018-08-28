@@ -359,7 +359,7 @@ storage::EdgeAddress GraphDbAccessor::InsertEdgeOnFrom(
   // `CREATE_EDGE`, but always have it split into 3 parts (edge insertion,
   // in/out modification).
   wal().Emplace(database::StateDelta::CreateEdge(
-      transaction_.id_, edge_accessor.gid(), edge_accessor.cypher_id(),
+      transaction_.id_, edge_accessor.gid(), edge_accessor.CypherId(),
       from->gid(), to->gid(), edge_type, EdgeTypeName(edge_type)));
 
   from_updated->out_.emplace(
@@ -371,9 +371,9 @@ storage::EdgeAddress GraphDbAccessor::InsertEdgeOnFrom(
 void GraphDbAccessor::InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
                                      const storage::EdgeType &edge_type,
                                      const storage::EdgeAddress &edge_address) {
-  // ensure that the "to" accessor has the latest version (Switch new)
-  // WARNING: must do that after the above "from->update()" for cases when
-  // we are creating a cycle and "from" and "to" are the same vlist
+  // Ensure that the "to" accessor has the latest version (switch new).
+  // WARNING: Must do that after the above "from->update()" for cases when
+  // we are creating a cycle and "from" and "to" are the same vlist.
   to->SwitchNew();
   auto *to_updated = &to->update();
   to_updated->in_.emplace(

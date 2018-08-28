@@ -1191,8 +1191,9 @@ VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
     properties.emplace(kv.first.second, std::move(value));
   }
 
-  auto new_node = database::InsertVertexIntoRemote(
-      &dba, worker_id, node_atom->labels_, properties);
+  auto new_node =
+      database::InsertVertexIntoRemote(&dba, worker_id, node_atom->labels_,
+                                       properties, std::experimental::nullopt);
   frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
   return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
 }

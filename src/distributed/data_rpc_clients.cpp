@@ -8,23 +8,25 @@
 namespace distributed {
 
 template <>
-std::unique_ptr<Edge> DataRpcClients::RemoteElement(int worker_id,
-                                                    tx::TransactionId tx_id,
-                                                    gid::Gid gid) {
-  auto response =
-      clients_.GetClientPool(worker_id).Call<EdgeRpc>(TxGidPair{tx_id, gid});
-  CHECK(response) << "EdgeRpc failed";
-  return std::move(response->edge_output);
-}
-
-template <>
-std::unique_ptr<Vertex> DataRpcClients::RemoteElement(int worker_id,
+RemoteElementInfo<Edge> DataRpcClients::RemoteElement(int worker_id,
                                                       tx::TransactionId tx_id,
                                                       gid::Gid gid) {
   auto response =
+      clients_.GetClientPool(worker_id).Call<EdgeRpc>(TxGidPair{tx_id, gid});
+  CHECK(response) << "EdgeRpc failed";
+  return RemoteElementInfo<Edge>(response->cypher_id,
+                                 std::move(response->edge_output));
+}
+
+template <>
+RemoteElementInfo<Vertex> DataRpcClients::RemoteElement(int worker_id,
+                                                        tx::TransactionId tx_id,
+                                                        gid::Gid gid) {
+  auto response =
       clients_.GetClientPool(worker_id).Call<VertexRpc>(TxGidPair{tx_id, gid});
   CHECK(response) << "VertexRpc failed";
-  return std::move(response->vertex_output);
+  return RemoteElementInfo<Vertex>(response->cypher_id,
+                                   std::move(response->vertex_output));
 }
 
 std::unordered_map<int, int64_t> DataRpcClients::VertexCounts(

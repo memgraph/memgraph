@@ -2010,8 +2010,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, Context &context) {
   try {
     for (auto label : self_.labels_) vertex.remove_label(label);
   } catch (const RecordDeletedError &) {
-    throw QueryRuntimeException(
-        "Trying to remove labels from a deleted node.");
+    throw QueryRuntimeException("Trying to remove labels from a deleted node.");
   }
 
   return true;

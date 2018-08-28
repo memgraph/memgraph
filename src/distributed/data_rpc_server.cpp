@@ -17,7 +17,7 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
         auto vertex = dba->FindVertex(req_reader.getMember().getGid(), false);
         CHECK(vertex.GetOld())
             << "Old record must exist when sending vertex by RPC";
-        VertexRes response(vertex.GetOld(), db_->WorkerId());
+        VertexRes response(vertex.CypherId(), vertex.GetOld(), db_->WorkerId());
         response.Save(res_builder);
       });
 
@@ -26,7 +26,7 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
     auto dba = db_->Access(req_reader.getMember().getTxId());
     auto edge = dba->FindEdge(req_reader.getMember().getGid(), false);
     CHECK(edge.GetOld()) << "Old record must exist when sending edge by RPC";
-    EdgeRes response(edge.GetOld(), db_->WorkerId());
+    EdgeRes response(edge.CypherId(), edge.GetOld(), db_->WorkerId());
     response.Save(res_builder);
   });
 

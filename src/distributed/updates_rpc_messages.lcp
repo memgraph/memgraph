@@ -48,6 +48,7 @@ cpp<#
 
 (lcp:define-struct create-result ()
   ((result "UpdateResult")
+   (cypher-id :int64_t :documentation "Only valid if creation was successful.")
    (gid "gid::Gid" :documentation "Only valid if creation was successful."))
   (:serialize :capnp))
 
@@ -82,7 +83,25 @@ cpp<#
                        distributed::LoadCapnpTypedValue(reader.getValue(), &value);
                        return std::make_pair(prop, value);
                      });
-                 cpp<#)))
+                 cpp<#))
+   (cypher-id "std::experimental::optional<int64_t>"
+     :capnp-type "Utils.Optional(Utils.BoxInt64)"
+     :capnp-save
+     (lambda (builder member)
+       #>cpp
+       utils::SaveOptional<utils::capnp::BoxInt64, int64_t>(
+         ${member}, &${builder}, [](auto *builder, const auto &value) {
+                                   builder->setValue(value);
+                                 });
+       cpp<#)
+     :capnp-load
+     (lambda (reader member)
+       #>cpp
+       cypher_id = utils::LoadOptional<utils::capnp::BoxInt64, int64_t>(
+         ${reader}, [](const auto &reader) {
+                      return reader.getValue();
+                    });
+       cpp<#)))
   (:serialize :capnp))
 
 (lcp:define-rpc create-vertex
@@ -93,7 +112,25 @@ cpp<#
   ((from "gid::Gid")
    (to "storage::VertexAddress")
    (edge-type "storage::EdgeType")
-   (tx-id "tx::TransactionId"))
+   (tx-id "tx::TransactionId")
+   (cypher-id "std::experimental::optional<int64_t>"
+     :capnp-type "Utils.Optional(Utils.BoxInt64)"
+     :capnp-save
+     (lambda (builder member)
+       #>cpp
+       utils::SaveOptional<utils::capnp::BoxInt64, int64_t>(
+         ${member}, &${builder}, [](auto *builder, const auto &value) {
+                                   builder->setValue(value);
+                                 });
+       cpp<#)
+     :capnp-load
+     (lambda (reader member)
+       #>cpp
+       cypher_id = utils::LoadOptional<utils::capnp::BoxInt64, int64_t>(
+           ${reader}, [](const auto &reader) {
+                        return reader.getValue();
+                      });
+       cpp<#)))
   (:serialize :capnp))
 
 (lcp:define-rpc create-edge
@@ -142,5 +179,29 @@ cpp<#
 (lcp:define-rpc remove-in-edge
     (:request ((member "RemoveInEdgeData")))
   (:response ((member "UpdateResult"))))
+
+(lcp:define-struct created-info ()
+  ((cypher-id "int64_t")
+   (gid "gid::Gid"))
+  (:public #>cpp
+    CreatedInfo(int64_t cypher_id, gid::Gid gid)
+        : cypher_id(cypher_id), gid(gid) {}
+  cpp<#))
+
+(lcp:define-struct created-vertex-info ()
+  ((cypher-id "int64_t")
+   (gid "gid::Gid"))
+  (:public #>cpp
+    CreatedVertexInfo(int64_t cypher_id, gid::Gid gid)
+        : cypher_id(cypher_id), gid(gid) {}
+  cpp<#))
+
+(lcp:define-struct created-edge-info ()
+  ((cypher-id "int64_t")
+   (edge-address "storage::EdgeAddress"))
+  (:public #>cpp
+    CreatedEdgeInfo(int64_t cypher_id, storage::EdgeAddress edge_address)
+        : cypher_id(cypher_id), edge_address(edge_address) {}
+  cpp<#))
 
 (lcp:pop-namespace) ;; distributed

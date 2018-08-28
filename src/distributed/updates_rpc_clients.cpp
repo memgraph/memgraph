@@ -1,4 +1,3 @@
-
 #include <unordered_map>
 #include <vector>
 
@@ -24,7 +23,7 @@ void RaiseIfRemoteError(UpdateResult result) {
       break;
   }
 }
-}
+}  // namespace
 
 UpdateResult UpdatesRpcClients::Update(int worker_id,
                                        const database::StateDelta &delta) {
@@ -33,34 +32,36 @@ UpdateResult UpdatesRpcClients::Update(int worker_id,
   return res->member;
 }
 
-gid::Gid UpdatesRpcClients::CreateVertex(
+CreatedVertexInfo UpdatesRpcClients::CreateVertex(
     int worker_id, tx::TransactionId tx_id,
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue>
-        &properties) {
+    const std::unordered_map<storage::Property, query::TypedValue> &properties,
+    std::experimental::optional<int64_t> cypher_id) {
   auto res = worker_clients_.GetClientPool(worker_id).Call<CreateVertexRpc>(
-      CreateVertexReqData{tx_id, labels, properties});
+      CreateVertexReqData{tx_id, labels, properties, cypher_id});
   CHECK(res) << "CreateVertexRpc failed on worker: " << worker_id;
   CHECK(res->member.result == UpdateResult::DONE)
       << "Remote Vertex creation result not UpdateResult::DONE";
-  return res->member.gid;
+  return CreatedVertexInfo(res->member.cypher_id, res->member.gid);
 }
 
-storage::EdgeAddress UpdatesRpcClients::CreateEdge(
+CreatedEdgeInfo UpdatesRpcClients::CreateEdge(
     tx::TransactionId tx_id, VertexAccessor &from, VertexAccessor &to,
-    storage::EdgeType edge_type) {
+    storage::EdgeType edge_type,
+    std::experimental::optional<int64_t> cypher_id) {
   CHECK(from.address().is_remote()) << "In CreateEdge `from` must be remote";
   int from_worker = from.address().worker_id();
-  auto res = worker_clients_.GetClientPool(from_worker)
-                 .Call<CreateEdgeRpc>(CreateEdgeReqData{
-                     from.gid(), to.GlobalAddress(), edge_type, tx_id});
+  auto res =
+      worker_clients_.GetClientPool(from_worker)
+          .Call<CreateEdgeRpc>(CreateEdgeReqData{from.gid(), to.GlobalAddress(),
+                                                 edge_type, tx_id, cypher_id});
   CHECK(res) << "CreateEdge RPC failed on worker: " << from_worker;
   RaiseIfRemoteError(res->member.result);
-  return {res->member.gid, from_worker};
+  return CreatedEdgeInfo(res->member.cypher_id,
+                         storage::EdgeAddress{res->member.gid, from_worker});
 }
 
-void UpdatesRpcClients::AddInEdge(tx::TransactionId tx_id,
-                                  VertexAccessor &from,
+void UpdatesRpcClients::AddInEdge(tx::TransactionId tx_id, VertexAccessor &from,
                                   storage::EdgeAddress edge_address,
                                   VertexAccessor &to,
                                   storage::EdgeType edge_type) {

@@ -132,7 +132,8 @@ frame (potentially embedded in lists/maps) is too error-prone.")
    private:
    cpp<#
    (lcp:define-struct (graph-element-data t-record) ()
-     ((global-address "storage::Address<mvcc::VersionList<TRecord>>")
+     ((cypher-id :int64_t)
+      (global-address "storage::Address<mvcc::VersionList<TRecord>>")
       (old-record "std::unique_ptr<TRecord>")
       (new-record "std::unique_ptr<TRecord>")
       (element-in-frame
@@ -149,10 +150,11 @@ and the `element_in_frame` reference is used to set the appropriate accessor
 to the appropriate value. Not used on side that generates the response.")
      (:public
       #>cpp
-      GraphElementData(storage::Address<mvcc::VersionList<TRecord>> address,
+      GraphElementData(int64_t cypher_id, storage::Address<mvcc::VersionList<TRecord>> address,
                        std::unique_ptr<TRecord> old_record, std::unique_ptr<TRecord> new_record,
                        query::TypedValue *element_in_frame)
-        : global_address(address),
+        : cypher_id(cypher_id),
+          global_address(address),
           old_record(std::move(old_record)),
           new_record(std::move(new_record)),
           element_in_frame(element_in_frame) {}
@@ -194,6 +196,7 @@ to the appropriate value. Not used on side that generates the response.")
      const query::TypedValue &value,
      distributed::capnp::TypedValue::Builder *builder) const {
    auto save_element = [this](auto accessor, auto *builder) {
+     builder->setCypherId(accessor.CypherId());
      builder->setAddress(accessor.GlobalAddress().raw());
      // If both old and new are null, we need to reconstruct
      if (!(accessor.GetOld() || accessor.GetNew())) {
@@ -253,6 +256,7 @@ void PullResData::LoadGraphElement(
     const distributed::capnp::TypedValue::Reader &reader,
     query::TypedValue *value, distributed::DataManager *data_manager) {
   auto load_vertex = [dba, data_manager](const auto &vertex_reader) {
+    int64_t cypher_id = vertex_reader.getCypherId();
     storage::VertexAddress global_address(vertex_reader.getAddress());
     auto old_record =
         vertex_reader.hasOld()
@@ -262,11 +266,17 @@ void PullResData::LoadGraphElement(
         vertex_reader.hasNew()
             ? distributed::LoadVertex(vertex_reader.getNew())
             : nullptr;
-    data_manager->Emplace<Vertex>(dba->transaction_id(), global_address.gid(), 
-                 std::move(old_record), std::move(new_record));
+    data_manager->Emplace<Vertex>(
+        dba->transaction_id(), global_address.gid(), 
+        distributed::CachedRecordData<Vertex>(cypher_id,
+                                              std::move(old_record),
+                                              std::move(new_record)));
+    // We don't need to pass cypher_id here because cypher_id is going to be
+    // fetched from the cache.
     return VertexAccessor(global_address, *dba);
   };
   auto load_edge = [dba, data_manager](const auto &edge_reader) {
+    int64_t cypher_id = edge_reader.getCypherId();
     storage::EdgeAddress global_address(edge_reader.getAddress());
     auto old_record =
         edge_reader.hasOld()
@@ -276,8 +286,11 @@ void PullResData::LoadGraphElement(
         edge_reader.hasNew()
             ? distributed::LoadEdge(edge_reader.getNew())
             : nullptr;
-    data_manager->Emplace<Edge>(dba->transaction_id(), global_address.gid(),
-                 std::move(old_record), std::move(new_record));
+    data_manager->Emplace<Edge>(
+        dba->transaction_id(), global_address.gid(),
+        distributed::CachedRecordData<Edge>(cypher_id,
+                                            std::move(old_record),
+                                            std::move(new_record)));
     return EdgeAccessor(global_address, *dba);
   };
   switch (reader.which()) {

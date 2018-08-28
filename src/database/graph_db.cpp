@@ -54,6 +54,10 @@ class SingleNodeRecordAccessor final {
     CHECK(record_accessor.is_local());
     record_accessor.db_accessor().wal().Emplace(delta);
   }
+
+  int64_t CypherId(const RecordAccessor<TRecord> &record_accessor) {
+    return record_accessor.address().local()->cypher_id();
+  }
 };
 
 class VertexAccessorImpl final : public ::VertexAccessor::Impl {
@@ -109,6 +113,10 @@ class VertexAccessorImpl final : public ::VertexAccessor::Impl {
       dba.wal().Emplace(delta);
     }
   }
+
+  int64_t CypherId(const RecordAccessor<Vertex> &ra) override {
+    return accessor_.CypherId(ra);
+  }
 };
 
 class EdgeAccessorImpl final : public ::RecordAccessor<Edge>::Impl {
@@ -132,6 +140,10 @@ class EdgeAccessorImpl final : public ::RecordAccessor<Edge>::Impl {
   void ProcessDelta(const RecordAccessor<Edge> &ra,
                     const database::StateDelta &delta) override {
     return accessor_.ProcessDelta(ra, delta);
+  }
+
+  int64_t CypherId(const RecordAccessor<Edge> &ra) override {
+    return accessor_.CypherId(ra);
   }
 };
 

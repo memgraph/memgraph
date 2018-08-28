@@ -27,20 +27,26 @@ class UpdatesRpcClients {
   UpdateResult Update(int worker_id, const database::StateDelta &delta);
 
   /// Creates a vertex on the given worker and returns it's id.
-  gid::Gid CreateVertex(
+  CreatedVertexInfo CreateVertex(
       int worker_id, tx::TransactionId tx_id,
       const std::vector<storage::Label> &labels,
       const std::unordered_map<storage::Property, query::TypedValue>
-          &properties);
+          &properties,
+      std::experimental::optional<int64_t> cypher_id =
+          std::experimental::nullopt);
 
   /// Creates an edge on the given worker and returns it's address. If the `to`
   /// vertex is on the same worker as `from`, then all remote CRUD will be
   /// handled by a call to this function. Otherwise a separate call to
   /// `AddInEdge` might be necessary. Throws all the exceptions that can
   /// occur remotely as a result of updating a vertex.
-  storage::EdgeAddress CreateEdge(tx::TransactionId tx_id,
-                                  VertexAccessor &from, VertexAccessor &to,
-                                  storage::EdgeType edge_type);
+  CreatedEdgeInfo CreateEdge(tx::TransactionId tx_id, VertexAccessor &from,
+                             VertexAccessor &to, storage::EdgeType edge_type,
+                             std::experimental::optional<int64_t> cypher_id =
+                                 std::experimental::nullopt);
+  // TODO (buda): Another machine in the cluster is asked to create an edge.
+  // cypher_id should be generated in that process. It probably doesn't make
+  // sense to have optional cypher id here. Maybe for the recovery purposes.
 
   /// Adds the edge with the given address to the `to` vertex as an incoming
   /// edge. Only used when `to` is remote and not on the same worker as `from`.
@@ -61,8 +67,8 @@ class UpdatesRpcClients {
                   gid::Gid vertex_from_id,
                   storage::VertexAddress vertex_to_addr);
 
-  void RemoveInEdge(tx::TransactionId tx_id, int worker_id,
-                    gid::Gid vertex_id, storage::EdgeAddress edge_address);
+  void RemoveInEdge(tx::TransactionId tx_id, int worker_id, gid::Gid vertex_id,
+                    storage::EdgeAddress edge_address);
 
   /// Calls for all the workers (except the given one) to apply their updates
   /// and returns the future results.

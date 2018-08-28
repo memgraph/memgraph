@@ -60,32 +60,34 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
 }
 
 template <typename TRecordAccessor>
-gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
+CreatedInfo UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue>
-        &properties) {
-  auto result = db_accessor_->InsertVertex();
+    const std::unordered_map<storage::Property, query::TypedValue> &properties,
+    std::experimental::optional<int64_t> cypher_id) {
+  auto result =
+      db_accessor_->InsertVertex(std::experimental::nullopt, cypher_id);
   for (auto &label : labels) result.add_label(label);
   for (auto &kv : properties) result.PropsSet(kv.first, kv.second);
   std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(result.gid(),
                   std::make_pair(result, std::vector<database::StateDelta>{}));
-  return result.gid();
+  return CreatedInfo(result.CypherId(), result.gid());
 }
 
 template <typename TRecordAccessor>
-gid::Gid UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
+CreatedInfo UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
     gid::Gid from, storage::VertexAddress to, storage::EdgeType edge_type,
-    int worker_id) {
+    int worker_id, std::experimental::optional<int64_t> cypher_id) {
   auto &db = db_accessor_->db();
   auto from_addr = db.storage().LocalizedAddressIfPossible(
       storage::VertexAddress(from, worker_id));
   auto to_addr = db.storage().LocalizedAddressIfPossible(to);
-  auto edge = db_accessor_->InsertOnlyEdge(from_addr, to_addr, edge_type);
+  auto edge = db_accessor_->InsertOnlyEdge(
+      from_addr, to_addr, edge_type, std::experimental::nullopt, cypher_id);
   std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(edge.gid(),
                   std::make_pair(edge, std::vector<database::StateDelta>{}));
-  return edge.gid();
+  return CreatedInfo(edge.CypherId(), edge.gid());
 }
 
 template <typename TRecordAccessor>
@@ -218,9 +220,11 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
                                            auto *res_builder) {
     CreateVertexReq req;
     req.Load(req_reader);
-    gid::Gid gid = GetUpdates(vertex_updates_, req.member.tx_id)
-                       .CreateVertex(req.member.labels, req.member.properties);
-    CreateVertexRes res(CreateResult{UpdateResult::DONE, gid});
+    auto result = GetUpdates(vertex_updates_, req.member.tx_id)
+                      .CreateVertex(req.member.labels, req.member.properties,
+                                    req.member.cypher_id);
+    CreateVertexRes res(
+        CreateResult{UpdateResult::DONE, result.cypher_id, result.gid});
     res.Save(res_builder);
   });
 
@@ -337,14 +341,17 @@ UpdatesRpcServer::TransactionUpdates<TAccessor> &UpdatesRpcServer::GetUpdates(
 }
 
 CreateResult UpdatesRpcServer::CreateEdge(const CreateEdgeReqData &req) {
-  auto gid = GetUpdates(edge_updates_, req.tx_id)
-                 .CreateEdge(req.from, req.to, req.edge_type, db_->WorkerId());
+  auto ids = GetUpdates(edge_updates_, req.tx_id)
+                 .CreateEdge(req.from, req.to, req.edge_type, db_->WorkerId(),
+                             req.cypher_id);
 
+  // cypher_id doesn't have to be inserted because edge is stored
+  // somewhere else in the cluster. Here is only vertex update.
   auto from_delta = database::StateDelta::AddOutEdge(
-      req.tx_id, req.from, req.to, {gid, db_->WorkerId()}, req.edge_type);
+      req.tx_id, req.from, req.to, {ids.gid, db_->WorkerId()}, req.edge_type);
 
   auto result = GetUpdates(vertex_updates_, req.tx_id).Emplace(from_delta);
-  return {result, gid};
+  return {result, ids.cypher_id, ids.gid};
 }
 
 UpdateResult UpdatesRpcServer::RemoveEdge(const RemoveEdgeData &data) {

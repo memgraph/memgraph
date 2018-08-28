@@ -54,7 +54,8 @@ cpp<#
     cpp<#))
 
 (lcp:define-struct (serialized-graph-element t-element) ()
-  ((global-address "storage::Address<mvcc::VersionList<TElement>>"
+  ((cypher-id :int64_t)
+   (global-address "storage::Address<mvcc::VersionList<TElement>>"
                    :capnp-type "Storage.Address")
    (old-element-input "TElement *"
                       :capnp-type '((null "Void") (vertex "Dis.Vertex") (edge "Dis.Edge"))
@@ -67,10 +68,12 @@ cpp<#
    (worker-id :int16_t :capnp-save :dont-save))
   (:public
    #>cpp
-    SerializedGraphElement(storage::Address<mvcc::VersionList<TElement>> global_address,
+    SerializedGraphElement(int64_t cypher_id,
+                           storage::Address<mvcc::VersionList<TElement>> global_address,
                            TElement *old_element_input, TElement *new_element_input,
                            int16_t worker_id)
-        : global_address(global_address),
+        : cypher_id(cypher_id),
+          global_address(global_address),
           old_element_input(old_element_input),
           old_element_output(nullptr),
           new_element_input(new_element_input),
@@ -81,8 +84,10 @@ cpp<#
     }
 
     SerializedGraphElement(const RecordAccessor<TElement> &accessor, int16_t worker_id)
-        : SerializedGraphElement(accessor.GlobalAddress(), accessor.GetOld(),
-                                 accessor.GetNew(), worker_id) {}
+        : SerializedGraphElement(accessor.CypherId(),
+                                 accessor.GlobalAddress(),
+                                 accessor.GetOld(), accessor.GetNew(),
+                                 worker_id) {}
 
     SerializedGraphElement() {}
    cpp<#)
@@ -159,10 +164,13 @@ cpp<#
 
 (lcp:define-rpc subcursor-pull
     (:request ((member :int64_t)))
-  (:response ((vertex "std::experimental::optional<SerializedVertex>" :initarg :move
-                      :capnp-type "Utils.Optional(SerializedGraphElement)"
-                      :capnp-save (lcp:capnp-save-optional "capnp::SerializedGraphElement" "SerializedVertex")
-                      :capnp-load (lcp:capnp-load-optional "capnp::SerializedGraphElement" "SerializedVertex")))))
+  (:response
+   ((cypher-id :int64_t)
+    (vertex "std::experimental::optional<SerializedVertex>" :initarg :move
+            :capnp-type "Utils.Optional(SerializedGraphElement)"
+            :capnp-save (lcp:capnp-save-optional "capnp::SerializedGraphElement" "SerializedVertex")
+            :capnp-load (lcp:capnp-load-optional "capnp::SerializedGraphElement" "SerializedVertex")))))
+
 (lcp:define-rpc set-source
     (:request
      ((subcursor-id :int64_t)

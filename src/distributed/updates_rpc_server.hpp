@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include <unordered_map>
@@ -36,21 +38,25 @@ class UpdatesRpcServer {
                        tx::TransactionId tx_id)
         : db_accessor_(db->Access(tx_id)) {}
 
-    /// Adds a delta and returns the result. Does not modify the state (data) of
-    /// the graph element the update is for, but calls the `update` method to
-    /// fail-fast on serialization and update-after-delete errors.
+    /// Adds a delta and returns the result. Does not modify the state (data)
+    /// of the graph element the update is for, but calls the `update` method
+    /// to fail-fast on serialization and update-after-delete errors.
     UpdateResult Emplace(const database::StateDelta &delta);
 
-    /// Creates a new vertex and returns it's gid.
-    gid::Gid CreateVertex(
+    /// Creates a new vertex and returns it's cypher_id and gid.
+    CreatedInfo CreateVertex(
         const std::vector<storage::Label> &labels,
         const std::unordered_map<storage::Property, query::TypedValue>
-            &properties);
+            &properties,
+        std::experimental::optional<int64_t> cypher_id =
+            std::experimental::nullopt);
 
-    /// Creates a new edge and returns it's gid. Does not update vertices at the
-    /// end of the edge.
-    gid::Gid CreateEdge(gid::Gid from, storage::VertexAddress to,
-                        storage::EdgeType edge_type, int worker_id);
+    /// Creates a new edge and returns it's cypher_id and gid. Does not update
+    /// vertices at the end of the edge.
+    CreatedInfo CreateEdge(gid::Gid from, storage::VertexAddress to,
+                           storage::EdgeType edge_type, int worker_id,
+                           std::experimental::optional<int64_t> cypher_id =
+                               std::experimental::nullopt);
 
     /// Applies all the deltas on the record.
     UpdateResult Apply();
@@ -74,8 +80,8 @@ class UpdatesRpcServer {
                    communication::rpc::Server *server);
 
   /// Applies all existsing updates for the given transaction ID. If there are
-  /// no updates for that transaction, nothing happens. Clears the updates cache
-  /// after applying them, regardless of the result.
+  /// no updates for that transaction, nothing happens. Clears the updates
+  /// cache after applying them, regardless of the result.
   UpdateResult Apply(tx::TransactionId tx_id);
 
   /// Clears the cache of local transactions that are completed. The signature

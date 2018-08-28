@@ -1148,8 +1148,8 @@ class QueryPlanExpandBfs
         vertex.PropsSet(prop.second, id);
         v.push_back(vertex.GlobalAddress());
       } else {
-        auto vertex = database::InsertVertexIntoRemote(&dba, worker, {},
-                                                       {{prop.second, id}});
+        auto vertex = database::InsertVertexIntoRemote(
+            &dba, worker, {}, {{prop.second, id}}, std::experimental::nullopt);
         v.push_back(vertex.GlobalAddress());
       }
     }

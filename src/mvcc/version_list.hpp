@@ -224,9 +224,6 @@ class VersionList {
     record->mark_expired(t);
   }
 
-  /**
-   * TODO (buda): Try to move git_ to storage::Address.
-   */
   const gid::Gid gid_;
 
   auto cypher_id() { return cypher_id_; }

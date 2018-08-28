@@ -50,8 +50,8 @@ class DistributedGraphDbTest : public ::testing::Test {
     master_config.durability_directory = tmp_dir_;
     // This is semantically wrong since this is not a cluster of size 1 but of
     // size kWorkerCount+1, but it's hard to wait here for workers to recover
-    // and simultaneously assign the port to which the workers must connect
-    // TODO(dgleich): Fix sometime in the future - not mission critical
+    // and simultaneously assign the port to which the workers must connect.
+    // TODO (buda): Fix sometime in the future - not mission critical.
     master_config.recovering_cluster_size = 1;
     master_ = std::make_unique<database::Master>(modify_config(master_config));
 
@@ -121,8 +121,8 @@ class DistributedGraphDbTest : public ::testing::Test {
     auto dba = master().Access();
     VertexAccessor from{from_addr, *dba};
     VertexAccessor to{to_addr, *dba};
-    auto r_val =
-        dba->InsertEdge(from, to, dba->EdgeType(edge_type_name)).GlobalAddress();
+    auto r_val = dba->InsertEdge(from, to, dba->EdgeType(edge_type_name))
+                     .GlobalAddress();
     master().updates_server().Apply(dba->transaction_id());
     worker(1).updates_server().Apply(dba->transaction_id());
     worker(2).updates_server().Apply(dba->transaction_id());

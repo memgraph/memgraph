@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include <mutex>
@@ -40,21 +42,13 @@ class Cache {
     return cache_.emplace(std::forward<TKey>(key), std::forward<TValue>(value));
   }
 
-  void erase(const TKey &key) {
-    cache_.erase(key);
-  }
-  
-  Iterator end() {
-    return cache_.end();
-  }
+  void erase(const TKey &key) { cache_.erase(key); }
 
-  bool contains(const TKey &key) {
-    return find(key) != end();
-  } 
+  Iterator end() { return cache_.end(); }
 
-  void clear() {
-    cache_.clear();
-  }
+  bool contains(const TKey &key) { return find(key) != end(); }
+
+  void clear() { cache_.clear(); }
 
  private:
   std::unordered_map<TKey, TValue> cache_;

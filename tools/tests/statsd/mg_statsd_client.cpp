@@ -6,7 +6,7 @@
 #include "stats/stats_rpc_messages.hpp"
 #include "utils/string.hpp"
 
-// TODO (buda): move this logic to a unit test
+// TODO (buda): Move this logic to a unit test.
 
 bool parse_input(const std::string &s, std::string &metric_path,
                  std::vector<std::pair<std::string, std::string>> &tags,

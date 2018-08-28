@@ -166,10 +166,17 @@ TRecord &RecordAccessor<TRecord>::update() const {
 }
 
 template <typename TRecord>
+int64_t RecordAccessor<TRecord>::CypherId() const {
+  return impl_->CypherId(*this);
+}
+
+template <typename TRecord>
 const TRecord &RecordAccessor<TRecord>::current() const {
   // Edges have lazily initialize mutable, versioned data (properties).
-  if (std::is_same<TRecord, Edge>::value && current_ == nullptr)
-    RecordAccessor::Reconstruct();
+  if (std::is_same<TRecord, Edge>::value && current_ == nullptr) {
+    bool reconstructed = Reconstruct();
+    DCHECK(reconstructed) << "Unable to initialize record";
+  }
   DCHECK(current_ != nullptr) << "RecordAccessor.current_ pointer is nullptr";
   return *current_;
 }

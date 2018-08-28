@@ -68,7 +68,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     }
     for (const auto &edge : dba.Edges(false)) {
       encoder.WriteEdge(glue::ToBoltEdge(edge));
-      encoder.WriteInt(edge.cypher_id());
+      encoder.WriteInt(edge.CypherId());
       edge_num++;
     }
     buffer.WriteValue(vertex_num);

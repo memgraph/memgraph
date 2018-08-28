@@ -82,12 +82,14 @@ std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
   CHECK(res) << "SubcursorPull RPC failed!";
   if (!res->vertex) return std::experimental::nullopt;
 
-  data_manager_->Emplace<Vertex>(dba->transaction_id(),
-                                 res->vertex->global_address.gid(),
-                                 std::move(res->vertex->old_element_output),
-                                 std::move(res->vertex->new_element_output));
+  data_manager_->Emplace<Vertex>(
+      dba->transaction_id(), res->vertex->global_address.gid(),
+      distributed::CachedRecordData<Vertex>(
+          res->cypher_id, std::move(res->vertex->old_element_output),
+          std::move(res->vertex->new_element_output)));
   return VertexAccessor(res->vertex->global_address, *dba);
 }
+
 bool BfsRpcClients::ExpandLevel(
     const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
   auto futures = clients_->ExecuteOnWorkers<bool>(
@@ -140,8 +142,11 @@ PathSegment BuildPathSegment(ReconstructPathRes *res,
                              distributed::DataManager *data_manager) {
   std::vector<EdgeAccessor> edges;
   for (auto &edge : res->edges) {
-    data_manager->Emplace<Edge>(dba->transaction_id(), edge.global_address.gid(), std::move(edge.old_element_output),
-                 std::move(edge.new_element_output));
+    data_manager->Emplace<Edge>(
+        dba->transaction_id(), edge.global_address.gid(),
+        distributed::CachedRecordData<Edge>(
+            edge.cypher_id, std::move(edge.old_element_output),
+            std::move(edge.new_element_output)));
     edges.emplace_back(edge.global_address, *dba);
   }
 

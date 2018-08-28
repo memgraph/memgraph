@@ -616,10 +616,10 @@ TypedValue Id(TypedValue *args, int64_t nargs, Context *ctx) {
   auto &arg = args[0];
   switch (arg.type()) {
     case TypedValue::Type::Vertex: {
-      return TypedValue(arg.ValueVertex().cypher_id());
+      return TypedValue(arg.ValueVertex().CypherId());
     }
     case TypedValue::Type::Edge: {
-      return TypedValue(arg.ValueEdge().cypher_id());
+      return TypedValue(arg.ValueEdge().CypherId());
     }
     default:
       throw QueryRuntimeException("'id' argument must be a node or an edge.");

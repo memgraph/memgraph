@@ -17,7 +17,7 @@ class SnapshotEncoder : public communication::bolt::BaseEncoder<Buffer> {
         glue::ToBoltVertex(vertex));
 
     // Write cypher_id
-    this->WriteInt(vertex.cypher_id());
+    this->WriteInt(vertex.CypherId());
 
     // Write in edges without properties
     this->WriteUInt(vertex.in_degree());

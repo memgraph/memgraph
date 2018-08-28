@@ -19,7 +19,7 @@ TEST(StateDelta, CreateVertex) {
     auto dba = db.Access();
     auto vertex = dba->FindVertexOptional(gid0, false);
     EXPECT_TRUE(vertex);
-    EXPECT_EQ(vertex->cypher_id(), 0);
+    EXPECT_EQ(vertex->CypherId(), 0);
   }
 }
 
@@ -137,8 +137,8 @@ TEST(StateDelta, RemoveLabel) {
   }
   {
     auto dba = db.Access();
-    auto delta = database::StateDelta::RemoveLabel(dba->transaction_id(), gid0,
-                                                   dba->Label("label"), "label");
+    auto delta = database::StateDelta::RemoveLabel(
+        dba->transaction_id(), gid0, dba->Label("label"), "label");
     delta.Apply(*dba);
     dba->Commit();
   }

@@ -53,15 +53,17 @@ struct TypedValue {
   }
 
   struct VertexAccessor {
-    address @0 :UInt64;
-    old @1 :Vertex;
-    new @2: Vertex;
+    cypherId @0 :Int64;
+    address @1 :UInt64;
+    old @2 :Vertex;
+    new @3 :Vertex;
   }
 
   struct EdgeAccessor {
-    address @0 :UInt64;
-    old @1 :Edge;
-    new @2: Edge;
+    cypherId @0 :Int64;
+    address @1 :UInt64;
+    old @2 :Edge;
+    new @3 :Edge;
   }
 
   struct Path {

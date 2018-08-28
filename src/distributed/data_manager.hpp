@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include "data_structures/concurrent/concurrent_map.hpp"
@@ -11,12 +13,26 @@ class Edge;
 
 namespace distributed {
 
+/// A wrapper for cached vertex/edge from other machines in the distributed
+/// system.
+///
+/// @tparam TRecord Vertex or Edge
+template <typename TRecord>
+struct CachedRecordData {
+  CachedRecordData(int64_t cypher_id, std::unique_ptr<TRecord> old_record,
+                   std::unique_ptr<TRecord> new_record)
+      : cypher_id(cypher_id),
+        old_record(std::move(old_record)),
+        new_record(std::move(new_record)) {}
+  int64_t cypher_id;
+  std::unique_ptr<TRecord> old_record;
+  std::unique_ptr<TRecord> new_record;
+};
+
 /// Handles remote data caches for edges and vertices, per transaction.
 class DataManager {
   template <typename TRecord>
-  using CacheG =
-      Cache<gid::Gid,
-            std::pair<std::unique_ptr<TRecord>, std::unique_ptr<TRecord>>>;
+  using CacheG = Cache<gid::Gid, CachedRecordData<TRecord>>;
 
   template <typename TRecord>
   using CacheT = ConcurrentMap<tx::TransactionId, CacheG<TRecord>>;
@@ -35,12 +51,11 @@ class DataManager {
     DCHECK(found != cache.end())
         << "FindNew is called on uninitialized remote Vertex/Edge";
 
-    auto &pair = found->second;
-    if (!pair.second) {
-      pair.second = std::unique_ptr<TRecord>(pair.first->CloneData());
+    auto &data = found->second;
+    if (!data.new_record) {
+      data.new_record = std::unique_ptr<TRecord>(data.old_record->CloneData());
     }
-
-    return pair.second.get();
+    return data.new_record.get();
   }
 
   /// For the Vertex/Edge with the given global ID, looks for the data visible
@@ -57,14 +72,14 @@ class DataManager {
       std::lock_guard<std::mutex> guard(lock);
       auto found = cache.find(gid);
       if (found != cache.end()) {
-        *old_record = found->second.first.get();
-        *new_record = found->second.second.get();
+        *old_record = found->second.old_record.get();
+        *new_record = found->second.new_record.get();
         return;
       }
     }
 
     auto remote = data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
-    LocalizeAddresses(*remote);
+    LocalizeAddresses(*remote.record_ptr);
 
     // This logic is a bit strange because we need to make sure that someone
     // else didn't get a response and updated the cache before we did and we
@@ -72,21 +87,45 @@ class DataManager {
     // that result - otherwise we could get incosistent results for remote
     // FindSetOldNew
     std::lock_guard<std::mutex> guard(lock);
-    auto it_pair = cache.emplace(std::move(gid),
-                                 std::make_pair(std::move(remote), nullptr));
+    auto it_pair = cache.emplace(
+        std::move(gid),
+        CachedRecordData<TRecord>(remote.cypher_id,
+                                  std::move(remote.record_ptr), nullptr));
 
-    *old_record = it_pair.first->second.first.get();
-    *new_record = it_pair.first->second.second.get();
+    *old_record = it_pair.first->second.old_record.get();
+    *new_record = it_pair.first->second.new_record.get();
+  }
+
+  /// Finds cached element for the given transaction, worker and gid.
+  ///
+  /// @tparam TRecord Vertex or Edge
+  template <typename TRecord>
+  const CachedRecordData<TRecord> &Find(tx::TransactionId tx_id, int worker_id,
+                                        gid::Gid gid) {
+    auto &cache = GetCache<TRecord>(tx_id);
+    std::unique_lock<std::mutex> guard(GetLock(tx_id));
+    auto found = cache.find(gid);
+    if (found != cache.end()) {
+      return found->second;
+    } else {
+      guard.unlock();
+      auto remote = data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
+      LocalizeAddresses(*remote.record_ptr);
+      guard.lock();
+      return cache
+          .emplace(std::move(gid),
+                   CachedRecordData<TRecord>(
+                       remote.cypher_id, std::move(remote.record_ptr), nullptr))
+          .first->second;
+    }
   }
 
   /// Sets the given records as (new, old) data for the given gid.
   template <typename TRecord>
   void Emplace(tx::TransactionId tx_id, gid::Gid gid,
-               std::unique_ptr<TRecord> old_record,
-               std::unique_ptr<TRecord> new_record) {
-
-    if (old_record) LocalizeAddresses(*old_record);
-    if (new_record) LocalizeAddresses(*new_record);
+               CachedRecordData<TRecord> data) {
+    if (data.old_record) LocalizeAddresses(*data.old_record);
+    if (data.new_record) LocalizeAddresses(*data.new_record);
 
     std::lock_guard<std::mutex> guard(GetLock(tx_id));
     // We can't replace existing data because some accessors might be using
@@ -94,9 +133,7 @@ class DataManager {
     // TODO - consider if it's necessary and OK to copy just the data content.
     auto &cache = GetCache<TRecord>(tx_id);
     auto found = cache.find(gid);
-    if (found == cache.end())
-      cache.emplace(std::move(gid), std::make_pair(std::move(old_record),
-                                                   std::move(new_record)));
+    if (found == cache.end()) cache.emplace(std::move(gid), std::move(data));
   }
 
   /// Removes all the caches for a single transaction.

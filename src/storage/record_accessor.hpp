@@ -53,6 +53,7 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
     /** Process a change delta, e.g. by writing WAL. */
     virtual void ProcessDelta(const RecordAccessor<TRecord> &ra,
                               const database::StateDelta &delta) = 0;
+    virtual int64_t CypherId(const RecordAccessor<TRecord> &ra) = 0;
   };
 
   // this class is default copyable, movable and assignable
@@ -176,12 +177,10 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
    * owner is some other worker in a distributed system. */
   bool is_local() const { return address_.is_local(); }
 
-  int64_t cypher_id() const {
-    if (address_.is_local())
-      return address_.local()->cypher_id();
-    else
-      throw utils::NotYetImplemented("Fetch remote cypher_id");
-  }
+  /**
+   * Returns Cypher Id of this record.
+   */
+  int64_t CypherId() const;
 
  protected:
   /**

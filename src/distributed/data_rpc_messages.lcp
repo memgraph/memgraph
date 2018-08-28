@@ -28,7 +28,8 @@ cpp<#
 (lcp:define-rpc vertex
     (:request ((member "TxGidPair")))
   (:response
-   ((vertex-input "const Vertex *"
+   ((cypher-id :int64_t)
+    (vertex-input "const Vertex *"
                   :capnp-type "Dist.Vertex"
                   :capnp-save
                   (lambda (builder member)
@@ -48,7 +49,8 @@ cpp<#
 (lcp:define-rpc edge
     (:request ((member "TxGidPair")))
   (:response
-   ((edge-input "const Edge *"
+   ((cypher-id :int64_t)
+    (edge-input "const Edge *"
                 :capnp-type "Dist.Edge"
                 :capnp-save
                 (lambda (builder member)

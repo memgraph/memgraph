@@ -92,8 +92,7 @@ class DistributedRecordAccessor final {
     if (address.is_local()) {
       return address.local()->update(dba.transaction());
     }
-    return data_manager_->FindNew<TRecord>(dba.transaction_id(),
-                                           address.gid());
+    return data_manager_->FindNew<TRecord>(dba.transaction_id(), address.gid());
   }
 
   void ProcessDelta(const RecordAccessor<TRecord> &record_accessor,
@@ -122,6 +121,25 @@ class DistributedRecordAccessor final {
         throw utils::LockTimeoutException("Lock timeout on remote worker");
     }
   }
+
+  int64_t CypherId(const RecordAccessor<TRecord> &record_accessor) {
+    auto &dba = record_accessor.db_accessor();
+    const auto &address = record_accessor.address();
+    if (record_accessor.is_local()) return address.local()->cypher_id();
+    // Fetch data from the cache.
+    //
+    // NOTE: This part is executed when we need to migrate
+    // a vertex and it has edges that don't belong to it. A machine that owns
+    // the vertex still need to figure out what is the cypher_id for each
+    // remote edge because the machine has to initiate remote edge creation
+    // and for that call it has to know the remote cypher_ids.
+    // TODO (buda): If we save cypher_id similar/next to edge_type we would save
+    // a network call.
+    return data_manager_
+        ->Find<TRecord>(dba.transaction().id_, address.worker_id(),
+                        address.gid())
+        .cypher_id;
+  }
 };
 
 class DistributedEdgeAccessor final : public ::RecordAccessor<Edge>::Impl {
@@ -149,6 +167,10 @@ class DistributedEdgeAccessor final : public ::RecordAccessor<Edge>::Impl {
   void ProcessDelta(const RecordAccessor<Edge> &ra,
                     const database::StateDelta &delta) override {
     return distributed_accessor_.ProcessDelta(ra, delta);
+  }
+
+  int64_t CypherId(const RecordAccessor<Edge> &ra) override {
+    return distributed_accessor_.CypherId(ra);
   }
 };
 
@@ -215,6 +237,10 @@ class DistributedVertexAccessor final : public ::VertexAccessor::Impl {
     }
 
     if (!va.is_local()) distributed_accessor_.SendDelta(va, delta);
+  }
+
+  int64_t CypherId(const RecordAccessor<Vertex> &ra) override {
+    return distributed_accessor_.CypherId(ra);
   }
 };
 
@@ -297,14 +323,17 @@ class DistributedAccessor : public GraphDbAccessor {
       return GraphDbAccessor::InsertEdgeOnFrom(from, to, edge_type,
                                                requested_gid, cypher_id);
     }
-    auto edge_address =
-        updates_clients_->CreateEdge(transaction_id(), *from, *to, edge_type);
+    auto created_edge_info = updates_clients_->CreateEdge(
+        transaction_id(), *from, *to, edge_type, cypher_id);
+    auto edge_address = created_edge_info.edge_address;
     auto *from_updated =
         data_manager_->FindNew<Vertex>(transaction_id(), from->gid());
     // Create an Edge and insert it into the Cache so we see it locally.
     data_manager_->Emplace<Edge>(
-        transaction_id(), edge_address.gid(), nullptr,
-        std::make_unique<Edge>(from->address(), to->address(), edge_type));
+        transaction_id(), edge_address.gid(),
+        distributed::CachedRecordData<Edge>(
+            created_edge_info.cypher_id, nullptr,
+            std::make_unique<Edge>(from->address(), to->address(), edge_type)));
     from_updated->out_.emplace(
         db().storage().LocalizedAddressIfPossible(to->address()), edge_address,
         edge_type);
@@ -810,8 +839,8 @@ distributed::IndexRpcClients &Master::index_rpc_clients() {
 VertexAccessor InsertVertexIntoRemote(
     GraphDbAccessor *dba, int worker_id,
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue>
-        &properties) {
+    const std::unordered_map<storage::Property, query::TypedValue> &properties,
+    std::experimental::optional<int64_t> cypher_id) {
   // TODO: Replace this with virtual call or some other mechanism.
   auto *distributed_db =
       dynamic_cast<database::DistributedGraphDb *>(&dba->db());
@@ -821,13 +850,16 @@ VertexAccessor InsertVertexIntoRemote(
   auto *updates_clients = &distributed_db->updates_clients();
   auto *data_manager = &distributed_db->data_manager();
   CHECK(updates_clients && data_manager);
-  gid::Gid gid = updates_clients->CreateVertex(worker_id, dba->transaction_id(),
-                                               labels, properties);
+  auto created_vertex_info = updates_clients->CreateVertex(
+      worker_id, dba->transaction_id(), labels, properties, cypher_id);
   auto vertex = std::make_unique<Vertex>();
   vertex->labels_ = labels;
   for (auto &kv : properties) vertex->properties_.set(kv.first, kv.second);
-  data_manager->Emplace<Vertex>(dba->transaction_id(), gid, nullptr, std::move(vertex));
-  return VertexAccessor({gid, worker_id}, *dba);
+  data_manager->Emplace<Vertex>(
+      dba->transaction_id(), created_vertex_info.gid,
+      distributed::CachedRecordData<Vertex>(created_vertex_info.cypher_id,
+                                            nullptr, std::move(vertex)));
+  return VertexAccessor({created_vertex_info.gid, worker_id}, *dba);
 }
 
 //////////////////////////////////////////////////////////////////////
