@@ -116,7 +116,7 @@ streamQuery : createStream
             | testStream
             ;
 
-streamName : UnescapedSymbolicName ;
+streamName : symbolicName ;
 
 createStream : CREATE STREAM streamName AS LOAD DATA KAFKA
 streamUri=literal WITH TOPIC streamTopic=literal WITH TRANSFORM

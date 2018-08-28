@@ -2012,8 +2012,8 @@ TYPED_TEST(CypherMainVisitorTest, DenyPrivilege) {
   ASSERT_THROW(TypeParam("DENY MATCH, TO user"), SyntaxException);
   ASSERT_THROW(TypeParam("DENY MATCH, BLABLA TO user"), SyntaxException);
   check_auth_query<TypeParam>("DENY MATCH TO user",
-                              AuthQuery::Action::DENY_PRIVILEGE, "", "",
-                              "user", {}, {AuthQuery::Privilege::MATCH});
+                              AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
+                              {}, {AuthQuery::Privilege::MATCH});
   check_auth_query<TypeParam>(
       "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "",
       "user", {}, {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
@@ -2109,71 +2109,71 @@ TYPED_TEST(CypherMainVisitorTest, CreateStream) {
       };
 
   check_create_stream(
-      "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+      "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
       "WITH TOPIC 'tropika' "
       "WITH TRANSFORM 'localhost/test.py'",
-      "strim", "localhost", "tropika", "localhost/test.py",
+      "stream", "localhost", "tropika", "localhost/test.py",
       std::experimental::nullopt, std::experimental::nullopt);
 
   check_create_stream(
-      "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
+      "CreaTE StreaM stream AS LOad daTA KAFKA 'localhost' "
       "WitH TopIC 'tropika' "
       "WITH TRAnsFORM 'localhost/test.py' bAtCH inTErvAL 168",
-      "strim", "localhost", "tropika", "localhost/test.py", 168,
+      "stream", "localhost", "tropika", "localhost/test.py", 168,
       std::experimental::nullopt);
 
   check_create_stream(
-      "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
+      "CreaTE StreaM stream AS LOad daTA KAFKA 'localhost' "
       "WITH TopIC 'tropika' "
       "WITH TRAnsFORM 'localhost/test.py' bAtCH SizE 17",
-      "strim", "localhost", "tropika", "localhost/test.py",
+      "stream", "localhost", "tropika", "localhost/test.py",
       std::experimental::nullopt, 17);
 
   check_create_stream(
-      "CreaTE StreaM strim AS LOad daTA KAFKA 'localhost' "
+      "CreaTE StreaM stream AS LOad daTA KAFKA 'localhost' "
       "WitH TOPic 'tropika' "
       "WITH TRAnsFORM 'localhost/test.py' bAtCH inTErvAL 168 Batch SIze 17",
-      "strim", "localhost", "tropika", "localhost/test.py", 168, 17);
+      "stream", "localhost", "tropika", "localhost/test.py", 168, 17);
 
   EXPECT_THROW(check_create_stream(
-                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 'jedan' ",
-                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   "stream", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
-                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika' "
                    "WITH TRANSFORM 'localhost/test.py' BATCH SIZE 'jedan' ",
-                   "strim", "localhost", "tropika", "localhost/test.py",
+                   "stream", "localhost", "tropika", "localhost/test.py",
                    std::experimental::nullopt, 17),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
                    "CREATE STREAM 123 AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika' "
                    "WITH TRANSFORM 'localhost/test.py' BATCH INTERVAL 168 ",
-                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   "stream", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
-                   "CREATE STREAM strim AS LOAD DATA KAFKA localhost "
+                   "CREATE STREAM stream AS LOAD DATA KAFKA localhost "
                    "WITH TOPIC 'tropika' "
                    "WITH TRANSFORM 'localhost/test.py'",
-                   "strim", "localhost", "tropika", "localhost/test.py",
+                   "stream", "localhost", "tropika", "localhost/test.py",
                    std::experimental::nullopt, std::experimental::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
-                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 2"
                    "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
-                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   "stream", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);
   EXPECT_THROW(check_create_stream(
-                   "CREATE STREAM strim AS LOAD DATA KAFKA 'localhost' "
+                   "CREATE STREAM stream AS LOAD DATA KAFKA 'localhost' "
                    "WITH TOPIC 'tropika'"
                    "WITH TRANSFORM localhost/test.py BATCH INTERVAL 168 ",
-                   "strim", "localhost", "tropika", "localhost/test.py", 168,
+                   "stream", "localhost", "tropika", "localhost/test.py", 168,
                    std::experimental::nullopt),
                SyntaxException);
 }
@@ -2191,6 +2191,7 @@ TYPED_TEST(CypherMainVisitorTest, DropStream) {
     EXPECT_EQ(drop_stream->stream_name_, stream_name);
   };
 
+  check_drop_stream("DRop stREAm stream", "stream");
   check_drop_stream("DRop stREAm strim", "strim");
 
   EXPECT_THROW(check_drop_stream("DROp sTREAM", ""), SyntaxException);
@@ -2243,6 +2244,8 @@ TYPED_TEST(CypherMainVisitorTest, StartStopStream) {
         }
       };
 
+  check_start_stop_stream("stARt STreaM STREAM", "STREAM", true,
+                          std::experimental::nullopt);
   check_start_stop_stream("stARt STreaM strim", "strim", true,
                           std::experimental::nullopt);
   check_start_stop_stream("StARt STreAM strim LimIT 10 BATchES", "strim", true,
@@ -2315,9 +2318,10 @@ TYPED_TEST(CypherMainVisitorTest, TestStream) {
       };
 
   check_test_stream("TesT STreaM strim", "strim", std::experimental::nullopt);
-  check_test_stream("tESt STreAM strim LimIT 10 BATchES", "strim", 10);
+  check_test_stream("TesT STreaM STREAM", "STREAM", std::experimental::nullopt);
+  check_test_stream("tESt STreAM STREAM LimIT 10 BATchES", "STREAM", 10);
 
-  check_test_stream("Test StrEAM strim", "strim", std::experimental::nullopt);
+  check_test_stream("Test StrEAM STREAM", "STREAM", std::experimental::nullopt);
 
   EXPECT_THROW(check_test_stream("tEST STReaM 'strim'", "strim",
                                  std::experimental::nullopt),
