@@ -18,19 +18,25 @@ DEFINE_HIDDEN_int32(remote_pull_sleep_micros, 10,
 // that accepts the visitor and visits it's input_ operator
 #define ACCEPT_WITH_INPUT(class_name)                                    \
   bool class_name::Accept(HierarchicalLogicalOperatorVisitor &visitor) { \
-    if (visitor.PreVisit(*this)) {                                       \
+    auto *distributed_visitor =                                          \
+        dynamic_cast<DistributedOperatorVisitor *>(&visitor);            \
+    CHECK(distributed_visitor);                                          \
+    if (distributed_visitor->PreVisit(*this)) {                          \
       input_->Accept(visitor);                                           \
     }                                                                    \
-    return visitor.PostVisit(*this);                                     \
+    return distributed_visitor->PostVisit(*this);                        \
   }
 
 namespace query::plan {
 
 bool PullRemote::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
-  if (visitor.PreVisit(*this)) {
+  auto *distributed_visitor =
+      dynamic_cast<DistributedOperatorVisitor *>(&visitor);
+  CHECK(distributed_visitor);
+  if (distributed_visitor->PreVisit(*this)) {
     if (input_) input_->Accept(visitor);
   }
-  return visitor.PostVisit(*this);
+  return distributed_visitor->PostVisit(*this);
 }
 
 std::vector<Symbol> PullRemote::OutputSymbols(const SymbolTable &table) const {
@@ -58,12 +64,15 @@ std::vector<Symbol> Synchronize::ModifiedSymbols(
 }
 
 bool Synchronize::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
-  if (visitor.PreVisit(*this)) {
+  auto *distributed_visitor =
+      dynamic_cast<DistributedOperatorVisitor *>(&visitor);
+  CHECK(distributed_visitor);
+  if (distributed_visitor->PreVisit(*this)) {
     // pull_remote_ is optional here, so visit it only if we continue visiting
     // and pull_remote_ does exist.
     input_->Accept(visitor) && pull_remote_ && pull_remote_->Accept(visitor);
   }
-  return visitor.PostVisit(*this);
+  return distributed_visitor->PostVisit(*this);
 }
 
 PullRemoteOrderBy::PullRemoteOrderBy(

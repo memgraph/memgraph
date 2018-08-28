@@ -45,7 +45,7 @@ class BaseOpChecker {
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
 };
 
-class PlanChecker : public HierarchicalLogicalOperatorVisitor {
+class PlanChecker : public DistributedOperatorVisitor {
  public:
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;

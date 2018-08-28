@@ -9,17 +9,12 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/plan/distributed.hpp"
 #include "query/plan/operator.hpp"
 #include "utils/thread/sync.hpp"
 #include "utils/timer.hpp"
 
 DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
-
-namespace distributed {
-class PlanDispatcher;
-}
 
 namespace auth {
 class Auth;
@@ -44,8 +39,6 @@ class LogicalPlan {
 
 class Interpreter {
  private:
-  /// Encapsulates a plan for caching. Takes care of remote (worker) cache
-  /// updating in distributed memgraph.
   class CachedPlan {
    public:
     CachedPlan(std::unique_ptr<LogicalPlan> plan);

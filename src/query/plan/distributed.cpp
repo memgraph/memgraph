@@ -72,7 +72,7 @@ Branch FindIndependentSubtree(
 // indexed lookup is split to regular lookup + filtering.
 // TODO: After indexed lookup is moved to another stage, then this class should
 // never visit such lookups or modify the tree.
-class IndependentSubtreeFinder : public HierarchicalLogicalOperatorVisitor {
+class IndependentSubtreeFinder : public DistributedOperatorVisitor {
  public:
   IndependentSubtreeFinder(
       const std::vector<std::vector<Symbol>> &forbidden_symbols,

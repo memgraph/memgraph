@@ -103,10 +103,7 @@ class Unwind;
 class Distinct;
 class CreateIndex;
 class Union;
-class PullRemote;
-class Synchronize;
 class Cartesian;
-class PullRemoteOrderBy;
 class AuthHandler;
 class CreateStream;
 class DropStream;
@@ -123,8 +120,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, PullRemote, Synchronize,
-    Cartesian, PullRemoteOrderBy, Explain>;
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, Explain>;
 
 using LogicalOperatorLeafVisitor =
     ::utils::LeafVisitor<Once, CreateIndex, AuthHandler, CreateStream,

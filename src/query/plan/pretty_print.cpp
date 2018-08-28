@@ -8,7 +8,7 @@ namespace query::plan {
 
 namespace {
 
-class PlanPrinter final : public HierarchicalLogicalOperatorVisitor {
+class PlanPrinter final : public DistributedOperatorVisitor {
  public:
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;

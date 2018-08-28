@@ -11,6 +11,23 @@ cpp<#
 (lcp:namespace query)
 (lcp:namespace plan)
 
+#>cpp
+class PullRemote;
+class Synchronize;
+class PullRemoteOrderBy;
+
+using DistributedOperatorCompositeVisitor =
+    ::utils::CompositeVisitor<PullRemote, Synchronize, PullRemoteOrderBy>;
+
+/// Base class for visiting regular and distributed LogicalOperator instances.
+class DistributedOperatorVisitor : public HierarchicalLogicalOperatorVisitor,
+                                   public DistributedOperatorCompositeVisitor {
+ public:
+  using DistributedOperatorCompositeVisitor::PostVisit;
+  using DistributedOperatorCompositeVisitor::PreVisit;
+};
+cpp<#
+
 (lcp:define-class pull-remote (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer

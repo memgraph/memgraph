@@ -2,6 +2,7 @@
 
 #include "database/distributed_graph_db.hpp"
 #include "distributed/plan_dispatcher.hpp"
+#include "query/plan/distributed.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
