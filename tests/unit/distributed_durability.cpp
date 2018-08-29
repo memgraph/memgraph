@@ -157,6 +157,11 @@ void CheckDeltas(fs::path wal_dir, database::StateDelta::Type op) {
     communication::bolt::Decoder<HashedFileReader> decoder{reader};
     std::vector<database::StateDelta> deltas;
 
+    // check magic number
+    auto magic_number = durability::kWalMagic;
+    reader.Read(magic_number.data(), magic_number.size());
+    ASSERT_EQ(magic_number, durability::kWalMagic);
+
     // check version
     communication::bolt::Value dv;
     decoder.ReadValue(&dv);

@@ -8,6 +8,7 @@
 #include "database/state_delta.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/recovery.hpp"
+#include "durability/version.hpp"
 #include "durability/wal.hpp"
 #include "transactions/type.hpp"
 
@@ -64,6 +65,15 @@ int main(int argc, char *argv[]) {
   CHECK(wal_reader.Open(wal_path)) << "Couldn't open wal file!";
 
   communication::bolt::Decoder<HashedFileReader> decoder(wal_reader);
+
+  auto magic_number = durability::kWalMagic;
+  wal_reader.Read(magic_number.data(), magic_number.size());
+  CHECK(magic_number == durability::kWalMagic) << "Wal magic number mismatch";
+
+  communication::bolt::Value dv;
+  decoder.ReadValue(&dv);
+  CHECK(dv.ValueInt() == durability::kVersion) << "Wal version mismatch";
+
   tx::TransactionId max_observed_tx_id{0};
   tx::TransactionId min_observed_tx_id{std::numeric_limits<uint64_t>::max()};
 

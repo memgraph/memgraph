@@ -365,6 +365,11 @@ TEST_F(Durability, WalEncoding) {
   communication::bolt::Decoder<HashedFileReader> decoder{reader};
   std::vector<database::StateDelta> deltas;
 
+  // check magic number
+  auto magic_number = durability::kWalMagic;
+  reader.Read(magic_number.data(), magic_number.size());
+  ASSERT_EQ(magic_number, durability::kWalMagic);
+
   // check version
   communication::bolt::Value dv;
   decoder.ReadValue(&dv);
@@ -448,9 +453,9 @@ TEST_F(Durability, SnapshotEncoding) {
   ASSERT_EQ(vertex_count, 3);
   ASSERT_EQ(edge_count, 2);
 
-  auto magic_number = durability::kMagicNumber;
+  auto magic_number = durability::kSnapshotMagic;
   buffer.Read(magic_number.data(), magic_number.size());
-  ASSERT_EQ(magic_number, durability::kMagicNumber);
+  ASSERT_EQ(magic_number, durability::kSnapshotMagic);
 
   communication::bolt::Value dv;
   decoder.ReadValue(&dv);

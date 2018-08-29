@@ -409,8 +409,8 @@ void Convert(const std::vector<std::string> &nodes,
     //   5) All nodes, sequentially, but not encoded as a list.
     //   6) All relationships, sequentially, but not encoded as a list.
     //   7) Summary with node count, relationship count and hash digest.
-    encoder.WriteRAW(durability::kMagicNumber.data(),
-                     durability::kMagicNumber.size());
+    encoder.WriteRAW(durability::kSnapshotMagic.data(),
+                     durability::kSnapshotMagic.size());
     encoder.WriteValue(durability::kVersion);
 
     encoder.WriteInt(0);  // Worker Id - for this use case it's okay to set to 0

@@ -25,8 +25,8 @@ class SnapshotWriter {
                  uint64_t vertex_generator_local_count = 0,
                  uint64_t edge_generator_local_count = 0)
       : worker_id_(worker_id), buffer_(path) {
-    encoder_.WriteRAW(durability::kMagicNumber.data(),
-                      durability::kMagicNumber.size());
+    encoder_.WriteRAW(durability::kSnapshotMagic.data(),
+                      durability::kSnapshotMagic.size());
     encoder_.WriteValue(durability::kVersion);
     encoder_.WriteInt(worker_id_);
     encoder_.WriteInt(vertex_generator_local_count);

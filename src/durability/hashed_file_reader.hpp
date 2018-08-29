@@ -66,6 +66,9 @@ class HashedFileReader {
   /** Returns the hash of the data read so far from the stream. */
   uint64_t hash() const { return hasher_.hash(); }
 
+  /** Checks whether the end of file is reached. */
+  bool EndOfFile() const { return input_stream_.eof(); }
+
  private:
   Hasher hasher_;
   std::ifstream input_stream_;

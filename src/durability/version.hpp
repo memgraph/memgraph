@@ -11,7 +11,8 @@
 
 namespace durability {
 
-constexpr std::array<uint8_t, 4> kMagicNumber{{'M', 'G', 's', 'n'}};
+constexpr std::array<uint8_t, 4> kSnapshotMagic{{'M', 'G', 's', 'n'}};
+constexpr std::array<uint8_t, 4> kWalMagic{{'M', 'G', 'w', 'l'}};
 
 // The current default version of snapshot and WAL encoding / decoding.
 constexpr int64_t kVersion{6};

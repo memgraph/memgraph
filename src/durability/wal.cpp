@@ -54,6 +54,8 @@ void WriteAheadLog::WalFile::Init() {
     current_wal_file_ = WalFilenameForTransactionId(wal_dir_, worker_id_);
     try {
       writer_.Open(current_wal_file_);
+      encoder_.WriteRAW(durability::kWalMagic.data(),
+                        durability::kWalMagic.size());
       encoder_.WriteInt(durability::kVersion);
     } catch (std::ios_base::failure &) {
       LOG(ERROR) << "Failed to open write-ahead log file: "

@@ -37,32 +37,27 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
 }
 
 bool VersionConsistency(const fs::path &durability_dir) {
-  const auto snapshot_dir = durability_dir / kSnapshotDir;
-  if (fs::exists(snapshot_dir) && fs::is_directory(snapshot_dir)) {
-    for (auto &file : fs::directory_iterator(snapshot_dir)) {
+  for (const auto &durability_type : {kSnapshotDir, kWalDir}) {
+    auto recovery_dir = durability_dir / durability_type;
+    if (!fs::exists(recovery_dir) || !fs::is_directory(recovery_dir)) continue;
+
+    for (const auto &file : fs::directory_iterator(recovery_dir)) {
       HashedFileReader reader;
       SnapshotDecoder<HashedFileReader> decoder(reader);
 
-      // This is ok because we are only trying to detect version
-      // inconsistencies.
+      // The following checks are ok because we are only trying to detect
+      // version inconsistencies.
       if (!reader.Open(fs::path(file))) continue;
 
-      auto magic_number = durability::kMagicNumber;
+      std::array<uint8_t, 4> target_magic_number =
+          (durability_type == kSnapshotDir) ? durability::kSnapshotMagic
+                                            : durability::kWalMagic;
+      std::array<uint8_t, 4> magic_number;
       if (!reader.Read(magic_number.data(), magic_number.size())) continue;
+      if (magic_number != target_magic_number) continue;
 
-      Value dv;
-      if (!decoder.ReadValue(&dv, Value::Type::Int) ||
-          dv.ValueInt() != durability::kVersion)
-        return false;
-    }
-  }
+      if (reader.EndOfFile()) continue;
 
-  const auto wal_dir = durability_dir / kWalDir;
-  if (fs::exists(snapshot_dir) && fs::is_directory(wal_dir)) {
-    for (auto &file : fs::directory_iterator(wal_dir)) {
-      HashedFileReader reader;
-      communication::bolt::Decoder<HashedFileReader> decoder(reader);
-      if (!reader.Open(fs::path(file))) continue;
       Value dv;
       if (!decoder.ReadValue(&dv, Value::Type::Int) ||
           dv.ValueInt() != durability::kVersion)
@@ -74,25 +69,25 @@ bool VersionConsistency(const fs::path &durability_dir) {
 }
 
 bool ContainsDurabilityFiles(const fs::path &durability_dir) {
-  for (auto &durability_type : {kSnapshotDir, kWalDir}) {
-    const auto dtype_dir = durability_dir / durability_type;
-    if (fs::exists(dtype_dir) && fs::is_directory(dtype_dir) &&
-        !fs::is_empty(dtype_dir))
+  for (const auto &durability_type : {kSnapshotDir, kWalDir}) {
+    auto recovery_dir = durability_dir / durability_type;
+    if (fs::exists(recovery_dir) && fs::is_directory(recovery_dir) &&
+        !fs::is_empty(recovery_dir))
       return true;
   }
   return false;
 }
 
 void MoveToBackup(const fs::path &durability_dir) {
-  const auto backup_dir = durability_dir / kBackupDir;
+  auto backup_dir = durability_dir / kBackupDir;
   utils::CheckDir(backup_dir);
   utils::CheckDir(backup_dir / kSnapshotDir);
   utils::CheckDir(backup_dir / kWalDir);
-  for (auto &durability_type : {kSnapshotDir, kWalDir}) {
-    const auto dtype_dir = durability_dir / durability_type;
-    if (!fs::exists(dtype_dir) || !fs::is_directory(dtype_dir)) continue;
-    for (auto &file : fs::directory_iterator(dtype_dir)) {
-      const auto filename = fs::path(file).filename();
+  for (const auto &durability_type : {kSnapshotDir, kWalDir}) {
+    auto recovery_dir = durability_dir / durability_type;
+    if (!fs::exists(recovery_dir) || !fs::is_directory(recovery_dir)) continue;
+    for (const auto &file : fs::directory_iterator(recovery_dir)) {
+      auto filename = fs::path(file).filename();
       fs::rename(file, backup_dir / durability_type / filename);
     }
   }
@@ -114,9 +109,9 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
 
   RETURN_IF_NOT(reader.Open(snapshot_file));
 
-  auto magic_number = durability::kMagicNumber;
+  auto magic_number = durability::kSnapshotMagic;
   reader.Read(magic_number.data(), magic_number.size());
-  RETURN_IF_NOT(magic_number == durability::kMagicNumber);
+  RETURN_IF_NOT(magic_number == durability::kSnapshotMagic);
 
   // Read the vertex and edge count, and the hash, from the end of the snapshot.
   int64_t vertex_count;
@@ -322,6 +317,10 @@ bool ApplyOverDeltas(
     if (!wal_reader.Open(wal_file)) return false;
 
     communication::bolt::Decoder<HashedFileReader> decoder(wal_reader);
+
+    auto magic_number = durability::kWalMagic;
+    wal_reader.Read(magic_number.data(), magic_number.size());
+    if (magic_number != durability::kWalMagic) return false;
 
     Value dv;
     if (!decoder.ReadValue(&dv, Value::Type::Int) ||

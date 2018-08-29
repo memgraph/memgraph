@@ -32,9 +32,9 @@ int main(int argc, char *argv[]) {
 
   CHECK(reader.Open(snapshot_path)) << "Couldn't open snapshot file!";
 
-  auto magic_number = durability::kMagicNumber;
+  auto magic_number = durability::kSnapshotMagic;
   reader.Read(magic_number.data(), magic_number.size());
-  CHECK(magic_number == durability::kMagicNumber) << "Magic number mismatch";
+  CHECK(magic_number == durability::kSnapshotMagic) << "Magic number mismatch";
 
   int64_t vertex_count, edge_count;
   uint64_t hash;

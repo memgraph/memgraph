@@ -27,8 +27,8 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     SnapshotEncoder<HashedFileWriter> encoder(buffer);
     int64_t vertex_num = 0, edge_num = 0;
 
-    encoder.WriteRAW(durability::kMagicNumber.data(),
-                     durability::kMagicNumber.size());
+    encoder.WriteRAW(durability::kSnapshotMagic.data(),
+                     durability::kSnapshotMagic.size());
     encoder.WriteInt(durability::kVersion);
 
     // Writes the worker id to snapshot, used to guarantee consistent cluster
