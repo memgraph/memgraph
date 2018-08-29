@@ -110,11 +110,11 @@ QUERIES = [
         ("AUTH",)
     ),
     (
-        "GRANT ROLE test_role TO test_user",
+        "SET ROLE FOR test_user TO test_role",
         ("AUTH",)
     ),
     (
-        "REVOKE ROLE test_role FROM test_user",
+        "CLEAR ROLE FOR test_user",
         ("AUTH",)
     ),
     (
@@ -130,15 +130,15 @@ QUERIES = [
         ("AUTH",)
     ),
     (
-        "SHOW GRANTS FOR test_user",
+        "SHOW PRIVILEGES FOR test_user",
         ("AUTH",)
     ),
     (
-        "SHOW ROLE FOR USER test_user",
+        "SHOW ROLE FOR test_user",
         ("AUTH",)
     ),
     (
-        "SHOW USERS FOR ROLE test_role",
+        "SHOW USERS FOR test_role",
         ("AUTH",)
     ),
 
@@ -299,9 +299,9 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
                       user_perm, ", role ", role_perm,
                       "user mapped to role:", mapped, " ~~\033[0m")
                 if mapped:
-                    execute_admin_queries(["GRANT ROLE role TO user"])
+                    execute_admin_queries(["SET ROLE FOR user TO role"])
                 else:
-                    execute_admin_queries(["REVOKE ROLE role FROM user"])
+                    execute_admin_queries(["CLEAR ROLE FOR user"])
                 user_prep = "FROM" if user_perm == "REVOKE" else "TO"
                 role_prep = "FROM" if role_perm == "REVOKE" else "TO"
                 execute_admin_queries([

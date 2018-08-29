@@ -1971,24 +1971,26 @@ TYPED_TEST(CypherMainVisitorTest, ShowUsers) {
                               "", "", {}, {});
 }
 
-TYPED_TEST(CypherMainVisitorTest, GrantRole) {
-  ASSERT_THROW(TypeParam("GRANT ROLE"), SyntaxException);
-  ASSERT_THROW(TypeParam("GRANT ROLE role"), SyntaxException);
-  ASSERT_THROW(TypeParam("GRANT ROLE role TO"), SyntaxException);
-  ASSERT_THROW(TypeParam("GRANT ROLE TO user"), SyntaxException);
-  check_auth_query<TypeParam>("GRANT ROLE role TO user",
-                              AuthQuery::Action::GRANT_ROLE, "user", "role", "",
+TYPED_TEST(CypherMainVisitorTest, SetRole) {
+  ASSERT_THROW(TypeParam("SET ROLE"), SyntaxException);
+  ASSERT_THROW(TypeParam("SET ROLE user"), SyntaxException);
+  ASSERT_THROW(TypeParam("SET ROLE FOR user"), SyntaxException);
+  ASSERT_THROW(TypeParam("SET ROLE FOR user TO"), SyntaxException);
+  check_auth_query<TypeParam>("SET ROLE FOR user TO role",
+                              AuthQuery::Action::SET_ROLE, "user", "role", "",
+                              {}, {});
+  check_auth_query<TypeParam>("SET ROLE FOR user TO null",
+                              AuthQuery::Action::SET_ROLE, "user", "null", "",
                               {}, {});
 }
 
-TYPED_TEST(CypherMainVisitorTest, RevokeRole) {
-  ASSERT_THROW(TypeParam("REVOKE ROLE"), SyntaxException);
-  ASSERT_THROW(TypeParam("REVOKE ROLE role"), SyntaxException);
-  ASSERT_THROW(TypeParam("REVOKE ROLE role FROM"), SyntaxException);
-  ASSERT_THROW(TypeParam("REVOKE ROLE FROM user"), SyntaxException);
-  check_auth_query<TypeParam>("REVOKE ROLE role FROM user",
-                              AuthQuery::Action::REVOKE_ROLE, "user", "role",
-                              "", {}, {});
+TYPED_TEST(CypherMainVisitorTest, ClearRole) {
+  ASSERT_THROW(TypeParam("CLEAR ROLE"), SyntaxException);
+  ASSERT_THROW(TypeParam("CLEAR ROLE user"), SyntaxException);
+  ASSERT_THROW(TypeParam("CLEAR ROLE FOR user TO"), SyntaxException);
+  check_auth_query<TypeParam>("CLEAR ROLE FOR user",
+                              AuthQuery::Action::CLEAR_ROLE, "user", "", "",
+                              {}, {});
 }
 
 TYPED_TEST(CypherMainVisitorTest, GrantPrivilege) {
@@ -2042,28 +2044,28 @@ TYPED_TEST(CypherMainVisitorTest, RevokePrivilege) {
        AuthQuery::Privilege::STREAM});
 }
 
-TYPED_TEST(CypherMainVisitorTest, ShowGrants) {
-  ASSERT_THROW(TypeParam("SHOW GRANTS FOR"), SyntaxException);
-  check_auth_query<TypeParam>("SHOW GRANTS FOR user",
-                              AuthQuery::Action::SHOW_GRANTS, "", "", "user",
+TYPED_TEST(CypherMainVisitorTest, ShowPrivileges) {
+  ASSERT_THROW(TypeParam("SHOW PRIVILEGES FOR"), SyntaxException);
+  check_auth_query<TypeParam>("SHOW PRIVILEGES FOR user",
+                              AuthQuery::Action::SHOW_PRIVILEGES, "", "", "user",
                               {}, {});
-  ASSERT_THROW(TypeParam("SHOW GRANTS FOR user1, user2"), SyntaxException);
+  ASSERT_THROW(TypeParam("SHOW PRIVILEGES FOR user1, user2"), SyntaxException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ShowRoleForUser) {
-  ASSERT_THROW(TypeParam("SHOW ROLE FOR USER"), SyntaxException);
-  check_auth_query<TypeParam>("SHOW ROLE FOR USER user",
+  ASSERT_THROW(TypeParam("SHOW ROLE FOR "), SyntaxException);
+  check_auth_query<TypeParam>("SHOW ROLE FOR user",
                               AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", "",
                               "", {}, {});
-  ASSERT_THROW(TypeParam("SHOW ROLE FOR USER user1, user2"), SyntaxException);
+  ASSERT_THROW(TypeParam("SHOW ROLE FOR user1, user2"), SyntaxException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ShowUsersForRole) {
-  ASSERT_THROW(TypeParam("SHOW USERS FOR ROLE"), SyntaxException);
-  check_auth_query<TypeParam>("SHOW USERS FOR ROLE role",
+  ASSERT_THROW(TypeParam("SHOW USERS FOR "), SyntaxException);
+  check_auth_query<TypeParam>("SHOW USERS FOR role",
                               AuthQuery::Action::SHOW_USERS_FOR_ROLE, "",
                               "role", "", {}, {});
-  ASSERT_THROW(TypeParam("SHOW USERS FOR ROLE role1, role2"), SyntaxException);
+  ASSERT_THROW(TypeParam("SHOW USERS FOR role1, role2"), SyntaxException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, CreateStream) {

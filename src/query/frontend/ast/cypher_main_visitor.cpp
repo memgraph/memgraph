@@ -365,23 +365,22 @@ antlrcpp::Any CypherMainVisitor::visitShowUsers(
 /**
  * @return AuthQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitGrantRole(
-    MemgraphCypher::GrantRoleContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitSetRole(
+    MemgraphCypher::SetRoleContext *ctx) {
   AuthQuery *auth = storage_.Create<AuthQuery>();
-  auth->action_ = AuthQuery::Action::GRANT_ROLE;
-  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = ctx->user->accept(this).as<std::string>();
+  auth->role_ = ctx->role->accept(this).as<std::string>();
   return auth;
 }
 
 /**
  * @return AuthQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitRevokeRole(
-    MemgraphCypher::RevokeRoleContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitClearRole(
+    MemgraphCypher::ClearRoleContext *ctx) {
   AuthQuery *auth = storage_.Create<AuthQuery>();
-  auth->action_ = AuthQuery::Action::REVOKE_ROLE;
-  auth->role_ = ctx->role->accept(this).as<std::string>();
+  auth->action_ = AuthQuery::Action::CLEAR_ROLE;
   auth->user_ = ctx->user->accept(this).as<std::string>();
   return auth;
 }
@@ -463,10 +462,10 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(
 /**
  * @return AuthQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitShowGrants(
-    MemgraphCypher::ShowGrantsContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowPrivileges(
+    MemgraphCypher::ShowPrivilegesContext *ctx) {
   AuthQuery *auth = storage_.Create<AuthQuery>();
-  auth->action_ = AuthQuery::Action::SHOW_GRANTS;
+  auth->action_ = AuthQuery::Action::SHOW_PRIVILEGES;
   auth->user_or_role_ = ctx->userOrRole->accept(this).as<std::string>();
   return auth;
 }

@@ -3258,7 +3258,7 @@ std::vector<Symbol> AuthHandler::OutputSymbols(const SymbolTable &) const {
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:
       return {role_symbol_};
 
-    case AuthQuery::Action::SHOW_GRANTS:
+    case AuthQuery::Action::SHOW_PRIVILEGES:
       return {privilege_symbol_, effective_symbol_, details_symbol_};
 
     case AuthQuery::Action::CREATE_USER:
@@ -3266,8 +3266,8 @@ std::vector<Symbol> AuthHandler::OutputSymbols(const SymbolTable &) const {
     case AuthQuery::Action::SET_PASSWORD:
     case AuthQuery::Action::CREATE_ROLE:
     case AuthQuery::Action::DROP_ROLE:
-    case AuthQuery::Action::GRANT_ROLE:
-    case AuthQuery::Action::REVOKE_ROLE:
+    case AuthQuery::Action::SET_ROLE:
+    case AuthQuery::Action::CLEAR_ROLE:
     case AuthQuery::Action::GRANT_PRIVILEGE:
     case AuthQuery::Action::DENY_PRIVILEGE:
     case AuthQuery::Action::REVOKE_PRIVILEGE:
@@ -3447,7 +3447,7 @@ class AuthHandlerCursor : public Cursor {
         return true;
       }
 
-      case AuthQuery::Action::GRANT_ROLE: {
+      case AuthQuery::Action::SET_ROLE: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
@@ -3467,19 +3467,11 @@ class AuthHandlerCursor : public Cursor {
         return false;
       }
 
-      case AuthQuery::Action::REVOKE_ROLE: {
+      case AuthQuery::Action::CLEAR_ROLE: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
           throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
-        }
-        auto role = auth.GetRole(self_.role());
-        if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist!", self_.role());
-        }
-        if (user->role() != role) {
-          throw QueryRuntimeException("User '{}' isn't a member of role '{}'!",
-                                      self_.user(), self_.role());
         }
         user->ClearRole();
         auth.SaveUser(*user);
@@ -3529,7 +3521,7 @@ class AuthHandlerCursor : public Cursor {
         return false;
       }
 
-      case AuthQuery::Action::SHOW_GRANTS: {
+      case AuthQuery::Action::SHOW_PRIVILEGES: {
         if (!grants_) {
           std::lock_guard<std::mutex> lock(auth.WithLock());
           auto user = auth.GetUser(self_.user_or_role());

@@ -135,7 +135,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return Query*
    */
-  antlrcpp::Any visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) override;
+  antlrcpp::Any visitExplainQuery(
+      MemgraphCypher::ExplainQueryContext *ctx) override;
 
   /**
    * @return Query*
@@ -235,13 +236,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitGrantRole(MemgraphCypher::GrantRoleContext *ctx) override;
+  antlrcpp::Any visitSetRole(MemgraphCypher::SetRoleContext *ctx) override;
 
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitRevokeRole(
-      MemgraphCypher::RevokeRoleContext *ctx) override;
+  antlrcpp::Any visitClearRole(MemgraphCypher::ClearRoleContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -269,8 +269,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitShowGrants(
-      MemgraphCypher::ShowGrantsContext *ctx) override;
+  antlrcpp::Any visitShowPrivileges(
+      MemgraphCypher::ShowPrivilegesContext *ctx) override;
 
   /**
    * @return AuthQuery*

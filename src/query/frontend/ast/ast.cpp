@@ -2099,11 +2099,11 @@ void AuthQuery::Save(capnp::AuthQuery::Builder *builder,
     case Action::SHOW_USERS:
       builder->setAction(capnp::AuthQuery::Action::SHOW_USERS);
       break;
-    case Action::GRANT_ROLE:
-      builder->setAction(capnp::AuthQuery::Action::GRANT_ROLE);
+    case Action::SET_ROLE:
+      builder->setAction(capnp::AuthQuery::Action::SET_ROLE);
       break;
-    case Action::REVOKE_ROLE:
-      builder->setAction(capnp::AuthQuery::Action::REVOKE_ROLE);
+    case Action::CLEAR_ROLE:
+      builder->setAction(capnp::AuthQuery::Action::CLEAR_ROLE);
       break;
     case Action::GRANT_PRIVILEGE:
       builder->setAction(capnp::AuthQuery::Action::GRANT_PRIVILEGE);
@@ -2114,8 +2114,8 @@ void AuthQuery::Save(capnp::AuthQuery::Builder *builder,
     case Action::REVOKE_PRIVILEGE:
       builder->setAction(capnp::AuthQuery::Action::REVOKE_PRIVILEGE);
       break;
-    case Action::SHOW_GRANTS:
-      builder->setAction(capnp::AuthQuery::Action::SHOW_GRANTS);
+    case Action::SHOW_PRIVILEGES:
+      builder->setAction(capnp::AuthQuery::Action::SHOW_PRIVILEGES);
       break;
     case Action::SHOW_ROLE_FOR_USER:
       builder->setAction(capnp::AuthQuery::Action::SHOW_ROLE_FOR_USER);
@@ -2192,11 +2192,11 @@ void AuthQuery::Load(const capnp::Tree::Reader &base_reader,
     case capnp::AuthQuery::Action::SHOW_USERS:
       action_ = Action::SHOW_USERS;
       break;
-    case capnp::AuthQuery::Action::GRANT_ROLE:
-      action_ = Action::GRANT_ROLE;
+    case capnp::AuthQuery::Action::SET_ROLE:
+      action_ = Action::SET_ROLE;
       break;
-    case capnp::AuthQuery::Action::REVOKE_ROLE:
-      action_ = Action::REVOKE_ROLE;
+    case capnp::AuthQuery::Action::CLEAR_ROLE:
+      action_ = Action::CLEAR_ROLE;
       break;
     case capnp::AuthQuery::Action::GRANT_PRIVILEGE:
       action_ = Action::GRANT_PRIVILEGE;
@@ -2207,8 +2207,8 @@ void AuthQuery::Load(const capnp::Tree::Reader &base_reader,
     case capnp::AuthQuery::Action::REVOKE_PRIVILEGE:
       action_ = Action::REVOKE_PRIVILEGE;
       break;
-    case capnp::AuthQuery::Action::SHOW_GRANTS:
-      action_ = Action::SHOW_GRANTS;
+    case capnp::AuthQuery::Action::SHOW_PRIVILEGES:
+      action_ = Action::SHOW_PRIVILEGES;
       break;
     case capnp::AuthQuery::Action::SHOW_ROLE_FOR_USER:
       action_ = Action::SHOW_ROLE_FOR_USER;

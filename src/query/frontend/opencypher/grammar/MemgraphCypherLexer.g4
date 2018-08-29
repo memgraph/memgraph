@@ -14,6 +14,7 @@ ALTER          : A L T E R ;
 AUTH           : A U T H ;
 BATCH          : B A T C H ;
 BATCHES        : B A T C H E S ;
+CLEAR          : C L E A R ;
 DATA           : D A T A ;
 DENY           : D E N Y ;
 DROP           : D R O P ;

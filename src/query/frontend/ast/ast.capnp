@@ -407,12 +407,12 @@ struct AuthQuery {
     setPassword @4;
     dropUser @5;
     showUsers @6;
-    grantRole @7;
-    revokeRole @8;
+    setRole @7;
+    clearRole @8;
     grantPrivilege @9;
     denyPrivilege @10;
     revokePrivilege @11;
-    showGrants @12;
+    showPrivileges @12;
     showRoleForUser @13;
     showUsersForRole @14;
   }

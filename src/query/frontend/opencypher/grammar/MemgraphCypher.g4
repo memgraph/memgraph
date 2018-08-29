@@ -11,13 +11,13 @@ memgraphCypherKeyword : cypherKeyword
                       | AUTH
                       | BATCH
                       | BATCHES
+                      | CLEAR
                       | DATA
                       | DENY
                       | DROP
                       | FOR
                       | FROM
                       | GRANT
-                      | GRANTS
                       | IDENTIFIED
                       | INTERVAL
                       | K_TEST
@@ -60,12 +60,12 @@ authQuery : createRole
           | setPassword
           | dropUser
           | showUsers
-          | grantRole
-          | revokeRole
+          | setRole
+          | clearRole
           | grantPrivilege
           | denyPrivilege
           | revokePrivilege
-          | showGrants
+          | showPrivileges
           | showRoleForUser
           | showUsersForRole
           ;
@@ -87,9 +87,9 @@ dropUser : DROP USER user=userOrRoleName ;
 
 showUsers : SHOW USERS ;
 
-grantRole : GRANT ROLE role=userOrRoleName TO user=userOrRoleName ;
+setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
 
-revokeRole : REVOKE ROLE role=userOrRoleName FROM user=userOrRoleName ;
+clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole=userOrRoleName ;
 
@@ -102,11 +102,11 @@ privilege : CREATE | DELETE | MATCH | MERGE | SET
 
 privilegeList : privilege ( ',' privilege )* ;
 
-showGrants : SHOW GRANTS FOR userOrRole=userOrRoleName ;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
 
-showRoleForUser : SHOW ROLE FOR USER user=userOrRoleName ;
+showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 
-showUsersForRole : SHOW USERS FOR ROLE role=userOrRoleName ;
+showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
 streamQuery : createStream
             | dropStream

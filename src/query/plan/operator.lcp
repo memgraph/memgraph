@@ -1978,19 +1978,19 @@ and returns true, once.")
                                             "AuthQuery::Action"
                                             '(create-role drop-role show-roles
                                               create-user set-password
-                                              drop-user show-users grant-role
-                                              revoke-role grant-privilege
+                                              drop-user show-users set-role
+                                              clear-role grant-privilege
                                               deny-privilege revoke-privilege
-                                              show-grants show-role-for-user
+                                              show-privileges show-role-for-user
                                               show-users-for-role))
            :capnp-load (lcp:capnp-load-enum "::query::capnp::AuthQuery::Action"
                                             "AuthQuery::Action"
                                             '(create-role drop-role show-roles
                                               create-user set-password
-                                              drop-user show-users grant-role
-                                              revoke-role grant-privilege
+                                              drop-user show-users set-role
+                                              clear-role grant-privilege
                                               deny-privilege revoke-privilege
-                                              show-grants show-role-for-user
+                                              show-privileges show-role-for-user
                                               show-users-for-role)))
    (user "std::string" :reader t)
    (role "std::string" :reader t)
