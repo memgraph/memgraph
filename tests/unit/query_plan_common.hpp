@@ -175,6 +175,20 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }
 
+struct UnwindTuple {
+  Symbol sym_;
+  std::shared_ptr<LogicalOperator> op_;
+};
+
+UnwindTuple MakeUnwind(SymbolTable &symbol_table,
+                       const std::string &symbol_name,
+                       std::shared_ptr<LogicalOperator> input,
+                       Expression *input_expression) {
+  auto sym = symbol_table.CreateSymbol(symbol_name, true);
+  auto op = std::make_shared<query::plan::Unwind>(input, input_expression, sym);
+  return UnwindTuple{sym, op};
+}
+
 template <typename TIterable>
 auto CountIterable(TIterable iterable) {
   return std::distance(iterable.begin(), iterable.end());

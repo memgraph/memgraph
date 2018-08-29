@@ -18,6 +18,11 @@ class Frame {
     return elems_[symbol.position()];
   }
 
+  TypedValue &at(const Symbol &symbol) { return elems_.at(symbol.position()); }
+  const TypedValue &at(const Symbol &symbol) const {
+    return elems_.at(symbol.position());
+  }
+
   auto &elems() { return elems_; }
 
  private:

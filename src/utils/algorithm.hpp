@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -96,6 +97,12 @@ template <typename TElement>
 inline bool Contains(const std::unordered_set<TElement> &iterable,
                      const TElement &element) {
   return iterable.find(element) != iterable.end();
+}
+
+template <typename TKey, typename TValue>
+inline bool Contains(const std::unordered_map<TKey, TValue> &iterable,
+                     const TKey &key) {
+  return iterable.find(key) != iterable.end();
 }
 
 /**

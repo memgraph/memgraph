@@ -1019,14 +1019,247 @@ class ExpandVariableCursor : public Cursor {
   }
 };
 
-class ExpandBfsCursor : public query::plan::Cursor {
+class STShortestPathCursor : public query::plan::Cursor {
  public:
-  ExpandBfsCursor(const ExpandVariable &self, database::GraphDbAccessor &db)
-      : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
+  STShortestPathCursor(const ExpandVariable &self,
+                       database::GraphDbAccessor &dba)
+      : self_(self), input_cursor_(self_.input()->MakeCursor(dba)) {
+    CHECK(self_.graph_view() == GraphView::OLD)
+        << "ExpandVariable should only be planned with GraphView::OLD";
+    CHECK(self_.existing_node()) << "s-t shortest path algorithm should only "
+                                    "be used when `existing_node` flag is "
+                                    "set!";
+  }
 
   bool Pull(Frame &frame, Context &context) override {
-    // evaluator for the filtering condition
-    ExpressionEvaluator evaluator(frame, &context, self_.graph_view_);
+    ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
+    while (input_cursor_->Pull(frame, context)) {
+      auto source_tv = frame[self_.input_symbol()];
+      auto sink_tv = frame[self_.node_symbol()];
+
+      // It is possible that source or sink vertex is Null due to optional
+      // matching.
+      if (source_tv.IsNull() || sink_tv.IsNull()) continue;
+
+      auto source = source_tv.ValueVertex();
+      auto sink = sink_tv.ValueVertex();
+
+      int64_t lower_bound =
+          self_.lower_bound()
+              ? EvaluateInt(&evaluator, self_.lower_bound(),
+                            "Min depth in breadth-first expansion")
+              : 1;
+      int64_t upper_bound =
+          self_.upper_bound()
+              ? EvaluateInt(&evaluator, self_.upper_bound(),
+                            "Max depth in breadth-first expansion")
+              : std::numeric_limits<int64_t>::max();
+
+      if (upper_bound < 1 || lower_bound > upper_bound) continue;
+
+      if (FindPath(source, sink, lower_bound, upper_bound, &frame,
+                   &evaluator)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+
+ private:
+  const ExpandVariable &self_;
+  std::unique_ptr<query::plan::Cursor> input_cursor_;
+
+  using VertexEdgeMapT =
+      std::unordered_map<VertexAccessor,
+                         std::experimental::optional<EdgeAccessor>>;
+
+  void ReconstructPath(const VertexAccessor &midpoint,
+                       const VertexEdgeMapT &in_edge,
+                       const VertexEdgeMapT &out_edge, Frame *frame) {
+    std::vector<TypedValue> result;
+    auto last_vertex = midpoint;
+    while (true) {
+      const auto &last_edge = in_edge.at(last_vertex);
+      if (!last_edge) break;
+      last_vertex =
+          last_edge->from_is(last_vertex) ? last_edge->to() : last_edge->from();
+      result.emplace_back(*last_edge);
+    }
+    std::reverse(result.begin(), result.end());
+    last_vertex = midpoint;
+    while (true) {
+      const auto &last_edge = out_edge.at(last_vertex);
+      if (!last_edge) break;
+      last_vertex =
+          last_edge->from_is(last_vertex) ? last_edge->to() : last_edge->from();
+      result.emplace_back(*last_edge);
+    }
+    frame->at(self_.edge_symbol()) = std::move(result);
+  }
+
+  bool ShouldExpand(const VertexAccessor &vertex, const EdgeAccessor &edge,
+                    Frame *frame, ExpressionEvaluator *evaluator) {
+    if (!self_.filter_lambda().expression) return true;
+
+    frame->at(self_.filter_lambda().inner_node_symbol) = vertex;
+    frame->at(self_.filter_lambda().inner_edge_symbol) = edge;
+
+    TypedValue result = self_.filter_lambda().expression->Accept(*evaluator);
+    if (result.IsNull()) return false;
+    if (result.IsBool()) return result.ValueBool();
+
+    throw QueryRuntimeException(
+        "Expansion condition must evaluate to boolean or null");
+  }
+
+  bool FindPath(const VertexAccessor &source, const VertexAccessor &sink,
+                int64_t lower_bound, int64_t upper_bound, Frame *frame,
+                ExpressionEvaluator *evaluator) {
+    using utils::Contains;
+
+    if (source == sink) return false;
+
+    // We expand from both directions, both from the source and the sink.
+    // Expansions meet at the middle of the path if it exists. This should
+    // perform better for real-world like graphs where the expansion front
+    // grows exponentially, effectively reducing the exponent by half.
+
+    // Holds vertices at the current level of expansion from the source
+    // (sink).
+    std::vector<VertexAccessor> source_frontier;
+    std::vector<VertexAccessor> sink_frontier;
+
+    // Holds vertices we can expand to from `source_frontier`
+    // (`sink_frontier`).
+    std::vector<VertexAccessor> source_next;
+    std::vector<VertexAccessor> sink_next;
+
+    // Maps each vertex we visited expanding from the source (sink) to the
+    // edge used. Necessary for path reconstruction.
+    VertexEdgeMapT in_edge;
+    VertexEdgeMapT out_edge;
+
+    size_t current_length = 0;
+
+    source_frontier.emplace_back(source);
+    in_edge[source] = std::experimental::nullopt;
+    sink_frontier.emplace_back(sink);
+    out_edge[sink] = std::experimental::nullopt;
+
+    while (true) {
+      // Top-down step (expansion from the source).
+      ++current_length;
+      if (current_length > upper_bound) return false;
+
+      for (const auto &vertex : source_frontier) {
+        if (self_.direction() != EdgeAtom::Direction::IN) {
+          for (const auto &edge : vertex.out(&self_.edge_types())) {
+            if (ShouldExpand(edge.to(), edge, frame, evaluator) &&
+                !Contains(in_edge, edge.to())) {
+              in_edge.emplace(edge.to(), edge);
+              if (Contains(out_edge, edge.to())) {
+                if (current_length >= lower_bound) {
+                  ReconstructPath(edge.to(), in_edge, out_edge, frame);
+                  return true;
+                } else {
+                  return false;
+                }
+              }
+              source_next.push_back(edge.to());
+            }
+          }
+        }
+        if (self_.direction() != EdgeAtom::Direction::OUT) {
+          for (const auto &edge : vertex.in(&self_.edge_types())) {
+            if (ShouldExpand(edge.from(), edge, frame, evaluator) &&
+                !Contains(in_edge, edge.from())) {
+              in_edge.emplace(edge.from(), edge);
+              if (Contains(out_edge, edge.from())) {
+                if (current_length >= lower_bound) {
+                  ReconstructPath(edge.from(), in_edge, out_edge, frame);
+                  return true;
+                } else {
+                  return false;
+                }
+              }
+              source_next.push_back(edge.from());
+            }
+          }
+        }
+      }
+
+      if (source_next.empty()) return false;
+      source_frontier.clear();
+      std::swap(source_frontier, source_next);
+
+      // Bottom-up step (expansion from the sink).
+      ++current_length;
+      if (current_length > upper_bound) return false;
+
+      // When expanding from the sink we have to be careful which edge
+      // endpoint we pass to `should_expand`, because everything is
+      // reversed.
+      for (const auto &vertex : sink_frontier) {
+        if (self_.direction() != EdgeAtom::Direction::OUT) {
+          for (const auto &edge : vertex.out(&self_.edge_types())) {
+            if (ShouldExpand(vertex, edge, frame, evaluator) &&
+                !Contains(out_edge, edge.to())) {
+              out_edge.emplace(edge.to(), edge);
+              if (Contains(in_edge, edge.to())) {
+                if (current_length >= lower_bound) {
+                  ReconstructPath(edge.to(), in_edge, out_edge, frame);
+                  return true;
+                } else {
+                  return false;
+                }
+              }
+              sink_next.push_back(edge.to());
+            }
+          }
+        }
+        if (self_.direction() != EdgeAtom::Direction::IN) {
+          for (const auto &edge : vertex.in(&self_.edge_types())) {
+            if (ShouldExpand(vertex, edge, frame, evaluator) &&
+                !Contains(out_edge, edge.from())) {
+              out_edge.emplace(edge.from(), edge);
+              if (Contains(in_edge, edge.from())) {
+                if (current_length >= lower_bound) {
+                  ReconstructPath(edge.from(), in_edge, out_edge, frame);
+                  return true;
+                } else {
+                  return false;
+                }
+              }
+              sink_next.push_back(edge.from());
+            }
+          }
+        }
+      }
+
+      if (sink_next.empty()) return false;
+      sink_frontier.clear();
+      std::swap(sink_frontier, sink_next);
+    }
+  }
+};
+
+class SingleSourceShortestPathCursor : public query::plan::Cursor {
+ public:
+  SingleSourceShortestPathCursor(const ExpandVariable &self,
+                                 database::GraphDbAccessor &db)
+      : self_(self), input_cursor_(self_.input()->MakeCursor(db)) {
+    CHECK(self_.graph_view() == GraphView::OLD)
+        << "ExpandVariable should only be planned with GraphView::OLD";
+    CHECK(!self_.existing_node()) << "Single source shortest path algorithm "
+                                     "should not be used when `existing_node` "
+                                     "flag is set, s-t shortest path algorithm "
+                                     "should be used instead!";
+  }
+
+  bool Pull(Frame &frame, Context &context) override {
+    ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
 
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
@@ -1035,14 +1268,11 @@ class ExpandBfsCursor : public query::plan::Cursor {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
 
-      SwitchAccessor(edge, self_.graph_view_);
-      SwitchAccessor(vertex, self_.graph_view_);
+      frame[self_.filter_lambda().inner_edge_symbol] = edge;
+      frame[self_.filter_lambda().inner_node_symbol] = vertex;
 
-      frame[self_.filter_lambda_.inner_edge_symbol] = edge;
-      frame[self_.filter_lambda_.inner_node_symbol] = vertex;
-
-      if (self_.filter_lambda_.expression) {
-        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
+      if (self_.filter_lambda().expression) {
+        TypedValue result = self_.filter_lambda().expression->Accept(evaluator);
         switch (result.type()) {
           case TypedValue::Type::Null:
             return;
@@ -1062,12 +1292,12 @@ class ExpandBfsCursor : public query::plan::Cursor {
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
-      if (self_.direction_ != EdgeAtom::Direction::IN) {
-        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_))
+      if (self_.direction() != EdgeAtom::Direction::IN) {
+        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types()))
           expand_pair(edge, edge.to());
       }
-      if (self_.direction_ != EdgeAtom::Direction::OUT) {
-        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_))
+      if (self_.direction() != EdgeAtom::Direction::OUT) {
+        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types()))
           expand_pair(edge, edge.from());
       }
     };
@@ -1079,28 +1309,26 @@ class ExpandBfsCursor : public query::plan::Cursor {
 
       // if current is still empty, it means both are empty, so pull from
       // input
-      if (skip_rest_ || to_visit_current_.empty()) {
+      if (to_visit_current_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
         to_visit_current_.clear();
         to_visit_next_.clear();
         processed_.clear();
 
-        auto vertex_value = frame[self_.input_symbol_];
+        auto vertex_value = frame[self_.input_symbol()];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
         auto vertex = vertex_value.Value<VertexAccessor>();
-        SwitchAccessor(vertex, self_.graph_view_);
         processed_.emplace(vertex, std::experimental::nullopt);
         expand_from_vertex(vertex);
-        lower_bound_ = self_.lower_bound_
-                           ? EvaluateInt(&evaluator, self_.lower_bound_,
+        lower_bound_ = self_.lower_bound()
+                           ? EvaluateInt(&evaluator, self_.lower_bound(),
                                          "Min depth in breadth-first expansion")
                            : 1;
-        upper_bound_ = self_.upper_bound_
-                           ? EvaluateInt(&evaluator, self_.upper_bound_,
+        upper_bound_ = self_.upper_bound()
+                           ? EvaluateInt(&evaluator, self_.upper_bound(),
                                          "Max depth in breadth-first expansion")
-                           : std::numeric_limits<int>::max();
-        skip_rest_ = false;
+                           : std::numeric_limits<int64_t>::max();
         if (upper_bound_ < 1)
           throw QueryRuntimeException(
               "Max depth in breadth-first expansion must be greater then "
@@ -1112,8 +1340,8 @@ class ExpandBfsCursor : public query::plan::Cursor {
 
       // take the next expansion from the queue
       std::pair<EdgeAccessor, VertexAccessor> expansion =
-          to_visit_current_.front();
-      to_visit_current_.pop_front();
+          to_visit_current_.back();
+      to_visit_current_.pop_back();
 
       // create the frame value for the edges
       std::vector<TypedValue> edge_list{expansion.first};
@@ -1130,25 +1358,16 @@ class ExpandBfsCursor : public query::plan::Cursor {
       }
 
       // expand only if what we've just expanded is less then max depth
-      if (static_cast<int>(edge_list.size()) < upper_bound_)
+      if (static_cast<int64_t>(edge_list.size()) < upper_bound_)
         expand_from_vertex(expansion.second);
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
-      // place destination node on the frame, handle existence flag
-      if (self_.existing_node_) {
-        TypedValue &node = frame[self_.node_symbol_];
-        // due to optional matching the existing node could be null
-        if (node.IsNull() || (node != expansion.second).Value<bool>()) continue;
-        // there is no point in traversing the rest of the graph because bfs
-        // can find only one path to a certain node
-        skip_rest_ = true;
-      } else
-        frame[self_.node_symbol_] = expansion.second;
+      frame[self_.node_symbol()] = expansion.second;
 
       // place edges on the frame in the correct order
       std::reverse(edge_list.begin(), edge_list.end());
-      frame[self_.edge_symbol_] = std::move(edge_list);
+      frame[self_.edge_symbol()] = std::move(edge_list);
 
       return true;
     }
@@ -1164,13 +1383,10 @@ class ExpandBfsCursor : public query::plan::Cursor {
   const ExpandVariable &self_;
   const std::unique_ptr<query::plan::Cursor> input_cursor_;
 
-  // Depth bounds. Calculated on each pull from the input, the initial value is
-  // irrelevant.
-  int lower_bound_{-1};
-  int upper_bound_{-1};
-
-  // when set to true, expansion is restarted from a new source
-  bool skip_rest_{false};
+  // Depth bounds. Calculated on each pull from the input, the initial value
+  // is irrelevant.
+  int64_t lower_bound_{-1};
+  int64_t upper_bound_{-1};
 
   // maps vertices to the edge they got expanded from. it is an optional
   // edge because the root does not get expanded from anything.
@@ -1178,8 +1394,8 @@ class ExpandBfsCursor : public query::plan::Cursor {
   std::unordered_map<VertexAccessor, std::experimental::optional<EdgeAccessor>>
       processed_;
   // edge/vertex pairs we have yet to visit, for current and next depth
-  std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
-  std::deque<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
+  std::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_current_;
+  std::vector<std::pair<EdgeAccessor, VertexAccessor>> to_visit_next_;
 };
 
 class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
@@ -1195,7 +1411,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     };
 
     // For the given (edge, vertex, weight, depth) tuple checks if they
-    // satisfy the "where" condition. if so, places them in the priority queue.
+    // satisfy the "where" condition. if so, places them in the priority
+    // queue.
     auto expand_pair = [this, &evaluator, &frame, &create_state](
                            EdgeAccessor edge, VertexAccessor vertex,
                            double weight, int depth) {
@@ -1269,7 +1486,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                           "Max depth in weighted shortest path expansion");
           upper_bound_set_ = true;
         } else {
-          upper_bound_ = std::numeric_limits<int>::max();
+          upper_bound_ = std::numeric_limits<int64_t>::max();
           upper_bound_set_ = false;
         }
         if (upper_bound_ < 1)
@@ -1370,7 +1587,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   const std::unique_ptr<query::plan::Cursor> input_cursor_;
 
   // Upper bound on the path length.
-  int upper_bound_{-1};
+  int64_t upper_bound_{-1};
   bool upper_bound_set_{false};
 
   struct WspStateHash {
@@ -1418,12 +1635,20 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
 std::unique_ptr<Cursor> ExpandVariable::MakeCursor(
     database::GraphDbAccessor &db) const {
-  if (type_ == EdgeAtom::Type::BREADTH_FIRST) {
-    return std::make_unique<ExpandBfsCursor>(*this, db);
-  } else if (type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
-    return std::make_unique<ExpandWeightedShortestPathCursor>(*this, db);
-  } else {
-    return std::make_unique<ExpandVariableCursor>(*this, db);
+  switch (type_) {
+    case EdgeAtom::Type::BREADTH_FIRST:
+      if (existing_node_) {
+        return std::make_unique<STShortestPathCursor>(*this, db);
+      } else {
+        return std::make_unique<SingleSourceShortestPathCursor>(*this, db);
+      }
+    case EdgeAtom::Type::DEPTH_FIRST:
+      return std::make_unique<ExpandVariableCursor>(*this, db);
+    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
+      return std::make_unique<ExpandWeightedShortestPathCursor>(*this, db);
+    case EdgeAtom::Type::SINGLE:
+      LOG(FATAL)
+          << "ExpandVariable should not be planned for a single expansion!";
   }
 }
 
@@ -2400,9 +2625,9 @@ Skip::SkipCursor::SkipCursor(const Skip &self, database::GraphDbAccessor &db)
 bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
   while (input_cursor_->Pull(frame, context)) {
     if (to_skip_ == -1) {
-      // First successful pull from the input, evaluate the skip expression. The
-      // skip expression doesn't contain identifiers so graph view parameter is
-      // not important.
+      // First successful pull from the input, evaluate the skip expression.
+      // The skip expression doesn't contain identifiers so graph view
+      // parameter is not important.
       ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)

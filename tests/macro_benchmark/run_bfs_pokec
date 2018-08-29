@@ -20,4 +20,3 @@ mv .harness_summary ${script_dir}/.results/bfs_pokec/memgraph_bfs_2.summary
 
 ./harness LongRunningSuite NeoRunner --groups bfs_pokec --workload without_destination_node
 mv .harness_summary ${script_dir}/.results/bfs_pokec/neo4j_bfs_2.summary
-

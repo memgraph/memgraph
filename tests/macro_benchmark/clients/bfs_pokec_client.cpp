@@ -51,8 +51,9 @@ class BfsPokecClient : public TestClient {
     }
     if (FLAGS_db == "memgraph") {
       auto result = Execute(
-          "MATCH p = (n:User {id: $start})-[*bfs..15]->(m:User {id: $end}) "
-          "RETURN nodes(p) AS path LIMIT 1",
+          "MATCH (n:User {id: $start}), (m:User {id: $end}), "
+          "p = (n)-[*bfs..15]->(m) "
+          "RETURN extract(n in nodes(p) | n.id) AS path",
           {{"start", start}, {"end", end}}, "Bfs");
       CHECK(result) << "Read-only query should not fail!";
     } else if (FLAGS_db == "neo4j") {
@@ -70,7 +71,7 @@ class BfsPokecClient : public TestClient {
     if (FLAGS_db == "memgraph") {
       auto result = Execute(
           "MATCH p = (n:User {id: $start})-[*bfs..15]->(m:User) WHERE m != n "
-          "RETURN nodes(p) AS path",
+          "RETURN extract(n in nodes(p) | n.id) AS path",
           {{"start", start}}, "Bfs");
       CHECK(result) << "Read-only query should not fail!";
     } else {

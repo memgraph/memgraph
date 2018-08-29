@@ -937,7 +937,6 @@ pulled.")
    // it's edges_ and edges_it_ are decltyped using a helper function
    // that should be inaccessible (private class function won't compile)
    friend class ExpandVariableCursor;
-   friend class ExpandBfsCursor;
    friend class ExpandWeightedShortestPathCursor;
 
    ExpandVariable() {}

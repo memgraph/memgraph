@@ -841,7 +841,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
       upper_bound_ = self_.upper_bound()
                          ? EvaluateInt(&evaluator, self_.upper_bound(),
                                        "Max depth in breadth-first expansion")
-                         : std::numeric_limits<int>::max();
+                         : std::numeric_limits<int64_t>::max();
       skip_rest_ = false;
 
       if (upper_bound_ < 1) {
@@ -870,8 +870,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
   // Depth bounds. Calculated on each pull from the input, the initial value
   // is irrelevant.
-  int lower_bound_{-1};
-  int upper_bound_{-1};
+  int64_t lower_bound_{-1};
+  int64_t upper_bound_{-1};
 
   // When set to true, expansion is restarted from a new source.
   bool skip_rest_{false};
