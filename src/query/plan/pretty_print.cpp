@@ -80,6 +80,14 @@ class PlanPrinter final : public DistributedOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(query::plan::DistributedExpandBfs &op) override {
+    WithPrintLn([&](auto &out) {
+      out << "* DistributedExpandBfs";
+      PrintExpand(out, op);
+    });
+    return true;
+  }
+
   bool PreVisit(query::plan::Produce &op) override {
     WithPrintLn([&](auto &out) {
       out << "* Produce {";

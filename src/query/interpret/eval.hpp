@@ -1,3 +1,4 @@
+/// @file
 #pragma once
 
 #include <algorithm>
@@ -553,5 +554,20 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   // which switching approach should be used when evaluating
   const GraphView graph_view_;
 };
+
+/// A helper function for evaluating an expression that's an int.
+///
+/// @param what - Name of what's getting evaluated. Used for user feedback (via
+///               exception) when the evaluated value is not an int.
+/// @throw QueryRuntimeException if expression doesn't evaluate to an int.
+inline int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr,
+                           const std::string &what) {
+  TypedValue value = expr->Accept(*evaluator);
+  try {
+    return value.Value<int64_t>();
+  } catch (TypedValueException &e) {
+    throw QueryRuntimeException(what + " must be an int");
+  }
+}
 
 }  // namespace query

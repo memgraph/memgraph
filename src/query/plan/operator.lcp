@@ -837,7 +837,7 @@ pulled.")
                                           '(single depth-first breadth-first weighted-shortest-path))
          :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
                                           '(single depth-first breadth-first weighted-shortest-path)))
-   (is-reverse :bool :documentation
+   (is-reverse :bool :reader t :documentation
                "True if the path should be written as expanding from node_symbol to input_symbol.")
    (lower-bound "Expression *" :reader t
                 :capnp-type "Ast.Tree" :capnp-init nil
@@ -855,7 +855,7 @@ pulled.")
                   :capnp-load (lcp:capnp-load-optional
                                "capnp::ExpandVariable::Lambda" "Lambda"
                                "[helper](const auto &reader) { Lambda val; val.Load(reader, helper); return val; }"))
-   (total-weight "std::experimental::optional<Symbol>"
+   (total-weight "std::experimental::optional<Symbol>" :reader t
                  :capnp-save (lcp:capnp-save-optional "::query::capnp::Symbol" "Symbol")
                  :capnp-load (lcp:capnp-load-optional "::query::capnp::Symbol" "Symbol")))
   (:documentation
@@ -936,14 +936,13 @@ pulled.")
    // the Cursors are not declared in the header because
    // it's edges_ and edges_it_ are decltyped using a helper function
    // that should be inaccessible (private class function won't compile)
-   friend class DistributedExpandBfsCursor;
    friend class ExpandVariableCursor;
    friend class ExpandBfsCursor;
    friend class ExpandWeightedShortestPathCursor;
 
    ExpandVariable() {}
    cpp<#)
-   (:serialize :capnp :inherit-compose '(expand-common)))
+  (:serialize :capnp :inherit-compose '(expand-common)))
 
 (lcp:define-class construct-named-path (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>"

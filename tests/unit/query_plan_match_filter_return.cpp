@@ -17,6 +17,7 @@
 #include "distributed/updates_rpc_server.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
+#include "query/plan/distributed_ops.hpp"
 #include "query/plan/operator.hpp"
 
 #include "distributed_common.hpp"
@@ -924,13 +925,21 @@ class QueryPlanExpandBfs
     auto node_sym = symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
 
-    last_op = std::make_shared<ExpandVariable>(
-        node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
-        std::vector<storage::EdgeType>{}, false, LITERAL(min_depth),
-        LITERAL(max_depth), last_op, source_sym,
-        static_cast<bool>(existing_node),
-        ExpandVariable::Lambda{inner_edge, inner_node, where},
-        std::experimental::nullopt, std::experimental::nullopt, graph_view);
+    if (GetParam().first == TestType::DISTRIBUTED) {
+      last_op = std::make_shared<DistributedExpandBfs>(
+          node_sym, edge_list_sym, direction, std::vector<storage::EdgeType>{},
+          last_op, source_sym, !!existing_node, graph_view, LITERAL(min_depth),
+          LITERAL(max_depth),
+          ExpandVariable::Lambda{inner_edge, inner_node, where});
+    } else {
+      last_op = std::make_shared<ExpandVariable>(
+          node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
+          std::vector<storage::EdgeType>{}, false, LITERAL(min_depth),
+          LITERAL(max_depth), last_op, source_sym,
+          static_cast<bool>(existing_node),
+          ExpandVariable::Lambda{inner_edge, inner_node, where},
+          std::experimental::nullopt, std::experimental::nullopt, graph_view);
+    }
 
     Frame frame(symbol_table.max_position());
 
@@ -2394,8 +2403,7 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
   };
 
   // Make sure there are `vertex_count` results when using scan all
-  auto count_with_scan_all = [&db, &label, &prop](int prop_value,
-                                                  int prop_count) {
+  auto count_with_scan_all = [&db, &prop](int prop_value, int prop_count) {
     AstStorage storage;
     SymbolTable symbol_table;
     auto dba_ptr = db.Access();

@@ -15,9 +15,11 @@ cpp<#
 class PullRemote;
 class Synchronize;
 class PullRemoteOrderBy;
+class DistributedExpandBfs;
 
 using DistributedOperatorCompositeVisitor =
-    ::utils::CompositeVisitor<PullRemote, Synchronize, PullRemoteOrderBy>;
+    ::utils::CompositeVisitor<PullRemote, Synchronize, PullRemoteOrderBy,
+                              DistributedExpandBfs>;
 
 /// Base class for visiting regular and distributed LogicalOperator instances.
 class DistributedOperatorVisitor : public HierarchicalLogicalOperatorVisitor,
@@ -168,6 +170,46 @@ by having only one result from each worker.")
   cpp<#)
   (:private #>cpp PullRemoteOrderBy() {} cpp<#)
   (:serialize :capnp))
+
+(lcp:define-class distributed-expand-bfs (logical-operator expand-common)
+  ((lower-bound "Expression *" :reader t
+                :documentation "Optional lower bound, default is 1"
+                :capnp-type "Ast.Tree" :capnp-init nil
+                :capnp-save #'save-ast-pointer
+                :capnp-load (load-ast-pointer "Expression *"))
+   (upper-bound "Expression *" :reader t
+                :documentation "Optional upper bound, default is infinity"
+                :capnp-type "Ast.Tree" :capnp-init nil
+                :capnp-save #'save-ast-pointer
+                :capnp-load (load-ast-pointer "Expression *"))
+   (filter-lambda "ExpandVariable::Lambda" :reader t
+                  :documentation "Filter that must be satisfied for expansion to succeed."
+                  :capnp-type "ExpandVariable.Lambda"))
+  (:documentation "BFS expansion operator suited for distributed execution.")
+  (:public
+   #>cpp
+   DistributedExpandBfs(Symbol node_symbol, Symbol edge_symbol,
+                        EdgeAtom::Direction direction,
+                        const std::vector<storage::EdgeType> &edge_types,
+                        const std::shared_ptr<LogicalOperator> &input,
+                        Symbol input_symbol, bool existing_node,
+                        GraphView graph_view, Expression *lower_bound,
+                        Expression *upper_bound,
+                        const ExpandVariable::Lambda &filter_lambda);
+
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:private #>cpp DistributedExpandBfs() {} cpp<#)
+  (:serialize :capnp :inherit-compose '(expand-common)))
 
 (lcp:pop-namespace)
 (lcp:pop-namespace)

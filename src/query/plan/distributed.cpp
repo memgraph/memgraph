@@ -338,6 +338,49 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(DistributedExpandBfs &exp) override {
+    prev_ops_.push_back(&exp);
+    return true;
+  }
+  bool PostVisit(DistributedExpandBfs &exp) override {
+    prev_ops_.pop_back();
+    if (branch_.subtree) return true;
+    if (auto found = FindForbidden(exp.input_symbol())) {
+      SetBranch(exp.input(), &exp, *found);
+    }
+    if (exp.existing_node()) {
+      if (auto found = FindForbidden(exp.node_symbol())) {
+        SetBranch(exp.input(), &exp, *found);
+      }
+    }
+    CHECK(!FindForbidden(exp.edge_symbol()))
+        << "Expand uses an already used edge symbol.";
+    // Check for bounding expressions.
+    if (exp.lower_bound()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      exp.lower_bound()->Accept(collector);
+      if (auto found = ContainsForbidden(collector.symbols_)) {
+        SetBranch(exp.input(), &exp, *found);
+      }
+    }
+    if (exp.upper_bound()) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      exp.upper_bound()->Accept(collector);
+      if (auto found = ContainsForbidden(collector.symbols_)) {
+        SetBranch(exp.input(), &exp, *found);
+      }
+    }
+    // Check for lambda expressions
+    if (exp.filter_lambda().expression) {
+      UsedSymbolsCollector collector(*symbol_table_);
+      exp.filter_lambda().expression->Accept(collector);
+      if (auto found = ContainsForbidden(collector.symbols_)) {
+        SetBranch(exp.input(), &exp, *found);
+      }
+    }
+    return true;
+  }
+
   bool PreVisit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -933,6 +976,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ExpandVariable &exp) override {
     prev_ops_.push_back(&exp);
+    return true;
+  }
+  bool PostVisit(ExpandVariable &exp) override {
+    prev_ops_.pop_back();
+    if (exp.type() == EdgeAtom::Type::BREADTH_FIRST) {
+      auto distributed_bfs = std::make_unique<DistributedExpandBfs>(
+          exp.node_symbol(), exp.edge_symbol(), exp.direction(),
+          exp.edge_types(), exp.input(), exp.input_symbol(),
+          exp.existing_node(), exp.graph_view(), exp.lower_bound(),
+          exp.upper_bound(), exp.filter_lambda());
+      SetOnPrevious(std::move(distributed_bfs));
+    }
     return true;
   }
 

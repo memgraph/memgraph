@@ -104,13 +104,37 @@ std::vector<Symbol> PullRemoteOrderBy::ModifiedSymbols(
   return input_->ModifiedSymbols(table);
 }
 
+DistributedExpandBfs::DistributedExpandBfs(
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+    const std::vector<storage::EdgeType> &edge_types,
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    bool existing_node, GraphView graph_view, Expression *lower_bound,
+    Expression *upper_bound, const ExpandVariable::Lambda &filter_lambda)
+    : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
+                   input_symbol, existing_node, graph_view),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound),
+      filter_lambda_(filter_lambda) {}
+
+ACCEPT_WITH_INPUT(DistributedExpandBfs);
+
+std::vector<Symbol> DistributedExpandBfs::ModifiedSymbols(
+    const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(node_symbol());
+  symbols.emplace_back(edge_symbol());
+  return symbols;
+}
+
+//////////////////////////////////////////////////////////////////////
+// Cursors
+//////////////////////////////////////////////////////////////////////
+
 namespace {
 
-/** Helper class that wraps remote pulling for cursors that handle results from
- * distributed workers.
- *
- * The command_id should be the command_id at the initialization of a cursor.
- */
+// Helper class that wraps remote pulling for cursors that handle results from
+// distributed workers. The command_id should be the command_id at the
+// initialization of a cursor.
 class RemotePuller {
  public:
   RemotePuller(distributed::PullRpcClients *pull_clients,
@@ -686,6 +710,183 @@ class PullRemoteOrderByCursor : public Cursor {
   bool merge_initialized_ = false;
 };
 
+class DistributedExpandBfsCursor : public query::plan::Cursor {
+ public:
+  DistributedExpandBfsCursor(const DistributedExpandBfs &self,
+                             database::GraphDbAccessor &db)
+      : self_(self), db_(db), input_cursor_(self_.input()->MakeCursor(db)) {
+    // TODO: Pass in a DistributedGraphDb.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&db.db())) {
+      bfs_subcursor_clients_ = &distributed_db->bfs_subcursor_clients();
+    }
+    CHECK(bfs_subcursor_clients_);
+    subcursor_ids_ = bfs_subcursor_clients_->CreateBfsSubcursors(
+        db_.transaction_id(), self_.direction(), self_.edge_types(),
+        self_.graph_view());
+    bfs_subcursor_clients_->RegisterSubcursors(subcursor_ids_);
+    VLOG(10) << "BFS subcursors initialized";
+    pull_pos_ = subcursor_ids_.end();
+  }
+
+  ~DistributedExpandBfsCursor() {
+    VLOG(10) << "Removing BFS subcursors";
+    bfs_subcursor_clients_->RemoveBfsSubcursors(subcursor_ids_);
+  }
+
+  bool Pull(Frame &frame, Context &context) override {
+    // TODO(mtomic): lambda filtering in distributed
+    if (self_.filter_lambda().expression) {
+      throw utils::NotYetImplemented("lambda filtering in distributed BFS");
+    }
+
+    // Evaluator for the filtering condition and expansion depth.
+    ExpressionEvaluator evaluator(frame, &context, self_.graph_view());
+
+    while (true) {
+      TypedValue last_vertex;
+
+      if (!skip_rest_) {
+        if (current_depth_ >= lower_bound_) {
+          for (; pull_pos_ != subcursor_ids_.end(); ++pull_pos_) {
+            auto vertex = bfs_subcursor_clients_->Pull(pull_pos_->first,
+                                                       pull_pos_->second, &db_);
+            if (vertex) {
+              last_vertex = *vertex;
+              SwitchAccessor(last_vertex.ValueVertex(), self_.graph_view());
+              break;
+            }
+            VLOG(10) << "Nothing to pull from " << pull_pos_->first;
+          }
+        }
+
+        if (last_vertex.IsVertex()) {
+          // Handle existence flag
+          if (self_.existing_node()) {
+            TypedValue &node = frame[self_.node_symbol()];
+            // Due to optional matching the existing node could be null
+            if (node.IsNull() || (node != last_vertex).ValueBool()) continue;
+            // There is no point in traversing the rest of the graph because BFS
+            // can find only one path to a certain node.
+            skip_rest_ = true;
+          } else {
+            frame[self_.node_symbol()] = last_vertex;
+          }
+
+          VLOG(10) << "Expanded to vertex: " << last_vertex;
+
+          // Reconstruct path
+          std::vector<TypedValue> edges;
+
+          // During path reconstruction, edges crossing worker boundary are
+          // obtained from edge owner to reduce network traffic. If the last
+          // worker queried for its path segment owned the crossing edge,
+          // `current_vertex_addr` will be set. Otherwise, `current_edge_addr`
+          // will be set.
+          std::experimental::optional<storage::VertexAddress>
+              current_vertex_addr = last_vertex.ValueVertex().GlobalAddress();
+          std::experimental::optional<storage::EdgeAddress> current_edge_addr;
+
+          while (true) {
+            DCHECK(static_cast<bool>(current_edge_addr) ^
+                   static_cast<bool>(current_vertex_addr))
+                << "Exactly one of `current_edge_addr` or "
+                   "`current_vertex_addr` "
+                   "should be set during path reconstruction";
+            auto ret = current_edge_addr
+                           ? bfs_subcursor_clients_->ReconstructPath(
+                                 subcursor_ids_, *current_edge_addr, &db_)
+                           : bfs_subcursor_clients_->ReconstructPath(
+                                 subcursor_ids_, *current_vertex_addr, &db_);
+            edges.insert(edges.end(), ret.edges.begin(), ret.edges.end());
+            current_vertex_addr = ret.next_vertex;
+            current_edge_addr = ret.next_edge;
+            if (!current_vertex_addr && !current_edge_addr) break;
+          }
+          std::reverse(edges.begin(), edges.end());
+          for (auto &edge : edges)
+            SwitchAccessor(edge.ValueEdge(), self_.graph_view());
+          frame[self_.edge_symbol()] = std::move(edges);
+          return true;
+        }
+
+        // We're done pulling for this level
+        pull_pos_ = subcursor_ids_.begin();
+
+        // Try to expand again
+        if (current_depth_ < upper_bound_) {
+          VLOG(10) << "Trying to expand again...";
+          current_depth_++;
+          bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, false);
+          if (bfs_subcursor_clients_->ExpandLevel(subcursor_ids_)) {
+            continue;
+          }
+        }
+      }
+
+      VLOG(10) << "Trying to get a new source...";
+      // We're done with this source, try getting a new one
+      if (!input_cursor_->Pull(frame, context)) return false;
+
+      auto vertex_value = frame[self_.input_symbol()];
+
+      // It is possible that the vertex is Null due to optional matching.
+      if (vertex_value.IsNull()) continue;
+
+      auto vertex = vertex_value.ValueVertex();
+      lower_bound_ = self_.lower_bound()
+                         ? EvaluateInt(&evaluator, self_.lower_bound(),
+                                       "Min depth in breadth-first expansion")
+                         : 1;
+      upper_bound_ = self_.upper_bound()
+                         ? EvaluateInt(&evaluator, self_.upper_bound(),
+                                       "Max depth in breadth-first expansion")
+                         : std::numeric_limits<int>::max();
+      skip_rest_ = false;
+
+      if (upper_bound_ < 1) {
+        throw QueryRuntimeException(
+            "Max depth in breadth-first expansion must be at least 1");
+      }
+
+      VLOG(10) << "Starting BFS from " << vertex << " with limits "
+               << lower_bound_ << ".." << upper_bound_;
+      bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, true);
+      bfs_subcursor_clients_->SetSource(subcursor_ids_, vertex.GlobalAddress());
+      current_depth_ = 1;
+    }
+  }
+
+  void Reset() override {
+    bfs_subcursor_clients_->ResetSubcursors(subcursor_ids_);
+    pull_pos_ = subcursor_ids_.end();
+  }
+
+ private:
+  const DistributedExpandBfs &self_;
+  database::GraphDbAccessor &db_;
+  distributed::BfsRpcClients *bfs_subcursor_clients_{nullptr};
+  const std::unique_ptr<query::plan::Cursor> input_cursor_;
+
+  // Depth bounds. Calculated on each pull from the input, the initial value
+  // is irrelevant.
+  int lower_bound_{-1};
+  int upper_bound_{-1};
+
+  // When set to true, expansion is restarted from a new source.
+  bool skip_rest_{false};
+
+  // Current depth. Reset for each new expansion, the initial value is
+  // irrelevant.
+  int current_depth_{-1};
+
+  // Map from worker IDs to their corresponding subcursors.
+  std::unordered_map<int16_t, int64_t> subcursor_ids_;
+
+  // Next worker master should try pulling from.
+  std::unordered_map<int16_t, int64_t>::iterator pull_pos_;
+};
+
 }  // namespace
 
 std::unique_ptr<Cursor> PullRemote::MakeCursor(
@@ -701,6 +902,11 @@ std::unique_ptr<Cursor> Synchronize::MakeCursor(
 std::unique_ptr<Cursor> PullRemoteOrderBy::MakeCursor(
     database::GraphDbAccessor &db) const {
   return std::make_unique<PullRemoteOrderByCursor>(*this, db);
+}
+
+std::unique_ptr<Cursor> DistributedExpandBfs::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<DistributedExpandBfsCursor>(*this, db);
 }
 
 }  // namespace query::plan

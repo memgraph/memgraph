@@ -131,6 +131,7 @@ class PlanChecker : public DistributedOperatorVisitor {
   }
 
   PRE_VISIT(PullRemoteOrderBy);
+  PRE_VISIT(DistributedExpandBfs);
 
   VISIT(AuthHandler);
 
@@ -192,6 +193,7 @@ using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
 using ExpectShowStreams = OpChecker<ShowStreams>;
+using ExpectDistributedExpandBfs = OpChecker<DistributedExpandBfs>;
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
  public:
@@ -2241,9 +2243,24 @@ TYPED_TEST(TestPlanner, MatchBfs) {
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = IDENT("n");
   bfs->upper_bound_ = LITERAL(10);
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
-  CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectExpandBfs(),
-                       ExpectProduce());
+  auto *as_r = NEXPR("r", IDENT("r"));
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN(as_r)));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  {
+    FakeDbAccessor dba;
+    auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpandBfs(),
+              ExpectProduce());
+  }
+  {
+    ExpectPullRemote pull({symbol_table.at(*as_r)});
+    auto expected = ExpectDistributed(
+        MakeCheckers(ExpectScanAll(), ExpectDistributedExpandBfs(),
+                     ExpectProduce(), pull),
+        MakeCheckers(ExpectScanAll(), ExpectDistributedExpandBfs(),
+                     ExpectProduce()));
+    CheckDistributedPlan<TypeParam>(storage, expected);
+  }
 }
 
 TYPED_TEST(TestPlanner, MatchDoubleScanToExpandExisting) {
