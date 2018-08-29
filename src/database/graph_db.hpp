@@ -1,3 +1,4 @@
+/// @file
 #pragma once
 
 #include <atomic>
@@ -48,7 +49,7 @@ struct Config {
 
 class GraphDbAccessor;
 
-/// An abstract base class for a SingleNode/Master/Worker graph db.
+/// An abstract base class providing the interface for a graph database.
 ///
 /// Always be sure that GraphDb object is destructed before main exits, i. e.
 /// GraphDb object shouldn't be part of global/static variable, except if its
@@ -71,8 +72,6 @@ class GraphDbAccessor;
 /// -> CRASH
 class GraphDb {
  public:
-  enum class Type { SINGLE_NODE, DISTRIBUTED_MASTER, DISTRIBUTED_WORKER };
-
   GraphDb() {}
   GraphDb(const GraphDb &) = delete;
   GraphDb(GraphDb &&) = delete;
@@ -80,8 +79,6 @@ class GraphDb {
   GraphDb &operator=(GraphDb &&) = delete;
 
   virtual ~GraphDb() {}
-
-  virtual Type type() const = 0;
 
   /// Create a new accessor by starting a new transaction.
   virtual std::unique_ptr<GraphDbAccessor> Access() = 0;
@@ -122,8 +119,6 @@ class SingleNode final : public GraphDb {
  public:
   explicit SingleNode(Config config = Config());
   ~SingleNode();
-
-  Type type() const override { return GraphDb::Type::SINGLE_NODE; }
 
   std::unique_ptr<GraphDbAccessor> Access() override;
   std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;

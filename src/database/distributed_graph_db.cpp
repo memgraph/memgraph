@@ -437,10 +437,10 @@ class WorkerAccessor final : public DistributedAccessor {
 // RecoveryTransactions implementations
 //////////////////////////////////////////////////////////////////////
 
-class DistributedRecoveryTransanctions
+class DistributedRecoveryTransactions
     : public durability::RecoveryTransactions {
  public:
-  explicit DistributedRecoveryTransanctions(DistributedGraphDb *db) : db_(db) {}
+  explicit DistributedRecoveryTransactions(DistributedGraphDb *db) : db_(db) {}
 
   void Begin(const tx::TransactionId &tx_id) override {
     CHECK(accessors_.find(tx_id) == accessors_.end())
@@ -463,30 +463,34 @@ class DistributedRecoveryTransanctions
   }
 
  protected:
-  virtual GraphDbAccessor *GetAccessor(const tx::TransactionId &tx_id) {
-    auto found = accessors_.find(tx_id);
-    // Currently accessors are created on transaction_begin, but since workers
-    // don't have a transaction begin, the accessors are not created.
-    if (db_->type() == database::GraphDb::Type::DISTRIBUTED_WORKER &&
-        found == accessors_.end()) {
-      std::tie(found, std::ignore) = accessors_.emplace(tx_id, db_->Access());
-    }
-
-    CHECK(found != accessors_.end())
-        << "Accessor does not exist for transaction: " << tx_id;
-    return found->second.get();
-  }
+  virtual GraphDbAccessor *GetAccessor(const tx::TransactionId &tx_id) = 0;
 
   DistributedGraphDb *db_;
   std::unordered_map<tx::TransactionId, std::unique_ptr<GraphDbAccessor>>
       accessors_;
 };
 
+class MasterRecoveryTransactions final
+    : public DistributedRecoveryTransactions {
+ public:
+  explicit MasterRecoveryTransactions(Master *db)
+      : DistributedRecoveryTransactions(db) {}
+
+ protected:
+  virtual GraphDbAccessor *GetAccessor(
+      const tx::TransactionId &tx_id) override {
+    auto found = accessors_.find(tx_id);
+    CHECK(found != accessors_.end())
+        << "Accessor does not exist for transaction: " << tx_id;
+    return found->second.get();
+  }
+};
+
 class WorkerRecoveryTransactions final
-    : public DistributedRecoveryTransanctions {
+    : public DistributedRecoveryTransactions {
  public:
   explicit WorkerRecoveryTransactions(Worker *db)
-      : DistributedRecoveryTransanctions(db) {}
+      : DistributedRecoveryTransactions(db) {}
 
   void Begin(const tx::TransactionId &tx_id) override {
     LOG(FATAL) << "Unexpected transaction begin on worker recovery.";
@@ -628,7 +632,7 @@ Master::Master(Config config)
       // workers and on master
       recovery_data.wal_tx_to_recover =
           impl_->coordination_.CommonWalTransactions(*recovery_info);
-      DistributedRecoveryTransanctions recovery_transactions(this);
+      MasterRecoveryTransactions recovery_transactions(this);
       durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
                                        this, &recovery_data,
                                        &recovery_transactions);

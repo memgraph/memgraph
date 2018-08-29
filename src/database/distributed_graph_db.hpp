@@ -45,10 +45,6 @@ class Master final : public DistributedGraphDb {
   explicit Master(Config config = Config());
   ~Master();
 
-  GraphDb::Type type() const override {
-    return GraphDb::Type::DISTRIBUTED_MASTER;
-  }
-
   std::unique_ptr<GraphDbAccessor> Access() override;
   std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;
 
@@ -92,10 +88,6 @@ class Worker final : public DistributedGraphDb {
  public:
   explicit Worker(Config config = Config());
   ~Worker();
-
-  GraphDb::Type type() const override {
-    return GraphDb::Type::DISTRIBUTED_WORKER;
-  }
 
   std::unique_ptr<GraphDbAccessor> Access() override;
   std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;
