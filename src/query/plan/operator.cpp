@@ -93,7 +93,8 @@ bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
   if (result.IsNull()) return false;
   if (result.type() != TypedValue::Type::Bool)
     throw QueryRuntimeException(
-        "Filter expression must be a bool or null, but got {}.", result.type());
+        "Filter expression must evaluate to bool or null, got {}.",
+        result.type());
   return result.Value<bool>();
 }
 
@@ -885,7 +886,7 @@ class ExpandVariableCursor : public Cursor {
         auto value = EvaluateInt(&evaluator, bound, "Variable expansion bound");
         if (value < 0)
           throw QueryRuntimeException(
-              "Variable expansion bound must be positive or zero");
+              "Variable expansion bound must be a non-negative integer.");
         return value;
       };
 
@@ -1281,7 +1282,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
             break;
           default:
             throw QueryRuntimeException(
-                "Expansion condition must be boolean or null");
+                "Expansion condition must evaluate to boolean or null.");
         }
       }
       to_visit_next_.emplace_back(edge, vertex);
@@ -1331,8 +1332,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
                            : std::numeric_limits<int64_t>::max();
         if (upper_bound_ < 1)
           throw QueryRuntimeException(
-              "Max depth in breadth-first expansion must be greater then "
-              "zero");
+              "Maximum depth in breadth-first expansion must be at least 1.");
 
         // go back to loop start and see if we expanded anything
         continue;
@@ -1433,11 +1433,11 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           self_.weight_lambda_->expression->Accept(evaluator);
 
       if (!typed_weight.IsNumeric()) {
-        throw QueryRuntimeException("Calculated weight must be numeric, got {}",
-                                    typed_weight.type());
+        throw QueryRuntimeException(
+            "Calculated weight must be numeric, got {}.", typed_weight.type());
       }
       if ((typed_weight < 0).Value<bool>()) {
-        throw QueryRuntimeException("Calculated weight can't be negative!");
+        throw QueryRuntimeException("Calculated weight must be non-negative!");
       }
 
       auto next_state = create_state(vertex, depth);
@@ -1491,8 +1491,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         }
         if (upper_bound_ < 1)
           throw QueryRuntimeException(
-              "Max depth in weighted shortest path expansion must be greater "
-              "than zero");
+              "Maximum depth in weighted shortest path expansion must be at "
+              "least 1.");
 
         // Clear existing data structures.
         previous_.clear();
@@ -1880,7 +1880,7 @@ bool Delete::DeleteCursor::Pull(Frame &frame, Context &context) {
         break;
       // check we're not trying to delete anything except vertices and edges
       default:
-        throw QueryRuntimeException("Can only delete edges and vertices");
+        throw QueryRuntimeException("Only edges and vertices can be deleted.");
     }
 
   return true;
@@ -1935,7 +1935,7 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
     // TODO: fix above described bug
     default:
       throw QueryRuntimeException(
-          "Properties can only be set on Vertices and Edges");
+          "Properties can only be set on edges and vertices.");
   }
   return true;
 }
@@ -1983,7 +1983,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, Context &context) {
       break;
     default:
       throw QueryRuntimeException(
-          "Properties can only be set on Vertices and Edges");
+          "Properties can only be set on edges and vertices.");
   }
   return true;
 }
@@ -2026,7 +2026,8 @@ void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
     }
     default:
       throw QueryRuntimeException(
-          "Can only set Vertices, Edges and maps as properties");
+          "Right-hand side in SET expression must be a node, an edge or a "
+          "map.");
   }
 }
 
@@ -2069,7 +2070,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, Context &context) {
   try {
     for (auto label : self_.labels_) vertex.add_label(label);
   } catch (const RecordDeletedError &) {
-    throw QueryRuntimeException("Trying to set labels on a deleted Vertex");
+    throw QueryRuntimeException("Trying to set labels on a deleted node.");
   }
 
   return true;
@@ -2111,7 +2112,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
         lhs.Value<VertexAccessor>().PropsErase(self_.lhs_->property_);
       } catch (const RecordDeletedError &) {
         throw QueryRuntimeException(
-            "Trying to remove properties from a deleted Vertex");
+            "Trying to remove properties from a deleted node.");
       }
       break;
     case TypedValue::Type::Edge:
@@ -2119,7 +2120,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
         lhs.Value<EdgeAccessor>().PropsErase(self_.lhs_->property_);
       } catch (const RecordDeletedError &) {
         throw QueryRuntimeException(
-            "Trying to remove properties from a deleted Edge");
+            "Trying to remove properties from a deleted edge.");
       }
       break;
     case TypedValue::Type::Null:
@@ -2127,7 +2128,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
       break;
     default:
       throw QueryRuntimeException(
-          "Properties can only be removed on Vertices and Edges");
+          "Properties can only be removed from vertices and edges.");
   }
   return true;
 }
@@ -2168,7 +2169,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, Context &context) {
     for (auto label : self_.labels_) vertex.remove_label(label);
   } catch (const RecordDeletedError &) {
     throw QueryRuntimeException(
-        "Trying to remove labels from a deleted Vertex");
+        "Trying to remove labels from a deleted node.");
   }
 
   return true;
@@ -2497,7 +2498,7 @@ void Aggregate::AggregateCursor::Update(
         case Aggregation::Op::COLLECT_MAP:
           auto key = agg_elem_it->key->Accept(evaluator);
           if (key.type() != TypedValue::Type::String)
-            throw QueryRuntimeException("Map key must be a string");
+            throw QueryRuntimeException("Map key must be a string.");
           value_it->Value<std::map<std::string, TypedValue>>().emplace(
               key.Value<std::string>(), input_value);
           break;
@@ -2519,7 +2520,7 @@ void Aggregate::AggregateCursor::Update(
           // safe to assume a bool TypedValue
           if (comparison_result.Value<bool>()) *value_it = input_value;
         } catch (const TypedValueException &) {
-          throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'",
+          throw QueryRuntimeException("Unable to get MIN of '{}' and '{}'.",
                                       input_value.type(), value_it->type());
         }
         break;
@@ -2531,7 +2532,7 @@ void Aggregate::AggregateCursor::Update(
           TypedValue comparison_result = input_value > *value_it;
           if (comparison_result.Value<bool>()) *value_it = input_value;
         } catch (const TypedValueException &) {
-          throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'",
+          throw QueryRuntimeException("Unable to get MAX of '{}' and '{}'.",
                                       input_value.type(), value_it->type());
         }
         break;
@@ -2549,7 +2550,7 @@ void Aggregate::AggregateCursor::Update(
       case Aggregation::Op::COLLECT_MAP:
         auto key = agg_elem_it->key->Accept(evaluator);
         if (key.type() != TypedValue::Type::String)
-          throw QueryRuntimeException("Map key must be a string");
+          throw QueryRuntimeException("Map key must be a string.");
         value_it->Value<std::map<std::string, TypedValue>>().emplace(
             key.Value<std::string>(), input_value);
         break;
@@ -2574,8 +2575,8 @@ void Aggregate::AggregateCursor::EnsureOkForMinMax(
       return;
     default:
       throw QueryRuntimeException(
-          "Only Bool, Int, Double and String values are allowed in "
-          "MIN and MAX aggregations");
+          "Only boolean, numeric and string values are allowed in "
+          "MIN and MAX aggregations.");
   }
 }
 void Aggregate::AggregateCursor::EnsureOkForAvgSum(
@@ -2586,7 +2587,7 @@ void Aggregate::AggregateCursor::EnsureOkForAvgSum(
       return;
     default:
       throw QueryRuntimeException(
-          "Only numeric values allowed in SUM and AVG aggregations");
+          "Only numeric values allowed in SUM and AVG aggregations.");
   }
 }
 
@@ -2631,12 +2632,13 @@ bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
       ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
-        throw QueryRuntimeException("Result of SKIP expression must be an int");
+        throw QueryRuntimeException(
+            "Number of elements to skip must be an integer.");
 
       to_skip_ = to_skip.Value<int64_t>();
       if (to_skip_ < 0)
         throw QueryRuntimeException(
-            "Result of SKIP expression must be greater or equal to zero");
+            "Number of elements to skip must be non-negative.");
     }
 
     if (skipped_++ < to_skip_) continue;
@@ -2686,12 +2688,13 @@ bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
     ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
-      throw QueryRuntimeException("Result of LIMIT expression must be an int");
+      throw QueryRuntimeException(
+          "Limit on number of returned elements must be an integer.");
 
     limit_ = limit.Value<int64_t>();
     if (limit_ < 0)
       throw QueryRuntimeException(
-          "Result of LIMIT expression must be greater or equal to zero");
+          "Limit on number of returned elements must be non-negative.");
   }
 
   // check we have not exceeded the limit before pulling
@@ -2976,8 +2979,9 @@ bool Unwind::UnwindCursor::Pull(Frame &frame, Context &context) {
     ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
     TypedValue input_value = self_.input_expression_->Accept(evaluator);
     if (input_value.type() != TypedValue::Type::List)
-      throw QueryRuntimeException("UNWIND only accepts list values, got '{}'",
-                                  input_value.type());
+      throw QueryRuntimeException(
+          "Argument of UNWIND must be a list, but '{}' was provided.",
+          input_value.type());
     input_value_ = input_value.Value<std::vector<TypedValue>>();
     input_value_it_ = input_value_.begin();
   }
@@ -3377,7 +3381,8 @@ class AuthHandlerCursor : public Cursor {
       auto password_tv = self_.password()->Accept(evaluator);
       if (!password_tv.IsString() && !password_tv.IsNull()) {
         throw QueryRuntimeException(
-            "Password must be a string or null, not '{}'!", password_tv.type());
+            "Expected string or null for password, got {}.",
+            password_tv.type());
       }
       if (password_tv.IsString()) {
         password = password_tv.ValueString();
@@ -3391,7 +3396,7 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.AddUser(self_.user(), password);
         if (!user) {
-          throw QueryRuntimeException("User or role '{}' already exists!",
+          throw QueryRuntimeException("User or role '{}' already exists.",
                                       self_.user());
         }
         return false;
@@ -3401,10 +3406,10 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
         }
         if (!auth.RemoveUser(self_.user())) {
-          throw QueryRuntimeException("Couldn't remove user '{}'!",
+          throw QueryRuntimeException("Couldn't remove user '{}'.",
                                       self_.user());
         }
         return false;
@@ -3414,7 +3419,7 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
         }
         user->UpdatePassword(password);
         auth.SaveUser(*user);
@@ -3425,7 +3430,7 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto role = auth.AddRole(self_.role());
         if (!role) {
-          throw QueryRuntimeException("User or role '{}' already exists!",
+          throw QueryRuntimeException("User or role '{}' already exists.",
                                       self_.role());
         }
         return false;
@@ -3435,10 +3440,10 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto role = auth.GetRole(self_.role());
         if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist!", self_.role());
+          throw QueryRuntimeException("Role '{}' doesn't exist.", self_.role());
         }
         if (!auth.RemoveRole(self_.role())) {
-          throw QueryRuntimeException("Couldn't remove role '{}'!",
+          throw QueryRuntimeException("Couldn't remove role '{}'.",
                                       self_.role());
         }
         return false;
@@ -3478,15 +3483,15 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
         }
         auto role = auth.GetRole(self_.role());
         if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist!", self_.role());
+          throw QueryRuntimeException("Role '{}' doesn't exist.", self_.role());
         }
         if (user->role()) {
           throw QueryRuntimeException(
-              "User '{}' is already a member of role '{}'!", self_.user(),
+              "User '{}' is already a member of role '{}'.", self_.user(),
               user->role()->rolename());
         }
         user->SetRole(*role);
@@ -3498,7 +3503,7 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
         }
         user->ClearRole();
         auth.SaveUser(*user);
@@ -3512,7 +3517,7 @@ class AuthHandlerCursor : public Cursor {
         auto user = auth.GetUser(self_.user_or_role());
         auto role = auth.GetRole(self_.user_or_role());
         if (!user && !role) {
-          throw QueryRuntimeException("User or role '{}' doesn't exist!",
+          throw QueryRuntimeException("User or role '{}' doesn't exist.",
                                       self_.user_or_role());
         }
         auto permissions = GetAuthPermissions();
@@ -3554,7 +3559,7 @@ class AuthHandlerCursor : public Cursor {
           auto user = auth.GetUser(self_.user_or_role());
           auto role = auth.GetRole(self_.user_or_role());
           if (!user && !role) {
-            throw QueryRuntimeException("User or role '{}' doesn't exist!",
+            throw QueryRuntimeException("User or role '{}' doesn't exist.",
                                         self_.user_or_role());
           }
           if (user) {
@@ -3580,7 +3585,7 @@ class AuthHandlerCursor : public Cursor {
         std::lock_guard<std::mutex> lock(auth.WithLock());
         auto user = auth.GetUser(self_.user());
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist!", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
         }
         if (user->role()) {
           frame[self_.role_symbol()] = user->role()->rolename();
@@ -3596,7 +3601,7 @@ class AuthHandlerCursor : public Cursor {
           std::lock_guard<std::mutex> lock(auth.WithLock());
           auto role = auth.GetRole(self_.role());
           if (!role) {
-            throw QueryRuntimeException("Role '{}' doesn't exist!",
+            throw QueryRuntimeException("Role '{}' doesn't exist.",
                                         self_.role());
           }
           users_.emplace(auth.AllUsersForRole(self_.role()));

@@ -34,7 +34,7 @@ namespace {
 
 TypedValue Coalesce(const std::vector<TypedValue> &args, Context *) {
   if (args.size() == 0U) {
-    throw QueryRuntimeException("coalesce requires at least one argument");
+    throw QueryRuntimeException("'coalesce' requires at least one argument.");
   }
   for (auto &arg : args) {
     if (arg.type() != TypedValue::Type::Null) {
@@ -46,7 +46,7 @@ TypedValue Coalesce(const std::vector<TypedValue> &args, Context *) {
 
 TypedValue EndNode(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("endNode requires one argument");
+    throw QueryRuntimeException("'endNode' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -54,13 +54,13 @@ TypedValue EndNode(const std::vector<TypedValue> &args, Context *) {
     case TypedValue::Type::Edge:
       return args[0].Value<EdgeAccessor>().to();
     default:
-      throw QueryRuntimeException("endNode argument should be an edge");
+      throw QueryRuntimeException("'endNode' argument must be an edge.");
   }
 }
 
 TypedValue Head(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("head requires one argument");
+    throw QueryRuntimeException("'head' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -71,13 +71,13 @@ TypedValue Head(const std::vector<TypedValue> &args, Context *) {
       return list[0];
     }
     default:
-      throw QueryRuntimeException("head argument should be a list");
+      throw QueryRuntimeException("'head' argument must be a list.");
   }
 }
 
 TypedValue Last(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("last requires one argument");
+    throw QueryRuntimeException("'last' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -88,13 +88,13 @@ TypedValue Last(const std::vector<TypedValue> &args, Context *) {
       return list.back();
     }
     default:
-      throw QueryRuntimeException("last argument should be a list");
+      throw QueryRuntimeException("'last' argument must be a list.");
   }
 }
 
 TypedValue Properties(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("properties requires one argument");
+    throw QueryRuntimeException("'properties' requires exactly one argument.");
   }
   auto get_properties = [&](const auto &record_accessor) {
     std::map<std::string, TypedValue> properties;
@@ -113,13 +113,13 @@ TypedValue Properties(const std::vector<TypedValue> &args, Context *ctx) {
       return get_properties(args[0].Value<EdgeAccessor>());
     default:
       throw QueryRuntimeException(
-          "properties argument should be a vertex or an edge");
+          "'properties' argument must be a node or an edge.");
   }
 }
 
 TypedValue Size(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("size requires one argument");
+    throw QueryRuntimeException("'size' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -138,13 +138,13 @@ TypedValue Size(const std::vector<TypedValue> &args, Context *) {
       return static_cast<int64_t>(args[0].ValuePath().edges().size());
     default:
       throw QueryRuntimeException(
-          "size argument should be a string, a collection or a path");
+          "'size' argument must be a string, a collection or a path.");
   }
 }
 
 TypedValue StartNode(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("startNode requires one argument");
+    throw QueryRuntimeException("'startNode' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -152,13 +152,13 @@ TypedValue StartNode(const std::vector<TypedValue> &args, Context *) {
     case TypedValue::Type::Edge:
       return args[0].Value<EdgeAccessor>().from();
     default:
-      throw QueryRuntimeException("startNode argument should be an edge");
+      throw QueryRuntimeException("'startNode' argument must be an edge.");
   }
 }
 
 TypedValue Degree(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("degree requires one argument");
+    throw QueryRuntimeException("'degree' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -168,13 +168,13 @@ TypedValue Degree(const std::vector<TypedValue> &args, Context *) {
       return static_cast<int64_t>(vertex.out_degree() + vertex.in_degree());
     }
     default:
-      throw QueryRuntimeException("degree argument should be a vertex");
+      throw QueryRuntimeException("'degree' argument must be a node.");
   }
 }
 
 TypedValue ToBoolean(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("toBoolean requires one argument");
+    throw QueryRuntimeException("'toBoolean' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -193,13 +193,13 @@ TypedValue ToBoolean(const std::vector<TypedValue> &args, Context *) {
     }
     default:
       throw QueryRuntimeException(
-          "toBoolean argument should be an integer, a string or a boolean");
+          "'toBoolean' argument must be an integer, a string or a boolean.");
   }
 }
 
 TypedValue ToFloat(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("toFloat requires one argument");
+    throw QueryRuntimeException("'toFloat' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -216,13 +216,13 @@ TypedValue ToFloat(const std::vector<TypedValue> &args, Context *) {
       }
     default:
       throw QueryRuntimeException(
-          "toFloat argument should be a string or a number");
+          "'toFloat' argument must be a string or a number.");
   }
 }
 
 TypedValue ToInteger(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("toInteger requires one argument");
+    throw QueryRuntimeException("'toInteger' requires exactly one argument'");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -244,13 +244,13 @@ TypedValue ToInteger(const std::vector<TypedValue> &args, Context *) {
       }
     default:
       throw QueryRuntimeException(
-          "toInteger argument should be a string, a boolean or a number");
+          "'toInteger' argument must be a string, a boolean or a number.");
   }
 }
 
 TypedValue Type(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("type requires one argument");
+    throw QueryRuntimeException("'type' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -259,13 +259,13 @@ TypedValue Type(const std::vector<TypedValue> &args, Context *ctx) {
       return ctx->db_accessor_.EdgeTypeName(
           args[0].Value<EdgeAccessor>().EdgeType());
     default:
-      throw QueryRuntimeException("type argument should be an edge");
+      throw QueryRuntimeException("'type' argument must be an edge.");
   }
 }
 
 TypedValue Keys(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("keys requires one argument");
+    throw QueryRuntimeException("'keys' requires exactly one argument.");
   }
   auto get_keys = [&](const auto &record_accessor) {
     std::vector<TypedValue> keys;
@@ -282,14 +282,13 @@ TypedValue Keys(const std::vector<TypedValue> &args, Context *ctx) {
     case TypedValue::Type::Edge:
       return get_keys(args[0].Value<EdgeAccessor>());
     default:
-      throw QueryRuntimeException(
-          "keys argument should be a vertex or an edge");
+      throw QueryRuntimeException("'keys' argument must be a node or an edge.");
   }
 }
 
 TypedValue Labels(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("labels requires one argument");
+    throw QueryRuntimeException("'labels' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -302,17 +301,17 @@ TypedValue Labels(const std::vector<TypedValue> &args, Context *ctx) {
       return labels;
     }
     default:
-      throw QueryRuntimeException("labels argument should be a vertex");
+      throw QueryRuntimeException("'labels' argument must be a node.");
   }
 }
 
 TypedValue Nodes(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("nodes requires one argument");
+    throw QueryRuntimeException("'nodes' requires exactly one argument.");
   }
   if (args[0].IsNull()) return TypedValue::Null;
   if (!args[0].IsPath()) {
-    throw QueryRuntimeException("nodes argument should be a path");
+    throw QueryRuntimeException("'nodes' argument should be a path.");
   }
   auto &vertices = args[0].ValuePath().vertices();
   return std::vector<TypedValue>(vertices.begin(), vertices.end());
@@ -320,11 +319,12 @@ TypedValue Nodes(const std::vector<TypedValue> &args, Context *) {
 
 TypedValue Relationships(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("relationships requires one argument");
+    throw QueryRuntimeException(
+        "'relationships' requires exactly one argument.");
   }
   if (args[0].IsNull()) return TypedValue::Null;
   if (!args[0].IsPath()) {
-    throw QueryRuntimeException("relationships argument should be a path");
+    throw QueryRuntimeException("'relationships' argument must be a path.");
   }
   auto &edges = args[0].ValuePath().edges();
   return std::vector<TypedValue>(edges.begin(), edges.end());
@@ -332,14 +332,14 @@ TypedValue Relationships(const std::vector<TypedValue> &args, Context *) {
 
 TypedValue Range(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 2U && args.size() != 3U) {
-    throw QueryRuntimeException("range requires two or three arguments");
+    throw QueryRuntimeException("'range' requires two or three arguments.");
   }
   bool has_null = false;
   auto check_type = [&](const TypedValue &t) {
     if (t.IsNull()) {
       has_null = true;
     } else if (t.type() != TypedValue::Type::Int) {
-      throw QueryRuntimeException("arguments of range should be integers");
+      throw QueryRuntimeException("arguments of 'range' must be integers.");
     }
   };
   std::for_each(args.begin(), args.end(), check_type);
@@ -348,7 +348,7 @@ TypedValue Range(const std::vector<TypedValue> &args, Context *) {
   auto rbound = args[1].Value<int64_t>();
   int64_t step = args.size() == 3U ? args[2].Value<int64_t>() : 1;
   if (step == 0) {
-    throw QueryRuntimeException("step argument in range can't be zero");
+    throw QueryRuntimeException("step argument of 'range' can't be zero.");
   }
   std::vector<TypedValue> list;
   if (lbound <= rbound && step > 0) {
@@ -365,7 +365,7 @@ TypedValue Range(const std::vector<TypedValue> &args, Context *) {
 
 TypedValue Tail(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("tail requires one argument");
+    throw QueryRuntimeException("'tail' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -377,13 +377,13 @@ TypedValue Tail(const std::vector<TypedValue> &args, Context *) {
       return list;
     }
     default:
-      throw QueryRuntimeException("tail argument should be a list");
+      throw QueryRuntimeException("'tail' argument must be a list.");
   }
 }
 
 TypedValue Abs(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("abs requires one argument");
+    throw QueryRuntimeException("'abs' requires exactly one argument.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -394,26 +394,27 @@ TypedValue Abs(const std::vector<TypedValue> &args, Context *) {
     case TypedValue::Type::Double:
       return std::abs(args[0].Value<double>());
     default:
-      throw QueryRuntimeException("abs argument should be a number");
+      throw QueryRuntimeException("'abs' argument should be a number.");
   }
 }
 
-#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                      \
-  TypedValue name(const std::vector<TypedValue> &args, Context *) {           \
-    if (args.size() != 1U) {                                                  \
-      throw QueryRuntimeException(#lowercased_name " requires one argument"); \
-    }                                                                         \
-    switch (args[0].type()) {                                                 \
-      case TypedValue::Type::Null:                                            \
-        return TypedValue::Null;                                              \
-      case TypedValue::Type::Int:                                             \
-        return lowercased_name(args[0].Value<int64_t>());                     \
-      case TypedValue::Type::Double:                                          \
-        return lowercased_name(args[0].Value<double>());                      \
-      default:                                                                \
-        throw QueryRuntimeException(#lowercased_name                          \
-                                    " argument should be a number");          \
-    }                                                                         \
+#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)               \
+  TypedValue name(const std::vector<TypedValue> &args, Context *) {    \
+    if (args.size() != 1U) {                                           \
+      throw QueryRuntimeException("'" #lowercased_name                 \
+                                  "' requires exactly one argument."); \
+    }                                                                  \
+    switch (args[0].type()) {                                          \
+      case TypedValue::Type::Null:                                     \
+        return TypedValue::Null;                                       \
+      case TypedValue::Type::Int:                                      \
+        return lowercased_name(args[0].Value<int64_t>());              \
+      case TypedValue::Type::Double:                                   \
+        return lowercased_name(args[0].Value<double>());               \
+      default:                                                         \
+        throw QueryRuntimeException(#lowercased_name                   \
+                                    " argument must be a number.");    \
+    }                                                                  \
   }
 
 WRAP_CMATH_FLOAT_FUNCTION(Ceil, ceil)
@@ -436,7 +437,7 @@ WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
 
 TypedValue Atan2(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 2U) {
-    throw QueryRuntimeException("atan2 requires two arguments");
+    throw QueryRuntimeException("'atan2' requires two arguments.");
   }
   if (args[0].type() == TypedValue::Type::Null) return TypedValue::Null;
   if (args[1].type() == TypedValue::Type::Null) return TypedValue::Null;
@@ -447,7 +448,7 @@ TypedValue Atan2(const std::vector<TypedValue> &args, Context *) {
       case TypedValue::Type::Double:
         return t.Value<double>();
       default:
-        throw QueryRuntimeException("arguments of atan2 should be numbers");
+        throw QueryRuntimeException("Arguments of 'atan2' must be numbers.");
     }
   };
   double y = to_double(args[0]);
@@ -457,7 +458,7 @@ TypedValue Atan2(const std::vector<TypedValue> &args, Context *) {
 
 TypedValue Sign(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("sign requires one argument");
+    throw QueryRuntimeException("'sign' requires exactly one argument.");
   }
   auto sign = [](auto x) { return (0 < x) - (x < 0); };
   switch (args[0].type()) {
@@ -468,20 +469,20 @@ TypedValue Sign(const std::vector<TypedValue> &args, Context *) {
     case TypedValue::Type::Double:
       return sign(args[0].Value<double>());
     default:
-      throw QueryRuntimeException("sign argument should be a number");
+      throw QueryRuntimeException("'sign' argument must be a number.");
   }
 }
 
 TypedValue E(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 0U) {
-    throw QueryRuntimeException("e requires no arguments");
+    throw QueryRuntimeException("'e' requires no arguments.");
   }
   return M_E;
 }
 
 TypedValue Pi(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 0U) {
-    throw QueryRuntimeException("pi requires no arguments");
+    throw QueryRuntimeException("'pi' requires no arguments.");
   }
   return M_PI;
 }
@@ -490,7 +491,7 @@ TypedValue Rand(const std::vector<TypedValue> &args, Context *) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_real_distribution<> rand_dist_{0, 1};
   if (args.size() != 0U) {
-    throw QueryRuntimeException("rand requires no arguments");
+    throw QueryRuntimeException("'rand' requires no arguments.");
   }
   return rand_dist_(pseudo_rand_gen_);
 }
@@ -499,7 +500,7 @@ template <bool (*Predicate)(const std::string &s1, const std::string &s2)>
 TypedValue StringMatchOperator(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 2U) {
     throw QueryRuntimeException(
-        "startsWith and endsWith require two arguments");
+        "'startsWith' and 'endsWith' require two arguments.");
   }
   bool has_null = false;
   auto check_arg = [&](const TypedValue &t) {
@@ -507,7 +508,7 @@ TypedValue StringMatchOperator(const std::vector<TypedValue> &args, Context *) {
       has_null = true;
     } else if (t.type() != TypedValue::Type::String) {
       throw QueryRuntimeException(
-          "arguments of startsWith and endsWith should be strings");
+          "Arguments of 'startsWith' and 'endsWith' must be strings.");
     }
   };
   check_arg(args[0]);
@@ -541,15 +542,18 @@ auto Contains = StringMatchOperator<ContainsPredicate>;
 
 TypedValue Assert(const std::vector<TypedValue> &args, Context *) {
   if (args.size() < 1U || args.size() > 2U) {
-    throw QueryRuntimeException("assert requires one or two arguments");
+    throw QueryRuntimeException("'assert' requires one or two arguments");
   }
   if (args[0].type() != TypedValue::Type::Bool)
-    throw QueryRuntimeException("first argument of assert must be a boolean");
+    throw QueryRuntimeException(
+        "First argument of 'assert' must be a boolean.");
   if (args.size() == 2U && args[1].type() != TypedValue::Type::String)
-    throw QueryRuntimeException("second argument of assert must be a string");
+    throw QueryRuntimeException(
+        "Second argument of 'assert' must be a string.");
   if (!args[0].ValueBool()) {
-    std::string message("assertion failed");
+    std::string message("Assertion failed");
     if (args.size() == 2U) message += ": " + args[1].ValueString();
+    message += ".";
     throw QueryRuntimeException(message);
   }
   return args[0];
@@ -557,31 +561,31 @@ TypedValue Assert(const std::vector<TypedValue> &args, Context *) {
 
 TypedValue Counter(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("counter requires one argument");
+    throw QueryRuntimeException("'counter' requires exactly one argument.");
   }
   if (!args[0].IsString())
-    throw QueryRuntimeException("counter argument must be a string");
+    throw QueryRuntimeException("'counter' argument must be a string.");
 
   return ctx->db_accessor_.Counter(args[0].ValueString());
 }
 
 TypedValue CounterSet(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 2U) {
-    throw QueryRuntimeException("counterSet requires two arguments");
+    throw QueryRuntimeException("'counterSet' requires two arguments.");
   }
   if (!args[0].IsString())
     throw QueryRuntimeException(
-        "first argument of counterSet must be a string");
+        "First argument of 'counterSet' must be a string.");
   if (!args[1].IsInt())
     throw QueryRuntimeException(
-        "second argument of counterSet must be an integer");
+        "Second argument of 'counterSet' must be an integer.");
   ctx->db_accessor_.CounterSet(args[0].ValueString(), args[1].ValueInt());
   return TypedValue::Null;
 }
 
 TypedValue IndexInfo(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 0U)
-    throw QueryRuntimeException("indexInfo requires no arguments");
+    throw QueryRuntimeException("'indexInfo' requires no arguments.");
 
   auto info = ctx->db_accessor_.IndexInfo();
   return std::vector<TypedValue>(info.begin(), info.end());
@@ -589,7 +593,7 @@ TypedValue IndexInfo(const std::vector<TypedValue> &args, Context *ctx) {
 
 TypedValue WorkerId(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("workerId requires one argument");
+    throw QueryRuntimeException("'workerId' requires exactly one argument.");
   }
   auto &arg = args[0];
   switch (arg.type()) {
@@ -599,13 +603,13 @@ TypedValue WorkerId(const std::vector<TypedValue> &args, Context *) {
       return arg.ValueEdge().GlobalAddress().worker_id();
     default:
       throw QueryRuntimeException(
-          "workerId argument must be a vertex or an edge");
+          "'workerId' argument must be a node or an edge.");
   }
 }
 
 TypedValue Id(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("id requires one argument");
+    throw QueryRuntimeException("'id' requires exactly one argument.");
   }
   auto &arg = args[0];
   switch (arg.type()) {
@@ -616,13 +620,13 @@ TypedValue Id(const std::vector<TypedValue> &args, Context *ctx) {
       return TypedValue(arg.ValueEdge().cypher_id());
     }
     default:
-      throw QueryRuntimeException("id argument must be a vertex or an edge");
+      throw QueryRuntimeException("'id' argument must be a node or an edge.");
   }
 }
 
 TypedValue ToString(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 1U) {
-    throw QueryRuntimeException("toString requires one argument");
+    throw QueryRuntimeException("'toString' requires exactly one argument.");
   }
   auto &arg = args[0];
   switch (arg.type()) {
@@ -638,20 +642,20 @@ TypedValue ToString(const std::vector<TypedValue> &args, Context *) {
       return arg.ValueBool() ? "true" : "false";
     default:
       throw QueryRuntimeException(
-          "toString argument must be a number, a string or a boolean");
+          "'toString' argument must be a number, a string or a boolean.");
   }
 }
 
 TypedValue Timestamp(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 0) {
-    throw QueryRuntimeException("timestamp requires no arguments");
+    throw QueryRuntimeException("'timestamp' requires no arguments.");
   }
   return ctx->timestamp_;
 }
 
 TypedValue Left(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 2) {
-    throw QueryRuntimeException("left requires two arguments");
+    throw QueryRuntimeException("'left' requires two arguments.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -659,21 +663,21 @@ TypedValue Left(const std::vector<TypedValue> &args, Context *ctx) {
         return TypedValue::Null;
       }
       throw QueryRuntimeException(
-          "second argument of left must be a non-negative integer");
+          "Second argument of 'left' must be a non-negative integer.");
     case TypedValue::Type::String:
       if (args[1].IsInt() && args[1].ValueInt() >= 0) {
         return args[0].ValueString().substr(0, args[1].ValueInt());
       }
       throw QueryRuntimeException(
-          "second argument of left must be a non-negative integer");
+          "Second argument of 'left' must be a non-negative integer.");
     default:
-      throw QueryRuntimeException("first argument of left must be a string");
+      throw QueryRuntimeException("First argument of 'left' must be a string.");
   }
 }
 
 TypedValue Right(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 2) {
-    throw QueryRuntimeException("right requires two arguments");
+    throw QueryRuntimeException("'right' requires two arguments.");
   }
   switch (args[0].type()) {
     case TypedValue::Type::Null:
@@ -681,7 +685,7 @@ TypedValue Right(const std::vector<TypedValue> &args, Context *ctx) {
         return TypedValue::Null;
       }
       throw QueryRuntimeException(
-          "second argument of right must be a non-negative integer");
+          "Second argument of 'right' must be a non-negative integer.");
     case TypedValue::Type::String: {
       const auto &str = args[0].ValueString();
       if (args[1].IsInt() && args[1].ValueInt() >= 0) {
@@ -689,27 +693,29 @@ TypedValue Right(const std::vector<TypedValue> &args, Context *ctx) {
         return len <= str.size() ? str.substr(str.size() - len, len) : str;
       }
       throw QueryRuntimeException(
-          "second argument of right must be a non-negative integer");
+          "Second argument of 'right' must be a non-negative integer.");
     }
     default:
-      throw QueryRuntimeException("first argument of right must be a string");
+      throw QueryRuntimeException(
+          "First argument of 'right' must be a string.");
   }
 }
 
-#define WRAP_STRING_FUNCTION(name, lowercased_name, function)                 \
-  TypedValue name(const std::vector<TypedValue> &args, Context *) {           \
-    if (args.size() != 1U) {                                                  \
-      throw QueryRuntimeException(#lowercased_name " requires one argument"); \
-    }                                                                         \
-    switch (args[0].type()) {                                                 \
-      case TypedValue::Type::Null:                                            \
-        return TypedValue::Null;                                              \
-      case TypedValue::Type::String:                                          \
-        return function(args[0].ValueString());                               \
-      default:                                                                \
-        throw QueryRuntimeException(#lowercased_name                          \
-                                    " argument should be a string");          \
-    }                                                                         \
+#define WRAP_STRING_FUNCTION(name, lowercased_name, function)          \
+  TypedValue name(const std::vector<TypedValue> &args, Context *) {    \
+    if (args.size() != 1U) {                                           \
+      throw QueryRuntimeException("'" #lowercased_name                 \
+                                  "' requires exactly one argument."); \
+    }                                                                  \
+    switch (args[0].type()) {                                          \
+      case TypedValue::Type::Null:                                     \
+        return TypedValue::Null;                                       \
+      case TypedValue::Type::String:                                   \
+        return function(args[0].ValueString());                        \
+      default:                                                         \
+        throw QueryRuntimeException("'" #lowercased_name               \
+                                    "' argument should be a string."); \
+    }                                                                  \
   }
 
 WRAP_STRING_FUNCTION(LTrim, lTrim, utils::LTrim);
@@ -721,17 +727,19 @@ WRAP_STRING_FUNCTION(ToUpper, toUpper, utils::ToUpperCase);
 
 TypedValue Replace(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 3U) {
-    throw QueryRuntimeException("replace requires three arguments");
+    throw QueryRuntimeException("'replace' requires three arguments.");
   }
   if (!args[0].IsNull() && !args[0].IsString()) {
-    throw QueryRuntimeException("first argument of replace should be a string");
+    throw QueryRuntimeException(
+        "First argument of 'replace' should be a string.");
   }
   if (!args[1].IsNull() && !args[1].IsString()) {
     throw QueryRuntimeException(
-        "second argument of replace should be a string");
+        "Second argument of 'replace' should be a string.");
   }
   if (!args[2].IsNull() && !args[2].IsString()) {
-    throw QueryRuntimeException("third argument of replace should be a string");
+    throw QueryRuntimeException(
+        "Third argument of 'replace' should be a string.");
   }
   if (args[0].IsNull() || args[1].IsNull() || args[2].IsNull()) {
     return TypedValue::Null;
@@ -742,13 +750,15 @@ TypedValue Replace(const std::vector<TypedValue> &args, Context *ctx) {
 
 TypedValue Split(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 2U) {
-    throw QueryRuntimeException("split requires two arguments");
+    throw QueryRuntimeException("'split' requires two arguments.");
   }
   if (!args[0].IsNull() && !args[0].IsString()) {
-    throw QueryRuntimeException("first argument of split should be a string");
+    throw QueryRuntimeException(
+        "First argument of 'split' should be a string.");
   }
   if (!args[1].IsNull() && !args[1].IsString()) {
-    throw QueryRuntimeException("second argument of split should be a string");
+    throw QueryRuntimeException(
+        "Second argument of 'split' should be a string.");
   }
   if (args[0].IsNull() || args[1].IsNull()) {
     return TypedValue::Null;
@@ -763,19 +773,19 @@ TypedValue Split(const std::vector<TypedValue> &args, Context *ctx) {
 
 TypedValue Substring(const std::vector<TypedValue> &args, Context *) {
   if (args.size() != 2U && args.size() != 3U) {
-    throw QueryRuntimeException("substring requires two or three arguments");
+    throw QueryRuntimeException("'substring' requires two or three arguments.");
   }
   if (!args[0].IsNull() && !args[0].IsString()) {
     throw QueryRuntimeException(
-        "first argument of substring should be a string");
+        "First argument of 'substring' should be a string.");
   }
   if (!args[1].IsInt() || args[1].ValueInt() < 0) {
     throw QueryRuntimeException(
-        "second argument of substring should be a non-negative integer");
+        "Second argument of 'substring' should be a non-negative integer.");
   }
   if (args.size() == 3U && (!args[2].IsInt() || args[2].ValueInt() < 0)) {
     throw QueryRuntimeException(
-        "third argument of substring should be a non-negative integer");
+        "Third argument of 'substring' should be a non-negative integer.");
   }
   if (args[0].IsNull()) {
     return TypedValue::Null;

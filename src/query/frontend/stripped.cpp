@@ -56,7 +56,7 @@ StrippedQuery::StrippedQuery(const std::string &query) : original_(query) {
     update(MatchEscapedName(i), Token::ESCAPED_NAME);
     update(MatchUnescapedName(i), Token::UNESCAPED_NAME);
     update(MatchWhitespaceAndComments(i), Token::SPACE);
-    if (token == Token::UNMATCHED) throw LexingException("Invalid query");
+    if (token == Token::UNMATCHED) throw LexingException("Invalid query.");
     tokens.emplace_back(token, original_.substr(i, len));
     i += len;
   }
@@ -233,26 +233,26 @@ std::string GetFirstUtf8Symbol(const char *_s) {
   if ((*s >> 7) == 0x00) return std::string(_s, _s + 1);
   if ((*s >> 5) == 0x06) {
     auto *s1 = s + 1;
-    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     return std::string(_s, _s + 2);
   }
   if ((*s >> 4) == 0x0e) {
     auto *s1 = s + 1;
-    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     auto *s2 = s + 2;
-    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
     return std::string(_s, _s + 3);
   }
   if ((*s >> 3) == 0x1e) {
     auto *s1 = s + 1;
-    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     auto *s2 = s + 2;
-    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
     auto *s3 = s + 3;
-    if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character.");
     return std::string(_s, _s + 4);
   }
-  throw LexingException("Invalid character");
+  throw LexingException("Invalid character.");
 }
 
 // Return codepoint of first utf8 symbol and its encoded length.
@@ -264,28 +264,28 @@ std::pair<int, int> GetFirstUtf8SymbolCodepoint(const char *_s) {
   if ((*s >> 7) == 0x00) return {*s & 0x7f, 1};
   if ((*s >> 5) == 0x06) {
     auto *s1 = s + 1;
-    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     return {((*s & 0x1f) << 6) | (*s1 & 0x3f), 2};
   }
   if ((*s >> 4) == 0x0e) {
     auto *s1 = s + 1;
-    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     auto *s2 = s + 2;
-    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
     return {((*s & 0x0f) << 12) | ((*s1 & 0x3f) << 6) | (*s2 & 0x3f), 3};
   }
   if ((*s >> 3) == 0x1e) {
     auto *s1 = s + 1;
-    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s1 >> 6) != 0x02) throw LexingException("Invalid character.");
     auto *s2 = s + 2;
-    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s2 >> 6) != 0x02) throw LexingException("Invalid character.");
     auto *s3 = s + 3;
-    if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character");
+    if ((*s3 >> 6) != 0x02) throw LexingException("Invalid character.");
     return {((*s & 0x07) << 18) | ((*s1 & 0x3f) << 12) | ((*s2 & 0x3f) << 6) |
                 (*s3 & 0x3f),
             4};
   }
-  throw LexingException("Invalid character");
+  throw LexingException("Invalid character.");
 }
 
 // From here until end of file there are functions that calculate matches for

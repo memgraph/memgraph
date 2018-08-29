@@ -46,7 +46,7 @@ Interpreter::Results Interpreter::operator()(
     auto param_it = params.find(param_pair.second);
     if (param_it == params.end()) {
       throw query::UnprovidedParameterError(
-          fmt::format("Parameter ${} not provided", param_pair.second));
+          fmt::format("Parameter ${} not provided.", param_pair.second));
     }
     ctx.parameters_.Add(param_pair.first, param_it->second);
   }

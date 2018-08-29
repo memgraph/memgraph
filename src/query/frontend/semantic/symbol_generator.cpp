@@ -51,7 +51,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
       user_symbols.emplace_back(sym_pair.second);
     }
     if (user_symbols.empty()) {
-      throw SemanticException("There are no variables in scope to use for '*'");
+      throw SemanticException("There are no variables in scope to use for '*'.");
     }
   }
   // WITH/RETURN clause removes declarations of all the previous variables and
@@ -132,7 +132,7 @@ bool SymbolGenerator::PreVisit(CypherUnion &) {
 bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
   if (prev_return_names_ != curr_return_names_) {
     throw SemanticException(
-        "All sub queries in an UNION must have the same column names");
+        "All subqueries in an UNION must have the same column names.");
   }
 
   // create new symbols for the result of the union
@@ -238,7 +238,7 @@ bool SymbolGenerator::Visit(TestStream &) { return true; }
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope_.in_skip || scope_.in_limit) {
-    throw SemanticException("Variables are not allowed in {}",
+    throw SemanticException("Variables are not allowed in {}.",
                             scope_.in_skip ? "SKIP" : "LIMIT");
   }
   Symbol symbol;
@@ -297,12 +297,12 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   if ((!scope_.in_return && !scope_.in_with) || scope_.in_order_by ||
       scope_.in_skip || scope_.in_limit || scope_.in_where) {
     throw SemanticException(
-        "Aggregation functions are only allowed in WITH and RETURN");
+        "Aggregation functions are only allowed in WITH and RETURN.");
   }
   if (scope_.in_aggregation) {
     throw SemanticException(
         "Using aggregation functions inside aggregation functions is not "
-        "allowed");
+        "allowed.");
   }
   if (scope_.num_if_operators) {
     // Neo allows aggregations here and produces very interesting behaviors.
@@ -313,7 +313,7 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
     // TODO: Rethink of allowing aggregations in some parts of the CASE
     // construct.
     throw SemanticException(
-        "Using aggregation functions inside of CASE is not allowed");
+        "Using aggregation functions inside of CASE is not allowed.");
   }
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.

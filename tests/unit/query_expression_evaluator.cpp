@@ -1403,7 +1403,7 @@ TEST(ExpressionEvaluator, FunctionAssert) {
   try {
     EvaluateFunction("ASSERT", {false, "bbgba"});
   } catch (QueryRuntimeException &e) {
-    ASSERT_TRUE(utils::EndsWith(e.what(), "bbgba"));
+    ASSERT_TRUE(std::string(e.what()).find("bbgba") != std::string::npos);
   }
 
   // Valid calls, assertion passes.

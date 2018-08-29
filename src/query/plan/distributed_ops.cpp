@@ -208,13 +208,13 @@ class RemotePuller {
           break;
         case distributed::PullState::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
-              "Serialization error occured during PullRemote !");
+              "Serialization error occured during PullRemote!");
         case distributed::PullState::LOCK_TIMEOUT_ERROR:
           throw utils::LockTimeoutException(
-              "LockTimeout error occured during PullRemote !");
+              "LockTimeout error occured during PullRemote!");
         case distributed::PullState::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
-              "RecordDeleted error ocured during PullRemote !");
+              "RecordDeleted error ocured during PullRemote!");
         case distributed::PullState::RECONSTRUCTION_ERROR:
           throw query::ReconstructionException();
         case distributed::PullState::UNABLE_TO_DELETE_VERTEX_ERROR:
@@ -223,7 +223,7 @@ class RemotePuller {
           throw HintedAbortError();
         case distributed::PullState::QUERY_ERROR:
           throw QueryRuntimeException(
-              "Query runtime error occurred during PullRemote !");
+              "Query runtime error occurred during PullRemote!");
       }
     }
   }
@@ -501,23 +501,23 @@ class SynchronizeCursor : public Cursor {
           continue;
         case distributed::PullState::CURSOR_IN_PROGRESS:
           throw QueryRuntimeException(
-              "Expected exhausted cursor after remote pull accumulate");
+              "Expected exhausted cursor after remote pull accumulate!");
         case distributed::PullState::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
               "Failed to perform remote accumulate due to "
-              "SerializationError");
+              "SerializationError!");
         case distributed::PullState::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to "
-              "RecordDeletedError");
+              "RecordDeletedError!");
         case distributed::PullState::LOCK_TIMEOUT_ERROR:
           throw utils::LockTimeoutException(
               "Failed to perform remote accumulate due to "
-              "LockTimeoutException");
+              "LockTimeoutException!");
         case distributed::PullState::RECONSTRUCTION_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to "
-              "ReconstructionError");
+              "ReconstructionError!");
         case distributed::PullState::UNABLE_TO_DELETE_VERTEX_ERROR:
           throw RemoveAttachedVertexException();
         case distributed::PullState::HINTED_ABORT_ERROR:
@@ -525,7 +525,7 @@ class SynchronizeCursor : public Cursor {
         case distributed::PullState::QUERY_ERROR:
           throw QueryRuntimeException(
               "Failed to perform remote accumulate due to Query runtime "
-              "error");
+              "error!");
       }
     }
 
@@ -541,15 +541,15 @@ class SynchronizeCursor : public Cursor {
       switch (future.get()) {
         case distributed::UpdateResult::SERIALIZATION_ERROR:
           throw mvcc::SerializationError(
-              "Failed to apply deferred updates due to SerializationError");
+              "Failed to apply deferred updates due to SerializationError!");
         case distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
           throw RemoveAttachedVertexException();
         case distributed::UpdateResult::UPDATE_DELETED_ERROR:
           throw QueryRuntimeException(
-              "Failed to apply deferred updates due to RecordDeletedError");
+              "Failed to apply deferred updates due to RecordDeletedError!");
         case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
           throw utils::LockTimeoutException(
-              "Failed to apply deferred update due to LockTimeoutException");
+              "Failed to apply deferred update due to LockTimeoutException!");
         case distributed::UpdateResult::DONE:
           break;
       }

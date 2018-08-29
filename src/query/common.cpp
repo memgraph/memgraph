@@ -18,7 +18,7 @@ int64_t ParseIntegerLiteral(const std::string &s) {
     // Not really correct since long long can have a bigger range than int64_t.
     return static_cast<int64_t>(std::stoll(s, 0, 0));
   } catch (const std::out_of_range &) {
-    throw SemanticException("Integer literal exceeds 64 bits");
+    throw SemanticException("Integer literal exceeds 64 bits.");
   }
 }
 
@@ -55,12 +55,12 @@ std::string ParseStringLiteral(const std::string &s) {
         // t is high surrogate pair. Expect one more utf16 codepoint.
         j = i + kShortUnicodeLength + 1;
         if (j >= static_cast<int>(s.size()) - 1 || s[j] != '\\') {
-          throw SemanticException("Invalid utf codepoint");
+          throw SemanticException("Invalid UTF codepoint.");
         }
         ++j;
         if (j >= static_cast<int>(s.size()) - 1 ||
             (s[j] != 'u' && s[j] != 'U')) {
-          throw SemanticException("Invalid utf codepoint");
+          throw SemanticException("Invalid UTF codepoint.");
         }
         ++j;
         int k = j;
@@ -69,7 +69,7 @@ std::string ParseStringLiteral(const std::string &s) {
           ++k;
         }
         if (k != j + kShortUnicodeLength) {
-          throw SemanticException("Invalid utf codepoint");
+          throw SemanticException("Invalid UTF codepoint.");
         }
         char16_t surrogates[3] = {t,
                                   static_cast<char16_t>(stoi(
@@ -131,14 +131,14 @@ std::string ParseStringLiteral(const std::string &s) {
           try {
             unescaped += EncodeEscapedUnicodeCodepointUtf32(s, i);
           } catch (const std::range_error &) {
-            throw SemanticException("Invalid utf codepoint");
+            throw SemanticException("Invalid UTF codepoint.");
           }
           break;
         case 'u':
           try {
             unescaped += EncodeEscapedUnicodeCodepointUtf16(s, i);
           } catch (const std::range_error &) {
-            throw SemanticException("Invalid utf codepoint");
+            throw SemanticException("Invalid UTF codepoint.");
           }
           break;
         default:
@@ -161,7 +161,7 @@ double ParseDoubleLiteral(const std::string &s) {
   try {
     return utils::ParseDouble(s);
   } catch (const utils::BasicException &) {
-    throw SemanticException("Couldn't parse string to double");
+    throw SemanticException("Couldn't parse string to double.");
   }
 }
 
@@ -229,7 +229,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
   // the  same type, or int+float combinations
   if ((a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())))
     throw QueryRuntimeException(
-        "Can't compare value of type {} to value of type {}", a.type(),
+        "Can't compare value of type {} to value of type {}.", a.type(),
         b.type());
 
   switch (a.type()) {
@@ -253,7 +253,7 @@ bool TypedValueCompare(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Edge:
     case TypedValue::Type::Path:
       throw QueryRuntimeException(
-          "Comparison is not defined for values of type {}", a.type());
+          "Comparison is not defined for values of type {}.", a.type());
     default:
       LOG(FATAL) << "Unhandled comparison for types";
   }

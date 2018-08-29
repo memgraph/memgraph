@@ -80,20 +80,20 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     try {                                                                \
       return val1 CPP_OP val2;                                           \
     } catch (const TypedValueException &) {                              \
-      throw QueryRuntimeException("Invalid types: {} and {} for '{}'",   \
+      throw QueryRuntimeException("Invalid types: {} and {} for '{}'.",  \
                                   val1.type(), val2.type(), #CYPHER_OP); \
     }                                                                    \
   }
 
-#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                \
-  TypedValue Visit(OP_NODE &op) override {                                \
-    auto val = op.expression_->Accept(*this);                             \
-    try {                                                                 \
-      return CPP_OP val;                                                  \
-    } catch (const TypedValueException &) {                               \
-      throw QueryRuntimeException("Invalid type {} for '{}'", val.type(), \
-                                  #CYPHER_OP);                            \
-    }                                                                     \
+#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                 \
+  TypedValue Visit(OP_NODE &op) override {                                 \
+    auto val = op.expression_->Accept(*this);                              \
+    try {                                                                  \
+      return CPP_OP val;                                                   \
+    } catch (const TypedValueException &) {                                \
+      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), \
+                                  #CYPHER_OP);                             \
+    }                                                                      \
   }
 
   BINARY_OPERATOR_VISITOR(OrOperator, ||, OR);
@@ -127,7 +127,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     try {
       return value1 && value2;
     } catch (const TypedValueException &) {
-      throw QueryRuntimeException("Invalid types: {} and {} for 'AND'",
+      throw QueryRuntimeException("Invalid types: {} and {} for AND.",
                                   value1.type(), value2.type());
     }
   }
@@ -139,8 +139,8 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     }
     if (condition.type() != TypedValue::Type::Bool) {
       // At the moment IfOperator is used only in CASE construct.
-      throw QueryRuntimeException(
-          "'CASE' expected boolean expression, but got {}", condition.type());
+      throw QueryRuntimeException("CASE expected boolean expression, got {}.",
+                                  condition.type());
     }
     if (condition.Value<bool>()) {
       return if_operator.then_expression_->Accept(*this);
@@ -157,7 +157,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     // Exceptions have higher priority than returning nulls when list expression
     // is not null.
     if (_list.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("'IN' expected a list, but got {}",
+      throw QueryRuntimeException("IN expected a list, got {}.",
                                   _list.type());
     }
     auto list = _list.Value<std::vector<TypedValue>>();
@@ -190,14 +190,14 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     if (!lhs.IsList() && !lhs.IsMap() && !lhs.IsVertex() && !lhs.IsEdge() &&
         !lhs.IsNull())
       throw QueryRuntimeException(
-          "Expected a list, a map, a vertex or an edge to index with '[]', but "
-          "got {}",
+          "Expected a list, a map, a node or an edge to index with '[]', got "
+          "{}.",
           lhs.type());
     if (lhs.IsNull() || index.IsNull()) return TypedValue::Null;
     if (lhs.IsList()) {
       if (!index.IsInt())
         throw QueryRuntimeException(
-            "Expected an int as a list index, but got {}", index.type());
+            "Expected an integer as a list index, got {}.", index.type());
       auto index_int = index.Value<int64_t>();
       const auto &list = lhs.Value<std::vector<TypedValue>>();
       if (index_int < 0) {
@@ -210,8 +210,8 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
 
     if (lhs.IsMap()) {
       if (!index.IsString())
-        throw QueryRuntimeException(
-            "Expected a string as a map index, but got {}", index.type());
+        throw QueryRuntimeException("Expected a string as a map index, got {}.",
+                                    index.type());
       const auto &map = lhs.Value<std::map<std::string, TypedValue>>();
       auto found = map.find(index.Value<std::string>());
       if (found == map.end()) return TypedValue::Null;
@@ -221,7 +221,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     if (lhs.IsVertex()) {
       if (!index.IsString())
         throw QueryRuntimeException(
-            "Expected a string as a property name, but got {}", index.type());
+            "Expected a string as a property name, got {}.", index.type());
       return lhs.Value<VertexAccessor>().PropsAt(
           context_->db_accessor_.Property(index.Value<std::string>()));
     }
@@ -229,7 +229,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     if (lhs.IsEdge()) {
       if (!index.IsString())
         throw QueryRuntimeException(
-            "Expected a string as a property name, but got {}", index.type());
+            "Expected a string as a property name, got {}.", index.type());
       return lhs.Value<EdgeAccessor>().PropsAt(
           context_->db_accessor_.Property(index.Value<std::string>()));
     }
@@ -249,7 +249,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
           is_null = true;
         } else if (bound.type() != TypedValue::Type::Int) {
           throw QueryRuntimeException(
-              "Expected an int for a bound in list slicing, but got {}",
+              "Expected an integer for a bound in list slicing, got {}.",
               bound.type());
         }
         return bound;
@@ -264,7 +264,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     if (_list.type() == TypedValue::Type::Null) {
       is_null = true;
     } else if (_list.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("Expected a list to slice, but got {}",
+      throw QueryRuntimeException("Expected a list to slice, got {}.",
                                   _list.type());
     }
 
@@ -313,7 +313,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       }
       default:
         throw QueryRuntimeException(
-            "Expected Node, Edge or Map for property lookup");
+            "Only nodes, edges and maps have properties to be looked-up.");
     }
   }
 
@@ -332,7 +332,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         return true;
       }
       default:
-        throw QueryRuntimeException("Expected Node in labels test");
+        throw QueryRuntimeException("Only nodes have labels.");
     }
   }
 
@@ -379,7 +379,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       return TypedValue::Null;
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("'REDUCE' expected a list, but got {}",
+      throw QueryRuntimeException("REDUCE expected a list, got {}.",
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
@@ -402,7 +402,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       return TypedValue::Null;
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("'EXTRACT' expected a list, but got {}",
+      throw QueryRuntimeException("EXTRACT expected a list, got {}.",
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
@@ -427,7 +427,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       return TypedValue::Null;
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("'ALL' expected a list, but got {}",
+      throw QueryRuntimeException("ALL expected a list, got {}.",
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
@@ -437,8 +437,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException(
-            "Predicate of 'ALL' needs to evaluate to 'Boolean', but it "
-            "resulted in '{}'",
+            "Predicate of ALL must evaluate to boolean, got {}.",
             result.type());
       }
       if (result.IsNull() || !result.Value<bool>()) {
@@ -454,7 +453,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       return TypedValue::Null;
     }
     if (list_value.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("'SINGLE' expected a list, but got {}",
+      throw QueryRuntimeException("SINGLE expected a list, got {}.",
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
@@ -465,8 +464,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException(
-            "Predicate of 'SINGLE' needs to evaluate to 'Boolean', but it "
-            "resulted in '{}'",
+            "Predicate of SINGLE must evaluate to boolean, got {}.",
             result.type());
       }
       if (result.IsNull() || !result.Value<bool>()) {

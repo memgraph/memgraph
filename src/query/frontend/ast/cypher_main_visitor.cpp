@@ -129,16 +129,17 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
     if (dynamic_cast<Unwind *>(clause)) {
       if (has_update || has_return) {
         throw SemanticException(
-            "Unwind can't be after return or update clause");
+            "UNWIND can't be put after RETURN clause or after an update.");
       }
     } else if (auto *match = dynamic_cast<Match *>(clause)) {
       if (has_update || has_return) {
-        throw SemanticException("Match can't be after return or update clause");
+        throw SemanticException(
+            "MATCH can't be put after RETURN clause or after an update.");
       }
       if (match->optional_) {
         has_optional_match = true;
       } else if (has_optional_match) {
-        throw SemanticException("Match can't be after optional match");
+        throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
       }
     } else if (dynamic_cast<Create *>(clause) ||
                dynamic_cast<Delete *>(clause) ||
@@ -149,24 +150,24 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
                dynamic_cast<RemoveLabels *>(clause) ||
                dynamic_cast<Merge *>(clause)) {
       if (has_return) {
-        throw SemanticException("Update clauses can't be after return");
+        throw SemanticException("Update clause can't be used after RETURN.");
       }
       has_update = true;
     } else if (dynamic_cast<Return *>(clause)) {
       if (has_return) {
-        throw SemanticException("There can be only one return in a clause");
+        throw SemanticException("There can only be one RETURN in a clause.");
       }
       has_return = true;
     } else if (dynamic_cast<With *>(clause)) {
       if (has_return) {
-        throw SemanticException("Return can't be before with");
+        throw SemanticException("RETURN can't be put before WITH.");
       }
       has_update = has_return = has_optional_match = false;
     } else if (dynamic_cast<CreateIndex *>(clause)) {
       // If there is CreateIndex clause then there shouldn't be anything else.
       if (single_query->clauses_.size() != 1U) {
         throw SemanticException(
-            "CreateIndex must be only clause in the query.");
+            "CREATE INDEX must be the only clause in a query.");
       }
       has_create_index = true;
     } else {
@@ -272,7 +273,7 @@ antlrcpp::Any CypherMainVisitor::visitUserOrRoleName(
   std::string value = ctx->symbolicName()->accept(this).as<std::string>();
   const std::regex NAME_REGEX("[a-zA-Z0-9_.+-]+");
   if (!std::regex_match(value, NAME_REGEX)) {
-    throw SyntaxException("invalid user or role name");
+    throw SyntaxException("Invalid user or role name.");
   }
   return value;
 }
@@ -319,7 +320,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateUser(
   auth->user_ = ctx->user->accept(this).as<std::string>();
   if (ctx->password) {
     if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
-      throw SyntaxException("password should be a string literal or NULL");
+      throw SyntaxException("Password should be a string literal or null.");
     }
     auth->password_ = ctx->password->accept(this);
   }
@@ -335,7 +336,7 @@ antlrcpp::Any CypherMainVisitor::visitSetPassword(
   auth->action_ = AuthQuery::Action::SET_PASSWORD;
   auth->user_ = ctx->user->accept(this).as<std::string>();
   if (!ctx->password->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
-    throw SyntaxException("password should be a string literal or NULL");
+    throw SyntaxException("Password should be a string literal or null.");
   }
   auth->password_ = ctx->password->accept(this);
   return auth;
@@ -499,17 +500,17 @@ antlrcpp::Any CypherMainVisitor::visitCreateStream(
     MemgraphCypher::CreateStreamContext *ctx) {
   std::string stream_name(ctx->streamName()->getText());
   if (!ctx->streamUri->StringLiteral()) {
-    throw SyntaxException("Stream URI should be a string literal!");
+    throw SyntaxException("Stream URI should be a string literal.");
   }
   Expression *stream_uri = ctx->streamUri->accept(this);
 
   if (!ctx->streamTopic->StringLiteral()) {
-    throw SyntaxException("Topic should be a string literal!");
+    throw SyntaxException("Topic should be a string literal.");
   }
   Expression *stream_topic = ctx->streamTopic->accept(this);
 
   if (!ctx->transformUri->StringLiteral()) {
-    throw SyntaxException("Transform URI should be a string literal!");
+    throw SyntaxException("Transform URI should be a string literal.");
   }
   Expression *transform_uri = ctx->transformUri->accept(this);
 
@@ -535,7 +536,7 @@ antlrcpp::Any CypherMainVisitor::visitBatchIntervalOption(
     MemgraphCypher::BatchIntervalOptionContext *ctx) {
   if (!ctx->literal()->numberLiteral() ||
       !ctx->literal()->numberLiteral()->integerLiteral()) {
-    throw SyntaxException("Batch interval should be an integer literal!");
+    throw SyntaxException("Batch interval should be an integer.");
   }
   return ctx->literal()->accept(this);
 }
@@ -547,7 +548,7 @@ antlrcpp::Any CypherMainVisitor::visitBatchSizeOption(
     MemgraphCypher::BatchSizeOptionContext *ctx) {
   if (!ctx->literal()->numberLiteral() ||
       !ctx->literal()->numberLiteral()->integerLiteral()) {
-    throw SyntaxException("Batch size should be an integer literal!");
+    throw SyntaxException("Batch size should be an integer.");
   }
   return ctx->literal()->accept(this);
 }
@@ -579,7 +580,7 @@ antlrcpp::Any CypherMainVisitor::visitStartStopStream(
 
   if (ctx->limitBatchesOption()) {
     if (!is_start) {
-      throw SyntaxException("Stop stream clause can't set batch limit!");
+      throw SyntaxException("STOP STREAM can't set batch limit.");
     }
     limit_batches = ctx->limitBatchesOption()->accept(this);
   }
@@ -594,7 +595,7 @@ antlrcpp::Any CypherMainVisitor::visitLimitBatchesOption(
     MemgraphCypher::LimitBatchesOptionContext *ctx) {
   if (!ctx->literal()->numberLiteral() ||
       !ctx->literal()->numberLiteral()->integerLiteral()) {
-    throw SyntaxException("Batch limit should be an integer literal!");
+    throw SyntaxException("Batch limit should be an integer.");
   }
   return ctx->literal()->accept(this);
 }
@@ -673,7 +674,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(
         std::string(ctx->variable()->accept(this).as<std::string>());
   } else {
     if (in_with_ && !dynamic_cast<Identifier *>(named_expr->expression_)) {
-      throw SemanticException("Only variables can be non aliased in with");
+      throw SemanticException("Only variables can be non-aliased in WITH.");
     }
     named_expr->name_ = std::string(ctx->getText());
     named_expr->token_position_ =
@@ -752,7 +753,7 @@ antlrcpp::Any CypherMainVisitor::visitMapLiteral(
         ctx->propertyKeyName()[i]->accept(this);
     Expression *value = ctx->expression()[i]->accept(this);
     if (!map.insert({key, value}).second) {
-      throw SemanticException("Same key can't appear twice in map literal");
+      throw SemanticException("Same key can't appear twice in a map literal.");
     }
   }
   return map;
@@ -900,7 +901,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     if (relationshipDetail->total_weight &&
         edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
       throw SemanticException(
-          "Variable for total weight is allowed only in wShortest");
+          "Variable for total weight is allowed only with weighted shortest "
+          "path expansion.");
     auto visit_lambda = [this](auto *lambda) {
       EdgeAtom::Lambda edge_lambda;
       std::string traversed_edge_variable =
@@ -927,7 +929,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
       case 0:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
           throw SemanticException(
-              "Lambda for calculating weights is mandatory");
+              "Lambda for calculating weights is mandatory with weighted "
+              "shortest path expansion.");
         // In variable expansion inner variables are mandatory.
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);
         anonymous_identifiers.push_back(&edge->filter_lambda_.inner_node);
@@ -948,17 +951,17 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
         break;
       case 2:
         if (edge->type_ != EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
-          throw SemanticException("Only one relationship lambda allowed");
+          throw SemanticException("Only one filter lambda can be supplied.");
         edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
         visit_total_weight();
         edge->filter_lambda_ = visit_lambda(relationshipLambdas[1]);
         break;
       default:
-        throw SemanticException("Only one relationship lambda allowed");
+        throw SemanticException("Only one filter lambda can be supplied.");
     }
   } else if (!relationshipLambdas.empty()) {
     throw SemanticException(
-        "Relationship lambda only supported in variable length expansion");
+        "Filter lambda is only allowed in variable length expansion.");
   }
 
   auto properties = relationshipDetail->properties();
@@ -974,7 +977,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
       break;
     }
     default:
-      throw SemanticException("Only one property map supported in edge");
+      throw SemanticException(
+          "Only one property map can be supplied for edge.");
   }
 
   return edge;
@@ -1037,7 +1041,8 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(
     upper = ctx->expression()[1]->accept(this);
   }
   if (lower && edge_type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
-    throw SemanticException("Lower bound is not allowed in wShortest.");
+    throw SemanticException(
+        "Lower bound is not allowed in weighted shortest path expansion.");
 
   return std::make_tuple(edge_type, lower, upper);
 }
@@ -1301,7 +1306,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     Expression *list_expr =
         ctx->filterExpression()->idInColl()->expression()->accept(this);
     if (!ctx->filterExpression()->where()) {
-      throw SyntaxException("all(...) requires a WHERE predicate");
+      throw SyntaxException("ALL(...) requires a WHERE predicate.");
     }
     Where *where = ctx->filterExpression()->where()->accept(this);
     return static_cast<Expression *>(
@@ -1315,7 +1320,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     Expression *list_expr =
         ctx->filterExpression()->idInColl()->expression()->accept(this);
     if (!ctx->filterExpression()->where()) {
-      throw SyntaxException("single(...) requires a WHERE predicate");
+      throw SyntaxException("SINGLE(...) requires a WHERE predicate.");
     }
     Where *where = ctx->filterExpression()->where()->accept(this);
     return static_cast<Expression *>(

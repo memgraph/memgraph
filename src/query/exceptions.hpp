@@ -46,13 +46,13 @@ class SemanticException : public QueryException {
 class UnboundVariableError : public SemanticException {
  public:
   explicit UnboundVariableError(const std::string &name)
-      : SemanticException("Unbound variable: " + name) {}
+      : SemanticException("Unbound variable: " + name + ".") {}
 };
 
 class RedeclareVariableError : public SemanticException {
  public:
   explicit RedeclareVariableError(const std::string &name)
-      : SemanticException("Redeclaring variable: " + name) {}
+      : SemanticException("Redeclaring variable: " + name + ".") {}
 };
 
 class TypeMismatchError : public SemanticException {
@@ -60,7 +60,7 @@ class TypeMismatchError : public SemanticException {
   TypeMismatchError(const std::string &name, const std::string &datum,
                     const std::string &expected)
       : SemanticException(fmt::format(
-            "Type mismatch: '{}' already defined as '{}', but expected '{}'.",
+            "Type mismatch: {} already defined as {}, expected {}.",
             name, datum, expected)) {}
 };
 
@@ -74,7 +74,7 @@ class IndexInMulticommandTxException : public QueryException {
   using QueryException::QueryException;
   IndexInMulticommandTxException()
       : QueryException(
-            "Index creation not allowed in multicommand transactions") {}
+            "CREATE INDEX not allowed in multicommand transactions.") {}
 };
 
 /**
@@ -96,7 +96,7 @@ class HintedAbortError : public utils::BasicException {
       : utils::BasicException(
             "Transaction was asked to abort, most likely because it was "
             "executing longer than time specified by "
-            "--query-execution-time-sec flag") {}
+            "--query-execution-time-sec flag.") {}
 };
 
 class ReconstructionException : public QueryException {
@@ -111,7 +111,7 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
  public:
   RemoveAttachedVertexException()
       : QueryRuntimeException(
-            "Failed to remove vertex because of it's existing "
+            "Failed to remove node because of it's existing "
             "connections. Consider using DETACH DELETE.") {}
 };
 
@@ -119,14 +119,15 @@ class UserModificationInMulticommandTxException : public QueryException {
  public:
   UserModificationInMulticommandTxException()
       : QueryException(
-            "User modification not allowed in multicommand transactions") {}
+            "Authentication clause not allowed in multicommand transactions.") {
+  }
 };
 
 class StreamClauseInMulticommandTxException : public QueryException {
  public:
   StreamClauseInMulticommandTxException()
       : QueryException(
-            "Stream clause not allowed in multicommand transactions") {}
+            "Stream clause not allowed in multicommand transactions.") {}
 };
 
 }  // namespace query

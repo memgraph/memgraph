@@ -36,7 +36,7 @@
 
 - name: integration__auth
   cd: auth
-  commands: TIMEOUT=600 ./runner.py
+  commands: TIMEOUT=820 ./runner.py
   infiles:
     - runner.py # runner script
     - ../../../build_debug/memgraph # memgraph binary
