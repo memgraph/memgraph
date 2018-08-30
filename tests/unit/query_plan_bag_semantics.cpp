@@ -95,7 +95,7 @@ TEST(QueryPlan, CreateLimit) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto m = NODE("m");
   symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
-  auto c = std::make_shared<CreateNode>(n.op_, m, false);
+  auto c = std::make_shared<CreateNode>(n.op_, m);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
   EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));

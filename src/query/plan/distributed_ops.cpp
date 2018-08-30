@@ -29,6 +29,10 @@ DEFINE_HIDDEN_int32(remote_pull_sleep_micros, 10,
 
 namespace query::plan {
 
+// Create a vertex on this GraphDb and return it. Defined in operator.cpp
+VertexAccessor &CreateLocalVertex(NodeAtom *node_atom, Frame &frame,
+                                  Context &context);
+
 bool PullRemote::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   auto *distributed_visitor =
       dynamic_cast<DistributedOperatorVisitor *>(&visitor);
@@ -126,6 +130,41 @@ std::vector<Symbol> DistributedExpandBfs::ModifiedSymbols(
   return symbols;
 }
 
+DistributedCreateNode::DistributedCreateNode(
+    const std::shared_ptr<LogicalOperator> &input, NodeAtom *node_atom,
+    bool on_random_worker)
+    : input_(input),
+      node_atom_(node_atom),
+      on_random_worker_(on_random_worker) {}
+
+ACCEPT_WITH_INPUT(DistributedCreateNode);
+
+std::vector<Symbol> DistributedCreateNode::ModifiedSymbols(
+    const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(table.at(*node_atom_->identifier_));
+  return symbols;
+}
+
+DistributedCreateExpand::DistributedCreateExpand(
+    NodeAtom *node_atom, EdgeAtom *edge_atom,
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    bool existing_node)
+    : node_atom_(node_atom),
+      edge_atom_(edge_atom),
+      input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      existing_node_(existing_node) {}
+
+ACCEPT_WITH_INPUT(DistributedCreateExpand);
+
+std::vector<Symbol> DistributedCreateExpand::ModifiedSymbols(
+    const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(table.at(*node_atom_->identifier_));
+  symbols.emplace_back(table.at(*edge_atom_->identifier_));
+  return symbols;
+}
 //////////////////////////////////////////////////////////////////////
 // Cursors
 //////////////////////////////////////////////////////////////////////
@@ -866,7 +905,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   const DistributedExpandBfs &self_;
   database::GraphDbAccessor &db_;
   distributed::BfsRpcClients *bfs_subcursor_clients_{nullptr};
-  const std::unique_ptr<query::plan::Cursor> input_cursor_;
+  std::unique_ptr<query::plan::Cursor> input_cursor_;
 
   // Depth bounds. Calculated on each pull from the input, the initial value
   // is irrelevant.
@@ -885,6 +924,167 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
   // Next worker master should try pulling from.
   std::unordered_map<int16_t, int64_t>::iterator pull_pos_;
+};
+
+// Returns a random worker id. Worker ID is obtained from the Db.
+int RandomWorkerId(const database::DistributedGraphDb &db) {
+  thread_local std::mt19937 gen_{std::random_device{}()};
+  thread_local std::uniform_int_distribution<int> rand_;
+
+  auto worker_ids = db.GetWorkerIds();
+  return worker_ids[rand_(gen_) % worker_ids.size()];
+}
+
+// Creates a vertex on the GraphDb with the given worker_id. Can be this worker.
+VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
+                                     Frame &frame, Context &context) {
+  auto &dba = context.db_accessor_;
+
+  int current_worker_id = 0;
+  // TODO: Figure out a better solution.
+  if (auto *distributed_db =
+          dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
+    current_worker_id = distributed_db->WorkerId();
+  } else {
+    CHECK(dynamic_cast<database::SingleNode *>(&dba.db()));
+  }
+
+  if (worker_id == current_worker_id)
+    return CreateLocalVertex(node_atom, frame, context);
+
+  std::unordered_map<storage::Property, query::TypedValue> properties;
+
+  // Evaluator should use the latest accessors, as modified in this query, when
+  // setting properties on new nodes.
+  ExpressionEvaluator evaluator(frame, &context, GraphView::NEW);
+  for (auto &kv : node_atom->properties_) {
+    auto value = kv.second->Accept(evaluator);
+    if (!value.IsPropertyValue()) {
+      throw QueryRuntimeException("'{}' cannot be used as a property value.",
+                                  value.type());
+    }
+    properties.emplace(kv.first.second, std::move(value));
+  }
+
+  auto new_node = database::InsertVertexIntoRemote(
+      &dba, worker_id, node_atom->labels_, properties);
+  frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
+  return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
+}
+
+class DistributedCreateNodeCursor : public query::plan::Cursor {
+ public:
+  DistributedCreateNodeCursor(const DistributedCreateNode *self,
+                              database::GraphDbAccessor *dba)
+      : input_cursor_(self->input()->MakeCursor(*dba)),
+        // TODO: Replace this with some other mechanism
+        db_(dynamic_cast<database::DistributedGraphDb *>(&dba->db())),
+        node_atom_(self->node_atom()),
+        on_random_worker_(self->on_random_worker()) {
+    CHECK(db_);
+    CHECK(node_atom_);
+  }
+
+  bool Pull(Frame &frame, Context &context) {
+    if (input_cursor_->Pull(frame, context)) {
+      if (on_random_worker_) {
+        CreateVertexOnWorker(RandomWorkerId(*db_), node_atom_, frame, context);
+      } else {
+        CreateLocalVertex(node_atom_, frame, context);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  void Reset() { input_cursor_->Reset(); }
+
+ private:
+  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  database::DistributedGraphDb *db_{nullptr};
+  NodeAtom *node_atom_{nullptr};
+  bool on_random_worker_{false};
+};
+
+class DistributedCreateExpandCursor : public query::plan::Cursor {
+ public:
+  DistributedCreateExpandCursor(const DistributedCreateExpand *self,
+                                database::GraphDbAccessor *dba)
+      : input_cursor_(self->input()->MakeCursor(*dba)),
+        self_(self),
+        // TODO: Replace this with some other mechanism
+        db_(dynamic_cast<database::DistributedGraphDb *>(&dba->db())) {
+    CHECK(db_);
+  }
+
+  bool Pull(Frame &frame, Context &context) {
+    if (!input_cursor_->Pull(frame, context)) return false;
+
+    // get the origin vertex
+    TypedValue &vertex_value = frame[self_->input_symbol()];
+    ExpectType(self_->input_symbol(), vertex_value, TypedValue::Type::Vertex);
+    auto &v1 = vertex_value.Value<VertexAccessor>();
+
+    // Similarly to CreateNode, newly created edges and nodes should use the
+    // latest accesors.
+    ExpressionEvaluator evaluator(frame, &context, GraphView::NEW);
+    // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
+    v1.SwitchNew();
+
+    // get the destination vertex (possibly an existing node)
+    auto &v2 = OtherVertex(v1.GlobalAddress().worker_id(), frame, context);
+    v2.SwitchNew();
+
+    auto *dba = &context.db_accessor_;
+    // create an edge between the two nodes
+    switch (self_->edge_atom()->direction_) {
+      case EdgeAtom::Direction::IN:
+        CreateEdge(&v2, &v1, &frame, context.symbol_table_, &evaluator, dba);
+        break;
+      case EdgeAtom::Direction::OUT:
+        CreateEdge(&v1, &v2, &frame, context.symbol_table_, &evaluator, dba);
+        break;
+      case EdgeAtom::Direction::BOTH:
+        // in the case of an undirected CreateExpand we choose an arbitrary
+        // direction. this is used in the MERGE clause
+        // it is not allowed in the CREATE clause, and the semantic
+        // checker needs to ensure it doesn't reach this point
+        CreateEdge(&v1, &v2, &frame, context.symbol_table_, &evaluator, dba);
+    }
+
+    return true;
+  }
+
+  void Reset() { input_cursor_->Reset(); }
+
+  VertexAccessor &OtherVertex(int worker_id, Frame &frame, Context &context) {
+    if (self_->existing_node()) {
+      const auto &dest_node_symbol =
+          context.symbol_table_.at(*self_->node_atom()->identifier_);
+      TypedValue &dest_node_value = frame[dest_node_symbol];
+      ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
+      return dest_node_value.Value<VertexAccessor>();
+    } else {
+      return CreateVertexOnWorker(worker_id, self_->node_atom(), frame,
+                                  context);
+    }
+  }
+
+  void CreateEdge(VertexAccessor *from, VertexAccessor *to, Frame *frame,
+                  const SymbolTable &symbol_table,
+                  ExpressionEvaluator *evaluator,
+                  database::GraphDbAccessor *dba) {
+    EdgeAccessor edge =
+        dba->InsertEdge(*from, *to, self_->edge_atom()->edge_types_[0]);
+    for (auto kv : self_->edge_atom()->properties_)
+      PropsSetChecked(&edge, kv.first.second, kv.second->Accept(*evaluator));
+    (*frame)[symbol_table.at(*self_->edge_atom()->identifier_)] = edge;
+  }
+
+ private:
+  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  const DistributedCreateExpand *self_{nullptr};
+  database::DistributedGraphDb *db_{nullptr};
 };
 
 }  // namespace
@@ -907,6 +1107,16 @@ std::unique_ptr<Cursor> PullRemoteOrderBy::MakeCursor(
 std::unique_ptr<Cursor> DistributedExpandBfs::MakeCursor(
     database::GraphDbAccessor &db) const {
   return std::make_unique<DistributedExpandBfsCursor>(*this, db);
+}
+
+std::unique_ptr<Cursor> DistributedCreateNode::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<DistributedCreateNodeCursor>(this, &db);
+}
+
+std::unique_ptr<Cursor> DistributedCreateExpand::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<DistributedCreateExpandCursor>(this, &db);
 }
 
 }  // namespace query::plan

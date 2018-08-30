@@ -266,6 +266,9 @@ class PlanPrinter final : public DistributedOperatorVisitor {
     --depth_;
     return true;
   }
+
+  PRE_VISIT(DistributedCreateNode);
+  PRE_VISIT(DistributedCreateExpand);
 #undef PRE_VISIT
 
  private:

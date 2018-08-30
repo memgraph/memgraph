@@ -132,6 +132,8 @@ class PlanChecker : public DistributedOperatorVisitor {
 
   PRE_VISIT(PullRemoteOrderBy);
   PRE_VISIT(DistributedExpandBfs);
+  PRE_VISIT(DistributedCreateNode);
+  PRE_VISIT(DistributedCreateExpand);
 
   VISIT(AuthHandler);
 
@@ -171,6 +173,7 @@ class OpChecker : public BaseOpChecker {
   virtual void ExpectOp(TOp &, const SymbolTable &) {}
 };
 
+using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
@@ -194,6 +197,7 @@ using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
 using ExpectShowStreams = OpChecker<ShowStreams>;
 using ExpectDistributedExpandBfs = OpChecker<DistributedExpandBfs>;
+using ExpectDistributedCreateExpand = OpChecker<DistributedCreateExpand>;
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
  public:
@@ -487,12 +491,12 @@ class ExpectCartesian : public OpChecker<Cartesian> {
   const std::list<std::unique_ptr<BaseOpChecker>> &right_;
 };
 
-class ExpectCreateNode : public OpChecker<CreateNode> {
+class ExpectDistributedCreateNode : public OpChecker<DistributedCreateNode> {
  public:
-  ExpectCreateNode(bool on_random_worker = false)
+  ExpectDistributedCreateNode(bool on_random_worker = false)
       : on_random_worker_(on_random_worker) {}
 
-  void ExpectOp(CreateNode &op, const SymbolTable &) override {
+  void ExpectOp(DistributedCreateNode &op, const SymbolTable &) override {
     EXPECT_EQ(op.on_random_worker(), on_random_worker_);
   }
 
@@ -940,8 +944,9 @@ TYPED_TEST(TestPlanner, CreateNodeReturn) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc,
             ExpectProduce());
   {
-    auto expected = ExpectDistributed(MakeCheckers(
-        ExpectCreateNode(true), ExpectSynchronize(false), ExpectProduce()));
+    auto expected = ExpectDistributed(
+        MakeCheckers(ExpectDistributedCreateNode(true),
+                     ExpectSynchronize(false), ExpectProduce()));
     std::atomic<int64_t> next_plan_id{0};
     auto distributed_plan =
         MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
@@ -958,8 +963,8 @@ TYPED_TEST(TestPlanner, CreateExpand) {
       NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectSynchronize(false)),
+      MakeCheckers(ExpectDistributedCreateNode(true),
+                   ExpectDistributedCreateExpand(), ExpectSynchronize(false)),
       {}};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -970,8 +975,8 @@ TYPED_TEST(TestPlanner, CreateMultipleNode) {
   QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateNode());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateNode(true),
-                   ExpectSynchronize(false)),
+      MakeCheckers(ExpectDistributedCreateNode(true),
+                   ExpectDistributedCreateNode(true), ExpectSynchronize(false)),
       {}};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -987,8 +992,9 @@ TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectCreateNode());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectCreateNode(true), ExpectSynchronize(false)),
+      MakeCheckers(ExpectDistributedCreateNode(true),
+                   ExpectDistributedCreateExpand(),
+                   ExpectDistributedCreateNode(true), ExpectSynchronize(false)),
       {}};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -1003,8 +1009,9 @@ TYPED_TEST(TestPlanner, CreateNamedPattern) {
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectConstructNamedPath());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectConstructNamedPath(), ExpectSynchronize(false)),
+      MakeCheckers(ExpectDistributedCreateNode(true),
+                   ExpectDistributedCreateExpand(), ExpectConstructNamedPath(),
+                   ExpectSynchronize(false)),
       {}};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -1020,8 +1027,9 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
                      NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectCreateExpand());
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectCreateExpand(), ExpectSynchronize()),
-      MakeCheckers(ExpectScanAll(), ExpectCreateExpand()));
+      MakeCheckers(ExpectScanAll(), ExpectDistributedCreateExpand(),
+                   ExpectSynchronize()),
+      MakeCheckers(ExpectScanAll(), ExpectDistributedCreateExpand()));
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
@@ -1365,8 +1373,9 @@ TYPED_TEST(TestPlanner, CreateMultiExpand) {
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectCreateExpand());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectCreateExpand(), ExpectSynchronize(false)),
+      MakeCheckers(ExpectDistributedCreateNode(true),
+                   ExpectDistributedCreateExpand(),
+                   ExpectDistributedCreateExpand(), ExpectSynchronize(false)),
       {}};
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
@@ -1449,9 +1458,10 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectProduce(),
                        ExpectCreateExpand());
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectCreateExpand(),
-                   ExpectSynchronize()),
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectCreateExpand()));
+      MakeCheckers(ExpectScanAll(), ExpectProduce(),
+                   ExpectDistributedCreateExpand(), ExpectSynchronize()),
+      MakeCheckers(ExpectScanAll(), ExpectProduce(),
+                   ExpectDistributedCreateExpand()));
   CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
@@ -1493,7 +1503,7 @@ TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc,
             ExpectProduce(), ExpectSkip(), ExpectProduce(), ExpectLimit());
   ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectSynchronize(true),
+      MakeCheckers(ExpectDistributedCreateNode(true), ExpectSynchronize(true),
                    ExpectProduce(), ExpectSkip(), ExpectProduce(),
                    ExpectLimit()),
       {}};
@@ -1571,9 +1581,10 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(),
             ExpectCreateExpand(), acc, ExpectProduce(), ExpectOrderBy(),
             ExpectFilter());
-  auto expected = ExpectDistributed(MakeCheckers(
-      ExpectCreateNode(true), ExpectCreateExpand(), ExpectSynchronize(true),
-      ExpectProduce(), ExpectOrderBy(), ExpectFilter()));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectDistributedCreateNode(true),
+                   ExpectDistributedCreateExpand(), ExpectSynchronize(true),
+                   ExpectProduce(), ExpectOrderBy(), ExpectFilter()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -2603,10 +2614,10 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode(),
+      MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode(),
                    ExpectSynchronize({symbol_table.at(*ident_m)}),
                    ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode()));
+      MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -2630,8 +2641,9 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateExpand) {
       MakeCheckers(ExpectScanAll(),
                    ExpectPullRemote({symbol_table.at(*node_b->identifier_)}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectCreateExpand(),
-                   ExpectSynchronize(false), ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart),
+                   ExpectDistributedCreateExpand(), ExpectSynchronize(false),
+                   ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
@@ -3003,14 +3015,14 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto left_cart =
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode(),
+      MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode(),
                    ExpectSynchronize({sym_b}, true), ExpectProduce());
   auto sym_c = symbol_table.at(*node_c->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectCartesian(left_cart, right_cart),
-                   ExpectCreateNode(true), ExpectSynchronize(false)),
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode()),
+                   ExpectDistributedCreateNode(true), ExpectSynchronize(false)),
+      MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode()),
       MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);

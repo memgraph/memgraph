@@ -16,10 +16,13 @@ class PullRemote;
 class Synchronize;
 class PullRemoteOrderBy;
 class DistributedExpandBfs;
+class DistributedCreateNode;
+class DistributedCreateExpand;
 
 using DistributedOperatorCompositeVisitor =
     ::utils::CompositeVisitor<PullRemote, Synchronize, PullRemoteOrderBy,
-                              DistributedExpandBfs>;
+                              DistributedExpandBfs, DistributedCreateNode,
+                              DistributedCreateExpand>;
 
 /// Base class for visiting regular and distributed LogicalOperator instances.
 class DistributedOperatorVisitor : public HierarchicalLogicalOperatorVisitor,
@@ -210,6 +213,66 @@ by having only one result from each worker.")
    cpp<#)
   (:private #>cpp DistributedExpandBfs() {} cpp<#)
   (:serialize :capnp :inherit-compose '(expand-common)))
+
+(lcp:define-class distributed-create-node (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (node-atom "NodeAtom *" :initval "nullptr" :reader t
+              :capnp-type "Ast.Tree" :capnp-init nil
+              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
+   (on-random-worker :bool :initval "false" :reader t))
+  (:documentation "Create nodes in distributed environment.")
+  (:public
+   #>cpp
+   DistributedCreateNode(const std::shared_ptr<LogicalOperator> &input,
+                         NodeAtom *node_atom, bool on_random_worker);
+
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:private #>cpp DistributedCreateNode() {} cpp<#)
+  (:serialize :capnp))
+
+(lcp:define-class distributed-create-expand (logical-operator)
+  ((node-atom "NodeAtom *" :reader t
+              :capnp-type "Ast.Tree" :capnp-init nil
+              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
+   (edge-atom "EdgeAtom *" :reader t
+              :capnp-type "Ast.Tree" :capnp-init nil
+              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "EdgeAtom *"))
+   (input "std::shared_ptr<LogicalOperator>"
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (input-symbol "Symbol" :reader t)
+   (existing-node :bool :reader t))
+  (:documentation "Distributed version of CreateExpand")
+  (:public
+   #>cpp
+   DistributedCreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
+                           const std::shared_ptr<LogicalOperator> &input,
+                           Symbol input_symbol, bool existing_node);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:private #>cpp DistributedCreateExpand() {} cpp<#)
+  (:serialize :capnp))
 
 (lcp:pop-namespace)
 (lcp:pop-namespace)

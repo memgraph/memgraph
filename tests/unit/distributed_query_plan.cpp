@@ -263,7 +263,8 @@ TEST_F(DistributedQueryPlan, Create) {
   auto node = NODE("n");
   ctx.symbol_table_[*node->identifier_] =
       ctx.symbol_table_.CreateSymbol("n", true);
-  auto create = std::make_shared<query::plan::CreateNode>(unwind, node, true);
+  auto create =
+      std::make_shared<query::plan::DistributedCreateNode>(unwind, node, true);
   PullAll(create, *dba, ctx.symbol_table_);
   dba->Commit();
 

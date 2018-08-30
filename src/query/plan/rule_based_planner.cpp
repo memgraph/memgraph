@@ -645,7 +645,7 @@ std::unique_ptr<LogicalOperator> GenCreateForPattern(
     std::unordered_set<Symbol> &bound_symbols) {
   auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
     if (bound_symbols.insert(symbol_table.at(*node->identifier_)).second)
-      return std::make_unique<CreateNode>(std::move(input_op), node, false);
+      return std::make_unique<CreateNode>(std::move(input_op), node);
     else
       return std::move(input_op);
   };

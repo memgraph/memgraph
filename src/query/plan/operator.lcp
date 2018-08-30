@@ -331,8 +331,7 @@ and false on every following Pull.")
           :capnp-load #'load-operator-pointer)
    (node-atom "NodeAtom *" :initval "nullptr" :reader t
               :capnp-type "Ast.Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
-   (on-random-worker :bool :initval "false"))
+              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *")))
   (:documentation
    "Operator for creating a node.
 
@@ -352,8 +351,7 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
     * @param on_random_worker If the node should be created locally or on random
     * worker.
     */
-   CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeAtom *node_atom,
-              bool on_random_worker);
+   CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeAtom *node_atom);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
@@ -364,9 +362,6 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    void set_input(std::shared_ptr<LogicalOperator> input) override {
      input_ = input;
    }
-
-   auto on_random_worker() const { return on_random_worker_; }
-   void set_on_random_worker(bool v) { on_random_worker_ = v; }
    cpp<#)
   (:private
    #>cpp
@@ -380,7 +375,6 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
 
     private:
      const CreateNode &self_;
-     database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
@@ -401,7 +395,7 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :reader t)
-   (existing-node :bool :documentation
+   (existing-node :bool :reader t :documentation
                   "if the given node atom refers to an existing node (either matched or created)"))
   (:documentation
    "Operator for creating edges and destination nodes.
@@ -459,9 +453,8 @@ chained in cases when longer paths need creating.
      database::GraphDbAccessor &db_;
      const std::unique_ptr<Cursor> input_cursor_;
 
-     /** Gets the existing node (if existing_node_ == true), or creates a new
-      * node (on the given worker) and returns it. */
-     VertexAccessor &OtherVertex(int worker_id, Frame &frame, Context &context);
+     // Get the existing node (if existing_node_ == true), or create a new node
+     VertexAccessor &OtherVertex(Frame &frame, Context &context);
 
      /**
       * Helper function for creating an edge and adding it

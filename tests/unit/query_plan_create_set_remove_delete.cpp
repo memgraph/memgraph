@@ -32,7 +32,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   node->labels_.emplace_back(label);
   node->properties_[property] = LITERAL(42);
 
-  auto create = std::make_shared<CreateNode>(nullptr, node, false);
+  auto create = std::make_shared<CreateNode>(nullptr, node);
   PullAll(create, dba, symbol_table);
   dba.AdvanceCommand();
 
@@ -68,7 +68,7 @@ TEST(QueryPlan, CreateReturn) {
   node->labels_.emplace_back(label);
   node->properties_[property] = LITERAL(42);
 
-  auto create = std::make_shared<CreateNode>(nullptr, node, false);
+  auto create = std::make_shared<CreateNode>(nullptr, node);
   auto named_expr_n = NEXPR("n", IDENT("n"));
   symbol_table[*named_expr_n] = symbol_table.CreateSymbol("named_expr_n", true);
   symbol_table[*named_expr_n->expression_] = sym_n;
@@ -132,7 +132,7 @@ TEST(QueryPlan, CreateExpand) {
     r->edge_types_.emplace_back(edge_type);
     r->properties_[property] = LITERAL(3);
 
-    auto create_op = std::make_shared<CreateNode>(nullptr, n, false);
+    auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand =
         std::make_shared<CreateExpand>(m, r, create_op, n_sym, cycle);
     PullAll(create_expand, dba, symbol_table);
@@ -187,7 +187,7 @@ TEST(QueryPlan, MatchCreateNode) {
   auto m = NODE("m");
   symbol_table[*m->identifier_] = symbol_table.CreateSymbol("m", true);
   // creation op
-  auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m, false);
+  auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
 
   EXPECT_EQ(CountIterable(dba->Vertices(false)), 3);
   PullAll(create_node, *dba, symbol_table);
@@ -858,7 +858,7 @@ TEST(QueryPlan, MergeNoInput) {
   auto node = NODE("n");
   auto sym_n = symbol_table.CreateSymbol("n", true);
   symbol_table[*node->identifier_] = sym_n;
-  auto create = std::make_shared<CreateNode>(nullptr, node, false);
+  auto create = std::make_shared<CreateNode>(nullptr, node);
   auto merge = std::make_shared<plan::Merge>(nullptr, create, create);
 
   EXPECT_EQ(0, CountIterable(dba->Vertices(false)));

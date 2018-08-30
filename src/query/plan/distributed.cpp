@@ -478,11 +478,11 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   // symbols. This is the case when we are planning *another* Cartesian after
   // Produce.
 
-  bool PreVisit(CreateNode &op) override {
+  bool PreVisit(DistributedCreateNode &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
-  bool PostVisit(CreateNode &op) override {
+  bool PostVisit(DistributedCreateNode &op) override {
     prev_ops_.pop_back();
     CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom()->identifier_))));
     for (auto &kv : op.node_atom()->properties_) {
@@ -493,11 +493,11 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(CreateExpand &op) override {
+  bool PreVisit(DistributedCreateExpand &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
-  bool PostVisit(CreateExpand &op) override {
+  bool PostVisit(DistributedCreateExpand &op) override {
     prev_ops_.pop_back();
     CHECK(!FindForbidden(op.input_symbol()));
     CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom()->identifier_))));
@@ -1490,9 +1490,13 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     }
     // Creation needs to be modified if running on master, so as to distribute
     // node creation to workers.
-    if (!ShouldSplit()) {
-      op.set_on_random_worker(true);
-    }
+    bool create_on_random_worker = !ShouldSplit();
+    auto distributed_create = std::make_unique<DistributedCreateNode>(
+        op.input(), op.node_atom(), create_on_random_worker);
+    if (prev_ops_.empty())
+      distributed_plan_.master_plan = std::move(distributed_create);
+    else
+      SetOnPrevious(std::move(distributed_create));
     needs_synchronize_ = true;
     return true;
   }
@@ -1506,6 +1510,13 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     if (!cartesian_branches_.empty()) {
       Split(op, PlanCartesian(op.input()));
     }
+    auto distributed_create = std::make_unique<DistributedCreateExpand>(
+        op.node_atom(), op.edge_atom(), op.input(), op.input_symbol(),
+        op.existing_node());
+    if (prev_ops_.empty())
+      distributed_plan_.master_plan = std::move(distributed_create);
+    else
+      SetOnPrevious(std::move(distributed_create));
     needs_synchronize_ = true;
     return true;
   }
@@ -1652,10 +1663,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
 
   void SetOnPrevious(std::unique_ptr<LogicalOperator> input_op) {
-    auto *prev_op = prev_ops_.back();
-    CHECK(prev_op)
+    CHECK(!prev_ops_.empty())
         << "SetOnPrevious should only be called when there is a previously "
            "visited operation";
+    auto *prev_op = prev_ops_.back();
     if (!prev_op->HasSingleInput())
       throw utils::NotYetImplemented("distributed planning");
     prev_op->set_input(std::move(input_op));

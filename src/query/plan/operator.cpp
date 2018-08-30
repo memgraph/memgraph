@@ -15,7 +15,6 @@
 
 #include "auth/auth.hpp"
 #include "communication/result_stream_faker.hpp"
-#include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "glue/auth.hpp"
 #include "glue/communication.hpp"
@@ -60,31 +59,6 @@ namespace query::plan {
 
 namespace {
 
-// Sets a property on a record accessor from a TypedValue. In cases when the
-// TypedValue cannot be converted to PropertyValue,
-// QueryRuntimeException is raised.
-template <class TRecordAccessor>
-void PropsSetChecked(TRecordAccessor &record, storage::Property key,
-                     TypedValue value) {
-  try {
-    record.PropsSet(key, value);
-  } catch (const TypedValueException &) {
-    throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                value.type());
-  } catch (const RecordDeletedError &) {
-    throw QueryRuntimeException(
-        "Trying to set properties on a deleted graph element.");
-  }
-}
-
-// Checks if the given value of the symbol has the expected type. If not, raises
-// QueryRuntimeException.
-void ExpectType(Symbol symbol, TypedValue value, TypedValue::Type expected) {
-  if (value.type() != expected)
-    throw QueryRuntimeException("Expected a {} for '{}', but got {}.", expected,
-                                symbol.name(), value.type());
-}
-
 // Returns boolean result of evaluating filter expression. Null is treated as
 // false. Other non boolean values raise a QueryRuntimeException.
 bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
@@ -117,21 +91,8 @@ WITHOUT_SINGLE_INPUT(Once);
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input,
-                       NodeAtom *node_atom, bool on_random_worker)
-    : input_(input ? input : std::make_shared<Once>()),
-      node_atom_(node_atom),
-      on_random_worker_(on_random_worker) {}
-
-namespace {
-
-// Returns a random worker id. Worker ID is obtained from the Db.
-int RandomWorkerId(const database::DistributedGraphDb &db) {
-  thread_local std::mt19937 gen_{std::random_device{}()};
-  thread_local std::uniform_int_distribution<int> rand_;
-
-  auto worker_ids = db.GetWorkerIds();
-  return worker_ids[rand_(gen_) % worker_ids.size()];
-}
+                       NodeAtom *node_atom)
+    : input_(input ? input : std::make_shared<Once>()), node_atom_(node_atom) {}
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
@@ -145,49 +106,10 @@ VertexAccessor &CreateLocalVertex(NodeAtom *node_atom, Frame &frame,
   // setting properties on new nodes.
   ExpressionEvaluator evaluator(frame, &context, GraphView::NEW);
   for (auto &kv : node_atom->properties_)
-    PropsSetChecked(new_node, kv.first.second, kv.second->Accept(evaluator));
+    PropsSetChecked(&new_node, kv.first.second, kv.second->Accept(evaluator));
   frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
   return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
 }
-
-// Creates a vertex on the GraphDb with the given worker_id. Can be this worker.
-VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
-                                     Frame &frame, Context &context) {
-  auto &dba = context.db_accessor_;
-
-  int current_worker_id = 0;
-  // TODO: Figure out a better solution.
-  if (auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
-    current_worker_id = distributed_db->WorkerId();
-  } else {
-    CHECK(dynamic_cast<database::SingleNode *>(&dba.db()));
-  }
-
-  if (worker_id == current_worker_id)
-    return CreateLocalVertex(node_atom, frame, context);
-
-  std::unordered_map<storage::Property, query::TypedValue> properties;
-
-  // Evaluator should use the latest accessors, as modified in this query, when
-  // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, &context, GraphView::NEW);
-  for (auto &kv : node_atom->properties_) {
-    auto value = kv.second->Accept(evaluator);
-    if (!value.IsPropertyValue()) {
-      throw QueryRuntimeException("'{}' cannot be used as a property value.",
-                                  value.type());
-    }
-    properties.emplace(kv.first.second, std::move(value));
-  }
-
-  auto new_node = database::InsertVertexIntoRemote(
-      &dba, worker_id, node_atom->labels_, properties);
-  frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
-  return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
-}
-
-}  // namespace
 
 ACCEPT_WITH_INPUT(CreateNode)
 
@@ -205,20 +127,11 @@ std::vector<Symbol> CreateNode::ModifiedSymbols(
 
 CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self,
                                                database::GraphDbAccessor &db)
-    : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
+    : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
   if (input_cursor_->Pull(frame, context)) {
-    if (self_.on_random_worker_) {
-      // TODO: Replace this with some other mechanism
-      auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(&db_.db());
-      CHECK(distributed_db);
-      CreateVertexOnWorker(RandomWorkerId(*distributed_db), self_.node_atom_,
-                           frame, context);
-    } else {
-      CreateLocalVertex(self_.node_atom_, frame, context);
-    }
+    CreateLocalVertex(self_.node_atom_, frame, context);
     return true;
   }
   return false;
@@ -261,6 +174,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
   TypedValue &vertex_value = frame[self_.input_symbol_];
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &v1 = vertex_value.Value<VertexAccessor>();
+  CHECK(v1.GlobalAddress().worker_id() == 0 && v1.is_local())
+      << "Expected CreateExpand only in single node execution";
 
   // Similarly to CreateNode, newly created edges and nodes should use the
   // latest accesors.
@@ -269,7 +184,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
   v1.SwitchNew();
 
   // get the destination vertex (possibly an existing node)
-  auto &v2 = OtherVertex(v1.GlobalAddress().worker_id(), frame, context);
+  auto &v2 = OtherVertex(frame, context);
   v2.SwitchNew();
 
   // create an edge between the two nodes
@@ -294,7 +209,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
 void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 
 VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
-    int worker_id, Frame &frame, Context &context) {
+    Frame &frame, Context &context) {
   if (self_.existing_node_) {
     const auto &dest_node_symbol =
         context.symbol_table_.at(*self_.node_atom_->identifier_);
@@ -302,7 +217,7 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.Value<VertexAccessor>();
   } else {
-    return CreateVertexOnWorker(worker_id, self_.node_atom_, frame, context);
+    return CreateLocalVertex(self_.node_atom(), frame, context);
   }
 }
 
@@ -312,7 +227,7 @@ void CreateExpand::CreateExpandCursor::CreateEdge(
   EdgeAccessor edge =
       db_.InsertEdge(from, to, self_.edge_atom_->edge_types_[0]);
   for (auto kv : self_.edge_atom_->properties_)
-    PropsSetChecked(edge, kv.first.second, kv.second->Accept(evaluator));
+    PropsSetChecked(&edge, kv.first.second, kv.second->Accept(evaluator));
   frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
 }
 
@@ -1918,10 +1833,10 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      PropsSetChecked(lhs.Value<VertexAccessor>(), self_.lhs_->property_, rhs);
+      PropsSetChecked(&lhs.Value<VertexAccessor>(), self_.lhs_->property_, rhs);
       break;
     case TypedValue::Type::Edge:
-      PropsSetChecked(lhs.Value<EdgeAccessor>(), self_.lhs_->property_, rhs);
+      PropsSetChecked(&lhs.Value<EdgeAccessor>(), self_.lhs_->property_, rhs);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
@@ -2021,7 +1936,7 @@ void SetProperties::SetPropertiesCursor::Set(TRecordAccessor &record,
       break;
     case TypedValue::Type::Map: {
       for (const auto &kv : rhs.Value<std::map<std::string, TypedValue>>())
-        PropsSetChecked(record, db_.Property(kv.first), kv.second);
+        PropsSetChecked(&record, db_.Property(kv.first), kv.second);
       break;
     }
     default:
