@@ -108,6 +108,16 @@ std::vector<Symbol> PullRemoteOrderBy::ModifiedSymbols(
   return input_->ModifiedSymbols(table);
 }
 
+ACCEPT_WITH_INPUT(DistributedExpand);
+
+std::vector<Symbol> DistributedExpand::ModifiedSymbols(
+    const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.emplace_back(node_symbol());
+  symbols.emplace_back(edge_symbol());
+  return symbols;
+}
+
 DistributedExpandBfs::DistributedExpandBfs(
     Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
     const std::vector<storage::EdgeType> &edge_types,
@@ -165,6 +175,7 @@ std::vector<Symbol> DistributedCreateExpand::ModifiedSymbols(
   symbols.emplace_back(table.at(*edge_atom_->identifier_));
   return symbols;
 }
+
 //////////////////////////////////////////////////////////////////////
 // Cursors
 //////////////////////////////////////////////////////////////////////
@@ -749,6 +760,220 @@ class PullRemoteOrderByCursor : public Cursor {
   bool merge_initialized_ = false;
 };
 
+class DistributedExpandCursor : public query::plan::Cursor {
+ public:
+  DistributedExpandCursor(const DistributedExpand *self,
+                          database::GraphDbAccessor *db)
+      : input_cursor_(self->input()->MakeCursor(*db)), self_(self) {}
+
+  bool Pull(Frame &frame, Context &context) {
+    // A helper function for expanding a node from an edge.
+    auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
+                                    EdgeAtom::Direction direction) {
+      if (self_->existing_node()) return;
+      switch (direction) {
+        case EdgeAtom::Direction::IN:
+          frame[self_->node_symbol()] = new_edge.from();
+          break;
+        case EdgeAtom::Direction::OUT:
+          frame[self_->node_symbol()] = new_edge.to();
+          break;
+        case EdgeAtom::Direction::BOTH:
+          LOG(FATAL) << "Must indicate exact expansion direction here";
+      }
+    };
+
+    auto push_future_edge = [this, &frame](auto edge, auto direction) {
+      auto edge_to = std::async(std::launch::async, [edge, direction]() {
+        if (direction == EdgeAtom::Direction::IN)
+          return std::make_pair(edge, edge.from());
+        if (direction == EdgeAtom::Direction::OUT)
+          return std::make_pair(edge, edge.to());
+        LOG(FATAL) << "Must indicate exact expansion direction here";
+      });
+      future_expands_.emplace_back(
+          FutureExpand{utils::make_future(std::move(edge_to)), frame.elems()});
+    };
+
+    auto find_ready_future = [this]() {
+      return std::find_if(
+          future_expands_.begin(), future_expands_.end(),
+          [](const auto &future) { return future.edge_to.IsReady(); });
+    };
+
+    auto put_future_edge_on_frame = [this, &frame](auto &future) {
+      auto edge_to = future.edge_to.get();
+      frame.elems() = future.frame_elems;
+      frame[self_->edge_symbol()] = edge_to.first;
+      frame[self_->node_symbol()] = edge_to.second;
+    };
+
+    while (true) {
+      if (context.db_accessor_.should_abort()) throw HintedAbortError();
+      // Try to get any remote edges we may have available first. If we yielded
+      // all of the local edges first, we may accumulate large amounts of future
+      // edges.
+      {
+        auto future_it = find_ready_future();
+        if (future_it != future_expands_.end()) {
+          // Backup the current frame (if we haven't done so already) before
+          // putting the future edge.
+          if (last_frame_.empty()) last_frame_ = frame.elems();
+          put_future_edge_on_frame(*future_it);
+          // Erase the future and return true to yield the result.
+          future_expands_.erase(future_it);
+          return true;
+        }
+      }
+      // In case we have replaced the frame with the one for a future edge,
+      // restore it.
+      if (!last_frame_.empty()) {
+        frame.elems() = last_frame_;
+        last_frame_.clear();
+      }
+      // attempt to get a value from the incoming edges
+      if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
+        auto edge = *(*in_edges_it_)++;
+        if (edge.address().is_local() || self_->existing_node()) {
+          frame[self_->edge_symbol()] = edge;
+          pull_node(edge, EdgeAtom::Direction::IN);
+          return true;
+        } else {
+          push_future_edge(edge, EdgeAtom::Direction::IN);
+          continue;
+        }
+      }
+
+      // attempt to get a value from the outgoing edges
+      if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
+        auto edge = *(*out_edges_it_)++;
+        // when expanding in EdgeAtom::Direction::BOTH directions
+        // we should do only one expansion for cycles, and it was
+        // already done in the block above
+        if (self_->direction() == EdgeAtom::Direction::BOTH && edge.is_cycle())
+          continue;
+        if (edge.address().is_local() || self_->existing_node()) {
+          frame[self_->edge_symbol()] = edge;
+          pull_node(edge, EdgeAtom::Direction::OUT);
+          return true;
+        } else {
+          push_future_edge(edge, EdgeAtom::Direction::OUT);
+          continue;
+        }
+      }
+
+      // if we are here, either the edges have not been initialized,
+      // or they have been exhausted. attempt to initialize the edges,
+      // if the input is exhausted
+      if (!InitEdges(frame, context)) {
+        // We are done with local and remote edges so return false.
+        if (future_expands_.empty()) return false;
+        // We still need to yield remote edges.
+        auto future_it = find_ready_future();
+        if (future_it != future_expands_.end()) {
+          put_future_edge_on_frame(*future_it);
+          // Erase the future and return true to yield the result.
+          future_expands_.erase(future_it);
+          return true;
+        }
+        // We are still waiting for future edges, so sleep and fallthrough to
+        // continue the loop.
+        std::this_thread::sleep_for(
+            std::chrono::microseconds(FLAGS_remote_pull_sleep_micros));
+      }
+
+      // we have re-initialized the edges, continue with the loop
+    }
+  }
+
+  void Reset() {
+    input_cursor_->Reset();
+    in_edges_ = std::experimental::nullopt;
+    in_edges_it_ = std::experimental::nullopt;
+    out_edges_ = std::experimental::nullopt;
+    out_edges_it_ = std::experimental::nullopt;
+    future_expands_.clear();
+    last_frame_.clear();
+  }
+
+  bool InitEdges(Frame &frame, Context &context) {
+    // Input Vertex could be null if it is created by a failed optional match.
+    // In those cases we skip that input pull and continue with the next.
+    while (true) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      TypedValue &vertex_value = frame[self_->input_symbol()];
+
+      // Null check due to possible failed optional match.
+      if (vertex_value.IsNull()) continue;
+
+      ExpectType(self_->input_symbol(), vertex_value, TypedValue::Type::Vertex);
+      auto &vertex = vertex_value.Value<VertexAccessor>();
+      SwitchAccessor(vertex, self_->graph_view());
+
+      auto direction = self_->direction();
+      if (direction == EdgeAtom::Direction::IN ||
+          direction == EdgeAtom::Direction::BOTH) {
+        if (self_->existing_node()) {
+          TypedValue &existing_node = frame[self_->node_symbol()];
+          // old_node_value may be Null when using optional matching
+          if (!existing_node.IsNull()) {
+            ExpectType(self_->node_symbol(), existing_node,
+                       TypedValue::Type::Vertex);
+            in_edges_.emplace(
+                vertex.in(existing_node.ValueVertex(), &self_->edge_types()));
+          }
+        } else {
+          in_edges_.emplace(vertex.in(&self_->edge_types()));
+        }
+        in_edges_it_.emplace(in_edges_->begin());
+      }
+
+      if (direction == EdgeAtom::Direction::OUT ||
+          direction == EdgeAtom::Direction::BOTH) {
+        if (self_->existing_node()) {
+          TypedValue &existing_node = frame[self_->node_symbol()];
+          // old_node_value may be Null when using optional matching
+          if (!existing_node.IsNull()) {
+            ExpectType(self_->node_symbol(), existing_node,
+                       TypedValue::Type::Vertex);
+            out_edges_.emplace(
+                vertex.out(existing_node.ValueVertex(), &self_->edge_types()));
+          }
+        } else {
+          out_edges_.emplace(vertex.out(&self_->edge_types()));
+        }
+        out_edges_it_.emplace(out_edges_->begin());
+      }
+
+      return true;
+    }
+  }
+
+ private:
+  struct FutureExpand {
+    utils::Future<std::pair<EdgeAccessor, VertexAccessor>> edge_to;
+    std::vector<TypedValue> frame_elems;
+  };
+
+  std::unique_ptr<query::plan::Cursor> input_cursor_;
+  const DistributedExpand *self_{nullptr};
+  // The iterable over edges and the current edge iterator are referenced via
+  // optional because they can not be initialized in the constructor of
+  // this class. They are initialized once for each pull from the input.
+  std::experimental::optional<DistributedExpand::InEdgeT> in_edges_;
+  std::experimental::optional<DistributedExpand::InEdgeIteratorT> in_edges_it_;
+  std::experimental::optional<DistributedExpand::OutEdgeT> out_edges_;
+  std::experimental::optional<DistributedExpand::OutEdgeIteratorT>
+      out_edges_it_;
+  // Stores the last frame before we yield the frame for future edge. It needs
+  // to be restored afterward.
+  std::vector<TypedValue> last_frame_;
+  // Edges which are being asynchronously fetched from a remote worker.
+  // NOTE: This should be destructed first to ensure that no invalid
+  // references or pointers exists to other objects of this class.
+  std::vector<FutureExpand> future_expands_;
+};
+
 class DistributedExpandBfsCursor : public query::plan::Cursor {
  public:
   DistributedExpandBfsCursor(const DistributedExpandBfs &self,
@@ -1102,6 +1327,11 @@ std::unique_ptr<Cursor> Synchronize::MakeCursor(
 std::unique_ptr<Cursor> PullRemoteOrderBy::MakeCursor(
     database::GraphDbAccessor &db) const {
   return std::make_unique<PullRemoteOrderByCursor>(*this, db);
+}
+
+std::unique_ptr<Cursor> DistributedExpand::MakeCursor(
+    database::GraphDbAccessor &db) const {
+  return std::make_unique<DistributedExpandCursor>(this, &db);
 }
 
 std::unique_ptr<Cursor> DistributedExpandBfs::MakeCursor(

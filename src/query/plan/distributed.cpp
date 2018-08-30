@@ -266,11 +266,11 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(Expand &exp) override {
+  bool PreVisit(DistributedExpand &exp) override {
     prev_ops_.push_back(&exp);
     return true;
   }
-  bool PostVisit(Expand &exp) override {
+  bool PostVisit(DistributedExpand &exp) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
     if (auto found = FindForbidden(exp.input_symbol())) {
@@ -968,9 +968,18 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
 
   // Expand is done locally on each machine with RPC calls for worker-boundary
-  // crossing edges.
+  // crossing edges. We replace it with DistributedExpand which does RPC calls
+  // asynchronously.
   bool PreVisit(Expand &exp) override {
     prev_ops_.push_back(&exp);
+    return true;
+  }
+  bool PostVisit(Expand &exp) override {
+    prev_ops_.pop_back();
+    auto distributed_expand = std::make_unique<DistributedExpand>(
+        exp.node_symbol(), exp.edge_symbol(), exp.direction(), exp.edge_types(),
+        exp.input(), exp.input_symbol(), exp.existing_node(), exp.graph_view());
+    SetOnPrevious(std::move(distributed_expand));
     return true;
   }
 
@@ -1048,6 +1057,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     optional_planner.lhs_optional_symbols_ =
         op.input()->ModifiedSymbols(optional_plan.symbol_table);
     optional_plan.master_plan->Accept(optional_planner);
+    CHECK(dynamic_cast<Produce *>(optional_plan.master_plan.get()));
     // Revert storage and symbol table
     distributed_plan_.ast_storage = std::move(optional_plan.ast_storage);
     distributed_plan_.symbol_table = std::move(optional_plan.symbol_table);
@@ -1057,6 +1067,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // Case 1)
       // Optional subtree doesn't create any worker plans (i.e. has no ScanAll),
       // we continue as normal.
+      SetOnPrevious(std::make_unique<Optional>(
+          op.input(), optional_plan.master_plan->input(),
+          op.optional_symbols()));
       return true;
     }
     // Case 2)
@@ -1076,7 +1089,6 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     for (const auto &plan : optional_plan.worker_plans) {
       distributed_plan_.worker_plans.emplace_back(plan);
     }
-    CHECK(dynamic_cast<Produce *>(optional_plan.master_plan.get()));
     if (optional_planner.on_master_) {
       // This means that optional planned a Cartesian and the dependencies
       // on LHS symbols should have been taken care of.

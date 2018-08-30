@@ -131,6 +131,7 @@ class PlanChecker : public DistributedOperatorVisitor {
   }
 
   PRE_VISIT(PullRemoteOrderBy);
+  PRE_VISIT(DistributedExpand);
   PRE_VISIT(DistributedExpandBfs);
   PRE_VISIT(DistributedCreateNode);
   PRE_VISIT(DistributedCreateExpand);
@@ -196,6 +197,7 @@ using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
 using ExpectShowStreams = OpChecker<ShowStreams>;
+using ExpectDistributedExpand = OpChecker<DistributedExpand>;
 using ExpectDistributedExpandBfs = OpChecker<DistributedExpandBfs>;
 using ExpectDistributedCreateExpand = OpChecker<DistributedCreateExpand>;
 
@@ -1066,9 +1068,11 @@ TYPED_TEST(TestPlanner, MatchPathReturn) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectProduce());
   ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce()));
+  auto expected =
+      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                                     ExpectProduce(), pull),
+                        MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                                     ExpectProduce()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -1089,10 +1093,10 @@ TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
             ExpectConstructNamedPath(), ExpectProduce());
   ExpectPullRemote pull({symbol_table.at(*as_p)});
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectProduce()));
+      MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                   ExpectConstructNamedPath(), ExpectProduce(), pull),
+      MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                   ExpectConstructNamedPath(), ExpectProduce()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -1112,11 +1116,13 @@ TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
   ExpectPullRemote pull({symbol_table.at(*as_p)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectFilter(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectFilter(), ExpectProduce()));
+  auto expected =
+      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                                     ExpectConstructNamedPath(), ExpectFilter(),
+                                     ExpectProduce(), pull),
+                        MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                                     ExpectConstructNamedPath(), ExpectFilter(),
+                                     ExpectProduce()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -1137,16 +1143,23 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
                                        get_symbol(edge), get_symbol(node_m)};
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
-                                      new ExpectConstructNamedPath()};
-  CheckPlan(planner.plan(), symbol_table,
-            ExpectOptional(optional_symbols, optional), ExpectProduce());
-  optional.push_back(new ExpectPullRemote(optional_symbols));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectOptional(optional_symbols, optional), ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(),
-                   ExpectConstructNamedPath()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  {
+    std::list<BaseOpChecker *> optional{new ExpectScanAll(), new ExpectExpand(),
+                                        new ExpectConstructNamedPath()};
+    CheckPlan(planner.plan(), symbol_table,
+              ExpectOptional(optional_symbols, optional), ExpectProduce());
+  }
+  {
+    std::list<BaseOpChecker *> optional{
+        new ExpectScanAll(), new ExpectDistributedExpand(),
+        new ExpectConstructNamedPath(), new ExpectPullRemote(optional_symbols)};
+    auto expected = ExpectDistributed(
+        MakeCheckers(ExpectOptional(optional_symbols, optional),
+                     ExpectProduce()),
+        MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                     ExpectConstructNamedPath()));
+    CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  }
 }
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
@@ -1283,17 +1296,19 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   };
   ExpectPullRemote left_pull(
       {get_symbol(node_n), get_symbol(edge_r), get_symbol(node_m)});
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectExpand(), left_pull);
+  auto left_cart =
+      MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(), left_pull);
   ExpectPullRemote right_pull({get_symbol(node_j), get_symbol(edge_e),
                                get_symbol(node_i), get_symbol(edge_f),
                                get_symbol(node_h)});
-  auto right_cart =
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-                   ExpectExpandUniquenessFilter<EdgeAccessor>(), right_pull);
+  auto right_cart = MakeCheckers(
+      ExpectScanAll(), ExpectDistributedExpand(), ExpectDistributedExpand(),
+      ExpectExpandUniquenessFilter<EdgeAccessor>(), right_pull);
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectExpand()),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectExpand(),
+      MakeCheckers(ExpectScanAll(), ExpectDistributedExpand()),
+      MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                   ExpectDistributedExpand(),
                    ExpectExpandUniquenessFilter<EdgeAccessor>()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
@@ -1313,9 +1328,11 @@ TYPED_TEST(TestPlanner, MultiMatchSameStart) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectProduce());
   ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce()));
+  auto expected =
+      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                                     ExpectProduce(), pull),
+                        MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                                     ExpectProduce()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -1732,11 +1749,11 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
             ExpectExpand(), ExpectProduce());
   ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected =
-      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectFilter(),
-                                     ExpectExpand(), ExpectProduce(), pull),
-                        MakeCheckers(ExpectScanAll(), ExpectFilter(),
-                                     ExpectExpand(), ExpectProduce()));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectDistributedExpand(),
+                   ExpectProduce(), pull),
+      MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectDistributedExpand(),
+                   ExpectProduce()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -2664,12 +2681,12 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpand) {
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto sym_e = symbol_table.at(*edge_e->identifier_);
   auto sym_c = symbol_table.at(*node_c->identifier_);
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectExpand(),
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                                  ExpectPullRemote({sym_b, sym_e, sym_c}));
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectProduce()),
       MakeCheckers(ExpectScanAll()),
-      MakeCheckers(ExpectScanAll(), ExpectExpand()));
+      MakeCheckers(ExpectScanAll(), ExpectDistributedExpand()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
@@ -2689,8 +2706,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandToExisting) {
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectExpand(),
-                   ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart),
+                   ExpectDistributedExpand(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
@@ -2711,8 +2728,8 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandFromExisting) {
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
   auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectExpand(),
-                   ExpectProduce()),
+      MakeCheckers(ExpectCartesian(left_cart, right_cart),
+                   ExpectDistributedExpand(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
@@ -3040,7 +3057,7 @@ TYPED_TEST(TestPlanner, DistributedOptionalExpand) {
                      OPTIONAL_MATCH(PATTERN(node_n, edge_e, node_m)), ret_e));
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto sym_e = symbol_table.at(*ret_e->body_.named_expressions[0]);
-  std::list<BaseOpChecker *> optional{new ExpectExpand()};
+  std::list<BaseOpChecker *> optional{new ExpectDistributedExpand()};
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectOptional(optional), ExpectProduce(),
                    ExpectPullRemote({sym_e})),
@@ -3088,8 +3105,9 @@ TYPED_TEST(TestPlanner, DistributedOptionalScanExpandExisting) {
   auto symbol_table = MakeSymbolTable(*storage.query());
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto sym_b = symbol_table.at(*node_b->identifier_);
-  std::list<BaseOpChecker *> optional{
-      new ExpectScanAll(), new ExpectPullRemote({sym_b}), new ExpectExpand()};
+  std::list<BaseOpChecker *> optional{new ExpectScanAll(),
+                                      new ExpectPullRemote({sym_b}),
+                                      new ExpectDistributedExpand()};
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}),
                    ExpectOptional(optional), ExpectProduce()),

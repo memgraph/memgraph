@@ -15,14 +15,15 @@ cpp<#
 class PullRemote;
 class Synchronize;
 class PullRemoteOrderBy;
+class DistributedExpand;
 class DistributedExpandBfs;
 class DistributedCreateNode;
 class DistributedCreateExpand;
 
 using DistributedOperatorCompositeVisitor =
     ::utils::CompositeVisitor<PullRemote, Synchronize, PullRemoteOrderBy,
-                              DistributedExpandBfs, DistributedCreateNode,
-                              DistributedCreateExpand>;
+                              DistributedExpand, DistributedExpandBfs,
+                              DistributedCreateNode, DistributedCreateExpand>;
 
 /// Base class for visiting regular and distributed LogicalOperator instances.
 class DistributedOperatorVisitor : public HierarchicalLogicalOperatorVisitor,
@@ -173,6 +174,26 @@ by having only one result from each worker.")
   cpp<#)
   (:private #>cpp PullRemoteOrderBy() {} cpp<#)
   (:serialize :capnp))
+
+(lcp:define-class distributed-expand (logical-operator expand-common)
+  ()
+  (:documentation "Distributed version of Expand operator")
+  (:public
+   #>cpp
+   using ExpandCommon::ExpandCommon;
+
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
+  (:serialize :capnp :inherit-compose '(expand-common)))
 
 (lcp:define-class distributed-expand-bfs (logical-operator expand-common)
   ((lower-bound "Expression *" :reader t

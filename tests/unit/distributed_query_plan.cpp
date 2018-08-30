@@ -33,6 +33,28 @@ using namespace distributed;
 using namespace database;
 using namespace std::literals::chrono_literals;
 
+ExpandTuple MakeDistributedExpand(
+    AstStorage &storage, SymbolTable &symbol_table,
+    std::shared_ptr<LogicalOperator> input, Symbol input_symbol,
+    const std::string &edge_identifier, EdgeAtom::Direction direction,
+    const std::vector<storage::EdgeType> &edge_types,
+    const std::string &node_identifier, bool existing_node,
+    GraphView graph_view) {
+  auto edge = EDGE(edge_identifier, direction);
+  auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
+  symbol_table[*edge->identifier_] = edge_sym;
+
+  auto node = NODE(node_identifier);
+  auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
+  symbol_table[*node->identifier_] = node_sym;
+
+  auto op = std::make_shared<DistributedExpand>(node_sym, edge_sym, direction,
+                                                edge_types, input, input_symbol,
+                                                existing_node, graph_view);
+
+  return ExpandTuple{edge, edge_sym, node, node_sym, op};
+}
+
 class DistributedQueryPlan : public DistributedGraphDbTest {
  protected:
   DistributedQueryPlan() : DistributedGraphDbTest("query_plan") {}
@@ -135,9 +157,9 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   // Use this query to test graph elements are transferred correctly in
   // collections too.
   auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
-  auto r_m =
-      MakeExpand(storage, ctx.symbol_table_, n.op_, n.sym_, "r",
-                 EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
+  auto r_m = MakeDistributedExpand(storage, ctx.symbol_table_, n.op_, n.sym_,
+                                   "r", EdgeAtom::Direction::OUT, {}, "m",
+                                   false, GraphView::OLD);
   auto p_sym = ctx.symbol_table_.CreateSymbol("p", true);
   auto p = std::make_shared<query::plan::ConstructNamedPath>(
       r_m.op_, p_sym,
@@ -212,9 +234,9 @@ TEST_F(DistributedQueryPlan, Synchronize) {
   AstStorage storage;
   // MATCH
   auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
-  auto r_m =
-      MakeExpand(storage, ctx.symbol_table_, n.op_, n.sym_, "r",
-                 EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
+  auto r_m = MakeDistributedExpand(storage, ctx.symbol_table_, n.op_, n.sym_,
+                                   "r", EdgeAtom::Direction::BOTH, {}, "m",
+                                   false, GraphView::OLD);
 
   // SET
   auto literal = LITERAL(42);
