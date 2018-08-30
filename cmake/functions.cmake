@@ -85,3 +85,79 @@ function(get_target_cxx_flags target result)
     endif()
     set(${result} ${flags} PARENT_SCOPE)
 endfunction()
+
+# Define `add_capnp` function for registering a capnp file for generation.
+#
+# The `define_add_capnp` expects 2 arguments:
+#   * main_src_files -- variable to be updated with generated cpp files
+#   * generated_capnp_files -- variable to be updated with generated hpp and cpp files
+#
+# The `add_capnp` function expects a single argument, path to capnp file.
+# Each added file is standalone and we avoid recompiling everything.
+macro(define_add_capnp main_src_files generated_capnp_files)
+  function(add_capnp capnp_src_file)
+    set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.c++)
+    set(h_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.h)
+    add_custom_command(OUTPUT ${cpp_file} ${h_file}
+      COMMAND ${CAPNP_EXE} compile -o${CAPNP_CXX_EXE} ${capnp_src_file} -I ${CMAKE_SOURCE_DIR}/src
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file} capnproto-proj
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    # Update *global* generated_capnp_files
+    set(${generated_capnp_files} ${${generated_capnp_files}} ${cpp_file} ${h_file} PARENT_SCOPE)
+    # Update *global* main_src_files
+    set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
+  endfunction(add_capnp)
+endmacro(define_add_capnp)
+
+# Lisp C++ Preprocessing
+
+set(lcp_exe ${CMAKE_SOURCE_DIR}/tools/lcp)
+set(lcp_src_files ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp ${lcp_exe})
+
+# Define `add_lcp` function for registering a lcp file for generation.
+#
+# The `define_add_lcp` expects 2 arguments:
+#   * main_src_files -- variable to be updated with generated cpp files
+#   * generated_lcp_files -- variable to be updated with generated hpp, cpp and capnp files
+#
+# The `add_lcp` function expects at least a single argument, path to lcp file.
+# Each added file is standalone and we avoid recompiling everything.
+# You may pass a CAPNP_SCHEMA <id> keyword argument to generate the Cap'n Proto
+# serialization code from .lcp file. You still need to add the generated capnp
+# file through `add_capnp` function. To generate the <id> use `capnp id`
+# invocation, and specify it here. This preserves correct id information across
+# multiple schema generations. If this wasn't the case, wrong typeId
+# information will break RPC between different compilations of memgraph.
+# Instead of CAPNP_SCHEMA, you may pass the CAPNP_DECLARATION option. This will
+# generate serialization declarations but not the implementation.
+macro(define_add_lcp main_src_files generated_lcp_files)
+  function(add_lcp lcp_file)
+    set(options CAPNP_DECLARATION)
+    set(one_value_kwargs CAPNP_SCHEMA)
+    set(multi_value_kwargs DEPENDS)
+    # NOTE: ${${}ARGN} syntax escapes evaluating macro's ARGN variable; see:
+    # https://stackoverflow.com/questions/50365544/how-to-access-enclosing-functions-arguments-from-within-a-macro
+    cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${${}ARGN})
+    string(REGEX REPLACE "\.lcp$" ".hpp" h_file
+           "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+    if (KW_CAPNP_SCHEMA AND NOT KW_CAPNP_DECLARATION)
+      string(REGEX REPLACE "\.lcp$" ".capnp" capnp_file
+             "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+      set(capnp_id ${KW_CAPNP_SCHEMA})
+      set(capnp_depend capnproto-proj)
+      set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
+      # Update *global* main_src_files
+      set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
+    endif()
+    if (KW_CAPNP_DECLARATION)
+      set(capnp_id "--capnp-declaration")
+    endif()
+    add_custom_command(OUTPUT ${h_file} ${cpp_file} ${capnp_file}
+      COMMAND ${lcp_exe} ${lcp_file} ${capnp_id}
+      VERBATIM
+      DEPENDS ${lcp_file} ${lcp_src_files} ${capnp_depend} ${KW_DEPENDS}
+      WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+    # Update *global* generated_lcp_files
+    set(${generated_lcp_files} ${${generated_lcp_files}} ${h_file} ${cpp_file} ${capnp_file} PARENT_SCOPE)
+  endfunction(add_lcp)
+endmacro(define_add_lcp)

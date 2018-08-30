@@ -81,65 +81,9 @@ set(memgraph_src_files
 )
 # -----------------------------------------------------------------------------
 
-# Use this function to add each capnp file to generation. This way each file is
-# standalone and we avoid recompiling everything.
-# NOTE: memgraph_src_files and generated_capnp_files are globally updated.
-function(add_capnp capnp_src_file)
-  set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.c++)
-  set(h_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.h)
-  add_custom_command(OUTPUT ${cpp_file} ${h_file}
-    COMMAND ${CAPNP_EXE} compile -o${CAPNP_CXX_EXE} ${capnp_src_file} -I ${CMAKE_CURRENT_SOURCE_DIR}
-    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file} capnproto-proj
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  # Update *global* generated_capnp_files
-  set(generated_capnp_files ${generated_capnp_files} ${cpp_file} ${h_file} PARENT_SCOPE)
-  # Update *global* memgraph_src_files
-  set(memgraph_src_files ${memgraph_src_files} ${cpp_file} PARENT_SCOPE)
-endfunction(add_capnp)
+define_add_capnp(memgraph_src_files generated_capnp_files)
 
-# Lisp C++ Preprocessing
-
-set(lcp_exe ${CMAKE_SOURCE_DIR}/tools/lcp)
-set(lcp_src_files lisp/lcp.lisp ${lcp_exe})
-
-# Use this function to add each lcp file to generation. This way each file is
-# standalone and we avoid recompiling everything.
-#
-# You may pass a CAPNP_SCHEMA <id> keyword argument to generate the Cap'n Proto
-# serialization code from .lcp file. You still need to add the generated capnp
-# file through `add_capnp` function. To generate the <id> use `capnp id`
-# invocation, and specify it here. This preserves correct id information across
-# multiple schema generations. If this wasn't the case, wrong typeId
-# information will break RPC between different compilations of memgraph.
-#
-# NOTE: memgraph_src_files and generated_lcp_files are globally updated.
-function(add_lcp lcp_file)
-  set(options CAPNP_DECLARATION)
-  set(one_value_kwargs CAPNP_SCHEMA)
-  set(multi_value_kwargs DEPENDS)
-  cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${ARGN})
-  string(REGEX REPLACE "\.lcp$" ".hpp" h_file
-         "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
-  if (KW_CAPNP_SCHEMA AND NOT KW_CAPNP_DECLARATION)
-    string(REGEX REPLACE "\.lcp$" ".capnp" capnp_file
-           "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
-    set(capnp_id ${KW_CAPNP_SCHEMA})
-    set(capnp_depend capnproto-proj)
-    set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
-    # Update *global* memgraph_src_files
-    set(memgraph_src_files ${memgraph_src_files} ${cpp_file} PARENT_SCOPE)
-  endif()
-  if (KW_CAPNP_DECLARATION)
-    set(capnp_id "--capnp-declaration")
-  endif()
-  add_custom_command(OUTPUT ${h_file} ${cpp_file} ${capnp_file}
-    COMMAND ${lcp_exe} ${lcp_file} ${capnp_id}
-    VERBATIM
-    DEPENDS ${lcp_file} ${lcp_src_files} ${capnp_depend} ${KW_DEPENDS}
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
-  # Update *global* generated_lcp_files
-  set(generated_lcp_files ${generated_lcp_files} ${h_file} ${cpp_file} ${capnp_file} PARENT_SCOPE)
-endfunction(add_lcp)
+define_add_lcp(memgraph_src_files generated_lcp_files)
 
 add_lcp(database/counters_rpc_messages.lcp CAPNP_SCHEMA @0x95a2c3ea3871e945)
 add_capnp(database/counters_rpc_messages.capnp)
