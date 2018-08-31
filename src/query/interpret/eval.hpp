@@ -8,6 +8,7 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "query/common.hpp"
+#include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -157,8 +158,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     // Exceptions have higher priority than returning nulls when list expression
     // is not null.
     if (_list.type() != TypedValue::Type::List) {
-      throw QueryRuntimeException("IN expected a list, got {}.",
-                                  _list.type());
+      throw QueryRuntimeException("IN expected a list, got {}.", _list.type());
     }
     auto list = _list.Value<std::vector<TypedValue>>();
 
@@ -366,11 +366,22 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    std::vector<TypedValue> arguments;
-    for (const auto &argument : function.arguments_) {
-      arguments.emplace_back(argument->Accept(*this));
+    // Stack allocate evaluated arguments when there's a small number of them.
+    if (function.arguments_.size() <= 8) {
+      TypedValue arguments[8];
+      for (size_t i = 0; i < function.arguments_.size(); ++i) {
+        arguments[i] = function.arguments_[i]->Accept(*this);
+      }
+      return function.function()(arguments, function.arguments_.size(),
+                                 context_);
+    } else {
+      std::vector<TypedValue> arguments;
+      arguments.reserve(function.arguments_.size());
+      for (const auto &argument : function.arguments_) {
+        arguments.emplace_back(argument->Accept(*this));
+      }
+      return function.function()(arguments.data(), arguments.size(), context_);
     }
-    return function.function()(arguments, context_);
   }
 
   TypedValue Visit(Reduce &reduce) override {

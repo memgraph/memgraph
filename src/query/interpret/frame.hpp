@@ -9,7 +9,7 @@ namespace query {
 
 class Frame {
  public:
-  Frame(int size) : size_(size), elems_(size_) {}
+  explicit Frame(int size) : size_(size), elems_(size_) {}
 
   TypedValue &operator[](const Symbol &symbol) {
     return elems_[symbol.position()];

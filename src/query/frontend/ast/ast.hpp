@@ -1013,8 +1013,7 @@ class Function : public Expression {
 
  private:
   std::string function_name_;
-  std::function<TypedValue(const std::vector<TypedValue> &, Context *)>
-      function_;
+  std::function<TypedValue(TypedValue *, int64_t, Context *)> function_;
 };
 
 class Aggregation : public BinaryOperator {
