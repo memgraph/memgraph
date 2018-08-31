@@ -672,14 +672,36 @@ list of pairs, e.g.
 
 #### Custom Serialization Helper Functions
 
-**Helper for `std::optional`**
+##### Helper for `std::optional`
+
+When using `std::optional` with primitive C++ types or custom types known to
+LCP, you do not need to use any helper. In the example below, things should be
+serialized as expected:
+
+```lisp
+(lcp:define-class my-class-with-primitive-optional ()
+  ((primitive-optional "std::experimental::optional<int64_t>"))
+  (:serialize :capnp))
+
+(lcp:define-class my-class-with-known-type-optional ()
+  ((known-type-optional "std::experimental::optional<MyClassWithPrimitiveOptional>"))
+  (:serialize :capnp))
+```
 
 In cases when the value contained in `std::optional` needs custom
 serialization code you may use `lcp:capnp-save-optional` and
 `lcp:capnp-load-optional`.
 
-Both functions expect 3 arguments: Cap'n Proto type in C++, type of the value
-inside `std::optional` and an optional C++ lambda code.
+Both functions expect 3 arguments.
+
+  1. Cap'n Proto type in C++.
+  2. C++ type of the value inside `std::optional`.
+  3. Optional C++ lambda code.
+
+The lambda code is optional, because LCP will generate the default
+serialization code which invokes `Save` and `Load` function on the value
+stored inside the optional. Since most of the serialized classes follow the
+convention, you will rarely need to provide this 3rd argument.
 
 For example:
 
@@ -694,13 +716,13 @@ For example:
                          "[](const auto &reader) { ... return loaded_val; }"))))
 ```
 
-**Helper for `std::vector`**
+##### Helper for `std::vector`
 
 For custom serialization of vector elements, you may use
 `lcp:capnp-save-vector` and `lcp:capnp-load-vector`. They function exactly the
 same as helpers for `std::optional`.
 
-**Helper for enumerations**
+##### Helper for enumerations
 
 If the enumeration is defined via `lcp:define-enum`, the default LCP
 serialization should generate the correct code.

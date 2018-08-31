@@ -123,7 +123,10 @@
 
 (deftype cpp-primitive-type-keywords ()
   "List of keywords that specify a primitive type in C++."
-  `(member :bool :int :int16_t :int32_t :int64_t :uint :uint32_t :uint64_t :float :double))
+  `(member :bool :int :int16_t :int32_t :int64_t :uint :uint16_t :uint32_t :uint64_t :float :double))
+
+(defconstant +cpp-primitive-type-keywords+
+  '(:bool :int :int16_t :int32_t :int64_t :uint :uint16_t :uint32_t :uint64_t :float :double))
 
 (defmethod cpp-type-name ((cpp-type symbol))
   "Return PascalCase of CPP-TYPE symbol or lowercase if it is a primitive type."
@@ -165,6 +168,13 @@ produces:
   (when (find #\& type-decl)
     (error "References not supported in '~A'" type-decl))
   (setf type-decl (string-trim +whitespace-chars+ type-decl))
+  ;; Check if primitive type
+  (let ((type-keyword (member type-decl +cpp-primitive-type-keywords+
+                              :test #'string-equal)))
+    (when type-keyword
+      (return-from parse-cpp-type-declaration
+        (make-instance 'cpp-primitive-type :name (car type-keyword)))))
+  ;; Check if pointer
   (let ((ptr-pos (position #\* type-decl :from-end t)))
     (when (and ptr-pos (not (cl-ppcre:scan "[()<>]" type-decl :start ptr-pos)))
       (return-from parse-cpp-type-declaration
@@ -172,6 +182,7 @@ produces:
                        :name (subseq type-decl ptr-pos)
                        :type-args (list (parse-cpp-type-declaration
                                          (subseq type-decl 0 ptr-pos)))))))
+  ;; Other cases
   (destructuring-bind (full-name &optional template)
       (cl-ppcre:split "<" type-decl :limit 2)
     (let* ((namespace-split (cl-ppcre:split "::" full-name))
@@ -580,25 +591,31 @@ encoded as union inheritance in Cap'n Proto."
   (declare (type string cpp-type capnp-type))
   (push (cons cpp-type capnp-type) *capnp-type-converters*))
 
-(defun capnp-type<-cpp-type (cpp-type)
+(defun capnp-type<-cpp-type (cpp-type &key boxp)
   (flet ((convert-primitive-type (name)
            (when (member name '(:int :uint))
              (error "Unable to get Capnp type for integer without specified width."))
-           (case name
-             (:bool "Bool")
-             (:float "Float32")
-             (:double "Float64")
-             (otherwise
-              (let ((pos-of-i (position #\I (string name))))
-                ;; Delete the _t suffix
-                (cl-ppcre:regex-replace
-                 "_t$" (string-downcase name :start (1+ pos-of-i)) ""))))))
+           (let ((capnp-type
+                  (case name
+                    (:bool "Bool")
+                    (:float "Float32")
+                    (:double "Float64")
+                    (otherwise
+                     (let ((pos-of-i (position #\I (string name))))
+                       ;; Delete the _t suffix
+                       (cl-ppcre:regex-replace
+                        "_t$" (string-downcase name :start (1+ pos-of-i)) ""))))))
+             (if boxp
+                 (concatenate 'string "Utils.Box" capnp-type)
+                 capnp-type))))
     (typecase cpp-type
       (cpp-primitive-type-keywords (convert-primitive-type cpp-type))
       (cpp-primitive-type (convert-primitive-type (cpp-type-base-name cpp-type)))
       (string
        (let ((type (parse-cpp-type-declaration cpp-type)))
          (cond
+           ((typep type 'cpp-primitive-type)
+            (convert-primitive-type (cpp-type-base-name type)))
            ((string= "string" (cpp-type-base-name type))
             "Text")
            ((string= "shared_ptr" (cpp-type-base-name type))
@@ -617,7 +634,8 @@ encoded as union inheritance in Cap'n Proto."
                      (cpp-type-decl (first (cpp-type-type-args type))))))
            ((string= "optional" (cpp-type-base-name type))
             (format nil "Utils.Optional(~A)"
-                    (capnp-type<-cpp-type (cpp-type-decl (first (cpp-type-type-args type))))))
+                    (capnp-type<-cpp-type (cpp-type-decl (first (cpp-type-type-args type)))
+                                          :boxp t)))
            ((assoc cpp-type *capnp-type-converters* :test #'string=)
             (cdr (assoc cpp-type *capnp-type-converters* :test #'string=)))
            (t (cpp-type-name cpp-type)))))
@@ -859,9 +877,12 @@ used for outside definition."
                        member-builder member-name)))))
       ((string= "optional" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
-              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t)))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t))
+              (lambda-code (when (typep elem-type 'cpp-primitive-type)
+                             "[](auto *builder, const auto &v){ builder->setValue(v); }")))
          (raw-cpp-string
-          (funcall (capnp-save-optional (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+          (funcall (capnp-save-optional
+                    (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type) lambda-code)
                    member-builder member-name))))
       ((member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
        (error "Use a custom :capnp-save function for ~A ~A" type-name member-name))
@@ -1052,9 +1073,12 @@ used for outside definition."
                        member-reader member-name)))))
       ((string= "optional" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
-              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t)))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t))
+              (lambda-code (when (string= "Box" (cpp-type-name capnp-cpp-type) :end2 (length "Box"))
+                             "[](const auto &reader){ return reader.getValue(); }")))
          (raw-cpp-string
-          (funcall (capnp-load-optional (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+          (funcall (capnp-load-optional
+                    (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type) lambda-code)
                    member-reader member-name))))
       ((member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
        (error "Use a custom :capnp-load function for ~A ~A" type-name member-name))
