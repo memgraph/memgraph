@@ -5,6 +5,7 @@
 #include <glog/logging.h>
 
 #include "database/graph_db_accessor.hpp"
+#include "database/single_node_counters.hpp"
 #include "database/storage_gc_single_node.hpp"
 #include "durability/paths.hpp"
 #include "durability/recovery.hpp"

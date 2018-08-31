@@ -1,5 +1,6 @@
 #include "database/distributed_graph_db.hpp"
 
+#include "database/distributed_counters.hpp"
 #include "database/storage_gc_master.hpp"
 #include "database/storage_gc_worker.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
@@ -563,7 +564,7 @@ class Master {
           *storage_, tx_engine_, config_.gc_cycle_sec, server_, coordination_);
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{server_};
-  database::MasterCounters counters_{server_};
+  database::MasterCounters counters_{&server_};
   distributed::BfsSubcursorStorage subcursor_storage_{self_,
                                                       &bfs_subcursor_clients_};
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,
@@ -872,7 +873,7 @@ class Worker {
           rpc_worker_clients_.GetClientPool(0), config_.worker_id);
   TypemapPack<storage::WorkerConcurrentIdMapper> typemap_pack_{
       rpc_worker_clients_.GetClientPool(0)};
-  database::WorkerCounters counters_{rpc_worker_clients_.GetClientPool(0)};
+  database::WorkerCounters counters_{&rpc_worker_clients_.GetClientPool(0)};
   distributed::BfsSubcursorStorage subcursor_storage_{self_,
                                                       &bfs_subcursor_clients_};
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,

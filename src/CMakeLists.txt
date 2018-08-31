@@ -14,7 +14,7 @@ add_subdirectory(auth)
 set(memgraph_src_files
     data_structures/concurrent/skiplist_gc.cpp
     database/config.cpp
-    database/counters.cpp
+    database/distributed_counters.cpp
     database/distributed_graph_db.cpp
     database/graph_db.cpp
     database/graph_db_accessor.cpp

@@ -1,7 +1,9 @@
+/// @file
 #pragma once
 
 #include <mutex>
 
+#include "communication/rpc/server.hpp"
 #include "database/storage_gc.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/storage_gc_rpc_messages.hpp"

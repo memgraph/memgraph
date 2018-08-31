@@ -1,7 +1,9 @@
+#include "distributed/index_rpc_server.hpp"
+
+#include "communication/rpc/server.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "distributed/index_rpc_messages.hpp"
-#include "distributed/index_rpc_server.hpp"
 
 namespace distributed {
 
