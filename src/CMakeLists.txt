@@ -146,7 +146,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
-    mg-utils mg-io mg-integrations mg-requests mg-communication mg-auth mg-stats)
+    mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-auth mg-stats)
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
