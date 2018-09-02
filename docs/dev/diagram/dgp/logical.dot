@@ -1,0 +1,22 @@
+digraph {
+  // label="Dynamig Graph Partitioning";
+  fontname="Roboto Bold"; fontcolor=black;
+    fontsize=26; labelloc=top; labeljust=center;
+  compound=true; // If true, allow edges between clusters
+  rankdir=TB; // Alternatives: LR
+  node [shape=record fontname="Roboto", fontsize=12, fontcolor=white
+        style=filled, color="#FB6E00" fillcolor="#FB6E00"];
+  edge [color="#B5AFB7"];
+
+  "distributed::DistributedGraphDb" -> "distributed::TokenSharingRpcServer";
+
+  "distributed::TokenSharingRpcServer" -> "communication::rpc::Server";
+  "distributed::TokenSharingRpcServer" -> "distributed::Coordination";
+  "distributed::TokenSharingRpcServer" -> "distributed::TokenSharingRpcClients";
+  "distributed::TokenSharingRpcServer" -> "storage::dgp::Partitioner";
+
+  "storage::dgp::Partitioner" -> "distributed::DistributedGraphDb" [style=dashed];
+
+  "storage::dgp::Partitioner" -> "storage::dgp::VertexMigrator";
+  "storage::dgp::VertexMigrator" -> "database::GraphDbAccessor" [style=dashed];
+}
