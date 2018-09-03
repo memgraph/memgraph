@@ -12,9 +12,11 @@
 
 namespace communication::rpc {
 
-Session::Session(Server &server, communication::InputStream &input_stream,
+Session::Session(Server &server, const io::network::Endpoint &endpoint,
+                 communication::InputStream &input_stream,
                  communication::OutputStream &output_stream)
     : server_(server),
+      endpoint_(endpoint),
       input_stream_(input_stream),
       output_stream_(output_stream) {}
 
@@ -38,20 +40,28 @@ void Session::Execute() {
   auto request = request_message.getRoot<capnp::Message>();
   input_stream_.Shift(sizeof(MessageSize) + request_len);
 
-  auto callbacks_accessor = server_.callbacks_.access();
-  auto it = callbacks_accessor.find(request.getTypeId());
-  if (it == callbacks_accessor.end()) {
-    // Throw exception to close the socket and cleanup the session.
-    throw SessionException(
-        "Session trying to execute an unregistered RPC call!");
-  }
-
-  VLOG(12) << "[RpcServer] received " << it->second.req_type.name;
-
   ::capnp::MallocMessageBuilder response_message;
   // callback fills the message data
   auto response_builder = response_message.initRoot<capnp::Message>();
-  it->second.callback(request, &response_builder);
+
+  auto callbacks_accessor = server_.callbacks_.access();
+  auto it = callbacks_accessor.find(request.getTypeId());
+  if (it == callbacks_accessor.end()) {
+    // We couldn't find a regular callback to call, try to find an extended
+    // callback to call.
+    auto extended_callbacks_accessor = server_.extended_callbacks_.access();
+    auto extended_it = extended_callbacks_accessor.find(request.getTypeId());
+    if (extended_it == extended_callbacks_accessor.end()) {
+      // Throw exception to close the socket and cleanup the session.
+      throw SessionException(
+          "Session trying to execute an unregistered RPC call!");
+    }
+    VLOG(12) << "[RpcServer] received " << extended_it->second.req_type.name;
+    extended_it->second.callback(endpoint_, request, &response_builder);
+  } else {
+    VLOG(12) << "[RpcServer] received " << it->second.req_type.name;
+    it->second.callback(request, &response_builder);
+  }
 
   // Serialize and send response
   auto response_words = ::capnp::messageToFlatArray(response_message);

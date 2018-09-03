@@ -21,9 +21,11 @@ cpp<#
 (lcp:define-rpc register-worker
     (:request
      ((desired-worker-id :int16_t)
-      (endpoint "io::network::Endpoint" :capnp-type "Io.Endpoint")))
+      (port :uint16_t)
+      (durability-directory "std::string")))
   (:response
    ((registration-successful :bool)
+    (durability-error :bool)
     (snapshot-to-recover "std::experimental::optional<tx::TransactionId>"
                          :capnp-type "Utils.Optional(Utils.BoxUInt64)"
                          :capnp-save

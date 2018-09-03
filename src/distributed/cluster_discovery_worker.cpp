@@ -1,5 +1,9 @@
 #include "distributed/cluster_discovery_worker.hpp"
+
+#include <experimental/filesystem>
+
 #include "distributed/coordination_rpc_messages.hpp"
+#include "utils/file.hpp"
 
 namespace distributed {
 using Server = communication::rpc::Server;
@@ -16,12 +20,25 @@ ClusterDiscoveryWorker::ClusterDiscoveryWorker(
       });
 }
 
-void ClusterDiscoveryWorker::RegisterWorker(int worker_id) {
-  auto result =
-      client_pool_.Call<RegisterWorkerRpc>(worker_id, server_.endpoint());
+void ClusterDiscoveryWorker::RegisterWorker(
+    int worker_id, const std::string &durability_directory) {
+  // Create and find out what is our durability directory.
+  CHECK(utils::EnsureDir(durability_directory))
+      << "Couldn't create durability directory '" << durability_directory
+      << "'!";
+  auto full_durability_directory =
+      std::experimental::filesystem::canonical(durability_directory);
+
+  // Register to the master.
+  auto result = client_pool_.Call<RegisterWorkerRpc>(
+      worker_id, server_.endpoint().port(), full_durability_directory);
   CHECK(result) << "RegisterWorkerRpc failed";
-  CHECK(result->registration_successful) << "Unable to assign requested ID ("
-                                         << worker_id << ") to worker!";
+  CHECK(!result->durability_error)
+      << "This worker was started on the same machine and with the same "
+         "durability directory as the master! Please change the durability "
+         "directory for this worker.";
+  CHECK(result->registration_successful)
+      << "Unable to assign requested ID (" << worker_id << ") to worker!";
 
   worker_id_ = worker_id;
   for (auto &kv : result->workers) {

@@ -71,7 +71,8 @@ class Session final {
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) {
           return Write(data, len, have_more);
         }),
-        session_(data, input_buffer_.read_end(), output_stream_),
+        session_(data, socket_.endpoint(), input_buffer_.read_end(),
+                 output_stream_),
         inactivity_timeout_sec_(inactivity_timeout_sec) {
     // Set socket options.
     // The socket is set to be a non-blocking socket. We use the socket in a

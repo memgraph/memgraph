@@ -27,8 +27,10 @@ class ClusterDiscoveryWorker final {
    *
    * @param worker_id - Desired ID. If master can't assign the desired worker
    * id, worker will exit.
+   * @param durability_directory - The durability directory that is used for
+   * this worker.
    */
-  void RegisterWorker(int worker_id);
+  void RegisterWorker(int worker_id, const std::string &durability_directory);
 
   /**
    * Notifies the master that the worker finished recovering. Assumes that the

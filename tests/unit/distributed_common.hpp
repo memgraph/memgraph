@@ -11,6 +11,7 @@
 #include "distributed/updates_rpc_server.hpp"
 #include "storage/address_types.hpp"
 #include "transactions/engine_master.hpp"
+#include "utils/file.hpp"
 
 DECLARE_string(durability_directory);
 
@@ -33,6 +34,7 @@ class WorkerInThread {
 };
 
 class DistributedGraphDbTest : public ::testing::Test {
+ public:
   const std::string kLocal = "127.0.0.1";
   const int kWorkerCount = 2;
 
@@ -47,7 +49,9 @@ class DistributedGraphDbTest : public ::testing::Test {
     database::Config master_config;
     master_config.master_endpoint = {kLocal, 0};
     master_config.query_execution_time_sec = QueryExecutionTimeSec(0);
-    master_config.durability_directory = tmp_dir_;
+    master_config.durability_directory = GetDurabilityDirectory(0);
+    // Flag needs to be updated due to props on disk storage.
+    FLAGS_durability_directory = GetDurabilityDirectory(0);
     // This is semantically wrong since this is not a cluster of size 1 but of
     // size kWorkerCount+1, but it's hard to wait here for workers to recover
     // and simultaneously assign the port to which the workers must connect.
@@ -60,16 +64,15 @@ class DistributedGraphDbTest : public ::testing::Test {
       database::Config config;
       config.worker_id = worker_id;
       config.master_endpoint = master_->endpoint();
-      config.durability_directory = tmp_dir_;
+      config.durability_directory = GetDurabilityDirectory(worker_id);
       config.worker_endpoint = {kLocal, 0};
       config.query_execution_time_sec = QueryExecutionTimeSec(worker_id);
       return config;
     };
 
-    // Flag needs to be updated due to props on disk storage.
-    FLAGS_durability_directory = tmp_dir_;
-
     for (int i = 0; i < kWorkerCount; ++i) {
+      // Flag needs to be updated due to props on disk storage.
+      FLAGS_durability_directory = GetDurabilityDirectory(i + 1);
       workers_.emplace_back(std::make_unique<WorkerInThread>(
           modify_config(worker_config(i + 1))));
       std::this_thread::sleep_for(kInitTime);
@@ -86,6 +89,11 @@ class DistributedGraphDbTest : public ::testing::Test {
     auto t = std::thread([this]() { master_ = nullptr; });
     workers_.clear();
     if (t.joinable()) t.join();
+  }
+
+  fs::path GetDurabilityDirectory(int worker_id) {
+    if (worker_id == 0) return tmp_dir_ / "master";
+    return tmp_dir_ / fmt::format("worker{}", worker_id);
   }
 
   void CleanDurability() {
@@ -162,10 +170,17 @@ class DistributedGraphDbTest : public ::testing::Test {
 
 class Cluster {
  public:
-  explicit Cluster(int num_workers = 0) {
+  Cluster(int num_workers, const std::string &test_name) {
     using namespace std::literals::chrono_literals;
+    tmp_dir_ = fs::temp_directory_path() / "MG_test_unit_distributed_common_" /
+               test_name;
+    EXPECT_TRUE(utils::EnsureDir(tmp_dir_));
+
     database::Config master_config;
     master_config.master_endpoint = {kLocal, 0};
+    master_config.durability_directory = GetDurabilityDirectory(0);
+    // Flag needs to be updated due to props on disk storage.
+    FLAGS_durability_directory = GetDurabilityDirectory(0);
 
     auto master_tmp = std::make_unique<database::Master>(master_config);
     auto master_endpoint = master_tmp->endpoint();
@@ -179,10 +194,13 @@ class Cluster {
       config.worker_id = worker_id;
       config.master_endpoint = master_endpoint;
       config.worker_endpoint = {kLocal, 0};
+      config.durability_directory = GetDurabilityDirectory(worker_id);
       return config;
     };
 
     for (int i = 0; i < num_workers; ++i) {
+      // Flag needs to be updated due to props on disk storage.
+      FLAGS_durability_directory = GetDurabilityDirectory(i + 1);
       workers_.emplace_back(
           std::make_unique<WorkerInThread>(worker_config(i + 1)));
     }
@@ -198,6 +216,7 @@ class Cluster {
     auto t = std::thread([this] { master_ = nullptr; });
     workers_.clear();
     if (t.joinable()) t.join();
+    if (fs::exists(tmp_dir_)) fs::remove_all(tmp_dir_);
   }
 
   auto *master() { return master_.get(); }
@@ -227,8 +246,16 @@ class Cluster {
     ClearCache(tx_id);
   }
 
+  fs::path GetDurabilityDirectory(int worker_id) {
+    if (worker_id == 0) return tmp_dir_ / "master";
+    return tmp_dir_ / fmt::format("worker{}", worker_id);
+  }
+
  private:
   const std::string kLocal = "127.0.0.1";
+
+  fs::path tmp_dir_{fs::temp_directory_path() /
+                    "MG_test_unit_distributed_common"};
 
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;

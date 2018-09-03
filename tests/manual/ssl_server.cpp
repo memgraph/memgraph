@@ -19,7 +19,8 @@ struct EchoData {
 
 class EchoSession {
  public:
-  EchoSession(EchoData &data, communication::InputStream &input_stream,
+  EchoSession(EchoData &data, const io::network::Endpoint &,
+              communication::InputStream &input_stream,
               communication::OutputStream &output_stream)
       : data_(data),
         input_stream_(input_stream),

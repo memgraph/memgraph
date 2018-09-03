@@ -1,3 +1,4 @@
+#include <experimental/filesystem>
 #include <mutex>
 
 #include "capnp/serialize.h"
@@ -13,7 +14,9 @@
 #include "distributed/rpc_worker_clients.hpp"
 #include "distributed/serialization.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/file.hpp"
 
+namespace fs = std::experimental::filesystem;
 using namespace std::literals::chrono_literals;
 
 namespace distributed {
@@ -52,6 +55,7 @@ class RpcWorkerClientsTest : public ::testing::Test {
   const io::network::Endpoint kLocalHost{"127.0.0.1", 0};
   const int kWorkerCount = 2;
   void SetUp() override {
+    ASSERT_TRUE(utils::EnsureDir(tmp_dir_));
     master_coord_->SetRecoveredSnapshot(std::experimental::nullopt);
     for (int i = 1; i <= kWorkerCount; ++i) {
       workers_server_.emplace_back(
@@ -66,7 +70,8 @@ class RpcWorkerClientsTest : public ::testing::Test {
               *workers_server_.back(), *workers_coord_.back(),
               rpc_workers_.GetClientPool(0)));
 
-      cluster_discovery_.back()->RegisterWorker(i);
+      cluster_discovery_.back()->RegisterWorker(
+          i, tmp_dir(fmt::format("worker{}", i)));
 
       workers_server_.back()->Register<distributed::IncrementCounterRpc>(
           [this, i](const auto &req_reader, auto *res_builder) {
@@ -90,7 +95,15 @@ class RpcWorkerClientsTest : public ::testing::Test {
     // Starts server shutdown and notifies the workers
     master_coord_ = std::experimental::nullopt;
     for (auto &worker : wait_on_shutdown) worker.join();
+
+    // Cleanup temporary directory
+    if (fs::exists(tmp_dir_)) fs::remove_all(tmp_dir_);
   }
+
+  const fs::path tmp_dir(const fs::path &path) const { return tmp_dir_ / path; }
+
+  fs::path tmp_dir_{fs::temp_directory_path() /
+                    "MG_test_unit_rpc_worker_clients"};
 
   std::vector<std::unique_ptr<communication::rpc::Server>> workers_server_;
   std::vector<std::unique_ptr<distributed::WorkerCoordination>> workers_coord_;
@@ -105,7 +118,7 @@ class RpcWorkerClientsTest : public ::testing::Test {
 
   distributed::RpcWorkerClients rpc_workers_{*master_coord_};
   distributed::ClusterDiscoveryMaster cluster_disocvery_{
-      master_server_, *master_coord_, rpc_workers_};
+      master_server_, *master_coord_, rpc_workers_, tmp_dir("master")};
 };
 
 TEST_F(RpcWorkerClientsTest, GetWorkerIds) {

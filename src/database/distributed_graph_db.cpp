@@ -612,8 +612,9 @@ class Master {
   distributed::DataManager data_manager_{*self_, data_clients_};
   distributed::TransactionalCacheCleaner cache_cleaner_{
       tx_engine_, updates_server_, data_manager_};
-  distributed::ClusterDiscoveryMaster cluster_discovery_{server_, coordination_,
-                                                         rpc_worker_clients_};
+  distributed::ClusterDiscoveryMaster cluster_discovery_{
+      server_, coordination_, rpc_worker_clients_,
+      config_.durability_directory};
   distributed::TokenSharingRpcClients token_sharing_clients_{
       &rpc_worker_clients_};
   distributed::TokenSharingRpcServer token_sharing_server_{
@@ -885,7 +886,8 @@ class Worker {
 
   explicit Worker(const Config &config, database::Worker *self)
       : config_(config), self_(self) {
-    cluster_discovery_.RegisterWorker(config.worker_id);
+    cluster_discovery_.RegisterWorker(config.worker_id,
+                                      config.durability_directory);
   }
 
   // TODO: Some things may depend on order of construction/destruction. We also

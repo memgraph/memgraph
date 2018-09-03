@@ -22,7 +22,7 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
-BoltSession::BoltSession(SessionData &data,
+BoltSession::BoltSession(SessionData &data, const io::network::Endpoint &,
                          communication::InputStream &input_stream,
                          communication::OutputStream &output_stream)
     : communication::bolt::Session<communication::InputStream,

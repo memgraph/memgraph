@@ -1105,7 +1105,7 @@ class QueryPlanExpandBfs
  protected:
   QueryPlanExpandBfs()
       : cluster_(GetParam().first == TestType::DISTRIBUTED
-                     ? new Cluster(GetParam().second)
+                     ? new Cluster(GetParam().second, "QueryPlanExpandBfs")
                      : nullptr),
         single_node_(GetParam().first == TestType::DISTRIBUTED
                          ? nullptr

@@ -24,8 +24,6 @@ class WorkerEngineTest : public testing::Test {
   Server master_server_{{local, 0}};
   MasterCoordination master_coordination_{master_server_.endpoint()};
   RpcWorkerClients rpc_worker_clients_{master_coordination_};
-  ClusterDiscoveryMaster cluster_disocvery_{
-      master_server_, master_coordination_, rpc_worker_clients_};
 
   MasterEngine master_{master_server_, rpc_worker_clients_};
   ClientPool master_client_pool{master_server_.endpoint()};

@@ -31,7 +31,8 @@ class BoltSession final
     : public communication::bolt::Session<communication::InputStream,
                                           communication::OutputStream> {
  public:
-  BoltSession(SessionData &data, communication::InputStream &input_stream,
+  BoltSession(SessionData &data, const io::network::Endpoint &endpoint,
+              communication::InputStream &input_stream,
               communication::OutputStream &output_stream);
 
   using communication::bolt::Session<communication::InputStream,

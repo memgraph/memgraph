@@ -14,7 +14,8 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData &, communication::InputStream &input_stream,
+  TestSession(TestData &, const io::network::Endpoint &,
+              communication::InputStream &input_stream,
               communication::OutputStream &output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
