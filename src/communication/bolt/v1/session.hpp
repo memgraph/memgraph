@@ -41,8 +41,8 @@ class Session {
  public:
   using TEncoder = Encoder<ChunkedEncoderBuffer<TOutputStream>>;
 
-  Session(TInputStream &input_stream, TOutputStream &output_stream)
-      : input_stream_(input_stream), output_stream_(output_stream) {}
+  Session(TInputStream *input_stream, TOutputStream *output_stream)
+      : input_stream_(*input_stream), output_stream_(*output_stream) {}
 
   virtual ~Session() {}
 

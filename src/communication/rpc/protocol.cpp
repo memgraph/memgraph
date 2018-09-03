@@ -12,25 +12,25 @@
 
 namespace communication::rpc {
 
-Session::Session(Server &server, const io::network::Endpoint &endpoint,
-                 communication::InputStream &input_stream,
-                 communication::OutputStream &output_stream)
+Session::Session(Server *server, const io::network::Endpoint &endpoint,
+                 communication::InputStream *input_stream,
+                 communication::OutputStream *output_stream)
     : server_(server),
       endpoint_(endpoint),
       input_stream_(input_stream),
       output_stream_(output_stream) {}
 
 void Session::Execute() {
-  if (input_stream_.size() < sizeof(MessageSize)) return;
+  if (input_stream_->size() < sizeof(MessageSize)) return;
   MessageSize request_len =
-      *reinterpret_cast<MessageSize *>(input_stream_.data());
+      *reinterpret_cast<MessageSize *>(input_stream_->data());
   uint64_t request_size = sizeof(MessageSize) + request_len;
-  input_stream_.Resize(request_size);
-  if (input_stream_.size() < request_size) return;
+  input_stream_->Resize(request_size);
+  if (input_stream_->size() < request_size) return;
 
   // Read the request message.
   auto data =
-      ::kj::arrayPtr(input_stream_.data() + sizeof(request_len), request_len);
+      ::kj::arrayPtr(input_stream_->data() + sizeof(request_len), request_len);
   // Our data is word aligned and padded to 64bit because we use regular
   // (non-packed) serialization of Cap'n Proto. So we can use reinterpret_cast.
   auto data_words =
@@ -38,18 +38,18 @@ void Session::Execute() {
                      reinterpret_cast<::capnp::word *>(data.end()));
   ::capnp::FlatArrayMessageReader request_message(data_words.asConst());
   auto request = request_message.getRoot<capnp::Message>();
-  input_stream_.Shift(sizeof(MessageSize) + request_len);
+  input_stream_->Shift(sizeof(MessageSize) + request_len);
 
   ::capnp::MallocMessageBuilder response_message;
   // callback fills the message data
   auto response_builder = response_message.initRoot<capnp::Message>();
 
-  auto callbacks_accessor = server_.callbacks_.access();
+  auto callbacks_accessor = server_->callbacks_.access();
   auto it = callbacks_accessor.find(request.getTypeId());
   if (it == callbacks_accessor.end()) {
     // We couldn't find a regular callback to call, try to find an extended
     // callback to call.
-    auto extended_callbacks_accessor = server_.extended_callbacks_.access();
+    auto extended_callbacks_accessor = server_->extended_callbacks_.access();
     auto extended_it = extended_callbacks_accessor.find(request.getTypeId());
     if (extended_it == extended_callbacks_accessor.end()) {
       // Throw exception to close the socket and cleanup the session.
@@ -73,11 +73,11 @@ void Session::Execute() {
   }
 
   MessageSize input_stream_size = response_bytes.size();
-  if (!output_stream_.Write(reinterpret_cast<uint8_t *>(&input_stream_size),
+  if (!output_stream_->Write(reinterpret_cast<uint8_t *>(&input_stream_size),
                             sizeof(MessageSize), true)) {
     throw SessionException("Couldn't send response size!");
   }
-  if (!output_stream_.Write(response_bytes.begin(), response_bytes.size())) {
+  if (!output_stream_->Write(response_bytes.begin(), response_bytes.size())) {
     throw SessionException("Couldn't send response data!");
   }
 

@@ -40,7 +40,7 @@ class Listener final {
   using SessionHandler = Session<TSession, TSessionData>;
 
  public:
-  Listener(TSessionData &data, ServerContext *context,
+  Listener(TSessionData *data, ServerContext *context,
            int inactivity_timeout_sec, const std::string &service_name,
            size_t workers_count)
       : data_(data),
@@ -227,7 +227,7 @@ class Listener final {
 
   io::network::Epoll epoll_;
 
-  TSessionData &data_;
+  TSessionData *data_;
 
   utils::SpinLock lock_;
   std::vector<std::unique_ptr<SessionHandler>> sessions_;

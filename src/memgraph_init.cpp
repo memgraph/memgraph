@@ -22,14 +22,14 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
-BoltSession::BoltSession(SessionData &data, const io::network::Endpoint &,
-                         communication::InputStream &input_stream,
-                         communication::OutputStream &output_stream)
+BoltSession::BoltSession(SessionData *data, const io::network::Endpoint &,
+                         communication::InputStream *input_stream,
+                         communication::OutputStream *output_stream)
     : communication::bolt::Session<communication::InputStream,
                                    communication::OutputStream>(input_stream,
                                                                 output_stream),
-      transaction_engine_(data.db, data.interpreter),
-      auth_(&data.auth) {}
+      transaction_engine_(data->db, data->interpreter),
+      auth_(&data->auth) {}
 
 using TEncoder =
     communication::bolt::Session<communication::InputStream,

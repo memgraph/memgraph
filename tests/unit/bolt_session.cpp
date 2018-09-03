@@ -20,8 +20,8 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
  public:
   using Session<TestInputStream, TestOutputStream>::TEncoder;
 
-  TestSession(TestSessionData &data, TestInputStream &input_stream,
-              TestOutputStream &output_stream)
+  TestSession(TestSessionData *data, TestInputStream *input_stream,
+              TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream,
                                                    output_stream) {}
 
@@ -61,11 +61,11 @@ class TestSession : public Session<TestInputStream, TestOutputStream> {
 
 // TODO: This could be done in fixture.
 // Shortcuts for writing variable initializations in tests
-#define INIT_VARS                                                 \
-  TestInputStream input_stream;                                   \
-  TestOutputStream output_stream;                                 \
-  TestSessionData session_data;                                   \
-  TestSession session(session_data, input_stream, output_stream); \
+#define INIT_VARS                                                    \
+  TestInputStream input_stream;                                      \
+  TestOutputStream output_stream;                                    \
+  TestSessionData session_data;                                      \
+  TestSession session(&session_data, &input_stream, &output_stream); \
   std::vector<uint8_t> &output = output_stream.output;
 
 // Sample testdata that has correct inputs and outputs.

@@ -23,28 +23,28 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData &, const io::network::Endpoint &,
-              communication::InputStream &input_stream,
-              communication::OutputStream &output_stream)
+  TestSession(TestData *, const io::network::Endpoint &,
+              communication::InputStream *input_stream,
+              communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
-    if (input_stream_.size() < 2) return;
-    const uint8_t *data = input_stream_.data();
+    if (input_stream_->size() < 2) return;
+    const uint8_t *data = input_stream_->data();
     size_t size = data[0];
     size <<= 8;
     size += data[1];
-    input_stream_.Resize(size + 2);
-    if (input_stream_.size() < size + 2) return;
+    input_stream_->Resize(size + 2);
+    if (input_stream_->size() < size + 2) return;
 
     for (int i = 0; i < REPLY; ++i)
-      ASSERT_TRUE(output_stream_.Write(data + 2, size));
+      ASSERT_TRUE(output_stream_->Write(data + 2, size));
 
-    input_stream_.Shift(size + 2);
+    input_stream_->Shift(size + 2);
   }
 
-  communication::InputStream &input_stream_;
-  communication::OutputStream &output_stream_;
+  communication::InputStream *input_stream_;
+  communication::OutputStream *output_stream_;
 };
 
 using ContextT = communication::ServerContext;

@@ -79,7 +79,7 @@ void SingleNodeMain() {
   }
 
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, &context, FLAGS_session_inactivity_timeout,
+                 &session_data, &context, FLAGS_session_inactivity_timeout,
                  service_name, FLAGS_num_workers);
 
   // Setup telemetry
@@ -160,7 +160,7 @@ void MasterMain() {
   }
 
   ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, &context, FLAGS_session_inactivity_timeout,
+                 &session_data, &context, FLAGS_session_inactivity_timeout,
                  service_name, FLAGS_num_workers);
 
   // Handler for regular termination signals

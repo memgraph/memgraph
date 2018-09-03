@@ -39,7 +39,7 @@ class Buffer final {
    */
   class ReadEnd {
    public:
-    ReadEnd(Buffer &buffer);
+    ReadEnd(Buffer *buffer);
 
     ReadEnd(const ReadEnd &) = delete;
     ReadEnd(ReadEnd &&) = delete;
@@ -57,7 +57,7 @@ class Buffer final {
     void Clear();
 
    private:
-    Buffer &buffer_;
+    Buffer *buffer_;
   };
 
   /**
@@ -66,7 +66,7 @@ class Buffer final {
    */
   class WriteEnd {
    public:
-    WriteEnd(Buffer &buffer);
+    WriteEnd(Buffer *buffer);
 
     WriteEnd(const WriteEnd &) = delete;
     WriteEnd(WriteEnd &&) = delete;
@@ -82,20 +82,20 @@ class Buffer final {
     void Clear();
 
    private:
-    Buffer &buffer_;
+    Buffer *buffer_;
   };
 
   /**
-   * This function returns a reference to the associated ReadEnd object for this
+   * This function returns a pointer to the associated ReadEnd object for this
    * buffer.
    */
-  ReadEnd &read_end();
+  ReadEnd *read_end();
 
   /**
-   * This function returns a reference to the associated WriteEnd object for
+   * This function returns a pointer to the associated WriteEnd object for
    * this buffer.
    */
-  WriteEnd &write_end();
+  WriteEnd *write_end();
 
  private:
   /**

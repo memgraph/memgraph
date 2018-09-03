@@ -36,9 +36,9 @@ class SessionException : public utils::BasicException {
  */
 class Session {
  public:
-  Session(Server &server, const io::network::Endpoint &endpoint,
-          communication::InputStream &input_stream,
-          communication::OutputStream &output_stream);
+  Session(Server *server, const io::network::Endpoint &endpoint,
+          communication::InputStream *input_stream,
+          communication::OutputStream *output_stream);
 
   /**
    * Executes the protocol after data has been read into the stream.
@@ -48,10 +48,10 @@ class Session {
   void Execute();
 
  private:
-  Server &server_;
+  Server *server_;
   io::network::Endpoint endpoint_;
-  communication::InputStream &input_stream_;
-  communication::OutputStream &output_stream_;
+  communication::InputStream *input_stream_;
+  communication::OutputStream *output_stream_;
 };
 
 }  // namespace communication::rpc

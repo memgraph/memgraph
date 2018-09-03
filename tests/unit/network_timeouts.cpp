@@ -14,24 +14,24 @@ class TestData {};
 
 class TestSession {
  public:
-  TestSession(TestData &, const io::network::Endpoint &,
-              communication::InputStream &input_stream,
-              communication::OutputStream &output_stream)
+  TestSession(TestData *, const io::network::Endpoint &,
+              communication::InputStream *input_stream,
+              communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
     LOG(INFO) << "Received data: '"
               << std::string(
-                     reinterpret_cast<const char *>(input_stream_.data()),
-                     input_stream_.size())
+                     reinterpret_cast<const char *>(input_stream_->data()),
+                     input_stream_->size())
               << "'";
-    output_stream_.Write(input_stream_.data(), input_stream_.size());
-    input_stream_.Shift(input_stream_.size());
+    output_stream_->Write(input_stream_->data(), input_stream_->size());
+    input_stream_->Shift(input_stream_->size());
   }
 
  private:
-  communication::InputStream &input_stream_;
-  communication::OutputStream &output_stream_;
+  communication::InputStream *input_stream_;
+  communication::OutputStream *output_stream_;
 };
 
 const std::string query("timeout test");
@@ -55,7 +55,7 @@ TEST(NetworkTimeouts, InactiveSession) {
   TestData test_data;
   communication::ServerContext context;
   communication::Server<TestSession, TestData> server{
-      {"127.0.0.1", 0}, test_data, &context, 2, "Test", 1};
+      {"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
 
   // Create the client and connect to the server.
   io::network::Socket client;

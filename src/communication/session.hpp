@@ -65,14 +65,14 @@ class OutputStream final {
 template <class TSession, class TSessionData>
 class Session final {
  public:
-  Session(io::network::Socket &&socket, TSessionData &data,
+  Session(io::network::Socket &&socket, TSessionData *data,
           ServerContext *context, int inactivity_timeout_sec)
       : socket_(std::move(socket)),
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) {
           return Write(data, len, have_more);
         }),
         session_(data, socket_.endpoint(), input_buffer_.read_end(),
-                 output_stream_),
+                 &output_stream_),
         inactivity_timeout_sec_(inactivity_timeout_sec) {
     // Set socket options.
     // The socket is set to be a non-blocking socket. We use the socket in a
@@ -145,7 +145,7 @@ class Session final {
     RefreshLastEventTime();
 
     // Allocate the buffer to fill the data.
-    auto buf = input_buffer_.write_end().Allocate();
+    auto buf = input_buffer_.write_end()->Allocate();
 
     if (ssl_) {
       // We clear errors here to prevent errors piling up in the internal
@@ -181,7 +181,7 @@ class Session final {
         return false;
       } else {
         // Notify the input buffer that it has new data.
-        input_buffer_.write_end().Written(len);
+        input_buffer_.write_end()->Written(len);
       }
     } else {
       // Read from the buffer at most buf.len bytes in a non-blocking fashion.
@@ -205,7 +205,7 @@ class Session final {
         throw SessionClosedException("Session was closed by client.");
       } else {
         // Notify the input buffer that it has new data.
-        input_buffer_.write_end().Written(len);
+        input_buffer_.write_end()->Written(len);
       }
     }
 

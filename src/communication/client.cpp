@@ -83,9 +83,9 @@ void Client::Close() {
 
 bool Client::Read(size_t len) {
   size_t received = 0;
-  buffer_.write_end().Resize(buffer_.read_end().size() + len);
+  buffer_.write_end()->Resize(buffer_.read_end()->size() + len);
   while (received < len) {
-    auto buff = buffer_.write_end().Allocate();
+    auto buff = buffer_.write_end()->Allocate();
     if (ssl_) {
       // We clear errors here to prevent errors piling up in the internal
       // OpenSSL error queue. To see when could that be an issue read this:
@@ -120,7 +120,7 @@ bool Client::Read(size_t len) {
       }
 
       // Notify the buffer that it has new data.
-      buffer_.write_end().Written(got);
+      buffer_.write_end()->Written(got);
       received += got;
     } else {
       // Read raw data from the socket.
@@ -135,20 +135,20 @@ bool Client::Read(size_t len) {
       }
 
       // Notify the buffer that it has new data.
-      buffer_.write_end().Written(got);
+      buffer_.write_end()->Written(got);
       received += got;
     }
   }
   return true;
 }
 
-uint8_t *Client::GetData() { return buffer_.read_end().data(); }
+uint8_t *Client::GetData() { return buffer_.read_end()->data(); }
 
-size_t Client::GetDataSize() { return buffer_.read_end().size(); }
+size_t Client::GetDataSize() { return buffer_.read_end()->size(); }
 
-void Client::ShiftData(size_t len) { buffer_.read_end().Shift(len); }
+void Client::ShiftData(size_t len) { buffer_.read_end()->Shift(len); }
 
-void Client::ClearData() { buffer_.read_end().Clear(); }
+void Client::ClearData() { buffer_.read_end()->Clear(); }
 
 bool Client::Write(const uint8_t *data, size_t len, bool have_more) {
   if (ssl_) {

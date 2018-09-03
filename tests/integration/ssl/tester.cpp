@@ -21,24 +21,24 @@ struct EchoData {};
 
 class EchoSession {
  public:
-  EchoSession(EchoData &, const io::network::Endpoint &,
-              communication::InputStream &input_stream,
-              communication::OutputStream &output_stream)
+  EchoSession(EchoData *, const io::network::Endpoint &,
+              communication::InputStream *input_stream,
+              communication::OutputStream *output_stream)
       : input_stream_(input_stream), output_stream_(output_stream) {}
 
   void Execute() {
-    if (input_stream_.size() < message.size()) return;
+    if (input_stream_->size() < message.size()) return;
     LOG(INFO) << "Server received message.";
-    if (!output_stream_.Write(input_stream_.data(), message.size())) {
+    if (!output_stream_->Write(input_stream_->data(), message.size())) {
       throw utils::BasicException("Output stream write failed!");
     }
     LOG(INFO) << "Server sent message.";
-    input_stream_.Shift(message.size());
+    input_stream_->Shift(message.size());
   }
 
  private:
-  communication::InputStream &input_stream_;
-  communication::OutputStream &output_stream_;
+  communication::InputStream *input_stream_;
+  communication::OutputStream *output_stream_;
 };
 
 int main(int argc, char **argv) {
@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
       FLAGS_server_key_file, FLAGS_server_cert_file, FLAGS_server_ca_file,
       FLAGS_server_verify_peer);
   communication::Server<EchoSession, EchoData> server(
-      {"127.0.0.1", 0}, echo_data, &server_context, -1, "SSL", 1);
+      {"127.0.0.1", 0}, &echo_data, &server_context, -1, "SSL", 1);
 
   // Initialize the client.
   communication::ClientContext client_context(FLAGS_client_key_file,
