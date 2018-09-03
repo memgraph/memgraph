@@ -29,13 +29,16 @@ class Context {
   database::GraphDbAccessor &db_accessor_;
   SymbolTable symbol_table_;
   Parameters parameters_;
-  bool is_query_cached_ = false;
   bool in_explicit_transaction_ = false;
   bool is_index_created_ = false;
   int64_t timestamp_{-1};
 
   auth::Auth *auth_ = nullptr;
   integrations::kafka::Streams *kafka_streams_ = nullptr;
+};
+
+struct ParsingContext {
+  bool is_query_cached = false;
 };
 
 }  // namespace query

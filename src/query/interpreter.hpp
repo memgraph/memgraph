@@ -195,7 +195,9 @@ class Interpreter {
   // high level tree -> CachedPlan
   std::shared_ptr<CachedPlan> AstToPlan(AstStorage ast_storage, Context *ctx);
   // stripped query -> high level tree
-  AstStorage QueryToAst(const StrippedQuery &stripped, Context &ctx);
+  AstStorage QueryToAst(const StrippedQuery &stripped,
+                        const ParsingContext &context,
+                        database::GraphDbAccessor *db_accessor);
 };
 
 }  // namespace query

@@ -490,11 +490,12 @@ void ExaminePlans(
 
 query::AstStorage MakeAst(const std::string &query,
                           database::GraphDbAccessor &dba) {
-  query::Context ctx(dba);
+  query::ParsingContext parsing_context;
+  parsing_context.is_query_cached = false;
   // query -> AST
   auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);
   // AST -> high level tree
-  query::frontend::CypherMainVisitor visitor(ctx);
+  query::frontend::CypherMainVisitor visitor(parsing_context, &dba);
   visitor.visit(parser->tree());
   return std::move(visitor.storage());
 }

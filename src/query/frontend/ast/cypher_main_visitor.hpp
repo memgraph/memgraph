@@ -20,7 +20,9 @@ using query::Context;
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
-  explicit CypherMainVisitor(Context &ctx) : ctx_(ctx) {}
+  explicit CypherMainVisitor(ParsingContext context,
+                             database::GraphDbAccessor *dba)
+      : context_(context), dba_(dba) {}
 
  private:
   Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1,
@@ -740,7 +742,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   const static std::string kAnonPrefix;
 
  private:
-  Context &ctx_;
+  ParsingContext context_;
+  database::GraphDbAccessor *dba_;
+
   // Set of identifiers from queries.
   std::unordered_set<std::string> users_identifiers;
   // Identifiers that user didn't name.

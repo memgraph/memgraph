@@ -262,7 +262,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
   std::pair<std::string, storage::Property> key =
       ctx->propertyKeyName()->accept(this);
   return storage_.Create<CreateIndex>(
-      ctx_.db_accessor_.Label(ctx->labelName()->accept(this)), key.second);
+      dba_->Label(ctx->labelName()->accept(this)), key.second);
 }
 
 /**
@@ -726,7 +726,7 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(
     MemgraphCypher::NodeLabelsContext *ctx) {
   std::vector<storage::Label> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    labels.push_back(ctx_.db_accessor_.Label(node_label->accept(this)));
+    labels.push_back(dba_->Label(node_label->accept(this)));
   }
   return labels;
 }
@@ -770,7 +770,7 @@ antlrcpp::Any CypherMainVisitor::visitListLiteral(
 antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(
     MemgraphCypher::PropertyKeyNameContext *ctx) {
   const std::string key_name = visitChildren(ctx);
-  return std::make_pair(key_name, ctx_.db_accessor_.Property(key_name));
+  return std::make_pair(key_name, dba_->Property(key_name));
 }
 
 antlrcpp::Any CypherMainVisitor::visitSymbolicName(
@@ -1000,7 +1000,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
     MemgraphCypher::RelationshipTypesContext *ctx) {
   std::vector<storage::EdgeType> types;
   for (auto *edge_type : ctx->relTypeName()) {
-    types.push_back(ctx_.db_accessor_.EdgeType(edge_type->accept(this)));
+    types.push_back(dba_->EdgeType(edge_type->accept(this)));
   }
   return types;
 }
@@ -1372,7 +1372,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
     if (ctx->CYPHERNULL()) {
       return static_cast<Expression *>(
           storage_.Create<PrimitiveLiteral>(TypedValue::Null, token_position));
-    } else if (ctx_.is_query_cached_) {
+    } else if (context_.is_query_cached) {
       // Instead of generating PrimitiveLiteral, we generate a
       // ParameterLookup, so that the AST can be cached. This allows for
       // varying literals, which are then looked up in the parameters table

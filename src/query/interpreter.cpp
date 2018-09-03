@@ -30,7 +30,6 @@ Interpreter::Results Interpreter::operator()(
   utils::Timer frontend_timer;
   Context ctx(db_accessor);
   ctx.in_explicit_transaction_ = in_explicit_transaction;
-  ctx.is_query_cached_ = true;
   ctx.timestamp_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                        std::chrono::system_clock::now().time_since_epoch())
                        .count();
@@ -50,7 +49,10 @@ Interpreter::Results Interpreter::operator()(
     }
     ctx.parameters_.Add(param_pair.first, param_it->second);
   }
-  AstStorage ast_storage = QueryToAst(stripped, ctx);
+
+  ParsingContext parsing_context;
+  parsing_context.is_query_cached = true;
+  AstStorage ast_storage = QueryToAst(stripped, parsing_context, &db_accessor);
   // TODO: Maybe cache required privileges to improve performance on very simple
   // queries.
   auto required_privileges = query::GetRequiredPrivileges(ast_storage);
@@ -115,8 +117,9 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::AstToPlan(
 }
 
 AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
-                                   Context &ctx) {
-  if (!ctx.is_query_cached_) {
+                                   const ParsingContext &context,
+                                   database::GraphDbAccessor *db_accessor) {
+  if (!context.is_query_cached) {
     // stripped query -> AST
     auto parser = [&] {
       // Be careful about unlocking since parser can throw.
@@ -126,7 +129,7 @@ AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
     }();
     auto low_level_tree = parser->tree();
     // AST -> high level tree
-    frontend::CypherMainVisitor visitor(ctx);
+    frontend::CypherMainVisitor visitor(context, db_accessor);
     visitor.visit(low_level_tree);
     return std::move(visitor.storage());
   }
@@ -152,7 +155,7 @@ AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
     }();
     auto low_level_tree = parser->tree();
     // AST -> high level tree
-    frontend::CypherMainVisitor visitor(ctx);
+    frontend::CypherMainVisitor visitor(context, db_accessor);
     visitor.visit(low_level_tree);
     // Cache it.
     ast_it =
