@@ -4,6 +4,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "database/indexes/label_property_index.hpp"
 #include "storage/types.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 
 #include "mvcc_gc_common.hpp"
 
@@ -45,7 +46,7 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
   LabelPropertyIndex index;
   LabelPropertyIndex::Key *key;
 
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
   tx::Transaction *t{nullptr};
 
   mvcc::VersionList<Vertex> *vlist;

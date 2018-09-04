@@ -25,7 +25,6 @@
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
-#include "transactions/engine_master.hpp"
 
 DECLARE_int32(query_execution_time_sec);
 

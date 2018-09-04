@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include <atomic>
@@ -8,26 +10,21 @@
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/thread/sync.hpp"
 
 namespace tx {
 
-/** Indicates an error in transaction handling (currently
- * only command id overflow). */
-class TransactionError : public utils::BasicException {
+/// Single-node deployment transaction engine. Has complete functionality.
+class EngineSingleNode final : public Engine {
  public:
-  using utils::BasicException::BasicException;
-};
+  /// @param wal - Optional. If present, the Engine will write tx
+  /// Begin/Commit/Abort atomically (while under lock).
+  explicit EngineSingleNode(durability::WriteAheadLog *wal = nullptr);
 
-/** Single-node deployment transaction engine. Has complete functionality. */
-class SingleNodeEngine : public Engine {
- public:
-  /**
-   * @param wal - Optional. If present, the Engine will write tx
-   * Begin/Commit/Abort atomically (while under lock).
-   */
-  explicit SingleNodeEngine(durability::WriteAheadLog *wal = nullptr);
+  EngineSingleNode(const EngineSingleNode &) = delete;
+  EngineSingleNode(EngineSingleNode &&) = delete;
+  EngineSingleNode &operator=(const EngineSingleNode &) = delete;
+  EngineSingleNode &operator=(EngineSingleNode &&) = delete;
 
   Transaction *Begin() override;
   CommandId Advance(TransactionId id) override;

@@ -4,7 +4,7 @@
 
 #include "mvcc/record.hpp"
 #include "mvcc/version_list.hpp"
-#include "transactions/engine_single_node.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 
 class Prop : public mvcc::Record<Prop> {
  public:
@@ -19,7 +19,7 @@ class Prop : public mvcc::Record<Prop> {
 void MvccMix(benchmark::State &state) {
   while (state.KeepRunning()) {
     state.PauseTiming();
-    tx::SingleNodeEngine engine;
+    tx::EngineSingleNode engine;
     auto t1 = engine.Begin();
     mvcc::VersionList<Prop> version_list(*t1, 0, 0);
 

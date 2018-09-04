@@ -9,9 +9,8 @@
 #include "distributed/cluster_discovery_master.hpp"
 #include "distributed/coordination_master.hpp"
 #include "io/network/endpoint.hpp"
-#include "transactions/engine_master.hpp"
-#include "transactions/engine_rpc_messages.hpp"
-#include "transactions/engine_worker.hpp"
+#include "transactions/distributed/engine_master.hpp"
+#include "transactions/distributed/engine_worker.hpp"
 
 using namespace tx;
 using namespace communication::rpc;
@@ -22,13 +21,14 @@ class WorkerEngineTest : public testing::Test {
   const std::string local{"127.0.0.1"};
 
   Server master_server_{{local, 0}};
+  Server worker_server_{{local, 0}};
   MasterCoordination master_coordination_{master_server_.endpoint()};
   RpcWorkerClients rpc_worker_clients_{master_coordination_};
 
-  MasterEngine master_{master_server_, rpc_worker_clients_};
+  EngineMaster master_{master_server_, rpc_worker_clients_};
   ClientPool master_client_pool{master_server_.endpoint()};
 
-  WorkerEngine worker_{master_client_pool};
+  EngineWorker worker_{worker_server_, master_client_pool};
 };
 
 TEST_F(WorkerEngineTest, BeginOnWorker) {

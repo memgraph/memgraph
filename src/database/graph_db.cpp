@@ -11,7 +11,7 @@
 #include "durability/recovery.hpp"
 #include "durability/snapshooter.hpp"
 #include "storage/concurrent_id_mapper_single_node.hpp"
-#include "transactions/engine_single_node.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 #include "utils/file.hpp"
 
 namespace database {
@@ -197,7 +197,7 @@ class SingleNode {
       config_.worker_id, config_.durability_directory,
       config_.durability_enabled, config_.synchronous_commit};
 
-  tx::SingleNodeEngine tx_engine_{&wal_};
+  tx::EngineSingleNode tx_engine_{&wal_};
   std::unique_ptr<StorageGcSingleNode> storage_gc_ =
       std::make_unique<StorageGcSingleNode>(*storage_, tx_engine_,
                                             config_.gc_cycle_sec);

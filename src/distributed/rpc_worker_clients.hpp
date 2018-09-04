@@ -8,7 +8,6 @@
 #include "distributed/coordination.hpp"
 #include "distributed/index_rpc_messages.hpp"
 #include "distributed/token_sharing_rpc_messages.hpp"
-#include "distributed/transactional_cache_cleaner_rpc_messages.hpp"
 #include "storage/types.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/future.hpp"
@@ -130,38 +129,6 @@ class TokenSharingRpcClients {
 
  private:
   RpcWorkerClients *clients_;
-};
-
-/** Join ongoing produces on all workers.
- *
- * Sends a RPC request to all workers when a transaction is ending, notifying
- * them to end all ongoing produces tied to that transaction.
- */
-class OngoingProduceJoinerRpcClients {
- public:
-  OngoingProduceJoinerRpcClients(RpcWorkerClients &clients)
-      : clients_(clients) {}
-
-  void JoinOngoingProduces(tx::TransactionId tx_id, bool committed) {
-    auto futures = clients_.ExecuteOnWorkers<void>(
-        0, [tx_id, committed](int worker_id,
-                              communication::rpc::ClientPool &client_pool) {
-          auto result = client_pool.Call<distributed::WaitOnTransactionEndRpc>(
-              tx_id, committed);
-          CHECK(result)
-              << "[WaitOnTransactionEndRpc] failed to notify that transaction "
-              << tx_id << " ended";
-        });
-
-    // We need to wait for all workers to destroy pending futures to avoid
-    // using already destroyed (released) transaction objects.
-    for (auto &future : futures) {
-      future.wait();
-    }
-  }
-
- private:
-  RpcWorkerClients &clients_;
 };
 
 }  // namespace distributed

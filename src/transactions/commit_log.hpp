@@ -1,16 +1,16 @@
 #pragma once
 
 #include "data_structures/bitset/dynamic_bitset.hpp"
-#include "transactions/common.capnp.h"
 #include "transactions/type.hpp"
 
 namespace tx {
 
 // This class is lock free. There is no need to acquire any lock when accessing
 // this class and this class doesn't acquire any lock on method calls.
-class CommitLog {
+class CommitLog final {
  public:
   static constexpr int kBitsetBlockSize = 32768;
+
   CommitLog() = default;
   CommitLog(const CommitLog &) = delete;
   CommitLog(CommitLog &&) = delete;
@@ -37,7 +37,7 @@ class CommitLog {
   // lower than `id`.
   void garbage_collect_older(TransactionId id) { log.delete_prefix(2 * id); }
 
-  class Info {
+  class Info final {
    public:
     Info() {}  // Needed for serialization.
     enum Status {
@@ -46,23 +46,26 @@ class CommitLog {
       ABORTED = 2,    // 10
     };
 
-    explicit Info(uint8_t flags) : flags_(flags) {}
+    explicit Info(uint8_t flags) {
+      if (flags & ABORTED) {
+        flags_ = ABORTED;
+      } else if (flags & COMMITTED) {
+        flags_ = COMMITTED;
+      } else {
+        flags_ = ACTIVE;
+      }
+    }
 
     bool is_active() const { return flags_ == ACTIVE; }
 
-    bool is_committed() const { return flags_ & COMMITTED; }
+    bool is_committed() const {
+      if (flags_ & ABORTED) return false;
+      return flags_ & COMMITTED;
+    }
 
     bool is_aborted() const { return flags_ & ABORTED; }
 
     operator uint8_t() const { return flags_; }
-
-    void Save(capnp::CommitLogInfo::Builder *builder) const {
-      builder->setFlags(flags_);
-    }
-
-    void Load(const capnp::CommitLogInfo::Reader &reader) {
-      flags_ = reader.getFlags();
-    }
 
    private:
     uint8_t flags_{0};

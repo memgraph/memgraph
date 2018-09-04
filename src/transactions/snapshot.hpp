@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include <algorithm>
@@ -5,51 +7,49 @@
 #include <vector>
 
 #include "glog/logging.h"
-#include "transactions/common.capnp.h"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
 
 namespace tx {
 
-class Engine;
-
-/** Ascendingly sorted collection of transaction ids.
- *
- * Represents the transactions that were active at
- * some point in the discrete transaction time.
- */
-class Snapshot {
+/// Ascendingly sorted collection of transaction ids.
+///
+/// Represents the transactions that were active at
+/// some point in the discrete transaction time.
+class Snapshot final {
  public:
   Snapshot() = default;
   Snapshot(std::vector<TransactionId> &&active)
       : transaction_ids_(std::move(active)) {}
-  // all the copy/move constructors/assignments act naturally
 
-  /** Returns true if this snapshot contains the given
-   * transaction id.
-   *
-   * @param xid - The transcation id in question
-   */
+  Snapshot(const Snapshot &) = default;
+  Snapshot(Snapshot &&) = default;
+  Snapshot &operator=(const Snapshot &) = default;
+  Snapshot &operator=(Snapshot &&) = default;
+
+  /// Returns true if this snapshot contains the given
+  /// transaction id.
+  ///
+  /// @param xid - The transcation id in question
   bool contains(TransactionId id) const {
     return std::binary_search(transaction_ids_.begin(), transaction_ids_.end(),
                               id);
   }
 
-  /** Adds the given transaction id to the end of this Snapshot.
-   * The given id must be greater then all the existing ones,
-   * to maintain ascending sort order.
-   *
-   * @param id - the transaction id to add
-   */
+  /// Adds the given transaction id to the end of this Snapshot.
+  /// The given id must be greater then all the existing ones,
+  /// to maintain ascending sort order.
+  ///
+  /// @param id - the transaction id to add
   void insert(TransactionId id) {
     transaction_ids_.push_back(id);
     DCHECK(std::is_sorted(transaction_ids_.begin(), transaction_ids_.end()))
         << "Snapshot must be sorted";
   }
 
-  /** Removes the given transaction id from this Snapshot.
-   *
-   * @param id - the transaction id to remove */
+  /// Removes the given transaction id from this Snapshot.
+  ///
+  /// @param id - the transaction id to remove
   void remove(TransactionId id) {
     auto last =
         std::remove(transaction_ids_.begin(), transaction_ids_.end(), id);
@@ -84,8 +84,7 @@ class Snapshot {
     return stream;
   }
 
-  void Save(capnp::Snapshot::Builder *builder) const;
-  void Load(const capnp::Snapshot::Reader &reader);
+  const auto &transaction_ids() const { return transaction_ids_; }
 
  private:
   std::vector<TransactionId> transaction_ids_;

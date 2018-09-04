@@ -3,9 +3,7 @@
 #include "communication/rpc/client_pool.hpp"
 #include "database/storage_gc.hpp"
 #include "distributed/storage_gc_rpc_messages.hpp"
-
-#include "transactions/engine_worker.hpp"
-#include "transactions/transaction.hpp"
+#include "transactions/distributed/engine_worker.hpp"
 
 namespace database {
 class StorageGcWorker : public StorageGc {
@@ -30,7 +28,7 @@ class StorageGcWorker : public StorageGc {
     // try to acquire a lock which hasn't been released (if the transaction
     // cache cleaner was not scheduled at this time), and take a look into the
     // commit log which no longer contains that transaction id.
-    dynamic_cast<tx::WorkerEngine &>(tx_engine_)
+    dynamic_cast<tx::EngineWorker &>(tx_engine_)
         .ClearTransactionalCache(oldest_active);
     auto safe_to_delete = GetClogSafeTransaction(oldest_active);
     if (safe_to_delete) {

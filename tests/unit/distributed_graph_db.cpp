@@ -24,7 +24,7 @@
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/distributed/engine_master.hpp"
 
 using database::GraphDbAccessor;
 using namespace distributed;

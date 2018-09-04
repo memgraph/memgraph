@@ -4,7 +4,7 @@
 #include "mvcc/record.hpp"
 #include "mvcc/version.hpp"
 #include "mvcc/version_list.hpp"
-#include "transactions/engine_single_node.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 
 class TestClass : public mvcc::Record<TestClass> {
@@ -57,7 +57,7 @@ class Mvcc : public ::testing::Test {
   }
   // variable where number of versions is stored
   int version_list_size = 0;
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
   tx::Transaction *t1 = engine.Begin();
   mvcc::VersionList<TestClass> version_list{*t1, 0, 0, version_list_size};
   TestClass *v1 = nullptr;

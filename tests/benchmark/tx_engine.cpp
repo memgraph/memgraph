@@ -3,14 +3,14 @@
 
 #include <glog/logging.h>
 
-#include "transactions/engine_single_node.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 #include "utils/timer.hpp"
 
 void Benchmark(int64_t num_threads, int64_t num_transactions) {
   LOG(INFO) << "Testing with " << num_threads << " threads and "
             << num_transactions << " transactions per thread...";
 
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
   std::vector<std::thread> threads;
   utils::Timer timer;
   for (int i = 0; i < num_threads; ++i) {

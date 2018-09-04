@@ -5,7 +5,7 @@
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
-#include "transactions/engine_worker.hpp"
+#include "transactions/distributed/engine_worker.hpp"
 
 namespace distributed {
 
@@ -98,7 +98,7 @@ ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
 }
 
 ProduceRpcServer::ProduceRpcServer(database::Worker *db,
-                                   tx::WorkerEngine *tx_engine,
+                                   tx::EngineWorker *tx_engine,
                                    communication::rpc::Server &server,
                                    const PlanConsumer &plan_consumer,
                                    DataManager *data_manager)
@@ -136,11 +136,11 @@ ProduceRpcServer::ProduceRpcServer(database::Worker *db,
       });
 }
 
-void ProduceRpcServer::FinishAndClearOngoingProducePlans(
-    tx::TransactionId tx_id) {
+void ProduceRpcServer::ClearTransactionalCache(
+    tx::TransactionId oldest_active) {
   std::lock_guard<std::mutex> guard{ongoing_produces_lock_};
   for (auto it = ongoing_produces_.begin(); it != ongoing_produces_.end();) {
-    if (std::get<0>(it->first) == tx_id) {
+    if (std::get<0>(it->first) < oldest_active) {
       it = ongoing_produces_.erase(it);
     } else {
       ++it;

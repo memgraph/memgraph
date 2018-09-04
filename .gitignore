@@ -62,8 +62,6 @@ src/distributed/storage_gc_rpc_messages.capnp
 src/distributed/storage_gc_rpc_messages.hpp
 src/distributed/token_sharing_rpc_messages.capnp
 src/distributed/token_sharing_rpc_messages.hpp
-src/distributed/transactional_cache_cleaner_rpc_messages.capnp
-src/distributed/transactional_cache_cleaner_rpc_messages.hpp
 src/distributed/updates_rpc_messages.capnp
 src/distributed/updates_rpc_messages.hpp
 src/query/plan/distributed_ops.capnp
@@ -73,5 +71,5 @@ src/stats/stats_rpc_messages.capnp
 src/stats/stats_rpc_messages.hpp
 src/storage/concurrent_id_mapper_rpc_messages.capnp
 src/storage/concurrent_id_mapper_rpc_messages.hpp
-src/transactions/engine_rpc_messages.capnp
-src/transactions/engine_rpc_messages.hpp
+src/transactions/distributed/engine_rpc_messages.capnp
+src/transactions/distributed/engine_rpc_messages.hpp

@@ -89,11 +89,15 @@ class DistributedDurability : public DistributedGraphDbTest {
         // The master always has TRANSACTION_BEGIN and `op`.
         ASSERT_EQ(deltas.size(), 2);
         EXPECT_EQ(deltas[1].type, op);
-      }
-      else {
-        // The workers only have `op`.
-        ASSERT_EQ(deltas.size(), 1);
-        EXPECT_EQ(deltas[0].type, op);
+      } else {
+        // The workers only have `op` if the op is `COMMITTED`, they don't have
+        // the `ABORTED` op.
+        if (op == database::StateDelta::Type::TRANSACTION_COMMIT) {
+          ASSERT_EQ(deltas.size(), 1);
+          EXPECT_EQ(deltas[0].type, op);
+        } else {
+          ASSERT_EQ(deltas.size(), 0);
+        }
       }
     }
   }

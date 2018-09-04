@@ -3,25 +3,30 @@
 #include <atomic>
 
 #include "communication/rpc/client_pool.hpp"
+#include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
+#include "durability/wal.hpp"
 #include "io/network/endpoint.hpp"
 #include "transactions/commit_log.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/distributed/engine_distributed.hpp"
 #include "transactions/transaction.hpp"
 
 namespace tx {
 
-/** Distributed worker transaction engine. Connects to a MasterEngine (single
+/** Distributed worker transaction engine. Connects to a EngineMaster (single
  * source of truth) to obtain transactional info. Caches most info locally. Can
  * begin/advance/end transactions on the master. */
-class WorkerEngine : public Engine {
+class EngineWorker final : public EngineDistributed {
  public:
-  /// The wait time between two releases of local transaction objects that have
-  /// expired on the master.
-  static constexpr std::chrono::seconds kCacheReleasePeriod{1};
+  EngineWorker(communication::rpc::Server &server,
+               communication::rpc::ClientPool &master_client_pool,
+               durability::WriteAheadLog *wal = nullptr);
+  ~EngineWorker();
 
-  explicit WorkerEngine(communication::rpc::ClientPool &master_client_pool);
-  ~WorkerEngine();
+  EngineWorker(const EngineWorker &) = delete;
+  EngineWorker(EngineWorker &&) = delete;
+  EngineWorker &operator=(const EngineWorker &) = delete;
+  EngineWorker &operator=(EngineWorker &&) = delete;
 
   Transaction *Begin() override;
   CommandId Advance(TransactionId id) override;
@@ -45,9 +50,7 @@ class WorkerEngine : public Engine {
   void EnsureNextIdGreater(TransactionId tx_id) override;
   void GarbageCollectCommitLog(tx::TransactionId tx_id) override;
 
-  /// Clears the cache of local transactions that have expired. The signature of
-  /// this method is dictated by `distributed::TransactionalCacheCleaner`.
-  void ClearTransactionalCache(TransactionId oldest_active) const;
+  void ClearTransactionalCache(TransactionId oldest_active) override;
 
  private:
   // Local caches.
@@ -56,8 +59,14 @@ class WorkerEngine : public Engine {
   // Mutable because just getting info can cause a cache fill.
   mutable CommitLog clog_;
 
+  // Our local RPC server.
+  communication::rpc::Server &server_;
+
   // Communication to the transactional master.
   communication::rpc::ClientPool &master_client_pool_;
+
+  // Write ahead log.
+  durability::WriteAheadLog *wal_;
 
   // Used for clearing of caches of transactions that have expired.
   // Initialize the oldest_active_ with 1 because there's never a tx with id=0

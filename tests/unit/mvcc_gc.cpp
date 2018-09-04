@@ -12,13 +12,13 @@
 #include "mvcc/version_list.hpp"
 #include "storage/garbage_collector.hpp"
 #include "storage/vertex.hpp"
-#include "transactions/engine_single_node.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 
 #include "mvcc_gc_common.hpp"
 
 class MvccGcTest : public ::testing::Test {
  protected:
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
 
  private:
   tx::Transaction *t0 = engine.Begin();
@@ -116,7 +116,7 @@ TEST_F(MvccGcTest, OldestTransactionSnapshot) {
  */
 TEST(GarbageCollector, GcClean) {
   ConcurrentMap<int64_t, mvcc::VersionList<DestrCountRec> *> collection;
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
   DeferredDeleter<DestrCountRec> deleter;
   DeferredDeleter<mvcc::VersionList<DestrCountRec>> vlist_deleter;
   GarbageCollector<decltype(collection), DestrCountRec> gc(collection, deleter,

@@ -22,17 +22,17 @@ cpp<#
  #include "distributed/data_manager.hpp"
  cpp<#)
 
+(load "transactions/distributed/serialization.lcp")
+
 (lcp:namespace distributed)
 
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'dis "/distributed/serialization.capnp")
 (lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
-(lcp:capnp-import 'tx "/transactions/common.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::CommandId" "UInt32")
-(lcp:capnp-type-conversion "tx::Snapshot" "Tx.Snapshot")
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 
 #>cpp
@@ -321,7 +321,11 @@ cpp<#)
 (lcp:define-rpc pull
     (:request
      ((tx-id "tx::TransactionId")
-      (tx-snapshot "tx::Snapshot")
+      (tx-snapshot "tx::Snapshot"
+                   :capnp-type "List(UInt64)"
+                   :capnp-init nil
+                   :capnp-save #'save-snapshot
+                   :capnp-load #'load-snapshot)
       (plan-id :int64_t)
       (command-id "tx::CommandId")
       (params "Parameters"

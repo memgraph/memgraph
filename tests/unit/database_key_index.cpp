@@ -5,7 +5,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
-#include "transactions/engine_single_node.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 
 #include "mvcc_gc_common.hpp"
 
@@ -16,7 +16,7 @@ TEST(LabelsIndex, UniqueInsert) {
   database::KeyIndex<storage::Label, Vertex> index;
   database::SingleNode db;
   auto dba = db.Access();
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
 
   auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist(*t1, 0, 0);
@@ -45,7 +45,7 @@ TEST(LabelsIndex, UniqueFilter) {
   database::SingleNode db;
   database::KeyIndex<storage::Label, Vertex> index;
   auto dba = db.Access();
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
 
   auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist1(*t1, 0, 0);
@@ -85,7 +85,7 @@ TEST(LabelsIndex, Refresh) {
   database::KeyIndex<storage::Label, Vertex> index;
   database::SingleNode db;
   auto access = db.Access();
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
 
   // add two vertices to  database
   auto t1 = engine.Begin();

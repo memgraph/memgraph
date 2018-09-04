@@ -10,7 +10,7 @@
 #include "storage/property_value_store.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
-#include "transactions/engine_single_node.hpp"
+#include "transactions/single_node/engine_single_node.hpp"
 
 using namespace storage;
 
@@ -117,7 +117,7 @@ TEST(DistributedSerialization, VertexProperties) {
 
 class DistributedSerializationMvcc : public ::testing::Test {
  protected:
-  tx::SingleNodeEngine engine;
+  tx::EngineSingleNode engine;
   tx::Transaction *tx = engine.Begin();
   mvcc::VersionList<Vertex> v1_vlist{*tx, 0, 0};
   Vertex &v1 = *v1_vlist.Oldest();

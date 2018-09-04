@@ -1,0 +1,20 @@
+;; This file doesn't need to be preprocessed. It only holds helper functions.
+
+(defun save-commitlog-info (builder member) #>cpp ${builder}->setMember(${member}); cpp<#)
+
+(defun load-commitlog-info (reader member) #>cpp ${member} = CommitLog::Info(${reader}.getMember()); cpp<#)
+
+(defun save-snapshot (builder member)
+  (let ((capnp-member (remove #\_ (string-capitalize member))))
+    #>cpp
+    auto list_builder = builder->init${capnp-member}(${member}.transaction_ids().size());
+    utils::SaveVector(${member}.transaction_ids(), &list_builder);
+    cpp<#))
+
+(defun load-snapshot (reader member)
+  (let ((capnp-member (remove #\_ (string-capitalize member))))
+    #>cpp
+    std::vector<uint64_t> transaction_ids;
+    utils::LoadVector(&transaction_ids, ${reader}.get${capnp-member}());
+    ${member} = tx::Snapshot(std::move(transaction_ids));
+    cpp<#))

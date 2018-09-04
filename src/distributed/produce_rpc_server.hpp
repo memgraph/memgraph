@@ -25,7 +25,7 @@ class Worker;
 }
 
 namespace tx {
-class WorkerEngine;
+class EngineWorker;
 }
 
 namespace distributed {
@@ -73,14 +73,15 @@ class ProduceRpcServer {
   };
 
  public:
-  ProduceRpcServer(database::Worker *db, tx::WorkerEngine *tx_engine,
+  ProduceRpcServer(database::Worker *db, tx::EngineWorker *tx_engine,
                    communication::rpc::Server &server,
                    const PlanConsumer &plan_consumer,
                    DataManager *data_manager);
 
-  /// Finish and clear ongoing produces for all plans that are tied to a
-  /// transaction with tx_id.
-  void FinishAndClearOngoingProducePlans(tx::TransactionId tx_id);
+  /// Clears all ongoing produces that are older than the oldest active
+  /// transaction. This function should be registered in the transaction engine
+  /// for transactional cache cleanup.
+  void ClearTransactionalCache(tx::TransactionId oldest_active);
 
  private:
   std::mutex ongoing_produces_lock_;
@@ -93,7 +94,7 @@ class ProduceRpcServer {
   database::Worker *db_;
   communication::rpc::Server &produce_rpc_server_;
   const distributed::PlanConsumer &plan_consumer_;
-  tx::WorkerEngine *tx_engine_;
+  tx::EngineWorker *tx_engine_;
 
   /// Gets an ongoing produce for the given pull request. Creates a new one if
   /// there is none currently existing.

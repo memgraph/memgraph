@@ -15,10 +15,11 @@
 #include "distributed/durability_rpc_master.hpp"
 #include "distributed/durability_rpc_worker.hpp"
 #include "distributed/index_rpc_server.hpp"
+#include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
+#include "distributed/produce_rpc_server.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed/token_sharing_rpc_server.hpp"
-#include "distributed/transactional_cache_cleaner.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
 #include "durability/snapshooter.hpp"
@@ -27,7 +28,8 @@
 #include "storage/concurrent_id_mapper.hpp"
 #include "storage/concurrent_id_mapper_master.hpp"
 #include "storage/concurrent_id_mapper_worker.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/distributed/engine_master.hpp"
+#include "transactions/distributed/engine_worker.hpp"
 #include "utils/file.hpp"
 
 using namespace std::literals::chrono_literals;
@@ -472,17 +474,6 @@ class DistributedRecoveryTransactions
  public:
   explicit DistributedRecoveryTransactions(DistributedGraphDb *db) : db_(db) {}
 
-  void Begin(const tx::TransactionId &tx_id) override {
-    CHECK(accessors_.find(tx_id) == accessors_.end())
-        << "Double transaction start";
-    accessors_.emplace(tx_id, db_->Access());
-  }
-
-  void Abort(const tx::TransactionId &tx_id) final {
-    GetAccessor(tx_id)->Abort();
-    accessors_.erase(accessors_.find(tx_id));
-  }
-
   void Commit(const tx::TransactionId &tx_id) final {
     GetAccessor(tx_id)->Commit();
     accessors_.erase(accessors_.find(tx_id));
@@ -506,6 +497,17 @@ class MasterRecoveryTransactions final
   explicit MasterRecoveryTransactions(Master *db)
       : DistributedRecoveryTransactions(db) {}
 
+  void Begin(const tx::TransactionId &tx_id) final {
+    CHECK(accessors_.find(tx_id) == accessors_.end())
+        << "Double transaction start";
+    accessors_.emplace(tx_id, db_->Access());
+  }
+
+  void Abort(const tx::TransactionId &tx_id) final {
+    GetAccessor(tx_id)->Abort();
+    accessors_.erase(accessors_.find(tx_id));
+  }
+
  protected:
   virtual GraphDbAccessor *GetAccessor(
       const tx::TransactionId &tx_id) override {
@@ -524,6 +526,10 @@ class WorkerRecoveryTransactions final
 
   void Begin(const tx::TransactionId &tx_id) override {
     LOG(FATAL) << "Unexpected transaction begin on worker recovery.";
+  }
+
+  void Abort(const tx::TransactionId &tx_id) override {
+    LOG(FATAL) << "Unexpected transaction abort on worker recovery.";
   }
 
  protected:
@@ -586,7 +592,7 @@ class Master {
   database::Master *self_{nullptr};
   communication::rpc::Server server_{
       config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
-  tx::MasterEngine tx_engine_{server_, rpc_worker_clients_, &wal_};
+  tx::EngineMaster tx_engine_{server_, rpc_worker_clients_, &wal_};
   distributed::MasterCoordination coordination_{server_.endpoint()};
   std::unique_ptr<StorageGcMaster> storage_gc_ =
       std::make_unique<StorageGcMaster>(
@@ -610,8 +616,6 @@ class Master {
   distributed::UpdatesRpcServer updates_server_{self_, &server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
   distributed::DataManager data_manager_{*self_, data_clients_};
-  distributed::TransactionalCacheCleaner cache_cleaner_{
-      tx_engine_, updates_server_, data_manager_};
   distributed::ClusterDiscoveryMaster cluster_discovery_{
       server_, coordination_, rpc_worker_clients_,
       config_.durability_directory};
@@ -626,6 +630,14 @@ class Master {
 
 Master::Master(Config config)
     : impl_(std::make_unique<impl::Master>(config, this)) {
+  // Register all transaction based caches for cleanup.
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
+      impl_->updates_server_);
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(impl_->data_manager_);
+
+  // Start transactional cache cleanup.
+  impl_->tx_engine_.StartTransactionalCacheCleanup();
+
   if (impl_->config_.durability_enabled)
     utils::CheckDir(impl_->config_.durability_directory);
 
@@ -722,6 +734,10 @@ Master::~Master() {
     auto dba = Access();
     MakeSnapshot(*dba);
   }
+
+  // Transactional cache cleanup must be stopped before all of the objects
+  // that were registered for cleanup are destructed.
+  impl_->tx_engine_.StopTransactionalCacheCleanup();
 }
 
 std::unique_ptr<GraphDbAccessor> Master::Access() {
@@ -900,7 +916,7 @@ class Worker {
   distributed::WorkerCoordination coordination_{server_,
                                                 config_.master_endpoint};
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
-  tx::WorkerEngine tx_engine_{rpc_worker_clients_.GetClientPool(0)};
+  tx::EngineWorker tx_engine_{server_, rpc_worker_clients_.GetClientPool(0), &wal_};
   std::unique_ptr<StorageGcWorker> storage_gc_ =
       std::make_unique<StorageGcWorker>(
           *storage_, tx_engine_, config_.gc_cycle_sec,
@@ -923,9 +939,6 @@ class Worker {
   distributed::UpdatesRpcServer updates_server_{self_, &server_};
   distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
   distributed::DataManager data_manager_{*self_, data_clients_};
-  distributed::WorkerTransactionalCacheCleaner cache_cleaner_{
-      tx_engine_,      &wal_,           server_,
-      produce_server_, updates_server_, data_manager_};
   distributed::DurabilityRpcWorker durability_rpc_{self_, &server_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
       server_, coordination_, rpc_worker_clients_.GetClientPool(0)};
@@ -940,6 +953,16 @@ class Worker {
 
 Worker::Worker(Config config)
     : impl_(std::make_unique<impl::Worker>(config, this)) {
+  // Register all transaction based caches for cleanup.
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
+      impl_->updates_server_);
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(impl_->data_manager_);
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
+      impl_->produce_server_);
+
+  // Start transactional cache cleanup.
+  impl_->tx_engine_.StartTransactionalCacheCleanup();
+
   if (impl_->config_.durability_enabled)
     utils::CheckDir(impl_->config_.durability_directory);
 
@@ -996,6 +1019,9 @@ Worker::~Worker() {
   is_accepting_transactions_ = false;
   impl_->tx_engine_.LocalForEachActiveTransaction(
       [](auto &t) { t.set_should_abort(); });
+  // Transactional cache cleanup must be stopped before all of the objects
+  // that were registered for cleanup are destructed.
+  impl_->tx_engine_.StopTransactionalCacheCleanup();
 }
 
 std::unique_ptr<GraphDbAccessor> Worker::Access() {

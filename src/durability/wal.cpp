@@ -52,11 +52,13 @@ void WriteAheadLog::WalFile::Init() {
     current_wal_file_ = std::experimental::filesystem::path();
   } else {
     current_wal_file_ = WalFilenameForTransactionId(wal_dir_, worker_id_);
+    // TODO: Fix error handling, the encoder_ returns `true` or `false`.
     try {
       writer_.Open(current_wal_file_);
       encoder_.WriteRAW(durability::kWalMagic.data(),
                         durability::kWalMagic.size());
       encoder_.WriteInt(durability::kVersion);
+      writer_.Flush();
     } catch (std::ios_base::failure &) {
       LOG(ERROR) << "Failed to open write-ahead log file: "
                  << current_wal_file_;
@@ -81,6 +83,7 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
       if (!delta) break;
       latest_tx_ = std::max(latest_tx_, delta->transaction_id);
       delta->Encode(writer_, encoder_);
+      writer_.Flush();
       if (++current_wal_file_delta_count_ >= FLAGS_wal_rotate_deltas_count)
         RotateFile();
     }
@@ -97,6 +100,7 @@ void WriteAheadLog::WalFile::Flush(RingBuffer<database::StateDelta> &buffer) {
 }
 
 void WriteAheadLog::WalFile::RotateFile() {
+  writer_.Flush();
   writer_.Close();
   std::experimental::filesystem::rename(
       current_wal_file_,

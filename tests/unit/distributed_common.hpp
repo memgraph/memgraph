@@ -10,7 +10,7 @@
 #include "distributed/data_manager.hpp"
 #include "distributed/updates_rpc_server.hpp"
 #include "storage/address_types.hpp"
-#include "transactions/engine_master.hpp"
+#include "transactions/distributed/engine_master.hpp"
 #include "utils/file.hpp"
 
 DECLARE_string(durability_directory);

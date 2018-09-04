@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include <algorithm>
@@ -11,18 +13,14 @@
 #include "transactions/type.hpp"
 
 namespace tx {
-/**
- * Database transaction engine. Used for managing transactions and the related
- * information such as transaction snapshots and the transaction state info.
- *
- * This is an abstract base class for implementing a single-node transactional
- * engine (MasterEngine), an engine for the master in a distributed system (also
- * MasterEngine), and for the worker in a distributed system (WorkerEngine).
- *
- * Methods in this class are often prefixed with "Global" or "Local", depending
- * on the guarantees that they need to satisfy. These guarantee requirements are
- * determined by the users of a particular method.
- */
+/// Database transaction engine. Used for managing transactions and the related
+/// information such as transaction snapshots and the transaction state info.
+///
+/// This is an abstract base class for implementing a transactional engine.
+///
+/// Methods in this class are often prefixed with "Global" or "Local", depending
+/// on the guarantees that they need to satisfy. These guarantee requirements
+/// are determined by the users of a particular method.
 class Engine {
  public:
   virtual ~Engine() = default;
@@ -44,57 +42,65 @@ class Engine {
   /// valid after this function executes.
   virtual void Abort(const Transaction &t) = 0;
 
-  /** Returns the commit log Info about the given transaction. */
+  /// Returns the commit log Info about the given transaction.
   virtual CommitLog::Info Info(TransactionId tx) const = 0;
 
-  /** Returns the snapshot relevant to garbage collection of database records.
-   *
-   * If there are no active transactions that means a snapshot containing only
-   * the next transaction ID.  If there are active transactions, that means the
-   * oldest active transaction's snapshot, with that transaction's ID appened as
-   * last.
-   *
-   * The idea is that data records can only be deleted if they were expired (and
-   * that was committed) by a transaction older than the older currently active.
-   * We need the full snapshot to prevent overlaps (see general GC
-   * documentation).
-   *
-   * The returned snapshot must be for the globally oldest active transaction.
-   * If we only looked at locally known transactions, it would be possible to
-   * delete something that and older active transaction can still see.
-   */
+  /// Returns the snapshot relevant to garbage collection of database records.
+  ///
+  /// If there are no active transactions that means a snapshot containing only
+  /// the next transaction ID.  If there are active transactions, that means the
+  /// oldest active transaction's snapshot, with that transaction's ID appened
+  /// as last.
+  ///
+  /// The idea is that data records can only be deleted if they were expired
+  /// (and that was committed) by a transaction older than the older currently
+  /// active. We need the full snapshot to prevent overlaps (see general GC
+  /// documentation).
+  ///
+  /// The returned snapshot must be for the globally oldest active transaction.
+  /// If we only looked at locally known transactions, it would be possible to
+  /// delete something that and older active transaction can still see.
   virtual Snapshot GlobalGcSnapshot() = 0;
 
-  /** Returns active transactions. */
+  /// Returns active transactions.
   virtual Snapshot GlobalActiveTransactions() = 0;
 
-  /** Returns the ID the last globally known transaction. */
+  /// Returns the ID the last globally known transaction.
   virtual tx::TransactionId GlobalLast() const = 0;
 
-  /** Returns the ID of last locally known transaction. */
+  /// Returns the ID of last locally known transaction.
   virtual tx::TransactionId LocalLast() const = 0;
 
-  /** Returns the ID of the oldest transaction locally known to be active. It is
-   * guaranteed that all the transactions older than the returned are globally
-   * not active. */
+  /// Returns the ID of the oldest transaction locally known to be active. It is
+  /// guaranteed that all the transactions older than the returned are globally
+  /// not active.
   virtual TransactionId LocalOldestActive() const = 0;
 
-  /** Calls function f on each locally active transaction. */
+  /// Calls function f on each locally active transaction.
   virtual void LocalForEachActiveTransaction(
       std::function<void(Transaction &)> f) = 0;
 
-  /** Gets a transaction object for a running transaction. */
+  /// Gets a transaction object for a running transaction.
   virtual tx::Transaction *RunningTransaction(TransactionId tx_id) = 0;
 
-  /** Ensures the next transaction that starts will have the ID greater than
-   * the given id. */
+  /// Ensures the next transaction that starts will have the ID greater than
+  /// the given id.
   virtual void EnsureNextIdGreater(TransactionId tx_id) = 0;
 
-  /** Garbage collects transactions older than tx_id from commit log. */
+  /// Garbage collects transactions older than tx_id from commit log.
   virtual void GarbageCollectCommitLog(TransactionId tx_id) = 0;
 
   auto &local_lock_graph() { return local_lock_graph_; }
   const auto &local_lock_graph() const { return local_lock_graph_; }
+
+ protected:
+  Transaction *CreateTransaction(TransactionId id, const Snapshot &snapshot) {
+    return new Transaction(id, snapshot, *this);
+  }
+
+  CommandId AdvanceCommand(Transaction *t) { return t->AdvanceCommand(); }
+
+  void SetCommand(Transaction *t, CommandId cid) { t->SetCommand(cid); }
 
  private:
   // Map lock dependencies. Each entry maps (tx_that_wants_lock,

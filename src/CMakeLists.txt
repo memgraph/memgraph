@@ -73,10 +73,9 @@ set(memgraph_src_files
     storage/property_value_store.cpp
     storage/record_accessor.cpp
     storage/vertex_accessor.cpp
-    transactions/engine_master.cpp
-    transactions/engine_single_node.cpp
-    transactions/engine_worker.cpp
-    transactions/snapshot.cpp
+    transactions/distributed/engine_master.cpp
+    transactions/distributed/engine_worker.cpp
+    transactions/single_node/engine_single_node.cpp
     memgraph_init.cpp
 )
 # -----------------------------------------------------------------------------
@@ -101,14 +100,13 @@ add_lcp(distributed/index_rpc_messages.lcp CAPNP_SCHEMA @0xa8aab46862945bd6)
 add_capnp(distributed/index_rpc_messages.capnp)
 add_lcp(distributed/plan_rpc_messages.lcp CAPNP_SCHEMA @0xfcbc48dc9f106d28)
 add_capnp(distributed/plan_rpc_messages.capnp)
-add_lcp(distributed/pull_produce_rpc_messages.lcp CAPNP_SCHEMA @0xa78a9254a73685bd)
+add_lcp(distributed/pull_produce_rpc_messages.lcp CAPNP_SCHEMA @0xa78a9254a73685bd
+        DEPENDS transactions/distributed/serialization.lcp)
 add_capnp(distributed/pull_produce_rpc_messages.capnp)
 add_lcp(distributed/storage_gc_rpc_messages.lcp CAPNP_SCHEMA @0xd705663dfe36cf81)
 add_capnp(distributed/storage_gc_rpc_messages.capnp)
 add_lcp(distributed/token_sharing_rpc_messages.lcp CAPNP_SCHEMA @0x8f295db54ec4caec)
 add_capnp(distributed/token_sharing_rpc_messages.capnp)
-add_lcp(distributed/transactional_cache_cleaner_rpc_messages.lcp CAPNP_SCHEMA @0xe2be6183a1ff9e11)
-add_capnp(distributed/transactional_cache_cleaner_rpc_messages.capnp)
 add_lcp(distributed/updates_rpc_messages.lcp CAPNP_SCHEMA @0x82d5f38d73c7b53a)
 add_capnp(distributed/updates_rpc_messages.capnp)
 
@@ -121,8 +119,9 @@ add_capnp(query/plan/distributed_ops.capnp)
 
 add_lcp(storage/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
 add_capnp(storage/concurrent_id_mapper_rpc_messages.capnp)
-add_lcp(transactions/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5)
-add_capnp(transactions/engine_rpc_messages.capnp)
+add_lcp(transactions/distributed/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5
+        DEPENDS transactions/distributed/serialization.lcp)
+add_capnp(transactions/distributed/engine_rpc_messages.capnp)
 
 add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
 
@@ -135,7 +134,6 @@ add_capnp(query/common.capnp)
 add_capnp(query/frontend/ast/ast.capnp)
 add_capnp(query/frontend/semantic/symbol.capnp)
 add_capnp(storage/serialization.capnp)
-add_capnp(transactions/common.capnp)
 
 add_custom_target(generate_capnp DEPENDS generate_lcp ${generated_capnp_files})
 

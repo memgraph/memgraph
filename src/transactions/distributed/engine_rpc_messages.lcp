@@ -3,23 +3,27 @@
 
 #include "communication/rpc/messages.hpp"
 #include "transactions/commit_log.hpp"
-#include "transactions/engine_rpc_messages.capnp.h"
+#include "transactions/distributed/engine_rpc_messages.capnp.h"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"
 cpp<#
+
+(load "transactions/distributed/serialization.lcp")
 
 (lcp:namespace tx)
 
 (lcp:capnp-namespace "tx")
 
-(lcp:capnp-import 'tx "/transactions/common.capnp")
 (lcp:capnp-type-conversion "TransactionId" "UInt64")
 (lcp:capnp-type-conversion "CommandId" "UInt32")
-(lcp:capnp-type-conversion "Snapshot" "Tx.Snapshot")
 
 (lcp:define-struct tx-and-snapshot ()
   ((tx-id "TransactionId")
-   (snapshot "Snapshot"))
+   (snapshot "Snapshot"
+             :capnp-type "List(UInt64)"
+             :capnp-init nil
+             :capnp-save #'save-snapshot
+             :capnp-load #'load-snapshot))
   (:serialize :capnp))
 
 (lcp:define-rpc begin
@@ -40,7 +44,11 @@ cpp<#
 
 (lcp:define-rpc snapshot
     (:request ((member "TransactionId")))
-  (:response ((member "Snapshot"))))
+  (:response ((member "Snapshot"
+                      :capnp-type "List(UInt64)"
+                      :capnp-init nil
+                      :capnp-save #'save-snapshot
+                      :capnp-load #'load-snapshot))))
 
 (lcp:define-rpc command
     (:request ((member "TransactionId")))
@@ -48,15 +56,27 @@ cpp<#
 
 (lcp:define-rpc gc-snapshot
     (:request ())
-  (:response ((member "Snapshot"))))
+  (:response ((member "Snapshot"
+                      :capnp-type "List(UInt64)"
+                      :capnp-init nil
+                      :capnp-save #'save-snapshot
+                      :capnp-load #'load-snapshot))))
 
 (lcp:define-rpc clog-info
     (:request ((member "TransactionId")))
-  (:response ((member "CommitLog::Info" :capnp-type "Tx.CommitLogInfo"))))
+  (:response ((member "CommitLog::Info"
+                      :capnp-type "UInt8"
+                      :capnp-init nil
+                      :capnp-save #'save-commitlog-info
+                      :capnp-load #'load-commitlog-info))))
 
 (lcp:define-rpc active-transactions
     (:request ())
-  (:response ((member "Snapshot"))))
+  (:response ((member "Snapshot"
+                      :capnp-type "List(UInt64)"
+                      :capnp-init nil
+                      :capnp-save #'save-snapshot
+                      :capnp-load #'load-snapshot))))
 
 (lcp:define-rpc ensure-next-id-greater
     (:request ((member "TransactionId")))
@@ -65,5 +85,9 @@ cpp<#
 (lcp:define-rpc global-last
     (:request ())
   (:response ((member "TransactionId"))))
+
+(lcp:define-rpc notify-committed
+    (:request ((member "TransactionId")))
+  (:response ()))
 
 (lcp:pop-namespace) ;; tx
