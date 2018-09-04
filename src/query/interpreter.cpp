@@ -28,13 +28,18 @@ Interpreter::Results Interpreter::operator()(
     const std::map<std::string, TypedValue> &params,
     bool in_explicit_transaction) {
   utils::Timer frontend_timer;
+
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+
   Context ctx(db_accessor);
   ctx.in_explicit_transaction_ = in_explicit_transaction;
-  ctx.timestamp_ = std::chrono::duration_cast<std::chrono::milliseconds>(
-                       std::chrono::system_clock::now().time_since_epoch())
-                       .count();
   ctx.auth_ = auth_;
   ctx.kafka_streams_ = kafka_streams_;
+  ctx.evaluation_context_ = evaluation_context;
 
   // query -> stripped query
   StrippedQuery stripped(query);

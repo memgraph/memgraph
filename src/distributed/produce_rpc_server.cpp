@@ -21,7 +21,7 @@ ProduceRpcServer::OngoingProduce::OngoingProduce(
       cursor_(op->MakeCursor(*dba_)) {
   context_.symbol_table_ = std::move(symbol_table);
   context_.parameters_ = std::move(parameters);
-  context_.timestamp_ = timestamp;
+  context_.evaluation_context_.timestamp = timestamp;
 }
 
 std::pair<std::vector<query::TypedValue>, PullState>

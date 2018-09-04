@@ -342,7 +342,7 @@ class RemotePuller {
   void UpdatePullForWorker(int worker_id, Context &context) {
     remote_pulls_[worker_id] = pull_clients_->Pull(
         &db_, worker_id, plan_id_, command_id_, context.parameters_, symbols_,
-        context.timestamp_, false);
+        context.evaluation_context_.timestamp, false);
   }
 };
 
@@ -530,7 +530,7 @@ class SynchronizeCursor : public Cursor {
         worker_accumulations.emplace_back(pull_clients_->Pull(
             &context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
             command_id_, context.parameters_, self_.pull_remote()->symbols(),
-            context.timestamp_, true, 0));
+            context.evaluation_context_.timestamp, true, 0));
       }
     }
 
@@ -627,7 +627,9 @@ class PullRemoteOrderByCursor : public Cursor {
 
   bool Pull(Frame &frame, Context &context) {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
-    ExpressionEvaluator evaluator(frame, &context, GraphView::OLD);
+    ExpressionEvaluator evaluator(
+        &frame, context.symbol_table_, context.parameters_,
+        context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
 
     auto evaluate_result = [this, &evaluator]() {
       std::vector<TypedValue> order_by;
@@ -1005,7 +1007,9 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     }
 
     // Evaluator for the filtering condition and expansion depth.
-    ExpressionEvaluator evaluator(frame, &context, self_.graph_view());
+    ExpressionEvaluator evaluator(
+        &frame, context.symbol_table_, context.parameters_,
+        context.evaluation_context_, &context.db_accessor_, self_.graph_view());
 
     while (true) {
       TypedValue last_vertex;
@@ -1181,7 +1185,9 @@ VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
 
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
-  ExpressionEvaluator evaluator(frame, &context, GraphView::NEW);
+  ExpressionEvaluator evaluator(
+      &frame, context.symbol_table_, context.parameters_,
+      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
   for (auto &kv : node_atom->properties_) {
     auto value = kv.second->Accept(evaluator);
     if (!value.IsPropertyValue()) {
@@ -1253,7 +1259,9 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
 
     // Similarly to CreateNode, newly created edges and nodes should use the
     // latest accesors.
-    ExpressionEvaluator evaluator(frame, &context, GraphView::NEW);
+    ExpressionEvaluator evaluator(
+        &frame, context.symbol_table_, context.parameters_,
+        context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
     // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
     v1.SwitchNew();
 

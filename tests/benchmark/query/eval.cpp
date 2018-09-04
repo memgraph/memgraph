@@ -16,7 +16,10 @@ static void BenchmarkCoalesceCallWithNulls(benchmark::State &state) {
   query::Frame frame(0);
   database::GraphDbAccessor *dba = nullptr;
   query::Context context(*dba);
-  query::ExpressionEvaluator evaluator(frame, &context, query::GraphView::OLD);
+  query::ExpressionEvaluator evaluator(
+      &frame, context.symbol_table_, context.parameters_,
+      context.evaluation_context_, &context.db_accessor_,
+      query::GraphView::OLD);
   while (state.KeepRunning()) {
     function->Accept(evaluator);
   }
@@ -35,7 +38,10 @@ static void BenchmarkCoalesceCallWithStrings(benchmark::State &state) {
   query::Frame frame(0);
   database::GraphDbAccessor *dba = nullptr;
   query::Context context(*dba);
-  query::ExpressionEvaluator evaluator(frame, &context, query::GraphView::OLD);
+  query::ExpressionEvaluator evaluator(
+      &frame, context.symbol_table_, context.parameters_,
+      context.evaluation_context_, &context.db_accessor_,
+      query::GraphView::OLD);
   while (state.KeepRunning()) {
     function->Accept(evaluator);
   }

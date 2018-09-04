@@ -32,7 +32,8 @@ namespace {
 // TODO: Implement degrees, haversin, radians
 // TODO: Implement spatial functions
 
-TypedValue Coalesce(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Coalesce(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                    database::GraphDbAccessor *) {
   // TODO: Perhaps this function should be done by the evaluator itself, so as
   // to avoid evaluating all the arguments.
   if (nargs == 0) {
@@ -46,7 +47,8 @@ TypedValue Coalesce(TypedValue *args, int64_t nargs, Context *) {
   return TypedValue::Null;
 }
 
-TypedValue EndNode(TypedValue *args, int64_t nargs, Context *) {
+TypedValue EndNode(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                   database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'endNode' requires exactly one argument.");
   }
@@ -60,7 +62,8 @@ TypedValue EndNode(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Head(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Head(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'head' requires exactly one argument.");
   }
@@ -77,7 +80,8 @@ TypedValue Head(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Last(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Last(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'last' requires exactly one argument.");
   }
@@ -94,15 +98,16 @@ TypedValue Last(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Properties(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Properties(TypedValue *args, int64_t nargs,
+                      const EvaluationContext &,
+                      database::GraphDbAccessor *dba) {
   if (nargs != 1) {
     throw QueryRuntimeException("'properties' requires exactly one argument.");
   }
   auto get_properties = [&](const auto &record_accessor) {
     std::map<std::string, TypedValue> properties;
     for (const auto &property : record_accessor.Properties()) {
-      properties[ctx->db_accessor_.PropertyName(property.first)] =
-          property.second;
+      properties[dba->PropertyName(property.first)] = property.second;
     }
     return properties;
   };
@@ -119,7 +124,8 @@ TypedValue Properties(TypedValue *args, int64_t nargs, Context *ctx) {
   }
 }
 
-TypedValue Size(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Size(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'size' requires exactly one argument.");
   }
@@ -144,7 +150,8 @@ TypedValue Size(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue StartNode(TypedValue *args, int64_t nargs, Context *) {
+TypedValue StartNode(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                     database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'startNode' requires exactly one argument.");
   }
@@ -158,7 +165,8 @@ TypedValue StartNode(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Degree(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Degree(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                  database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'degree' requires exactly one argument.");
   }
@@ -174,7 +182,8 @@ TypedValue Degree(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue ToBoolean(TypedValue *args, int64_t nargs, Context *) {
+TypedValue ToBoolean(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                     database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'toBoolean' requires exactly one argument.");
   }
@@ -199,7 +208,8 @@ TypedValue ToBoolean(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue ToFloat(TypedValue *args, int64_t nargs, Context *) {
+TypedValue ToFloat(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                   database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'toFloat' requires exactly one argument.");
   }
@@ -222,7 +232,8 @@ TypedValue ToFloat(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue ToInteger(TypedValue *args, int64_t nargs, Context *) {
+TypedValue ToInteger(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                     database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'toInteger' requires exactly one argument'");
   }
@@ -250,7 +261,8 @@ TypedValue ToInteger(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Type(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Type(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *dba) {
   if (nargs != 1) {
     throw QueryRuntimeException("'type' requires exactly one argument.");
   }
@@ -258,21 +270,21 @@ TypedValue Type(TypedValue *args, int64_t nargs, Context *ctx) {
     case TypedValue::Type::Null:
       return TypedValue::Null;
     case TypedValue::Type::Edge:
-      return ctx->db_accessor_.EdgeTypeName(
-          args[0].Value<EdgeAccessor>().EdgeType());
+      return dba->EdgeTypeName(args[0].Value<EdgeAccessor>().EdgeType());
     default:
       throw QueryRuntimeException("'type' argument must be an edge.");
   }
 }
 
-TypedValue Keys(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Keys(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *dba) {
   if (nargs != 1) {
     throw QueryRuntimeException("'keys' requires exactly one argument.");
   }
   auto get_keys = [&](const auto &record_accessor) {
     std::vector<TypedValue> keys;
     for (const auto &property : record_accessor.Properties()) {
-      keys.push_back(ctx->db_accessor_.PropertyName(property.first));
+      keys.push_back(dba->PropertyName(property.first));
     }
     return keys;
   };
@@ -288,7 +300,8 @@ TypedValue Keys(TypedValue *args, int64_t nargs, Context *ctx) {
   }
 }
 
-TypedValue Labels(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Labels(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                  database::GraphDbAccessor *dba) {
   if (nargs != 1) {
     throw QueryRuntimeException("'labels' requires exactly one argument.");
   }
@@ -298,7 +311,7 @@ TypedValue Labels(TypedValue *args, int64_t nargs, Context *ctx) {
     case TypedValue::Type::Vertex: {
       std::vector<TypedValue> labels;
       for (const auto &label : args[0].Value<VertexAccessor>().labels()) {
-        labels.push_back(ctx->db_accessor_.LabelName(label));
+        labels.push_back(dba->LabelName(label));
       }
       return labels;
     }
@@ -307,7 +320,8 @@ TypedValue Labels(TypedValue *args, int64_t nargs, Context *ctx) {
   }
 }
 
-TypedValue Nodes(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Nodes(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                 database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'nodes' requires exactly one argument.");
   }
@@ -319,7 +333,9 @@ TypedValue Nodes(TypedValue *args, int64_t nargs, Context *) {
   return std::vector<TypedValue>(vertices.begin(), vertices.end());
 }
 
-TypedValue Relationships(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Relationships(TypedValue *args, int64_t nargs,
+                         const EvaluationContext &,
+                         database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException(
         "'relationships' requires exactly one argument.");
@@ -332,7 +348,8 @@ TypedValue Relationships(TypedValue *args, int64_t nargs, Context *) {
   return std::vector<TypedValue>(edges.begin(), edges.end());
 }
 
-TypedValue Range(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Range(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                 database::GraphDbAccessor *) {
   if (nargs != 2 && nargs != 3) {
     throw QueryRuntimeException("'range' requires two or three arguments.");
   }
@@ -365,7 +382,8 @@ TypedValue Range(TypedValue *args, int64_t nargs, Context *) {
   return list;
 }
 
-TypedValue Tail(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Tail(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'tail' requires exactly one argument.");
   }
@@ -383,7 +401,8 @@ TypedValue Tail(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Abs(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Abs(TypedValue *args, int64_t nargs, const EvaluationContext &,
+               database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'abs' requires exactly one argument.");
   }
@@ -400,23 +419,24 @@ TypedValue Abs(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)               \
-  TypedValue name(TypedValue *args, int64_t nargs, Context *) {        \
-    if (nargs != 1) {                                                  \
-      throw QueryRuntimeException("'" #lowercased_name                 \
-                                  "' requires exactly one argument."); \
-    }                                                                  \
-    switch (args[0].type()) {                                          \
-      case TypedValue::Type::Null:                                     \
-        return TypedValue::Null;                                       \
-      case TypedValue::Type::Int:                                      \
-        return lowercased_name(args[0].Value<int64_t>());              \
-      case TypedValue::Type::Double:                                   \
-        return lowercased_name(args[0].Value<double>());               \
-      default:                                                         \
-        throw QueryRuntimeException(#lowercased_name                   \
-                                    " argument must be a number.");    \
-    }                                                                  \
+#define WRAP_CMATH_FLOAT_FUNCTION(name, lowercased_name)                      \
+  TypedValue name(TypedValue *args, int64_t nargs, const EvaluationContext &, \
+                  database::GraphDbAccessor *) {                              \
+    if (nargs != 1) {                                                         \
+      throw QueryRuntimeException("'" #lowercased_name                        \
+                                  "' requires exactly one argument.");        \
+    }                                                                         \
+    switch (args[0].type()) {                                                 \
+      case TypedValue::Type::Null:                                            \
+        return TypedValue::Null;                                              \
+      case TypedValue::Type::Int:                                             \
+        return lowercased_name(args[0].Value<int64_t>());                     \
+      case TypedValue::Type::Double:                                          \
+        return lowercased_name(args[0].Value<double>());                      \
+      default:                                                                \
+        throw QueryRuntimeException(#lowercased_name                          \
+                                    " argument must be a number.");           \
+    }                                                                         \
   }
 
 WRAP_CMATH_FLOAT_FUNCTION(Ceil, ceil)
@@ -437,7 +457,8 @@ WRAP_CMATH_FLOAT_FUNCTION(Tan, tan)
 
 #undef WRAP_CMATH_FLOAT_FUNCTION
 
-TypedValue Atan2(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Atan2(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                 database::GraphDbAccessor *) {
   if (nargs != 2) {
     throw QueryRuntimeException("'atan2' requires two arguments.");
   }
@@ -458,7 +479,8 @@ TypedValue Atan2(TypedValue *args, int64_t nargs, Context *) {
   return atan2(y, x);
 }
 
-TypedValue Sign(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Sign(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'sign' requires exactly one argument.");
   }
@@ -475,21 +497,24 @@ TypedValue Sign(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue E(TypedValue *, int64_t nargs, Context *) {
+TypedValue E(TypedValue *, int64_t nargs, const EvaluationContext &,
+             database::GraphDbAccessor *) {
   if (nargs != 0) {
     throw QueryRuntimeException("'e' requires no arguments.");
   }
   return M_E;
 }
 
-TypedValue Pi(TypedValue *, int64_t nargs, Context *) {
+TypedValue Pi(TypedValue *, int64_t nargs, const EvaluationContext &,
+              database::GraphDbAccessor *) {
   if (nargs != 0) {
     throw QueryRuntimeException("'pi' requires no arguments.");
   }
   return M_PI;
 }
 
-TypedValue Rand(TypedValue *, int64_t nargs, Context *) {
+TypedValue Rand(TypedValue *, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *) {
   static thread_local std::mt19937 pseudo_rand_gen_{std::random_device{}()};
   static thread_local std::uniform_real_distribution<> rand_dist_{0, 1};
   if (nargs != 0) {
@@ -499,7 +524,9 @@ TypedValue Rand(TypedValue *, int64_t nargs, Context *) {
 }
 
 template <bool (*Predicate)(const std::string &s1, const std::string &s2)>
-TypedValue StringMatchOperator(TypedValue *args, int64_t nargs, Context *) {
+TypedValue StringMatchOperator(TypedValue *args, int64_t nargs,
+                               const EvaluationContext &,
+                               database::GraphDbAccessor *) {
   if (nargs != 2) {
     throw QueryRuntimeException(
         "'startsWith' and 'endsWith' require two arguments.");
@@ -542,7 +569,8 @@ bool ContainsPredicate(const std::string &s1, const std::string &s2) {
 }
 auto Contains = StringMatchOperator<ContainsPredicate>;
 
-TypedValue Assert(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Assert(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                  database::GraphDbAccessor *) {
   if (nargs < 1 || nargs > 2) {
     throw QueryRuntimeException("'assert' requires one or two arguments");
   }
@@ -561,17 +589,20 @@ TypedValue Assert(TypedValue *args, int64_t nargs, Context *) {
   return args[0];
 }
 
-TypedValue Counter(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Counter(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                   database::GraphDbAccessor *dba) {
   if (nargs != 1) {
     throw QueryRuntimeException("'counter' requires exactly one argument.");
   }
   if (!args[0].IsString())
     throw QueryRuntimeException("'counter' argument must be a string.");
 
-  return ctx->db_accessor_.Counter(args[0].ValueString());
+  return dba->Counter(args[0].ValueString());
 }
 
-TypedValue CounterSet(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue CounterSet(TypedValue *args, int64_t nargs,
+                      const EvaluationContext &,
+                      database::GraphDbAccessor *dba) {
   if (nargs != 2) {
     throw QueryRuntimeException("'counterSet' requires two arguments.");
   }
@@ -581,19 +612,21 @@ TypedValue CounterSet(TypedValue *args, int64_t nargs, Context *ctx) {
   if (!args[1].IsInt())
     throw QueryRuntimeException(
         "Second argument of 'counterSet' must be an integer.");
-  ctx->db_accessor_.CounterSet(args[0].ValueString(), args[1].ValueInt());
+  dba->CounterSet(args[0].ValueString(), args[1].ValueInt());
   return TypedValue::Null;
 }
 
-TypedValue IndexInfo(TypedValue *, int64_t nargs, Context *ctx) {
+TypedValue IndexInfo(TypedValue *, int64_t nargs, const EvaluationContext &,
+                     database::GraphDbAccessor *dba) {
   if (nargs != 0)
     throw QueryRuntimeException("'indexInfo' requires no arguments.");
 
-  auto info = ctx->db_accessor_.IndexInfo();
+  auto info = dba->IndexInfo();
   return std::vector<TypedValue>(info.begin(), info.end());
 }
 
-TypedValue WorkerId(TypedValue *args, int64_t nargs, Context *) {
+TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                    database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'workerId' requires exactly one argument.");
   }
@@ -609,7 +642,8 @@ TypedValue WorkerId(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Id(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Id(TypedValue *args, int64_t nargs, const EvaluationContext &,
+              database::GraphDbAccessor *dba) {
   if (nargs != 1) {
     throw QueryRuntimeException("'id' requires exactly one argument.");
   }
@@ -626,7 +660,8 @@ TypedValue Id(TypedValue *args, int64_t nargs, Context *ctx) {
   }
 }
 
-TypedValue ToString(TypedValue *args, int64_t nargs, Context *) {
+TypedValue ToString(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                    database::GraphDbAccessor *) {
   if (nargs != 1) {
     throw QueryRuntimeException("'toString' requires exactly one argument.");
   }
@@ -648,14 +683,16 @@ TypedValue ToString(TypedValue *args, int64_t nargs, Context *) {
   }
 }
 
-TypedValue Timestamp(TypedValue *, int64_t nargs, Context *ctx) {
+TypedValue Timestamp(TypedValue *, int64_t nargs, const EvaluationContext &ctx,
+                     database::GraphDbAccessor *) {
   if (nargs != 0) {
     throw QueryRuntimeException("'timestamp' requires no arguments.");
   }
-  return ctx->timestamp_;
+  return ctx.timestamp;
 }
 
-TypedValue Left(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Left(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                database::GraphDbAccessor *dba) {
   if (nargs != 2) {
     throw QueryRuntimeException("'left' requires two arguments.");
   }
@@ -677,7 +714,8 @@ TypedValue Left(TypedValue *args, int64_t nargs, Context *ctx) {
   }
 }
 
-TypedValue Right(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Right(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                 database::GraphDbAccessor *dba) {
   if (nargs != 2) {
     throw QueryRuntimeException("'right' requires two arguments.");
   }
@@ -703,21 +741,22 @@ TypedValue Right(TypedValue *args, int64_t nargs, Context *ctx) {
   }
 }
 
-#define WRAP_STRING_FUNCTION(name, lowercased_name, function)          \
-  TypedValue name(TypedValue *args, int64_t nargs, Context *) {        \
-    if (nargs != 1) {                                                  \
-      throw QueryRuntimeException("'" #lowercased_name                 \
-                                  "' requires exactly one argument."); \
-    }                                                                  \
-    switch (args[0].type()) {                                          \
-      case TypedValue::Type::Null:                                     \
-        return TypedValue::Null;                                       \
-      case TypedValue::Type::String:                                   \
-        return function(args[0].ValueString());                        \
-      default:                                                         \
-        throw QueryRuntimeException("'" #lowercased_name               \
-                                    "' argument should be a string."); \
-    }                                                                  \
+#define WRAP_STRING_FUNCTION(name, lowercased_name, function)                 \
+  TypedValue name(TypedValue *args, int64_t nargs, const EvaluationContext &, \
+                  database::GraphDbAccessor *) {                              \
+    if (nargs != 1) {                                                         \
+      throw QueryRuntimeException("'" #lowercased_name                        \
+                                  "' requires exactly one argument.");        \
+    }                                                                         \
+    switch (args[0].type()) {                                                 \
+      case TypedValue::Type::Null:                                            \
+        return TypedValue::Null;                                              \
+      case TypedValue::Type::String:                                          \
+        return function(args[0].ValueString());                               \
+      default:                                                                \
+        throw QueryRuntimeException("'" #lowercased_name                      \
+                                    "' argument should be a string.");        \
+    }                                                                         \
   }
 
 WRAP_STRING_FUNCTION(LTrim, lTrim, utils::LTrim);
@@ -727,7 +766,8 @@ WRAP_STRING_FUNCTION(Reverse, reverse, utils::Reversed);
 WRAP_STRING_FUNCTION(ToLower, toLower, utils::ToLowerCase);
 WRAP_STRING_FUNCTION(ToUpper, toUpper, utils::ToUpperCase);
 
-TypedValue Replace(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Replace(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                   database::GraphDbAccessor *dba) {
   if (nargs != 3) {
     throw QueryRuntimeException("'replace' requires three arguments.");
   }
@@ -750,7 +790,8 @@ TypedValue Replace(TypedValue *args, int64_t nargs, Context *ctx) {
                         args[2].ValueString());
 }
 
-TypedValue Split(TypedValue *args, int64_t nargs, Context *ctx) {
+TypedValue Split(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                 database::GraphDbAccessor *dba) {
   if (nargs != 2) {
     throw QueryRuntimeException("'split' requires two arguments.");
   }
@@ -773,7 +814,8 @@ TypedValue Split(TypedValue *args, int64_t nargs, Context *ctx) {
   return result;
 }
 
-TypedValue Substring(TypedValue *args, int64_t nargs, Context *) {
+TypedValue Substring(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                     database::GraphDbAccessor *) {
   if (nargs != 2 && nargs != 3) {
     throw QueryRuntimeException("'substring' requires two or three arguments.");
   }
@@ -803,7 +845,8 @@ TypedValue Substring(TypedValue *args, int64_t nargs, Context *) {
 
 }  // namespace
 
-std::function<TypedValue(TypedValue *, int64_t, Context *)>
+std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &,
+                         database::GraphDbAccessor *)>
 NameToFunction(const std::string &function_name) {
   // Scalar functions
   if (function_name == "COALESCE") return Coalesce;

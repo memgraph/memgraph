@@ -21,8 +21,16 @@ namespace query {
 
 class ExpressionEvaluator : public TreeVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame &frame, Context *context, GraphView graph_view)
-      : frame_(frame), context_(context), graph_view_(graph_view) {}
+  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table,
+                      const Parameters &parameters,
+                      const EvaluationContext &ctx,
+                      database::GraphDbAccessor *dba, GraphView graph_view)
+      : frame_(frame),
+        symbol_table_(&symbol_table),
+        parameters_(&parameters),
+        ctx_(&ctx),
+        dba_(dba),
+        graph_view_(graph_view) {}
 
   using TreeVisitor<TypedValue>::Visit;
 
@@ -62,14 +70,14 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
 #undef BLOCK_VISIT
 
   TypedValue Visit(NamedExpression &named_expression) override {
-    const auto &symbol = context_->symbol_table_.at(named_expression);
+    const auto &symbol = symbol_table_->at(named_expression);
     auto value = named_expression.expression_->Accept(*this);
-    frame_[symbol] = value;
+    frame_->at(symbol) = value;
     return value;
   }
 
   TypedValue Visit(Identifier &ident) override {
-    auto value = frame_[context_->symbol_table_.at(ident)];
+    auto value = frame_->at(symbol_table_->at(ident));
     SwitchAccessors(value);
     return value;
   }
@@ -223,7 +231,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
       return lhs.Value<VertexAccessor>().PropsAt(
-          context_->db_accessor_.Property(index.Value<std::string>()));
+          dba_->Property(index.Value<std::string>()));
     }
 
     if (lhs.IsEdge()) {
@@ -231,7 +239,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         throw QueryRuntimeException(
             "Expected a string as a property name, got {}.", index.type());
       return lhs.Value<EdgeAccessor>().PropsAt(
-          context_->db_accessor_.Property(index.Value<std::string>()));
+          dba_->Property(index.Value<std::string>()));
     }
 
     // lhs is Null
@@ -358,7 +366,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   }
 
   TypedValue Visit(Aggregation &aggregation) override {
-    auto value = frame_[context_->symbol_table_.at(aggregation)];
+    auto value = frame_->at(symbol_table_->at(aggregation));
     // Aggregation is probably always simple type, but let's switch accessor
     // just to be sure.
     SwitchAccessors(value);
@@ -372,15 +380,16 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      return function.function()(arguments, function.arguments_.size(),
-                                 context_);
+      return function.function()(arguments, function.arguments_.size(), *ctx_,
+                                 dba_);
     } else {
       std::vector<TypedValue> arguments;
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      return function.function()(arguments.data(), arguments.size(), context_);
+      return function.function()(arguments.data(), arguments.size(), *ctx_,
+                                 dba_);
     }
   }
 
@@ -394,14 +403,12 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
-    const auto &element_symbol =
-        context_->symbol_table_.at(*reduce.identifier_);
-    const auto &accumulator_symbol =
-        context_->symbol_table_.at(*reduce.accumulator_);
+    const auto &element_symbol = symbol_table_->at(*reduce.identifier_);
+    const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
     for (const auto &element : list) {
-      frame_[accumulator_symbol] = accumulator;
-      frame_[element_symbol] = element;
+      frame_->at(accumulator_symbol) = accumulator;
+      frame_->at(element_symbol) = element;
       accumulator = reduce.expression_->Accept(*this);
     }
     return accumulator;
@@ -417,15 +424,14 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
-    const auto &element_symbol =
-        context_->symbol_table_.at(*extract.identifier_);
+    const auto &element_symbol = symbol_table_->at(*extract.identifier_);
     std::vector<TypedValue> result;
     result.reserve(list.size());
     for (const auto &element : list) {
       if (element.IsNull()) {
         result.push_back(TypedValue::Null);
       } else {
-        frame_[element_symbol] = element;
+        frame_->at(element_symbol) = element;
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
@@ -442,9 +448,9 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
-    const auto &symbol = context_->symbol_table_.at(*all.identifier_);
+    const auto &symbol = symbol_table_->at(*all.identifier_);
     for (const auto &element : list) {
-      frame_[symbol] = element;
+      frame_->at(symbol) = element;
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException(
@@ -468,10 +474,10 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
                                   list_value.type());
     }
     const auto &list = list_value.Value<std::vector<TypedValue>>();
-    const auto &symbol = context_->symbol_table_.at(*single.identifier_);
+    const auto &symbol = symbol_table_->at(*single.identifier_);
     bool predicate_satisfied = false;
     for (const auto &element : list) {
-      frame_[symbol] = element;
+      frame_->at(symbol) = element;
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException(
@@ -492,7 +498,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return context_->parameters_.AtTokenPosition(param_lookup.token_position_);
+    return parameters_->AtTokenPosition(param_lookup.token_position_);
   }
 
  private:
@@ -558,8 +564,11 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     }
   }
 
-  Frame &frame_;
-  Context *context_;
+  Frame *frame_;
+  const SymbolTable *symbol_table_;
+  const Parameters *parameters_;
+  const EvaluationContext *ctx_;
+  database::GraphDbAccessor *dba_;
   // which switching approach should be used when evaluating
   const GraphView graph_view_;
 };

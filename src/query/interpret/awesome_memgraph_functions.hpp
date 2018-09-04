@@ -7,7 +7,7 @@
 
 namespace query {
 
-class Context;
+struct EvaluationContext;
 
 namespace {
 const char kStartsWith[] = "STARTSWITH";
@@ -22,7 +22,8 @@ const char kContains[] = "CONTAINS";
 /// contiguous in memory. Since most functions don't take many arguments, it's
 /// convenient to have them stored in the calling stack frame.
 std::function<TypedValue(TypedValue *arguments, int64_t num_arguments,
-                         Context *context)>
+                         const EvaluationContext &context,
+                         database::GraphDbAccessor *)>
 NameToFunction(const std::string &function_name);
 
 }  // namespace query

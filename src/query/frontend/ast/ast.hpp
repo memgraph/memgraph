@@ -1013,7 +1013,9 @@ class Function : public Expression {
 
  private:
   std::string function_name_;
-  std::function<TypedValue(TypedValue *, int64_t, Context *)> function_;
+  std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &,
+                           database::GraphDbAccessor *)>
+      function_;
 };
 
 class Aggregation : public BinaryOperator {

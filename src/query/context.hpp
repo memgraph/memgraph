@@ -15,6 +15,10 @@ class Streams;
 
 namespace query {
 
+struct EvaluationContext {
+  int64_t timestamp{-1};
+};
+
 class Context {
  public:
   // Since we also return some information from context (is_index_created_) we
@@ -27,11 +31,11 @@ class Context {
   explicit Context(database::GraphDbAccessor &db_accessor)
       : db_accessor_(db_accessor) {}
   database::GraphDbAccessor &db_accessor_;
-  SymbolTable symbol_table_;
-  Parameters parameters_;
   bool in_explicit_transaction_ = false;
   bool is_index_created_ = false;
-  int64_t timestamp_{-1};
+  SymbolTable symbol_table_;
+  Parameters parameters_;
+  EvaluationContext evaluation_context_;
 
   auth::Auth *auth_ = nullptr;
   integrations::kafka::Streams *kafka_streams_ = nullptr;
