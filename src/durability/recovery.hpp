@@ -180,8 +180,12 @@ class RecoveryTransactions {
   virtual void Apply(const database::StateDelta &) = 0;
 };
 
-void RecoverWalAndIndexes(const std::experimental::filesystem::path &dir,
-                          database::GraphDb *db, RecoveryData *recovery_data,
-                          RecoveryTransactions *transactions);
+void RecoverWal(const std::experimental::filesystem::path &durability_dir,
+                    database::GraphDb *db, RecoveryData *recovery_data,
+                    RecoveryTransactions *transactions);
+
+void RecoverIndexes(
+    database::GraphDb *db,
+    const std::vector<std::pair<std::string, std::string>> &indexes);
 
 }  // namespace durability

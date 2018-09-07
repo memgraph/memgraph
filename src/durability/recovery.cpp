@@ -368,10 +368,61 @@ std::vector<tx::TransactionId> ReadWalRecoverableTransactions(
   return committed_tx_ids;
 }
 
+}  // anonymous namespace
+
+RecoveryInfo RecoverOnlySnapshot(
+    const fs::path &durability_dir, database::GraphDb *db,
+    RecoveryData *recovery_data,
+    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id,
+    int worker_id) {
+  // Attempt to recover from snapshot files in reverse order (from newest
+  // backwards).
+  const auto snapshot_dir = durability_dir / kSnapshotDir;
+  std::vector<fs::path> snapshot_files;
+  if (fs::exists(snapshot_dir) && fs::is_directory(snapshot_dir))
+    for (auto &file : fs::directory_iterator(snapshot_dir))
+      snapshot_files.emplace_back(file);
+  std::sort(snapshot_files.rbegin(), snapshot_files.rend());
+  for (auto &snapshot_file : snapshot_files) {
+    if (required_snapshot_tx_id) {
+      auto snapshot_file_tx_id =
+          TransactionIdFromSnapshotFilename(snapshot_file);
+      if (!snapshot_file_tx_id ||
+          snapshot_file_tx_id.value() != *required_snapshot_tx_id) {
+        LOG(INFO) << "Skipping snapshot file '" << snapshot_file
+                  << "' because it does not match the required snapshot tx id: "
+                  << *required_snapshot_tx_id;
+        continue;
+      }
+    }
+    LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
+    if (!RecoverSnapshot(snapshot_file, db, recovery_data, worker_id)) {
+      db->ReinitializeStorage();
+      recovery_data->Clear();
+      LOG(WARNING) << "Snapshot recovery failed, trying older snapshot...";
+      continue;
+    } else {
+      LOG(INFO) << "Snapshot recovery successful.";
+      break;
+    }
+  }
+
+  // If snapshot recovery is required, and we failed, don't even deal with
+  // the WAL recovery.
+  if (required_snapshot_tx_id &&
+      recovery_data->snapshooter_tx_id != *required_snapshot_tx_id)
+    return {durability::kVersion, recovery_data->snapshooter_tx_id, {}};
+
+  return {durability::kVersion, recovery_data->snapshooter_tx_id,
+          ReadWalRecoverableTransactions(durability_dir / kWalDir, db,
+                                         *recovery_data)};
+}
+
 // TODO - finer-grained recovery feedback could be useful here.
-bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
+void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
                 RecoveryData *recovery_data,
                 RecoveryTransactions *transactions) {
+  auto wal_dir = durability_dir / kWalDir;
   auto wal_files = GetWalFiles(wal_dir);
   // Track which transaction should be recovered first, and define logic for
   // which transactions should be skipped in recovery.
@@ -431,71 +482,13 @@ bool RecoverWal(const fs::path &wal_dir, database::GraphDb *db,
   // - WAL recovery error
 
   db->tx_engine().EnsureNextIdGreater(max_observed_tx_id);
-  return true;
 }
 
-}  // anonymous namespace
-
-RecoveryInfo RecoverOnlySnapshot(
-    const fs::path &durability_dir, database::GraphDb *db,
-    RecoveryData *recovery_data,
-    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id,
-    int worker_id) {
-  // Attempt to recover from snapshot files in reverse order (from newest
-  // backwards).
-  const auto snapshot_dir = durability_dir / kSnapshotDir;
-  std::vector<fs::path> snapshot_files;
-  if (fs::exists(snapshot_dir) && fs::is_directory(snapshot_dir))
-    for (auto &file : fs::directory_iterator(snapshot_dir))
-      snapshot_files.emplace_back(file);
-  std::sort(snapshot_files.rbegin(), snapshot_files.rend());
-  for (auto &snapshot_file : snapshot_files) {
-    if (required_snapshot_tx_id) {
-      auto snapshot_file_tx_id =
-          TransactionIdFromSnapshotFilename(snapshot_file);
-      if (!snapshot_file_tx_id ||
-          snapshot_file_tx_id.value() != *required_snapshot_tx_id) {
-        LOG(INFO) << "Skipping snapshot file '" << snapshot_file
-                  << "' because it does not match the required snapshot tx id: "
-                  << *required_snapshot_tx_id;
-        continue;
-      }
-    }
-    LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
-    if (!RecoverSnapshot(snapshot_file, db, recovery_data, worker_id)) {
-      db->ReinitializeStorage();
-      recovery_data->Clear();
-      LOG(WARNING) << "Snapshot recovery failed, trying older snapshot...";
-      continue;
-    } else {
-      LOG(INFO) << "Snapshot recovery successful.";
-      break;
-    }
-  }
-
-  // If snapshot recovery is required, and we failed, don't even deal with
-  // the WAL recovery.
-  if (required_snapshot_tx_id &&
-      recovery_data->snapshooter_tx_id != *required_snapshot_tx_id)
-    return {durability::kVersion, recovery_data->snapshooter_tx_id, {}};
-
-  return {durability::kVersion, recovery_data->snapshooter_tx_id,
-          ReadWalRecoverableTransactions(durability_dir / kWalDir, db,
-                                         *recovery_data)};
-}
-
-void RecoverWalAndIndexes(const fs::path &durability_dir, database::GraphDb *db,
-                          RecoveryData *recovery_data,
-                          RecoveryTransactions *transactions) {
-  // Write-ahead-log recovery.
-  // WAL recovery does not have to be complete for the recovery to be
-  // considered successful. For the time being ignore the return value,
-  // consider a better system.
-  RecoverWal(durability_dir / kWalDir, db, recovery_data, transactions);
-
-  // Index recovery.
+void RecoverIndexes(
+    database::GraphDb *db,
+    const std::vector<std::pair<std::string, std::string>> &indexes) {
   auto db_accessor_indices = db->Access();
-  for (const auto &label_prop : recovery_data->indexes) {
+  for (const auto &label_prop : indexes) {
     const database::LabelPropertyIndex::Key key{
         db_accessor_indices->Label(label_prop.first),
         db_accessor_indices->Property(label_prop.second)};

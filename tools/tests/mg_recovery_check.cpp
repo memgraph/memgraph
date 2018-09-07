@@ -25,8 +25,9 @@ class RecoveryTest : public ::testing::Test {
     durability::RecoverOnlySnapshot(durability_dir, &db_, &recovery_data,
                                     std::experimental::nullopt, 0);
     database::SingleNodeRecoveryTransanctions recovery_transactions(&db_);
-    durability::RecoverWalAndIndexes(durability_dir, &db_, &recovery_data,
-                                     &recovery_transactions);
+    durability::RecoverWal(durability_dir, &db_, &recovery_data,
+                               &recovery_transactions);
+    durability::RecoverIndexes(&db_, recovery_data.indexes);
   }
 
   database::SingleNode db_;

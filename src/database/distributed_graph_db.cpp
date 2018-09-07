@@ -14,6 +14,7 @@
 #include "distributed/data_rpc_server.hpp"
 #include "distributed/durability_rpc_master.hpp"
 #include "distributed/durability_rpc_worker.hpp"
+#include "distributed/dynamic_worker.hpp"
 #include "distributed/index_rpc_server.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
@@ -623,6 +624,7 @@ class Master {
   distributed::TokenSharingRpcServer token_sharing_server_{
       self_, config_.worker_id, &coordination_, &server_,
       &token_sharing_clients_};
+  distributed::DynamicWorkerAddition dynamic_worker_addition_{self_, &server_};
 };
 
 }  // namespace impl
@@ -679,13 +681,15 @@ Master::Master(Config config)
       recovery_data.wal_tx_to_recover =
           impl_->coordination_.CommonWalTransactions(*recovery_info);
       MasterRecoveryTransactions recovery_transactions(this);
-      durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
-                                       this, &recovery_data,
-                                       &recovery_transactions);
+      durability::RecoverWal(impl_->config_.durability_directory, this,
+                             &recovery_data, &recovery_transactions);
+      durability::RecoverIndexes(this, recovery_data.indexes);
       auto workers_recovered_wal =
           impl_->durability_rpc_.RecoverWalAndIndexes(&recovery_data);
       workers_recovered_wal.get();
     }
+
+    impl_->dynamic_worker_addition_.Enable();
   }
 
   // Start the dynamic graph partitioner inside token sharing server
@@ -962,6 +966,8 @@ class Worker {
   distributed::TokenSharingRpcServer token_sharing_server_{
       self_, config_.worker_id, &coordination_, &server_,
       &token_sharing_clients_};
+  distributed::DynamicWorkerRegistration dynamic_worker_registration_{
+      &rpc_worker_clients_.GetClientPool(0)};
 };
 
 }  // namespace impl
@@ -981,8 +987,10 @@ Worker::Worker(Config config)
   if (impl_->config_.durability_enabled)
     utils::CheckDir(impl_->config_.durability_directory);
 
-  // Durability recovery.
-  {
+  // Durability recovery. We need to check this flag for workers that are added
+  // after the "main" cluster recovery.
+  if (impl_->config_.db_recover_on_startup) {
+    // What we should recover.
     // What we should recover (version, transaction_id) pair.
     auto snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
 
@@ -1013,6 +1021,13 @@ Worker::Worker(Config config)
       LOG(FATAL) << "Memgraph worker failed to recover the database state "
                     "recovered on the master";
     impl_->cluster_discovery_.NotifyWorkerRecovered(recovery_info);
+  } else {
+    // Check with master if we're a dynamically added worker and need to update
+    // our indices.
+    auto indexes = impl_->dynamic_worker_registration_.GetIndicesToCreate();
+    if (!indexes.empty()) {
+      durability::RecoverIndexes(this, indexes);
+    }
   }
 
   if (impl_->config_.durability_enabled) {
@@ -1123,8 +1138,9 @@ void Worker::ReinitializeStorage() {
 
 void Worker::RecoverWalAndIndexes(durability::RecoveryData *recovery_data) {
   WorkerRecoveryTransactions recovery_transactions(this);
-  durability::RecoverWalAndIndexes(impl_->config_.durability_directory, this,
-                                   recovery_data, &recovery_transactions);
+  durability::RecoverWal(impl_->config_.durability_directory, this,
+                         recovery_data, &recovery_transactions);
+  durability::RecoverIndexes(this, recovery_data->indexes);
 }
 
 io::network::Endpoint Worker::endpoint() const {

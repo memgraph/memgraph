@@ -1,0 +1,42 @@
+#>cpp
+#pragma once
+
+#include <vector>
+#include <string>
+
+#include "communication/rpc/messages.hpp"
+#include "distributed/dynamic_worker_rpc_messages.capnp.h"
+cpp<#
+
+(lcp:namespace distributed)
+
+(lcp:capnp-namespace "distributed")
+
+(lcp:capnp-import 'utils "/utils/serialization.capnp")
+
+(lcp:define-rpc dynamic-worker
+    (:request ())
+  (:response
+     ((recover-indices "std::vector<std::pair<std::string, std::string>>"
+                      :capnp-type "List(Utils.Pair(Text, Text))"
+                      :capnp-save
+                      (lambda (builder member)
+                        #>cpp
+                        utils::SaveVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
+                                          std::pair<std::string, std::string>>(
+                            ${member}, &${builder}, [](auto *builder, const auto value) {
+                              builder->setFirst(value.first);
+                              builder->setSecond(value.second);
+                            });
+                        cpp<#)
+                      :capnp-load
+                      (lambda (reader member)
+                        #>cpp
+                        utils::LoadVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
+                                          std::pair<std::string, std::string>>(
+                            &${member}, ${reader}, [](const auto &reader) {
+                              return std::make_pair(reader.getFirst(), reader.getSecond());
+                            });
+                        cpp<#)))))
+
+(lcp:pop-namespace) ;; distributed

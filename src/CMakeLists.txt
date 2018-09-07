@@ -33,6 +33,7 @@ set(memgraph_src_files
     distributed/dgp/vertex_migrator.cpp
     distributed/durability_rpc_master.cpp
     distributed/durability_rpc_worker.cpp
+    distributed/dynamic_worker.cpp
     distributed/index_rpc_server.cpp
     distributed/plan_consumer.cpp
     distributed/plan_dispatcher.cpp
@@ -110,6 +111,8 @@ add_lcp(distributed/token_sharing_rpc_messages.lcp CAPNP_SCHEMA @0x8f295db54ec4c
 add_capnp(distributed/token_sharing_rpc_messages.capnp)
 add_lcp(distributed/updates_rpc_messages.lcp CAPNP_SCHEMA @0x82d5f38d73c7b53a)
 add_capnp(distributed/updates_rpc_messages.capnp)
+add_lcp(distributed/dynamic_worker_rpc_messages.lcp CAPNP_SCHEMA @0x8c53f6c9a0c71b05)
+add_capnp(distributed/dynamic_worker_rpc_messages.capnp)
 
 # distributed_ops.lcp is leading the capnp code generation, so we only want
 # function declarations in generated operator.hpp

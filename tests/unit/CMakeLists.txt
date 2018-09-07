@@ -73,6 +73,9 @@ target_link_libraries(${test_prefix}distributed_dgp_vertex_migrator memgraph_lib
 add_unit_test(distributed_durability.cpp)
 target_link_libraries(${test_prefix}distributed_durability memgraph_lib kvstore_dummy_lib)
 
+add_unit_test(distributed_dynamic_worker.cpp)
+target_link_libraries(${test_prefix}distributed_dynamic_worker memgraph_lib kvstore_dummy_lib)
+
 add_unit_test(distributed_gc.cpp)
 target_link_libraries(${test_prefix}distributed_gc memgraph_lib kvstore_dummy_lib)
 

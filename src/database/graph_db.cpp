@@ -233,9 +233,9 @@ SingleNode::SingleNode(Config config)
     if (recovery_info) {
       recovery_data.wal_tx_to_recover = recovery_info->wal_recovered;
       SingleNodeRecoveryTransanctions recovery_transactions(this);
-      durability::RecoverWalAndIndexes(impl_->config_.durability_directory,
-                                       this, &recovery_data,
-                                       &recovery_transactions);
+      durability::RecoverWal(impl_->config_.durability_directory, this,
+                             &recovery_data, &recovery_transactions);
+      durability::RecoverIndexes(this, recovery_data.indexes);
     }
   }
 
