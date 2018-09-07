@@ -13,10 +13,10 @@ digraph {
   "distributed::TokenSharingRpcServer" -> "communication::rpc::Server";
   "distributed::TokenSharingRpcServer" -> "distributed::Coordination";
   "distributed::TokenSharingRpcServer" -> "distributed::TokenSharingRpcClients";
-  "distributed::TokenSharingRpcServer" -> "storage::dgp::Partitioner";
+  "distributed::TokenSharingRpcServer" -> "distributed::dgp::Partitioner";
 
-  "storage::dgp::Partitioner" -> "distributed::DistributedGraphDb" [style=dashed];
+  "distributed::dgp::Partitioner" -> "distributed::DistributedGraphDb" [style=dashed];
 
-  "storage::dgp::Partitioner" -> "storage::dgp::VertexMigrator";
-  "storage::dgp::VertexMigrator" -> "database::GraphDbAccessor" [style=dashed];
+  "distributed::dgp::Partitioner" -> "distributed::dgp::VertexMigrator";
+  "distributed::dgp::VertexMigrator" -> "database::GraphDbAccessor" [style=dashed];
 }

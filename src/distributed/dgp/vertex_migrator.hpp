@@ -1,3 +1,5 @@
+/// @file
+
 #pragma once
 
 #include <thread>
@@ -9,6 +11,8 @@
 namespace database {
 class GraphDbAccessor;
 };  // namespace database
+
+namespace distributed::dgp {
 
 /// Migrates vertices from one worker to another (updates edges as well).
 class VertexMigrator {
@@ -29,3 +33,5 @@ class VertexMigrator {
   database::GraphDbAccessor *dba_;
   std::unordered_map<gid::Gid, storage::VertexAddress> vertex_migrated_to_;
 };
+
+}  // namespace distributed::dgp

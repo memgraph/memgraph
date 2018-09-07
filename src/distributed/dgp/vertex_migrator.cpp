@@ -1,8 +1,10 @@
-#include "storage/dynamic_graph_partitioner/vertex_migrator.hpp"
+#include "distributed/dgp/vertex_migrator.hpp"
 
 #include "database/distributed_graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"
+
+namespace distributed::dgp {
 
 VertexMigrator::VertexMigrator(database::GraphDbAccessor *dba) : dba_(dba) {}
 
@@ -57,3 +59,4 @@ void VertexMigrator::MigrateVertex(VertexAccessor &vertex, int destination) {
 
   dba_->DetachRemoveVertex(vertex);
 }
+}  // namespace distributed::dgp

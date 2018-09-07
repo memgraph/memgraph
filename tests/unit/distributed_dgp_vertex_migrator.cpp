@@ -7,7 +7,7 @@
 #include "gtest/gtest.h"
 
 #include "distributed/updates_rpc_clients.hpp"
-#include "storage/dynamic_graph_partitioner/vertex_migrator.hpp"
+#include "distributed/dgp/vertex_migrator.hpp"
 
 using namespace distributed;
 using namespace database;
@@ -67,7 +67,7 @@ class DistributedVertexMigratorTest : public DistributedGraphDbTest {
   void MigrateVertexAndCommit(database::GraphDbAccessor *from_dba,
                               int64_t cypher_id, int to_worker_id) {
     auto vacc = FindVertex(from_dba, cypher_id);
-    VertexMigrator migrator(from_dba);
+    distributed::dgp::VertexMigrator migrator(from_dba);
     migrator.MigrateVertex(*vacc, to_worker_id);
     MasterApplyUpdatesAndCommit(from_dba);
   }
@@ -176,7 +176,7 @@ TEST_F(DistributedVertexMigratorTest, MigrationofLabelsEdgeTypesAndProperties) {
 
   {
     auto dba = master().Access();
-    VertexMigrator migrator(dba.get());
+    distributed::dgp::VertexMigrator migrator(dba.get());
     for (auto &vertex : dba->Vertices(false)) {
       migrator.MigrateVertex(vertex, worker(1).WorkerId());
     }

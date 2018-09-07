@@ -687,7 +687,7 @@ Master::Master(Config config)
 
   // Start the dynamic graph partitioner inside token sharing server
   if (impl_->config_.dynamic_graph_partitioner_enabled) {
-    impl_->token_sharing_server_.StartTokenSharing();
+    impl_->token_sharing_server_.Start();
   }
 
   if (impl_->config_.durability_enabled) {

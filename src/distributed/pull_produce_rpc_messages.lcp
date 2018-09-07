@@ -267,7 +267,7 @@ void PullResData::LoadGraphElement(
             ? distributed::LoadVertex(vertex_reader.getNew())
             : nullptr;
     data_manager->Emplace<Vertex>(
-        dba->transaction_id(), global_address.gid(), 
+        dba->transaction_id(), global_address.gid(),
         distributed::CachedRecordData<Vertex>(cypher_id,
                                               std::move(old_record),
                                               std::move(new_record)));

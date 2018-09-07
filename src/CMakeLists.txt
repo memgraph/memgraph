@@ -29,6 +29,8 @@ set(memgraph_src_files
     distributed/data_manager.cpp
     distributed/data_rpc_clients.cpp
     distributed/data_rpc_server.cpp
+    distributed/dgp/partitioner.cpp
+    distributed/dgp/vertex_migrator.cpp
     distributed/durability_rpc_master.cpp
     distributed/durability_rpc_worker.cpp
     distributed/index_rpc_server.cpp
@@ -65,8 +67,6 @@ set(memgraph_src_files
     query/typed_value.cpp
     storage/concurrent_id_mapper_master.cpp
     storage/concurrent_id_mapper_worker.cpp
-    storage/dynamic_graph_partitioner/dgp.cpp
-    storage/dynamic_graph_partitioner/vertex_migrator.cpp
     storage/edge_accessor.cpp
     storage/locking/record_lock.cpp
     storage/property_value.cpp

@@ -68,6 +68,9 @@ DEFINE_VALIDATED_int32(recovering_cluster_size, 0,
                        "Number of workers (including master) in the "
                        "previously snapshooted/wal cluster.",
                        FLAG_IN_RANGE(0, INT32_MAX));
+// TODO (buda): Implement openCypher query because it completely make sense
+//              to being able to start and stop DGP on the fly.
+//              The implementation should be straightforward.
 DEFINE_bool(dynamic_graph_partitioner_enabled, false,
             "If the dynamic graph partitioner should be enabled.");
 #endif
