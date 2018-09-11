@@ -11,6 +11,8 @@
  * and provides ways of obtaining them by position.
  */
 // TODO move to namespace query::
+namespace query {
+
 struct Parameters {
  public:
   /**
@@ -60,3 +62,5 @@ struct Parameters {
  private:
   std::vector<std::pair<int, query::TypedValue>> storage_;
 };
+
+}  // namespace query

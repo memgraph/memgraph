@@ -17,6 +17,7 @@ namespace query {
 
 struct EvaluationContext {
   int64_t timestamp{-1};
+  query::Parameters parameters;
 };
 
 class Context {
@@ -34,7 +35,6 @@ class Context {
   bool in_explicit_transaction_ = false;
   bool is_index_created_ = false;
   SymbolTable symbol_table_;
-  Parameters parameters_;
   EvaluationContext evaluation_context_;
 
   auth::Auth *auth_ = nullptr;

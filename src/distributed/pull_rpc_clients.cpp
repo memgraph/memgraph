@@ -8,14 +8,14 @@ namespace distributed {
 
 utils::Future<PullData> PullRpcClients::Pull(
     database::GraphDbAccessor *dba, int worker_id, int64_t plan_id,
-    tx::CommandId command_id, const Parameters &params,
-    const std::vector<query::Symbol> &symbols, int64_t timestamp,
-    bool accumulate, int batch_size) {
-  return clients_->ExecuteOnWorker<
-      PullData>(worker_id, [data_manager = data_manager_, dba, plan_id,
-                            command_id, params, symbols, timestamp, accumulate,
-                            batch_size](int worker_id,
-                                        ClientPool &client_pool) {
+    tx::CommandId command_id,
+    const query::EvaluationContext &evaluation_context,
+    const std::vector<query::Symbol> &symbols, bool accumulate,
+    int batch_size) {
+  return clients_->ExecuteOnWorker<PullData>(worker_id, [
+    data_manager = data_manager_, dba, plan_id, command_id, evaluation_context,
+    symbols, accumulate, batch_size
+  ](int worker_id, ClientPool &client_pool) {
     auto load_pull_res = [data_manager, dba](const auto &res_reader) {
       PullRes res;
       res.Load(res_reader, dba, data_manager);
@@ -23,8 +23,8 @@ utils::Future<PullData> PullRpcClients::Pull(
     };
     auto result = client_pool.CallWithLoad<PullRpc>(
         load_pull_res, dba->transaction_id(), dba->transaction().snapshot(),
-        plan_id, command_id, params, symbols, timestamp, accumulate, batch_size,
-        true, true);
+        plan_id, command_id, evaluation_context, symbols, accumulate,
+        batch_size, true, true);
     return PullData{result->data.pull_state, std::move(result->data.frames)};
   });
 }

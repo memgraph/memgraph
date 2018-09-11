@@ -13,7 +13,6 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/parameters.hpp"
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
 
@@ -22,12 +21,10 @@ namespace query {
 class ExpressionEvaluator : public TreeVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table,
-                      const Parameters &parameters,
                       const EvaluationContext &ctx,
                       database::GraphDbAccessor *dba, GraphView graph_view)
       : frame_(frame),
         symbol_table_(&symbol_table),
-        parameters_(&parameters),
         ctx_(&ctx),
         dba_(dba),
         graph_view_(graph_view) {}
@@ -498,7 +495,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   }
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
-    return parameters_->AtTokenPosition(param_lookup.token_position_);
+    return ctx_->parameters.AtTokenPosition(param_lookup.token_position_);
   }
 
  private:
@@ -566,7 +563,6 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
 
   Frame *frame_;
   const SymbolTable *symbol_table_;
-  const Parameters *parameters_;
   const EvaluationContext *ctx_;
   database::GraphDbAccessor *dba_;
   // which switching approach should be used when evaluating

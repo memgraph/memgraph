@@ -5,8 +5,8 @@
 #include "database/graph_db_accessor.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "distributed/rpc_worker_clients.hpp"
+#include "query/context.hpp"
 #include "query/frontend/semantic/symbol.hpp"
-#include "query/parameters.hpp"
 #include "transactions/type.hpp"
 #include "utils/future.hpp"
 
@@ -32,12 +32,12 @@ class PullRpcClients {
   /// @todo: it might be cleaner to split Pull into {InitRemoteCursor,
   /// Pull, RemoteAccumulate}, but that's a lot of refactoring and more
   /// RPC calls.
-  utils::Future<PullData> Pull(database::GraphDbAccessor *dba, int worker_id,
-                               int64_t plan_id, tx::CommandId command_id,
-                               const Parameters &params,
-                               const std::vector<query::Symbol> &symbols,
-                               int64_t timestamp, bool accumulate,
-                               int batch_size = kDefaultBatchSize);
+  utils::Future<PullData> Pull(
+      database::GraphDbAccessor *dba, int worker_id, int64_t plan_id,
+      tx::CommandId command_id,
+      const query::EvaluationContext &evaluation_context,
+      const std::vector<query::Symbol> &symbols, bool accumulate,
+      int batch_size = kDefaultBatchSize);
 
   utils::Future<void> ResetCursor(database::GraphDbAccessor *dba, int worker_id,
                                   int64_t plan_id, tx::CommandId command_id);

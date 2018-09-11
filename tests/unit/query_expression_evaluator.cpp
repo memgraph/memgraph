@@ -35,11 +35,10 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   AstStorage storage;
   EvaluationContext ctx;
   SymbolTable symbol_table;
-  Parameters parameters;
 
   Frame frame{128};
-  ExpressionEvaluator eval{&frame, symbol_table, parameters,
-                           ctx,    dba.get(),    GraphView::OLD};
+  ExpressionEvaluator eval{&frame, symbol_table, ctx, dba.get(),
+                           GraphView::OLD};
 };
 
 TEST_F(ExpressionEvaluatorTest, OrOperator) {
@@ -652,7 +651,6 @@ TEST_F(ExpressionEvaluatorTest, Aggregation) {
   auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
   symbol_table[*aggr] = aggr_sym;
   frame[aggr_sym] = TypedValue(1);
-  Parameters parameters;
   auto value = aggr->Accept(eval);
   EXPECT_EQ(value.ValueInt(), 1);
 }
@@ -675,7 +673,7 @@ TEST_F(ExpressionEvaluatorTest, ListLiteral) {
 }
 
 TEST_F(ExpressionEvaluatorTest, ParameterLookup) {
-  parameters.Add(0, 42);
+  ctx.parameters.Add(0, 42);
   auto *param_lookup = storage.Create<ParameterLookup>(0);
   auto value = param_lookup->Accept(eval);
   ASSERT_TRUE(value.IsInt());

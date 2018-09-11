@@ -58,7 +58,8 @@ std::unique_ptr<LogicalPlan> DistributedInterpreter::MakeLogicalPlan(
   std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
   double cost;
   std::tie(tmp_logical_plan, cost) = plan::MakeLogicalPlan(
-      planning_context, context->parameters_, FLAGS_query_cost_planner);
+      planning_context, context->evaluation_context_.parameters,
+      FLAGS_query_cost_planner);
   auto plan = MakeDistributedPlan(*tmp_logical_plan, context->symbol_table_,
                                   next_plan_id_);
   VLOG(10) << "[Interpreter] Created plan for distributed execution "

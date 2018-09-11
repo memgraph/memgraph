@@ -12,7 +12,8 @@ namespace distributed {
 ProduceRpcServer::OngoingProduce::OngoingProduce(
     database::Worker *db, tx::TransactionId tx_id,
     std::shared_ptr<query::plan::LogicalOperator> op,
-    query::SymbolTable symbol_table, Parameters parameters, int64_t timestamp,
+    query::SymbolTable symbol_table,
+    query::EvaluationContext evaluation_context,
     std::vector<query::Symbol> pull_symbols)
     : dba_(db->Access(tx_id)),
       context_(*dba_),
@@ -20,8 +21,7 @@ ProduceRpcServer::OngoingProduce::OngoingProduce(
       frame_(symbol_table.max_position()),
       cursor_(op->MakeCursor(*dba_)) {
   context_.symbol_table_ = std::move(symbol_table);
-  context_.parameters_ = std::move(parameters);
-  context_.evaluation_context_.timestamp = timestamp;
+  context_.evaluation_context_ = std::move(evaluation_context);
 }
 
 std::pair<std::vector<query::TypedValue>, PullState>
@@ -162,8 +162,8 @@ ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
   return ongoing_produces_
       .emplace(std::piecewise_construct, std::forward_as_tuple(key_tuple),
                std::forward_as_tuple(db_, req.tx_id, plan_pack.plan,
-                                     plan_pack.symbol_table, req.params,
-                                     req.timestamp, req.symbols))
+                                     plan_pack.symbol_table,
+                                     req.evaluation_context, req.symbols))
       .first->second;
 }
 

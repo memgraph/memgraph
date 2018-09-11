@@ -8,6 +8,7 @@
 #include "communication/rpc/messages.hpp"
 #include "distributed/pull_produce_rpc_messages.capnp.h"
 #include "distributed/serialization.hpp"
+#include "query/context.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
 #include "storage/address_types.hpp"
@@ -28,6 +29,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
+(lcp:capnp-import 'ctx "/query/context.capnp")
 (lcp:capnp-import 'dis "/distributed/serialization.capnp")
 (lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
@@ -328,33 +330,34 @@ cpp<#)
                    :capnp-load #'load-snapshot)
       (plan-id :int64_t)
       (command-id "tx::CommandId")
-      (params "Parameters"
-              :capnp-type "Utils.Map(Utils.BoxInt64, Dis.TypedValue)"
-              :capnp-save
-              (lambda (builder member)
-                #>cpp
-                auto entries_builder = ${builder}.initEntries(${member}.size());
-                size_t i = 0;
-                for (auto &entry : params) {
-                  auto builder = entries_builder[i];
-                  auto key_builder = builder.initKey();
-                  key_builder.setValue(entry.first);
-                  auto value_builder = builder.initValue();
-                  distributed::SaveCapnpTypedValue(entry.second, &value_builder);
-                  ++i;
-                }
-                cpp<#)
-              :capnp-load
-              (lambda (reader member)
-                #>cpp
-                for (const auto &entry_reader : ${reader}.getEntries()) {
-                  query::TypedValue value;
-                  distributed::LoadCapnpTypedValue(entry_reader.getValue(), &value);
-                  ${member}.Add(entry_reader.getKey().getValue(), value);
-                }
-                cpp<#))
+      (evaluation-context "query::EvaluationContext"
+                          :capnp-type "Ctx.EvaluationContext"
+                          :capnp-save
+                          (lambda (builder member)
+                            #>cpp
+			    ${builder}.setTimestamp(${member}.timestamp);
+			    auto params_builder = ${builder}.initParams().initEntries(${member}.parameters.size());
+			    size_t i = 0;
+			    for (auto &entry : ${member}.parameters) {
+			      auto builder = params_builder[i];
+			      auto key_builder = builder.initKey();
+			      key_builder.setValue(entry.first);
+			      auto value_builder = builder.initValue();
+			      distributed::SaveCapnpTypedValue(entry.second, &value_builder);
+			      ++i;
+			    }
+			    cpp<#)
+			  :capnp-load
+			  (lambda (reader member)
+			    #>cpp
+			    ${member}.timestamp = ${reader}.getTimestamp();
+			    for (const auto &entry_reader : ${reader}.getParams().getEntries()) {
+			      query::TypedValue value;
+			      distributed::LoadCapnpTypedValue(entry_reader.getValue(), &value);
+			      ${member}.parameters.Add(entry_reader.getKey().getValue(), value);
+			    }
+			    cpp<#))
       (symbols "std::vector<query::Symbol>" :capnp-type "List(Sem.Symbol)")
-      (timestamp :int64_t)
       (accumulate :bool)
       (batch-size :int64_t)
       ;; Indicates which of (old, new) records of a graph element should be sent.

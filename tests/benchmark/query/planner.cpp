@@ -108,7 +108,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
   int vertex_count = state.range(1);
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);
   auto dba = db.Access();
-  Parameters parameters;
+  query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
     query::AstStorage storage;
@@ -142,7 +142,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
   std::tie(label, prop) = CreateIndexedVertices(index_count, vertex_count, db);
   auto dba = db.Access();
   auto vertex_counts = query::plan::MakeVertexCountCache(*dba);
-  Parameters parameters;
+  query::Parameters parameters;
   while (state.KeepRunning()) {
     state.PauseTiming();
     query::AstStorage storage;

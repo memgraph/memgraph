@@ -85,12 +85,12 @@ TEST_F(DistributedQueryPlan, PullProduceRpc) {
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
 
   tx::CommandId command_id = dba->transaction().cid();
-  Parameters params;
+  EvaluationContext evaluation_context;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
-  auto remote_pull = [this, &command_id, &params, &symbols](
+  auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
                          GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(&dba, worker_id, plan_id, command_id,
-                                        params, symbols, 0, false, 3);
+                                        evaluation_context, symbols, false, 3);
   };
   auto expect_first_batch = [](auto &batch) {
     EXPECT_EQ(batch.pull_state, distributed::PullState::CURSOR_IN_PROGRESS);
@@ -204,13 +204,13 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
 
   tx::CommandId command_id = dba->transaction().cid();
-  Parameters params;
+  EvaluationContext evaluation_context;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
                                      ctx.symbol_table_[*return_m], p_sym};
-  auto remote_pull = [this, &command_id, &params, &symbols](
+  auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
                          GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(&dba, worker_id, plan_id, command_id,
-                                        params, symbols, 0, false, 3);
+                                        evaluation_context, symbols, false, 3);
   };
   auto future_w1_results = remote_pull(*dba, 1);
   auto future_w2_results = remote_pull(*dba, 2);
@@ -380,12 +380,14 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
   tx::CommandId command_id = dba->transaction().cid();
 
-  Parameters params;
+  EvaluationContext evaluation_context;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*output]};
-  auto remote_pull = [this, &command_id, &params, &symbols, &dba]() {
+  auto remote_pull = [this, &command_id, &evaluation_context, &symbols,
+                      &dba]() {
     return master()
         .pull_clients()
-        .Pull(dba.get(), 1, plan_id, command_id, params, symbols, 0, false, 1)
+        .Pull(dba.get(), 1, plan_id, command_id, evaluation_context, symbols,
+              false, 1)
         .get()
         .pull_state;
   };

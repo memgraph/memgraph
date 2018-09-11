@@ -35,25 +35,25 @@ Interpreter::Results Interpreter::operator()(
           std::chrono::system_clock::now().time_since_epoch())
           .count();
 
-  Context ctx(db_accessor);
-  ctx.in_explicit_transaction_ = in_explicit_transaction;
-  ctx.auth_ = auth_;
-  ctx.kafka_streams_ = kafka_streams_;
-  ctx.evaluation_context_ = evaluation_context;
-
   // query -> stripped query
   StrippedQuery stripped(query);
 
   // Update context with provided parameters.
-  ctx.parameters_ = stripped.literals();
+  evaluation_context.parameters = stripped.literals();
   for (const auto &param_pair : stripped.parameters()) {
     auto param_it = params.find(param_pair.second);
     if (param_it == params.end()) {
       throw query::UnprovidedParameterError(
           fmt::format("Parameter ${} not provided.", param_pair.second));
     }
-    ctx.parameters_.Add(param_pair.first, param_it->second);
+    evaluation_context.parameters.Add(param_pair.first, param_it->second);
   }
+
+  Context ctx(db_accessor);
+  ctx.in_explicit_transaction_ = in_explicit_transaction;
+  ctx.auth_ = auth_;
+  ctx.kafka_streams_ = kafka_streams_;
+  ctx.evaluation_context_ = evaluation_context;
 
   ParsingContext parsing_context;
   parsing_context.is_query_cached = true;
@@ -201,7 +201,8 @@ std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(
   std::unique_ptr<plan::LogicalOperator> root;
   double cost;
   std::tie(root, cost) = plan::MakeLogicalPlan(
-      planning_context, context->parameters_, FLAGS_query_cost_planner);
+      planning_context, context->evaluation_context_.parameters,
+      FLAGS_query_cost_planner);
   return std::make_unique<SingleNodeLogicalPlan>(
       std::move(root), cost, std::move(ast_storage), context->symbol_table_);
 }

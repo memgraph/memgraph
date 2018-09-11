@@ -522,7 +522,7 @@ auto MakeLogicalPlans(query::AstStorage &ast, query::SymbolTable &symbol_table,
   auto plans = query::plan::MakeLogicalPlanForSingleQuery<
       query::plan::VariableStartPlanner>(
       query_parts.query_parts.at(0).single_query_parts, ctx);
-  Parameters parameters;
+  query::Parameters parameters;
   for (auto plan : plans) {
     query::plan::CostEstimator<InteractiveDbAccessor> estimator(dba,
                                                                 parameters);

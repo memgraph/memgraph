@@ -101,9 +101,9 @@ VertexAccessor &CreateLocalVertex(NodeAtom *node_atom, Frame &frame,
 
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::NEW);
   for (auto &kv : node_atom->properties_)
     PropsSetChecked(&new_node, kv.first.second, kv.second->Accept(evaluator));
   frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
@@ -178,9 +178,9 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
 
   // Similarly to CreateNode, newly created edges and nodes should use the
   // latest accesors.
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::NEW);
   // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
   v1.SwitchNew();
 
@@ -343,9 +343,9 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, std::experimental::nullopt,
                       std::experimental::nullopt, false))> {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, graph_view_);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, graph_view_);
     auto convert = [&evaluator](const auto &bound)
         -> std::experimental::optional<utils::Bound<PropertyValue>> {
       if (!bound) return std::experimental::nullopt;
@@ -392,9 +392,9 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
   auto vertices = [this, &db](Frame &frame, Context &context)
       -> std::experimental::optional<decltype(
           db.Vertices(label_, property_, TypedValue::Null, false))> {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, graph_view_);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, graph_view_);
     auto value = expression_->Accept(evaluator);
     if (value.IsNull()) return std::experimental::nullopt;
     try {
@@ -659,9 +659,9 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, self_.graph_view_);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, self_.graph_view_);
     while (true) {
       if (Expand(frame, context)) return true;
 
@@ -734,7 +734,7 @@ class ExpandVariableCursor : public Cursor {
 
       // Evaluate the upper and lower bounds.
       ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                    context.parameters_,
+
                                     context.evaluation_context_,
                                     &context.db_accessor_, self_.graph_view_);
       auto calc_bound = [&evaluator](auto &bound) {
@@ -795,9 +795,9 @@ class ExpandVariableCursor : public Cursor {
    * vertex and another Pull from the input cursor should be performed.
    */
   bool Expand(Frame &frame, Context &context) {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, self_.graph_view_);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, self_.graph_view_);
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
@@ -890,9 +890,9 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, Context &context) override {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, GraphView::OLD);
     while (input_cursor_->Pull(frame, context)) {
       auto source_tv = frame[self_.input_symbol()];
       auto sink_tv = frame[self_.node_symbol()];
@@ -1119,9 +1119,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, Context &context) override {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, GraphView::OLD);
 
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
@@ -1266,9 +1266,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, self_.graph_view_);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, self_.graph_view_);
     auto create_state = [this](VertexAccessor vertex, int depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -1631,9 +1631,9 @@ Filter::FilterCursor::FilterCursor(const Filter &self,
 bool Filter::FilterCursor::Pull(Frame &frame, Context &context) {
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::OLD);
   while (input_cursor_->Pull(frame, context)) {
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
@@ -1674,9 +1674,9 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self,
 bool Produce::ProduceCursor::Pull(Frame &frame, Context &context) {
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, GraphView::NEW);
     for (auto named_expr : self_.named_expressions_)
       named_expr->Accept(evaluator);
     return true;
@@ -1711,9 +1711,9 @@ bool Delete::DeleteCursor::Pull(Frame &frame, Context &context) {
   // Delete should get the latest information, this way it is also possible
   // to
   // delete newly added nodes and edges.
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::NEW);
   // collect expressions results so edges can get deleted before vertices
   // this is necessary because an edge that gets deleted could block vertex
   // deletion
@@ -1781,9 +1781,9 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Set, just like Create needs to see the latest changes.
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -1839,9 +1839,9 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, Context &context) {
   TypedValue &lhs = frame[self_.input_symbol_];
 
   // Set, just like Create needs to see the latest changes.
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::NEW);
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
   switch (lhs.type()) {
@@ -1976,9 +1976,9 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Remove, just like Delete needs to see the latest changes.
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::NEW);
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   switch (lhs.type()) {
@@ -2276,9 +2276,9 @@ bool Aggregate::AggregateCursor::Pull(Frame &frame, Context &context) {
 }
 
 void Aggregate::AggregateCursor::ProcessAll(Frame &frame, Context &context) {
-  ExpressionEvaluator evaluator(
-      &frame, context.symbol_table_, context.parameters_,
-      context.evaluation_context_, &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                context.evaluation_context_,
+                                &context.db_accessor_, GraphView::NEW);
   while (input_cursor_->Pull(frame, context))
     ProcessOne(frame, context.symbol_table_, evaluator);
 
@@ -2505,9 +2505,9 @@ bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
       // First successful pull from the input, evaluate the skip expression.
       // The skip expression doesn't contain identifiers so graph view
       // parameter is not important.
-      ExpressionEvaluator evaluator(
-          &frame, context.symbol_table_, context.parameters_,
-          context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
+      ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                    context.evaluation_context_,
+                                    &context.db_accessor_, GraphView::OLD);
       TypedValue to_skip = self_.expression_->Accept(evaluator);
       if (to_skip.type() != TypedValue::Type::Int)
         throw QueryRuntimeException(
@@ -2563,9 +2563,9 @@ bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
   if (limit_ == -1) {
     // Limit expression doesn't contain identifiers so graph view is not
     // important.
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, GraphView::OLD);
     TypedValue limit = self_.expression_->Accept(evaluator);
     if (limit.type() != TypedValue::Type::Int)
       throw QueryRuntimeException(
@@ -2627,9 +2627,9 @@ OrderBy::OrderByCursor::OrderByCursor(const OrderBy &self,
 
 bool OrderBy::OrderByCursor::Pull(Frame &frame, Context &context) {
   if (!did_pull_all_) {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, GraphView::OLD);
     while (input_cursor_->Pull(frame, context)) {
       // collect the order_by elements
       std::vector<TypedValue> order_by;
@@ -2858,9 +2858,9 @@ bool Unwind::UnwindCursor::Pull(Frame &frame, Context &context) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     // successful pull from input, initialize value and iterator
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.parameters_,
-        context.evaluation_context_, &context.db_accessor_, GraphView::OLD);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+                                  context.evaluation_context_,
+                                  &context.db_accessor_, GraphView::OLD);
     TypedValue input_value = self_.input_expression_->Accept(evaluator);
     if (input_value.type() != TypedValue::Type::List)
       throw QueryRuntimeException(
@@ -3259,7 +3259,7 @@ class AuthHandlerCursor : public Cursor {
       throw UserModificationInMulticommandTxException();
     }
 
-    ExpressionEvaluator evaluator(&frame, ctx.symbol_table_, ctx.parameters_,
+    ExpressionEvaluator evaluator(&frame, ctx.symbol_table_,
                                   ctx.evaluation_context_, &ctx.db_accessor_,
                                   GraphView::OLD);
     std::experimental::optional<std::string> password;
@@ -3553,7 +3553,7 @@ class CreateStreamCursor : public Cursor {
     if (ctx.in_explicit_transaction_) {
       throw StreamClauseInMulticommandTxException();
     }
-    ExpressionEvaluator evaluator(&frame, ctx.symbol_table_, ctx.parameters_,
+    ExpressionEvaluator evaluator(&frame, ctx.symbol_table_,
                                   ctx.evaluation_context_, &ctx.db_accessor_,
                                   GraphView::OLD);
 
@@ -3713,7 +3713,7 @@ class StartStopStreamCursor : public Cursor {
       throw StreamClauseInMulticommandTxException();
     }
 
-    ExpressionEvaluator evaluator(&frame, ctx.symbol_table_, ctx.parameters_,
+    ExpressionEvaluator evaluator(&frame, ctx.symbol_table_,
                                   ctx.evaluation_context_, &ctx.db_accessor_,
                                   GraphView::OLD);
     std::experimental::optional<int64_t> limit_batches;
@@ -3811,7 +3811,7 @@ class TestStreamCursor : public Cursor {
     }
 
     if (!is_initialized_) {
-      ExpressionEvaluator evaluator(&frame, ctx.symbol_table_, ctx.parameters_,
+      ExpressionEvaluator evaluator(&frame, ctx.symbol_table_,
                                     ctx.evaluation_context_, &ctx.db_accessor_,
                                     GraphView::OLD);
       std::experimental::optional<int64_t> limit_batches;

@@ -15,7 +15,6 @@
 #include "query/context.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/typed_value.hpp"
 #include "transactions/type.hpp"
@@ -45,8 +44,9 @@ class ProduceRpcServer {
    public:
     OngoingProduce(database::Worker *db, tx::TransactionId tx_id,
                    std::shared_ptr<query::plan::LogicalOperator> op,
-                   query::SymbolTable symbol_table, Parameters parameters,
-                   int64_t timestamp, std::vector<query::Symbol> pull_symbols);
+                   query::SymbolTable symbol_table,
+                   query::EvaluationContext evaluation_context,
+                   std::vector<query::Symbol> pull_symbols);
 
     /// Returns a vector of typed values (one for each `pull_symbol`), and an
     /// indication of the pull result. The result data is valid only if the
