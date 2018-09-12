@@ -183,20 +183,18 @@ TEST_F(DistributedDurability, RecoveryFromSameSnapshot) {
   }
 }
 
-/* TODO (msantl): FIXME
 TEST_F(DistributedDurability, RecoveryFailure) {
   {
     AddVertices();
     // Make a snapshot on the master without the right snapshots on workers.
     auto dba = master().Access();
     bool status = durability::MakeSnapshot(master(), *dba, master().WorkerId(),
-                                           tmp_dir_, 100);
+                                           GetDurabilityDirectory(0), 100);
     ASSERT_TRUE(status);
   }
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
   EXPECT_DEATH(RestartWithRecovery(), "worker failed to recover");
 }
-*/
 
 TEST_F(DistributedDurability, WalWrite) {
   {
