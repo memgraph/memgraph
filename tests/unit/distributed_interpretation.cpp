@@ -38,7 +38,7 @@ class DistributedInterpretationTest : public DistributedGraphDbTest {
   }
 
   auto RunWithDba(const std::string &query, GraphDbAccessor &dba) {
-    std::map<std::string, query::TypedValue> params = {};
+    std::map<std::string, PropertyValue> params = {};
     ResultStreamFaker<query::TypedValue> stream;
     auto results = interpreter_.value()(query, dba, params, false);
     stream.Header(results.header());

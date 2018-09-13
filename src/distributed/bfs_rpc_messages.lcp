@@ -7,6 +7,7 @@
 #include "distributed/bfs_rpc_messages.capnp.h"
 #include "distributed/bfs_subcursor.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/serialization.hpp"
 #include "transactions/type.hpp"
 #include "utils/serialization.hpp"
 cpp<#
@@ -16,87 +17,12 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'ast "/query/frontend/ast/ast.capnp")
-(lcp:capnp-import 'dis "/distributed/serialization.capnp")
 (lcp:capnp-import 'query "/query/common.capnp")
 (lcp:capnp-import 'storage "/storage/serialization.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "storage::EdgeAddress" "Storage.Address")
 (lcp:capnp-type-conversion "storage::VertexAddress" "Storage.Address")
-
-(defun save-element (builder member)
-  #>cpp
-  if (${member}) {
-    if constexpr (std::is_same<TElement, Vertex>::value) {
-      auto builder = ${builder}.initVertex();
-      SaveVertex(*${member}, &builder, worker_id);
-    } else {
-      auto builder = ${builder}.initEdge();
-      SaveEdge(*${member}, &builder, worker_id);
-    }
-  } else {
-    ${builder}.setNull();
-  }
-  cpp<#)
-
-(defun load-element (reader member)
-  (let ((output-member (cl-ppcre:regex-replace "input$" member "output")))
-    #>cpp
-    if (!${reader}.isNull()) {
-      if constexpr (std::is_same<TElement, Vertex>::value) {
-        const auto reader = ${reader}.getVertex();
-        ${output-member} = LoadVertex(reader);
-      } else {
-        const auto reader = ${reader}.getEdge();
-        ${output-member} = LoadEdge(reader);
-      }
-    }
-    cpp<#))
-
-(lcp:define-struct (serialized-graph-element t-element) ()
-  ((cypher-id :int64_t)
-   (global-address "storage::Address<mvcc::VersionList<TElement>>"
-                   :capnp-type "Storage.Address")
-   (old-element-input "TElement *"
-                      :capnp-type '((null "Void") (vertex "Dis.Vertex") (edge "Dis.Edge"))
-                      :capnp-save #'save-element :capnp-load #'load-element)
-   (old-element-output "std::unique_ptr<TElement>" :capnp-save :dont-save)
-   (new-element-input "TElement *"
-                      :capnp-type '((null "Void") (vertex "Dis.Vertex") (edge "Dis.Edge"))
-                      :capnp-save #'save-element :capnp-load #'load-element)
-   (new-element-output "std::unique_ptr<TElement>" :capnp-save :dont-save)
-   (worker-id :int16_t :capnp-save :dont-save))
-  (:public
-   #>cpp
-    SerializedGraphElement(int64_t cypher_id,
-                           storage::Address<mvcc::VersionList<TElement>> global_address,
-                           TElement *old_element_input, TElement *new_element_input,
-                           int16_t worker_id)
-        : cypher_id(cypher_id),
-          global_address(global_address),
-          old_element_input(old_element_input),
-          old_element_output(nullptr),
-          new_element_input(new_element_input),
-          new_element_output(nullptr),
-          worker_id(worker_id) {
-      CHECK(global_address.is_remote())
-          << "Only global addresses should be used with SerializedGraphElement";
-    }
-
-    SerializedGraphElement(const RecordAccessor<TElement> &accessor, int16_t worker_id)
-        : SerializedGraphElement(accessor.CypherId(),
-                                 accessor.GlobalAddress(),
-                                 accessor.GetOld(), accessor.GetNew(),
-                                 worker_id) {}
-
-    SerializedGraphElement() {}
-   cpp<#)
-  (:serialize :capnp :type-args '(vertex edge)))
-
-#>cpp
-using SerializedVertex = SerializedGraphElement<Vertex>;
-using SerializedEdge = SerializedGraphElement<Edge>;
-cpp<#
 
 (lcp:define-rpc create-bfs-subcursor
     (:request
@@ -163,13 +89,24 @@ cpp<#
   (:response ((member :bool))))
 
 (lcp:define-rpc subcursor-pull
-    (:request ((member :int64_t)))
+  (:request ((member :int64_t)))
   (:response
-   ((cypher-id :int64_t)
-    (vertex "std::experimental::optional<SerializedVertex>" :initarg :move
-            :capnp-type "Utils.Optional(SerializedGraphElement)"
-            :capnp-save (lcp:capnp-save-optional "capnp::SerializedGraphElement" "SerializedVertex")
-            :capnp-load (lcp:capnp-load-optional "capnp::SerializedGraphElement" "SerializedVertex")))))
+    ((vertex "std::experimental::optional<VertexAccessor>"
+             :capnp-type "Utils.Optional(Storage.VertexAccessor)"
+             :capnp-save (lcp:capnp-save-optional
+                           "storage::capnp::VertexAccessor"
+                           "VertexAccessor"
+                           "[](auto *builder, const auto &vertex) {
+                              storage::SaveVertexAccessor(vertex, builder, storage::SendVersions::BOTH);
+                            }")
+             :capnp-load (lcp:capnp-load-optional
+                           "storage::capnp::VertexAccessor"
+                           "VertexAccessor"
+                           "[dba, data_manager](const auto &reader) {
+                             return storage::LoadVertexAccessor(reader, dba, data_manager);
+                            }")))
+   (:serialize :capnp :load-args '((dba "database::GraphDbAccessor *")
+                                   (data-manager "distributed::DataManager *")))))
 
 (lcp:define-rpc set-source
     (:request
@@ -211,17 +148,25 @@ cpp<#
             edge(edge) {}
       cpp<#))
   (:response
-   ((subcursor-id :int64_t ;; TODO(mtomic): Unused?
-                  :capnp-save :dont-save)
-    (edges "std::vector<SerializedEdge>" :capnp-type "List(SerializedGraphElement)"
-           :capnp-save (lcp:capnp-save-vector "capnp::SerializedGraphElement" "SerializedEdge")
-           :capnp-load (lcp:capnp-load-vector "capnp::SerializedGraphElement" "SerializedEdge"))
+   ((edges "std::vector<EdgeAccessor>" :capnp-type "List(Storage.EdgeAccessor)"
+           :capnp-save (lcp:capnp-save-vector "storage::capnp::EdgeAccessor"
+                                              "EdgeAccessor"
+                                              "[](auto *builder, const auto &edge) {
+                                                 storage::SaveEdgeAccessor(edge, builder, storage::SendVersions::BOTH);
+                                               }")
+           :capnp-load (lcp:capnp-load-vector "storage::capnp::EdgeAccessor"
+                                              "EdgeAccessor"
+                                              "[dba, data_manager](const auto &reader) {
+                                                 return storage::LoadEdgeAccessor(reader, dba, data_manager);
+                                              }"))
     (next-vertex "std::experimental::optional<storage::VertexAddress>"
                  :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::VertexAddress")
                  :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::VertexAddress"))
     (next-edge "std::experimental::optional<storage::EdgeAddress>"
                :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
                :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
+   (:serialize :capnp :load-args '((dba "database::GraphDbAccessor *")
+                                   (data-manager "distributed::DataManager *")))
    (:public
     #>cpp
     using Capnp = capnp::ReconstructPathRes;
@@ -230,16 +175,12 @@ cpp<#
     ReconstructPathRes() {}
 
     ReconstructPathRes(
-        const std::vector<EdgeAccessor> &edge_accessors,
+        const std::vector<EdgeAccessor> &edges,
         std::experimental::optional<storage::VertexAddress> next_vertex,
-        std::experimental::optional<storage::EdgeAddress> next_edge,
-        int16_t worker_id)
-        : next_vertex(std::move(next_vertex)), next_edge(std::move(next_edge)) {
+        std::experimental::optional<storage::EdgeAddress> next_edge)
+        : edges(edges), next_vertex(std::move(next_vertex)), next_edge(std::move(next_edge)) {
       CHECK(!static_cast<bool>(next_vertex) || !static_cast<bool>(next_edge))
           << "At most one of `next_vertex` and `next_edge` should be set";
-      for (const auto &edge : edge_accessors) {
-        edges.emplace_back(edge, worker_id);
-      }
     }
     cpp<#)))
 

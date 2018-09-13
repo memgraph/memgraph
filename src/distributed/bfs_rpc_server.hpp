@@ -80,13 +80,7 @@ class BfsRpcServer {
           SubcursorPullReq req;
           req.Load(req_reader);
           auto vertex = subcursor_storage_->Get(req.member)->Pull();
-          if (!vertex) {
-            SubcursorPullRes res;
-            res.Save(res_builder);
-            return;
-          }
-          SubcursorPullRes res(vertex->CypherId(),
-                               SerializedVertex(*vertex, db_->WorkerId()));
+          SubcursorPullRes res(vertex);
           res.Save(res_builder);
         });
 
@@ -113,8 +107,7 @@ class BfsRpcServer {
       } else {
         LOG(FATAL) << "`edge` or `vertex` should be set in ReconstructPathReq";
       }
-      ReconstructPathRes res(result.edges, result.next_vertex, result.next_edge,
-                             db_->WorkerId());
+      ReconstructPathRes res(result.edges, result.next_vertex, result.next_edge);
       res.Save(res_builder);
     });
 

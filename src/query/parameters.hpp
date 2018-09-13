@@ -1,16 +1,17 @@
 #pragma once
 
+#include "glog/logging.h"
+
 #include <algorithm>
 #include <utility>
 #include <vector>
 
-#include "query/typed_value.hpp"
+#include "storage/property_value.hpp"
 
 /**
  * Encapsulates user provided parameters (and stripped literals)
  * and provides ways of obtaining them by position.
  */
-// TODO move to namespace query::
 namespace query {
 
 struct Parameters {
@@ -21,7 +22,7 @@ struct Parameters {
    * @param position Token position in query of value.
    * @param value
    */
-  void Add(int position, const query::TypedValue &value) {
+  void Add(int position, const PropertyValue &value) {
     storage_.emplace_back(position, value);
   }
 
@@ -31,9 +32,9 @@ struct Parameters {
    *  @param position Token position in query of value.
    *  @return Value for the given token position.
    */
-  const query::TypedValue &AtTokenPosition(int position) const {
+  const PropertyValue &AtTokenPosition(int position) const {
     auto found = std::find_if(storage_.begin(), storage_.end(),
-                              [&](const std::pair<int, query::TypedValue> a) {
+                              [&](const std::pair<int, PropertyValue> a) {
                                 return a.first == position;
                               });
     CHECK(found != storage_.end())
@@ -48,7 +49,7 @@ struct Parameters {
    * @param position Which stripped param is sought.
    * @return Token position and value for sought param.
    */
-  const std::pair<int, query::TypedValue> &At(int position) const {
+  const std::pair<int, PropertyValue> &At(int position) const {
     CHECK(position < static_cast<int>(storage_.size())) << "Invalid position";
     return storage_[position];
   }
@@ -60,7 +61,7 @@ struct Parameters {
   auto end() const { return storage_.end(); }
 
  private:
-  std::vector<std::pair<int, query::TypedValue>> storage_;
+  std::vector<std::pair<int, PropertyValue>> storage_;
 };
 
 }  // namespace query

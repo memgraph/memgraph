@@ -38,7 +38,6 @@ set(memgraph_src_files
     distributed/plan_dispatcher.cpp
     distributed/produce_rpc_server.cpp
     distributed/pull_rpc_clients.cpp
-    distributed/serialization.cpp
     distributed/updates_rpc_clients.cpp
     distributed/updates_rpc_server.cpp
     durability/paths.cpp
@@ -64,6 +63,7 @@ set(memgraph_src_files
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/repl.cpp
+    query/serialization.cpp
     query/typed_value.cpp
     storage/concurrent_id_mapper_master.cpp
     storage/concurrent_id_mapper_worker.cpp
@@ -72,6 +72,7 @@ set(memgraph_src_files
     storage/property_value.cpp
     storage/property_value_store.cpp
     storage/record_accessor.cpp
+    storage/serialization.cpp
     storage/vertex_accessor.cpp
     transactions/distributed/engine_master.cpp
     transactions/distributed/engine_worker.cpp
@@ -128,12 +129,11 @@ add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
 # Registering capnp must come after registering lcp files.
 
 add_capnp(communication/rpc/messages.capnp)
-add_capnp(distributed/serialization.capnp)
 add_capnp(durability/recovery.capnp)
 add_capnp(query/common.capnp)
-add_capnp(query/context.capnp)
 add_capnp(query/frontend/ast/ast.capnp)
 add_capnp(query/frontend/semantic/symbol.capnp)
+add_capnp(query/serialization.capnp)
 add_capnp(storage/serialization.capnp)
 
 add_custom_target(generate_capnp DEPENDS generate_lcp ${generated_capnp_files})

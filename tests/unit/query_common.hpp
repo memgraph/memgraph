@@ -552,6 +552,8 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::NotEqualOperator>((expr1), (expr2))
 #define AND(expr1, expr2) storage.Create<query::AndOperator>((expr1), (expr2))
 #define OR(expr1, expr2) storage.Create<query::OrOperator>((expr1), (expr2))
+#define IN_LIST(expr1, expr2) \
+  storage.Create<query::InListOperator>((expr1), (expr2))
 // Function call
 #define FN(function_name, ...)           \
   storage.Create<query::Function>(       \

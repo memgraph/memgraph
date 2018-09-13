@@ -38,11 +38,11 @@ using TEncoder =
 std::vector<std::string> BoltSession::Interpret(
     const std::string &query,
     const std::map<std::string, communication::bolt::Value> &params) {
-  std::map<std::string, query::TypedValue> params_tv;
+  std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
-    params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
+    params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
   try {
-    auto result = transaction_engine_.Interpret(query, params_tv);
+    auto result = transaction_engine_.Interpret(query, params_pv);
     if (user_) {
       const auto &permissions = user_->GetPermissions();
       for (const auto &privilege : result.second) {
@@ -108,11 +108,11 @@ void KafkaStreamWriter(
     const std::map<std::string, communication::bolt::Value> &params) {
   auto dba = session_data.db->Access();
   KafkaResultStream stream;
-  std::map<std::string, query::TypedValue> params_tv;
+  std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
-    params_tv.emplace(kv.first, glue::ToTypedValue(kv.second));
+    params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
   try {
-    (*session_data.interpreter)(query, *dba, params_tv, false).PullAll(stream);
+    (*session_data.interpreter)(query, *dba, params_pv, false).PullAll(stream);
     dba->Commit();
   } catch (const query::QueryException &e) {
     LOG(WARNING) << "[Kafka] query execution failed with an exception: "

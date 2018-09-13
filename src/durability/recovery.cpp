@@ -174,7 +174,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     }
     for (const auto &property_pair : vertex->properties) {
       vertex_accessor.PropsSet(dba->Property(property_pair.first),
-                               glue::ToTypedValue(property_pair.second));
+                               glue::ToPropertyValue(property_pair.second));
     }
     auto vertex_record = vertex_accessor.GetNew();
     for (const auto &edge : vertex->in) {
@@ -244,7 +244,7 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
 
     for (const auto &property_pair : edge.properties)
       edge_accessor.PropsSet(dba->Property(property_pair.first),
-                             glue::ToTypedValue(property_pair.second));
+                             glue::ToPropertyValue(property_pair.second));
   }
 
   // Vertex and edge counts are included in the hash. Re-read them to update the

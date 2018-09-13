@@ -8,6 +8,7 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
+#include "storage/property_value.hpp"
 #include "storage/types.hpp"
 #include "utils/serialization.hpp"
 
@@ -754,7 +755,7 @@ class PrimitiveLiteral : public BaseLiteral {
   static PrimitiveLiteral *Construct(
       const capnp::PrimitiveLiteral::Reader &reader, AstStorage *storage);
 
-  TypedValue value_;
+  PropertyValue value_;
   // This field contains token position of literal used to create
   // PrimitiveLiteral object. If PrimitiveLiteral object is not created from
   // query leave its value at -1.

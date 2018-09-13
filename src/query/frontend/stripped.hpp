@@ -4,7 +4,6 @@
 #include <unordered_map>
 
 #include "query/parameters.hpp"
-#include "query/typed_value.hpp"
 #include "utils/hashing/fnv.hpp"
 
 namespace query {

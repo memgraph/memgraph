@@ -12,7 +12,6 @@
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"
 #include "distributed/rpc_worker_clients.hpp"
-#include "distributed/serialization.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/file.hpp"
 

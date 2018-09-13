@@ -3,11 +3,11 @@
 
 #include <capnp/message.h>
 
-#include "distributed/serialization.hpp"
 #include "mvcc/version_list.hpp"
 #include "query/typed_value.hpp"
 #include "storage/edge.hpp"
 #include "storage/property_value_store.hpp"
+#include "storage/serialization.hpp"
 #include "storage/types.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/single_node/engine_single_node.hpp"
@@ -68,14 +68,14 @@ bool CheckEdge(const Edge &e1, int w1, const Edge &e2, int w2) {
 
 #undef CHECK_RETURN
 
-#define SAVE_AND_LOAD(type, name, element)                       \
-  std::unique_ptr<type> name;                                    \
-  {                                                              \
-    ::capnp::MallocMessageBuilder message;                       \
-    auto builder = message.initRoot<distributed::capnp::type>(); \
-    distributed::Save##type(element, &builder, 0);               \
-    auto reader = message.getRoot<distributed::capnp::type>();   \
-    name = distributed::Load##type(reader);                      \
+#define SAVE_AND_LOAD(type, name, element)                   \
+  std::unique_ptr<type> name;                                \
+  {                                                          \
+    ::capnp::MallocMessageBuilder message;                   \
+    auto builder = message.initRoot<storage::capnp::type>(); \
+    storage::Save##type(element, &builder, 0);               \
+    auto reader = message.getRoot<storage::capnp::type>();   \
+    name = storage::Load##type(reader);                      \
   }
 
 TEST(DistributedSerialization, Empty) {

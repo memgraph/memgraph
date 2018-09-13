@@ -35,7 +35,7 @@ UpdateResult UpdatesRpcClients::Update(int worker_id,
 CreatedVertexInfo UpdatesRpcClients::CreateVertex(
     int worker_id, tx::TransactionId tx_id,
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue> &properties,
+    const std::unordered_map<storage::Property, PropertyValue> &properties,
     std::experimental::optional<int64_t> cypher_id) {
   auto res = worker_clients_.GetClientPool(worker_id).Call<CreateVertexRpc>(
       CreateVertexReqData{tx_id, labels, properties, cypher_id});

@@ -294,9 +294,9 @@ TEST(QueryPlan, AggregateGroupByValues) {
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
-  // a vector of TypedValue to be set as property values on vertices
+  // a vector of PropertyValue to be set as property values on vertices
   // most of them should result in a distinct group (commented where not)
-  std::vector<TypedValue> group_by_vals;
+  std::vector<PropertyValue> group_by_vals;
   group_by_vals.emplace_back(4);
   group_by_vals.emplace_back(7);
   group_by_vals.emplace_back(7.3);
@@ -306,14 +306,14 @@ TEST(QueryPlan, AggregateGroupByValues) {
   group_by_vals.emplace_back("1");
   group_by_vals.emplace_back(true);
   group_by_vals.emplace_back(false);
-  group_by_vals.emplace_back(std::vector<TypedValue>{1});
-  group_by_vals.emplace_back(std::vector<TypedValue>{1, 2});
-  group_by_vals.emplace_back(std::vector<TypedValue>{2, 1});
-  group_by_vals.emplace_back(TypedValue::Null);
+  group_by_vals.emplace_back(std::vector<PropertyValue>{1});
+  group_by_vals.emplace_back(std::vector<PropertyValue>{1, 2});
+  group_by_vals.emplace_back(std::vector<PropertyValue>{2, 1});
+  group_by_vals.emplace_back(PropertyValue::Null);
   // should NOT result in another group because 7.0 == 7
   group_by_vals.emplace_back(7.0);
   // should NOT result in another group
-  group_by_vals.emplace_back(std::vector<TypedValue>{1, 2.0});
+  group_by_vals.emplace_back(std::vector<PropertyValue>{1, 2.0});
 
   // generate a lot of vertices and set props on them
   auto prop = dba.Property("prop");
@@ -587,9 +587,9 @@ TEST(QueryPlan, Unwind) {
   SymbolTable symbol_table;
 
   // UNWIND [ [1, true, "x"], [], ["bla"] ] AS x UNWIND x as y RETURN x, y
-  auto input_expr = storage.Create<PrimitiveLiteral>(std::vector<TypedValue>{
-      std::vector<TypedValue>{1, true, "x"}, std::vector<TypedValue>{},
-      std::vector<TypedValue>{"bla"}});
+  auto input_expr = storage.Create<PrimitiveLiteral>(std::vector<PropertyValue>{
+      std::vector<PropertyValue>{1, true, "x"}, std::vector<PropertyValue>{},
+      std::vector<PropertyValue>{"bla"}});
 
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);

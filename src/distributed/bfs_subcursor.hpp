@@ -77,6 +77,8 @@ class ExpandBfsSubcursor {
   /// Reconstruct the part of path to given vertex stored on this worker.
   PathSegment ReconstructPath(storage::VertexAddress vertex_addr);
 
+  database::GraphDbAccessor *db_accessor() { return dba_.get(); }
+
   /// Used to reset subcursor state before starting expansion from new source.
   void Reset();
 

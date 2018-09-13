@@ -132,7 +132,8 @@ class Worker final : public DistributedGraphDb {
 VertexAccessor InsertVertexIntoRemote(
     GraphDbAccessor *dba, int worker_id,
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, query::TypedValue> &properties,
+    const std::unordered_map<storage::Property, PropertyValue>
+        &properties,
     std::experimental::optional<int64_t> cypher_id);
 
 }  // namespace database

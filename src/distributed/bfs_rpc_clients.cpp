@@ -77,17 +77,15 @@ std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
     return subcursor_storage_->Get(subcursor_id)->Pull();
   }
 
-  auto res =
-      clients_->GetClientPool(worker_id).Call<SubcursorPullRpc>(subcursor_id);
+  auto res = clients_->GetClientPool(worker_id).CallWithLoad<SubcursorPullRpc>(
+      [this, dba](const auto &reader) {
+        SubcursorPullRes res;
+        res.Load(reader, dba, this->data_manager_);
+        return res;
+      },
+      subcursor_id);
   CHECK(res) << "SubcursorPull RPC failed!";
-  if (!res->vertex) return std::experimental::nullopt;
-
-  data_manager_->Emplace<Vertex>(
-      dba->transaction_id(), res->vertex->global_address.gid(),
-      distributed::CachedRecordData<Vertex>(
-          res->cypher_id, std::move(res->vertex->old_element_output),
-          std::move(res->vertex->new_element_output)));
-  return VertexAccessor(res->vertex->global_address, *dba);
+  return res->vertex;
 }
 
 bool BfsRpcClients::ExpandLevel(
@@ -137,22 +135,6 @@ bool BfsRpcClients::ExpandToRemoteVertex(
   return res->member;
 }
 
-PathSegment BuildPathSegment(ReconstructPathRes *res,
-                             database::GraphDbAccessor *dba,
-                             distributed::DataManager *data_manager) {
-  std::vector<EdgeAccessor> edges;
-  for (auto &edge : res->edges) {
-    data_manager->Emplace<Edge>(
-        dba->transaction_id(), edge.global_address.gid(),
-        distributed::CachedRecordData<Edge>(
-            edge.cypher_id, std::move(edge.old_element_output),
-            std::move(edge.new_element_output)));
-    edges.emplace_back(edge.global_address, *dba);
-  }
-
-  return PathSegment{edges, res->next_vertex, res->next_edge};
-}
-
 PathSegment BfsRpcClients::ReconstructPath(
     const std::unordered_map<int16_t, int64_t> &subcursor_ids,
     storage::VertexAddress vertex, database::GraphDbAccessor *dba) {
@@ -162,9 +144,16 @@ PathSegment BfsRpcClients::ReconstructPath(
         ->ReconstructPath(vertex);
   }
 
-  auto res = clients_->GetClientPool(worker_id).Call<ReconstructPathRpc>(
-      subcursor_ids.at(worker_id), vertex);
-  return BuildPathSegment(&res.value(), dba, data_manager_);
+  auto res =
+      clients_->GetClientPool(worker_id).CallWithLoad<ReconstructPathRpc>(
+          [this, dba](const auto &reader) {
+            ReconstructPathRes res;
+            res.Load(reader, dba, this->data_manager_);
+            return res;
+          },
+          subcursor_ids.at(worker_id), vertex);
+  CHECK(res) << "ReconstructPath RPC failed!";
+  return PathSegment{res->edges, res->next_vertex, res->next_edge};
 }
 
 PathSegment BfsRpcClients::ReconstructPath(
@@ -175,9 +164,16 @@ PathSegment BfsRpcClients::ReconstructPath(
     return subcursor_storage_->Get(subcursor_ids.at(worker_id))
         ->ReconstructPath(edge);
   }
-  auto res = clients_->GetClientPool(worker_id).Call<ReconstructPathRpc>(
-      subcursor_ids.at(worker_id), edge);
-  return BuildPathSegment(&res.value(), dba, data_manager_);
+  auto res =
+      clients_->GetClientPool(worker_id).CallWithLoad<ReconstructPathRpc>(
+          [this, dba](const auto &reader) {
+            ReconstructPathRes res;
+            res.Load(reader, dba, this->data_manager_);
+            return res;
+          },
+          subcursor_ids.at(worker_id), edge);
+  CHECK(res) << "ReconstructPath RPC failed!";
+  return PathSegment{res->edges, res->next_vertex, res->next_edge};
 }
 
 void BfsRpcClients::PrepareForExpand(

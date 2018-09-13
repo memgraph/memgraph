@@ -170,7 +170,7 @@ ProduceRpcServer::OngoingProduce &ProduceRpcServer::GetOngoingProduce(
 PullResData ProduceRpcServer::Pull(const PullReq &req) {
   auto &ongoing_produce = GetOngoingProduce(req);
 
-  PullResData result(db_->WorkerId(), req.send_old, req.send_new);
+  PullResData result(db_->WorkerId(), req.send_versions);
   result.pull_state = PullState::CURSOR_IN_PROGRESS;
 
   if (req.accumulate) {

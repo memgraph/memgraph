@@ -1181,7 +1181,7 @@ VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
   if (worker_id == current_worker_id)
     return CreateLocalVertex(node_atom, frame, context);
 
-  std::unordered_map<storage::Property, query::TypedValue> properties;
+  std::unordered_map<storage::Property, PropertyValue> properties;
 
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.

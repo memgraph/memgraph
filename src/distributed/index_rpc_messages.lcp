@@ -5,8 +5,9 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "distributed/serialization.hpp"
 #include "distributed/index_rpc_messages.capnp.h"
+#include "storage/types.hpp"
+#include "transactions/transaction.hpp"
 cpp<#
 
 (lcp:namespace distributed)

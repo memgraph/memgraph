@@ -72,7 +72,7 @@ template <class TRecordAccessor>
 void PropsSetChecked(TRecordAccessor *record, const storage::Property &key,
                      const TypedValue &value) {
   try {
-    record->PropsSet(key, value);
+    record->PropsSet(key, PropertyValue(value));
   } catch (const TypedValueException &) {
     throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                 value.type());

@@ -2,6 +2,7 @@
 
 #include "distributed/data_rpc_clients.hpp"
 #include "distributed/data_rpc_messages.hpp"
+#include "distributed/rpc_worker_clients.hpp"
 #include "storage/edge.hpp"
 #include "storage/vertex.hpp"
 

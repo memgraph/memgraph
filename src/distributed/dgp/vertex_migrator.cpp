@@ -10,7 +10,7 @@ VertexMigrator::VertexMigrator(database::GraphDbAccessor *dba) : dba_(dba) {}
 
 void VertexMigrator::MigrateVertex(VertexAccessor &vertex, int destination) {
   auto get_props = [](auto &record) {
-    std::unordered_map<storage::Property, query::TypedValue> properties;
+    std::unordered_map<storage::Property, PropertyValue> properties;
     for (auto prop : record.Properties()) {
       properties[prop.first] = prop.second;
     }

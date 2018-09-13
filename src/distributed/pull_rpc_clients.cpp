@@ -24,7 +24,7 @@ utils::Future<PullData> PullRpcClients::Pull(
     auto result = client_pool.CallWithLoad<PullRpc>(
         load_pull_res, dba->transaction_id(), dba->transaction().snapshot(),
         plan_id, command_id, evaluation_context, symbols, accumulate,
-        batch_size, true, true);
+        batch_size, storage::SendVersions::BOTH);
     return PullData{result->data.pull_state, std::move(result->data.frames)};
   });
 }

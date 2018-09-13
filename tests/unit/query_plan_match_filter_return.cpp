@@ -16,6 +16,7 @@
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db.hpp"
 #include "distributed/data_manager.hpp"
+#include "distributed/plan_dispatcher.hpp"
 #include "distributed/updates_rpc_server.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
@@ -1058,15 +1059,20 @@ TEST_F(STShortestPathTest, ExpandLambda) {
 
     std::tie(expression, length) = test;
 
-    auto source =
-        MakeUnwind(symbol_table, "s", nullptr, LIST(LITERAL(vertices[0])));
-    auto sink =
-        MakeUnwind(symbol_table, "t", source.op_, LIST(LITERAL(vertices[3])));
-    auto results =
-        ShortestPaths(sink.op_, source.sym_, sink.sym_,
-                      EdgeAtom::Direction::BOTH, nullptr, nullptr,
-                      ExpandVariable::Lambda{inner_edge_symbol,
-                                             inner_node_symbol, expression});
+    auto s = MakeScanAll(storage, symbol_table, "s");
+    auto source = std::make_shared<Filter>(
+        s.op_, EQ(PROPERTY_LOOKUP(s.node_->identifier_, dba.Property("id")),
+                  LITERAL(0)));
+
+    auto t = MakeScanAll(storage, symbol_table, "t", source);
+    auto sink = std::make_shared<Filter>(
+        t.op_, EQ(PROPERTY_LOOKUP(t.node_->identifier_, dba.Property("id")),
+                  LITERAL(3)));
+
+    auto results = ShortestPaths(
+        sink, s.sym_, t.sym_, EdgeAtom::Direction::BOTH, nullptr, nullptr,
+        ExpandVariable::Lambda{inner_edge_symbol, inner_node_symbol,
+                               expression});
 
     if (length == -1) {
       EXPECT_EQ(results.size(), 0);
@@ -1079,14 +1085,21 @@ TEST_F(STShortestPathTest, ExpandLambda) {
 
 TEST_F(STShortestPathTest, OptionalMatch) {
   for (int i = 0; i <= 2; ++i) {
-    auto source = MakeUnwind(
-        symbol_table, "s", nullptr,
-        LIST(i == 0 ? LITERAL(vertices[0]) : LITERAL(TypedValue::Null)));
-    auto sink = MakeUnwind(
-        symbol_table, "t", source.op_,
-        LIST(i == 1 ? LITERAL(vertices[3]) : LITERAL(TypedValue::Null)));
-    auto results = ShortestPaths(sink.op_, source.sym_, sink.sym_,
-                                 EdgeAtom::Direction::BOTH);
+    auto s = MakeScanAll(storage, symbol_table, "s");
+    auto source = std::make_shared<Filter>(
+        s.op_, EQ(PROPERTY_LOOKUP(s.node_->identifier_, dba.Property("id")),
+                  LITERAL(i == 0 ? 0 : -1)));
+    auto source_opt = std::make_shared<Optional>(
+        std::make_shared<Once>(), source, std::vector<Symbol>{s.sym_});
+
+    auto t = MakeScanAll(storage, symbol_table, "t");
+    auto sink = std::make_shared<Filter>(
+        t.op_, EQ(PROPERTY_LOOKUP(t.node_->identifier_, dba.Property("id")),
+                  LITERAL(i == 1 ? 3 : -1)));
+    auto sink_opt = std::make_shared<Optional>(source_opt, sink,
+                                               std::vector<Symbol>{t.sym_});
+    auto results =
+        ShortestPaths(sink_opt, s.sym_, t.sym_, EdgeAtom::Direction::BOTH);
     EXPECT_EQ(results.size(), 0);
   }
 }
@@ -1139,6 +1152,8 @@ class QueryPlanExpandBfs
   Symbol inner_edge = symbol_table.CreateSymbol("inner_edge", true);
   Symbol inner_node = symbol_table.CreateSymbol("inner_node", true);
 
+  int plan_id_{0};
+
   void SetUp() {
     for (auto p : iter::enumerate(vertices)) {
       int id, worker;
@@ -1168,36 +1183,48 @@ class QueryPlanExpandBfs
   // Defines and performs a breadth-first expansion with the given parameters.
   // Returns a vector of pairs. Each pair is (vector-of-edges, vertex).
   auto ExpandBF(EdgeAtom::Direction direction, int min_depth, int max_depth,
-                Expression *where, const std::vector<TypedValue> &sources = {},
+                Expression *where, std::vector<int> source_ids = {},
                 std::experimental::optional<TypedValue> existing_node =
                     std::experimental::nullopt) {
-    auto source_sym = symbol_table.CreateSymbol("source", true);
-
-    // Wrap all sources in a list and unwind it.
-    std::vector<Expression *> source_literals;
-    for (auto &source : sources) {
-      source_literals.emplace_back(LITERAL(source));
+    // If source_ids are empty, we set ID to -1 so no nodes are matched (used
+    // for optional match test case).
+    if (source_ids.empty()) {
+      source_ids = std::vector<int>{-1};
     }
-    auto source_expr = storage.Create<ListLiteral>(source_literals);
 
-    std::shared_ptr<LogicalOperator> last_op =
-        std::make_shared<query::plan::Unwind>(nullptr, source_expr, source_sym);
+    std::vector<PropertyValue> sources;
+    for (const auto id : source_ids) sources.emplace_back(id);
+
+    auto s = MakeScanAll(storage, symbol_table, "s");
+    std::shared_ptr<LogicalOperator> last_op = std::make_shared<Filter>(
+        s.op_, IN_LIST(PROPERTY_LOOKUP(s.node_->identifier_, prop.second),
+                       LITERAL(sources)));
 
     auto node_sym = symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
 
     if (GetParam().first == TestType::DISTRIBUTED) {
+      cluster_->master()->plan_dispatcher().DispatchPlan(plan_id_, last_op,
+                                                         symbol_table);
+      last_op = std::make_shared<PullRemote>(last_op, plan_id_,
+                                             std::vector<Symbol>{s.sym_});
+      plan_id_++;
+    }
+
+    last_op = std::make_shared<Optional>(std::make_shared<Once>(), last_op,
+                                         std::vector<Symbol>{s.sym_});
+
+    if (GetParam().first == TestType::DISTRIBUTED) {
       last_op = std::make_shared<DistributedExpandBfs>(
           node_sym, edge_list_sym, direction, std::vector<storage::EdgeType>{},
-          last_op, source_sym, !!existing_node, GraphView::OLD,
-          LITERAL(min_depth), LITERAL(max_depth),
+          last_op, s.sym_, !!existing_node, GraphView::OLD, LITERAL(min_depth),
+          LITERAL(max_depth),
           ExpandVariable::Lambda{inner_edge, inner_node, where});
     } else {
       last_op = std::make_shared<ExpandVariable>(
           node_sym, edge_list_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
           std::vector<storage::EdgeType>{}, false, LITERAL(min_depth),
-          LITERAL(max_depth), last_op, source_sym,
-          static_cast<bool>(existing_node),
+          LITERAL(max_depth), last_op, s.sym_, !!existing_node,
           ExpandVariable::Lambda{inner_edge, inner_node, where},
           std::experimental::nullopt, std::experimental::nullopt,
           GraphView::OLD);
@@ -1251,8 +1278,7 @@ class QueryPlanExpandBfs
 };
 
 TEST_P(QueryPlanExpandBfs, Basic) {
-  auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
-                          {VertexAccessor(v[0], dba)});
+  auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, {0});
 
   ASSERT_EQ(results.size(), 5);
 
@@ -1282,8 +1308,7 @@ TEST_P(QueryPlanExpandBfs, Basic) {
 
 TEST_P(QueryPlanExpandBfs, EdgeDirection) {
   {
-    auto results = ExpandBF(EdgeAtom::Direction::OUT, 1, 1000, nullptr,
-                            {VertexAccessor(v[4], dba)});
+    auto results = ExpandBF(EdgeAtom::Direction::OUT, 1, 1000, nullptr, {4});
     ASSERT_EQ(results.size(), 4);
 
     if (GetProp(results[0].second) == 5) {
@@ -1308,8 +1333,7 @@ TEST_P(QueryPlanExpandBfs, EdgeDirection) {
   }
 
   {
-    auto results = ExpandBF(EdgeAtom::Direction::IN, 1, 1000, nullptr,
-                            {VertexAccessor(v[4], dba)});
+    auto results = ExpandBF(EdgeAtom::Direction::IN, 1, 1000, nullptr, {4});
     ASSERT_EQ(results.size(), 4);
 
     if (GetProp(results[0].second) == 5) {
@@ -1340,8 +1364,8 @@ TEST_P(QueryPlanExpandBfs, Where) {
   {
     symbol_table[*ident] = inner_node;
     auto filter_expr = LESS(PROPERTY_LOOKUP(ident, prop), LITERAL(4));
-    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, filter_expr,
-                            {VertexAccessor(v[0], dba)});
+    auto results =
+        ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, filter_expr, {0});
     ASSERT_EQ(results.size(), 2);
     EXPECT_EQ(GetProp(results[0].second), 1);
     EXPECT_EQ(GetProp(results[1].second), 2);
@@ -1350,8 +1374,8 @@ TEST_P(QueryPlanExpandBfs, Where) {
     symbol_table[*ident] = inner_edge;
     auto filter_expr = AND(LESS(PROPERTY_LOOKUP(ident, prop), LITERAL(50)),
                            NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(12)));
-    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, filter_expr,
-                            {VertexAccessor(v[0], dba)});
+    auto results =
+        ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, filter_expr, {0});
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].second), 1);
     EXPECT_EQ(GetProp(results[1].second), 4);
@@ -1366,9 +1390,7 @@ TEST_P(QueryPlanExpandBfs, Where) {
 }
 
 TEST_P(QueryPlanExpandBfs, MultipleInputs) {
-  auto results =
-      ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
-               {VertexAccessor(v[0], dba), VertexAccessor(v[3], dba)});
+  auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, {0, 3});
   // Expect that each vertex has been returned 2 times.
   EXPECT_EQ(results.size(), 10);
   std::vector<int> found(5, 0);
@@ -1382,21 +1404,15 @@ TEST_P(QueryPlanExpandBfs, ExistingNode) {
   using testing::ElementsAre;
   using testing::WhenSorted;
 
-  std::vector<TypedValue> sources;
-  for (int i = 0; i < 5; ++i) {
-    sources.push_back(VertexAccessor(v[i], dba));
-  }
-
   {
-    auto results =
-        ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
-                 {VertexAccessor(v[0], dba)}, VertexAccessor(v[3], dba));
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, {0},
+                            VertexAccessor(v[3], dba));
     EXPECT_EQ(results.size(), 1);
     EXPECT_EQ(GetProp(results[0].second), 3);
   }
   {
-    auto results = ExpandBF(EdgeAtom::Direction::IN, 1, 1000, nullptr, sources,
-                            VertexAccessor(v[5], dba));
+    auto results = ExpandBF(EdgeAtom::Direction::IN, 1, 1000, nullptr,
+                            {0, 1, 2, 3, 4}, VertexAccessor(v[5], dba));
 
     std::vector<int> nodes;
     for (auto &row : results) {
@@ -1406,8 +1422,8 @@ TEST_P(QueryPlanExpandBfs, ExistingNode) {
     EXPECT_THAT(nodes, WhenSorted(ElementsAre(1, 2, 3, 4)));
   }
   {
-    auto results = ExpandBF(EdgeAtom::Direction::OUT, 1, 1000, nullptr, sources,
-                            VertexAccessor(v[5], dba));
+    auto results = ExpandBF(EdgeAtom::Direction::OUT, 1, 1000, nullptr,
+                            {0, 1, 2, 3, 4}, VertexAccessor(v[5], dba));
 
     std::vector<int> nodes;
     for (auto &row : results) {
@@ -1420,21 +1436,19 @@ TEST_P(QueryPlanExpandBfs, ExistingNode) {
 
 TEST_P(QueryPlanExpandBfs, OptionalMatch) {
   {
-    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
-                            {TypedValue::Null});
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, {});
     EXPECT_EQ(results.size(), 0);
   }
   {
-    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
-                            {VertexAccessor(v[0], dba)}, TypedValue::Null);
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, {0},
+                            TypedValue::Null);
     EXPECT_EQ(results.size(), 0);
   }
 }
 
 TEST_P(QueryPlanExpandBfs, ExpansionDepth) {
   {
-    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 2, 3, nullptr,
-                            {VertexAccessor(v[0], dba)});
+    auto results = ExpandBF(EdgeAtom::Direction::BOTH, 2, 3, nullptr, {0});
     EXPECT_EQ(results.size(), 3);
     if (GetProp(results[0].second) == 4) {
       std::swap(results[0], results[1]);
@@ -2298,10 +2312,10 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
   auto prop = db.Access()->Property("prop");
   // vertex property values that will be stored into the DB
   // clang-format off
-  std::vector<TypedValue> values{
+  std::vector<PropertyValue> values{
       true, false, "a", "b", "c", 0, 1, 2, 0.5, 1.5, 2.5,
-      std::vector<TypedValue>{0}, std::vector<TypedValue>{1},
-      std::vector<TypedValue>{2}};
+      std::vector<PropertyValue>{0}, std::vector<PropertyValue>{1},
+      std::vector<PropertyValue>{2}};
   // clang-format on
   {
     auto dba = db.Access();

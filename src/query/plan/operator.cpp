@@ -352,7 +352,7 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
       auto value = bound->value()->Accept(evaluator);
       try {
         return std::experimental::make_optional(
-            utils::Bound<PropertyValue>(value, bound->type()));
+            utils::Bound<PropertyValue>(PropertyValue(value), bound->type()));
       } catch (const TypedValueException &) {
         throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                     value.type());
@@ -391,19 +391,19 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
     database::GraphDbAccessor &db) const {
   auto vertices = [this, &db](Frame &frame, Context &context)
       -> std::experimental::optional<decltype(
-          db.Vertices(label_, property_, TypedValue::Null, false))> {
+          db.Vertices(label_, property_, PropertyValue::Null, false))> {
     ExpressionEvaluator evaluator(&frame, context.symbol_table_,
                                   context.evaluation_context_,
                                   &context.db_accessor_, graph_view_);
     auto value = expression_->Accept(evaluator);
     if (value.IsNull()) return std::experimental::nullopt;
-    try {
-      return std::experimental::make_optional(
-          db.Vertices(label_, property_, value, graph_view_ == GraphView::NEW));
-    } catch (const TypedValueException &) {
+    if (!value.IsPropertyValue()) {
       throw QueryRuntimeException("'{}' cannot be used as a property value.",
                                   value.type());
     }
+    return std::experimental::make_optional(
+        db.Vertices(label_, property_, PropertyValue(value),
+                    graph_view_ == GraphView::NEW));
   };
   return std::make_unique<ScanAllCursor<decltype(vertices)>>(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);

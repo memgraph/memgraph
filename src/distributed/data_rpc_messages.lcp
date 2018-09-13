@@ -6,10 +6,10 @@
 
 #include "communication/rpc/messages.hpp"
 #include "distributed/data_rpc_messages.capnp.h"
-#include "distributed/serialization.hpp"
 #include "storage/edge.hpp"
 #include "storage/gid.hpp"
 #include "storage/vertex.hpp"
+#include "storage/serialization.hpp"
 #include "transactions/type.hpp"
 cpp<#
 
@@ -18,7 +18,7 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
-(lcp:capnp-import 'dist "/distributed/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/serialization.capnp")
 
 (lcp:define-struct tx-gid-pair ()
   ((tx-id "tx::TransactionId" :capnp-type "UInt64")
@@ -30,17 +30,17 @@ cpp<#
   (:response
    ((cypher-id :int64_t)
     (vertex-input "const Vertex *"
-                  :capnp-type "Dist.Vertex"
+                  :capnp-type "Storage.Vertex"
                   :capnp-save
                   (lambda (builder member)
                     #>cpp
-                    SaveVertex(*${member}, &${builder}, worker_id);
+                    storage::SaveVertex(*${member}, &${builder}, worker_id);
                     cpp<#)
                   :capnp-load
                   (lambda (reader member)
                     (declare (ignore member))
                     #>cpp
-                    vertex_output = LoadVertex(${reader});
+                    vertex_output = storage::LoadVertex(${reader});
                     cpp<#))
     (worker-id :int64_t :capnp-save :dont-save)
     (vertex-output "std::unique_ptr<Vertex>" :initarg nil
@@ -51,17 +51,17 @@ cpp<#
   (:response
    ((cypher-id :int64_t)
     (edge-input "const Edge *"
-                :capnp-type "Dist.Edge"
+                :capnp-type "Storage.Edge"
                 :capnp-save
                 (lambda (builder member)
                   #>cpp
-                  SaveEdge(*${member}, &${builder}, worker_id);
+                  storage::SaveEdge(*${member}, &${builder}, worker_id);
                   cpp<#)
                 :capnp-load
                 (lambda (reader member)
                   (declare (ignore member))
                   #>cpp
-                  edge_output = LoadEdge(${reader});
+                  edge_output = storage::LoadEdge(${reader});
                   cpp<#))
     (worker-id :int64_t :capnp-save :dont-save)
     (edge-output "std::unique_ptr<Edge>" :initarg nil

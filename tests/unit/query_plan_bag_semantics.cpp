@@ -113,8 +113,8 @@ TEST(QueryPlan, OrderBy) {
 
   // contains a series of tests
   // each test defines the ordering a vector of values in the desired order
-  auto Null = TypedValue::Null;
-  std::vector<std::pair<Ordering, std::vector<TypedValue>>> orderable{
+  auto Null = PropertyValue::Null;
+  std::vector<std::pair<Ordering, std::vector<PropertyValue>>> orderable{
       {Ordering::ASC, {0, 0, 0.5, 1, 2, 12.6, 42, Null, Null}},
       {Ordering::ASC, {false, false, true, true, Null, Null}},
       {Ordering::ASC, {"A", "B", "a", "a", "aa", "ab", "aba", Null, Null}},
@@ -132,7 +132,7 @@ TEST(QueryPlan, OrderBy) {
     // take some effort to shuffle the values
     // because we are testing that something not ordered gets ordered
     // and need to take care it does not happen by accident
-    std::vector<TypedValue> shuffled(values.begin(), values.end());
+    std::vector<PropertyValue> shuffled(values.begin(), values.end());
     auto order_equal = [&values, &shuffled]() {
       return std::equal(values.begin(), values.end(), shuffled.begin(),
                         TypedValue::BoolEqual{});
@@ -233,15 +233,15 @@ TEST(QueryPlan, OrderByExceptions) {
 
   // a vector of pairs of typed values that should result
   // in an exception when trying to order on them
-  std::vector<std::pair<TypedValue, TypedValue>> exception_pairs{
+  std::vector<std::pair<PropertyValue, PropertyValue>> exception_pairs{
       {42, true},
       {42, "bla"},
-      {42, std::vector<TypedValue>{42}},
+      {42, std::vector<PropertyValue>{42}},
       {true, "bla"},
-      {true, std::vector<TypedValue>{true}},
-      {"bla", std::vector<TypedValue>{"bla"}},
+      {true, std::vector<PropertyValue>{true}},
+      {"bla", std::vector<PropertyValue>{"bla"}},
       // illegal comparisons of same-type values
-      {std::vector<TypedValue>{42}, std::vector<TypedValue>{42}}};
+      {std::vector<PropertyValue>{42}, std::vector<PropertyValue>{42}}};
 
   for (const auto &pair : exception_pairs) {
     // empty database

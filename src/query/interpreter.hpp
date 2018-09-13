@@ -169,7 +169,7 @@ class Interpreter {
    */
   Results operator()(const std::string &query,
                      database::GraphDbAccessor &db_accessor,
-                     const std::map<std::string, TypedValue> &params,
+                     const std::map<std::string, PropertyValue> &params,
                      bool in_explicit_transaction);
 
   auth::Auth *auth_ = nullptr;

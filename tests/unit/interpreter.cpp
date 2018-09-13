@@ -18,7 +18,7 @@ class InterpreterTest : public ::testing::Test {
   query::Interpreter interpreter_;
 
   auto Interpret(const std::string &query,
-                 const std::map<std::string, query::TypedValue> &params = {}) {
+                 const std::map<std::string, PropertyValue> &params = {}) {
     auto dba = db_.Access();
     ResultStreamFaker<query::TypedValue> stream;
     auto results = interpreter_(query, *dba, params, false);
@@ -116,7 +116,7 @@ TEST_F(InterpreterTest, Parameters) {
   {
     // Non-primitive literal.
     auto stream = Interpret("RETURN $2",
-                            {{"2", std::vector<query::TypedValue>{5, 2, 3}}});
+                            {{"2", std::vector<PropertyValue>{5, 2, 3}}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     auto result = query::test_common::ToList<int64_t>(

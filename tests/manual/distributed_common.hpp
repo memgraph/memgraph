@@ -64,7 +64,7 @@ class Cluster {
   }
 
   auto Execute(const std::string &query,
-               std::map<std::string, query::TypedValue> params = {}) {
+               std::map<std::string, PropertyValue> params = {}) {
     auto dba = master_->Access();
     ResultStreamFaker<query::TypedValue> result;
     (*interpreter_)(query, *dba, params, false).PullAll(result);

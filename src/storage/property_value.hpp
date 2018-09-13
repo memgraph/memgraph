@@ -17,10 +17,6 @@
  * PropertyValue::Type. Each such type corresponds to exactly one C++ type.
  */
 class PropertyValue {
- private:
-  /** Private default constructor, makes Null */
-  PropertyValue() : type_(Type::Null) {}
-
  public:
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned { Null, String, Bool, Int, Double, List, Map };
@@ -36,6 +32,9 @@ class PropertyValue {
 
     return a == b || (is_numeric(a) && is_numeric(b));
   }
+
+  // default constructor, makes Null
+  PropertyValue() : type_(Type::Null) {}
 
   // constructors for primitive types
   PropertyValue(bool value) : type_(Type::Bool) { bool_v = value; }

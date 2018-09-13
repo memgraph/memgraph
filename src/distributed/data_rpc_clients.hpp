@@ -2,14 +2,17 @@
 
 #pragma once
 
+#include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <utility>
 
-#include "distributed/rpc_worker_clients.hpp"
 #include "storage/gid.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {
+
+class RpcWorkerClients;
 
 template <typename TRecord>
 struct RemoteElementInfo {

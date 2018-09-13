@@ -39,6 +39,15 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   Frame frame{128};
   ExpressionEvaluator eval{&frame, symbol_table, ctx, dba.get(),
                            GraphView::OLD};
+
+  Identifier *CreateIdentifierWithValue(std::string name,
+                                        const TypedValue &value) {
+    auto id = storage.Create<Identifier>(name, true);
+    auto symbol = symbol_table.CreateSymbol(name, true);
+    symbol_table[*id] = symbol;
+    frame[symbol] = value;
+    return id;
+  }
 };
 
 TEST_F(ExpressionEvaluatorTest, OrOperator) {
@@ -101,20 +110,20 @@ TEST_F(ExpressionEvaluatorTest, AndOperatorNull) {
   {
     // Null doesn't short circuit
     auto *op = storage.Create<AndOperator>(
-        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(5));
     EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
   }
   {
     auto *op = storage.Create<AndOperator>(
-        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(true));
     auto value = op->Accept(eval);
     EXPECT_TRUE(value.IsNull());
   }
   {
     auto *op = storage.Create<AndOperator>(
-        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(false));
     auto value = op->Accept(eval);
     ASSERT_TRUE(value.IsBool());
@@ -275,7 +284,7 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
   }
   {
     auto *list_literal = storage.Create<ListLiteral>(std::vector<Expression *>{
-        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(2),
         storage.Create<PrimitiveLiteral>("a")});
     // Element doesn't exist in list with null element.
@@ -288,21 +297,21 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
     // Null list.
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>("x"),
-        storage.Create<PrimitiveLiteral>(TypedValue::Null));
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null));
     auto value = op->Accept(eval);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal.
     auto *op = storage.Create<InListOperator>(
-        storage.Create<PrimitiveLiteral>(TypedValue::Null), list_literal);
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null), list_literal);
     auto value = op->Accept(eval);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal, empty list.
     auto *op = storage.Create<InListOperator>(
-        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<ListLiteral>(std::vector<Expression *>()));
     auto value = op->Accept(eval);
     EXPECT_FALSE(value.ValueBool());
@@ -345,7 +354,7 @@ TEST_F(ExpressionEvaluatorTest, ListIndexing) {
   {
     // Indexing with one operator being null.
     auto *op = storage.Create<SubscriptOperator>(
-        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(-2));
     auto value = op->Accept(eval);
     EXPECT_TRUE(value.IsNull());
@@ -390,7 +399,7 @@ TEST_F(ExpressionEvaluatorTest, MapIndexing) {
   {
     // Indexing with Null.
     auto *op = storage.Create<SubscriptOperator>(
-        map_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null));
+        map_literal, storage.Create<PrimitiveLiteral>(PropertyValue::Null));
     auto value = op->Accept(eval);
     EXPECT_TRUE(value.IsNull());
   }
@@ -404,51 +413,51 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
   v1.PropsSet(prop, 42);
   e11.PropsSet(prop, 43);
 
-  auto *vertex_literal = storage.Create<PrimitiveLiteral>(v1);
-  auto *edge_literal = storage.Create<PrimitiveLiteral>(e11);
+  auto *vertex_id = CreateIdentifierWithValue("v1", v1);
+  auto *edge_id = CreateIdentifierWithValue("e11", e11);
   {
     // Legal indexing.
     auto *op1 = storage.Create<SubscriptOperator>(
-        vertex_literal, storage.Create<PrimitiveLiteral>("prop"));
+        vertex_id, storage.Create<PrimitiveLiteral>("prop"));
     auto value1 = op1->Accept(eval);
     EXPECT_EQ(value1.ValueInt(), 42);
 
     auto *op2 = storage.Create<SubscriptOperator>(
-        edge_literal, storage.Create<PrimitiveLiteral>("prop"));
+        edge_id, storage.Create<PrimitiveLiteral>("prop"));
     auto value2 = op2->Accept(eval);
     EXPECT_EQ(value2.ValueInt(), 43);
   }
   {
     // Legal indexing, non-existing key.
     auto *op1 = storage.Create<SubscriptOperator>(
-        vertex_literal, storage.Create<PrimitiveLiteral>("blah"));
+        vertex_id, storage.Create<PrimitiveLiteral>("blah"));
     auto value1 = op1->Accept(eval);
     EXPECT_TRUE(value1.IsNull());
 
     auto *op2 = storage.Create<SubscriptOperator>(
-        edge_literal, storage.Create<PrimitiveLiteral>("blah"));
+        edge_id, storage.Create<PrimitiveLiteral>("blah"));
     auto value2 = op2->Accept(eval);
     EXPECT_TRUE(value2.IsNull());
   }
   {
     // Wrong key type.
     auto *op1 = storage.Create<SubscriptOperator>(
-        vertex_literal, storage.Create<PrimitiveLiteral>(1));
+        vertex_id, storage.Create<PrimitiveLiteral>(1));
     EXPECT_THROW(op1->Accept(eval), QueryRuntimeException);
 
     auto *op2 = storage.Create<SubscriptOperator>(
-        edge_literal, storage.Create<PrimitiveLiteral>(1));
+        edge_id, storage.Create<PrimitiveLiteral>(1));
     EXPECT_THROW(op2->Accept(eval), QueryRuntimeException);
   }
   {
     // Indexing with Null.
     auto *op1 = storage.Create<SubscriptOperator>(
-        vertex_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null));
+        vertex_id, storage.Create<PrimitiveLiteral>(PropertyValue::Null));
     auto value1 = op1->Accept(eval);
     EXPECT_TRUE(value1.IsNull());
 
     auto *op2 = storage.Create<SubscriptOperator>(
-        edge_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null));
+        edge_id, storage.Create<PrimitiveLiteral>(PropertyValue::Null));
     auto value2 = op2->Accept(eval);
     EXPECT_TRUE(value2.IsNull());
   }
@@ -516,7 +525,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Bound of illegal type and null value bound.
     auto *op = storage.Create<ListSlicingOperator>(
-        list_literal, storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        list_literal, storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>("mirko"));
     EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
   }
@@ -530,7 +539,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
   {
     // Null value list with undefined upper bound.
     auto *op = storage.Create<ListSlicingOperator>(
-        storage.Create<PrimitiveLiteral>(TypedValue::Null),
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(-2), nullptr);
     auto value = op->Accept(eval);
     EXPECT_TRUE(value.IsNull());
@@ -540,7 +549,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     // Null value index.
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-2),
-        storage.Create<PrimitiveLiteral>(TypedValue::Null));
+        storage.Create<PrimitiveLiteral>(PropertyValue::Null));
     auto value = op->Accept(eval);
     EXPECT_TRUE(value.IsNull());
     ;
@@ -605,7 +614,7 @@ TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
   auto val1 = op->Accept(eval);
   ASSERT_EQ(val1.ValueBool(), false);
   op = storage.Create<IsNullOperator>(
-      storage.Create<PrimitiveLiteral>(TypedValue::Null));
+      storage.Create<PrimitiveLiteral>(PropertyValue::Null));
   auto val2 = op->Accept(eval);
   ASSERT_EQ(val2.ValueBool(), true);
 }
@@ -695,7 +704,7 @@ TEST_F(ExpressionEvaluatorTest, All) {
 
 TEST_F(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
-  auto *all = ALL("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
+  auto *all = ALL("x", LITERAL(PropertyValue::Null), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*all->identifier_] = x_sym;
   auto value = all->Accept(eval);
@@ -738,7 +747,8 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingle2) {
 
 TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
   AstStorage storage;
-  auto *single = SINGLE("x", LITERAL(TypedValue::Null), WHERE(LITERAL(true)));
+  auto *single =
+      SINGLE("x", LITERAL(PropertyValue::Null), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*single->identifier_] = x_sym;
   auto value = single->Accept(eval);
@@ -766,7 +776,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtract) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *extract =
-      EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(TypedValue::Null)),
+      EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(PropertyValue::Null)),
               ADD(ident_x, LITERAL(1)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*extract->identifier_] = x_sym;
@@ -784,7 +794,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtractNull) {
   AstStorage storage;
   auto *ident_x = IDENT("x");
   auto *extract =
-      EXTRACT("x", LITERAL(TypedValue::Null), ADD(ident_x, LITERAL(1)));
+      EXTRACT("x", LITERAL(PropertyValue::Null), ADD(ident_x, LITERAL(1)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*extract->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
@@ -853,8 +863,13 @@ class FunctionTest : public ExpressionEvaluatorTest {
   TypedValue EvaluateFunction(const std::string &function_name,
                               const std::vector<TypedValue> &args) {
     std::vector<Expression *> expressions;
-    for (const auto &arg : args) {
-      expressions.push_back(storage.Create<PrimitiveLiteral>(arg));
+    for (size_t i = 0; i < args.size(); ++i) {
+      auto *ident =
+          storage.Create<Identifier>("arg_" + std::to_string(i), true);
+      auto sym = symbol_table.CreateSymbol("arg_" + std::to_string(i), true);
+      symbol_table[*ident] = sym;
+      frame[sym] = args[i];
+      expressions.push_back(ident);
     }
     auto *op = storage.Create<Function>(function_name, expressions);
     return op->Accept(eval);

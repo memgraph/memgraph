@@ -77,7 +77,7 @@ class QueryCostEstimator : public ::testing::Test {
     return storage_.Create<PrimitiveLiteral>(value);
   }
 
-  Expression *Parameter(const TypedValue &value) {
+  Expression *Parameter(const PropertyValue &value) {
     int token_position = parameters_.size();
     parameters_.Add(token_position, value);
     return storage_.Create<ParameterLookup>(token_position);

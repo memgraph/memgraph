@@ -3,7 +3,6 @@
 using Cxx = import "/capnp/c++.capnp";
 $Cxx.namespace("query::capnp");
 
-using Dis = import "/distributed/serialization.capnp";
 using Storage = import "/storage/serialization.capnp";
 using Symbols = import "/query/frontend/semantic/symbol.capnp";
 
@@ -236,7 +235,7 @@ struct BaseLiteral {
 
 struct PrimitiveLiteral {
   tokenPosition @0 :Int32;
-  value @1 :Dis.TypedValue;
+  value @1 :Storage.PropertyValue;
 }
 
 struct ListLiteral {

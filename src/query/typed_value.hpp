@@ -84,7 +84,7 @@ class TypedValue
   TypedValue(double value) : type_(Type::Double) { double_v = value; }
 
   // conversion function to PropertyValue
-  operator PropertyValue() const;
+  explicit operator PropertyValue() const;
 
   /// constructors for non-primitive types
   TypedValue(const std::string &value) : type_(Type::String) {

@@ -19,7 +19,7 @@ class TransactionEngine final {
 
   std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
   Interpret(const std::string &query,
-            const std::map<std::string, TypedValue> &params) {
+            const std::map<std::string, PropertyValue> &params) {
     // Clear pending results.
     results_ = std::experimental::nullopt;
 

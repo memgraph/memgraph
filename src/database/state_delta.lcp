@@ -4,20 +4,23 @@
 #include "communication/bolt/v1/decoder/decoder.hpp"
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/state_delta.capnp.h"
-#include "distributed/serialization.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "storage/address_types.hpp"
 #include "storage/gid.hpp"
 #include "storage/property_value.hpp"
+#include "storage/serialization.hpp"
 cpp<#
 
 (lcp:namespace database)
 
+#>cpp
+class GraphDbAccessor;
+cpp<#
+
 (lcp:capnp-namespace "database")
 
 (lcp:capnp-import 'storage "/storage/serialization.capnp")
-(lcp:capnp-import 'dis "/distributed/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 (lcp:capnp-type-conversion "gid::Gid" "UInt64")
@@ -48,18 +51,16 @@ cpp<#
    (property "storage::Property")
    (property-name "std::string")
    (value "PropertyValue" :initval "PropertyValue::Null"
-          :capnp-type "Dis.TypedValue"
+          :capnp-type "Storage.PropertyValue"
           :capnp-save
           (lambda (builder member)
             #>cpp
-            distributed::SaveCapnpTypedValue(${member}, &${builder});
+            storage::SaveCapnpPropertyValue(${member}, &${builder});
             cpp<#)
           :capnp-load
           (lambda (reader member)
             #>cpp
-            query::TypedValue tv;
-            distributed::LoadCapnpTypedValue(${reader}, &tv);
-            ${member} = tv;
+            storage::LoadCapnpPropertyValue(${reader}, &${member});
             cpp<#))
    (label "storage::Label")
    (label-name "std::string")

@@ -25,7 +25,7 @@ Interpreter::CachedPlan::CachedPlan(std::unique_ptr<LogicalPlan> plan)
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query, database::GraphDbAccessor &db_accessor,
-    const std::map<std::string, TypedValue> &params,
+    const std::map<std::string, PropertyValue> &params,
     bool in_explicit_transaction) {
   utils::Timer frontend_timer;
 
