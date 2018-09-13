@@ -81,7 +81,7 @@ class BfsRpcServer {
           req.Load(req_reader);
           auto vertex = subcursor_storage_->Get(req.member)->Pull();
           SubcursorPullRes res(vertex);
-          res.Save(res_builder);
+          res.Save(res_builder, db_->WorkerId());
         });
 
     server_->Register<ExpandToRemoteVertexRpc>(
@@ -108,7 +108,7 @@ class BfsRpcServer {
         LOG(FATAL) << "`edge` or `vertex` should be set in ReconstructPathReq";
       }
       ReconstructPathRes res(result.edges, result.next_vertex, result.next_edge);
-      res.Save(res_builder);
+      res.Save(res_builder, db_->WorkerId());
     });
 
     server_->Register<PrepareForExpandRpc>([this](const auto &req_reader,

@@ -6,7 +6,7 @@ namespace query {
 
 void SaveCapnpTypedValue(const TypedValue &value,
                          capnp::TypedValue::Builder *builder,
-                         storage::SendVersions versions) {
+                         storage::SendVersions versions, int worker_id) {
   switch (value.type()) {
     case TypedValue::Type::Null:
       builder->setNullType();
@@ -28,7 +28,7 @@ void SaveCapnpTypedValue(const TypedValue &value,
       auto list_builder = builder->initList(values.size());
       for (size_t i = 0; i < values.size(); ++i) {
         auto value_builder = list_builder[i];
-        SaveCapnpTypedValue(values[i], &value_builder, versions);
+        SaveCapnpTypedValue(values[i], &value_builder, versions, worker_id);
       }
       return;
     }
@@ -40,7 +40,7 @@ void SaveCapnpTypedValue(const TypedValue &value,
         auto kv_builder = map_builder[i];
         kv_builder.setKey(kv.first);
         auto value_builder = kv_builder.initValue();
-        SaveCapnpTypedValue(kv.second, &value_builder, versions);
+        SaveCapnpTypedValue(kv.second, &value_builder, versions, worker_id);
         ++i;
       }
       return;
@@ -48,12 +48,13 @@ void SaveCapnpTypedValue(const TypedValue &value,
     case TypedValue::Type::Vertex: {
       auto vertex_builder = builder->initVertex();
       storage::SaveVertexAccessor(value.ValueVertex(), &vertex_builder,
-                                  versions);
+                                  versions, worker_id);
       return;
     }
     case TypedValue::Type::Edge: {
       auto edge_builder = builder->initEdge();
-      storage::SaveEdgeAccessor(value.ValueEdge(), &edge_builder, versions);
+      storage::SaveEdgeAccessor(value.ValueEdge(), &edge_builder, versions,
+                                worker_id);
       return;
     }
     case TypedValue::Type::Path: {
@@ -63,12 +64,13 @@ void SaveCapnpTypedValue(const TypedValue &value,
       for (size_t i = 0; i < path.vertices().size(); ++i) {
         auto vertex_builder = vertices_builder[i];
         storage::SaveVertexAccessor(path.vertices()[i], &vertex_builder,
-                                    versions);
+                                    versions, worker_id);
       }
       auto edges_builder = path_builder.initEdges(path.edges().size());
       for (size_t i = 0; i < path.edges().size(); ++i) {
         auto edge_builder = edges_builder[i];
-        storage::SaveEdgeAccessor(path.edges()[i], &edge_builder, versions);
+        storage::SaveEdgeAccessor(path.edges()[i], &edge_builder, versions,
+                                  worker_id);
       }
       return;
     }

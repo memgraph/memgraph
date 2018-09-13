@@ -96,8 +96,8 @@ cpp<#
              :capnp-save (lcp:capnp-save-optional
                            "storage::capnp::VertexAccessor"
                            "VertexAccessor"
-                           "[](auto *builder, const auto &vertex) {
-                              storage::SaveVertexAccessor(vertex, builder, storage::SendVersions::BOTH);
+                           "[worker_id](auto *builder, const auto &vertex) {
+                              storage::SaveVertexAccessor(vertex, builder, storage::SendVersions::BOTH, worker_id);
                             }")
              :capnp-load (lcp:capnp-load-optional
                            "storage::capnp::VertexAccessor"
@@ -105,8 +105,10 @@ cpp<#
                            "[dba, data_manager](const auto &reader) {
                              return storage::LoadVertexAccessor(reader, dba, data_manager);
                             }")))
-   (:serialize :capnp :load-args '((dba "database::GraphDbAccessor *")
-                                   (data-manager "distributed::DataManager *")))))
+   (:serialize :capnp
+               :save-args '((worker-id :int))
+               :load-args '((dba "database::GraphDbAccessor *")
+                            (data-manager "distributed::DataManager *")))))
 
 (lcp:define-rpc set-source
     (:request
@@ -151,8 +153,8 @@ cpp<#
    ((edges "std::vector<EdgeAccessor>" :capnp-type "List(Storage.EdgeAccessor)"
            :capnp-save (lcp:capnp-save-vector "storage::capnp::EdgeAccessor"
                                               "EdgeAccessor"
-                                              "[](auto *builder, const auto &edge) {
-                                                 storage::SaveEdgeAccessor(edge, builder, storage::SendVersions::BOTH);
+                                              "[worker_id](auto *builder, const auto &edge) {
+                                                 storage::SaveEdgeAccessor(edge, builder, storage::SendVersions::BOTH, worker_id);
                                                }")
            :capnp-load (lcp:capnp-load-vector "storage::capnp::EdgeAccessor"
                                               "EdgeAccessor"
@@ -165,8 +167,10 @@ cpp<#
     (next-edge "std::experimental::optional<storage::EdgeAddress>"
                :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
                :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
-   (:serialize :capnp :load-args '((dba "database::GraphDbAccessor *")
-                                   (data-manager "distributed::DataManager *")))
+   (:serialize :capnp
+               :save-args '((worker-id :int))
+               :load-args '((dba "database::GraphDbAccessor *")
+                            (data-manager "distributed::DataManager *")))
    (:public
     #>cpp
     using Capnp = capnp::ReconstructPathRes;

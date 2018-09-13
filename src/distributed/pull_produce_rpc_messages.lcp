@@ -80,7 +80,7 @@ the relevant parts of the response, ready for use."))
                for (size_t val_i = 0; val_i < frame.size(); ++val_i) {
                  const auto &value = frame[val_i];
                  auto value_builder = frame_builder[val_i];
-                 query::SaveCapnpTypedValue(value, &value_builder, send_versions);
+                 query::SaveCapnpTypedValue(value, &value_builder, send_versions, worker_id);
                }
              }
              cpp<#)
@@ -93,8 +93,7 @@ the relevant parts of the response, ready for use."))
                current_frame.reserve(frame_reader.size());
                for (const auto &value_reader : frame_reader) {
                  query::TypedValue value;
-                 query::LoadCapnpTypedValue(value_reader, &value, dba,
-                                                  data_manager);
+                 query::LoadCapnpTypedValue(value_reader, &value, dba, data_manager);
                  current_frame.emplace_back(value);
                }
                ${member}.emplace_back(current_frame);

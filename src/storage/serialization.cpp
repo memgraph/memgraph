@@ -212,7 +212,7 @@ std::unique_ptr<Edge> LoadEdge(const capnp::Edge::Reader &reader) {
 template <class TRecord, class TCapnpRecord>
 void SaveRecordAccessor(const RecordAccessor<TRecord> &accessor,
                         typename TCapnpRecord::Builder *builder,
-                        SendVersions versions) {
+                        SendVersions versions, int worker_id) {
   builder->setCypherId(accessor.CypherId());
   builder->setAddress(accessor.GlobalAddress().raw());
 
@@ -223,7 +223,6 @@ void SaveRecordAccessor(const RecordAccessor<TRecord> &accessor,
     CHECK(result) << "Attempting to serialize an element not visible to "
                      "current transaction.";
   }
-  int worker_id = accessor.GlobalAddress().worker_id();
   auto old_rec = accessor.GetOld();
   if (old_rec && versions != SendVersions::ONLY_NEW) {
     auto old_builder = builder->initOld();
@@ -245,16 +244,16 @@ void SaveRecordAccessor(const RecordAccessor<TRecord> &accessor,
 
 void SaveVertexAccessor(const VertexAccessor &vertex_accessor,
                         capnp::VertexAccessor::Builder *builder,
-                        SendVersions versions) {
+                        SendVersions versions, int worker_id) {
   SaveRecordAccessor<Vertex, capnp::VertexAccessor>(vertex_accessor, builder,
-                                                    versions);
+                                                    versions, worker_id);
 }
 
 void SaveEdgeAccessor(const EdgeAccessor &edge_accessor,
                       capnp::EdgeAccessor::Builder *builder,
-                      SendVersions versions) {
+                      SendVersions versions, int worker_id) {
   SaveRecordAccessor<Edge, capnp::EdgeAccessor>(edge_accessor, builder,
-                                                versions);
+                                                versions, worker_id);
 }
 
 VertexAccessor LoadVertexAccessor(const capnp::VertexAccessor::Reader &reader,

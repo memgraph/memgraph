@@ -52,7 +52,7 @@ enum class SendVersions { BOTH, ONLY_OLD, ONLY_NEW };
 
 void SaveVertexAccessor(const VertexAccessor &vertex_accessor,
                         capnp::VertexAccessor::Builder *builder,
-                        SendVersions versions);
+                        SendVersions versions, int worker_id);
 
 VertexAccessor LoadVertexAccessor(const capnp::VertexAccessor::Reader &reader,
                                   database::GraphDbAccessor *dba,
@@ -60,7 +60,7 @@ VertexAccessor LoadVertexAccessor(const capnp::VertexAccessor::Reader &reader,
 
 void SaveEdgeAccessor(const EdgeAccessor &edge_accessor,
                       capnp::EdgeAccessor::Builder *builder,
-                      SendVersions versions);
+                      SendVersions versions, int worker_id);
 
 EdgeAccessor LoadEdgeAccessor(const capnp::EdgeAccessor::Reader &reader,
                               database::GraphDbAccessor *dba,

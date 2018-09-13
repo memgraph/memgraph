@@ -12,7 +12,7 @@ namespace query {
 
 void SaveCapnpTypedValue(const query::TypedValue &value,
                          capnp::TypedValue::Builder *builder,
-                         storage::SendVersions versions);
+                         storage::SendVersions versions, int worker_id);
 
 void LoadCapnpTypedValue(const capnp::TypedValue::Reader &reader,
                          query::TypedValue *value,
