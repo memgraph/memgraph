@@ -26,20 +26,27 @@ cpp<#
   (:response
    ((registration-successful :bool)
     (durability-error :bool)
-    (snapshot-to-recover "std::experimental::optional<tx::TransactionId>"
-                         :capnp-type "Utils.Optional(Utils.BoxUInt64)"
+    (snapshot-to-recover "std::experimental::optional<std::pair<int64_t, tx::TransactionId>>"
+                         :capnp-type "Utils.Optional(Utils.Pair(Utils.BoxUInt64, Utils.BoxUInt64))"
                          :capnp-save
                          (lambda (builder member)
                            #>cpp
-                           utils::SaveOptional<utils::capnp::BoxUInt64, tx::TransactionId>(
+                           utils::SaveOptional<utils::capnp::Pair<utils::capnp::BoxUInt64, utils::capnp::BoxUInt64>, std::pair<int64_t, tx::TransactionId>>(
                                ${member}, &${builder},
-                               [](auto builder, const auto &v){ builder->setValue(v); });
+                               [](auto builder, const auto &v) {
+                                  auto first_builder = builder->initFirst();
+                                  auto second_builder = builder->initSecond();
+                                  first_builder.setValue(v.first);
+                                  second_builder.setValue(v.second);
+                               });
                            cpp<#)
                          :capnp-load
                          (lambda (reader member)
                            #>cpp
-                           ${member} = utils::LoadOptional<utils::capnp::BoxUInt64, tx::TransactionId>(
-                               ${reader}, [](auto reader){ return reader.getValue(); });
+                           ${member} = utils::LoadOptional<utils::capnp::Pair<utils::capnp::BoxUInt64, utils::capnp::BoxUInt64>, std::pair<int64_t, tx::TransactionId>>(
+                               ${reader}, [](auto reader){
+                                  return std::make_pair(reader.getFirst().getValue(), reader.getSecond().getValue());
+                               });
                            cpp<#))
     (workers "std::unordered_map<int, io::network::Endpoint>"
              :capnp-type "Utils.Map(Utils.BoxInt16, Io.Endpoint)"
@@ -48,10 +55,10 @@ cpp<#
                #>cpp
                utils::SaveMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(${member}, &${builder},
                               [](auto *builder, const auto &entry) {
-                                auto key_builder = builder->initKey();
-                                key_builder.setValue(entry.first);
-                                auto value_builder = builder->initValue();
-                                entry.second.Save(&value_builder);
+                                  auto key_builder = builder->initKey();
+                                  key_builder.setValue(entry.first);
+                                  auto value_builder = builder->initValue();
+                                  entry.second.Save(&value_builder);
                               });
                cpp<#)
              :capnp-load
@@ -59,9 +66,10 @@ cpp<#
                #>cpp
                utils::LoadMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(&${member}, ${reader},
                               [](const auto &reader) {
-                                io::network::Endpoint value;
-                                value.Load(reader.getValue());
-                                return std::make_pair(reader.getKey().getValue(), value);
+                                  io::network::Endpoint value;
+                                  value.Load(reader.getValue());
+                                  return std::make_pair(
+                                      reader.getKey().getValue(), value);
                               });
                cpp<#)))))
 

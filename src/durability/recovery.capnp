@@ -6,8 +6,9 @@ using Utils = import "/utils/serialization.capnp";
 $Cxx.namespace("durability::capnp");
 
 struct RecoveryInfo {
-  snapshotTxId @0 :UInt64;
-  walRecovered @1 :List(UInt64);
+  durabilityVersion @0 :UInt64;
+  snapshotTxId @1 :UInt64;
+  walRecovered @2 :List(UInt64);
 }
 
 struct RecoveryData {

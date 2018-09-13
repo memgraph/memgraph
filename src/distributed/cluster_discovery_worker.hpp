@@ -49,7 +49,7 @@ class ClusterDiscoveryWorker final {
   Server &server_;
   WorkerCoordination &coordination_;
   communication::rpc::ClientPool &client_pool_;
-  std::experimental::optional<tx::TransactionId> snapshot_to_recover_;
+  std::experimental::optional<std::pair<int64_t, tx::TransactionId>> snapshot_to_recover_;
 };
 
 }  // namespace distributed

@@ -575,10 +575,9 @@ class Master {
   Config config_;
   std::unique_ptr<Storage> storage_ =
       std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
-  durability::WriteAheadLog wal_{config_.worker_id,
-                                 config_.durability_directory,
-                                 config_.durability_enabled,
-                                 config_.synchronous_commit};
+  durability::WriteAheadLog wal_{
+      config_.worker_id, config_.durability_directory,
+      config_.durability_enabled, config_.synchronous_commit};
   // Shared implementations for all RecordAccessor in this Db.
   DistributedEdgeAccessor edge_accessor_{config_.worker_id, &data_manager_,
                                          &updates_clients_};
@@ -649,6 +648,9 @@ Master::Master(Config config)
     durability::RecoveryData recovery_data;
     // Recover only if necessary.
     if (impl_->config_.db_recover_on_startup) {
+      CHECK(durability::VersionConsistency(impl_->config_.durability_directory))
+          << "Contents of durability directory are not compatible with the "
+             "current version of Memgraph binary!";
       recovery_info = durability::RecoverOnlySnapshot(
           impl_->config_.durability_directory, this, &recovery_data,
           std::experimental::nullopt, config.worker_id);
@@ -656,9 +658,10 @@ Master::Master(Config config)
 
     // Post-recovery setup and checking.
     impl_->coordination_.SetRecoveredSnapshot(
-        recovery_info
-            ? std::experimental::make_optional(recovery_info->snapshot_tx_id)
-            : std::experimental::nullopt);
+        recovery_info ? std::experimental::make_optional(
+                            std::make_pair(recovery_info->durability_version,
+                                           recovery_info->snapshot_tx_id))
+                      : std::experimental::nullopt);
 
     // Wait till workers report back their recoverable wal txs
     if (recovery_info) {
@@ -691,6 +694,17 @@ Master::Master(Config config)
   }
 
   if (impl_->config_.durability_enabled) {
+    // move any existing snapshots or wal files to a deprecated folder.
+    if (!impl_->config_.db_recover_on_startup &&
+        durability::ContainsDurabilityFiles(
+            impl_->config_.durability_directory)) {
+      durability::MoveToBackup(impl_->config_.durability_directory);
+      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
+                      "and durability is enabled, your current durability "
+                      "files will likely be overriden. To prevent important "
+                      "data loss, Memgraph has stored those files into a "
+                      ".backup directory inside durability directory";
+    }
     impl_->wal_.Init();
     snapshot_creator_ = std::make_unique<utils::Scheduler>();
     snapshot_creator_->Run(
@@ -891,10 +905,9 @@ class Worker {
   Config config_;
   std::unique_ptr<Storage> storage_ =
       std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
-  durability::WriteAheadLog wal_{config_.worker_id,
-                                 config_.durability_directory,
-                                 config_.durability_enabled,
-                                 config_.synchronous_commit};
+  durability::WriteAheadLog wal_{
+      config_.worker_id, config_.durability_directory,
+      config_.durability_enabled, config_.synchronous_commit};
   // Shared implementations for all RecordAccessor in this Db.
   DistributedEdgeAccessor edge_accessor_{config_.worker_id, &data_manager_,
                                          &updates_clients_};
@@ -917,7 +930,8 @@ class Worker {
   distributed::WorkerCoordination coordination_{server_,
                                                 config_.master_endpoint};
   distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
-  tx::EngineWorker tx_engine_{server_, rpc_worker_clients_.GetClientPool(0), &wal_};
+  tx::EngineWorker tx_engine_{server_, rpc_worker_clients_.GetClientPool(0),
+                              &wal_};
   std::unique_ptr<StorageGcWorker> storage_gc_ =
       std::make_unique<StorageGcWorker>(
           *storage_, tx_engine_, config_.gc_cycle_sec,
@@ -969,7 +983,7 @@ Worker::Worker(Config config)
 
   // Durability recovery.
   {
-    // What we should recover.
+    // What we should recover (version, transaction_id) pair.
     auto snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
 
     // What we recover.
@@ -978,21 +992,41 @@ Worker::Worker(Config config)
     durability::RecoveryData recovery_data;
     // Recover only if necessary.
     if (snapshot_to_recover) {
+      // check version consistency.
+      if (!durability::DistributedVersionConsistency(
+              snapshot_to_recover->first))
+        LOG(FATAL) << "Memgraph worker failed to recover due to version "
+                      "inconsistency with the master.";
+      if (!durability::VersionConsistency(impl_->config_.durability_directory))
+        LOG(FATAL)
+            << "Contents of durability directory are not compatible with the "
+               "current version of Memgraph binary!";
       recovery_info = durability::RecoverOnlySnapshot(
           impl_->config_.durability_directory, this, &recovery_data,
-          snapshot_to_recover, config.worker_id);
+          snapshot_to_recover->second, config.worker_id);
     }
 
     // Post-recovery setup and checking.
     if (snapshot_to_recover &&
         (!recovery_info ||
-         snapshot_to_recover != recovery_info->snapshot_tx_id))
+         snapshot_to_recover->second != recovery_info->snapshot_tx_id))
       LOG(FATAL) << "Memgraph worker failed to recover the database state "
                     "recovered on the master";
     impl_->cluster_discovery_.NotifyWorkerRecovered(recovery_info);
   }
 
   if (impl_->config_.durability_enabled) {
+    // move any existing snapshots or wal files to a deprecated folder.
+    if (!impl_->config_.db_recover_on_startup &&
+        durability::ContainsDurabilityFiles(
+            impl_->config_.durability_directory)) {
+      durability::MoveToBackup(impl_->config_.durability_directory);
+      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
+                      "and durability is enabled, your current durability "
+                      "files will likely be overriden. To prevent important "
+                      "data loss, Memgraph has stored those files into a "
+                      ".backup directory inside durability directory";
+    }
     impl_->wal_.Init();
   }
 

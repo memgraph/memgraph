@@ -41,9 +41,11 @@ class MasterCoordination final : public Coordination {
 
   /// Sets the recovery info. nullopt indicates nothing was recovered.
   void SetRecoveredSnapshot(
-      std::experimental::optional<tx::TransactionId> recovered_snapshot);
+      std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
+          recovered_snapshot);
 
-  std::experimental::optional<tx::TransactionId> RecoveredSnapshotTx() const;
+  std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
+  RecoveredSnapshotTx() const;
 
   int CountRecoveredWorkers() const;
 
@@ -61,7 +63,8 @@ class MasterCoordination final : public Coordination {
   std::map<int, std::experimental::optional<durability::RecoveryInfo>>
       recovered_workers_;
   /// If nullopt nothing was recovered.
-  std::experimental::optional<tx::TransactionId> recovered_snapshot_tx_;
+  std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
+      recovered_snapshot_tx_;
 };
 
 }  // namespace distributed

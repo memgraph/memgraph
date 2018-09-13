@@ -18,25 +18,32 @@ namespace durability {
 /// Stores info on what was (or needs to be) recovered from durability.
 struct RecoveryInfo {
   RecoveryInfo() {}
-  RecoveryInfo(tx::TransactionId snapshot_tx_id,
+  RecoveryInfo(const int64_t durability_version,
+               tx::TransactionId snapshot_tx_id,
                const std::vector<tx::TransactionId> &wal_recovered)
-      : snapshot_tx_id(snapshot_tx_id), wal_recovered(wal_recovered) {}
+      : durability_version(durability_version),
+        snapshot_tx_id(snapshot_tx_id),
+        wal_recovered(wal_recovered) {}
+  int64_t durability_version;
   tx::TransactionId snapshot_tx_id;
   std::vector<tx::TransactionId> wal_recovered;
 
   bool operator==(const RecoveryInfo &other) const {
-    return snapshot_tx_id == other.snapshot_tx_id &&
+    return durability_version == other.durability_version &&
+           snapshot_tx_id == other.snapshot_tx_id &&
            wal_recovered == other.wal_recovered;
   }
   bool operator!=(const RecoveryInfo &other) const { return !(*this == other); }
 
   void Save(capnp::RecoveryInfo::Builder *builder) const {
+    builder->setDurabilityVersion(durability_version);
     builder->setSnapshotTxId(snapshot_tx_id);
     auto list_builder = builder->initWalRecovered(wal_recovered.size());
     utils::SaveVector(wal_recovered, &list_builder);
   }
 
   void Load(const capnp::RecoveryInfo::Reader &reader) {
+    durability_version = reader.getDurabilityVersion();
     snapshot_tx_id = reader.getSnapshotTxId();
     auto list_reader = reader.getWalRecovered();
     utils::LoadVector(&wal_recovered, list_reader);
@@ -116,6 +123,15 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
  */
 bool VersionConsistency(
     const std::experimental::filesystem::path &durability_dir);
+
+/**
+ * Checks whether the current memgraph binary (on a worker) is
+ * version consistent with the cluster master.
+ *
+ * @param master_version - Version of the master.
+ * @return - True if versions match.
+ */
+bool DistributedVersionConsistency(const int64_t master_version);
 
 /**
  * Checks whether the durability directory contains snapshot

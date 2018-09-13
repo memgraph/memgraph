@@ -3,7 +3,7 @@
 #pragma once
 
 #include "database/graph_db.hpp"
-#include "durability/recovery.hpp"
+#include "durability/version.hpp"
 
 namespace distributed {
 class BfsRpcServer;

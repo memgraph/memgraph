@@ -75,7 +75,8 @@ MasterCoordination::~MasterCoordination() {
 }
 
 void MasterCoordination::SetRecoveredSnapshot(
-    std::experimental::optional<tx::TransactionId> recovered_snapshot_tx) {
+    std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
+        recovered_snapshot_tx) {
   std::lock_guard<std::mutex> guard(lock_);
   recovery_done_ = true;
   recovered_snapshot_tx_ = recovered_snapshot_tx;
@@ -85,7 +86,7 @@ int MasterCoordination::CountRecoveredWorkers() const {
   return recovered_workers_.size();
 }
 
-std::experimental::optional<tx::TransactionId>
+std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
 MasterCoordination::RecoveredSnapshotTx() const {
   std::lock_guard<std::mutex> guard(lock_);
   CHECK(recovery_done_) << "Recovered snapshot requested before it's available";
