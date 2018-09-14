@@ -15,7 +15,7 @@ DynamicWorkerAddition::DynamicWorkerAddition(database::DistributedGraphDb *db,
         DynamicWorkerReq req;
         req.Load(req_reader);
         DynamicWorkerRes res(this->GetIndicesToCreate());
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 }
 

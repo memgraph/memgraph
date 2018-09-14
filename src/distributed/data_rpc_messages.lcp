@@ -32,9 +32,10 @@ cpp<#
     (vertex-input "const Vertex *"
                   :capnp-type "Storage.Vertex"
                   :capnp-save
-                  (lambda (builder member)
+                  (lambda (builder member capnp-name)
+                    (declare (ignore capnp-name))
                     #>cpp
-                    storage::SaveVertex(*${member}, &${builder}, worker_id);
+                    storage::SaveVertex(*${member}, &${builder}, self.worker_id);
                     cpp<#)
                   :capnp-load
                   (lambda (reader member)
@@ -53,9 +54,10 @@ cpp<#
     (edge-input "const Edge *"
                 :capnp-type "Storage.Edge"
                 :capnp-save
-                (lambda (builder member)
+                (lambda (builder member capnp-name)
+                  (declare (ignore capnp-name))
                   #>cpp
-                  storage::SaveEdge(*${member}, &${builder}, worker_id);
+                  storage::SaveEdge(*${member}, &${builder}, self.worker_id);
                   cpp<#)
                 :capnp-load
                 (lambda (reader member)

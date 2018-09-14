@@ -54,13 +54,11 @@ class Common : public utils::TotalOrdering<TSpecificType> {
     size_t operator()(const TSpecificType &t) const { return hash(t.id_); }
   };
 
-  void Save(capnp::Common::Builder *builder) const {
-    builder->setStorage(id_);
-  }
-
   void Load(const capnp::Common::Reader &reader) {
     id_ = reader.getStorage();
   }
+
+  auto Raw() const { return id_; }
 
  protected:
   ~Common() {}
@@ -71,6 +69,11 @@ class Common : public utils::TotalOrdering<TSpecificType> {
 
   IdT id_{0};
 };
+
+template <class Type>
+void Save(const Common<Type> &common, capnp::Common::Builder *builder) {
+  builder->setStorage(common.Raw());
+}
 
 class Label final : public Common<Label> {
   using Common::Common;

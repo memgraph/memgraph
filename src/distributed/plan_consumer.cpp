@@ -12,7 +12,7 @@ PlanConsumer::PlanConsumer(communication::rpc::Server &server)
             req.plan_id, std::make_unique<PlanPack>(req.plan, req.symbol_table,
                                                     std::move(req.storage)));
         DispatchPlanRes res;
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_.Register<RemovePlanRpc>(

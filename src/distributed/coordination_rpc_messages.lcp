@@ -29,7 +29,8 @@ cpp<#
     (snapshot-to-recover "std::experimental::optional<std::pair<int64_t, tx::TransactionId>>"
                          :capnp-type "Utils.Optional(Utils.Pair(Utils.BoxUInt64, Utils.BoxUInt64))"
                          :capnp-save
-                         (lambda (builder member)
+                         (lambda (builder member capnp-name)
+                           (declare (ignore capnp-name))
                            #>cpp
                            utils::SaveOptional<utils::capnp::Pair<utils::capnp::BoxUInt64, utils::capnp::BoxUInt64>, std::pair<int64_t, tx::TransactionId>>(
                                ${member}, &${builder},
@@ -51,15 +52,16 @@ cpp<#
     (workers "std::unordered_map<int, io::network::Endpoint>"
              :capnp-type "Utils.Map(Utils.BoxInt16, Io.Endpoint)"
              :capnp-save
-             (lambda (builder member)
+             (lambda (builder member capnp-name)
+               (declare (ignore capnp-name))
                #>cpp
-               utils::SaveMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(${member}, &${builder},
-                              [](auto *builder, const auto &entry) {
-                                  auto key_builder = builder->initKey();
-                                  key_builder.setValue(entry.first);
-                                  auto value_builder = builder->initValue();
-                                  entry.second.Save(&value_builder);
-                              });
+               utils::SaveMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(
+                   ${member}, &${builder}, [](auto *builder, const auto &entry) {
+                     auto key_builder = builder->initKey();
+                     key_builder.setValue(entry.first);
+                     auto value_builder = builder->initValue();
+                     Save(entry.second, &value_builder);
+                   });
                cpp<#)
              :capnp-load
              (lambda (reader member)

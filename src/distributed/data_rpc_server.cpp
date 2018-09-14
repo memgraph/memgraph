@@ -18,7 +18,7 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
         CHECK(vertex.GetOld())
             << "Old record must exist when sending vertex by RPC";
         VertexRes response(vertex.CypherId(), vertex.GetOld(), db_->WorkerId());
-        response.Save(res_builder);
+        Save(response, res_builder);
       });
 
   rpc_server_->Register<EdgeRpc>([this](const auto &req_reader,
@@ -27,7 +27,7 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
     auto edge = dba->FindEdge(req_reader.getMember().getGid(), false);
     CHECK(edge.GetOld()) << "Old record must exist when sending edge by RPC";
     EdgeRes response(edge.CypherId(), edge.GetOld(), db_->WorkerId());
-    response.Save(res_builder);
+    Save(response, res_builder);
   });
 
   rpc_server_->Register<VertexCountRpc>(
@@ -38,7 +38,7 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
         int64_t size = 0;
         for (auto vertex : dba->Vertices(false)) ++size;
         VertexCountRes res(size);
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 }
 

@@ -95,7 +95,7 @@ void SaveProperties(const PropertyValueStore &properties,
   for (const auto &kv : properties) {
     auto kv_builder = props_builder[i++];
     auto id_builder = kv_builder.initId();
-    kv.first.Save(&id_builder);
+    Save(kv.first, &id_builder);
     auto value_builder = kv_builder.initValue();
     SaveCapnpPropertyValue(kv.second, &value_builder);
   }

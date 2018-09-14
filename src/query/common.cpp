@@ -294,6 +294,16 @@ void TypedValueVectorCompare::Save(
   }
 }
 
+void Save(const TypedValueVectorCompare &comparator,
+          capnp::TypedValueVectorCompare::Builder *builder) {
+  auto ordering_builder = builder->initOrdering(comparator.ordering().size());
+  for (size_t i = 0; i < comparator.ordering().size(); ++i) {
+    ordering_builder.set(i, comparator.ordering()[i] == Ordering::ASC
+                                ? capnp::Ordering::ASC
+                                : capnp::Ordering::DESC);
+  }
+}
+
 void TypedValueVectorCompare::Load(
     const capnp::TypedValueVectorCompare::Reader &reader) {
   std::vector<Ordering> ordering;

@@ -239,17 +239,16 @@ can serve as inputs to others and thus a sequence of operations is formed.")
    };
    cpp<#)
   (:serialize :capnp :base t
-              :save-args '((helper "SaveHelper *"))
-              :load-args '((helper "LoadHelper *"))))
+              :save-args '((helper "LogicalOperator::SaveHelper *"))
+              :load-args '((helper "LogicalOperator::LoadHelper *"))))
 
-(defun save-ast-pointer (builder member)
-  (let ((member-getter (remove #\_ (string-capitalize member))))
-    #>cpp
-    if (${member}) {
-      auto ${member}_builder = ${builder}->init${member-getter}();
-      ${member}->Save(&${member}_builder, &helper->saved_ast_uids);
-    }
-    cpp<#))
+(defun save-ast-pointer (builder member capnp-name)
+  #>cpp
+  if (${member}) {
+    auto ${capnp-name}_builder = ${builder}->init${capnp-name}();
+    ${member}->Save(&${capnp-name}_builder, &helper->saved_ast_uids);
+  }
+  cpp<#)
 
 (defun load-ast-pointer (ast-type)
   (lambda (reader member)
@@ -276,11 +275,11 @@ can serve as inputs to others and thus a sequence of operations is formed.")
                             return static_cast<~A>(helper->ast_storage.Load(reader, &helper->loaded_ast_uids));
                           }" ast-type)))
 
-(defun save-operator-pointer (builder member-name)
+(defun save-operator-pointer (builder member-name capnp-name)
   #>cpp
   utils::SaveSharedPtr<capnp::LogicalOperator, LogicalOperator>(${member-name}, &${builder},
                        [helper](auto *builder, const auto &val) {
-                         val.Save(builder, helper);
+                         Save(val, builder, helper);
                        }, &helper->saved_ops);
   cpp<#)
 
@@ -548,18 +547,19 @@ given label.
   (:private #>cpp ScanAllByLabel() {} cpp<#)
   (:serialize :capnp))
 
-(defun save-optional-bound (builder member)
+(defun save-optional-bound (builder member capnp-name)
   (let ((save-bound
          "[helper](auto *builder, const auto &bound) {
-           builder->setType(bound.type() == Bound::Type::INCLUSIVE ?
+           builder->setType(bound.type() == utils::BoundType::INCLUSIVE ?
                             ::utils::capnp::Bound<::query::capnp::Tree>::Type::INCLUSIVE :
                             ::utils::capnp::Bound<::query::capnp::Tree>::Type::EXCLUSIVE);
            auto value_builder = builder->initValue();
            bound.value()->Save(&value_builder, &helper->saved_ast_uids);
          }"))
-    (funcall (lcp:capnp-save-optional "::utils::capnp::Bound<::query::capnp::Tree>" "Bound"
+    (funcall (lcp:capnp-save-optional "::utils::capnp::Bound<::query::capnp::Tree>"
+                                      "utils::Bound<Expression *>"
                                       save-bound)
-             builder member)))
+             builder member capnp-name)))
 
 (defun load-optional-bound (reader member)
   (let ((load-bound
@@ -675,7 +675,7 @@ property value.
                :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::EdgeType"))
    ;; the input op and the symbol under which the op's result
    ;; can be found in the frame
-   (input "std::shared_ptr<LogicalOperator>" :scope :protected
+   (input "std::shared_ptr<LogicalOperator>" :scope :protected :reader t
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :reader t :scope :protected)
@@ -836,10 +836,10 @@ pulled.")
    (filter-lambda "Lambda" :reader t)
    (weight-lambda "std::experimental::optional<Lambda>" :reader t
                   :capnp-save (lcp:capnp-save-optional
-                               "capnp::ExpandVariable::Lambda" "Lambda"
-                               "[helper](auto *builder, const auto &val) { val.Save(builder, helper); }")
+                               "capnp::ExpandVariable::Lambda" "ExpandVariable::Lambda"
+                               "[helper](auto *builder, const auto &val) { Save(val, builder, helper); }")
                   :capnp-load (lcp:capnp-load-optional
-                               "capnp::ExpandVariable::Lambda" "Lambda"
+                               "capnp::ExpandVariable::Lambda" "ExpandVariable::Lambda"
                                "[helper](const auto &reader) { Lambda val; val.Load(reader, helper); return val; }"))
    (total-weight "std::experimental::optional<Symbol>" :reader t
                  :capnp-save (lcp:capnp-save-optional "::query::capnp::Symbol" "Symbol")
@@ -1068,7 +1068,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
                 :capnp-type "List(Ast.Tree)"
                 :capnp-save (save-ast-vector "Expression *")
                 :capnp-load (load-ast-vector "Expression *"))
-   (detach :bool :documentation
+   (detach :bool :reader t :documentation
            "if the vertex should be detached before deletion if not detached,
            and has connections, an error is raised ignored when deleting edges"))
   (:documentation
@@ -1165,7 +1165,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
    (rhs "Expression *" :reader t
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *"))
-   (op "Op"))
+   (op "Op" :reader t))
   (:documentation
    "Logical op for setting the whole properties set on a vertex or an edge.
 
@@ -1231,7 +1231,7 @@ that the old props are discarded and replaced with new ones.")
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :reader t)
-   (labels "std::vector<storage::Label>"
+   (labels "std::vector<storage::Label>" :reader t
      :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
      :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
   (:documentation
@@ -1319,7 +1319,7 @@ It does NOT remove labels that are already set on that Vertex.")
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :reader t)
-   (labels "std::vector<storage::Label>"
+   (labels "std::vector<storage::Label>" :reader t
      :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
      :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
   (:documentation
@@ -1513,8 +1513,8 @@ cpp<#
           :capnp-load #'load-operator-pointer)
    (aggregations "std::vector<Element>" :reader t
                  :capnp-save (lcp:capnp-save-vector
-                              "capnp::Aggregate::Element" "Element"
-                              "[helper](auto *builder, const auto &val) { val.Save(builder, helper); }")
+                              "capnp::Aggregate::Element" "Aggregate::Element"
+                              "[helper](auto *builder, const auto &val) { Save(val, builder, helper); }")
                  :capnp-load (lcp:capnp-load-vector
                               "capnp::Aggregate::Element" "Element"
                               "[helper](const auto &reader) { Element val; val.Load(reader, helper); return val; }"))
@@ -2002,10 +2002,10 @@ and returns true, once.")
    (privileges "std::vector<AuthQuery::Privilege>" :reader t
                :capnp-type "List(Ast.AuthQuery.Privilege)"
                :capnp-save
-                 (lambda (builder member-name)
+                 (lambda (builder member capnp-name)
                    #>cpp
-                   for (size_t i = 0; i < ${member-name}.size(); ++i) {
-                    switch (privileges_[i]) {
+                   for (size_t i = 0; i < ${member}.size(); ++i) {
+                    switch (${member}[i]) {
                       case AuthQuery::Privilege::CREATE:
                         ${builder}.set(i, query::capnp::AuthQuery::Privilege::CREATE);
                         break;
@@ -2106,7 +2106,7 @@ and returns true, once.")
    (input-expression "Expression *" :reader t
                      :capnp-type "Ast.Tree" :capnp-init nil
                      :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *"))
-   (output-symbol "Symbol"))
+   (output-symbol "Symbol" :reader t))
   (:documentation
    "Takes a list TypedValue as it's input and yields each
 element as it's output.

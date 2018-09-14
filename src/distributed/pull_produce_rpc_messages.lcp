@@ -72,7 +72,8 @@ the relevant parts of the response, ready for use."))
    (frames "std::vector<std::vector<query::TypedValue>>"
            :capnp-type "List(List(Query.TypedValue))"
            :capnp-save
-           (lambda (builder member)
+           (lambda (builder member capnp-name)
+             (declare (ignore capnp-name))
              #>cpp
              for (size_t frame_i = 0; frame_i < ${member}.size(); ++frame_i) {
                const auto &frame = ${member}[frame_i];
@@ -80,7 +81,7 @@ the relevant parts of the response, ready for use."))
                for (size_t val_i = 0; val_i < frame.size(); ++val_i) {
                  const auto &value = frame[val_i];
                  auto value_builder = frame_builder[val_i];
-                 query::SaveCapnpTypedValue(value, &value_builder, send_versions, worker_id);
+                 query::SaveCapnpTypedValue(value, &value_builder, self.send_versions, self.worker_id);
                }
              }
              cpp<#)
@@ -188,7 +189,8 @@ to the appropriate value. Not used on side that generates the response.")
       (evaluation-context "query::EvaluationContext"
                           :capnp-type "Query.EvaluationContext"
                           :capnp-save
-                          (lambda (builder member)
+                          (lambda (builder member capnp-name)
+                            (declare (ignore capnp-name))
                             #>cpp
 			    ${builder}.setTimestamp(${member}.timestamp);
 			    auto params_builder = ${builder}.initParams().initEntries(${member}.parameters.size());

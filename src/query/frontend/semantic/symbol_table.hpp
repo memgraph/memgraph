@@ -28,18 +28,6 @@ class SymbolTable final {
 
   const auto &table() const { return table_; }
 
-  void Save(capnp::SymbolTable::Builder *builder) const {
-    builder->setPosition(position_);
-    auto list_builder = builder->initTable(table_.size());
-    size_t i = 0;
-    for (const auto &entry : table_) {
-      auto entry_builder = list_builder[i++];
-      entry_builder.setKey(entry.first);
-      auto sym_builder = entry_builder.initVal();
-      entry.second.Save(&sym_builder);
-    }
-  }
-
   void Load(const capnp::SymbolTable::Reader &reader) {
     position_ = reader.getPosition();
     table_.clear();
@@ -55,5 +43,18 @@ class SymbolTable final {
   int position_{0};
   std::map<int, Symbol> table_;
 };
+
+inline void Save(const SymbolTable &symbol_table,
+                 capnp::SymbolTable::Builder *builder) {
+  builder->setPosition(symbol_table.max_position());
+  auto list_builder = builder->initTable(symbol_table.table().size());
+  size_t i = 0;
+  for (const auto &entry : symbol_table.table()) {
+    auto entry_builder = list_builder[i++];
+    entry_builder.setKey(entry.first);
+    auto sym_builder = entry_builder.initVal();
+    Save(entry.second, &sym_builder);
+  }
+}
 
 }  // namespace query

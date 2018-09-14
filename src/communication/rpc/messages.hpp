@@ -43,7 +43,7 @@ inline bool operator>=(const MessageType &a, const MessageType &b) {
 /// and `TResponse` are required to define a nested `Capnp` type, which
 /// corresponds to the Cap'n Proto schema type, as well as defined the following
 /// serialization functions:
-///   * void Save(Capnp::Builder *, ...) const
+///   * void Save(const TRequest|TResponse &, Capnp::Builder *, ...)
 ///   * void Load(const Capnp::Reader &, ...)
 template <typename TRequest, typename TResponse>
 struct RequestResponse {

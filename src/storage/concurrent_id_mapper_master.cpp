@@ -19,14 +19,14 @@ void RegisterRpc(MasterConcurrentIdMapper<TId> &mapper,
           type##IdReq req;                                          \
           req.Load(req_reader);                                     \
           type##IdRes res(mapper.value_to_id(req.member));          \
-          res.Save(res_builder);                                    \
+          Save(res, res_builder);                                   \
         });                                                         \
     rpc_server.Register<Id##type##Rpc>(                             \
         [&mapper](const auto &req_reader, auto *res_builder) {      \
           Id##type##Req req;                                        \
           req.Load(req_reader);                                     \
           Id##type##Res res(mapper.id_to_value(req.member));        \
-          res.Save(res_builder);                                    \
+          Save(res, res_builder);                                   \
         });                                                         \
   }
 

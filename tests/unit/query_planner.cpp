@@ -668,7 +668,7 @@ class Planner {
 void SavePlan(const LogicalOperator &plan, ::capnp::MessageBuilder *message) {
   auto builder = message->initRoot<query::plan::capnp::LogicalOperator>();
   LogicalOperator::SaveHelper helper;
-  plan.Save(&builder, &helper);
+  Save(plan, &builder, &helper);
 }
 
 auto LoadPlan(const ::query::plan::capnp::LogicalOperator::Reader &reader) {

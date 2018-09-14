@@ -19,13 +19,13 @@ EngineMaster::EngineMaster(communication::rpc::Server *server,
       [this](const auto &req_reader, auto *res_builder) {
         auto tx = this->Begin();
         BeginRes res(TxAndSnapshot{tx->id_, tx->snapshot()});
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_->Register<AdvanceRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         AdvanceRes res(this->Advance(req_reader.getMember()));
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_->Register<CommitRpc>(
@@ -44,7 +44,7 @@ EngineMaster::EngineMaster(communication::rpc::Server *server,
         // transaction that's done, and that there are no race conditions here.
         SnapshotRes res(
             this->RunningTransaction(req_reader.getMember())->snapshot());
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_->Register<CommandRpc>(
@@ -52,25 +52,25 @@ EngineMaster::EngineMaster(communication::rpc::Server *server,
         // It is guaranteed that the Worker will not be requesting this for a
         // transaction that's done, and that there are no race conditions here.
         CommandRes res(this->RunningTransaction(req_reader.getMember())->cid());
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_->Register<GcSnapshotRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         GcSnapshotRes res(this->GlobalGcSnapshot());
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_->Register<ClogInfoRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ClogInfoRes res(this->Info(req_reader.getMember()));
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_->Register<ActiveTransactionsRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ActiveTransactionsRes res(this->GlobalActiveTransactions());
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server_->Register<EnsureNextIdGreaterRpc>(
@@ -81,7 +81,7 @@ EngineMaster::EngineMaster(communication::rpc::Server *server,
   server_->Register<GlobalLastRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         GlobalLastRes res(this->GlobalLast());
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 }
 

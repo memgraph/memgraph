@@ -39,33 +39,6 @@ class Symbol {
   bool user_declared() const { return user_declared_; }
   int token_position() const { return token_position_; }
 
-  void Save(capnp::Symbol::Builder *builder) const {
-    builder->setName(name_);
-    builder->setPosition(position_);
-    builder->setUserDeclared(user_declared_);
-    builder->setTokenPosition(token_position_);
-    switch (type_) {
-      case Type::Any:
-        builder->setType(capnp::Symbol::Type::ANY);
-        break;
-      case Type::Edge:
-        builder->setType(capnp::Symbol::Type::EDGE);
-        break;
-      case Type::EdgeList:
-        builder->setType(capnp::Symbol::Type::EDGE_LIST);
-        break;
-      case Type::Number:
-        builder->setType(capnp::Symbol::Type::NUMBER);
-        break;
-      case Type::Path:
-        builder->setType(capnp::Symbol::Type::PATH);
-        break;
-      case Type::Vertex:
-        builder->setType(capnp::Symbol::Type::VERTEX);
-        break;
-    }
-  }
-
   void Load(const capnp::Symbol::Reader &reader) {
     name_ = reader.getName();
     position_ = reader.getPosition();
@@ -100,6 +73,33 @@ class Symbol {
   Type type_ = Type::Any;
   int token_position_ = -1;
 };
+
+inline void Save(const Symbol &symbol, capnp::Symbol::Builder *builder) {
+  builder->setName(symbol.name());
+  builder->setPosition(symbol.position());
+  builder->setUserDeclared(symbol.user_declared());
+  builder->setTokenPosition(symbol.token_position());
+  switch (symbol.type()) {
+    case Symbol::Type::Any:
+      builder->setType(capnp::Symbol::Type::ANY);
+      break;
+    case Symbol::Type::Edge:
+      builder->setType(capnp::Symbol::Type::EDGE);
+      break;
+    case Symbol::Type::EdgeList:
+      builder->setType(capnp::Symbol::Type::EDGE_LIST);
+      break;
+    case Symbol::Type::Number:
+      builder->setType(capnp::Symbol::Type::NUMBER);
+      break;
+    case Symbol::Type::Path:
+      builder->setType(capnp::Symbol::Type::PATH);
+      break;
+    case Symbol::Type::Vertex:
+      builder->setType(capnp::Symbol::Type::VERTEX);
+      break;
+  }
+}
 
 }  // namespace query
 

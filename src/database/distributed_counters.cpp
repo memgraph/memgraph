@@ -11,7 +11,7 @@ MasterCounters::MasterCounters(communication::rpc::Server *server)
   rpc_server_->Register<CountersGetRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         CountersGetRes res(Get(req_reader.getName()));
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
   rpc_server_->Register<CountersSetRpc>(
       [this](const auto &req_reader, auto *res_builder) {

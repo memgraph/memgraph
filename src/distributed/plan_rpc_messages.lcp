@@ -29,13 +29,14 @@ cpp<#
   storage = std::move(helper.ast_storage);
   cpp<#)
 
-(defun save-plan (builder member)
+(defun save-plan (builder member capnp-name)
+  (declare (ignore capnp-name))
   #>cpp
   query::plan::LogicalOperator::SaveHelper helper;
   utils::SaveSharedPtr<query::plan::capnp::LogicalOperator, query::plan::LogicalOperator>(
       ${member}, &${builder},
       [&helper](auto *builder, const auto &val) {
-        val.Save(builder, &helper);
+        Save(val, builder, &helper);
       }, &helper.saved_ops);
   cpp<#)
 

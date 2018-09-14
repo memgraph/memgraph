@@ -35,13 +35,6 @@ struct RecoveryInfo {
   }
   bool operator!=(const RecoveryInfo &other) const { return !(*this == other); }
 
-  void Save(capnp::RecoveryInfo::Builder *builder) const {
-    builder->setDurabilityVersion(durability_version);
-    builder->setSnapshotTxId(snapshot_tx_id);
-    auto list_builder = builder->initWalRecovered(wal_recovered.size());
-    utils::SaveVector(wal_recovered, &list_builder);
-  }
-
   void Load(const capnp::RecoveryInfo::Reader &reader) {
     durability_version = reader.getDurabilityVersion();
     snapshot_tx_id = reader.getSnapshotTxId();
@@ -49,6 +42,14 @@ struct RecoveryInfo {
     utils::LoadVector(&wal_recovered, list_reader);
   }
 };
+
+inline void Save(const RecoveryInfo &info,
+                 capnp::RecoveryInfo::Builder *builder) {
+  builder->setDurabilityVersion(info.durability_version);
+  builder->setSnapshotTxId(info.snapshot_tx_id);
+  auto list_builder = builder->initWalRecovered(info.wal_recovered.size());
+  utils::SaveVector(info.wal_recovered, &list_builder);
+}
 
 // A data structure for exchanging info between main recovery function and
 // snapshot and WAL recovery functions.
@@ -64,28 +65,6 @@ struct RecoveryData {
     snapshooter_tx_id = 0;
     snapshooter_tx_snapshot.clear();
     indexes.clear();
-  }
-
-  void Save(capnp::RecoveryData::Builder *builder) const {
-    builder->setSnapshooterTxId(snapshooter_tx_id);
-    {
-      auto list_builder = builder->initWalTxToRecover(wal_tx_to_recover.size());
-      utils::SaveVector(wal_tx_to_recover, &list_builder);
-    }
-    {
-      auto list_builder =
-          builder->initSnapshooterTxSnapshot(snapshooter_tx_snapshot.size());
-      utils::SaveVector(snapshooter_tx_snapshot, &list_builder);
-    }
-    {
-      auto list_builder = builder->initIndexes(indexes.size());
-      utils::SaveVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
-                        std::pair<std::string, std::string>>(
-          indexes, &list_builder, [](auto *builder, const auto value) {
-            builder->setFirst(value.first);
-            builder->setSecond(value.second);
-          });
-    }
   }
 
   void Load(const capnp::RecoveryData::Reader &reader) {
@@ -108,6 +87,30 @@ struct RecoveryData {
     }
   }
 };
+
+inline void Save(const RecoveryData &data,
+                 capnp::RecoveryData::Builder *builder) {
+  builder->setSnapshooterTxId(data.snapshooter_tx_id);
+  {
+    auto list_builder =
+        builder->initWalTxToRecover(data.wal_tx_to_recover.size());
+    utils::SaveVector(data.wal_tx_to_recover, &list_builder);
+  }
+  {
+    auto list_builder =
+        builder->initSnapshooterTxSnapshot(data.snapshooter_tx_snapshot.size());
+    utils::SaveVector(data.snapshooter_tx_snapshot, &list_builder);
+  }
+  {
+    auto list_builder = builder->initIndexes(data.indexes.size());
+    utils::SaveVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
+                      std::pair<std::string, std::string>>(
+        data.indexes, &list_builder, [](auto *builder, const auto value) {
+          builder->setFirst(value.first);
+          builder->setSecond(value.second);
+        });
+  }
+}
 
 /** Reads snapshot metadata from the end of the file without messing up the
  * hash. */

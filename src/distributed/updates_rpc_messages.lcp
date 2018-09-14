@@ -59,13 +59,14 @@ cpp<#
    (properties "std::unordered_map<storage::Property, PropertyValue>"
                :capnp-type "Utils.Map(Storage.Common, Storage.PropertyValue)"
                :capnp-save
-               (lambda (builder member)
+               (lambda (builder member capnp-name)
+                 (declare (ignore capnp-name))
                  #>cpp
                  utils::SaveMap<storage::capnp::Common, storage::capnp::PropertyValue>(
                      ${member}, &${builder},
                      [](auto *builder, const auto &entry) {
                        auto key_builder = builder->initKey();
-                       entry.first.Save(&key_builder);
+                       Save(entry.first, &key_builder);
                        auto value_builder = builder->initValue();
                        storage::SaveCapnpPropertyValue(entry.second, &value_builder);
                      });
@@ -86,7 +87,8 @@ cpp<#
    (cypher-id "std::experimental::optional<int64_t>"
      :capnp-type "Utils.Optional(Utils.BoxInt64)"
      :capnp-save
-     (lambda (builder member)
+     (lambda (builder member capnp-name)
+       (declare (ignore capnp-name))
        #>cpp
        utils::SaveOptional<utils::capnp::BoxInt64, int64_t>(
          ${member}, &${builder}, [](auto *builder, const auto &value) {
@@ -115,7 +117,8 @@ cpp<#
    (cypher-id "std::experimental::optional<int64_t>"
      :capnp-type "Utils.Optional(Utils.BoxInt64)"
      :capnp-save
-     (lambda (builder member)
+     (lambda (builder member capnp-name)
+       (declare (ignore capnp-name))
        #>cpp
        utils::SaveOptional<utils::capnp::BoxInt64, int64_t>(
          ${member}, &${builder}, [](auto *builder, const auto &value) {

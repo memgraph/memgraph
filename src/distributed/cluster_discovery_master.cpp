@@ -77,7 +77,7 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     RegisterWorkerRes res(registration_successful, durability_error,
                           coordination_->RecoveredSnapshotTx(),
                           coordination_->GetWorkers());
-    res.Save(res_builder);
+    Save(res, res_builder);
   });
 
   server_->Register<NotifyWorkerRecoveredRpc>([this](const auto &req_reader,

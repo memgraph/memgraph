@@ -49,7 +49,7 @@ int main(int argc, char *argv[]) {
         std::string data = GraphiteFormat(req);
         graphite_socket.Write(data);
         stats::StatsRes res;
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server.Register<stats::BatchStatsRpc>(
@@ -64,7 +64,7 @@ int main(int argc, char *argv[]) {
           graphite_socket.Write(data, i + 1 < req.requests.size());
         }
         stats::BatchStatsRes res;
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   std::this_thread::sleep_until(std::chrono::system_clock::time_point::max());

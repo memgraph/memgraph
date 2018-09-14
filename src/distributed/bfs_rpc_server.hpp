@@ -27,7 +27,7 @@ class BfsRpcServer {
           req.Load(req_reader);
           CreateBfsSubcursorRes res(subcursor_storage_->Create(
               req.tx_id, req.direction, req.edge_types, req.graph_view));
-          res.Save(res_builder);
+          Save(res, res_builder);
         });
 
     server_->Register<RegisterSubcursorsRpc>(
@@ -37,7 +37,7 @@ class BfsRpcServer {
           subcursor_storage_->Get(req.subcursor_ids.at(db_->WorkerId()))
               ->RegisterSubcursors(req.subcursor_ids);
           RegisterSubcursorsRes res;
-          res.Save(res_builder);
+          Save(res, res_builder);
         });
 
     server_->Register<ResetSubcursorRpc>(
@@ -46,7 +46,7 @@ class BfsRpcServer {
           req.Load(req_reader);
           subcursor_storage_->Get(req.subcursor_id)->Reset();
           ResetSubcursorRes res;
-          res.Save(res_builder);
+          Save(res, res_builder);
         });
 
     server_->Register<RemoveBfsSubcursorRpc>(
@@ -55,7 +55,7 @@ class BfsRpcServer {
           req.Load(req_reader);
           subcursor_storage_->Erase(req.member);
           RemoveBfsSubcursorRes res;
-          res.Save(res_builder);
+          Save(res, res_builder);
         });
 
     server_->Register<SetSourceRpc>(
@@ -64,7 +64,7 @@ class BfsRpcServer {
           req.Load(req_reader);
           subcursor_storage_->Get(req.subcursor_id)->SetSource(req.source);
           SetSourceRes res;
-          res.Save(res_builder);
+          Save(res, res_builder);
         });
 
     server_->Register<ExpandLevelRpc>([this](const auto &req_reader,
@@ -72,7 +72,7 @@ class BfsRpcServer {
       ExpandLevelReq req;
       req.Load(req_reader);
       ExpandLevelRes res(subcursor_storage_->Get(req.member)->ExpandLevel());
-      res.Save(res_builder);
+      Save(res, res_builder);
     });
 
     server_->Register<SubcursorPullRpc>(
@@ -81,7 +81,7 @@ class BfsRpcServer {
           req.Load(req_reader);
           auto vertex = subcursor_storage_->Get(req.member)->Pull();
           SubcursorPullRes res(vertex);
-          res.Save(res_builder, db_->WorkerId());
+          Save(res, res_builder, db_->WorkerId());
         });
 
     server_->Register<ExpandToRemoteVertexRpc>(
@@ -91,7 +91,7 @@ class BfsRpcServer {
           ExpandToRemoteVertexRes res(
               subcursor_storage_->Get(req.subcursor_id)
                   ->ExpandToLocalVertex(req.edge, req.vertex));
-          res.Save(res_builder);
+          Save(res, res_builder);
         });
 
     server_->Register<ReconstructPathRpc>([this](const auto &req_reader,
@@ -108,7 +108,7 @@ class BfsRpcServer {
         LOG(FATAL) << "`edge` or `vertex` should be set in ReconstructPathReq";
       }
       ReconstructPathRes res(result.edges, result.next_vertex, result.next_edge);
-      res.Save(res_builder, db_->WorkerId());
+      Save(res, res_builder, db_->WorkerId());
     });
 
     server_->Register<PrepareForExpandRpc>([this](const auto &req_reader,
@@ -117,7 +117,7 @@ class BfsRpcServer {
       req.Load(req_reader);
       subcursor_storage_->Get(req.subcursor_id)->PrepareForExpand(req.clear);
       PrepareForExpandRes res;
-      res.Save(res_builder);
+      Save(res, res_builder);
     });
   }
 

@@ -22,18 +22,18 @@ struct SumReq {
   int x;
   int y;
 
-  void Save(::capnp::AnyPointer::Builder *builder) const {
-    auto list_builder = builder->initAs<::capnp::List<int>>(2);
-    list_builder.set(0, x);
-    list_builder.set(1, y);
-  }
-
   void Load(const ::capnp::AnyPointer::Reader &reader) {
     auto list_reader = reader.getAs<::capnp::List<int>>();
     x = list_reader[0];
     y = list_reader[1];
   }
 };
+
+void Save(const SumReq &sum, ::capnp::AnyPointer::Builder *builder) {
+  auto list_builder = builder->initAs<::capnp::List<int>>(2);
+  list_builder.set(0, sum.x);
+  list_builder.set(1, sum.y);
+}
 
 const MessageType SumReq::TypeInfo{0, "SumReq"};
 
@@ -46,16 +46,16 @@ struct SumRes {
 
   int sum;
 
-  void Save(::capnp::AnyPointer::Builder *builder) const {
-    auto list_builder = builder->initAs<::capnp::List<int>>(1);
-    list_builder.set(0, sum);
-  }
-
   void Load(const ::capnp::AnyPointer::Reader &reader) {
     auto list_reader = reader.getAs<::capnp::List<int>>();
     sum = list_reader[0];
   }
 };
+
+void Save(const SumRes &res, ::capnp::AnyPointer::Builder *builder) {
+  auto list_builder = builder->initAs<::capnp::List<int>>(1);
+  list_builder.set(0, res.sum);
+}
 
 const MessageType SumRes::TypeInfo{1, "SumRes"};
 
@@ -70,16 +70,16 @@ struct EchoMessage {
 
   std::string data;
 
-  void Save(::capnp::AnyPointer::Builder *builder) const {
-    auto list_builder = builder->initAs<::capnp::List<::capnp::Text>>(1);
-    list_builder.set(0, data);
-  }
-
   void Load(const ::capnp::AnyPointer::Reader &reader) {
     auto list_reader = reader.getAs<::capnp::List<::capnp::Text>>();
     data = list_reader[0];
   }
 };
+
+void Save(const EchoMessage &echo, ::capnp::AnyPointer::Builder *builder) {
+  auto list_builder = builder->initAs<::capnp::List<::capnp::Text>>(1);
+  list_builder.set(0, echo.data);
+}
 
 const MessageType EchoMessage::TypeInfo{2, "EchoMessage"};
 
@@ -91,7 +91,7 @@ TEST(Rpc, Call) {
     SumReq req;
     req.Load(req_reader);
     SumRes res(req.x + req.y);
-    res.Save(res_builder);
+    Save(res, res_builder);
   });
   std::this_thread::sleep_for(100ms);
 
@@ -110,7 +110,7 @@ TEST(Rpc, Abort) {
     req.Load(req_reader);
     std::this_thread::sleep_for(500ms);
     SumRes res(req.x + req.y);
-    res.Save(res_builder);
+    Save(res, res_builder);
   });
   std::this_thread::sleep_for(100ms);
 
@@ -140,7 +140,7 @@ TEST(Rpc, ClientPool) {
     req.Load(req_reader);
     std::this_thread::sleep_for(100ms);
     SumRes res(req.x + req.y);
-    res.Save(res_builder);
+    Save(res, res_builder);
   });
   std::this_thread::sleep_for(100ms);
 
@@ -192,7 +192,7 @@ TEST(Rpc, LargeMessage) {
   server.Register<Echo>([](const auto &req_reader, auto *res_builder) {
     EchoMessage res;
     res.Load(req_reader);
-    res.Save(res_builder);
+    Save(res, res_builder);
   });
   std::this_thread::sleep_for(100ms);
 

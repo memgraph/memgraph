@@ -193,13 +193,13 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
       case database::StateDelta::Type::REMOVE_IN_EDGE: {
         UpdateRes res(
             GetUpdates(vertex_updates_, delta.transaction_id).Emplace(delta));
-        res.Save(res_builder);
+        Save(res, res_builder);
         return;
       }
       case DeltaType::SET_PROPERTY_EDGE: {
         UpdateRes res(
             GetUpdates(edge_updates_, delta.transaction_id).Emplace(delta));
-        res.Save(res_builder);
+        Save(res, res_builder);
         return;
       }
       default:
@@ -213,7 +213,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
         UpdateApplyReq req;
         req.Load(req_reader);
         UpdateApplyRes res(Apply(req.member));
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server->Register<CreateVertexRpc>([this](const auto &req_reader,
@@ -225,7 +225,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
                                     req.member.cypher_id);
     CreateVertexRes res(
         CreateResult{UpdateResult::DONE, result.cypher_id, result.gid});
-    res.Save(res_builder);
+    Save(res, res_builder);
   });
 
   server->Register<CreateEdgeRpc>(
@@ -247,7 +247,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
         }
 
         CreateEdgeRes res(creation_result);
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server->Register<AddInEdgeRpc>(
@@ -260,7 +260,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
         auto result =
             GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
         AddInEdgeRes res(result);
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server->Register<RemoveVertexRpc>(
@@ -272,7 +272,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
         auto result =
             GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
         RemoveVertexRes res(result);
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server->Register<RemoveEdgeRpc>(
@@ -280,7 +280,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
         RemoveEdgeReq req;
         req.Load(req_reader);
         RemoveEdgeRes res(RemoveEdge(req.member));
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   server->Register<RemoveInEdgeRpc>([this](const auto &req_reader,
@@ -291,7 +291,7 @@ UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
     RemoveInEdgeRes res(GetUpdates(vertex_updates_, data.tx_id)
                             .Emplace(database::StateDelta::RemoveInEdge(
                                 data.tx_id, data.vertex, data.edge_address)));
-    res.Save(res_builder);
+    Save(res, res_builder);
   });
 }
 

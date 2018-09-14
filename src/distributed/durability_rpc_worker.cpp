@@ -13,7 +13,7 @@ DurabilityRpcWorker::DurabilityRpcWorker(database::Worker *db,
       [this](const auto &req_reader, auto *res_builder) {
         auto dba = db_->Access(req_reader.getMember());
         MakeSnapshotRes res(db_->MakeSnapshot(*dba));
-        res.Save(res_builder);
+        Save(res, res_builder);
       });
 
   rpc_server_->Register<RecoverWalAndIndexesRpc>(

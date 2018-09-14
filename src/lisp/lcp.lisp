@@ -414,10 +414,8 @@ NIL, returns a string."
           (format s "~{  ~%~A~}~%"
                   (mapcar #'member-declaration (cpp-class-members-scoped :public)))))
       (when (cpp-class-capnp-opts cpp-class)
-        (let ((save (capnp-save-declaration cpp-class))
-              (construct (capnp-construct-declaration cpp-class))
+        (let ((construct (capnp-construct-declaration cpp-class))
               (load (capnp-load-declaration cpp-class)))
-          (when save (format s "  ~A;~2%" save))
           (when construct (format s "  ~A;~2%" construct))
           (when load (format s "  ~A;~2%" load))))
       (when (or (cpp-class-protected cpp-class) (cpp-class-members-scoped :protected))
@@ -431,6 +429,24 @@ NIL, returns a string."
         (format s "~{  ~%~A~}~%"
                 (mapcar #'member-declaration (cpp-class-members-scoped :private))))
       (write-line "};" s))))
+
+(defun cpp-function-declaration (name &key args (returns "void") type-params)
+  "Generate a C++ top level function declaration named NAME as a string.  ARGS
+is a list of (variable type) function arguments. RETURNS is the return type of
+the function.  TYPE-PARAMS is a list of names for template argments"
+  (declare (type string name))
+  (declare (type string returns))
+  (let ((template (if type-params (cpp-template type-params) ""))
+        (args (format nil "~:{~A ~A~:^, ~}"
+                      (mapcar (lambda (name-and-type)
+                                (list (cpp-type-name (second name-and-type))
+                                      (cpp-variable-name (first name-and-type))))
+                              args))))
+    (raw-cpp-string
+     #>cpp
+     ${template}
+     ${returns} ${name}(${args})
+     cpp<#)))
 
 (defun cpp-method-declaration (class method-name
                                &key args (returns "void") (inline t) static
@@ -755,54 +771,67 @@ encoded as union inheritance in Cap'n Proto."
 ;;;
 ;;; Algorithm is closely tied with the generated schema (see above).
 ;;;
-;;; 1) Generate the method declaration.
+;;; 1) Generate the function declaration.
+;;;
+;;; We are using top level functions, so that we can easily decouple the
+;;; serialization code from class definitions.  This requires the class to
+;;; have public access to its serializable fields.
 ;;;
 ;;; Two problems arise:
+;;;
 ;;;  * inheritance and
 ;;;  * helper arguments (for tracking pointers or similar).
 ;;;
-;;; The method will always take a pointer to a capnp::<T>::Builder
-;;; class. Additional arguments are optional, and are supplied when declaring
-;;; that the class should be serialized with capnp.
+;;; The function will always take a `const &T` and a pointer to a
+;;; `capnp::<T>::Builder` class.  Additional arguments are optional, and are
+;;; supplied when declaring that the class should be serialized with capnp.
 ;;;
 ;;; To determine the concrete T we need to know whether this class is a
-;;; derived one or is inherited from. If it is, then T needs to be the
-;;; top-most parent that is modeled by union and not composition. (For the
+;;; derived one or is inherited from.  If it is, then T needs to be the
+;;; top-most parent that is modeled by union and not composition.  (For the
 ;;; inheritance modeling problem, refer to the description of schema
-;;; generation.) Obviously, the method now needs to be virtual. If this class
-;;; has no inheritance in any direction, then we just use the class name for
-;;; T prepended with capnp:: namespace.
+;;; generation.)  Since we opted for using top level functions, we cannot use
+;;; virtual call dispatch to get the concrete type.  (We could use the visitor
+;;; pattern, but that introduces the coupling we are avoiding with regular
+;;; functions.)  Therefore, we use dynamic_cast in functions to determine the
+;;; concrete serialization code.  If this class has no inheritance in any
+;;; direction, then we just serialize T to its corresponding capnp::T schema
+;;; type.
 ;;;
 ;;; Helper arguments are obtained from SAVE-ARGS of `CAPNP-OPTS'.
 ;;;
 ;;; 2) Generate parent calls for serialization (if we have parent classes).
 ;;;
-;;; For the first (and only) parent which is modeled through union, generate a
-;;; <Parent>::Save call. The call is passed all of the arguments from out
-;;; function declaration.
+;;; For the first (and only) parent which is modeled through union, generate
+;;; the parent serialization code.  This is done recursively for each union
+;;; parent.  The generated code sees all of the arguments from our function
+;;; declaration.
 ;;;
-;;; Find our own concrete builder by traversing through the union schema of
-;;; the base builder. It is expected (and required) that the parent call has
-;;; initialized them correctly. We just need to initialize the most concrete
-;;; builder.
+;;; Then, find our own concrete builder by traversing through the union schema
+;;; of the base builder.  It is expected (and required) that the parent code
+;;; has initialized them correctly.  We just need to initialize the most
+;;; concrete builder.
 ;;;
-;;; Other parents are required to be modelled through composition. Therefore,
+;;; Other parents are required to be modeled through composition.  Therefore,
 ;;; we generate calls to parents by passing builders for the composed structs.
+;;;
 ;;;     auto parent_builder = builder->initParent();
-;;;     Parent::Save(&parent_builder);
-;;; Any additional helper arguments are also passed to the above call.
+;;;     // Parent Save code
+;;;
+;;; Any additional helper arguments are also visited in the generated code.
 ;;;
 ;;; 3) Generate member serialization.
 ;;;
-;;; For primitive typed member, generate builder->setMember(member_); calls.
+;;; For primitive typed members, generate `builder->setMember(member);` calls.
 ;;;
-;;; For std types, generate hardcoded calls to our wrapper functions. Most of
-;;; these require a lambda function which serializes the element inside the
-;;; std class. This can be done recursively with this step.
+;;; For `std` types, generate hard-coded calls to our wrapper functions.  Most
+;;; of these require a lambda function which serializes the element inside the
+;;; `std` class.  This can be done recursively with this step.
 ;;;
 ;;; For composite types, check whether we have been given a custom save
-;;; invocation. If not, assume that the type has a member function called Save
-;;; which expects a builder for that type and any additional helper arguments.
+;;; invocation.  If not, assume that the type has an accompanying function
+;;; called `Save` which expects an instance of that type and a builder for it,
+;;; as well as any additional helper arguments.
 
 (defun capnp-extra-args (cpp-class save-or-load)
   "Get additional arguments to Save/Load function for CPP-CLASS."
@@ -815,22 +844,25 @@ encoded as union inheritance in Cap'n Proto."
                   (:load (capnp-opts-load-args opts)))
      when args return args))
 
-(defun capnp-save-declaration (cpp-class &key (inline t))
-  "Generate Cap'n Proto save function declaration for CPP-CLASS. If
-INLINE is NIL, the declaration is namespaced for the class so that it can be
-used for outside definition."
+(defun capnp-save-function-declaration (cpp-class)
+  "Generate Cap'n Proto save function declaration for CPP-CLASS."
   (declare (type cpp-class cpp-class))
   (let* ((parents (capnp-union-parents-rec cpp-class))
-         (top-parent-class (if parents
-                               (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
-                               (cpp-type-decl cpp-class :type-args nil :namespace nil)))
+         (top-parent-class
+          (if parents
+              (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
+              (cpp-type-decl cpp-class :type-args nil :namespace nil)))
+         (self-arg
+          (list 'self (format nil "const ~A &"
+                              (cpp-type-decl cpp-class :namespace nil))))
          (builder-arg
           (list (if parents 'base-builder 'builder)
                 (format nil "capnp::~A::Builder *" top-parent-class))))
-    (cpp-method-declaration
-     cpp-class "Save" :args (cons builder-arg (capnp-extra-args cpp-class :save))
-     :virtual (and (not parents) (capnp-union-subclasses cpp-class))
-     :const t :override parents :inline inline)))
+    (cpp-function-declaration
+     "Save"
+     :args (cons self-arg
+                 (cons builder-arg (capnp-extra-args cpp-class :save)))
+     :type-params (cpp-type-type-params cpp-class))))
 
 (defun capnp-cpp-type<-cpp-type (cpp-type &key boxp)
   (declare (type cpp-type cpp-type))
@@ -852,9 +884,12 @@ used for outside definition."
                    :name name :namespace namespace
                    :enclosing-class (cpp-type-enclosing-class cpp-type))))
 
-(defun capnp-save-default (member-name member-type member-builder)
-  "Generate the default call to save for member."
-  (declare (type string member-name member-type member-builder))
+(defun capnp-save-default (member-name member-type member-builder capnp-name)
+  "Generate the default call to save for member.  MEMBER-NAME and MEMBER-TYPE
+are strings describing the member being serialized.  MEMBER-BUILDER is the
+name of the builder variable.  CAPNP-NAME is the name of the member in Cap'n
+Proto schema."
+  (declare (type string member-name member-type member-builder capnp-name))
   (let* ((type (parse-cpp-type-declaration member-type))
          (type-name (cpp-type-base-name type))
          (cpp-enum (find-cpp-enum member-type)))
@@ -862,8 +897,8 @@ used for outside definition."
       (cpp-enum
        (funcall
         (capnp-save-enum (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))
-                         member-type (cpp-enum-values cpp-enum))
-        member-builder member-name))
+                         (cpp-type-decl cpp-enum) (cpp-enum-values cpp-enum))
+        member-builder member-name capnp-name))
       ((string= "vector" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
@@ -874,7 +909,7 @@ used for outside definition."
               cpp<#)
              (raw-cpp-string
               (funcall (capnp-save-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
-                       member-builder member-name)))))
+                       member-builder member-name capnp-name)))))
       ((string= "optional" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t))
@@ -883,7 +918,7 @@ used for outside definition."
          (raw-cpp-string
           (funcall (capnp-save-optional
                     (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type) lambda-code)
-                   member-builder member-name))))
+                   member-builder member-name capnp-name))))
       ((member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
        (error "Use a custom :capnp-save function for ~A ~A" type-name member-name))
       (t
@@ -892,28 +927,67 @@ used for outside definition."
                             (mapcar (lambda (name-and-type)
                                       (cpp-variable-name (first name-and-type)))
                                     (capnp-extra-args cpp-class :save)))))
-         (format nil "~A.Save(&~A~{, ~A~});"
+         (format nil "Save(~A, &~A~{, ~A~});"
                  member-name member-builder extra-args))))))
 
-(defun capnp-save-code (cpp-class)
-  "Generate Cap'n Proto saving code for CPP-CLASS"
+(defun capnp-save-members (cpp-class &key instance-access)
+  "Generate Cap'n Proto saving code for members of CPP-CLASS.  INSTANCE-ACCESS
+  is a C++ string which is prefixed to member access.  For example,
+  INSTANCE-ACCESS could be `my_struct->`"
   (declare (type cpp-class cpp-class))
+  (declare (type string instance-access))
   (with-output-to-string (s)
-    (format s "~A {~%" (capnp-save-declaration cpp-class :inline nil))
-    (flet ((parent-args (parent)
-             (mapcar (lambda (name-and-type)
-                       (cpp-variable-name (first name-and-type)))
-                     (capnp-extra-args (find-cpp-class parent) :save))))
-      (multiple-value-bind (direct-union-parents compose-parents)
-          (capnp-union-and-compose-parents cpp-class)
-        (declare (ignore direct-union-parents))
-        ;; Handle the union inheritance calls first.
-        (let ((parents (capnp-union-parents-rec cpp-class)))
-          (when parents
-            (let ((first-parent (first parents)))
-              (format s " ~A::Save(base_builder~{, ~A~});~%"
-                      (cpp-type-name first-parent) (parent-args first-parent)))
-            (if (or compose-parents (cpp-class-members cpp-class))
+    (dolist (member (cpp-class-members cpp-class))
+      (unless (eq :dont-save (cpp-member-capnp-save member))
+        (let ((member-access
+               (concatenate 'string instance-access
+                            (if (eq :public (cpp-member-scope member))
+                                (cpp-member-name member :struct (cpp-class-structp cpp-class))
+                                (format nil "~A()" (cpp-member-name member :struct t)))))
+              (member-builder (format nil "~A_builder" (cpp-member-name member :struct t)))
+              (capnp-name (cpp-type-name (cpp-member-symbol member))))
+          (cond
+            ((and (not (cpp-member-capnp-save member))
+                  (capnp-primitive-type-p (capnp-type-of-member member)))
+             (format s "  builder->set~A(~A);~%" capnp-name member-access))
+            (t
+             (write-line "{" s) ;; Enclose larger save code in new scope
+             (let ((size (if (string= "vector" (cpp-type-base-name
+                                                (parse-cpp-type-declaration
+                                                 (cpp-member-type member))))
+                             (format nil "~A.size()" member-access)
+                             "")))
+               (if (and (cpp-member-capnp-init member)
+                        (not (find-cpp-enum (cpp-member-type member))))
+                   (format s "  auto ~A = builder->init~A(~A);~%"
+                           member-builder capnp-name size)
+                   (setf member-builder "builder")))
+             (if (cpp-member-capnp-save member)
+                 (format s "  ~A~%"
+                         (cpp-code (funcall (cpp-member-capnp-save member)
+                                            member-builder member-access capnp-name)))
+                 (write-line (capnp-save-default member-access (cpp-member-type member)
+                                                 member-builder capnp-name)
+                             s))
+             (write-line "}" s))))))))
+
+(defun capnp-save-parents (cpp-class save-parent)
+  "Generate Cap'n Proto code for serializing parent classes of CPP-CLASS.
+SAVE-PARENT is a function which generates the code for serializing a parent.
+It takes a parent class symbol."
+  (declare (type cpp-class cpp-class))
+  (declare (type (function (symbol) string) save-parent))
+  (multiple-value-bind (direct-union-parents compose-parents)
+      (capnp-union-and-compose-parents cpp-class)
+    (declare (ignore direct-union-parents))
+    ;; Handle the union inheritance calls first.
+    (with-output-to-string (s)
+      (let ((parents (capnp-union-parents-rec cpp-class)))
+        (when parents
+          (let ((first-parent (first parents)))
+            (write-line
+             (funcall save-parent first-parent) s))
+          (if (or compose-parents (cpp-class-members cpp-class))
               (progn
                 (format s "  auto ~A_builder = base_builder->~{get~A().~}init~A();~%"
                         (cpp-variable-name (cpp-type-base-name cpp-class))
@@ -924,57 +998,93 @@ used for outside definition."
               (format s "  base_builder->~{get~A().~}init~A();~%"
                       (mapcar #'cpp-type-name (cdr (reverse parents)))
                       (cpp-type-name cpp-class)))
-            (when (capnp-union-subclasses cpp-class)
-              ;; We are in the middle of inheritance hierarchy, so set our
-              ;; union Void field.
-              (format s "  builder->set~A();" (cpp-type-name cpp-class)))))
-        ;; Now handle composite inheritance calls.
-        (dolist (parent compose-parents)
-          (write-line "{" s)
-          (format s "  auto ~A_builder = builder->init~A();~%"
-                  (cpp-variable-name parent) (cpp-type-name parent))
-          (format s " ~A::Save(&~A_builder~{, ~A~});~%"
-                  (cpp-type-name parent) (cpp-variable-name parent) (parent-args parent))
-          (write-line "}" s))))
-    ;; Set the template instantiations
-    (when (and (capnp-opts-type-args (cpp-class-capnp-opts cpp-class))
-               (/= 1 (list-length (cpp-type-type-params cpp-class))))
-      (error "Don't know how to save templated class ~A" (cpp-type-base-name cpp-class)))
-    (let ((type-param (first (cpp-type-type-params cpp-class))))
-      (dolist (type-arg (capnp-opts-type-args (cpp-class-capnp-opts cpp-class)))
-        (format s "  if (std::is_same<~A, ~A>::value) { builder->set~A(); }"
-                (cpp-type-name type-arg) (cpp-type-name type-param) (cpp-type-name type-arg))))
-    (dolist (member (cpp-class-members cpp-class))
-      (unless (eq :dont-save (cpp-member-capnp-save member))
-        (let ((member-name (cpp-member-name member :struct (cpp-class-structp cpp-class)))
-              (member-builder (format nil "~A_builder" (cpp-member-name member :struct t)))
-              (capnp-name (cpp-type-name (cpp-member-symbol member))))
-          (cond
-            ((and (not (cpp-member-capnp-save member))
-                  (capnp-primitive-type-p (capnp-type-of-member member)))
-             (format s "  builder->set~A(~A);~%" capnp-name member-name))
-            (t
-             (write-line "{" s) ;; Enclose larger save code in new scope
-             (let ((size (if (string= "vector" (cpp-type-base-name
-                                                (parse-cpp-type-declaration
-                                                 (cpp-member-type member))))
-                             (format nil "~A.size()" member-name)
-                             "")))
-               (if (and (cpp-member-capnp-init member)
-                        (not (find-cpp-enum (cpp-member-type member))))
-                   (format s "  auto ~A = builder->init~A(~A);~%"
-                           member-builder capnp-name size)
-                   (setf member-builder "builder")))
-             (if (cpp-member-capnp-save member)
-                 (format s "  ~A~%"
-                         (cpp-code (funcall (cpp-member-capnp-save member)
-                                            member-builder member-name)))
-                 (write-line (capnp-save-default member-name
-                                                 (cpp-member-type member)
-                                                 member-builder)
-                             s))
-             (write-line "}" s))))))
-    (write-line "}" s)))
+          (when (capnp-union-subclasses cpp-class)
+            ;; We are in the middle of inheritance hierarchy, so set our
+            ;; union Void field.
+            (format s "  builder->set~A();" (cpp-type-name cpp-class)))))
+      ;; Now handle composite inheritance calls.
+      (dolist (parent compose-parents)
+        (write-line "{" s)
+        (let* ((builder (format nil "~A_builder" (cpp-variable-name parent))))
+          (format s "  auto ~A = builder->init~A();~%" builder (cpp-type-name parent))
+          (format s "  auto *builder = &~A;~%" builder)
+          (write-line (funcall save-parent parent) s))
+        (write-line "}" s)))))
+
+(defun capnp-save-function-code (cpp-class)
+  "Generate Cap'n Proto save code for CPP-CLASS."
+  (declare (type cpp-class cpp-class))
+  (labels ((save-class (cpp-class cpp-out)
+             "Output the serialization code for members of this and parent class."
+             (write-line (capnp-save-parents cpp-class #'save-parent) cpp-out)
+             ;; Set the template instantiations
+             (when (and (capnp-opts-type-args (cpp-class-capnp-opts cpp-class))
+                        (/= 1 (list-length (cpp-type-type-params cpp-class))))
+               (error "Don't know how to save templated class ~A" (cpp-type-base-name cpp-class)))
+             (let ((type-param (first (mapcar #'cpp-type-name (cpp-type-type-params cpp-class)))))
+               (dolist (type-arg (mapcar #'cpp-type-name
+                                         (capnp-opts-type-args (cpp-class-capnp-opts cpp-class))))
+                 (write-string
+                  (raw-cpp-string
+                   #>cpp
+                   if (std::is_same<${type-arg}, ${type-param}>::value) {
+                   builder->set${type-arg}();
+                   }
+                   cpp<#)
+                  cpp-out)))
+             (write-line (capnp-save-members cpp-class :instance-access "self.") cpp-out))
+           (save-parent (parent)
+             "Generate serialization code for parent class."
+             (let ((cpp-class (find-cpp-class parent)))
+               (with-output-to-string (s)
+                 (write-line "{" s)
+                 (format s "// Save base class ~A~%" (cpp-type-name parent))
+                 (save-class cpp-class s)
+                 (write-line "}" s)))))
+    (with-output-to-string (cpp-out)
+      (let ((subclasses (direct-subclasses-of cpp-class)))
+        (when subclasses
+          (write-line "// Forward serialization to most derived type" cpp-out)
+          (dolist (subclass subclasses)
+            (let ((derived-name (cpp-type-name subclass))
+                  (save-args
+                   (format nil "~A~{, ~A~}"
+                           (if (capnp-union-parents-rec cpp-class)
+                               "base_builder"
+                               "builder")
+                           (mapcar (lambda (name-and-type)
+                                     (cpp-variable-name (first name-and-type)))
+                                   (capnp-extra-args cpp-class :save))))
+                  (type-args (capnp-opts-type-args (cpp-class-capnp-opts subclass))))
+              (if type-args
+                  ;; Handle template instantiation
+                  (dolist (type-arg (mapcar #'cpp-type-name type-args))
+                    (write-string
+                     (raw-cpp-string
+                      #>cpp
+                      if (const auto *derived = dynamic_cast<const ${derived-name}<${type-arg}> *>(&self)) {
+                      return Save(*derived, ${save-args});
+                      }
+                      cpp<#)
+                     cpp-out))
+                  ;; Just forward the serialization normally.
+                  (write-string
+                   (raw-cpp-string
+                    #>cpp
+                    if (const auto *derived = dynamic_cast<const ${derived-name} *>(&self)) {
+                    return Save(*derived, ${save-args});
+                    }
+                    cpp<#)
+                   cpp-out))))))
+      (save-class cpp-class cpp-out))))
+
+(defun capnp-save-function-definition (cpp-class)
+  "Generate Cap'n Proto save function."
+  (declare (type cpp-class cpp-class))
+  (with-output-to-string (cpp-out)
+    (format cpp-out "~A {~%" (capnp-save-function-declaration cpp-class))
+    (write-line (capnp-save-function-code cpp-class) cpp-out)
+    (write-line "}" cpp-out)))
 
 ;;; Capnp C++ deserialization code generation
 ;;;
@@ -1188,10 +1298,16 @@ are passed as template parameters, while the optional LAMBDA-CODE is used to
 save the value inside the std::optional."
   (declare (type string capnp-type cpp-type)
            (type (or null string) lambda-code))
-  (let ((lambda-code (if lambda-code
+  ;; TODO: Try using `capnp-save-default'
+  (let* ((namespace (format nil "~{~A::~}"
+                            (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+         (lambda-code (if lambda-code
                          lambda-code
-                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
-    (lambda (builder member)
+                         (format nil
+                                 "[](auto *builder, const auto &val) { ~ASave(val, builder); }"
+                                 namespace))))
+    (lambda (builder member capnp-name)
+      (declare (ignore capnp-name))
       #>cpp
       utils::SaveOptional<${capnp-type}, ${cpp-type}>(${member}, &${builder}, ${lambda-code});
       cpp<#)))
@@ -1218,10 +1334,16 @@ are passed as template parameters, while LAMBDA-CODE is used to save each
 element."
   (declare (type string capnp-type cpp-type)
            (type (or null string) lambda-code))
-  (let ((lambda-code (if lambda-code
+  ;; TODO: Why not use our `capnp-save-default' for this?
+  (let* ((namespace (format nil "~{~A::~}"
+                           (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+        (lambda-code (if lambda-code
                          lambda-code
-                         "[](auto *builder, const auto &val) { val.Save(builder); }")))
-    (lambda (builder member-name)
+                         (format nil
+                                 "[](auto *builder, const auto &val) { ~ASave(val, builder); }"
+                                 namespace))))
+    (lambda (builder member-name capnp-name)
+      (declare (ignore capnp-name))
       #>cpp
       utils::SaveVector<${capnp-type}, ${cpp-type}>(${member-name}, &${builder}, ${lambda-code});
       cpp<#)))
@@ -1248,16 +1370,15 @@ the values to CAPNP-TYPE. If ENUM-VALUES are not specified, tries to find the
 CPP-TYPE among defined enums."
   (declare (type string capnp-type)
            (type (or symbol string) cpp-type))
-  (lambda (builder member)
+  (lambda (builder member capnp-name)
     (let* ((enum-values (if enum-values
                             enum-values
                             (cpp-enum-values (find-cpp-enum cpp-type))))
-           (member-setter (remove #\_ (string-capitalize member)))
            (cases (mapcar (lambda (value-symbol)
                             (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
                               #>cpp
                               case ${cpp-type}::${value}:
-                                ${builder}->set${member-setter}(${capnp-type}::${value});
+                                ${builder}->set${capnp-name}(${capnp-type}::${value});
                                 break;
                               cpp<#))
                           enum-values)))
@@ -1542,6 +1663,41 @@ formatted and output."
                  (count-newlines in-stream
                                  :stop-position (1+ stream-pos))))))))
 
+(defun call-with-namespaced-output (out fun)
+  "Invoke FUN with a function for opening C++ namespaces.  The function takes
+care to write namespaces to OUT without redundantly opening already open
+namespaces."
+  (declare (type stream out))
+  (declare (type (function (function)) fun))
+  (let (open-namespaces)
+    (funcall fun (lambda (namespaces)
+                   ;; Check if we need to open or close namespaces
+                   (loop for namespace in namespaces
+                      with unmatched = open-namespaces do
+                        (if (string= namespace (car unmatched))
+                            (setf unmatched (cdr unmatched))
+                            (progn
+                              (dolist (to-close unmatched)
+                                (declare (ignore to-close))
+                                (format out "~%}"))
+                              (format out "namespace ~A {~2%" namespace))))
+                   (setf open-namespaces namespaces)))
+    ;; Close remaining namespaces
+    (dolist (to-close open-namespaces)
+      (declare (ignore to-close))
+      (format out "~%}"))))
+
+(defmacro with-namespaced-output ((out open-namespace-fun) &body body)
+  "Use `CALL-WITH-NAMESPACED-OUTPUT' more conveniently by executing BODY in a
+context which binds OPEN-NAMESPACE-FUN function for opening namespaces."
+  (let ((open-namespace (gensym)))
+    `(call-with-namespaced-output
+      ,out
+      (lambda (,open-namespace)
+        (flet ((,open-namespace-fun (namespaces)
+                 (funcall ,open-namespace namespaces)))
+          ,@body)))))
+
 (defun generate-capnp (cpp-types &key capnp-file capnp-id cpp-out lcp-file)
   "Generate Cap'n Proto serialization code for given CPP-TYPES.  The schema
 is written to CAPNP-FILE using the CAPNP-ID.  The C++ serialization code is
@@ -1568,31 +1724,17 @@ code generation."
   ;; Now generate the save/load C++ code in the cpp file.
   (write-line "// Autogenerated Cap'n Proto serialization code" cpp-out)
   (write-line "#include \"utils/serialization.hpp\"" cpp-out)
-  (let (open-namespaces)
+  (with-namespaced-output (cpp-out open-namespace)
     (dolist (cpp-class (remove-if (lambda (cpp-type) (not (typep cpp-type 'cpp-class))) cpp-types))
-      ;; Check if we need to open or close namespaces
-      (loop for namespace in (cpp-type-namespace cpp-class)
-         with unmatched = open-namespaces do
-           (if (string= namespace (car unmatched))
-               (setf unmatched (cdr unmatched))
-               (progn
-                 (dolist (to-close unmatched)
-                   (declare (ignore to-close))
-                   (format cpp-out "~%}"))
-                 (format cpp-out "namespace ~A {~2%" namespace))))
-      (setf open-namespaces (cpp-type-namespace cpp-class))
-      ;; Output the serialization code
+      (open-namespace (cpp-type-namespace cpp-class))
       (format cpp-out "// Serialize code for ~A~2%" (cpp-type-name cpp-class))
-      (let ((save-code (capnp-save-code cpp-class))
-            (construct-code (capnp-construct-code cpp-class))
+      ;; Top level functions
+      (write-line (capnp-save-function-definition cpp-class) cpp-out)
+      ;; Member functions
+      (let ((construct-code (capnp-construct-code cpp-class))
             (load-code (capnp-load-code cpp-class)))
-        (when save-code (write-line save-code cpp-out))
         (when construct-code (write-line construct-code cpp-out))
-        (when load-code (write-line load-code cpp-out))))
-    ;; Close remaining namespaces
-    (dolist (to-close open-namespaces)
-      (declare (ignore to-close))
-      (format cpp-out "~%}"))))
+        (when load-code (write-line load-code cpp-out))))))
 
 (defun process-file (lcp-file &key capnp-id capnp-declaration)
   "Process a LCP-FILE and write the output to .hpp file in the same directory.
@@ -1630,10 +1772,19 @@ file."
           (write-line (cpp-code res) out)))
       (when *cpp-namespaces*
         (error "Unclosed namespaces: ~A" (reverse *cpp-namespaces*)))
-      ;; If we have a capnp-id, generate the schema
+      ;; If we have a capnp-id, generate the schema and serialization code
       (let ((types-for-capnp (when capnp-id
                                (append (remove-if (complement #'cpp-class-capnp-opts) *cpp-classes*)
                                        (remove-if (complement #'cpp-enum-capnp-schema) *cpp-enums*)))))
+        ;; Append top-level declarations for Cap'n Proto serialization
+        (with-open-file (out hpp-file :direction :output :if-exists :append)
+          (terpri out)
+          (write-line "// Cap'n Proto serialization declarations" out)
+          (with-namespaced-output (out open-namespace)
+            (dolist (type-for-capnp types-for-capnp)
+              (when (typep type-for-capnp 'cpp-class)
+                (open-namespace (cpp-type-namespace type-for-capnp))
+                (format out "~A;~%" (capnp-save-function-declaration type-for-capnp))))))
         ;; When we have either capnp or C++ code for the .cpp file, generate the .cpp file
         (when (or *cpp-impl* types-for-capnp)
           (with-open-file (out cpp-file :direction :output :if-exists :supersede)
@@ -1642,27 +1793,11 @@ file."
                     (file-namestring lcp-file))
             (format out "#include \"~A\"~2%" (file-namestring hpp-file))
             ;; First output the C++ code from the user
-            (let (open-namespaces)
+            (with-namespaced-output (out open-namespace)
               (dolist (cpp *cpp-impl*)
                 (destructuring-bind (namespaces . code) cpp
-                  ;; Check if we need to open or close namespaces
-                  (loop for namespace in namespaces
-                     with unmatched = open-namespaces do
-                       (if (string= namespace (car unmatched))
-                           (setf unmatched (cdr unmatched))
-                           (progn
-                             (dolist (to-close unmatched)
-                               (declare (ignore to-close))
-                               (format out "~%}"))
-                             (format out "namespace ~A {~2%" namespace))))
-                  (setf open-namespaces namespaces)
-                  ;; Output the code
-                  (write-line (cpp-code code) out)))
-              ;; Close remaining namespaces
-              (dolist (to-close open-namespaces)
-                (declare (ignore to-close))
-                (format out "~%}")))
-            ;; Now output the capnp code
+                  (open-namespace namespaces)
+                  (write-line (cpp-code code) out))))
             (when types-for-capnp
               (generate-capnp types-for-capnp :capnp-file capnp-file :capnp-id capnp-id
                               :cpp-out out :lcp-file lcp-file))))))))

@@ -387,7 +387,7 @@ rpc_server.Register<QueryResultRpc>(
       request.Load(req_reader);
       // process the request and send the response
       QueryResultRes response(values_for_response);
-      response.Save(res_builder);
+      Save(response, res_builder);
     });
 
 
@@ -428,13 +428,18 @@ For example:
 
 `:serialize` option will generate a Cap'n Proto schema of the class and store
 it in the `.capnp` file. C++ code will be generated for saving and loading
-members and the class will get 2 public methods:
+members:
 
 ```cpp
-void Save(capnp::MyClass::Builder *builder) const;
+// Top level function
+void Save(const MyClass &instance, capnp::MyClass::Builder *builder);
 
-void Load(const capnp::MyClass::Reader &reader);
+// Member function
+void MyClass::Load(const capnp::MyClass::Reader &reader);
 ```
+
+Since we use top level functions, the class needs to have some sort of public
+access to its members.
 
 The schema file will be namespaced in `capnp`. To change add a prefix
 namespace use `lcp:capnp-namespace` function. For example, if we use
@@ -463,11 +468,13 @@ base class. And a `Construct` function is added which will instantiate a
 concrete type from a base reader.
 
 ```cpp
-virtual void Save(capnp::Base *builder) const;
+void Save(const Derived &derived, capnp::Base *builder);
 
-static std::unique_ptr<Base> Construct(const capnp::Base &reader);
+class Derived {
+  ...
+  static std::unique_ptr<Base> Construct(const capnp::Base &reader);
 
-virtual void Load(const capnp::Base &reader);
+  virtual void Load(const capnp::Base &reader);
 ```
 
 With polymorphic types, you need to call `Base::Construct` followed by `Load`.
@@ -596,9 +603,17 @@ you to delay the initialization to your custom save code. You rarely want to
 set `:capnp-init nil`.
 
 Custom save code is added as a value of `:capnp-save`. It should be a function
-which takes 2 arguments: builder and member. Both are character strings which
-represent the variable names that will be in generated for C++ code. The
-result of the function needs to be a C++ code block.
+which takes 3 arguments.
+
+  1. Name of builder variable.
+  2. Name of the class (or struct) member.
+  3. Name of the member in Cap'n Proto schema.
+
+The result of the function needs to be a C++ code block.
+
+You will rarely need to use the 3rd argument, so it should be ignored in most
+cases. It is usually needed when you set `:capnp-init nil`, so that you can
+correctly initialize the builder.
 
 Similarly, `:capnp-load` expects a function taking a reader and a member, then
 returns a C++ block.
@@ -609,10 +624,10 @@ Example:
 (lcp:define-class my-class ()
   ((my-member "ComplexType"
               :capnp-init nil
-              :capnp-save (lambda (builder member)
+              :capnp-save (lambda (builder member capnp-name)
                             #>cpp
                             auto data = ${member}.GetSaveData();
-                            auto my_builder = ${builder}.initMyMember();
+                            auto my_builder = ${builder}.init${capnp-name}();
                             my_builder.setData(data);
                             cpp<#)
               :capnp-load (lambda (reader member)
@@ -667,7 +682,7 @@ The custom serialization code will now have access to `save_helper` and
 list of pairs, e.g.
 
 ```lisp
-:capnp-save '((first-helper "SomeType *") (second-helper "OtherType *") ...)
+:save-args '((first-helper "SomeType *") (second-helper "OtherType *") ...)
 ```
 
 #### Custom Serialization Helper Functions

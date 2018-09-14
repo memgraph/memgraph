@@ -23,7 +23,7 @@ std::pair<std::unique_ptr<LogicalOperator>, AstStorage> Clone(
   {
     auto builder = message.initRoot<query::plan::capnp::LogicalOperator>();
     LogicalOperator::SaveHelper helper;
-    original_plan.Save(&builder, &helper);
+    Save(original_plan, &builder, &helper);
   }
   auto reader = message.getRoot<query::plan::capnp::LogicalOperator>();
   auto plan_copy = LogicalOperator::Construct(reader);

@@ -60,7 +60,7 @@ class Client {
       auto req_builder =
           data_builder
               .template initAs<typename TRequestResponse::Request::Capnp>();
-      request.Save(&req_builder);
+      Save(request, &req_builder);
     }
     auto response = Send(&req_msg);
     auto res_msg = response.getRoot<capnp::Message>();

@@ -52,7 +52,8 @@ cpp<#
     (:request ((subcursor-ids "std::unordered_map<int16_t, int64_t>"
                               :capnp-type "Utils.Map(Utils.BoxInt16, Utils.BoxInt64)"
                               :capnp-save
-                              (lambda (builder member)
+                              (lambda (builder member capnp-name)
+                                (declare (ignore capnp-name))
                                 #>cpp
                                 utils::SaveMap<utils::capnp::BoxInt16, utils::capnp::BoxInt64>(
                                     ${member}, &${builder},

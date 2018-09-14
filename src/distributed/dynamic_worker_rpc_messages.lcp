@@ -20,7 +20,8 @@ cpp<#
      ((recover-indices "std::vector<std::pair<std::string, std::string>>"
                       :capnp-type "List(Utils.Pair(Text, Text))"
                       :capnp-save
-                      (lambda (builder member)
+                      (lambda (builder member capnp-name)
+                        (declare (ignore capnp-name))
                         #>cpp
                         utils::SaveVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
                                           std::pair<std::string, std::string>>(

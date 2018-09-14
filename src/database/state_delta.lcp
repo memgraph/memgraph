@@ -53,7 +53,8 @@ cpp<#
    (value "PropertyValue" :initval "PropertyValue::Null"
           :capnp-type "Storage.PropertyValue"
           :capnp-save
-          (lambda (builder member)
+          (lambda (builder member capnp-name)
+            (declare (ignore capnp-name))
             #>cpp
             storage::SaveCapnpPropertyValue(${member}, &${builder});
             cpp<#)

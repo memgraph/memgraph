@@ -53,6 +53,9 @@ class TypedValueVectorCompare final {
   std::vector<Ordering> ordering_;
 };
 
+void Save(const TypedValueVectorCompare &comparator,
+          capnp::TypedValueVectorCompare::Builder *builder);
+
 /// Switch the given [Vertex/Edge]Accessor to the desired state.
 template <class TAccessor>
 void SwitchAccessor(TAccessor &accessor, GraphView graph_view);

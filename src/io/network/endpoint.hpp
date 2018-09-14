@@ -27,7 +27,6 @@ class Endpoint {
   bool operator==(const Endpoint &other) const;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
-  void Save(capnp::Endpoint::Builder *builder) const;
   void Load(const capnp::Endpoint::Reader &reader);
 
  private:
@@ -35,5 +34,7 @@ class Endpoint {
   uint16_t port_{0};
   unsigned char family_{0};
 };
+
+void Save(const Endpoint &endpoint, capnp::Endpoint::Builder *builder);
 
 }  // namespace io::network
