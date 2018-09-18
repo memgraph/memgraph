@@ -990,7 +990,6 @@ Worker::Worker(Config config)
   // Durability recovery. We need to check this flag for workers that are added
   // after the "main" cluster recovery.
   if (impl_->config_.db_recover_on_startup) {
-    // What we should recover.
     // What we should recover (version, transaction_id) pair.
     auto snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
 

@@ -52,6 +52,8 @@ src/distributed/data_rpc_messages.capnp
 src/distributed/data_rpc_messages.hpp
 src/distributed/durability_rpc_messages.capnp
 src/distributed/durability_rpc_messages.hpp
+src/distributed/dynamic_worker_rpc_messages.capnp
+src/distributed/dynamic_worker_rpc_messages.hpp
 src/distributed/index_rpc_messages.capnp
 src/distributed/index_rpc_messages.hpp
 src/distributed/plan_rpc_messages.capnp
