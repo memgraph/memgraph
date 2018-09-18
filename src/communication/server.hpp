@@ -98,11 +98,14 @@ class Server final {
     alive_.store(false);
     // Shutdown the socket to return from any waiting `Accept` calls.
     socket_.Shutdown();
+    // Shutdown the listener.
+    listener_.Shutdown();
   }
 
   /// Waits for the server to be signaled to shutdown
   void AwaitShutdown() {
     if (thread_.joinable()) thread_.join();
+    listener_.AwaitShutdown();
   }
 
  private:

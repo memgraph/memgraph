@@ -85,11 +85,8 @@ class Listener final {
   }
 
   ~Listener() {
-    alive_.store(false);
-    if (timeout_thread_.joinable()) timeout_thread_.join();
-    for (auto &worker_thread : worker_threads_) {
-      worker_thread.join();
-    }
+    Shutdown();
+    AwaitShutdown();
   }
 
   Listener(const Listener &) = delete;
@@ -120,6 +117,22 @@ class Listener final {
     // https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
     epoll_.Add(fd, EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLONESHOT,
                sessions_.back().get());
+  }
+
+  /**
+   * This function starts a graceful shutdown of the listener.
+   */
+  void Shutdown() { alive_.store(false); }
+
+  /**
+   * This function blocks the calling thread until the listener shutdown is
+   * complete.
+   */
+  void AwaitShutdown() {
+    if (timeout_thread_.joinable()) timeout_thread_.join();
+    for (auto &worker_thread : worker_threads_) {
+      if (worker_thread.joinable()) worker_thread.join();
+    }
   }
 
  private:
