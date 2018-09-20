@@ -18,7 +18,7 @@ utils::Future<PullData> PullRpcClients::Pull(
   ](int worker_id, ClientPool &client_pool) {
     auto load_pull_res = [data_manager, dba](const auto &res_reader) {
       PullRes res;
-      res.Load(res_reader, dba, data_manager);
+      Load(&res, res_reader, dba, data_manager);
       return res;
     };
     auto result = client_pool.CallWithLoad<PullRpc>(

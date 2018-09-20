@@ -33,40 +33,13 @@ class Symbol {
   }
   bool operator!=(const Symbol &other) const { return !operator==(other); }
 
+  // TODO: Remove these since members are public
   const auto &name() const { return name_; }
   int position() const { return position_; }
   Type type() const { return type_; }
   bool user_declared() const { return user_declared_; }
   int token_position() const { return token_position_; }
 
-  void Load(const capnp::Symbol::Reader &reader) {
-    name_ = reader.getName();
-    position_ = reader.getPosition();
-    user_declared_ = reader.getUserDeclared();
-    token_position_ = reader.getTokenPosition();
-    switch (reader.getType()) {
-      case capnp::Symbol::Type::ANY:
-        type_ = Type::Any;
-        break;
-      case capnp::Symbol::Type::EDGE:
-        type_ = Type::Edge;
-        break;
-      case capnp::Symbol::Type::EDGE_LIST:
-        type_ = Type::EdgeList;
-        break;
-      case capnp::Symbol::Type::NUMBER:
-        type_ = Type::Number;
-        break;
-      case capnp::Symbol::Type::PATH:
-        type_ = Type::Path;
-        break;
-      case capnp::Symbol::Type::VERTEX:
-        type_ = Type::Vertex;
-        break;
-    }
-  }
-
- private:
   std::string name_;
   int position_;
   bool user_declared_ = true;
@@ -97,6 +70,33 @@ inline void Save(const Symbol &symbol, capnp::Symbol::Builder *builder) {
       break;
     case Symbol::Type::Vertex:
       builder->setType(capnp::Symbol::Type::VERTEX);
+      break;
+  }
+}
+
+inline void Load(Symbol *symbol, const capnp::Symbol::Reader &reader) {
+  symbol->name_ = reader.getName();
+  symbol->position_ = reader.getPosition();
+  symbol->user_declared_ = reader.getUserDeclared();
+  symbol->token_position_ = reader.getTokenPosition();
+  switch (reader.getType()) {
+    case capnp::Symbol::Type::ANY:
+      symbol->type_ = Symbol::Type::Any;
+      break;
+    case capnp::Symbol::Type::EDGE:
+      symbol->type_ = Symbol::Type::Edge;
+      break;
+    case capnp::Symbol::Type::EDGE_LIST:
+      symbol->type_ = Symbol::Type::EdgeList;
+      break;
+    case capnp::Symbol::Type::NUMBER:
+      symbol->type_ = Symbol::Type::Number;
+      break;
+    case capnp::Symbol::Type::PATH:
+      symbol->type_ = Symbol::Type::Path;
+      break;
+    case capnp::Symbol::Type::VERTEX:
+      symbol->type_ = Symbol::Type::Vertex;
       break;
   }
 }

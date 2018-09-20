@@ -15,7 +15,7 @@ ClusterDiscoveryWorker::ClusterDiscoveryWorker(
   server_.Register<ClusterDiscoveryRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ClusterDiscoveryReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         this->coordination_.RegisterWorker(req.worker_id, req.endpoint);
       });
 }

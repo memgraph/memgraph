@@ -44,7 +44,7 @@ int main(int argc, char *argv[]) {
   server.Register<stats::StatsRpc>(
       [&](const auto &req_reader, auto *res_builder) {
         stats::StatsReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         LOG(INFO) << "StatsRpc::Received";
         std::string data = GraphiteFormat(req);
         graphite_socket.Write(data);
@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
       [&](const auto &req_reader, auto *res_builder) {
         // TODO(mtomic): batching?
         stats::BatchStatsReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         LOG(INFO) << fmt::format("BatchStatsRpc::Received: {}",
                                  req.requests.size());
         for (size_t i = 0; i < req.requests.size(); ++i) {

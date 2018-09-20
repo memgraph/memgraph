@@ -19,7 +19,7 @@ DurabilityRpcWorker::DurabilityRpcWorker(database::Worker *db,
   rpc_server_->Register<RecoverWalAndIndexesRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         durability::RecoveryData recovery_data;
-        recovery_data.Load(req_reader.getMember());
+        durability::Load(&recovery_data, req_reader.getMember());
         this->db_->RecoverWalAndIndexes(&recovery_data);
       });
 }

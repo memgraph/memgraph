@@ -115,9 +115,9 @@ add_capnp(distributed/updates_rpc_messages.capnp)
 add_lcp(distributed/dynamic_worker_rpc_messages.lcp CAPNP_SCHEMA @0x8c53f6c9a0c71b05)
 add_capnp(distributed/dynamic_worker_rpc_messages.capnp)
 
-# distributed_ops.lcp is leading the capnp code generation, so we only want
-# function declarations in generated operator.hpp
-add_lcp(query/plan/operator.lcp CAPNP_DECLARATION)
+# distributed_ops.lcp is leading the capnp code generation, so we don't need
+# to generate any capnp for operator.lcp
+add_lcp(query/plan/operator.lcp)
 add_lcp(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
         DEPENDS query/plan/operator.lcp)
 add_capnp(query/plan/distributed_ops.capnp)

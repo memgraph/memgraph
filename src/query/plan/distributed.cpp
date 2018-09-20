@@ -26,9 +26,9 @@ std::pair<std::unique_ptr<LogicalOperator>, AstStorage> Clone(
     Save(original_plan, &builder, &helper);
   }
   auto reader = message.getRoot<query::plan::capnp::LogicalOperator>();
-  auto plan_copy = LogicalOperator::Construct(reader);
+  std::unique_ptr<LogicalOperator> plan_copy;
   LogicalOperator::LoadHelper helper;
-  plan_copy->Load(reader, &helper);
+  Load(&plan_copy, reader, &helper);
   return std::make_pair(std::move(plan_copy), std::move(helper.ast_storage));
 }
 
@@ -139,9 +139,9 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
       maybe_bound->value()->Accept(collector);
       return this->ContainsForbidden(collector.symbols_);
     };
-    CHECK(scan.lower_bound() || scan.upper_bound());
-    auto lower_depends = find_forbidden(scan.lower_bound());
-    auto upper_depends = find_forbidden(scan.upper_bound());
+    CHECK(scan.lower_bound_ || scan.upper_bound_);
+    auto lower_depends = find_forbidden(scan.lower_bound_);
+    auto upper_depends = find_forbidden(scan.upper_bound_);
     if (!lower_depends && !upper_depends) return true;
 
     // Since we have dependencies, we need to extract them as a Filter. There
@@ -155,45 +155,45 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
 
     auto make_prop_lookup = [&]() {
       auto ident = storage_->Create<Identifier>(
-          scan.output_symbol().name(), scan.output_symbol().user_declared());
-      (*symbol_table_)[*ident] = scan.output_symbol();
-      return storage_->Create<PropertyLookup>(ident, "", scan.property());
+          scan.output_symbol_.name(), scan.output_symbol_.user_declared());
+      (*symbol_table_)[*ident] = scan.output_symbol_;
+      return storage_->Create<PropertyLookup>(ident, "", scan.property_);
     };
     Expression *extracted_filter = nullptr;
     std::shared_ptr<ScanAll> new_scan;
     if (lower_depends) {
       // Extract the filtering expression
       auto prop_lookup = make_prop_lookup();
-      if (scan.lower_bound()->IsInclusive()) {
+      if (scan.lower_bound_->IsInclusive()) {
         extracted_filter = storage_->Create<GreaterEqualOperator>(
-            prop_lookup, scan.lower_bound()->value());
+            prop_lookup, scan.lower_bound_->value());
       } else {
         extracted_filter = storage_->Create<GreaterOperator>(
-            prop_lookup, scan.lower_bound()->value());
+            prop_lookup, scan.lower_bound_->value());
       }
       // Choose new scan operation
       branch_.depends_on = lower_depends;
-      if (upper_depends || !scan.upper_bound()) {
+      if (upper_depends || !scan.upper_bound_) {
         // Cases 2) and 1.b)
         new_scan =
-            std::make_shared<ScanAllByLabel>(scan.input(), scan.output_symbol(),
-                                             scan.label(), scan.graph_view());
+            std::make_shared<ScanAllByLabel>(scan.input(), scan.output_symbol_,
+                                             scan.label_, scan.graph_view_);
       } else {
         // Case 1.a)
         new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
-            scan.input(), scan.output_symbol(), scan.label(), scan.property(),
-            std::experimental::nullopt, scan.upper_bound(), scan.graph_view());
+            scan.input(), scan.output_symbol_, scan.label_, scan.property_,
+            std::experimental::nullopt, scan.upper_bound_, scan.graph_view_);
       }
     }
     if (upper_depends) {
       Expression *filter;
       auto prop_lookup = make_prop_lookup();
-      if (scan.upper_bound()->IsInclusive()) {
+      if (scan.upper_bound_->IsInclusive()) {
         filter = storage_->Create<LessEqualOperator>(
-            prop_lookup, scan.upper_bound()->value());
+            prop_lookup, scan.upper_bound_->value());
       } else {
         filter = storage_->Create<LessOperator>(prop_lookup,
-                                                scan.upper_bound()->value());
+                                                scan.upper_bound_->value());
       }
       if (lower_depends) {
         CHECK(extracted_filter);
@@ -207,17 +207,17 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
         CHECK(!branch_.depends_on);
         branch_.depends_on = upper_depends;
         extracted_filter = filter;
-        if (scan.lower_bound()) {
+        if (scan.lower_bound_) {
           // Case 1.a)
           new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
-              scan.input(), scan.output_symbol(), scan.label(), scan.property(),
-              scan.lower_bound(), std::experimental::nullopt,
-              scan.graph_view());
+              scan.input(), scan.output_symbol_, scan.label_, scan.property_,
+              scan.lower_bound_, std::experimental::nullopt,
+              scan.graph_view_);
         } else {
           // Case 1.b)
           new_scan = std::make_shared<ScanAllByLabel>(
-              scan.input(), scan.output_symbol(), scan.label(),
-              scan.graph_view());
+              scan.input(), scan.output_symbol_, scan.label_,
+              scan.graph_view_);
         }
       }
     }
@@ -244,18 +244,18 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
     UsedSymbolsCollector collector(*symbol_table_);
-    scan.expression()->Accept(collector);
+    scan.expression_->Accept(collector);
     if (auto found = ContainsForbidden(collector.symbols_)) {
       // Split to ScanAllByLabel + Filter on property
       auto subtree = std::make_shared<ScanAllByLabel>(
-          scan.input(), scan.output_symbol(), scan.label(), scan.graph_view());
+          scan.input(), scan.output_symbol_, scan.label_, scan.graph_view_);
       auto ident = storage_->Create<Identifier>(
-          scan.output_symbol().name(), scan.output_symbol().user_declared());
-      (*symbol_table_)[*ident] = scan.output_symbol();
+          scan.output_symbol_.name(), scan.output_symbol_.user_declared());
+      (*symbol_table_)[*ident] = scan.output_symbol_;
       auto prop_lookup =
-          storage_->Create<PropertyLookup>(ident, "", scan.property());
+          storage_->Create<PropertyLookup>(ident, "", scan.property_);
       auto prop_equal =
-          storage_->Create<EqualOperator>(prop_lookup, scan.expression());
+          storage_->Create<EqualOperator>(prop_lookup, scan.expression_);
       auto parent = std::make_shared<Filter>(subtree, prop_equal);
       SetBranch(subtree, parent.get(), *found);
       if (prev_ops_.empty()) {
@@ -274,15 +274,15 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(DistributedExpand &exp) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
-    if (auto found = FindForbidden(exp.input_symbol())) {
+    if (auto found = FindForbidden(exp.input_symbol_)) {
       SetBranch(exp.input(), &exp, *found);
     }
-    if (exp.existing_node()) {
-      if (auto found = FindForbidden(exp.node_symbol())) {
+    if (exp.existing_node_) {
+      if (auto found = FindForbidden(exp.node_symbol_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    CHECK(!FindForbidden(exp.edge_symbol()))
+    CHECK(!FindForbidden(exp.edge_symbol_))
         << "Expand uses an already used edge symbol.";
     return true;
   }
@@ -294,44 +294,44 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(ExpandVariable &exp) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
-    if (auto found = FindForbidden(exp.input_symbol())) {
+    if (auto found = FindForbidden(exp.input_symbol_)) {
       SetBranch(exp.input(), &exp, *found);
     }
-    if (exp.existing_node()) {
-      if (auto found = FindForbidden(exp.node_symbol())) {
+    if (exp.existing_node_) {
+      if (auto found = FindForbidden(exp.node_symbol_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    CHECK(!FindForbidden(exp.edge_symbol()))
+    CHECK(!FindForbidden(exp.edge_symbol_))
         << "Expand uses an already used edge symbol.";
     // Check for bounding expressions.
-    if (exp.lower_bound()) {
+    if (exp.lower_bound_) {
       UsedSymbolsCollector collector(*symbol_table_);
-      exp.lower_bound()->Accept(collector);
+      exp.lower_bound_->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    if (exp.upper_bound()) {
+    if (exp.upper_bound_) {
       UsedSymbolsCollector collector(*symbol_table_);
-      exp.upper_bound()->Accept(collector);
+      exp.upper_bound_->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
     // Check for lambda expressions
-    if (exp.filter_lambda().expression) {
+    if (exp.filter_lambda_.expression) {
       UsedSymbolsCollector collector(*symbol_table_);
-      exp.filter_lambda().expression->Accept(collector);
+      exp.filter_lambda_.expression->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    if (exp.weight_lambda()) {
-      CHECK(exp.weight_lambda()->expression)
+    if (exp.weight_lambda_) {
+      CHECK(exp.weight_lambda_->expression)
           << "Unexpected nullptr expression in lambda";
       UsedSymbolsCollector collector(*symbol_table_);
-      exp.weight_lambda()->expression->Accept(collector);
+      exp.weight_lambda_->expression->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
         SetBranch(exp.input(), &exp, *found);
       }
@@ -346,35 +346,35 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(DistributedExpandBfs &exp) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
-    if (auto found = FindForbidden(exp.input_symbol())) {
+    if (auto found = FindForbidden(exp.input_symbol_)) {
       SetBranch(exp.input(), &exp, *found);
     }
-    if (exp.existing_node()) {
-      if (auto found = FindForbidden(exp.node_symbol())) {
+    if (exp.existing_node_) {
+      if (auto found = FindForbidden(exp.node_symbol_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    CHECK(!FindForbidden(exp.edge_symbol()))
+    CHECK(!FindForbidden(exp.edge_symbol_))
         << "Expand uses an already used edge symbol.";
     // Check for bounding expressions.
-    if (exp.lower_bound()) {
+    if (exp.lower_bound_) {
       UsedSymbolsCollector collector(*symbol_table_);
-      exp.lower_bound()->Accept(collector);
+      exp.lower_bound_->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    if (exp.upper_bound()) {
+    if (exp.upper_bound_) {
       UsedSymbolsCollector collector(*symbol_table_);
-      exp.upper_bound()->Accept(collector);
+      exp.upper_bound_->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
     // Check for lambda expressions
-    if (exp.filter_lambda().expression) {
+    if (exp.filter_lambda_.expression) {
       UsedSymbolsCollector collector(*symbol_table_);
-      exp.filter_lambda().expression->Accept(collector);
+      exp.filter_lambda_.expression->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
         SetBranch(exp.input(), &exp, *found);
       }
@@ -389,10 +389,10 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
-    if (auto found = FindForbidden(op.expand_symbol())) {
+    if (auto found = FindForbidden(op.expand_symbol_)) {
       SetBranch(op.input(), &op, *found);
     }
-    if (auto found = ContainsForbidden(op.previous_symbols())) {
+    if (auto found = ContainsForbidden(op.previous_symbols_)) {
       SetBranch(op.input(), &op, *found);
     }
     return true;
@@ -405,7 +405,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(ConstructNamedPath &op) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
-    if (auto found = ContainsForbidden(op.path_elements())) {
+    if (auto found = ContainsForbidden(op.path_elements_)) {
       SetBranch(op.input(), &op, *found);
     }
     return true;
@@ -419,7 +419,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
     UsedSymbolsCollector collector(*symbol_table_);
-    op.expression()->Accept(collector);
+    op.expression_->Accept(collector);
     if (auto found = ContainsForbidden(collector.symbols_)) {
       SetBranch(op.input(), &op, *found);
     }
@@ -433,7 +433,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(Produce &produce) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
-    for (auto *named_expr : produce.named_expressions()) {
+    for (auto *named_expr : produce.named_expressions_) {
       UsedSymbolsCollector collector(*symbol_table_);
       named_expr->expression_->Accept(collector);
       if (auto found = ContainsForbidden(collector.symbols_)) {
@@ -453,7 +453,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
     auto optional_branch = FindIndependentSubtree(
-        optional.optional(), forbidden_symbols_, symbol_table_, storage_);
+        optional.optional_, forbidden_symbols_, symbol_table_, storage_);
     if (optional_branch.depends_on) {
       SetBranch(optional.input(), &optional, *optional_branch.depends_on);
     }
@@ -468,7 +468,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
     UsedSymbolsCollector collector(*symbol_table_);
-    unwind.input_expression()->Accept(collector);
+    unwind.input_expression_->Accept(collector);
     if (auto found = ContainsForbidden(collector.symbols_)) {
       SetBranch(unwind.input(), &unwind, *found);
     }
@@ -485,8 +485,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(DistributedCreateNode &op) override {
     prev_ops_.pop_back();
-    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom()->identifier_))));
-    for (auto &kv : op.node_atom()->properties_) {
+    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom_->identifier_))));
+    for (auto &kv : op.node_atom_->properties_) {
       UsedSymbolsCollector collector(*symbol_table_);
       kv.second->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -500,15 +500,15 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(DistributedCreateExpand &op) override {
     prev_ops_.pop_back();
-    CHECK(!FindForbidden(op.input_symbol()));
-    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom()->identifier_))));
-    CHECK(!FindForbidden(symbol_table_->at(*(op.edge_atom()->identifier_))));
-    for (auto &kv : op.node_atom()->properties_) {
+    CHECK(!FindForbidden(op.input_symbol_));
+    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom_->identifier_))));
+    CHECK(!FindForbidden(symbol_table_->at(*(op.edge_atom_->identifier_))));
+    for (auto &kv : op.node_atom_->properties_) {
       UsedSymbolsCollector collector(*symbol_table_);
       kv.second->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
     }
-    for (auto &kv : op.edge_atom()->properties_) {
+    for (auto &kv : op.edge_atom_->properties_) {
       UsedSymbolsCollector collector(*symbol_table_);
       kv.second->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -522,7 +522,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(Delete &op) override {
     prev_ops_.pop_back();
-    for (auto *expr : op.expressions()) {
+    for (auto *expr : op.expressions_) {
       UsedSymbolsCollector collector(*symbol_table_);
       expr->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -537,8 +537,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(SetProperty &op) override {
     prev_ops_.pop_back();
     UsedSymbolsCollector collector(*symbol_table_);
-    op.lhs()->Accept(collector);
-    op.rhs()->Accept(collector);
+    op.lhs_->Accept(collector);
+    op.rhs_->Accept(collector);
     CHECK(!ContainsForbidden(collector.symbols_));
     return true;
   }
@@ -549,9 +549,9 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(SetProperties &op) override {
     prev_ops_.pop_back();
-    CHECK(!FindForbidden(op.input_symbol()));
+    CHECK(!FindForbidden(op.input_symbol_));
     UsedSymbolsCollector collector(*symbol_table_);
-    op.rhs()->Accept(collector);
+    op.rhs_->Accept(collector);
     CHECK(!ContainsForbidden(collector.symbols_));
     return true;
   }
@@ -562,7 +562,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(SetLabels &op) override {
     prev_ops_.pop_back();
-    CHECK(!FindForbidden(op.input_symbol()));
+    CHECK(!FindForbidden(op.input_symbol_));
     return true;
   }
 
@@ -573,7 +573,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(RemoveProperty &op) override {
     prev_ops_.pop_back();
     UsedSymbolsCollector collector(*symbol_table_);
-    op.lhs()->Accept(collector);
+    op.lhs_->Accept(collector);
     CHECK(!ContainsForbidden(collector.symbols_));
     return true;
   }
@@ -584,7 +584,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(RemoveLabels &op) override {
     prev_ops_.pop_back();
-    CHECK(!FindForbidden(op.input_symbol()));
+    CHECK(!FindForbidden(op.input_symbol_));
     return true;
   }
 
@@ -594,14 +594,14 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(Aggregate &aggr) override {
     prev_ops_.pop_back();
-    CHECK(!ContainsForbidden(aggr.remember()));
-    for (auto &elem : aggr.aggregations()) {
+    CHECK(!ContainsForbidden(aggr.remember_));
+    for (auto &elem : aggr.aggregations_) {
       UsedSymbolsCollector collector(*symbol_table_);
       if (elem.value) elem.value->Accept(collector);
       if (elem.key) elem.key->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
     }
-    for (auto *expr : aggr.group_by()) {
+    for (auto *expr : aggr.group_by_) {
       UsedSymbolsCollector collector(*symbol_table_);
       expr->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -616,7 +616,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(Skip &skip) override {
     prev_ops_.pop_back();
     UsedSymbolsCollector collector(*symbol_table_);
-    skip.expression()->Accept(collector);
+    skip.expression_->Accept(collector);
     CHECK(!ContainsForbidden(collector.symbols_));
     return true;
   }
@@ -628,7 +628,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(Limit &limit) override {
     prev_ops_.pop_back();
     UsedSymbolsCollector collector(*symbol_table_);
-    limit.expression()->Accept(collector);
+    limit.expression_->Accept(collector);
     CHECK(!ContainsForbidden(collector.symbols_));
     return true;
   }
@@ -639,8 +639,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(OrderBy &order_by) override {
     prev_ops_.pop_back();
-    CHECK(!ContainsForbidden(order_by.output_symbols()));
-    for (auto *expr : order_by.order_by()) {
+    CHECK(!ContainsForbidden(order_by.output_symbols_));
+    for (auto *expr : order_by.order_by_) {
       UsedSymbolsCollector collector(*symbol_table_);
       expr->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -654,7 +654,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(Distinct &distinct) override {
     prev_ops_.pop_back();
-    CHECK(!ContainsForbidden(distinct.value_symbols()));
+    CHECK(!ContainsForbidden(distinct.value_symbols_));
     return true;
   }
 
@@ -664,8 +664,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(Cartesian &cart) override {
     prev_ops_.pop_back();
-    CHECK(!ContainsForbidden(cart.left_symbols()) &&
-          !ContainsForbidden(cart.right_symbols()));
+    CHECK(!ContainsForbidden(cart.left_symbols_) &&
+          !ContainsForbidden(cart.right_symbols_));
     return true;
   }
 
@@ -684,7 +684,7 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(PullRemote &pull) override {
     prev_ops_.pop_back();
-    CHECK(!ContainsForbidden(pull.symbols()));
+    CHECK(!ContainsForbidden(pull.symbols_));
     return true;
   }
 
@@ -694,8 +694,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(PullRemoteOrderBy &pull) override {
     prev_ops_.pop_back();
-    CHECK(!ContainsForbidden(pull.symbols()));
-    for (auto *expr : pull.order_by()) {
+    CHECK(!ContainsForbidden(pull.symbols_));
+    for (auto *expr : pull.order_by_) {
       UsedSymbolsCollector collector(*symbol_table_);
       expr->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -978,8 +978,8 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Expand &exp) override {
     prev_ops_.pop_back();
     auto distributed_expand = std::make_unique<DistributedExpand>(
-        exp.node_symbol(), exp.edge_symbol(), exp.direction(), exp.edge_types(),
-        exp.input(), exp.input_symbol(), exp.existing_node(), exp.graph_view());
+        exp.node_symbol_, exp.edge_symbol_, exp.direction_, exp.edge_types_,
+        exp.input(), exp.input_symbol_, exp.existing_node_, exp.graph_view_);
     SetOnPrevious(std::move(distributed_expand));
     return true;
   }
@@ -990,12 +990,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
   bool PostVisit(ExpandVariable &exp) override {
     prev_ops_.pop_back();
-    if (exp.type() == EdgeAtom::Type::BREADTH_FIRST) {
+    if (exp.type_ == EdgeAtom::Type::BREADTH_FIRST) {
       auto distributed_bfs = std::make_unique<DistributedExpandBfs>(
-          exp.node_symbol(), exp.edge_symbol(), exp.direction(),
-          exp.edge_types(), exp.input(), exp.input_symbol(),
-          exp.existing_node(), exp.graph_view(), exp.lower_bound(),
-          exp.upper_bound(), exp.filter_lambda());
+          exp.node_symbol_, exp.edge_symbol_, exp.direction_,
+          exp.edge_types_, exp.input(), exp.input_symbol_,
+          exp.existing_node_, exp.graph_view_, exp.lower_bound_,
+          exp.upper_bound_, exp.filter_lambda_);
       SetOnPrevious(std::move(distributed_bfs));
     }
     return true;
@@ -1046,7 +1046,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // Use dummy produce to simulate an end of the query, thus forcing merge
     // points to be planned (like Cartesian).
     optional_plan.master_plan = std::make_unique<Produce>(
-        op.optional(), std::vector<NamedExpression *>{});
+        op.optional_, std::vector<NamedExpression *>{});
     // Temporary transfer symbol table and storage
     optional_plan.symbol_table = std::move(distributed_plan_.symbol_table);
     optional_plan.ast_storage = std::move(distributed_plan_.ast_storage);
@@ -1070,7 +1070,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // we continue as normal.
       SetOnPrevious(std::make_unique<Optional>(
           op.input(), optional_plan.master_plan->input(),
-          op.optional_symbols()));
+          op.optional_symbols_));
       return true;
     }
     // Case 2)
@@ -1095,7 +1095,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // on LHS symbols should have been taken care of.
       SetOnPrevious(std::make_unique<Optional>(
           op.input(), optional_plan.master_plan->input(),
-          op.optional_symbols()));
+          op.optional_symbols_));
       return true;
     }
     CHECK(optional_planner.ShouldSplit());
@@ -1116,7 +1116,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       new_opt = branch.parent_start;
     }
     SetOnPrevious(
-        std::make_unique<Optional>(op.input(), new_opt, op.optional_symbols()));
+        std::make_unique<Optional>(op.input(), new_opt, op.optional_symbols_));
     return true;
   }
 
@@ -1197,8 +1197,8 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     // TODO: Associative combination of OrderBy
     if (ShouldSplit()) {
-      std::unordered_set<Symbol> pull_symbols(order_by.output_symbols().begin(),
-                                              order_by.output_symbols().end());
+      std::unordered_set<Symbol> pull_symbols(order_by.output_symbols_.begin(),
+                                              order_by.output_symbols_.end());
       // Pull symbols need to also include those used in order by expressions.
       // For example, `RETURN n AS m ORDER BY n.prop`, output symbols will
       // contain `m`, while we also need to pull `n`.
@@ -1206,7 +1206,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // and sending them instead. It's possible that the evaluated expression
       // requires less network traffic than sending the value of the used symbol
       // `n` itself.
-      for (const auto &expr : order_by.order_by()) {
+      for (const auto &expr : order_by.order_by_) {
         UsedSymbolsCollector collector(distributed_plan_.symbol_table);
         expr->Accept(collector);
         pull_symbols.insert(collector.symbols_.begin(),
@@ -1215,10 +1215,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       // Create a copy of OrderBy but with added symbols used in expressions, so
       // that they can be pulled.
       std::vector<std::pair<Ordering, Expression *>> ordering;
-      ordering.reserve(order_by.order_by().size());
-      for (int i = 0; i < order_by.order_by().size(); ++i) {
-        ordering.emplace_back(order_by.compare().ordering()[i],
-                              order_by.order_by()[i]);
+      ordering.reserve(order_by.order_by_.size());
+      for (int i = 0; i < order_by.order_by_.size(); ++i) {
+        ordering.emplace_back(order_by.compare_.ordering()[i],
+                              order_by.order_by_[i]);
       }
       auto worker_plan = std::make_shared<OrderBy>(
           order_by.input(), ordering,
@@ -1281,7 +1281,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       return true;
     }
     auto is_associative = [&aggr_op]() {
-      for (const auto &aggr : aggr_op.aggregations()) {
+      for (const auto &aggr : aggr_op.aggregations_) {
         switch (aggr.op) {
           case Aggregation::Op::COUNT:
           case Aggregation::Op::MIN:
@@ -1298,9 +1298,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     if (!is_associative()) {
       auto input = aggr_op.input();
       auto pull_id = AddWorkerPlan(input);
-      std::unordered_set<Symbol> pull_symbols(aggr_op.remember().begin(),
-                                              aggr_op.remember().end());
-      for (const auto &elem : aggr_op.aggregations()) {
+      std::unordered_set<Symbol> pull_symbols(aggr_op.remember_.begin(),
+                                              aggr_op.remember_.end());
+      for (const auto &elem : aggr_op.aggregations_) {
         UsedSymbolsCollector collector(distributed_plan_.symbol_table);
         elem.value->Accept(collector);
         if (elem.key) elem.key->Accept(collector);
@@ -1337,15 +1337,15 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // Aggregate uses associative operation(s), so split the work across master
     // and workers.
     std::vector<Aggregate::Element> master_aggrs;
-    master_aggrs.reserve(aggr_op.aggregations().size());
+    master_aggrs.reserve(aggr_op.aggregations_.size());
     std::vector<Aggregate::Element> worker_aggrs;
-    worker_aggrs.reserve(aggr_op.aggregations().size());
+    worker_aggrs.reserve(aggr_op.aggregations_.size());
     // We will need to create a Produce operator which moves the final results
     // from new (merge) symbols into old aggregation symbols, because
     // expressions following the aggregation expect the result in old symbols.
     std::vector<NamedExpression *> produce_exprs;
-    produce_exprs.reserve(aggr_op.aggregations().size());
-    for (const auto &aggr : aggr_op.aggregations()) {
+    produce_exprs.reserve(aggr_op.aggregations_.size());
+    for (const auto &aggr : aggr_op.aggregations_) {
       switch (aggr.op) {
         // Count, like sum, only needs to sum all of the results on master.
         case Aggregation::Op::COUNT:
@@ -1406,17 +1406,17 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     }
     // Rewire master/worker aggregation.
     auto worker_plan = std::make_shared<Aggregate>(
-        aggr_op.input(), worker_aggrs, aggr_op.group_by(), aggr_op.remember());
+        aggr_op.input(), worker_aggrs, aggr_op.group_by_, aggr_op.remember_);
     auto pull_id = AddWorkerPlan(worker_plan);
     std::vector<Symbol> pull_symbols;
-    pull_symbols.reserve(worker_aggrs.size() + aggr_op.remember().size());
+    pull_symbols.reserve(worker_aggrs.size() + aggr_op.remember_.size());
     for (const auto &aggr : worker_aggrs)
       pull_symbols.push_back(aggr.output_sym);
-    for (const auto &sym : aggr_op.remember()) pull_symbols.push_back(sym);
+    for (const auto &sym : aggr_op.remember_) pull_symbols.push_back(sym);
     auto pull_op =
         std::make_shared<PullRemote>(worker_plan, pull_id, pull_symbols);
     auto master_aggr_op = std::make_shared<Aggregate>(
-        pull_op, master_aggrs, aggr_op.group_by(), aggr_op.remember());
+        pull_op, master_aggrs, aggr_op.group_by_, aggr_op.remember_);
     // Make our master Aggregate into Produce + Aggregate
     auto master_plan = std::make_unique<Produce>(master_aggr_op, produce_exprs);
     SplitOnPrevious(std::move(master_plan));
@@ -1484,10 +1484,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     if (ShouldSplit()) {
       auto pull_id = AddWorkerPlan(acc.input());
       pull_remote =
-          std::make_shared<PullRemote>(nullptr, pull_id, acc.symbols());
+          std::make_shared<PullRemote>(nullptr, pull_id, acc.symbols_);
     }
     auto sync = std::make_unique<Synchronize>(acc.input(), pull_remote,
-                                              acc.advance_command());
+                                              acc.advance_command_);
     SetOnPrevious(std::move(sync));
     on_master_ = true;
     needs_synchronize_ = false;
@@ -1509,7 +1509,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // node creation to workers.
     bool create_on_random_worker = !ShouldSplit();
     auto distributed_create = std::make_unique<DistributedCreateNode>(
-        op.input(), op.node_atom(), create_on_random_worker);
+        op.input(), op.node_atom_, create_on_random_worker);
     if (prev_ops_.empty())
       distributed_plan_.master_plan = std::move(distributed_create);
     else
@@ -1528,8 +1528,8 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       Split(op, PlanCartesian(op.input()));
     }
     auto distributed_create = std::make_unique<DistributedCreateExpand>(
-        op.node_atom(), op.edge_atom(), op.input(), op.input_symbol(),
-        op.existing_node());
+        op.node_atom_, op.edge_atom_, op.input(), op.input_symbol_,
+        op.existing_node_);
     if (prev_ops_.empty())
       distributed_plan_.master_plan = std::move(distributed_create);
     else

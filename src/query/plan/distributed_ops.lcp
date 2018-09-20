@@ -3,7 +3,9 @@
 
 #pragma once
 
+#include "query/plan/distributed_ops.capnp.h"
 #include "query/plan/operator.hpp"
+
 cpp<#
 
 (load "query/plan/operator.lcp")
@@ -46,11 +48,11 @@ class DistributedOperatorVisitor : public virtual HierarchicalLogicalOperatorVis
 cpp<#
 
 (lcp:define-class pull-remote (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (plan-id :int64_t :initval 0 :reader t)
-   (symbols "std::vector<Symbol>" :reader t
+   (plan-id :int64_t :initval 0 :scope :public)
+   (symbols "std::vector<Symbol>" :scope :public
             :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
             :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
@@ -62,6 +64,7 @@ This operator aims to yield results as fast as possible and lose minimal
 time on data transfer. It gives no guarantees on result order.")
   (:public
    #>cpp
+   PullRemote() {}
    PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
               const std::vector<Symbol> &symbols)
        : input_(input), plan_id_(plan_id), symbols_(symbols) {}
@@ -77,28 +80,28 @@ time on data transfer. It gives no guarantees on result order.")
      input_ = input;
    }
    cpp<#)
-  (:private #>cpp PullRemote() {} cpp<#)
   (:serialize :capnp))
 
-(defun load-pull-remote (reader member-name)
+(defun load-pull-remote (reader member-name capnp-name)
+  (declare (ignore capnp-name))
   #>cpp
   ${member-name} = std::static_pointer_cast<PullRemote>(
       utils::LoadSharedPtr<capnp::LogicalOperator, LogicalOperator>(${reader},
                        [helper](const auto &reader) {
-                         auto op = LogicalOperator::Construct(reader);
-                         op->Load(reader, helper);
+                         std::unique_ptr<LogicalOperator> op;
+                         Load(&op, reader, helper);
                          return op.release();
                        }, &helper->loaded_ops));
   cpp<#)
 
 (lcp:define-class synchronize (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (pull-remote "std::shared_ptr<PullRemote>" :reader t
+   (pull-remote "std::shared_ptr<PullRemote>" :scope :public
                 :capnp-save #'save-operator-pointer
                 :capnp-load #'load-pull-remote)
-   (advance-command :bool :initval "false" :reader t))
+   (advance-command :bool :initval "false" :scope :public))
   (:documentation
    "Operator used to synchronize stages of plan execution between the master and
 all the workers. Synchronization is necessary in queries that update that
@@ -119,6 +122,7 @@ Logic of the synchronize operator is:
 8. Yield all the results, first local, then from Pull if available.")
   (:public
    #>cpp
+   Synchronize() {}
    Synchronize(const std::shared_ptr<LogicalOperator> &input,
                const std::shared_ptr<PullRemote> &pull_remote,
                bool advance_command)
@@ -141,22 +145,21 @@ Logic of the synchronize operator is:
      input_ = input;
    }
    cpp<#)
-  (:private #>cpp Synchronize() {} cpp<#)
   (:serialize :capnp))
 
 (lcp:define-class pull-remote-order-by (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (plan-id :int64_t :initval 0 :reader t)
-   (symbols "std::vector<Symbol>" :reader t
+   (plan-id :int64_t :initval 0 :scope :public)
+   (symbols "std::vector<Symbol>" :scope :public
             :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
             :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
-   (order-by "std::vector<Expression *>" :reader t
+   (order-by "std::vector<Expression *>" :scope :public
              :capnp-type "List(Ast.Tree)"
              :capnp-save (save-ast-vector "Expression *")
              :capnp-load (load-ast-vector "Expression *"))
-   (compare "TypedValueVectorCompare" :reader t
+   (compare "TypedValueVectorCompare" :scope :public
             :capnp-type "Common.TypedValueVectorCompare"))
   (:documentation
    "Operator that merges distributed OrderBy operators.
@@ -166,24 +169,24 @@ have the master rely on the fact that the results are ordered and merge them
 by having only one result from each worker.")
   (:public
    #>cpp
-    PullRemoteOrderBy(
-        const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-        const std::vector<std::pair<Ordering, Expression *>> &order_by,
-        const std::vector<Symbol> &symbols);
-    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-    std::unique_ptr<Cursor> MakeCursor(
-        database::GraphDbAccessor &db) const override;
+   PullRemoteOrderBy() {}
+   PullRemoteOrderBy(
+       const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
+       const std::vector<std::pair<Ordering, Expression *>> &order_by,
+       const std::vector<Symbol> &symbols);
+   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+   std::unique_ptr<Cursor> MakeCursor(
+       database::GraphDbAccessor &db) const override;
 
-    std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-    std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
+   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
-    bool HasSingleInput() const override { return true; }
-    std::shared_ptr<LogicalOperator> input() const override { return input_; }
-    void set_input(std::shared_ptr<LogicalOperator> input) override {
-      input_ = input;
-    }
-  cpp<#)
-  (:private #>cpp PullRemoteOrderBy() {} cpp<#)
+   bool HasSingleInput() const override { return true; }
+   std::shared_ptr<LogicalOperator> input() const override { return input_; }
+   void set_input(std::shared_ptr<LogicalOperator> input) override {
+     input_ = input;
+   }
+   cpp<#)
   (:serialize :capnp))
 
 (lcp:define-class distributed-expand (logical-operator expand-common)
@@ -207,22 +210,23 @@ by having only one result from each worker.")
   (:serialize :capnp :inherit-compose '(expand-common)))
 
 (lcp:define-class distributed-expand-bfs (logical-operator expand-common)
-  ((lower-bound "Expression *" :reader t
+  ((lower-bound "Expression *" :scope :public
                 :documentation "Optional lower bound, default is 1"
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
                 :capnp-load (load-ast-pointer "Expression *"))
-   (upper-bound "Expression *" :reader t
+   (upper-bound "Expression *" :scope :public
                 :documentation "Optional upper bound, default is infinity"
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
                 :capnp-load (load-ast-pointer "Expression *"))
-   (filter-lambda "ExpandVariable::Lambda" :reader t
+   (filter-lambda "ExpandVariable::Lambda" :scope :public
                   :documentation "Filter that must be satisfied for expansion to succeed."
                   :capnp-type "ExpandVariable.Lambda"))
   (:documentation "BFS expansion operator suited for distributed execution.")
   (:public
    #>cpp
+   DistributedExpandBfs() {}
    DistributedExpandBfs(Symbol node_symbol, Symbol edge_symbol,
                         EdgeAtom::Direction direction,
                         const std::vector<storage::EdgeType> &edge_types,
@@ -243,20 +247,20 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:private #>cpp DistributedExpandBfs() {} cpp<#)
   (:serialize :capnp :inherit-compose '(expand-common)))
 
 (lcp:define-class distributed-create-node (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>"
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (node-atom "NodeAtom *" :initval "nullptr" :reader t
+   (node-atom "NodeAtom *" :initval "nullptr" :scope :public
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
-   (on-random-worker :bool :initval "false" :reader t))
+   (on-random-worker :bool :initval "false" :scope :public))
   (:documentation "Create nodes in distributed environment.")
   (:public
    #>cpp
+   DistributedCreateNode() {}
    DistributedCreateNode(const std::shared_ptr<LogicalOperator> &input,
                          NodeAtom *node_atom, bool on_random_worker);
 
@@ -271,24 +275,24 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:private #>cpp DistributedCreateNode() {} cpp<#)
   (:serialize :capnp))
 
 (lcp:define-class distributed-create-expand (logical-operator)
-  ((node-atom "NodeAtom *" :reader t
+  ((node-atom "NodeAtom *" :scope :public
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
-   (edge-atom "EdgeAtom *" :reader t
+   (edge-atom "EdgeAtom *" :scope :public
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "EdgeAtom *"))
-   (input "std::shared_ptr<LogicalOperator>"
+   (input "std::shared_ptr<LogicalOperator>" :scope :public
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (input-symbol "Symbol" :reader t)
-   (existing-node :bool :reader t))
+   (input-symbol "Symbol" :scope :public)
+   (existing-node :bool :scope :public))
   (:documentation "Distributed version of CreateExpand")
   (:public
    #>cpp
+   DistributedCreateExpand() {}
    DistributedCreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
                            const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol, bool existing_node);
@@ -303,7 +307,6 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:private #>cpp DistributedCreateExpand() {} cpp<#)
   (:serialize :capnp))
 
 (lcp:pop-namespace)

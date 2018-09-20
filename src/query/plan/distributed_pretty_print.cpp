@@ -20,8 +20,8 @@ bool DistributedPlanPrinter::PreVisit(query::plan::DistributedExpandBfs &op) {
 
 bool DistributedPlanPrinter::PreVisit(query::plan::PullRemote &op) {
   WithPrintLn([&op](auto &out) {
-    out << "* PullRemote [" << op.plan_id() << "] {";
-    utils::PrintIterable(out, op.symbols(), ", ",
+    out << "* PullRemote [" << op.plan_id_ << "] {";
+    utils::PrintIterable(out, op.symbols_, ", ",
                          [](auto &out, const auto &sym) { out << sym.name(); });
     out << "}";
   });
@@ -35,7 +35,7 @@ bool DistributedPlanPrinter::PreVisit(query::plan::PullRemote &op) {
 bool DistributedPlanPrinter::PreVisit(query::plan::PullRemoteOrderBy &op) {
   WithPrintLn([&op](auto &out) {
     out << "* PullRemoteOrderBy {";
-    utils::PrintIterable(out, op.symbols(), ", ",
+    utils::PrintIterable(out, op.symbols_, ", ",
                          [](auto &out, const auto &sym) { out << sym.name(); });
     out << "}";
   });
@@ -61,10 +61,10 @@ PRE_VISIT(DistributedCreateExpand);
 bool DistributedPlanPrinter::PreVisit(query::plan::Synchronize &op) {
   WithPrintLn([&op](auto &out) {
     out << "* Synchronize";
-    if (op.advance_command()) out << " (ADV CMD)";
+    if (op.advance_command_) out << " (ADV CMD)";
   });
-  if (op.pull_remote()) Branch(*op.pull_remote());
-  op.input()->Accept(*this);
+  if (op.pull_remote_) Branch(*op.pull_remote_);
+  op.input_->Accept(*this);
   return false;
 }
 

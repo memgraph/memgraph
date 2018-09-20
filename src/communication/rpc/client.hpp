@@ -36,7 +36,7 @@ class Client {
     return CallWithLoad<TRequestResponse>(
         [](const auto &reader) {
           typename TRequestResponse::Response response;
-          response.Load(reader);
+          Load(&response, reader);
           return response;
         },
         std::forward<Args>(args)...);

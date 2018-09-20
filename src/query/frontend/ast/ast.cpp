@@ -315,7 +315,7 @@ void MapLiteral::Load(const capnp::Tree::Reader &base_reader,
     auto key_first = key_pair_reader.getFirst().cStr();
     auto storage_property_reader = key_pair_reader.getSecond();
     storage::Property key_second;
-    key_second.Load(storage_property_reader);
+    storage::Load(&key_second, storage_property_reader);
     const auto value_reader = entry_reader.getValue();
     auto value = storage->Load(value_reader, loaded_uids);
     auto key = std::make_pair(key_first, key_second);
@@ -982,7 +982,7 @@ void LabelsTest::Load(const capnp::Tree::Reader &base_reader,
   }
   for (auto label_reader : reader.getLabels()) {
     storage::Label label;
-    label.Load(label_reader);
+    storage::Load(&label, label_reader);
     labels_.push_back(label);
   }
 }
@@ -1041,7 +1041,7 @@ void PropertyLookup::Load(const capnp::Tree::Reader &base_reader,
   }
   property_name_ = reader.getPropertyName().cStr();
   auto storage_property_reader = reader.getProperty();
-  property_.Load(storage_property_reader);
+  storage::Load(&property_, storage_property_reader);
 }
 
 PropertyLookup *PropertyLookup::Construct(
@@ -1356,10 +1356,10 @@ CreateIndex *CreateIndex::Construct(const capnp::CreateIndex::Reader &reader,
                                     AstStorage *storage) {
   auto label_reader = reader.getLabel();
   storage::Label label;
-  label.Load(label_reader);
+  storage::Load(&label, label_reader);
   auto property_reader = reader.getProperty();
   storage::Property property;
-  property.Load(property_reader);
+  storage::Load(&property, property_reader);
   return storage->Create<CreateIndex>(label, property);
 }
 
@@ -1740,7 +1740,7 @@ void RemoveLabels::Load(const capnp::Tree::Reader &base_reader,
   }
   for (auto label_reader : reader.getLabels()) {
     storage::Label label;
-    label.Load(label_reader);
+    storage::Load(&label, label_reader);
     labels_.push_back(label);
   }
 }
@@ -1908,7 +1908,7 @@ void SetLabels::Load(const capnp::Tree::Reader &base_reader,
   }
   for (auto label_reader : reader.getLabels()) {
     storage::Label label;
-    label.Load(label_reader);
+    storage::Load(&label, label_reader);
     labels_.push_back(label);
   }
 }
@@ -2301,7 +2301,7 @@ void CypherUnion::Load(const capnp::Tree::Reader &base_reader,
   distinct_ = reader.getDistinct();
   for (auto symbol_reader : reader.getUnionSymbols()) {
     Symbol symbol;
-    symbol.Load(symbol_reader);
+    query::Load(&symbol, symbol_reader);
     union_symbols_.push_back(symbol);
   }
 }
@@ -2481,7 +2481,7 @@ void NodeAtom::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
     auto key_first = key_pair_reader.getFirst().cStr();
     auto storage_property_reader = key_pair_reader.getSecond();
     storage::Property property;
-    property.Load(storage_property_reader);
+    storage::Load(&property, storage_property_reader);
     const auto value_reader = entry_reader.getValue();
     auto value = storage->Load(value_reader, loaded_uids);
     auto key = std::make_pair(key_first, property);
@@ -2490,7 +2490,7 @@ void NodeAtom::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
   }
   for (auto label_reader : reader.getLabels()) {
     storage::Label label;
-    label.Load(label_reader);
+    storage::Load(&label, label_reader);
     labels_.push_back(label);
   }
 }
@@ -2670,7 +2670,7 @@ void EdgeAtom::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
     auto key_first = key_pair_reader.getFirst().cStr();
     auto storage_property_reader = key_pair_reader.getSecond();
     storage::Property property;
-    property.Load(storage_property_reader);
+    storage::Load(&property, storage_property_reader);
     const auto value_reader = entry_reader.getValue();
     auto value = storage->Load(value_reader, loaded_uids);
     auto key = std::make_pair(key_first, property);
@@ -2680,7 +2680,7 @@ void EdgeAtom::Load(const capnp::Tree::Reader &base_reader, AstStorage *storage,
 
   for (auto edge_type_reader : reader.getEdgeTypes()) {
     storage::EdgeType edge_type;
-    edge_type.Load(edge_type_reader);
+    storage::Load(&edge_type, edge_type_reader);
     edge_types_.push_back(edge_type);
   }
 }

@@ -20,6 +20,7 @@ class Endpoint {
   Endpoint();
   Endpoint(const std::string &address, uint16_t port);
 
+  // TODO: Remove these since members are public
   std::string address() const { return address_; }
   uint16_t port() const { return port_; }
   unsigned char family() const { return family_; }
@@ -27,14 +28,13 @@ class Endpoint {
   bool operator==(const Endpoint &other) const;
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
-  void Load(const capnp::Endpoint::Reader &reader);
-
- private:
   std::string address_;
   uint16_t port_{0};
   unsigned char family_{0};
 };
 
 void Save(const Endpoint &endpoint, capnp::Endpoint::Builder *builder);
+
+void Load(Endpoint *endpoint, const capnp::Endpoint::Reader &reader);
 
 }  // namespace io::network

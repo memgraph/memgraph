@@ -113,8 +113,8 @@ ACCEPT_WITH_INPUT(DistributedExpand);
 std::vector<Symbol> DistributedExpand::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol());
-  symbols.emplace_back(edge_symbol());
+  symbols.emplace_back(node_symbol_);
+  symbols.emplace_back(edge_symbol_);
   return symbols;
 }
 
@@ -135,8 +135,8 @@ ACCEPT_WITH_INPUT(DistributedExpandBfs);
 std::vector<Symbol> DistributedExpandBfs::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol());
-  symbols.emplace_back(edge_symbol());
+  symbols.emplace_back(node_symbol_);
+  symbols.emplace_back(edge_symbol_);
   return symbols;
 }
 
@@ -367,7 +367,7 @@ class PullRemoteCursor : public Cursor {
         remote_puller_(
             // TODO: Pass in a Master GraphDb.
             &dynamic_cast<database::Master *>(&db.db())->pull_clients(), db,
-            self.symbols(), self.plan_id(), command_id_) {}
+            self.symbols_, self.plan_id_, command_id_) {}
 
   bool Pull(Frame &frame, Context &context) override {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
@@ -403,14 +403,14 @@ class PullRemoteCursor : public Cursor {
         if (input_cursor_ && input_cursor_->Pull(frame, context)) {
           VLOG(10) << "[PullRemoteCursor] ["
                    << context.db_accessor_.transaction_id() << "] ["
-                   << self_.plan_id() << "] [" << command_id_
+                   << self_.plan_id_ << "] [" << command_id_
                    << "] producing local results ";
           return true;
         }
 
         VLOG(10) << "[PullRemoteCursor] ["
                  << context.db_accessor_.transaction_id() << "] ["
-                 << self_.plan_id() << "] [" << command_id_
+                 << self_.plan_id_ << "] [" << command_id_
                  << "] no results available, sleeping ";
         // If there aren't any local/remote results available, sleep.
         std::this_thread::sleep_for(
@@ -423,7 +423,7 @@ class PullRemoteCursor : public Cursor {
       if (input_cursor_ && input_cursor_->Pull(frame, context)) {
         VLOG(10) << "[PullRemoteCursor] ["
                  << context.db_accessor_.transaction_id() << "] ["
-                 << self_.plan_id() << "] [" << command_id_
+                 << self_.plan_id_ << "] [" << command_id_
                  << "] producing local results ";
         return true;
       }
@@ -434,11 +434,11 @@ class PullRemoteCursor : public Cursor {
       int worker_id = remote_puller_.GetWorkerId(last_pulled_worker_id_index_);
       VLOG(10) << "[PullRemoteCursor] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] [" << command_id_
+               << self_.plan_id_ << "] [" << command_id_
                << "] producing results from worker " << worker_id;
       auto result = remote_puller_.PopResultFromWorker(worker_id);
-      for (size_t i = 0; i < self_.symbols().size(); ++i) {
-        frame[self_.symbols()[i]] = std::move(result[i]);
+      for (size_t i = 0; i < self_.symbols_.size(); ++i) {
+        frame[self_.symbols_[i]] = std::move(result[i]);
       }
     }
     return true;
@@ -478,7 +478,7 @@ class SynchronizeCursor : public Cursor {
             &dynamic_cast<database::Master *>(&db.db())->updates_server()),
         input_cursor_(self.input()->MakeCursor(db)),
         pull_remote_cursor_(
-            self.pull_remote() ? self.pull_remote()->MakeCursor(db) : nullptr),
+            self.pull_remote_ ? self.pull_remote_->MakeCursor(db) : nullptr),
         command_id_(db.transaction().cid()),
         master_id_(
             // TODO: Pass in a Master GraphDb.
@@ -496,7 +496,7 @@ class SynchronizeCursor : public Cursor {
                << "] producing local results";
       auto &result = local_frames_.back();
       for (size_t i = 0; i < frame.elems().size(); ++i) {
-        if (self_.advance_command()) {
+        if (self_.advance_command_) {
           query::ReconstructTypedValue(result[i]);
         }
         frame.elems()[i] = std::move(result[i]);
@@ -550,9 +550,9 @@ class SynchronizeCursor : public Cursor {
       for (auto worker_id : pull_clients_->GetWorkerIds()) {
         if (worker_id == master_id_) continue;
         worker_accumulations.emplace_back(pull_clients_->Pull(
-            &context.db_accessor_, worker_id, self_.pull_remote()->plan_id(),
+            &context.db_accessor_, worker_id, self_.pull_remote_->plan_id_,
             command_id_, context.evaluation_context_,
-            self_.pull_remote()->symbols(), true, 0));
+            self_.pull_remote_->symbols_, true, 0));
       }
     }
 
@@ -601,7 +601,7 @@ class SynchronizeCursor : public Cursor {
       }
     }
 
-    if (self_.advance_command()) {
+    if (self_.advance_command_) {
       context.db_accessor_.AdvanceCommand();
     }
 
@@ -628,7 +628,7 @@ class SynchronizeCursor : public Cursor {
     }
 
     // If the command advanced, let the workers know.
-    if (self_.advance_command()) {
+    if (self_.advance_command_) {
       auto futures = pull_clients_->NotifyAllTransactionCommandAdvanced(tx_id);
       for (auto &future : futures) future.get();
     }
@@ -645,7 +645,7 @@ class PullRemoteOrderByCursor : public Cursor {
         remote_puller_(
             // TODO: Pass in a Master GraphDb.
             &dynamic_cast<database::Master *>(&db.db())->pull_clients(), db,
-            self.symbols(), self.plan_id(), command_id_) {}
+            self.symbols_, self.plan_id_, command_id_) {}
 
   bool Pull(Frame &frame, Context &context) override {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
@@ -655,8 +655,8 @@ class PullRemoteOrderByCursor : public Cursor {
 
     auto evaluate_result = [this, &evaluator]() {
       std::vector<TypedValue> order_by;
-      order_by.reserve(self_.order_by().size());
-      for (auto expression_ptr : self_.order_by()) {
+      order_by.reserve(self_.order_by_.size());
+      for (auto expression_ptr : self_.order_by_) {
         order_by.emplace_back(expression_ptr->Accept(evaluator));
       }
       return order_by;
@@ -665,14 +665,14 @@ class PullRemoteOrderByCursor : public Cursor {
     auto restore_frame = [&frame,
                           this](const std::vector<TypedValue> &restore_from) {
       for (size_t i = 0; i < restore_from.size(); ++i) {
-        frame[self_.symbols()[i]] = restore_from[i];
+        frame[self_.symbols_[i]] = restore_from[i];
       }
     };
 
     if (!merge_initialized_) {
       VLOG(10) << "[PullRemoteOrderBy] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] [" << command_id_ << "] initialize";
+               << self_.plan_id_ << "] [" << command_id_ << "] initialize";
       remote_puller_.Initialize(context);
       missing_results_from_ = remote_puller_.Workers();
       missing_master_result_ = true;
@@ -682,8 +682,8 @@ class PullRemoteOrderByCursor : public Cursor {
     if (missing_master_result_) {
       if (input_->Pull(frame, context)) {
         std::vector<TypedValue> output;
-        output.reserve(self_.symbols().size());
-        for (const Symbol &symbol : self_.symbols()) {
+        output.reserve(self_.symbols_.size());
+        for (const Symbol &symbol : self_.symbols_) {
           output.emplace_back(frame[symbol]);
         }
 
@@ -709,7 +709,7 @@ class PullRemoteOrderByCursor : public Cursor {
       if (!has_all_result) {
         VLOG(10) << "[PullRemoteOrderByCursor] ["
                  << context.db_accessor_.transaction_id() << "] ["
-                 << self_.plan_id() << "] [" << command_id_
+                 << self_.plan_id_ << "] [" << command_id_
                  << "] missing results, sleep";
         // If we don't have results from all workers, sleep before continuing.
         std::this_thread::sleep_for(
@@ -734,7 +734,7 @@ class PullRemoteOrderByCursor : public Cursor {
 
     auto result_it = std::min_element(
         merge_.begin(), merge_.end(), [this](const auto &lhs, const auto &rhs) {
-          return self_.compare()(lhs.order_by, rhs.order_by);
+          return self_.compare_(lhs.order_by, rhs.order_by);
         });
 
     restore_frame(result_it->remote_result);
@@ -742,14 +742,14 @@ class PullRemoteOrderByCursor : public Cursor {
     if (result_it->worker_id) {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] [" << command_id_
+               << self_.plan_id_ << "] [" << command_id_
                << "] producing results from worker "
                << result_it->worker_id.value();
       missing_results_from_.push_back(result_it->worker_id.value());
     } else {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
                << context.db_accessor_.transaction_id() << "] ["
-               << self_.plan_id() << "] [" << command_id_
+               << self_.plan_id_ << "] [" << command_id_
                << "] producing local results";
       missing_master_result_ = true;
     }
@@ -799,13 +799,13 @@ class DistributedExpandCursor : public query::plan::Cursor {
     // A helper function for expanding a node from an edge.
     auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
                                     EdgeAtom::Direction direction) {
-      if (self_->existing_node()) return;
+      if (self_->existing_node_) return;
       switch (direction) {
         case EdgeAtom::Direction::IN:
-          frame[self_->node_symbol()] = new_edge.from();
+          frame[self_->node_symbol_] = new_edge.from();
           break;
         case EdgeAtom::Direction::OUT:
-          frame[self_->node_symbol()] = new_edge.to();
+          frame[self_->node_symbol_] = new_edge.to();
           break;
         case EdgeAtom::Direction::BOTH:
           LOG(FATAL) << "Must indicate exact expansion direction here";
@@ -833,8 +833,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
     auto put_future_edge_on_frame = [this, &frame](auto &future) {
       auto edge_to = future.edge_to.get();
       frame.elems() = future.frame_elems;
-      frame[self_->edge_symbol()] = edge_to.first;
-      frame[self_->node_symbol()] = edge_to.second;
+      frame[self_->edge_symbol_] = edge_to.first;
+      frame[self_->node_symbol_] = edge_to.second;
     };
 
     while (true) {
@@ -863,8 +863,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
       // attempt to get a value from the incoming edges
       if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
         auto edge = *(*in_edges_it_)++;
-        if (edge.address().is_local() || self_->existing_node()) {
-          frame[self_->edge_symbol()] = edge;
+        if (edge.address().is_local() || self_->existing_node_) {
+          frame[self_->edge_symbol_] = edge;
           pull_node(edge, EdgeAtom::Direction::IN);
           return true;
         } else {
@@ -879,10 +879,10 @@ class DistributedExpandCursor : public query::plan::Cursor {
         // when expanding in EdgeAtom::Direction::BOTH directions
         // we should do only one expansion for cycles, and it was
         // already done in the block above
-        if (self_->direction() == EdgeAtom::Direction::BOTH && edge.is_cycle())
+        if (self_->direction_ == EdgeAtom::Direction::BOTH && edge.is_cycle())
           continue;
-        if (edge.address().is_local() || self_->existing_node()) {
-          frame[self_->edge_symbol()] = edge;
+        if (edge.address().is_local() || self_->existing_node_) {
+          frame[self_->edge_symbol_] = edge;
           pull_node(edge, EdgeAtom::Direction::OUT);
           return true;
         } else {
@@ -945,46 +945,46 @@ class DistributedExpandCursor : public query::plan::Cursor {
     // In those cases we skip that input pull and continue with the next.
     while (true) {
       if (!input_cursor_->Pull(frame, context)) return false;
-      TypedValue &vertex_value = frame[self_->input_symbol()];
+      TypedValue &vertex_value = frame[self_->input_symbol_];
 
       // Null check due to possible failed optional match.
       if (vertex_value.IsNull()) continue;
 
-      ExpectType(self_->input_symbol(), vertex_value, TypedValue::Type::Vertex);
+      ExpectType(self_->input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.Value<VertexAccessor>();
-      SwitchAccessor(vertex, self_->graph_view());
+      SwitchAccessor(vertex, self_->graph_view_);
 
-      auto direction = self_->direction();
+      auto direction = self_->direction_;
       if (direction == EdgeAtom::Direction::IN ||
           direction == EdgeAtom::Direction::BOTH) {
-        if (self_->existing_node()) {
-          TypedValue &existing_node = frame[self_->node_symbol()];
+        if (self_->existing_node_) {
+          TypedValue &existing_node = frame[self_->node_symbol_];
           // old_node_value may be Null when using optional matching
           if (!existing_node.IsNull()) {
-            ExpectType(self_->node_symbol(), existing_node,
+            ExpectType(self_->node_symbol_, existing_node,
                        TypedValue::Type::Vertex);
             in_edges_.emplace(
-                vertex.in(existing_node.ValueVertex(), &self_->edge_types()));
+                vertex.in(existing_node.ValueVertex(), &self_->edge_types_));
           }
         } else {
-          in_edges_.emplace(vertex.in(&self_->edge_types()));
+          in_edges_.emplace(vertex.in(&self_->edge_types_));
         }
         in_edges_it_.emplace(in_edges_->begin());
       }
 
       if (direction == EdgeAtom::Direction::OUT ||
           direction == EdgeAtom::Direction::BOTH) {
-        if (self_->existing_node()) {
-          TypedValue &existing_node = frame[self_->node_symbol()];
+        if (self_->existing_node_) {
+          TypedValue &existing_node = frame[self_->node_symbol_];
           // old_node_value may be Null when using optional matching
           if (!existing_node.IsNull()) {
-            ExpectType(self_->node_symbol(), existing_node,
+            ExpectType(self_->node_symbol_, existing_node,
                        TypedValue::Type::Vertex);
             out_edges_.emplace(
-                vertex.out(existing_node.ValueVertex(), &self_->edge_types()));
+                vertex.out(existing_node.ValueVertex(), &self_->edge_types_));
           }
         } else {
-          out_edges_.emplace(vertex.out(&self_->edge_types()));
+          out_edges_.emplace(vertex.out(&self_->edge_types_));
         }
         out_edges_it_.emplace(out_edges_->begin());
       }
@@ -1030,8 +1030,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     }
     CHECK(bfs_subcursor_clients_);
     subcursor_ids_ = bfs_subcursor_clients_->CreateBfsSubcursors(
-        db_.transaction_id(), self_.direction(), self_.edge_types(),
-        self_.graph_view());
+        db_.transaction_id(), self_.direction_, self_.edge_types_,
+        self_.graph_view_);
     bfs_subcursor_clients_->RegisterSubcursors(subcursor_ids_);
     VLOG(10) << "BFS subcursors initialized";
     pull_pos_ = subcursor_ids_.end();
@@ -1044,14 +1044,14 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
   bool Pull(Frame &frame, Context &context) override {
     // TODO(mtomic): lambda filtering in distributed
-    if (self_.filter_lambda().expression) {
+    if (self_.filter_lambda_.expression) {
       throw utils::NotYetImplemented("lambda filtering in distributed BFS");
     }
 
     // Evaluator for the filtering condition and expansion depth.
     ExpressionEvaluator evaluator(&frame, context.symbol_table_,
                                   context.evaluation_context_,
-                                  &context.db_accessor_, self_.graph_view());
+                                  &context.db_accessor_, self_.graph_view_);
 
     while (true) {
       if (context.db_accessor_.should_abort()) throw HintedAbortError();
@@ -1064,7 +1064,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
                                                        pull_pos_->second, &db_);
             if (vertex) {
               last_vertex = *vertex;
-              SwitchAccessor(last_vertex.ValueVertex(), self_.graph_view());
+              SwitchAccessor(last_vertex.ValueVertex(), self_.graph_view_);
               break;
             }
             VLOG(10) << "Nothing to pull from " << pull_pos_->first;
@@ -1073,15 +1073,15 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
         if (last_vertex.IsVertex()) {
           // Handle existence flag
-          if (self_.existing_node()) {
-            TypedValue &node = frame[self_.node_symbol()];
+          if (self_.existing_node_) {
+            TypedValue &node = frame[self_.node_symbol_];
             // Due to optional matching the existing node could be null
             if (node.IsNull() || (node != last_vertex).ValueBool()) continue;
             // There is no point in traversing the rest of the graph because BFS
             // can find only one path to a certain node.
             skip_rest_ = true;
           } else {
-            frame[self_.node_symbol()] = last_vertex;
+            frame[self_.node_symbol_] = last_vertex;
           }
 
           VLOG(10) << "Expanded to vertex: " << last_vertex;
@@ -1116,8 +1116,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
           }
           std::reverse(edges.begin(), edges.end());
           for (auto &edge : edges)
-            SwitchAccessor(edge.ValueEdge(), self_.graph_view());
-          frame[self_.edge_symbol()] = std::move(edges);
+            SwitchAccessor(edge.ValueEdge(), self_.graph_view_);
+          frame[self_.edge_symbol_] = std::move(edges);
           return true;
         }
 
@@ -1139,18 +1139,18 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
       // We're done with this source, try getting a new one
       if (!input_cursor_->Pull(frame, context)) return false;
 
-      auto vertex_value = frame[self_.input_symbol()];
+      auto vertex_value = frame[self_.input_symbol_];
 
       // It is possible that the vertex is Null due to optional matching.
       if (vertex_value.IsNull()) continue;
 
       auto vertex = vertex_value.ValueVertex();
-      lower_bound_ = self_.lower_bound()
-                         ? EvaluateInt(&evaluator, self_.lower_bound(),
+      lower_bound_ = self_.lower_bound_
+                         ? EvaluateInt(&evaluator, self_.lower_bound_,
                                        "Min depth in breadth-first expansion")
                          : 1;
-      upper_bound_ = self_.upper_bound()
-                         ? EvaluateInt(&evaluator, self_.upper_bound(),
+      upper_bound_ = self_.upper_bound_
+                         ? EvaluateInt(&evaluator, self_.upper_bound_,
                                        "Max depth in breadth-first expansion")
                          : std::numeric_limits<int64_t>::max();
       skip_rest_ = false;
@@ -1257,8 +1257,8 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
       : input_cursor_(self->input()->MakeCursor(*dba)),
         // TODO: Replace this with some other mechanism
         db_(dynamic_cast<database::DistributedGraphDb *>(&dba->db())),
-        node_atom_(self->node_atom()),
-        on_random_worker_(self->on_random_worker()) {
+        node_atom_(self->node_atom_),
+        on_random_worker_(self->on_random_worker_) {
     CHECK(db_);
     CHECK(node_atom_);
   }
@@ -1301,8 +1301,8 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     // get the origin vertex
-    TypedValue &vertex_value = frame[self_->input_symbol()];
-    ExpectType(self_->input_symbol(), vertex_value, TypedValue::Type::Vertex);
+    TypedValue &vertex_value = frame[self_->input_symbol_];
+    ExpectType(self_->input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &v1 = vertex_value.Value<VertexAccessor>();
 
     // Similarly to CreateNode, newly created edges and nodes should use the
@@ -1319,7 +1319,7 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
 
     auto *dba = &context.db_accessor_;
     // create an edge between the two nodes
-    switch (self_->edge_atom()->direction_) {
+    switch (self_->edge_atom_->direction_) {
       case EdgeAtom::Direction::IN:
         CreateEdge(&v2, &v1, &frame, context.symbol_table_, &evaluator, dba);
         break;
@@ -1342,14 +1342,14 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
   void Reset() override { input_cursor_->Reset(); }
 
   VertexAccessor &OtherVertex(int worker_id, Frame &frame, Context &context) {
-    if (self_->existing_node()) {
+    if (self_->existing_node_) {
       const auto &dest_node_symbol =
-          context.symbol_table_.at(*self_->node_atom()->identifier_);
+          context.symbol_table_.at(*self_->node_atom_->identifier_);
       TypedValue &dest_node_value = frame[dest_node_symbol];
       ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
       return dest_node_value.Value<VertexAccessor>();
     } else {
-      return CreateVertexOnWorker(worker_id, self_->node_atom(), frame,
+      return CreateVertexOnWorker(worker_id, self_->node_atom_, frame,
                                   context);
     }
   }
@@ -1359,10 +1359,10 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
                   ExpressionEvaluator *evaluator,
                   database::GraphDbAccessor *dba) {
     EdgeAccessor edge =
-        dba->InsertEdge(*from, *to, self_->edge_atom()->edge_types_[0]);
-    for (auto kv : self_->edge_atom()->properties_)
+        dba->InsertEdge(*from, *to, self_->edge_atom_->edge_types_[0]);
+    for (auto kv : self_->edge_atom_->properties_)
       PropsSetChecked(&edge, kv.first.second, kv.second->Accept(*evaluator));
-    (*frame)[symbol_table.at(*self_->edge_atom()->identifier_)] = edge;
+    (*frame)[symbol_table.at(*self_->edge_atom_->identifier_)] = edge;
   }
 
  private:

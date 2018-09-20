@@ -34,13 +34,6 @@ struct RecoveryInfo {
            wal_recovered == other.wal_recovered;
   }
   bool operator!=(const RecoveryInfo &other) const { return !(*this == other); }
-
-  void Load(const capnp::RecoveryInfo::Reader &reader) {
-    durability_version = reader.getDurabilityVersion();
-    snapshot_tx_id = reader.getSnapshotTxId();
-    auto list_reader = reader.getWalRecovered();
-    utils::LoadVector(&wal_recovered, list_reader);
-  }
 };
 
 inline void Save(const RecoveryInfo &info,
@@ -49,6 +42,14 @@ inline void Save(const RecoveryInfo &info,
   builder->setSnapshotTxId(info.snapshot_tx_id);
   auto list_builder = builder->initWalRecovered(info.wal_recovered.size());
   utils::SaveVector(info.wal_recovered, &list_builder);
+}
+
+inline void Load(RecoveryInfo *info,
+                 const capnp::RecoveryInfo::Reader &reader) {
+  info->durability_version = reader.getDurabilityVersion();
+  info->snapshot_tx_id = reader.getSnapshotTxId();
+  auto list_reader = reader.getWalRecovered();
+  utils::LoadVector(&info->wal_recovered, list_reader);
 }
 
 // A data structure for exchanging info between main recovery function and
@@ -65,26 +66,6 @@ struct RecoveryData {
     snapshooter_tx_id = 0;
     snapshooter_tx_snapshot.clear();
     indexes.clear();
-  }
-
-  void Load(const capnp::RecoveryData::Reader &reader) {
-    snapshooter_tx_id = reader.getSnapshooterTxId();
-    {
-      auto list_reader = reader.getWalTxToRecover();
-      utils::LoadVector(&wal_tx_to_recover, list_reader);
-    }
-    {
-      auto list_reader = reader.getSnapshooterTxSnapshot();
-      utils::LoadVector(&snapshooter_tx_snapshot, list_reader);
-    }
-    {
-      auto list_reader = reader.getIndexes();
-      utils::LoadVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
-                        std::pair<std::string, std::string>>(
-          &indexes, list_reader, [](const auto &reader) {
-            return std::make_pair(reader.getFirst(), reader.getSecond());
-          });
-    }
   }
 };
 
@@ -108,6 +89,27 @@ inline void Save(const RecoveryData &data,
         data.indexes, &list_builder, [](auto *builder, const auto value) {
           builder->setFirst(value.first);
           builder->setSecond(value.second);
+        });
+  }
+}
+
+inline void Load(RecoveryData *data,
+                 const capnp::RecoveryData::Reader &reader) {
+  data->snapshooter_tx_id = reader.getSnapshooterTxId();
+  {
+    auto list_reader = reader.getWalTxToRecover();
+    utils::LoadVector(&data->wal_tx_to_recover, list_reader);
+  }
+  {
+    auto list_reader = reader.getSnapshooterTxSnapshot();
+    utils::LoadVector(&data->snapshooter_tx_snapshot, list_reader);
+  }
+  {
+    auto list_reader = reader.getIndexes();
+    utils::LoadVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
+                      std::pair<std::string, std::string>>(
+        &data->indexes, list_reader, [](const auto &reader) {
+          return std::make_pair(reader.getFirst(), reader.getSecond());
         });
   }
 }

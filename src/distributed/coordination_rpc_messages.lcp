@@ -42,7 +42,8 @@ cpp<#
                                });
                            cpp<#)
                          :capnp-load
-                         (lambda (reader member)
+                         (lambda (reader member capnp-name)
+                           (declare (ignore capnp-name))
                            #>cpp
                            ${member} = utils::LoadOptional<utils::capnp::Pair<utils::capnp::BoxUInt64, utils::capnp::BoxUInt64>, std::pair<int64_t, tx::TransactionId>>(
                                ${reader}, [](auto reader){
@@ -64,12 +65,13 @@ cpp<#
                    });
                cpp<#)
              :capnp-load
-             (lambda (reader member)
+             (lambda (reader member capnp-name)
+               (declare (ignore capnp-name))
                #>cpp
                utils::LoadMap<utils::capnp::BoxInt16, io::network::capnp::Endpoint>(&${member}, ${reader},
                               [](const auto &reader) {
                                   io::network::Endpoint value;
-                                  value.Load(reader.getValue());
+                                  Load(&value, reader.getValue());
                                   return std::make_pair(
                                       reader.getKey().getValue(), value);
                               });

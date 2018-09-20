@@ -107,7 +107,7 @@ void LoadProperties(const capnp::PropertyValueStore::Reader &reader,
   auto props_reader = reader.getProperties();
   for (const auto &kv_reader : props_reader) {
     storage::Property id;
-    id.Load(kv_reader.getId());
+    storage::Load(&id, kv_reader.getId());
     PropertyValue value;
     LoadCapnpPropertyValue(kv_reader.getValue(), &value);
     properties->set(id, value);

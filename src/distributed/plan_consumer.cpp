@@ -7,7 +7,7 @@ PlanConsumer::PlanConsumer(communication::rpc::Server &server)
   server_.Register<DispatchPlanRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         DispatchPlanReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         plan_cache_.access().insert(
             req.plan_id, std::make_unique<PlanPack>(req.plan, req.symbol_table,
                                                     std::move(req.storage)));

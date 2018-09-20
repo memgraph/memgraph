@@ -72,13 +72,14 @@ cpp<#
                      });
                  cpp<#)
                :capnp-load
-               (lambda (reader member)
+               (lambda (reader member capnp-name)
+                 (declare (ignore capnp-name))
                  #>cpp
                  utils::LoadMap<storage::capnp::Common, storage::capnp::PropertyValue>(
                      &${member}, ${reader},
                      [](const auto &reader) {
                        storage::Property prop;
-                       prop.Load(reader.getKey());
+                       storage::Load(&prop, reader.getKey());
                        PropertyValue value;
                        storage::LoadCapnpPropertyValue(reader.getValue(), &value);
                        return std::make_pair(prop, value);
@@ -96,9 +97,10 @@ cpp<#
                                  });
        cpp<#)
      :capnp-load
-     (lambda (reader member)
+     (lambda (reader member capnp-name)
+       (declare (ignore capnp-name))
        #>cpp
-       cypher_id = utils::LoadOptional<utils::capnp::BoxInt64, int64_t>(
+       ${member} = utils::LoadOptional<utils::capnp::BoxInt64, int64_t>(
          ${reader}, [](const auto &reader) {
                       return reader.getValue();
                     });
@@ -126,9 +128,10 @@ cpp<#
                                  });
        cpp<#)
      :capnp-load
-     (lambda (reader member)
+     (lambda (reader member capnp-name)
+       (declare (ignore capnp-name))
        #>cpp
-       cypher_id = utils::LoadOptional<utils::capnp::BoxInt64, int64_t>(
+       ${member} = utils::LoadOptional<utils::capnp::BoxInt64, int64_t>(
            ${reader}, [](const auto &reader) {
                         return reader.getValue();
                       });

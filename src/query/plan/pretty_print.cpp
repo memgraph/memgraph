@@ -21,7 +21,7 @@ PRE_VISIT(Delete);
 bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAll"
-        << " (" << op.output_symbol().name() << ")";
+        << " (" << op.output_symbol_.name() << ")";
   });
   return true;
 }
@@ -29,8 +29,8 @@ bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabel"
-        << " (" << op.output_symbol().name() << " :"
-        << dba_->LabelName(op.label()) << ")";
+        << " (" << op.output_symbol_.name() << " :"
+        << dba_->LabelName(op.label_) << ")";
   });
   return true;
 }
@@ -38,9 +38,9 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabel &op) {
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyValue"
-        << " (" << op.output_symbol().name() << " :"
-        << dba_->LabelName(op.label()) << " {"
-        << dba_->PropertyName(op.property()) << "})";
+        << " (" << op.output_symbol_.name() << " :"
+        << dba_->LabelName(op.label_) << " {"
+        << dba_->PropertyName(op.property_) << "})";
   });
   return true;
 }
@@ -48,9 +48,9 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyValue &op) {
 bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
   WithPrintLn([&](auto &out) {
     out << "* ScanAllByLabelPropertyRange"
-        << " (" << op.output_symbol().name() << " :"
-        << dba_->LabelName(op.label()) << " {"
-        << dba_->PropertyName(op.property()) << "})";
+        << " (" << op.output_symbol_.name() << " :"
+        << dba_->LabelName(op.label_) << " {"
+        << dba_->PropertyName(op.property_) << "})";
   });
   return true;
 }
@@ -75,7 +75,7 @@ bool PlanPrinter::PreVisit(query::plan::Produce &op) {
   WithPrintLn([&](auto &out) {
     out << "* Produce {";
     utils::PrintIterable(
-        out, op.named_expressions(), ", ",
+        out, op.named_expressions_, ", ",
         [](auto &out, const auto &nexpr) { out << nexpr->name_; });
     out << "}";
   });
@@ -97,10 +97,10 @@ bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {
   WithPrintLn([&](auto &out) {
     out << "* Aggregate {";
     utils::PrintIterable(
-        out, op.aggregations(), ", ",
+        out, op.aggregations_, ", ",
         [](auto &out, const auto &aggr) { out << aggr.output_sym.name(); });
     out << "} {";
-    utils::PrintIterable(out, op.remember(), ", ",
+    utils::PrintIterable(out, op.remember_, ", ",
                          [](auto &out, const auto &sym) { out << sym.name(); });
     out << "}";
   });
@@ -113,7 +113,7 @@ PRE_VISIT(Limit);
 bool PlanPrinter::PreVisit(query::plan::OrderBy &op) {
   WithPrintLn([&op](auto &out) {
     out << "* OrderBy {";
-    utils::PrintIterable(out, op.output_symbols(), ", ",
+    utils::PrintIterable(out, op.output_symbols_, ", ",
                          [](auto &out, const auto &sym) { out << sym.name(); });
     out << "}";
   });
@@ -122,16 +122,16 @@ bool PlanPrinter::PreVisit(query::plan::OrderBy &op) {
 
 bool PlanPrinter::PreVisit(query::plan::Merge &op) {
   WithPrintLn([](auto &out) { out << "* Merge"; });
-  Branch(*op.merge_match(), "On Match");
-  Branch(*op.merge_create(), "On Create");
-  op.input()->Accept(*this);
+  Branch(*op.merge_match_, "On Match");
+  Branch(*op.merge_create_, "On Create");
+  op.input_->Accept(*this);
   return false;
 }
 
 bool PlanPrinter::PreVisit(query::plan::Optional &op) {
   WithPrintLn([](auto &out) { out << "* Optional"; });
-  Branch(*op.optional());
-  op.input()->Accept(*this);
+  Branch(*op.optional_);
+  op.input_->Accept(*this);
   return false;
 }
 
@@ -185,7 +185,7 @@ bool PlanPrinter::Visit(query::plan::TestStream &op) {
 
 bool PlanPrinter::PreVisit(query::plan::Explain &explain) {
   WithPrintLn([&explain](auto &out) {
-    out << "* Explain {" << explain.output_symbol().name() << "}";
+    out << "* Explain {" << explain.output_symbol_.name() << "}";
   });
   return true;
 }
@@ -193,15 +193,15 @@ bool PlanPrinter::PreVisit(query::plan::Explain &explain) {
 bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   WithPrintLn([&op](auto &out) {
     out << "* Cartesian {";
-    utils::PrintIterable(out, op.left_symbols(), ", ",
+    utils::PrintIterable(out, op.left_symbols_, ", ",
                          [](auto &out, const auto &sym) { out << sym.name(); });
     out << " : ";
-    utils::PrintIterable(out, op.right_symbols(), ", ",
+    utils::PrintIterable(out, op.right_symbols_, ", ",
                          [](auto &out, const auto &sym) { out << sym.name(); });
     out << "}";
   });
-  Branch(*op.right_op());
-  op.left_op()->Accept(*this);
+  Branch(*op.right_op_);
+  op.left_op_->Accept(*this);
   return false;
 }
 
@@ -221,11 +221,11 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op,
 }
 
 void PlanPrinter::PrintExpand(const query::plan::ExpandCommon &op) {
-  *out_ << " (" << op.input_symbol().name() << ")"
-        << (op.direction() == query::EdgeAtom::Direction::IN ? "<-" : "-")
-        << "[" << op.edge_symbol().name() << "]"
-        << (op.direction() == query::EdgeAtom::Direction::OUT ? "->" : "-")
-        << "(" << op.node_symbol().name() << ")";
+  *out_ << " (" << op.input_symbol_.name() << ")"
+        << (op.direction_ == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
+        << op.edge_symbol_.name() << "]"
+        << (op.direction_ == query::EdgeAtom::Direction::OUT ? "->" : "-")
+        << "(" << op.node_symbol_.name() << ")";
 }
 
 void PrettyPrint(const database::GraphDbAccessor &dba,

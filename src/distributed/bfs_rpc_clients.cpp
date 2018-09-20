@@ -88,7 +88,7 @@ std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
   auto res = coordination_->GetClientPool(worker_id)->CallWithLoad<SubcursorPullRpc>(
       [this, dba](const auto &reader) {
         SubcursorPullRes res;
-        res.Load(reader, dba, this->data_manager_);
+        Load(&res, reader, dba, this->data_manager_);
         return res;
       },
       subcursor_id);
@@ -152,7 +152,7 @@ PathSegment BfsRpcClients::ReconstructPath(
       coordination_->GetClientPool(worker_id)->CallWithLoad<ReconstructPathRpc>(
           [this, dba](const auto &reader) {
             ReconstructPathRes res;
-            res.Load(reader, dba, this->data_manager_);
+            Load(&res, reader, dba, this->data_manager_);
             return res;
           },
           subcursor_ids.at(worker_id), vertex);
@@ -171,7 +171,7 @@ PathSegment BfsRpcClients::ReconstructPath(
       coordination_->GetClientPool(worker_id)->CallWithLoad<ReconstructPathRpc>(
           [this, dba](const auto &reader) {
             ReconstructPathRes res;
-            res.Load(reader, dba, this->data_manager_);
+            Load(&res, reader, dba, this->data_manager_);
             return res;
           },
           subcursor_ids.at(worker_id), edge);

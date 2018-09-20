@@ -204,14 +204,14 @@ using ExpectDistributedCreateExpand = OpChecker<DistributedCreateExpand>;
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
  public:
   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-    EXPECT_EQ(op.type(), query::EdgeAtom::Type::DEPTH_FIRST);
+    EXPECT_EQ(op.type_, query::EdgeAtom::Type::DEPTH_FIRST);
   }
 };
 
 class ExpectExpandBfs : public OpChecker<ExpandVariable> {
  public:
   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
-    EXPECT_EQ(op.type(), query::EdgeAtom::Type::BREADTH_FIRST);
+    EXPECT_EQ(op.type_, query::EdgeAtom::Type::BREADTH_FIRST);
   }
 };
 
@@ -221,8 +221,8 @@ class ExpectAccumulate : public OpChecker<Accumulate> {
       : symbols_(symbols) {}
 
   void ExpectOp(Accumulate &op, const SymbolTable &) override {
-    std::unordered_set<Symbol> got_symbols(op.symbols().begin(),
-                                           op.symbols().end());
+    std::unordered_set<Symbol> got_symbols(op.symbols_.begin(),
+                                           op.symbols_.end());
     EXPECT_EQ(symbols_, got_symbols);
   }
 
@@ -244,7 +244,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
 
   void ExpectOp(Aggregate &op, const SymbolTable &symbol_table) override {
     auto aggr_it = aggregations_.begin();
-    for (const auto &aggr_elem : op.aggregations()) {
+    for (const auto &aggr_elem : op.aggregations_) {
       ASSERT_NE(aggr_it, aggregations_.end());
       auto aggr = *aggr_it++;
       // TODO: Proper expression equality
@@ -262,7 +262,7 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     EXPECT_EQ(aggr_it, aggregations_.end());
     // TODO: Proper group by expression equality
     std::unordered_set<size_t> got_group_by;
-    for (auto *expr : op.group_by())
+    for (auto *expr : op.group_by_)
       got_group_by.insert(typeid(*expr).hash_code());
     std::unordered_set<size_t> expected_group_by;
     for (auto *expr : group_by_)
@@ -290,9 +290,9 @@ class ExpectMerge : public OpChecker<Merge> {
 
   void ExpectOp(Merge &merge, const SymbolTable &symbol_table) override {
     PlanChecker check_match(on_match_, symbol_table);
-    merge.merge_match()->Accept(check_match);
+    merge.merge_match_->Accept(check_match);
     PlanChecker check_create(on_create_, symbol_table);
-    merge.merge_create()->Accept(check_create);
+    merge.merge_create_->Accept(check_create);
   }
 
  private:
@@ -311,11 +311,11 @@ class ExpectOptional : public OpChecker<Optional> {
 
   void ExpectOp(Optional &optional, const SymbolTable &symbol_table) override {
     if (!optional_symbols_.empty()) {
-      EXPECT_THAT(optional.optional_symbols(),
+      EXPECT_THAT(optional.optional_symbols_,
                   testing::UnorderedElementsAreArray(optional_symbols_));
     }
     PlanChecker check_optional(optional_, symbol_table);
-    optional.optional()->Accept(check_optional);
+    optional.optional_->Accept(check_optional);
   }
 
  private:
@@ -334,10 +334,10 @@ class ExpectScanAllByLabelPropertyValue
 
   void ExpectOp(ScanAllByLabelPropertyValue &scan_all,
                 const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label(), label_);
-    EXPECT_EQ(scan_all.property(), property_);
+    EXPECT_EQ(scan_all.label_, label_);
+    EXPECT_EQ(scan_all.property_, property_);
     // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression()).hash_code(),
+    EXPECT_EQ(typeid(scan_all.expression_).hash_code(),
               typeid(expression_).hash_code());
   }
 
@@ -361,21 +361,21 @@ class ExpectScanAllByLabelPropertyRange
 
   void ExpectOp(ScanAllByLabelPropertyRange &scan_all,
                 const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label(), label_);
-    EXPECT_EQ(scan_all.property(), property_);
+    EXPECT_EQ(scan_all.label_, label_);
+    EXPECT_EQ(scan_all.property_, property_);
     if (lower_bound_) {
-      ASSERT_TRUE(scan_all.lower_bound());
+      ASSERT_TRUE(scan_all.lower_bound_);
       // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.lower_bound()->value()).hash_code(),
+      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(),
                 typeid(lower_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.lower_bound()->type(), lower_bound_->type());
+      EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
     }
     if (upper_bound_) {
-      ASSERT_TRUE(scan_all.upper_bound());
+      ASSERT_TRUE(scan_all.upper_bound_);
       // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.upper_bound()->value()).hash_code(),
+      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(),
                 typeid(upper_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.upper_bound()->type(), upper_bound_->type());
+      EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
     }
   }
 
@@ -400,14 +400,14 @@ class ExpectAuthHandler : public OpChecker<AuthHandler> {
         privileges_(privileges) {}
 
   void ExpectOp(AuthHandler &auth_handler, const SymbolTable &) override {
-    EXPECT_EQ(auth_handler.action(), action_);
-    EXPECT_EQ(auth_handler.user(), user_);
-    EXPECT_EQ(auth_handler.role(), role_);
-    EXPECT_EQ(auth_handler.user_or_role(), user_or_role_);
+    EXPECT_EQ(auth_handler.action_, action_);
+    EXPECT_EQ(auth_handler.user_, user_);
+    EXPECT_EQ(auth_handler.role_, role_);
+    EXPECT_EQ(auth_handler.user_or_role_, user_or_role_);
     // TODO(mtomic): We need to somehow test the password expression.
     EXPECT_TRUE(password_);
-    EXPECT_TRUE(auth_handler.password());
-    EXPECT_EQ(auth_handler.privileges(), privileges_);
+    EXPECT_TRUE(auth_handler.password_);
+    EXPECT_EQ(auth_handler.privileges_, privileges_);
   }
 
  private:
@@ -425,8 +425,8 @@ class ExpectCreateIndex : public OpChecker<CreateIndex> {
       : label_(label), property_(property) {}
 
   void ExpectOp(CreateIndex &create_index, const SymbolTable &) override {
-    EXPECT_EQ(create_index.label(), label_);
-    EXPECT_EQ(create_index.property(), property_);
+    EXPECT_EQ(create_index.label_, label_);
+    EXPECT_EQ(create_index.property_, property_);
   }
 
  private:
@@ -440,7 +440,7 @@ class ExpectPullRemote : public OpChecker<PullRemote> {
   ExpectPullRemote(const std::vector<Symbol> &symbols) : symbols_(symbols) {}
 
   void ExpectOp(PullRemote &op, const SymbolTable &) override {
-    EXPECT_THAT(op.symbols(), testing::UnorderedElementsAreArray(symbols_));
+    EXPECT_THAT(op.symbols_, testing::UnorderedElementsAreArray(symbols_));
   }
 
  private:
@@ -459,12 +459,12 @@ class ExpectSynchronize : public OpChecker<Synchronize> {
 
   void ExpectOp(Synchronize &op, const SymbolTable &symbol_table) override {
     if (has_pull_) {
-      ASSERT_TRUE(op.pull_remote());
-      expect_pull_.ExpectOp(*op.pull_remote(), symbol_table);
+      ASSERT_TRUE(op.pull_remote_);
+      expect_pull_.ExpectOp(*op.pull_remote_, symbol_table);
     } else {
-      EXPECT_FALSE(op.pull_remote());
+      EXPECT_FALSE(op.pull_remote_);
     }
-    EXPECT_EQ(op.advance_command(), advance_command_);
+    EXPECT_EQ(op.advance_command_, advance_command_);
   }
 
  private:
@@ -480,12 +480,12 @@ class ExpectCartesian : public OpChecker<Cartesian> {
       : left_(left), right_(right) {}
 
   void ExpectOp(Cartesian &op, const SymbolTable &symbol_table) override {
-    ASSERT_TRUE(op.left_op());
+    ASSERT_TRUE(op.left_op_);
     PlanChecker left_checker(left_, symbol_table);
-    op.left_op()->Accept(left_checker);
-    ASSERT_TRUE(op.right_op());
+    op.left_op_->Accept(left_checker);
+    ASSERT_TRUE(op.right_op_);
     PlanChecker right_checker(right_, symbol_table);
-    op.right_op()->Accept(right_checker);
+    op.right_op_->Accept(right_checker);
   }
 
  private:
@@ -499,7 +499,7 @@ class ExpectDistributedCreateNode : public OpChecker<DistributedCreateNode> {
       : on_random_worker_(on_random_worker) {}
 
   void ExpectOp(DistributedCreateNode &op, const SymbolTable &) override {
-    EXPECT_EQ(op.on_random_worker(), on_random_worker_);
+    EXPECT_EQ(op.on_random_worker_, on_random_worker_);
   }
 
  private:
@@ -512,7 +512,7 @@ class ExpectPullRemoteOrderBy : public OpChecker<PullRemoteOrderBy> {
       : symbols_(symbols) {}
 
   void ExpectOp(PullRemoteOrderBy &op, const SymbolTable &) override {
-    EXPECT_THAT(op.symbols(), testing::UnorderedElementsAreArray(symbols_));
+    EXPECT_THAT(op.symbols_, testing::UnorderedElementsAreArray(symbols_));
   }
 
  private:
@@ -534,27 +534,27 @@ class ExpectCreateStream : public OpChecker<CreateStream> {
         batch_size_(batch_size) {}
 
   void ExpectOp(CreateStream &create_stream, const SymbolTable &) override {
-    EXPECT_EQ(create_stream.stream_name(), stream_name_);
+    EXPECT_EQ(create_stream.stream_name_, stream_name_);
     // TODO: Proper expression equality
-    EXPECT_EQ(typeid(create_stream.stream_uri()).hash_code(),
+    EXPECT_EQ(typeid(create_stream.stream_uri_).hash_code(),
               typeid(stream_uri_).hash_code());
-    EXPECT_EQ(typeid(create_stream.stream_topic()).hash_code(),
+    EXPECT_EQ(typeid(create_stream.stream_topic_).hash_code(),
               typeid(stream_topic_).hash_code());
-    EXPECT_EQ(typeid(create_stream.transform_uri()).hash_code(),
+    EXPECT_EQ(typeid(create_stream.transform_uri_).hash_code(),
               typeid(transform_uri_).hash_code());
-    if (batch_interval_in_ms_ && create_stream.batch_interval_in_ms()) {
-      EXPECT_EQ(typeid(create_stream.batch_interval_in_ms()).hash_code(),
+    if (batch_interval_in_ms_ && create_stream.batch_interval_in_ms_) {
+      EXPECT_EQ(typeid(create_stream.batch_interval_in_ms_).hash_code(),
                 typeid(batch_interval_in_ms_).hash_code());
     } else {
       EXPECT_TRUE(batch_interval_in_ms_ == nullptr &&
-                  create_stream.batch_interval_in_ms() == nullptr);
+                  create_stream.batch_interval_in_ms_ == nullptr);
     }
-    if (batch_size_ && create_stream.batch_size()) {
-      EXPECT_EQ(typeid(create_stream.batch_size()).hash_code(),
+    if (batch_size_ && create_stream.batch_size_) {
+      EXPECT_EQ(typeid(create_stream.batch_size_).hash_code(),
                 typeid(batch_size_).hash_code());
     } else {
       EXPECT_TRUE(batch_size_ == nullptr &&
-                  create_stream.batch_size() == nullptr);
+                  create_stream.batch_size_ == nullptr);
     }
   }
 
@@ -573,7 +573,7 @@ class ExpectDropStream : public OpChecker<DropStream> {
       : stream_name_(stream_name) {}
 
   void ExpectOp(DropStream &drop_stream, const SymbolTable &) override {
-    EXPECT_EQ(drop_stream.stream_name(), stream_name_);
+    EXPECT_EQ(drop_stream.stream_name_, stream_name_);
   }
 
  private:
@@ -590,15 +590,15 @@ class ExpectStartStopStream : public OpChecker<StartStopStream> {
 
   void ExpectOp(StartStopStream &start_stop_stream,
                 const SymbolTable &) override {
-    EXPECT_EQ(start_stop_stream.stream_name(), stream_name_);
-    EXPECT_EQ(start_stop_stream.is_start(), is_start_);
+    EXPECT_EQ(start_stop_stream.stream_name_, stream_name_);
+    EXPECT_EQ(start_stop_stream.is_start_, is_start_);
     // TODO: Proper expression equality
-    if (limit_batches_ && start_stop_stream.limit_batches()) {
-      EXPECT_EQ(typeid(start_stop_stream.limit_batches()).hash_code(),
+    if (limit_batches_ && start_stop_stream.limit_batches_) {
+      EXPECT_EQ(typeid(start_stop_stream.limit_batches_).hash_code(),
                 typeid(limit_batches_).hash_code());
     } else {
       EXPECT_TRUE(limit_batches_ == nullptr &&
-                  start_stop_stream.limit_batches() == nullptr);
+                  start_stop_stream.limit_batches_ == nullptr);
     }
   }
 
@@ -614,7 +614,7 @@ class ExpectStartStopAllStreams : public OpChecker<StartStopAllStreams> {
 
   void ExpectOp(StartStopAllStreams &start_stop_all_streams,
                 const SymbolTable &) override {
-    EXPECT_EQ(start_stop_all_streams.is_start(), is_start_);
+    EXPECT_EQ(start_stop_all_streams.is_start_, is_start_);
   }
 
  private:
@@ -627,14 +627,14 @@ class ExpectTestStream : public OpChecker<TestStream> {
       : stream_name_(stream_name), limit_batches_(limit_batches) {}
 
   void ExpectOp(TestStream &test_stream, const SymbolTable &) override {
-    EXPECT_EQ(test_stream.stream_name(), stream_name_);
+    EXPECT_EQ(test_stream.stream_name_, stream_name_);
     // TODO: Proper expression equality
-    if (limit_batches_ && test_stream.limit_batches()) {
-      EXPECT_EQ(typeid(test_stream.limit_batches()).hash_code(),
+    if (limit_batches_ && test_stream.limit_batches_) {
+      EXPECT_EQ(typeid(test_stream.limit_batches_).hash_code(),
                 typeid(limit_batches_).hash_code());
     } else {
       EXPECT_TRUE(limit_batches_ == nullptr &&
-                  test_stream.limit_batches() == nullptr);
+                  test_stream.limit_batches_ == nullptr);
     }
   }
 
@@ -672,9 +672,9 @@ void SavePlan(const LogicalOperator &plan, ::capnp::MessageBuilder *message) {
 }
 
 auto LoadPlan(const ::query::plan::capnp::LogicalOperator::Reader &reader) {
-  auto plan = LogicalOperator::Construct(reader);
+  std::unique_ptr<LogicalOperator> plan;
   LogicalOperator::LoadHelper helper;
-  plan->Load(reader, &helper);
+  Load(&plan, reader, &helper);
   return std::make_pair(std::move(plan), std::move(helper.ast_storage));
 }
 
@@ -1823,7 +1823,7 @@ TYPED_TEST(TestPlanner, MatchReturnAsteriskSum) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   auto *produce = dynamic_cast<Produce *>(&planner.plan());
   ASSERT_TRUE(produce);
-  const auto &named_expressions = produce->named_expressions();
+  const auto &named_expressions = produce->named_expressions_;
   ASSERT_EQ(named_expressions.size(), 2);
   auto *expanded_ident =
       dynamic_cast<query::Identifier *>(named_expressions[0]->expression_);
@@ -2585,9 +2585,9 @@ TYPED_TEST(TestPlanner, DistributedAvg) {
     auto worker_plan = distributed_plan.worker_plans.back().second;
     auto worker_aggr_op = std::dynamic_pointer_cast<Aggregate>(worker_plan);
     ASSERT_TRUE(worker_aggr_op);
-    ASSERT_EQ(worker_aggr_op->aggregations().size(), 2U);
-    symbol_table[*worker_sum] = worker_aggr_op->aggregations()[0].output_sym;
-    symbol_table[*worker_count] = worker_aggr_op->aggregations()[1].output_sym;
+    ASSERT_EQ(worker_aggr_op->aggregations_.size(), 2U);
+    symbol_table[*worker_sum] = worker_aggr_op->aggregations_[0].output_sym;
+    symbol_table[*worker_count] = worker_aggr_op->aggregations_[1].output_sym;
   }
   auto worker_aggr = ExpectAggregate({worker_sum, worker_count}, {});
   auto merge_sum = SUM(IDENT("worker_sum"));
@@ -3134,11 +3134,11 @@ TEST(CapnpSerial, Union) {
   ASSERT_TRUE(loaded_plan);
   auto *loaded_op = dynamic_cast<Union *>(loaded_plan.get());
   ASSERT_TRUE(loaded_op);
-  EXPECT_FALSE(loaded_op->left_op());
-  EXPECT_FALSE(loaded_op->right_op());
-  EXPECT_EQ(loaded_op->left_symbols(), left_symbols);
-  EXPECT_EQ(loaded_op->right_symbols(), right_symbols);
-  EXPECT_EQ(loaded_op->union_symbols(), union_symbols);
+  EXPECT_FALSE(loaded_op->left_op_);
+  EXPECT_FALSE(loaded_op->right_op_);
+  EXPECT_EQ(loaded_op->left_symbols_, left_symbols);
+  EXPECT_EQ(loaded_op->right_symbols_, right_symbols);
+  EXPECT_EQ(loaded_op->union_symbols_, union_symbols);
 }
 
 TEST(CapnpSerial, Cartesian) {
@@ -3157,10 +3157,10 @@ TEST(CapnpSerial, Cartesian) {
   ASSERT_TRUE(loaded_plan);
   auto *loaded_op = dynamic_cast<Cartesian *>(loaded_plan.get());
   ASSERT_TRUE(loaded_op);
-  EXPECT_FALSE(loaded_op->left_op());
-  EXPECT_FALSE(loaded_op->right_op());
-  EXPECT_EQ(loaded_op->left_symbols(), left_symbols);
-  EXPECT_EQ(loaded_op->right_symbols(), right_symbols);
+  EXPECT_FALSE(loaded_op->left_op_);
+  EXPECT_FALSE(loaded_op->right_op_);
+  EXPECT_EQ(loaded_op->left_symbols_, left_symbols);
+  EXPECT_EQ(loaded_op->right_symbols_, right_symbols);
 }
 
 TEST(CapnpSerial, Synchronize) {
@@ -3175,8 +3175,8 @@ TEST(CapnpSerial, Synchronize) {
   auto *loaded_op = dynamic_cast<Synchronize *>(loaded_plan.get());
   ASSERT_TRUE(loaded_op);
   EXPECT_FALSE(loaded_op->input());
-  EXPECT_FALSE(loaded_op->pull_remote());
-  EXPECT_TRUE(loaded_op->advance_command());
+  EXPECT_FALSE(loaded_op->pull_remote_);
+  EXPECT_TRUE(loaded_op->advance_command_);
 }
 
 TEST(CapnpSerial, PullRemote) {
@@ -3192,8 +3192,8 @@ TEST(CapnpSerial, PullRemote) {
   auto *loaded_op = dynamic_cast<PullRemote *>(loaded_plan.get());
   ASSERT_TRUE(loaded_op);
   EXPECT_FALSE(loaded_op->input());
-  EXPECT_EQ(loaded_op->plan_id(), 42);
-  EXPECT_EQ(loaded_op->symbols(), symbols);
+  EXPECT_EQ(loaded_op->plan_id_, 42);
+  EXPECT_EQ(loaded_op->symbols_, symbols);
 }
 
 TEST(CapnpSerial, PullRemoteOrderBy) {
@@ -3215,12 +3215,12 @@ TEST(CapnpSerial, PullRemoteOrderBy) {
   auto *loaded_op = dynamic_cast<PullRemoteOrderBy *>(loaded_plan.get());
   ASSERT_TRUE(loaded_op);
   ASSERT_TRUE(std::dynamic_pointer_cast<Once>(loaded_op->input()));
-  EXPECT_EQ(loaded_op->plan_id(), 42);
-  EXPECT_EQ(loaded_op->symbols(), symbols);
-  ASSERT_EQ(loaded_op->order_by().size(), 1);
-  EXPECT_TRUE(dynamic_cast<query::Identifier *>(loaded_op->order_by()[0]));
-  ASSERT_EQ(loaded_op->compare().ordering().size(), 1);
-  EXPECT_EQ(loaded_op->compare().ordering()[0], query::Ordering::ASC);
+  EXPECT_EQ(loaded_op->plan_id_, 42);
+  EXPECT_EQ(loaded_op->symbols_, symbols);
+  ASSERT_EQ(loaded_op->order_by_.size(), 1);
+  EXPECT_TRUE(dynamic_cast<query::Identifier *>(loaded_op->order_by_[0]));
+  ASSERT_EQ(loaded_op->compare_.ordering().size(), 1);
+  EXPECT_EQ(loaded_op->compare_.ordering()[0], query::Ordering::ASC);
 }
 
 }  // namespace

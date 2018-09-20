@@ -346,15 +346,31 @@ produces:
   (let ((cpp-name (cpp-variable-name (cpp-member-symbol cpp-member))))
     (if struct cpp-name (format nil "~A_" cpp-name))))
 
+(defun call-with-cpp-block-output (out fun &key semicolonp name)
+  "Surround the invocation of FUN by emitting '{' and '}' to OUT.  If
+SEMICOLONP is set, the closing '}' is suffixed with ';'.  NAME is used to
+prepend the starting block with a name, for example \"class MyClass\"."
+  (if name
+    (format out "~A {~%" name)
+    (write-line "{" out))
+  (funcall fun)
+  (if semicolonp (write-line "};" out) (write-line "}" out)))
+
+(defmacro with-cpp-block-output ((out &rest rest &key semicolonp name) &body body)
+  "Surround BODY with emitting '{' and '}' to OUT.  For additional arguments,
+see `CALL-WITH-CPP-BLOCK-OUTPUT' documentation."
+  (declare (ignorable semicolonp name))
+  `(call-with-cpp-block-output ,out (lambda () ,@body) ,@rest))
+
 (defun cpp-enum-definition (cpp-enum)
   "Get C++ style `CPP-ENUM' definition as a string."
   (declare (type cpp-enum cpp-enum))
   (with-output-to-string (s)
     (when (cpp-type-documentation cpp-enum)
       (write-line (cpp-documentation (cpp-type-documentation cpp-enum)) s))
-    (format s "enum class ~A {~%" (cpp-type-name cpp-enum))
-    (format s "~{ ~A~^,~%~}~%" (mapcar #'cpp-constant-name (cpp-enum-values cpp-enum)))
-    (write-line "};" s)))
+    (with-cpp-block-output (s :name (format nil "enum class ~A" (cpp-type-name cpp-enum))
+                              :semicolonp t)
+      (format s "~{ ~A~^,~%~}~%" (mapcar #'cpp-constant-name (cpp-enum-values cpp-enum))))))
 
 (defun cpp-member-declaration (cpp-member &key struct)
   "Get C++ style `CPP-MEMBER' declaration as a string."
@@ -403,32 +419,26 @@ NIL, returns a string."
       (when (cpp-class-super-classes cpp-class)
         (format s " : ~{public ~A~^, ~}"
                 (mapcar #'cpp-type-name (cpp-class-super-classes cpp-class))))
-      (write-line " {" s)
-      (let ((reader-members (remove-if (complement #'cpp-member-reader)
-                                       (cpp-class-members cpp-class))))
-        (when (or (cpp-class-public cpp-class) (cpp-class-members-scoped :public) reader-members)
-          (unless (cpp-class-structp cpp-class)
-            (write-line " public:" s))
-          (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-public cpp-class)))
-          (format s "~{~%~A~}~%" (mapcar #'cpp-member-reader-definition reader-members))
+      (with-cpp-block-output (s :semicolonp t)
+        (let ((reader-members (remove-if (complement #'cpp-member-reader)
+                                         (cpp-class-members cpp-class))))
+          (when (or (cpp-class-public cpp-class) (cpp-class-members-scoped :public) reader-members)
+            (unless (cpp-class-structp cpp-class)
+              (write-line " public:" s))
+            (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-public cpp-class)))
+            (format s "~{~%~A~}~%" (mapcar #'cpp-member-reader-definition reader-members))
+            (format s "~{  ~%~A~}~%"
+                    (mapcar #'member-declaration (cpp-class-members-scoped :public)))))
+        (when (or (cpp-class-protected cpp-class) (cpp-class-members-scoped :protected))
+          (write-line " protected:" s)
+          (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-protected cpp-class)))
           (format s "~{  ~%~A~}~%"
-                  (mapcar #'member-declaration (cpp-class-members-scoped :public)))))
-      (when (cpp-class-capnp-opts cpp-class)
-        (let ((construct (capnp-construct-declaration cpp-class))
-              (load (capnp-load-declaration cpp-class)))
-          (when construct (format s "  ~A;~2%" construct))
-          (when load (format s "  ~A;~2%" load))))
-      (when (or (cpp-class-protected cpp-class) (cpp-class-members-scoped :protected))
-        (write-line " protected:" s)
-        (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-protected cpp-class)))
-        (format s "~{  ~%~A~}~%"
-                (mapcar #'member-declaration (cpp-class-members-scoped :protected))))
-      (when (or (cpp-class-private cpp-class) (cpp-class-members-scoped :private))
-        (write-line " private:" s)
-        (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-private cpp-class)))
-        (format s "~{  ~%~A~}~%"
-                (mapcar #'member-declaration (cpp-class-members-scoped :private))))
-      (write-line "};" s))))
+                  (mapcar #'member-declaration (cpp-class-members-scoped :protected))))
+        (when (or (cpp-class-private cpp-class) (cpp-class-members-scoped :private))
+          (write-line " private:" s)
+          (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-private cpp-class)))
+          (format s "~{  ~%~A~}~%"
+                  (mapcar #'member-declaration (cpp-class-members-scoped :private))))))))
 
 (defun cpp-function-declaration (name &key args (returns "void") type-params)
   "Generate a C++ top level function declaration named NAME as a string.  ARGS
@@ -680,12 +690,11 @@ encoded as union inheritance in Cap'n Proto."
   "Generate Cap'n Proto serialization schema for CPP-ENUM"
   (declare (type cpp-enum cpp-enum))
   (with-output-to-string (s)
-    (format s "enum ~A {~%" (cpp-type-name cpp-enum))
-    (loop for val in (cpp-enum-values cpp-enum) and field-number from 0
-       do (format s "  ~A @~A;~%"
-                  (string-downcase (cpp-type-name val) :end 1)
-                  field-number))
-    (write-line "}" s)))
+    (with-cpp-block-output (s :name (format nil "enum ~A" (cpp-type-name cpp-enum)))
+      (loop for val in (cpp-enum-values cpp-enum) and field-number from 0
+         do (format s "  ~A @~A;~%"
+                    (string-downcase (cpp-type-name val) :end 1)
+                    field-number)))))
 
 (defun capnp-schema (cpp-class)
   "Generate Cap'n Proto serialiation schema for CPP-CLASS"
@@ -715,57 +724,53 @@ encoded as union inheritance in Cap'n Proto."
           (error "Class ~A has multiple inheritance. Use :inherit-compose for
           remaining parents." class-name))
         (with-output-to-string (s)
-          (format s "struct ~A {~%" (cpp-type-name class-name))
-          (dolist (compose compose-parents)
-            (format s "  ~A @~A :~A;~%"
-                    (field-name<-symbol compose)
-                    field-number
-                    (capnp-type<-cpp-type compose))
-            (incf field-number))
-          (when capnp-type-args
-            (write-line "  union {" s)
-            (dolist (type-arg capnp-type-args)
-              (format s "  ~A @~A :Void;~%" (field-name<-symbol type-arg) field-number)
-              (incf field-number))
-            (write-line "  }" s))
-          (dolist (member members)
-            (unless (eq :dont-save (cpp-member-capnp-save member))
-              (let ((capnp-type (capnp-type-of-member member))
-                    (field-name (field-name<-symbol (cpp-member-symbol member))))
-                (if (stringp capnp-type)
-                    (progn
-                      (format s "  ~A @~A :~A;~%"
-                              field-name field-number capnp-type)
-                      (incf field-number))
-                    ;; capnp-type is a list specifying a union type
-                    (progn
-                      (format s "  ~A :union {~%" field-name)
-                      (dolist (union-member capnp-type)
-                        (format s "    ~A @~A :~A;~%"
-                                (field-name<-symbol (first union-member))
-                                field-number (second union-member))
-                        (incf field-number))
-                      (write-line "  }" s))))))
-          (dolist (inner inner-types)
-            (when (or (and (typep inner 'cpp-class) (cpp-class-capnp-opts inner))
-                      (and (typep inner 'cpp-enum) (cpp-enum-capnp-schema inner)))
-              (write-line (capnp-schema inner) s)))
-          (when union-subclasses
-            (write-line "  union {" s)
-            (when union-parents
-              ;; Allow instantiating classes in the middle of inheritance
-              ;; hierarchy.
-              (format s "    ~A @~A :Void;~%"
-                      (field-name<-symbol class-name) field-number)
-              (incf field-number))
-            (dolist (subclass union-subclasses)
-              (format s "    ~A @~A :~A;~%"
-                      (field-name<-symbol (cpp-type-base-name subclass))
+          (with-cpp-block-output (s :name (format nil "struct ~A" (cpp-type-name class-name)))
+            (dolist (compose compose-parents)
+              (format s "  ~A @~A :~A;~%"
+                      (field-name<-symbol compose)
                       field-number
-                      (capnp-type<-cpp-type (cpp-type-base-name subclass)))
+                      (capnp-type<-cpp-type compose))
               (incf field-number))
-            (write-line "  }" s))
-          (write-line "}" s))))))
+            (when capnp-type-args
+              (with-cpp-block-output (s :name "union")
+                (dolist (type-arg capnp-type-args)
+                  (format s "  ~A @~A :Void;~%" (field-name<-symbol type-arg) field-number)
+                  (incf field-number))))
+            (dolist (member members)
+              (unless (eq :dont-save (cpp-member-capnp-save member))
+                (let ((capnp-type (capnp-type-of-member member))
+                      (field-name (field-name<-symbol (cpp-member-symbol member))))
+                  (if (stringp capnp-type)
+                      (progn
+                        (format s "  ~A @~A :~A;~%"
+                                field-name field-number capnp-type)
+                        (incf field-number))
+                      ;; capnp-type is a list specifying a union type
+                      (progn
+                        (with-cpp-block-output (s :name (format nil "  ~A :union" field-name))
+                          (dolist (union-member capnp-type)
+                            (format s "    ~A @~A :~A;~%"
+                                    (field-name<-symbol (first union-member))
+                                    field-number (second union-member))
+                            (incf field-number))))))))
+            (dolist (inner inner-types)
+              (when (or (and (typep inner 'cpp-class) (cpp-class-capnp-opts inner))
+                        (and (typep inner 'cpp-enum) (cpp-enum-capnp-schema inner)))
+                (write-line (capnp-schema inner) s)))
+            (when union-subclasses
+              (with-cpp-block-output (s :name "union")
+                (when union-parents
+                  ;; Allow instantiating classes in the middle of inheritance
+                  ;; hierarchy.
+                  (format s "    ~A @~A :Void;~%"
+                          (field-name<-symbol class-name) field-number)
+                  (incf field-number))
+                (dolist (subclass union-subclasses)
+                  (format s "    ~A @~A :~A;~%"
+                          (field-name<-symbol (cpp-type-base-name subclass))
+                          field-number
+                          (capnp-type<-cpp-type (cpp-type-base-name subclass)))
+                  (incf field-number))))))))))
 
 ;;; Capnp C++ serialization code generation
 ;;;
@@ -951,25 +956,25 @@ Proto schema."
                   (capnp-primitive-type-p (capnp-type-of-member member)))
              (format s "  builder->set~A(~A);~%" capnp-name member-access))
             (t
-             (write-line "{" s) ;; Enclose larger save code in new scope
-             (let ((size (if (string= "vector" (cpp-type-base-name
-                                                (parse-cpp-type-declaration
-                                                 (cpp-member-type member))))
-                             (format nil "~A.size()" member-access)
-                             "")))
-               (if (and (cpp-member-capnp-init member)
-                        (not (find-cpp-enum (cpp-member-type member))))
-                   (format s "  auto ~A = builder->init~A(~A);~%"
-                           member-builder capnp-name size)
-                   (setf member-builder "builder")))
-             (if (cpp-member-capnp-save member)
-                 (format s "  ~A~%"
-                         (cpp-code (funcall (cpp-member-capnp-save member)
-                                            member-builder member-access capnp-name)))
-                 (write-line (capnp-save-default member-access (cpp-member-type member)
-                                                 member-builder capnp-name)
-                             s))
-             (write-line "}" s))))))))
+             ;; Enclose larger save code in new scope
+             (with-cpp-block-output (s)
+               (let ((size (if (string= "vector" (cpp-type-base-name
+                                                  (parse-cpp-type-declaration
+                                                   (cpp-member-type member))))
+                               (format nil "~A.size()" member-access)
+                               "")))
+                 (if (and (cpp-member-capnp-init member)
+                          (not (find-cpp-enum (cpp-member-type member))))
+                     (format s "  auto ~A = builder->init~A(~A);~%"
+                             member-builder capnp-name size)
+                     (setf member-builder "builder")))
+               (if (cpp-member-capnp-save member)
+                   (format s "  ~A~%"
+                           (cpp-code (funcall (cpp-member-capnp-save member)
+                                              member-builder member-access capnp-name)))
+                   (write-line (capnp-save-default member-access (cpp-member-type member)
+                                                   member-builder capnp-name)
+                               s))))))))))
 
 (defun capnp-save-parents (cpp-class save-parent)
   "Generate Cap'n Proto code for serializing parent classes of CPP-CLASS.
@@ -985,8 +990,7 @@ It takes a parent class symbol."
       (let ((parents (capnp-union-parents-rec cpp-class)))
         (when parents
           (let ((first-parent (first parents)))
-            (write-line
-             (funcall save-parent first-parent) s))
+            (write-line (funcall save-parent first-parent) s))
           (if (or compose-parents (cpp-class-members cpp-class))
               (progn
                 (format s "  auto ~A_builder = base_builder->~{get~A().~}init~A();~%"
@@ -1004,12 +1008,11 @@ It takes a parent class symbol."
             (format s "  builder->set~A();" (cpp-type-name cpp-class)))))
       ;; Now handle composite inheritance calls.
       (dolist (parent compose-parents)
-        (write-line "{" s)
-        (let* ((builder (format nil "~A_builder" (cpp-variable-name parent))))
-          (format s "  auto ~A = builder->init~A();~%" builder (cpp-type-name parent))
-          (format s "  auto *builder = &~A;~%" builder)
-          (write-line (funcall save-parent parent) s))
-        (write-line "}" s)))))
+        (with-cpp-block-output (s)
+          (let* ((builder (format nil "~A_builder" (cpp-variable-name parent))))
+            (format s "  auto ~A = builder->init~A();~%" builder (cpp-type-name parent))
+            (format s "  auto *builder = &~A;~%" builder)
+            (write-line (funcall save-parent parent) s)))))))
 
 (defun capnp-save-function-code (cpp-class)
   "Generate Cap'n Proto save code for CPP-CLASS."
@@ -1037,10 +1040,9 @@ It takes a parent class symbol."
              "Generate serialization code for parent class."
              (let ((cpp-class (find-cpp-class parent)))
                (with-output-to-string (s)
-                 (write-line "{" s)
-                 (format s "// Save base class ~A~%" (cpp-type-name parent))
-                 (save-class cpp-class s)
-                 (write-line "}" s)))))
+                 (with-cpp-block-output (s)
+                   (format s "// Save base class ~A~%" (cpp-type-name parent))
+                   (save-class cpp-class s))))))
     (with-output-to-string (cpp-out)
       (let ((subclasses (direct-subclasses-of cpp-class)))
         (when subclasses
@@ -1082,84 +1084,59 @@ It takes a parent class symbol."
   "Generate Cap'n Proto save function."
   (declare (type cpp-class cpp-class))
   (with-output-to-string (cpp-out)
-    (format cpp-out "~A {~%" (capnp-save-function-declaration cpp-class))
-    (write-line (capnp-save-function-code cpp-class) cpp-out)
-    (write-line "}" cpp-out)))
+    (with-cpp-block-output (cpp-out :name (capnp-save-function-declaration cpp-class))
+      (write-line (capnp-save-function-code cpp-class) cpp-out))))
 
 ;;; Capnp C++ deserialization code generation
 ;;;
 ;;; This is almost the same as serialization, but with a special case for
 ;;; handling serialized pointers to base classes.
 ;;;
-;;; We need to generate a static Construct function, which dispatches on the
-;;; union of the Capnp struct schema. This needs to recursively traverse
-;;; unions to instantiate a concrete C++ class.
+;;; The usual function signature for data types with no inheritance is:
 ;;;
-;;; When loading such a pointer, first we call Construct and then follow it
-;;; with calling Load on the constructed instance.
+;;;   void Load(Data *self, const capnp::Data::Reader &, <extra args>)
+;;;
+;;; The function expects that the `Data` type is already allocated and can be
+;;; modified via pointer.  This way the user can allocate `Data` any way they
+;;; see fit.
+;;;
+;;; With inheritance, the user doesn't know the concrete type to allocate.
+;;; Therefore, the signature is changed so that the `Load` can heap allocate
+;;; and construct the correct type.  The downside of this approach is that the
+;;; user of the `Load` function has no control over the allocation.  The
+;;; signature for loading types with inheritance is:
+;;;
+;;;   void Load(std::unique_ptr<Data> *self, const capnp::Data::Reader &,
+;;;             <extra args>)
+;;;
+;;; The user can now only provide a pointer to unique_ptr which should take
+;;; the ownership of the concrete type.
 
-(defun capnp-construct-declaration (cpp-class &key (inline t))
-  "Generate Cap'n Proto construct function declaration for CPP-CLASS. If
-INLINE is NIL, the declaration is namespaced for the class so that it can be
-used for outside definition."
+(defun capnp-load-function-declaration (cpp-class)
+  "Generate Cap'n Proto load function declaration for CPP-CLASS."
   (declare (type cpp-class cpp-class))
-  ;; Don't generate Construct if this class is only inherited as composite.
-  (when (and (not (capnp-union-subclasses cpp-class))
-             (direct-subclasses-of cpp-class))
-    (return-from capnp-construct-declaration))
-  (let ((reader-type (format nil "const capnp::~A::Reader &"
-                             (cpp-type-decl cpp-class :type-args nil :namespace nil))))
-    (cpp-method-declaration
-     cpp-class "Construct" :args (list (list 'reader reader-type))
-     :returns (format nil "std::unique_ptr<~A>" (cpp-type-decl cpp-class :namespace nil))
-     :inline inline :static t)))
+  (let* ((parents (capnp-union-parents-rec cpp-class))
+         (top-parent-class (if parents
+                               (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
+                               (cpp-type-decl cpp-class :type-args nil :namespace nil)))
+         (reader-arg (list (if (or parents (capnp-union-subclasses cpp-class))
+                               'base-reader
+                               'reader)
+                           (format nil "const capnp::~A::Reader &" top-parent-class)))
+         (out-arg (list 'self
+                        (if (or parents (direct-subclasses-of cpp-class))
+                            (format nil "std::unique_ptr<~A> *" (cpp-type-decl cpp-class :namespace nil))
+                            (format nil "~A *" (cpp-type-decl cpp-class :namespace nil))))))
+    (cpp-function-declaration
+     "Load"
+     :args (cons out-arg (cons reader-arg (capnp-extra-args cpp-class :load)))
+     :returns "void"
+     :type-params (cpp-type-type-params cpp-class))))
 
-(defun capnp-construct-code (cpp-class)
-  "Generate Cap'n Proto construct code for CPP-CLASS"
-  (declare (type cpp-class cpp-class))
-  (let ((construct-declaration (capnp-construct-declaration cpp-class :inline nil)))
-    (unless construct-declaration
-      (return-from capnp-construct-code))
-    (let ((class-name (cpp-type-base-name cpp-class))
-          (union-subclasses (capnp-union-subclasses cpp-class)))
-      (with-output-to-string (s)
-        (format s "~A {~%" construct-declaration)
-        (if (not union-subclasses)
-            ;; No inheritance, just instantiate the concrete class.
-            (format s "  return std::unique_ptr<~A>(new ~A());~%"
-                    (cpp-type-name class-name) (cpp-type-name class-name))
-            ;; Inheritance, so forward the Construct.
-            (progn
-              (write-line "  switch (reader.which()) {" s)
-              (when (capnp-union-and-compose-parents cpp-class)
-                ;; We are in the middle of the hierarchy, so allow
-                ;; constructing us.
-                (format s "    case capnp::~A::~A: return std::unique_ptr<~A>(new ~A());~%"
-                        (cpp-type-name class-name) (cpp-constant-name class-name)
-                        (cpp-type-name class-name) (cpp-type-name class-name)))
-              (dolist (subclass union-subclasses)
-                (format s "    case capnp::~A::~A:~%"
-                        (cpp-type-name class-name)
-                        (cpp-constant-name (cpp-type-base-name subclass)))
-                (let ((subclass-name (cpp-type-name (cpp-type-base-name subclass))))
-                  (if (capnp-opts-type-args (cpp-class-capnp-opts subclass))
-                      ;; Handle template instantiation
-                      (progn
-                        (format s "  switch (reader.get~A().which()) {~%" subclass-name)
-                        (dolist (type-arg (capnp-opts-type-args (cpp-class-capnp-opts subclass)))
-                          (format s "  case capnp::~A::~A: return ~A<~A>::Construct(reader.get~A());~%"
-                                  subclass-name (cpp-constant-name type-arg)
-                                  subclass-name (cpp-type-name type-arg)
-                                  subclass-name))
-                        (write-line "  }" s))
-                      ;; Just forward the construct normally.
-                      (format s "      return ~A::Construct(reader.get~A());~%"
-                              subclass-name subclass-name))))
-              (write-line "  }" s))) ;; close switch
-        (write-line "}" s))))) ;; close function
-
-(defun capnp-load-default (member-name member-type member-reader)
-  "Generate default load call for member."
+(defun capnp-load-default (member-name member-type member-reader capnp-name)
+  "Generate default load call for member.  MEMBER-NAME and MEMBER-TYPE are
+strings describing the member being loaded.  MEMBER-READER is the name of the
+reader variable.  CAPNP-NAME is the name of the member in Cap'n Proto schema."
   (declare (type string member-name member-type member-reader))
   (let* ((type (parse-cpp-type-declaration member-type))
          (type-name (cpp-type-base-name type))
@@ -1168,8 +1145,8 @@ used for outside definition."
       (cpp-enum
        (funcall
         (capnp-load-enum (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))
-                         member-type (cpp-enum-values cpp-enum))
-        member-reader member-name))
+                         (cpp-type-decl cpp-enum) (cpp-enum-values cpp-enum))
+        member-reader member-name capnp-name))
       ((string= "vector" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
@@ -1180,7 +1157,7 @@ used for outside definition."
               cpp<#)
              (raw-cpp-string
               (funcall (capnp-load-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
-                       member-reader member-name)))))
+                       member-reader member-name capnp-name)))))
       ((string= "optional" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t))
@@ -1189,7 +1166,7 @@ used for outside definition."
          (raw-cpp-string
           (funcall (capnp-load-optional
                     (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type) lambda-code)
-                   member-reader member-name))))
+                   member-reader member-name capnp-name))))
       ((member type-name '("unique_ptr" "shared_ptr" "vector") :test #'string=)
        (error "Use a custom :capnp-load function for ~A ~A" type-name member-name))
       (t
@@ -1198,81 +1175,148 @@ used for outside definition."
                             (mapcar (lambda (name-and-type)
                                       (cpp-variable-name (first name-and-type)))
                                     (capnp-extra-args cpp-class :load)))))
-         (format nil "~A.Load(~A~{, ~A~});"
+         (format nil "Load(&~A, ~A~{, ~A~});"
                  member-name member-reader extra-args))))))
 
-(defun capnp-load-declaration (cpp-class &key (inline t))
-  "Generate Cap'n Proto load function declaration for CPP-CLASS. If
-INLINE is NIL, the declaration is namespaced for the class so that it can be
-used for outside definition."
+(defun capnp-load-members (cpp-class &key instance-access)
+  "Generate Cap'n Proto loading code for members of CPP-CLASS.
+INSTANCE-ACCESS is a C++ string which will be prefixed to member access.  For
+example, INSTANCE-ACCESS could be `my_struct->`"
   (declare (type cpp-class cpp-class))
-  (let* ((parents (capnp-union-parents-rec cpp-class))
-         (top-parent-class (if parents
-                               (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
-                               (cpp-type-decl cpp-class :type-args nil :namespace nil)))
-         (reader-arg
-          (list (if parents 'base-reader 'reader)
-                (format nil "const capnp::~A::Reader &" top-parent-class))))
-    (cpp-method-declaration
-     cpp-class "Load" :args (cons reader-arg (capnp-extra-args cpp-class :load))
-     :virtual (and (not parents) (capnp-union-subclasses cpp-class))
-     :override parents :inline inline)))
-
-(defun capnp-load-code (cpp-class)
-  "Generate Cap'n Proto loading code for CPP-CLASS"
-  (declare (type cpp-class cpp-class))
+  (declare (type string instance-access))
   (with-output-to-string (s)
-    (format s "~A {~%" (capnp-load-declaration cpp-class :inline nil))
-    (flet ((parent-args (parent)
-             (mapcar (lambda (name-and-type)
-                       (cpp-variable-name (first name-and-type)))
-                     (capnp-extra-args (find-cpp-class parent) :load))))
-      (multiple-value-bind (direct-union-parents compose-parents)
-          (capnp-union-and-compose-parents cpp-class)
-        (declare (ignore direct-union-parents))
-        ;; Handle the union inheritance calls first.
-        (let ((parents (capnp-union-parents-rec cpp-class)))
-          (when parents
-            (let ((first-parent (first parents)))
-              (format s "  ~A::Load(base_reader~{, ~A~});~%"
-                      (cpp-type-name first-parent) (parent-args first-parent)))
-            (when (or compose-parents (cpp-class-members cpp-class))
-              (format s "  auto reader = base_reader.~{get~A().~}get~A();~%"
-                      (mapcar #'cpp-type-name (cdr (reverse parents)))
-                      (cpp-type-name cpp-class)))
-            ;; Now handle composite inheritance calls.
-            (dolist (parent compose-parents)
-              (write-line "{" s)
-              (format s "  auto ~A_reader = reader.get~A();~%"
-                      (cpp-variable-name parent) (cpp-type-name parent))
-              (format s "  ~A::Load(~A_reader~{, ~A~});~%"
-                      (cpp-type-name parent) (cpp-variable-name parent) (parent-args parent))
-              (write-line "}" s))))))
     (dolist (member (cpp-class-members cpp-class))
       (unless (and (eq :dont-save (cpp-member-capnp-save member))
                    (not (cpp-member-capnp-load member)))
-        (let ((member-name (cpp-member-name member :struct (cpp-class-structp cpp-class)))
+        (let ((member-access
+               (concatenate 'string instance-access
+                            (cpp-member-name member :struct (cpp-class-structp cpp-class))))
               (member-reader (format nil "~A_reader" (cpp-member-name member :struct t)))
               (capnp-name (cpp-type-name (cpp-member-symbol member))))
           (cond
             ((and (not (cpp-member-capnp-load member))
                   (capnp-primitive-type-p (capnp-type-of-member member)))
-             (format s "  ~A = reader.get~A();~%" member-name capnp-name))
+             (format s "  ~A = reader.get~A();~%" member-access capnp-name))
             (t
-             (write-line "{" s) ;; Enclose larger load code in new scope
-             (if (and (cpp-member-capnp-init member)
-                      (not (find-cpp-enum (cpp-member-type member))))
-                 (format s "  auto ~A = reader.get~A();~%" member-reader capnp-name)
-                 (setf member-reader "reader"))
-             (if (cpp-member-capnp-load member)
-                 (format s "  ~A~%"
-                         (cpp-code (funcall (cpp-member-capnp-load member)
-                                            member-reader member-name)))
-                 (write-line (capnp-load-default member-name
-                                                 (cpp-member-type member)
-                                                 member-reader) s))
-             (write-line "}" s))))))
-    (write-line "}" s)))
+             ;; Enclose larger load code in new scope
+             (with-cpp-block-output (s)
+               (if (and (cpp-member-capnp-init member)
+                        (not (find-cpp-enum (cpp-member-type member))))
+                   (format s "  auto ~A = reader.get~A();~%" member-reader capnp-name)
+                   (setf member-reader "reader"))
+               (if (cpp-member-capnp-load member)
+                   (format s "  ~A~%"
+                           (cpp-code (funcall (cpp-member-capnp-load member)
+                                              member-reader member-access capnp-name)))
+                   (write-line (capnp-load-default member-access
+                                                   (cpp-member-type member)
+                                                   member-reader capnp-name) s))))))))))
+
+(defun capnp-load-parents (cpp-class load-parent)
+  "Generate Cap'n Proto code for loading parent classes of CPP-CLASS.
+LOAD-PARENT is a function which generates the code for loading parent members.
+It takes a parent class symbol."
+  (declare (type cpp-class cpp-class))
+  (declare (type (function (symbol) string) load-parent))
+  (with-output-to-string (s)
+    (multiple-value-bind (direct-union-parents compose-parents)
+        (capnp-union-and-compose-parents cpp-class)
+      (declare (ignore direct-union-parents))
+      ;; Handle the union inheritance calls first.
+      (let ((parents (capnp-union-parents-rec cpp-class)))
+        (when parents
+          (let ((first-parent (first parents)))
+            (write-line (funcall load-parent first-parent) s))
+          (when (or compose-parents (cpp-class-members cpp-class))
+            (format s "  auto reader = base_reader.~{get~A().~}get~A();~%"
+                    (mapcar #'cpp-type-name (cdr (reverse parents)))
+                    (cpp-type-name cpp-class)))
+          ;; Now handle composite inheritance calls.
+          (dolist (parent compose-parents)
+            (with-cpp-block-output (s)
+              (let ((reader (format nil "~A_reader" (cpp-variable-name parent))))
+                (format s "  auto ~A = reader.get~A();~%" reader (cpp-type-name parent))
+                (format s "  const auto &reader = ~A;" reader)
+                (write-line (funcall load-parent parent) s)))))))))
+
+(defun capnp-load-function-code (cpp-class)
+  "Generate Cap'n Proto loadd code for CPP-CLASS."
+  (declare (type cpp-class cpp-class))
+  (let ((instance-access (if (or (direct-subclasses-of cpp-class)
+                                 (capnp-union-parents-rec cpp-class))
+                             "self->get()->"
+                             "self->")))
+    (labels ((load-class (cpp-class)
+               (with-output-to-string (s)
+                 (write-line (capnp-load-parents cpp-class #'load-parent) s)
+                 (write-line (capnp-load-members cpp-class :instance-access instance-access) s)))
+             (load-parent (parent)
+               (with-output-to-string (s)
+                 (with-cpp-block-output (s)
+                   (format s "// Load base class ~A~%" (cpp-type-name parent))
+                   (write-line (load-class (find-cpp-class parent)) s)))))
+      (with-output-to-string (s)
+        (cond
+          ((and (capnp-union-and-compose-parents cpp-class)
+                (not (direct-subclasses-of cpp-class)))
+           ;; CPP-CLASS is the most derived class, so construct and load.
+           (format s "*self = std::make_unique<~A>();~%" (cpp-type-decl cpp-class :namespace nil))
+           (write-line (load-class cpp-class) s))
+          ((capnp-union-subclasses cpp-class)
+           ;; Forward the load to most derived class by switching on reader.which()
+           (let ((parents (capnp-union-parents-rec cpp-class)))
+             (if parents
+                 (format s "switch (base_reader.~{get~A().~}get~A().which()) "
+                         (mapcar #'cpp-type-name (cdr (reverse parents)))
+                         (cpp-type-name cpp-class))
+                 (write-string "switch (base_reader.which()) " s)))
+           (with-cpp-block-output (s)
+             (dolist (subclass (capnp-union-subclasses cpp-class))
+               (format s "  case capnp::~A::~A: "
+                       (cpp-type-name cpp-class)
+                       (cpp-constant-name (cpp-type-base-name subclass)))
+               (flet ((load-derived (derived-type-name)
+                        (with-cpp-block-output (s)
+                          (format s "std::unique_ptr<~A> derived;~%" derived-type-name)
+                          (format s "Load(&derived, base_reader~{, ~A~});~%"
+                                  (mapcar (lambda (name-and-type)
+                                            (cpp-variable-name (first name-and-type)))
+                                          (capnp-extra-args cpp-class :load)))
+                          (write-line "*self = std::move(derived);" s))))
+                 (if (capnp-opts-type-args (cpp-class-capnp-opts subclass))
+                     ;; Handle template instantiation
+                     (progn
+                       (format s "switch (base_reader.get~A().which()) " (cpp-type-name subclass))
+                       (with-cpp-block-output (s)
+                         (dolist (type-arg (capnp-opts-type-args (cpp-class-capnp-opts subclass)))
+                           (format s "  case capnp::~A::~A: "
+                                   (cpp-type-name subclass) (cpp-constant-name type-arg))
+                           (load-derived (format nil "~A<~A>"
+                                                 (cpp-type-name subclass)
+                                                 (cpp-type-name type-arg))))))
+                     ;; Regular forward to derived
+                     (load-derived (cpp-type-name subclass))))
+               (write-line "break;" s))
+             (when (capnp-union-and-compose-parents cpp-class)
+               ;; We are in the middle of the hierarchy, so allow constructing and loading us.
+               (with-cpp-block-output (s :name (format nil "case capnp::~A::~A:"
+                                                       (cpp-type-name cpp-class)
+                                                       (cpp-constant-name (cpp-type-base-name cpp-class))))
+                 (format s "*self = std::make_unique<~A>();~%"
+                         (cpp-type-decl cpp-class :namespace nil))
+                 (write-line (load-class cpp-class) s)))))
+          (t
+           ;; Regular load for absolutely no inheritance class
+           (assert (not (capnp-union-subclasses cpp-class)))
+           (assert (not (capnp-union-and-compose-parents cpp-class)))
+           (write-line (load-class cpp-class) s)))))))
+
+(defun capnp-load-function-definition (cpp-class)
+  "Generate Cap'n Proto load function."
+  (declare (type cpp-class cpp-class))
+  (with-output-to-string (cpp-out)
+    (with-cpp-block-output (cpp-out :name (capnp-load-function-declaration cpp-class))
+      (write-line (capnp-load-function-code cpp-class) cpp-out))))
 
 (defvar *capnp-imports* nil
   "List of pairs (namespace, import-file), which will be imported in Cap'n
@@ -1318,12 +1362,15 @@ are passed as template parameters, while the optional LAMBDA-CODE is used to
 load the value of std::optional."
   (declare (type string capnp-type cpp-type)
            (type (or null string) lambda-code))
-  (let ((lambda-code (if lambda-code
+  (let* ((namespace (format nil "~{~A::~}"
+                            (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+         (lambda-code (if lambda-code
                          lambda-code
                          (format nil
-                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
-                                 cpp-type))))
-    (lambda (reader member)
+                                 "[](const auto &reader) { ~A val; ~ALoad(&val, reader); return val; }"
+                                 cpp-type namespace))))
+    (lambda (reader member capnp-name)
+      (declare (ignore capnp-name))
       #>cpp
       ${member} = utils::LoadOptional<${capnp-type}, ${cpp-type}>(${reader}, ${lambda-code});
       cpp<#)))
@@ -1354,12 +1401,15 @@ are passed as template parameters, while LAMBDA-CODE is used to load each
 element."
   (declare (type string capnp-type cpp-type)
            (type (or null string) lambda-code))
-  (let ((lambda-code (if lambda-code
+  (let* ((namespace (format nil "~{~A::~}"
+                            (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+         (lambda-code (if lambda-code
                          lambda-code
                          (format nil
-                                 "[](const auto &reader) { ~A val; val.Load(reader); return val; }"
-                                 cpp-type))))
-    (lambda (reader member-name)
+                                 "[](const auto &reader) { ~A val; ~ALoad(&val, reader); return val; }"
+                                 cpp-type namespace))))
+    (lambda (reader member-name capnp-name)
+      (declare (ignore capnp-name))
       #>cpp
       utils::LoadVector<${capnp-type}, ${cpp-type}>(&${member-name}, ${reader}, ${lambda-code});
       cpp<#)))
@@ -1390,11 +1440,10 @@ the values from CAPNP-TYPE. If ENUM-VALUES are not specified, tries to find the
 CPP-TYPE among defined enums."
   (declare (type string capnp-type)
            (type (or symbol string) cpp-type))
-  (lambda (reader member)
+  (lambda (reader member capnp-name)
     (let* ((enum-values (if enum-values
                             enum-values
                             (cpp-enum-values (find-cpp-enum cpp-type))))
-           (member-getter (remove #\_ (string-capitalize member)))
            (cases (mapcar (lambda (value-symbol)
                             (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
                               #>cpp
@@ -1404,7 +1453,7 @@ CPP-TYPE among defined enums."
                               cpp<#))
                           enum-values)))
       (format nil "switch (~A.get~A()) {~%~{~A~%~}}"
-              reader member-getter (mapcar #'raw-cpp-string cases)))))
+              reader capnp-name (mapcar #'raw-cpp-string cases)))))
 
 (defvar *cpp-namespaces* nil
   "Stack of C++ namespaces we are generating the code in.")
@@ -1730,13 +1779,9 @@ code generation."
       (format cpp-out "// Serialize code for ~A~2%" (cpp-type-name cpp-class))
       ;; Top level functions
       (write-line (capnp-save-function-definition cpp-class) cpp-out)
-      ;; Member functions
-      (let ((construct-code (capnp-construct-code cpp-class))
-            (load-code (capnp-load-code cpp-class)))
-        (when construct-code (write-line construct-code cpp-out))
-        (when load-code (write-line load-code cpp-out))))))
+      (write-line (capnp-load-function-definition cpp-class) cpp-out))))
 
-(defun process-file (lcp-file &key capnp-id capnp-declaration)
+(defun process-file (lcp-file &key capnp-id)
   "Process a LCP-FILE and write the output to .hpp file in the same directory.
 If CAPNP-ID is passed, generates the Cap'n Proto schema to .capnp file in the
 same directory, while the loading code is generated in LCP-FILE.cpp source
@@ -1750,7 +1795,7 @@ file."
           (cpp-file (concatenate 'string lcp-file ".cpp"))
           (capnp-file (concatenate 'string filename ".capnp"))
           ;; Reset globals
-          (*capnp-serialize-p* (or capnp-id capnp-declaration))
+          (*capnp-serialize-p* capnp-id)
           (*capnp-namespace* nil)
           (*capnp-imports* nil)
           (*capnp-type-converters* nil)
@@ -1784,7 +1829,8 @@ file."
             (dolist (type-for-capnp types-for-capnp)
               (when (typep type-for-capnp 'cpp-class)
                 (open-namespace (cpp-type-namespace type-for-capnp))
-                (format out "~A;~%" (capnp-save-function-declaration type-for-capnp))))))
+                (format out "~A;~%" (capnp-save-function-declaration type-for-capnp))
+                (format out "~A;~%" (capnp-load-function-declaration type-for-capnp))))))
         ;; When we have either capnp or C++ code for the .cpp file, generate the .cpp file
         (when (or *cpp-impl* types-for-capnp)
           (with-open-file (out cpp-file :direction :output :if-exists :supersede)

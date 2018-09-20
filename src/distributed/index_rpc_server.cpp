@@ -13,7 +13,7 @@ IndexRpcServer::IndexRpcServer(database::GraphDb &db,
   rpc_server_.Register<CreateIndexRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         CreateIndexReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         database::LabelPropertyIndex::Key key{req.label, req.property};
         db_.storage().label_property_index_.CreateIndex(key);
       });
@@ -21,7 +21,7 @@ IndexRpcServer::IndexRpcServer(database::GraphDb &db,
   rpc_server_.Register<PopulateIndexRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         PopulateIndexReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         database::LabelPropertyIndex::Key key{req.label, req.property};
         auto dba = db_.Access(req.tx_id);
         dba->PopulateIndex(key);

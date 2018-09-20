@@ -30,10 +30,10 @@ void Save(const Endpoint &endpoint, capnp::Endpoint::Builder *builder) {
   builder->setFamily(endpoint.family());
 }
 
-void Endpoint::Load(const capnp::Endpoint::Reader &reader) {
-  address_ = reader.getAddress();
-  port_ = reader.getPort();
-  family_ = reader.getFamily();
+void Load(Endpoint *endpoint, const capnp::Endpoint::Reader &reader) {
+  endpoint->address_ = reader.getAddress();
+  endpoint->port_ = reader.getPort();
+  endpoint->family_ = reader.getFamily();
 }
 
 bool Endpoint::operator==(const Endpoint &other) const {

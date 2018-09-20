@@ -86,7 +86,8 @@ the relevant parts of the response, ready for use."))
              }
              cpp<#)
            :capnp-load
-           (lambda (reader member)
+           (lambda (reader member capnp-name)
+             (declare (ignore capnp-name))
              #>cpp
              ${member}.reserve(${reader}.size());
              for (const auto &frame_reader : ${reader}) {
@@ -192,28 +193,29 @@ to the appropriate value. Not used on side that generates the response.")
                           (lambda (builder member capnp-name)
                             (declare (ignore capnp-name))
                             #>cpp
-			    ${builder}.setTimestamp(${member}.timestamp);
-			    auto params_builder = ${builder}.initParams().initEntries(${member}.parameters.size());
-			    size_t i = 0;
-			    for (auto &entry : ${member}.parameters) {
-			      auto builder = params_builder[i];
-			      auto key_builder = builder.initKey();
-			      key_builder.setValue(entry.first);
-			      auto value_builder = builder.initValue();
-			      storage::SaveCapnpPropertyValue(entry.second, &value_builder);
-			      ++i;
-			    }
-			    cpp<#)
-			  :capnp-load
-			  (lambda (reader member)
-			    #>cpp
-			    ${member}.timestamp = ${reader}.getTimestamp();
-			    for (const auto &entry_reader : ${reader}.getParams().getEntries()) {
-			      PropertyValue value;
-			      storage::LoadCapnpPropertyValue(entry_reader.getValue(), &value);
-			      ${member}.parameters.Add(entry_reader.getKey().getValue(), value);
-			    }
-			    cpp<#))
+                            ${builder}.setTimestamp(${member}.timestamp);
+                            auto params_builder = ${builder}.initParams().initEntries(${member}.parameters.size());
+                            size_t i = 0;
+                            for (auto &entry : ${member}.parameters) {
+                              auto builder = params_builder[i];
+                              auto key_builder = builder.initKey();
+                              key_builder.setValue(entry.first);
+                              auto value_builder = builder.initValue();
+                              storage::SaveCapnpPropertyValue(entry.second, &value_builder);
+                              ++i;
+                            }
+                            cpp<#)
+                          :capnp-load
+                          (lambda (reader member capnp-name)
+                            (declare (ignore capnp-name))
+                            #>cpp
+                            ${member}.timestamp = ${reader}.getTimestamp();
+                            for (const auto &entry_reader : ${reader}.getParams().getEntries()) {
+                              PropertyValue value;
+                              storage::LoadCapnpPropertyValue(entry_reader.getValue(), &value);
+                              ${member}.parameters.Add(entry_reader.getKey().getValue(), value);
+                            }
+                            cpp<#))
       (symbols "std::vector<query::Symbol>" :capnp-type "List(Sem.Symbol)")
       (accumulate :bool)
       (batch-size :int64_t)

@@ -284,16 +284,6 @@ bool TypedValueVectorCompare::operator()(
   return (c1_it == c1.end()) && (c2_it != c2.end());
 }
 
-void TypedValueVectorCompare::Save(
-    capnp::TypedValueVectorCompare::Builder *builder) const {
-  auto ordering_builder = builder->initOrdering(ordering_.size());
-  for (size_t i = 0; i < ordering_.size(); ++i) {
-    ordering_builder.set(i, ordering_[i] == Ordering::ASC
-                                ? capnp::Ordering::ASC
-                                : capnp::Ordering::DESC);
-  }
-}
-
 void Save(const TypedValueVectorCompare &comparator,
           capnp::TypedValueVectorCompare::Builder *builder) {
   auto ordering_builder = builder->initOrdering(comparator.ordering().size());
@@ -304,8 +294,8 @@ void Save(const TypedValueVectorCompare &comparator,
   }
 }
 
-void TypedValueVectorCompare::Load(
-    const capnp::TypedValueVectorCompare::Reader &reader) {
+void Load(TypedValueVectorCompare *comparator,
+          const capnp::TypedValueVectorCompare::Reader &reader) {
   std::vector<Ordering> ordering;
   ordering.reserve(reader.getOrdering().size());
   for (auto ordering_reader : reader.getOrdering()) {
@@ -313,7 +303,7 @@ void TypedValueVectorCompare::Load(
                            ? Ordering::ASC
                            : Ordering::DESC);
   }
-  ordering_ = ordering;
+  comparator->ordering_ = ordering;
 }
 
 template <typename TAccessor>

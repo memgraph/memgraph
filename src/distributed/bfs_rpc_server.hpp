@@ -24,7 +24,7 @@ class BfsRpcServer {
     server_->Register<CreateBfsSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           CreateBfsSubcursorReq req;
-          req.Load(req_reader);
+          Load(&req, req_reader);
           CreateBfsSubcursorRes res(subcursor_storage_->Create(
               req.tx_id, req.direction, req.edge_types, req.graph_view));
           Save(res, res_builder);
@@ -33,7 +33,7 @@ class BfsRpcServer {
     server_->Register<RegisterSubcursorsRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           RegisterSubcursorsReq req;
-          req.Load(req_reader);
+          Load(&req, req_reader);
           subcursor_storage_->Get(req.subcursor_ids.at(db_->WorkerId()))
               ->RegisterSubcursors(req.subcursor_ids);
           RegisterSubcursorsRes res;
@@ -43,7 +43,7 @@ class BfsRpcServer {
     server_->Register<ResetSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           ResetSubcursorReq req;
-          req.Load(req_reader);
+          Load(&req, req_reader);
           subcursor_storage_->Get(req.subcursor_id)->Reset();
           ResetSubcursorRes res;
           Save(res, res_builder);
@@ -52,7 +52,7 @@ class BfsRpcServer {
     server_->Register<RemoveBfsSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           RemoveBfsSubcursorReq req;
-          req.Load(req_reader);
+          Load(&req, req_reader);
           subcursor_storage_->Erase(req.member);
           RemoveBfsSubcursorRes res;
           Save(res, res_builder);
@@ -61,7 +61,7 @@ class BfsRpcServer {
     server_->Register<SetSourceRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           SetSourceReq req;
-          req.Load(req_reader);
+          Load(&req, req_reader);
           subcursor_storage_->Get(req.subcursor_id)->SetSource(req.source);
           SetSourceRes res;
           Save(res, res_builder);
@@ -70,7 +70,7 @@ class BfsRpcServer {
     server_->Register<ExpandLevelRpc>([this](const auto &req_reader,
                                              auto *res_builder) {
       ExpandLevelReq req;
-      req.Load(req_reader);
+      Load(&req, req_reader);
       ExpandLevelRes res(subcursor_storage_->Get(req.member)->ExpandLevel());
       Save(res, res_builder);
     });
@@ -78,7 +78,7 @@ class BfsRpcServer {
     server_->Register<SubcursorPullRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           SubcursorPullReq req;
-          req.Load(req_reader);
+          Load(&req, req_reader);
           auto vertex = subcursor_storage_->Get(req.member)->Pull();
           SubcursorPullRes res(vertex);
           Save(res, res_builder, db_->WorkerId());
@@ -87,7 +87,7 @@ class BfsRpcServer {
     server_->Register<ExpandToRemoteVertexRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           ExpandToRemoteVertexReq req;
-          req.Load(req_reader);
+          Load(&req, req_reader);
           ExpandToRemoteVertexRes res(
               subcursor_storage_->Get(req.subcursor_id)
                   ->ExpandToLocalVertex(req.edge, req.vertex));
@@ -97,7 +97,7 @@ class BfsRpcServer {
     server_->Register<ReconstructPathRpc>([this](const auto &req_reader,
                                                  auto *res_builder) {
       ReconstructPathReq req;
-      req.Load(req_reader);
+      Load(&req, req_reader);
       auto subcursor = subcursor_storage_->Get(req.subcursor_id);
       PathSegment result;
       if (req.vertex) {
@@ -114,7 +114,7 @@ class BfsRpcServer {
     server_->Register<PrepareForExpandRpc>([this](const auto &req_reader,
                                                   auto *res_builder) {
       PrepareForExpandReq req;
-      req.Load(req_reader);
+      Load(&req, req_reader);
       subcursor_storage_->Get(req.subcursor_id)->PrepareForExpand(req.clear);
       PrepareForExpandRes res;
       Save(res, res_builder);

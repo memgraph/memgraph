@@ -31,7 +31,8 @@ cpp<#
                             });
                         cpp<#)
                       :capnp-load
-                      (lambda (reader member)
+                      (lambda (reader member capnp-name)
+                        (declare (ignore capnp-name))
                         #>cpp
                         utils::LoadVector<utils::capnp::Pair<::capnp::Text, ::capnp::Text>,
                                           std::pair<std::string, std::string>>(

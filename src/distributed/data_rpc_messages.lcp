@@ -38,10 +38,10 @@ cpp<#
                     storage::SaveVertex(*${member}, &${builder}, self.worker_id);
                     cpp<#)
                   :capnp-load
-                  (lambda (reader member)
-                    (declare (ignore member))
+                  (lambda (reader member capnp-name)
+                    (declare (ignore member capnp-name))
                     #>cpp
-                    vertex_output = storage::LoadVertex(${reader});
+                    self->vertex_output = storage::LoadVertex(${reader});
                     cpp<#))
     (worker-id :int64_t :capnp-save :dont-save)
     (vertex-output "std::unique_ptr<Vertex>" :initarg nil
@@ -60,10 +60,10 @@ cpp<#
                   storage::SaveEdge(*${member}, &${builder}, self.worker_id);
                   cpp<#)
                 :capnp-load
-                (lambda (reader member)
-                  (declare (ignore member))
+                (lambda (reader member capnp-name)
+                  (declare (ignore member capnp-name))
                   #>cpp
-                  edge_output = storage::LoadEdge(${reader});
+                  self->edge_output = storage::LoadEdge(${reader});
                   cpp<#))
     (worker-id :int64_t :capnp-save :dont-save)
     (edge-output "std::unique_ptr<Edge>" :initarg nil

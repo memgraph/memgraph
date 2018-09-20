@@ -65,7 +65,8 @@ cpp<#
                                     });
                                 cpp<#)
                               :capnp-load
-                              (lambda (reader member)
+                              (lambda (reader member capnp-name)
+                                (declare (ignore capnp-name))
                                 #>cpp
                                 utils::LoadMap<utils::capnp::BoxInt16, utils::capnp::BoxInt64>(
                                     &${member}, ${reader},

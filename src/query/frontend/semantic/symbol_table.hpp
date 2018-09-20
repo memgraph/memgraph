@@ -24,22 +24,11 @@ class SymbolTable final {
   Symbol &at(const Tree &tree) { return table_.at(tree.uid()); }
   const Symbol &at(const Tree &tree) const { return table_.at(tree.uid()); }
 
+  // TODO: Remove these since members are public
   int max_position() const { return position_; }
 
   const auto &table() const { return table_; }
 
-  void Load(const capnp::SymbolTable::Reader &reader) {
-    position_ = reader.getPosition();
-    table_.clear();
-    for (const auto &entry_reader : reader.getTable()) {
-      int key = entry_reader.getKey();
-      Symbol val;
-      val.Load(entry_reader.getVal());
-      table_[key] = val;
-    }
-  }
-
- private:
   int position_{0};
   std::map<int, Symbol> table_;
 };
@@ -54,6 +43,18 @@ inline void Save(const SymbolTable &symbol_table,
     entry_builder.setKey(entry.first);
     auto sym_builder = entry_builder.initVal();
     Save(entry.second, &sym_builder);
+  }
+}
+
+inline void Load(SymbolTable *symbol_table,
+                 const capnp::SymbolTable::Reader &reader) {
+  symbol_table->position_ = reader.getPosition();
+  symbol_table->table_.clear();
+  for (const auto &entry_reader : reader.getTable()) {
+    int key = entry_reader.getKey();
+    Symbol val;
+    Load(&val, entry_reader.getVal());
+    symbol_table->table_[key] = val;
   }
 }
 

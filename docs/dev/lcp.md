@@ -384,7 +384,7 @@ to perform the registration manually. For example:
 rpc_server.Register<QueryResultRpc>(
     [](const auto &req_reader, auto *res_builder) {
       QueryResultReq request;
-      request.Load(req_reader);
+      Load(&request, req_reader);
       // process the request and send the response
       QueryResultRes response(values_for_response);
       Save(response, res_builder);
@@ -421,7 +421,7 @@ To specify a class or structure for serialization, you may pass a
 For example:
 
 ```lisp
-(lcp:define-class my-class ()
+(lcp:define-struct my-struct ()
   ((member :int64_t))
   (:serialize :capnp))
 ```
@@ -431,11 +431,9 @@ it in the `.capnp` file. C++ code will be generated for saving and loading
 members:
 
 ```cpp
-// Top level function
-void Save(const MyClass &instance, capnp::MyClass::Builder *builder);
-
-// Member function
-void MyClass::Load(const capnp::MyClass::Reader &reader);
+// Top level functions
+void Save(const MyStruct &self, capnp::MyStruct::Builder *builder);
+void Load(MyStruct *self, const capnp::MyStruct::Reader &reader);
 ```
 
 Since we use top level functions, the class needs to have some sort of public
@@ -454,30 +452,25 @@ For example:
 
 ```lisp
 (lcp:define-class base ()
-  ((base-member "std::vector<int64_t>"))
+  ((base-member "std::vector<int64_t>" :scope :public))
   (:serialize :capnp))
 
 (lcp:define-class derived (base)
-  ((derived-member :bool))
+  ((derived-member :bool :scope :public))
   (:serialize :capnp))
 ```
 
 Note that all classes need to have the `:serialize` option set. Signatures of
 `Save` and `Load` functions are changed to accept reader and builder to the
-base class. And a `Construct` function is added which will instantiate a
-concrete type from a base reader.
+base class. The `Load` function now takes a `std::unique_ptr<T> *` which is
+used to take ownership of a concrete type. This approach transfers the
+responsibility of type allocation and construction from the user of `Load` to
+`Load` itself.
 
 ```cpp
-void Save(const Derived &derived, capnp::Base *builder);
-
-class Derived {
-  ...
-  static std::unique_ptr<Base> Construct(const capnp::Base &reader);
-
-  virtual void Load(const capnp::Base &reader);
+void Save(const Derived &self, capnp::Base::Builder *builder);
+void Load(std::unique_ptr<Base> *self, const capnp::Base::Reader &reader);
 ```
-
-With polymorphic types, you need to call `Base::Construct` followed by `Load`.
 
 #### Multiple Inheritance
 
@@ -615,8 +608,8 @@ You will rarely need to use the 3rd argument, so it should be ignored in most
 cases. It is usually needed when you set `:capnp-init nil`, so that you can
 correctly initialize the builder.
 
-Similarly, `:capnp-load` expects a function taking a reader and a member, then
-returns a C++ block.
+Similarly, `:capnp-load` expects a function taking a reader, C++ member and
+Cap'n Proto member,  then returns a C++ block.
 
 Example:
 
@@ -630,7 +623,8 @@ Example:
                             auto my_builder = ${builder}.init${capnp-name}();
                             my_builder.setData(data);
                             cpp<#)
-              :capnp-load (lambda (reader member)
+              :capnp-load (lambda (reader member capnp-name)
+                            (declare (ignore capnp-name))
                             #>cpp
                             auto data = ${reader}.getData();
                             ${member}.LoadFromData(data);

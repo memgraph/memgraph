@@ -54,25 +54,23 @@ class Common : public utils::TotalOrdering<TSpecificType> {
     size_t operator()(const TSpecificType &t) const { return hash(t.id_); }
   };
 
-  void Load(const capnp::Common::Reader &reader) {
-    id_ = reader.getStorage();
-  }
-
-  auto Raw() const { return id_; }
-
+  IdT id_{0};
  protected:
   ~Common() {}
 
  private:
   static constexpr IdT Mask = std::numeric_limits<IdT>::max() >> 1;
   static constexpr IdT NotMask = ~Mask;
-
-  IdT id_{0};
 };
 
 template <class Type>
 void Save(const Common<Type> &common, capnp::Common::Builder *builder) {
-  builder->setStorage(common.Raw());
+  builder->setStorage(common.id_);
+}
+
+template <class Type>
+void Load(Common<Type> *common, const capnp::Common::Reader &reader) {
+  common->id_ = reader.getStorage();
 }
 
 class Label final : public Common<Label> {

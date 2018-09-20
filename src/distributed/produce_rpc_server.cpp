@@ -110,7 +110,7 @@ ProduceRpcServer::ProduceRpcServer(database::Worker *db,
   produce_rpc_server_.Register<PullRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         PullReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         PullRes res(Pull(req));
         Save(res, res_builder);
       });
@@ -118,7 +118,7 @@ ProduceRpcServer::ProduceRpcServer(database::Worker *db,
   produce_rpc_server_.Register<ResetCursorRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ResetCursorReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         Reset(req);
         ResetCursorRes res;
         Save(res, res_builder);
@@ -129,7 +129,7 @@ ProduceRpcServer::ProduceRpcServer(database::Worker *db,
   produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
       [this, data_manager](const auto &req_reader, auto *res_builder) {
         TransactionCommandAdvancedReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         tx_engine_->UpdateCommand(req.member);
         data_manager->ClearCacheForSingleTransaction(req.member);
         TransactionCommandAdvancedRes res;

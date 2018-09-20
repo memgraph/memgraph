@@ -76,7 +76,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
-    cardinality_ *= db_accessor_.VerticesCount(scan_all_by_label.label());
+    cardinality_ *= db_accessor_.VerticesCount(scan_all_by_label.label_);
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::kScanAllByLabel);
     return true;
@@ -86,16 +86,16 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // This cardinality estimation depends on the property value (expression).
     // If it's a constant, we can evaluate cardinality exactly, otherwise
     // we estimate
-    auto property_value = ConstPropertyValue(logical_op.expression());
+    auto property_value = ConstPropertyValue(logical_op.expression_);
     double factor = 1.0;
     if (property_value)
       // get the exact influence based on ScanAll(label, property, value)
       factor = db_accessor_.VerticesCount(
-          logical_op.label(), logical_op.property(), property_value.value());
+          logical_op.label_, logical_op.property_, property_value.value());
     else
       // estimate the influence as ScanAll(label, property) * filtering
-      factor = db_accessor_.VerticesCount(logical_op.label(),
-                                          logical_op.property()) *
+      factor = db_accessor_.VerticesCount(logical_op.label_,
+                                          logical_op.property_) *
                CardParam::kFilter;
 
     cardinality_ *= factor;
@@ -108,23 +108,23 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
     // this cardinality estimation depends on Bound expressions.
     // if they are literals we can evaluate cardinality properly
-    auto lower = BoundToPropertyValue(logical_op.lower_bound());
-    auto upper = BoundToPropertyValue(logical_op.upper_bound());
+    auto lower = BoundToPropertyValue(logical_op.lower_bound_);
+    auto upper = BoundToPropertyValue(logical_op.upper_bound_);
 
     int64_t factor = 1;
     if (upper || lower)
       // if we have either Bound<PropertyValue>, use the value index
-      factor = db_accessor_.VerticesCount(logical_op.label(),
-                                          logical_op.property(), lower, upper);
+      factor = db_accessor_.VerticesCount(logical_op.label_,
+                                          logical_op.property_, lower, upper);
     else
       // no values, but we still have the label
       factor =
-          db_accessor_.VerticesCount(logical_op.label(), logical_op.property());
+          db_accessor_.VerticesCount(logical_op.label_, logical_op.property_);
 
     // if we failed to take either bound from the op into account, then apply
     // the filtering constant to the factor
-    if ((logical_op.upper_bound() && !upper) ||
-        (logical_op.lower_bound() && !lower))
+    if ((logical_op.upper_bound_ && !upper) ||
+        (logical_op.lower_bound_ && !lower))
       factor *= CardParam::kFilter;
 
     cardinality_ *= factor;
@@ -174,7 +174,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // exactly, otherwise we approximate
     int unwind_value;
     if (auto literal =
-            dynamic_cast<query::ListLiteral *>(unwind.input_expression()))
+            dynamic_cast<query::ListLiteral *>(unwind.input_expression_))
       unwind_value = literal->elements_.size();
     else
       unwind_value = MiscParam::kUnwindNoLiteral;

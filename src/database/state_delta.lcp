@@ -59,7 +59,8 @@ cpp<#
             storage::SaveCapnpPropertyValue(${member}, &${builder});
             cpp<#)
           :capnp-load
-          (lambda (reader member)
+          (lambda (reader member capnp-name)
+            (declare (ignore capnp-name))
             #>cpp
             storage::LoadCapnpPropertyValue(${reader}, &${member});
             cpp<#))

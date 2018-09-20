@@ -89,11 +89,6 @@ class Address {
     return storage_ == other.storage_;
   }
 
-  void Load(const capnp::Address::Reader &reader) {
-    storage_ = reader.getStorage();
-  }
-
- private:
   StorageT storage_{0};
 };
 
@@ -103,8 +98,8 @@ void Save(const Address<TLocalObj> &address, capnp::Address::Builder *builder) {
 }
 
 template <typename TLocalObj>
-Address<TLocalObj> Load(const capnp::Address::Reader &reader) {
-  return Address<TLocalObj>(reader.getStorage());
+void Load(Address<TLocalObj> *address, const capnp::Address::Reader &reader) {
+  address->storage_ = reader.getStorage();
 }
 
 }  // namespace storage

@@ -128,20 +128,17 @@ set(lcp_src_files ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp ${lcp_exe})
 # file through `add_capnp` function. To generate the <id> use `capnp id`
 # invocation, and specify it here. This preserves correct id information across
 # multiple schema generations. If this wasn't the case, wrong typeId
-# information will break RPC between different compilations of memgraph.
-# Instead of CAPNP_SCHEMA, you may pass the CAPNP_DECLARATION option. This will
-# generate serialization declarations but not the implementation.
+# information will break serialization between different compilations of memgraph.
 macro(define_add_lcp name main_src_files generated_lcp_files)
   function(${name} lcp_file)
-    set(options CAPNP_DECLARATION)
     set(one_value_kwargs CAPNP_SCHEMA)
     set(multi_value_kwargs DEPENDS)
     # NOTE: ${${}ARGN} syntax escapes evaluating macro's ARGN variable; see:
     # https://stackoverflow.com/questions/50365544/how-to-access-enclosing-functions-arguments-from-within-a-macro
-    cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${${}ARGN})
+    cmake_parse_arguments(KW "" "${one_value_kwargs}" "${multi_value_kwargs}" ${${}ARGN})
     string(REGEX REPLACE "\.lcp$" ".hpp" h_file
            "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
-    if (KW_CAPNP_SCHEMA AND NOT KW_CAPNP_DECLARATION)
+    if (KW_CAPNP_SCHEMA)
       string(REGEX REPLACE "\.lcp$" ".capnp" capnp_file
              "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
       set(capnp_id ${KW_CAPNP_SCHEMA})
@@ -149,9 +146,6 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
       set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
       # Update *global* main_src_files
       set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
-    endif()
-    if (KW_CAPNP_DECLARATION)
-      set(capnp_id "--capnp-declaration")
     endif()
     add_custom_command(OUTPUT ${h_file} ${cpp_file} ${capnp_file}
       COMMAND ${lcp_exe} ${lcp_file} ${capnp_id}

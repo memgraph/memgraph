@@ -21,18 +21,18 @@ struct SumReq {
   SumReq(int x, int y) : x(x), y(y) {}
   int x;
   int y;
-
-  void Load(const ::capnp::AnyPointer::Reader &reader) {
-    auto list_reader = reader.getAs<::capnp::List<int>>();
-    x = list_reader[0];
-    y = list_reader[1];
-  }
 };
 
 void Save(const SumReq &sum, ::capnp::AnyPointer::Builder *builder) {
   auto list_builder = builder->initAs<::capnp::List<int>>(2);
   list_builder.set(0, sum.x);
   list_builder.set(1, sum.y);
+}
+
+void Load(SumReq *sum, const ::capnp::AnyPointer::Reader &reader) {
+  auto list_reader = reader.getAs<::capnp::List<int>>();
+  sum->x = list_reader[0];
+  sum->y = list_reader[1];
 }
 
 const MessageType SumReq::TypeInfo{0, "SumReq"};
@@ -45,16 +45,16 @@ struct SumRes {
   SumRes(int sum) : sum(sum) {}
 
   int sum;
-
-  void Load(const ::capnp::AnyPointer::Reader &reader) {
-    auto list_reader = reader.getAs<::capnp::List<int>>();
-    sum = list_reader[0];
-  }
 };
 
 void Save(const SumRes &res, ::capnp::AnyPointer::Builder *builder) {
   auto list_builder = builder->initAs<::capnp::List<int>>(1);
   list_builder.set(0, res.sum);
+}
+
+void Load(SumRes *res, const ::capnp::AnyPointer::Reader &reader) {
+  auto list_reader = reader.getAs<::capnp::List<int>>();
+  res->sum = list_reader[0];
 }
 
 const MessageType SumRes::TypeInfo{1, "SumRes"};
@@ -69,16 +69,16 @@ struct EchoMessage {
   EchoMessage(const std::string &data) : data(data) {}
 
   std::string data;
-
-  void Load(const ::capnp::AnyPointer::Reader &reader) {
-    auto list_reader = reader.getAs<::capnp::List<::capnp::Text>>();
-    data = list_reader[0];
-  }
 };
 
 void Save(const EchoMessage &echo, ::capnp::AnyPointer::Builder *builder) {
   auto list_builder = builder->initAs<::capnp::List<::capnp::Text>>(1);
   list_builder.set(0, echo.data);
+}
+
+void Load(EchoMessage *echo, const ::capnp::AnyPointer::Reader &reader) {
+  auto list_reader = reader.getAs<::capnp::List<::capnp::Text>>();
+  echo->data = list_reader[0];
 }
 
 const MessageType EchoMessage::TypeInfo{2, "EchoMessage"};
@@ -89,7 +89,7 @@ TEST(Rpc, Call) {
   Server server({"127.0.0.1", 0});
   server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
     SumReq req;
-    req.Load(req_reader);
+    Load(&req, req_reader);
     SumRes res(req.x + req.y);
     Save(res, res_builder);
   });
@@ -107,7 +107,7 @@ TEST(Rpc, Abort) {
   Server server({"127.0.0.1", 0});
   server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
     SumReq req;
-    req.Load(req_reader);
+    Load(&req, req_reader);
     std::this_thread::sleep_for(500ms);
     SumRes res(req.x + req.y);
     Save(res, res_builder);
@@ -137,7 +137,7 @@ TEST(Rpc, ClientPool) {
   Server server({"127.0.0.1", 0});
   server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
     SumReq req;
-    req.Load(req_reader);
+    Load(&req, req_reader);
     std::this_thread::sleep_for(100ms);
     SumRes res(req.x + req.y);
     Save(res, res_builder);
@@ -191,7 +191,7 @@ TEST(Rpc, LargeMessage) {
   Server server({"127.0.0.1", 0});
   server.Register<Echo>([](const auto &req_reader, auto *res_builder) {
     EchoMessage res;
-    res.Load(req_reader);
+    Load(&res, req_reader);
     Save(res, res_builder);
   });
   std::this_thread::sleep_for(100ms);

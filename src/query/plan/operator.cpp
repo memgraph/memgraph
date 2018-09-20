@@ -223,7 +223,7 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.Value<VertexAccessor>();
   } else {
-    return CreateLocalVertex(self_.node_atom(), frame, context);
+    return CreateLocalVertex(self_.node_atom_, frame, context);
   }
 }
 
@@ -365,8 +365,8 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
                                     value.type());
       }
     };
-    auto maybe_lower = convert(lower_bound());
-    auto maybe_upper = convert(upper_bound());
+    auto maybe_lower = convert(lower_bound_);
+    auto maybe_upper = convert(upper_bound_);
     // If any bound is null, then the comparison would result in nulls. This
     // is treated as not satisfying the filter, so return no vertices.
     if (maybe_lower && maybe_lower->value().IsNull())
@@ -454,8 +454,8 @@ std::unique_ptr<Cursor> Expand::MakeCursor(
 
 std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol());
-  symbols.emplace_back(edge_symbol());
+  symbols.emplace_back(node_symbol_);
+  symbols.emplace_back(edge_symbol_);
   return symbols;
 }
 
@@ -549,10 +549,10 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
           ExpectType(self_.node_symbol_, existing_node,
                      TypedValue::Type::Vertex);
           in_edges_.emplace(
-              vertex.in(existing_node.ValueVertex(), &self_.edge_types()));
+              vertex.in(existing_node.ValueVertex(), &self_.edge_types_));
         }
       } else {
-        in_edges_.emplace(vertex.in(&self_.edge_types()));
+        in_edges_.emplace(vertex.in(&self_.edge_types_));
       }
       in_edges_it_.emplace(in_edges_->begin());
     }
@@ -566,10 +566,10 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
           ExpectType(self_.node_symbol_, existing_node,
                      TypedValue::Type::Vertex);
           out_edges_.emplace(
-              vertex.out(existing_node.ValueVertex(), &self_.edge_types()));
+              vertex.out(existing_node.ValueVertex(), &self_.edge_types_));
         }
       } else {
-        out_edges_.emplace(vertex.out(&self_.edge_types()));
+        out_edges_.emplace(vertex.out(&self_.edge_types_));
       }
       out_edges_it_.emplace(out_edges_->begin());
     }
@@ -610,8 +610,8 @@ ACCEPT_WITH_INPUT(ExpandVariable)
 std::vector<Symbol> ExpandVariable::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol());
-  symbols.emplace_back(edge_symbol());
+  symbols.emplace_back(node_symbol_);
+  symbols.emplace_back(edge_symbol_);
   return symbols;
 }
 
@@ -895,11 +895,11 @@ class STShortestPathCursor : public query::plan::Cursor {
   STShortestPathCursor(const ExpandVariable &self,
                        database::GraphDbAccessor &dba)
       : self_(self), input_cursor_(self_.input()->MakeCursor(dba)) {
-    CHECK(self_.graph_view() == GraphView::OLD)
+    CHECK(self_.graph_view_ == GraphView::OLD)
         << "ExpandVariable should only be planned with GraphView::OLD";
-    CHECK(self_.existing_node()) << "s-t shortest path algorithm should only "
-                                    "be used when `existing_node` flag is "
-                                    "set!";
+    CHECK(self_.existing_node_) << "s-t shortest path algorithm should only "
+                                   "be used when `existing_node` flag is "
+                                   "set!";
   }
 
   bool Pull(Frame &frame, Context &context) override {
@@ -907,8 +907,8 @@ class STShortestPathCursor : public query::plan::Cursor {
                                   context.evaluation_context_,
                                   &context.db_accessor_, GraphView::OLD);
     while (input_cursor_->Pull(frame, context)) {
-      auto source_tv = frame[self_.input_symbol()];
-      auto sink_tv = frame[self_.node_symbol()];
+      auto source_tv = frame[self_.input_symbol_];
+      auto sink_tv = frame[self_.node_symbol_];
 
       // It is possible that source or sink vertex is Null due to optional
       // matching.
@@ -918,13 +918,13 @@ class STShortestPathCursor : public query::plan::Cursor {
       auto sink = sink_tv.ValueVertex();
 
       int64_t lower_bound =
-          self_.lower_bound()
-              ? EvaluateInt(&evaluator, self_.lower_bound(),
+          self_.lower_bound_
+              ? EvaluateInt(&evaluator, self_.lower_bound_,
                             "Min depth in breadth-first expansion")
               : 1;
       int64_t upper_bound =
-          self_.upper_bound()
-              ? EvaluateInt(&evaluator, self_.upper_bound(),
+          self_.upper_bound_
+              ? EvaluateInt(&evaluator, self_.upper_bound_,
                             "Max depth in breadth-first expansion")
               : std::numeric_limits<int64_t>::max();
 
@@ -971,17 +971,17 @@ class STShortestPathCursor : public query::plan::Cursor {
           last_edge->from_is(last_vertex) ? last_edge->to() : last_edge->from();
       result.emplace_back(*last_edge);
     }
-    frame->at(self_.edge_symbol()) = std::move(result);
+    frame->at(self_.edge_symbol_) = std::move(result);
   }
 
   bool ShouldExpand(const VertexAccessor &vertex, const EdgeAccessor &edge,
                     Frame *frame, ExpressionEvaluator *evaluator) {
-    if (!self_.filter_lambda().expression) return true;
+    if (!self_.filter_lambda_.expression) return true;
 
-    frame->at(self_.filter_lambda().inner_node_symbol) = vertex;
-    frame->at(self_.filter_lambda().inner_edge_symbol) = edge;
+    frame->at(self_.filter_lambda_.inner_node_symbol) = vertex;
+    frame->at(self_.filter_lambda_.inner_edge_symbol) = edge;
 
-    TypedValue result = self_.filter_lambda().expression->Accept(*evaluator);
+    TypedValue result = self_.filter_lambda_.expression->Accept(*evaluator);
     if (result.IsNull()) return false;
     if (result.IsBool()) return result.ValueBool();
 
@@ -1031,8 +1031,8 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
-        if (self_.direction() != EdgeAtom::Direction::IN) {
-          for (const auto &edge : vertex.out(&self_.edge_types())) {
+        if (self_.direction_ != EdgeAtom::Direction::IN) {
+          for (const auto &edge : vertex.out(&self_.edge_types_)) {
             if (ShouldExpand(edge.to(), edge, frame, evaluator) &&
                 !Contains(in_edge, edge.to())) {
               in_edge.emplace(edge.to(), edge);
@@ -1048,8 +1048,8 @@ class STShortestPathCursor : public query::plan::Cursor {
             }
           }
         }
-        if (self_.direction() != EdgeAtom::Direction::OUT) {
-          for (const auto &edge : vertex.in(&self_.edge_types())) {
+        if (self_.direction_ != EdgeAtom::Direction::OUT) {
+          for (const auto &edge : vertex.in(&self_.edge_types_)) {
             if (ShouldExpand(edge.from(), edge, frame, evaluator) &&
                 !Contains(in_edge, edge.from())) {
               in_edge.emplace(edge.from(), edge);
@@ -1079,8 +1079,8 @@ class STShortestPathCursor : public query::plan::Cursor {
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
-        if (self_.direction() != EdgeAtom::Direction::OUT) {
-          for (const auto &edge : vertex.out(&self_.edge_types())) {
+        if (self_.direction_ != EdgeAtom::Direction::OUT) {
+          for (const auto &edge : vertex.out(&self_.edge_types_)) {
             if (ShouldExpand(vertex, edge, frame, evaluator) &&
                 !Contains(out_edge, edge.to())) {
               out_edge.emplace(edge.to(), edge);
@@ -1096,8 +1096,8 @@ class STShortestPathCursor : public query::plan::Cursor {
             }
           }
         }
-        if (self_.direction() != EdgeAtom::Direction::IN) {
-          for (const auto &edge : vertex.in(&self_.edge_types())) {
+        if (self_.direction_ != EdgeAtom::Direction::IN) {
+          for (const auto &edge : vertex.in(&self_.edge_types_)) {
             if (ShouldExpand(vertex, edge, frame, evaluator) &&
                 !Contains(out_edge, edge.from())) {
               out_edge.emplace(edge.from(), edge);
@@ -1127,9 +1127,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   SingleSourceShortestPathCursor(const ExpandVariable &self,
                                  database::GraphDbAccessor &db)
       : self_(self), input_cursor_(self_.input()->MakeCursor(db)) {
-    CHECK(self_.graph_view() == GraphView::OLD)
+    CHECK(self_.graph_view_ == GraphView::OLD)
         << "ExpandVariable should only be planned with GraphView::OLD";
-    CHECK(!self_.existing_node()) << "Single source shortest path algorithm "
+    CHECK(!self_.existing_node_) << "Single source shortest path algorithm "
                                      "should not be used when `existing_node` "
                                      "flag is set, s-t shortest path algorithm "
                                      "should be used instead!";
@@ -1147,11 +1147,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return;
 
-      frame[self_.filter_lambda().inner_edge_symbol] = edge;
-      frame[self_.filter_lambda().inner_node_symbol] = vertex;
+      frame[self_.filter_lambda_.inner_edge_symbol] = edge;
+      frame[self_.filter_lambda_.inner_node_symbol] = vertex;
 
-      if (self_.filter_lambda().expression) {
-        TypedValue result = self_.filter_lambda().expression->Accept(evaluator);
+      if (self_.filter_lambda_.expression) {
+        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
         switch (result.type()) {
           case TypedValue::Type::Null:
             return;
@@ -1171,12 +1171,12 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
-      if (self_.direction() != EdgeAtom::Direction::IN) {
-        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types()))
+      if (self_.direction_ != EdgeAtom::Direction::IN) {
+        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_))
           expand_pair(edge, edge.to());
       }
-      if (self_.direction() != EdgeAtom::Direction::OUT) {
-        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types()))
+      if (self_.direction_ != EdgeAtom::Direction::OUT) {
+        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_))
           expand_pair(edge, edge.from());
       }
     };
@@ -1195,18 +1195,18 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         to_visit_next_.clear();
         processed_.clear();
 
-        auto vertex_value = frame[self_.input_symbol()];
+        auto vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
         auto vertex = vertex_value.Value<VertexAccessor>();
         processed_.emplace(vertex, std::experimental::nullopt);
         expand_from_vertex(vertex);
-        lower_bound_ = self_.lower_bound()
-                           ? EvaluateInt(&evaluator, self_.lower_bound(),
+        lower_bound_ = self_.lower_bound_
+                           ? EvaluateInt(&evaluator, self_.lower_bound_,
                                          "Min depth in breadth-first expansion")
                            : 1;
-        upper_bound_ = self_.upper_bound()
-                           ? EvaluateInt(&evaluator, self_.upper_bound(),
+        upper_bound_ = self_.upper_bound_
+                           ? EvaluateInt(&evaluator, self_.upper_bound_,
                                          "Max depth in breadth-first expansion")
                            : std::numeric_limits<int64_t>::max();
         if (upper_bound_ < 1)
@@ -1242,11 +1242,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
-      frame[self_.node_symbol()] = expansion.second;
+      frame[self_.node_symbol_] = expansion.second;
 
       // place edges on the frame in the correct order
       std::reverse(edge_list.begin(), edge_list.end());
-      frame[self_.edge_symbol()] = std::move(edge_list);
+      frame[self_.edge_symbol_] = std::move(edge_list);
 
       return true;
     }
@@ -1549,15 +1549,15 @@ class ConstructNamedPathCursor : public Cursor {
   bool Pull(Frame &frame, Context &context) override {
     if (!input_cursor_->Pull(frame, context)) return false;
 
-    auto symbol_it = self_.path_elements().begin();
-    DCHECK(symbol_it != self_.path_elements().end())
+    auto symbol_it = self_.path_elements_.begin();
+    DCHECK(symbol_it != self_.path_elements_.end())
         << "Named path must contain at least one node";
 
     TypedValue start_vertex = frame[*symbol_it++];
 
     // In an OPTIONAL MATCH everything could be Null.
     if (start_vertex.IsNull()) {
-      frame[self_.path_symbol()] = TypedValue::Null;
+      frame[self_.path_symbol_] = TypedValue::Null;
       return true;
     }
 
@@ -1571,13 +1571,13 @@ class ConstructNamedPathCursor : public Cursor {
     // expansion already did it.
     bool last_was_edge_list = false;
 
-    for (; symbol_it != self_.path_elements().end(); symbol_it++) {
+    for (; symbol_it != self_.path_elements_.end(); symbol_it++) {
       TypedValue expansion = frame[*symbol_it];
       //  We can have Null (OPTIONAL MATCH), a vertex, an edge, or an edge
       //  list (variable expand or BFS).
       switch (expansion.type()) {
         case TypedValue::Type::Null:
-          frame[self_.path_symbol()] = TypedValue::Null;
+          frame[self_.path_symbol_] = TypedValue::Null;
           return true;
         case TypedValue::Type::Vertex:
           if (!last_was_edge_list) path.Expand(expansion.ValueVertex());
@@ -1608,7 +1608,7 @@ class ConstructNamedPathCursor : public Cursor {
       }
     }
 
-    frame[self_.path_symbol()] = path;
+    frame[self_.path_symbol_] = path;
     return true;
   }
 
@@ -3037,7 +3037,7 @@ class CreateIndexCursor : public Cursor {
       throw IndexInMulticommandTxException();
     }
     try {
-      db_.BuildIndex(self_.label(), self_.property());
+      db_.BuildIndex(self_.label_, self_.property_);
     } catch (const database::IndexExistsException &) {
       // Ignore creating an existing index.
     }
@@ -3155,8 +3155,8 @@ class CartesianCursor : public Cursor {
  public:
   CartesianCursor(const Cartesian &self, database::GraphDbAccessor &db)
       : self_(self),
-        left_op_cursor_(self.left_op()->MakeCursor(db)),
-        right_op_cursor_(self_.right_op()->MakeCursor(db)) {
+        left_op_cursor_(self.left_op_->MakeCursor(db)),
+        right_op_cursor_(self_.right_op_->MakeCursor(db)) {
     CHECK(left_op_cursor_ != nullptr)
         << "CartesianCursor: Missing left operator cursor.";
     CHECK(right_op_cursor_ != nullptr)
@@ -3204,12 +3204,12 @@ class CartesianCursor : public Cursor {
       left_op_frames_it_ = left_op_frames_.begin();
     } else {
       // Make sure right_op_cursor last pulled results are on frame.
-      restore_frame(self_.right_symbols(), right_op_frame_);
+      restore_frame(self_.right_symbols_, right_op_frame_);
     }
 
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
 
-    restore_frame(self_.left_symbols(), *left_op_frames_it_);
+    restore_frame(self_.left_symbols_, *left_op_frames_it_);
     left_op_frames_it_++;
     return true;
   }
@@ -3301,7 +3301,7 @@ class AuthHandlerCursor : public Cursor {
 
   std::vector<auth::Permission> GetAuthPermissions() {
     std::vector<auth::Permission> ret;
-    for (const auto &privilege : self_.privileges()) {
+    for (const auto &privilege : self_.privileges_) {
       ret.push_back(glue::PrivilegeToPermission(privilege));
     }
     return ret;
@@ -3368,8 +3368,8 @@ class AuthHandlerCursor : public Cursor {
                                   ctx.evaluation_context_, &ctx.db_accessor_,
                                   GraphView::OLD);
     std::experimental::optional<std::string> password;
-    if (self_.password()) {
-      auto password_tv = self_.password()->Accept(evaluator);
+    if (self_.password_) {
+      auto password_tv = self_.password_->Accept(evaluator);
       if (!password_tv.IsString() && !password_tv.IsNull()) {
         throw QueryRuntimeException(
             "Expected string or null for password, got {}.",
@@ -3382,35 +3382,35 @@ class AuthHandlerCursor : public Cursor {
 
     auto &auth = *ctx.auth_;
 
-    switch (self_.action()) {
+    switch (self_.action_) {
       case AuthQuery::Action::CREATE_USER: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto user = auth.AddUser(self_.user(), password);
+        auto user = auth.AddUser(self_.user_, password);
         if (!user) {
           throw QueryRuntimeException("User or role '{}' already exists.",
-                                      self_.user());
+                                      self_.user_);
         }
         return false;
       }
 
       case AuthQuery::Action::DROP_USER: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto user = auth.GetUser(self_.user());
+        auto user = auth.GetUser(self_.user_);
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user_);
         }
-        if (!auth.RemoveUser(self_.user())) {
+        if (!auth.RemoveUser(self_.user_)) {
           throw QueryRuntimeException("Couldn't remove user '{}'.",
-                                      self_.user());
+                                      self_.user_);
         }
         return false;
       }
 
       case AuthQuery::Action::SET_PASSWORD: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto user = auth.GetUser(self_.user());
+        auto user = auth.GetUser(self_.user_);
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user_);
         }
         user->UpdatePassword(password);
         auth.SaveUser(*user);
@@ -3419,23 +3419,23 @@ class AuthHandlerCursor : public Cursor {
 
       case AuthQuery::Action::CREATE_ROLE: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto role = auth.AddRole(self_.role());
+        auto role = auth.AddRole(self_.role_);
         if (!role) {
           throw QueryRuntimeException("User or role '{}' already exists.",
-                                      self_.role());
+                                      self_.role_);
         }
         return false;
       }
 
       case AuthQuery::Action::DROP_ROLE: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto role = auth.GetRole(self_.role());
+        auto role = auth.GetRole(self_.role_);
         if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist.", self_.role());
+          throw QueryRuntimeException("Role '{}' doesn't exist.", self_.role_);
         }
-        if (!auth.RemoveRole(self_.role())) {
+        if (!auth.RemoveRole(self_.role_)) {
           throw QueryRuntimeException("Couldn't remove role '{}'.",
-                                      self_.role());
+                                      self_.role_);
         }
         return false;
       }
@@ -3449,7 +3449,7 @@ class AuthHandlerCursor : public Cursor {
 
         if (users_it_ == users_->end()) return false;
 
-        frame[self_.user_symbol()] = users_it_->username();
+        frame[self_.user_symbol_] = users_it_->username();
         users_it_++;
 
         return true;
@@ -3464,7 +3464,7 @@ class AuthHandlerCursor : public Cursor {
 
         if (roles_it_ == roles_->end()) return false;
 
-        frame[self_.role_symbol()] = roles_it_->rolename();
+        frame[self_.role_symbol_] = roles_it_->rolename();
         roles_it_++;
 
         return true;
@@ -3472,17 +3472,17 @@ class AuthHandlerCursor : public Cursor {
 
       case AuthQuery::Action::SET_ROLE: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto user = auth.GetUser(self_.user());
+        auto user = auth.GetUser(self_.user_);
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user_);
         }
-        auto role = auth.GetRole(self_.role());
+        auto role = auth.GetRole(self_.role_);
         if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist.", self_.role());
+          throw QueryRuntimeException("Role '{}' doesn't exist.", self_.role_);
         }
         if (user->role()) {
           throw QueryRuntimeException(
-              "User '{}' is already a member of role '{}'.", self_.user(),
+              "User '{}' is already a member of role '{}'.", self_.user_,
               user->role()->rolename());
         }
         user->SetRole(*role);
@@ -3492,9 +3492,9 @@ class AuthHandlerCursor : public Cursor {
 
       case AuthQuery::Action::CLEAR_ROLE: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto user = auth.GetUser(self_.user());
+        auto user = auth.GetUser(self_.user_);
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user_);
         }
         user->ClearRole();
         auth.SaveUser(*user);
@@ -3505,11 +3505,11 @@ class AuthHandlerCursor : public Cursor {
       case AuthQuery::Action::DENY_PRIVILEGE:
       case AuthQuery::Action::REVOKE_PRIVILEGE: {
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto user = auth.GetUser(self_.user_or_role());
-        auto role = auth.GetRole(self_.user_or_role());
+        auto user = auth.GetUser(self_.user_or_role_);
+        auto role = auth.GetRole(self_.user_or_role_);
         if (!user && !role) {
           throw QueryRuntimeException("User or role '{}' doesn't exist.",
-                                      self_.user_or_role());
+                                      self_.user_or_role_);
         }
         auto permissions = GetAuthPermissions();
         if (user) {
@@ -3517,9 +3517,9 @@ class AuthHandlerCursor : public Cursor {
             // TODO (mferencevic): should we first check that the privilege
             // is granted/denied/revoked before unconditionally
             // granting/denying/revoking it?
-            if (self_.action() == AuthQuery::Action::GRANT_PRIVILEGE) {
+            if (self_.action_ == AuthQuery::Action::GRANT_PRIVILEGE) {
               user->permissions().Grant(permission);
-            } else if (self_.action() == AuthQuery::Action::DENY_PRIVILEGE) {
+            } else if (self_.action_ == AuthQuery::Action::DENY_PRIVILEGE) {
               user->permissions().Deny(permission);
             } else {
               user->permissions().Revoke(permission);
@@ -3531,9 +3531,9 @@ class AuthHandlerCursor : public Cursor {
             // TODO (mferencevic): should we first check that the privilege
             // is granted/denied/revoked before unconditionally
             // granting/denying/revoking it?
-            if (self_.action() == AuthQuery::Action::GRANT_PRIVILEGE) {
+            if (self_.action_ == AuthQuery::Action::GRANT_PRIVILEGE) {
               role->permissions().Grant(permission);
-            } else if (self_.action() == AuthQuery::Action::DENY_PRIVILEGE) {
+            } else if (self_.action_ == AuthQuery::Action::DENY_PRIVILEGE) {
               role->permissions().Deny(permission);
             } else {
               role->permissions().Revoke(permission);
@@ -3547,11 +3547,11 @@ class AuthHandlerCursor : public Cursor {
       case AuthQuery::Action::SHOW_PRIVILEGES: {
         if (!grants_) {
           std::lock_guard<std::mutex> lock(auth.WithLock());
-          auto user = auth.GetUser(self_.user_or_role());
-          auto role = auth.GetRole(self_.user_or_role());
+          auto user = auth.GetUser(self_.user_or_role_);
+          auto role = auth.GetRole(self_.user_or_role_);
           if (!user && !role) {
             throw QueryRuntimeException("User or role '{}' doesn't exist.",
-                                        self_.user_or_role());
+                                        self_.user_or_role_);
           }
           if (user) {
             grants_.emplace(GetGrantsForAuthUser(*user));
@@ -3563,9 +3563,9 @@ class AuthHandlerCursor : public Cursor {
 
         if (grants_it_ == grants_->end()) return false;
 
-        frame[self_.privilege_symbol()] = std::get<0>(*grants_it_);
-        frame[self_.effective_symbol()] = std::get<1>(*grants_it_);
-        frame[self_.details_symbol()] = std::get<2>(*grants_it_);
+        frame[self_.privilege_symbol_] = std::get<0>(*grants_it_);
+        frame[self_.effective_symbol_] = std::get<1>(*grants_it_);
+        frame[self_.details_symbol_] = std::get<2>(*grants_it_);
         grants_it_++;
 
         return true;
@@ -3574,14 +3574,14 @@ class AuthHandlerCursor : public Cursor {
       case AuthQuery::Action::SHOW_ROLE_FOR_USER: {
         if (returned_role_for_user_) return false;
         std::lock_guard<std::mutex> lock(auth.WithLock());
-        auto user = auth.GetUser(self_.user());
+        auto user = auth.GetUser(self_.user_);
         if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user());
+          throw QueryRuntimeException("User '{}' doesn't exist.", self_.user_);
         }
         if (user->role()) {
-          frame[self_.role_symbol()] = user->role()->rolename();
+          frame[self_.role_symbol_] = user->role()->rolename();
         } else {
-          frame[self_.role_symbol()] = TypedValue::Null;
+          frame[self_.role_symbol_] = TypedValue::Null;
         }
         returned_role_for_user_ = true;
         return true;
@@ -3590,18 +3590,18 @@ class AuthHandlerCursor : public Cursor {
       case AuthQuery::Action::SHOW_USERS_FOR_ROLE: {
         if (!users_) {
           std::lock_guard<std::mutex> lock(auth.WithLock());
-          auto role = auth.GetRole(self_.role());
+          auto role = auth.GetRole(self_.role_);
           if (!role) {
             throw QueryRuntimeException("Role '{}' doesn't exist.",
-                                        self_.role());
+                                        self_.role_);
           }
-          users_.emplace(auth.AllUsersForRole(self_.role()));
+          users_.emplace(auth.AllUsersForRole(self_.role_));
           users_it_ = users_->begin();
         }
 
         if (users_it_ == users_->end()) return false;
 
-        frame[self_.user_symbol()] = users_it_->username();
+        frame[self_.user_symbol_] = users_it_->username();
         users_it_++;
 
         return true;
@@ -3664,23 +3664,23 @@ class CreateStreamCursor : public Cursor {
                                   ctx.evaluation_context_, &ctx.db_accessor_,
                                   GraphView::OLD);
 
-    TypedValue stream_uri = self_.stream_uri()->Accept(evaluator);
-    TypedValue stream_topic = self_.stream_topic()->Accept(evaluator);
-    TypedValue transform_uri = self_.transform_uri()->Accept(evaluator);
+    TypedValue stream_uri = self_.stream_uri_->Accept(evaluator);
+    TypedValue stream_topic = self_.stream_topic_->Accept(evaluator);
+    TypedValue transform_uri = self_.transform_uri_->Accept(evaluator);
 
     std::experimental::optional<int64_t> batch_interval_in_ms, batch_size;
 
-    if (self_.batch_interval_in_ms()) {
+    if (self_.batch_interval_in_ms_) {
       batch_interval_in_ms =
-          self_.batch_interval_in_ms()->Accept(evaluator).Value<int64_t>();
+          self_.batch_interval_in_ms_->Accept(evaluator).Value<int64_t>();
     }
-    if (self_.batch_size()) {
-      batch_size = self_.batch_size()->Accept(evaluator).Value<int64_t>();
+    if (self_.batch_size_) {
+      batch_size = self_.batch_size_->Accept(evaluator).Value<int64_t>();
     }
 
     try {
       StreamInfo info;
-      info.stream_name = self_.stream_name();
+      info.stream_name = self_.stream_name_;
       info.stream_uri = stream_uri.Value<std::string>();
       info.stream_topic = stream_topic.Value<std::string>();
       info.transform_uri = transform_uri.Value<std::string>();
@@ -3724,7 +3724,7 @@ class DropStreamCursor : public Cursor {
     }
 
     try {
-      ctx.kafka_streams_->Drop(self_.stream_name());
+      ctx.kafka_streams_->Drop(self_.stream_name_);
     } catch (const integrations::kafka::KafkaStreamException &e) {
       throw QueryRuntimeException(e.what());
     }
@@ -3778,11 +3778,11 @@ class ShowStreamsCursor : public Cursor {
 
     if (streams_it_ == streams_.end()) return false;
 
-    frame[self_.name_symbol()] = streams_it_->stream_name;
-    frame[self_.uri_symbol()] = streams_it_->stream_uri;
-    frame[self_.topic_symbol()] = streams_it_->stream_topic;
-    frame[self_.transform_symbol()] = streams_it_->transform_uri;
-    frame[self_.status_symbol()] = streams_it_->stream_status;
+    frame[self_.name_symbol_] = streams_it_->stream_name;
+    frame[self_.uri_symbol_] = streams_it_->stream_uri;
+    frame[self_.topic_symbol_] = streams_it_->stream_topic;
+    frame[self_.transform_symbol_] = streams_it_->transform_uri;
+    frame[self_.status_symbol_] = streams_it_->stream_status;
 
     streams_it_++;
 
@@ -3831,15 +3831,15 @@ class StartStopStreamCursor : public Cursor {
                                   GraphView::OLD);
     std::experimental::optional<int64_t> limit_batches;
 
-    if (self_.limit_batches()) {
-      limit_batches = self_.limit_batches()->Accept(evaluator).Value<int64_t>();
+    if (self_.limit_batches_) {
+      limit_batches = self_.limit_batches_->Accept(evaluator).Value<int64_t>();
     }
 
     try {
-      if (self_.is_start()) {
-        ctx.kafka_streams_->Start(self_.stream_name(), limit_batches);
+      if (self_.is_start_) {
+        ctx.kafka_streams_->Start(self_.stream_name_, limit_batches);
       } else {
-        ctx.kafka_streams_->Stop(self_.stream_name());
+        ctx.kafka_streams_->Stop(self_.stream_name_);
       }
     } catch (const integrations::kafka::KafkaStreamException &e) {
       throw QueryRuntimeException(e.what());
@@ -3877,7 +3877,7 @@ class StartStopAllStreamsCursor : public Cursor {
     }
 
     try {
-      if (self_.is_start()) {
+      if (self_.is_start_) {
         ctx.kafka_streams_->StartAll();
       } else {
         ctx.kafka_streams_->StopAll();
@@ -3933,14 +3933,14 @@ class TestStreamCursor : public Cursor {
                                     GraphView::OLD);
       std::experimental::optional<int64_t> limit_batches;
 
-      if (self_.limit_batches()) {
+      if (self_.limit_batches_) {
         limit_batches =
-            self_.limit_batches()->Accept(evaluator).Value<int64_t>();
+            self_.limit_batches_->Accept(evaluator).Value<int64_t>();
       }
 
       try {
         auto results =
-            ctx.kafka_streams_->Test(self_.stream_name(), limit_batches);
+            ctx.kafka_streams_->Test(self_.stream_name_, limit_batches);
         for (const auto &result : results) {
           std::map<std::string, query::TypedValue> params_tv;
           for (const auto &kv : result.second) {
@@ -3957,8 +3957,8 @@ class TestStreamCursor : public Cursor {
 
     if (results_it_ == results_.end()) return false;
 
-    frame[self_.query_symbol()] = results_it_->first;
-    frame[self_.params_symbol()] = results_it_->second;
+    frame[self_.query_symbol_] = results_it_->first;
+    frame[self_.params_symbol_] = results_it_->second;
     results_it_++;
 
     return true;
@@ -3986,9 +3986,9 @@ Explain::Explain(
     const std::shared_ptr<LogicalOperator> &input, const Symbol &output_symbol,
     const std::function<void(const database::GraphDbAccessor &,
                              LogicalOperator *, std::ostream *)> &pretty_print)
-    : pretty_print_(pretty_print),
-      input_(input),
-      output_symbol_(output_symbol) {}
+    : input_(input),
+      output_symbol_(output_symbol),
+      pretty_print_(pretty_print) {}
 
 ACCEPT_WITH_INPUT(Explain);
 

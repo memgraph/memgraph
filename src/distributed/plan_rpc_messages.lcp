@@ -17,16 +17,17 @@ cpp<#
 (lcp:capnp-import 'plan "/query/plan/distributed_ops.capnp")
 (lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
 
-(defun load-plan (reader member)
+(defun load-plan (reader member capnp-name)
+  (declare (ignore capnp-name))
   #>cpp
   query::plan::LogicalOperator::LoadHelper helper;
   ${member} = utils::LoadSharedPtr<query::plan::capnp::LogicalOperator, query::plan::LogicalOperator>(
       ${reader}, [&helper](const auto &reader) {
-                   auto op = query::plan::LogicalOperator::Construct(reader);
-                   op->Load(reader, &helper);
+                   std::unique_ptr<query::plan::LogicalOperator> op;
+                   query::plan::Load(&op, reader, &helper);
                    return op.release();
                  }, &helper.loaded_ops);
-  storage = std::move(helper.ast_storage);
+  self->storage = std::move(helper.ast_storage);
   cpp<#)
 
 (defun save-plan (builder member capnp-name)

@@ -44,17 +44,17 @@ class TypedValueVectorCompare final {
   bool operator()(const std::vector<TypedValue> &c1,
                   const std::vector<TypedValue> &c2) const;
 
+  // TODO: Remove this, member is public
   const auto &ordering() const { return ordering_; }
 
-  void Save(capnp::TypedValueVectorCompare::Builder *builder) const;
-  void Load(const capnp::TypedValueVectorCompare::Reader &reader);
-
- private:
   std::vector<Ordering> ordering_;
 };
 
 void Save(const TypedValueVectorCompare &comparator,
           capnp::TypedValueVectorCompare::Builder *builder);
+
+void Load(TypedValueVectorCompare *comparator,
+          const capnp::TypedValueVectorCompare::Reader &reader);
 
 /// Switch the given [Vertex/Edge]Accessor to the desired state.
 template <class TAccessor>

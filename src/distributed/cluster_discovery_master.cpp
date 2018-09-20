@@ -24,7 +24,7 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     bool durability_error = false;
 
     RegisterWorkerReq req;
-    req.Load(req_reader);
+    Load(&req, req_reader);
 
     // Compose the worker's endpoint from its connecting address and its
     // advertised port.
@@ -83,7 +83,7 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
   server_->Register<NotifyWorkerRecoveredRpc>([this](const auto &req_reader,
                                                      auto *res_builder) {
     NotifyWorkerRecoveredReq req;
-    req.Load(req_reader);
+    Load(&req, req_reader);
     coordination_->WorkerRecoveredSnapshot(req.worker_id, req.recovery_info);
   });
 }

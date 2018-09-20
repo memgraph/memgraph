@@ -13,7 +13,7 @@ DynamicWorkerAddition::DynamicWorkerAddition(database::DistributedGraphDb *db,
   server_->Register<DynamicWorkerRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         DynamicWorkerReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         DynamicWorkerRes res(this->GetIndicesToCreate());
         Save(res, res_builder);
       });

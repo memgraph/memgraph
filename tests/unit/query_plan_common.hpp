@@ -28,7 +28,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(
 
   // collect the symbols from the return clause
   std::vector<Symbol> symbols;
-  for (auto named_expression : produce->named_expressions())
+  for (auto named_expression : produce->named_expressions_)
     symbols.emplace_back(symbol_table[*named_expression]);
 
   Context context(db_accessor);

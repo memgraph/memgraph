@@ -33,7 +33,7 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
   rpc_server_->Register<VertexCountRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         VertexCountReq req;
-        req.Load(req_reader);
+        Load(&req, req_reader);
         auto dba = db_->Access(req.member);
         int64_t size = 0;
         for (auto vertex : dba->Vertices(false)) ++size;
