@@ -7,6 +7,7 @@
 #include <capnp/message.h>
 
 #include "query/plan/distributed_ops.hpp"
+#include "query/plan/distributed_pretty_print.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/exceptions.hpp"
@@ -1119,10 +1120,14 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // Treat Explain as if the query is planned without it
+  // Change the pretty printer for Explain, but otherwise treat it as if the
+  // query is planned without it
   bool PreVisit(Explain &explain) override {
     CHECK(prev_ops_.empty());
     prev_ops_.push_back(&explain);
+    explain.pretty_print_ = [](const auto &dba, auto *root, auto *out) {
+      return DistributedPrettyPrint(dba, root, out);
+    };
     return true;
   }
 

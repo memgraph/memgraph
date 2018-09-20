@@ -58,6 +58,7 @@ set(memgraph_src_files
     query/interpreter.cpp
     query/plan/distributed.cpp
     query/plan/distributed_ops.cpp
+    query/plan/distributed_pretty_print.cpp
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/pretty_print.cpp

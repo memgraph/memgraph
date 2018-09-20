@@ -26,7 +26,6 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
-#include "query/plan/pretty_print.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
@@ -3863,9 +3862,13 @@ std::unique_ptr<Cursor> TestStream::MakeCursor(
   return std::make_unique<TestStreamCursor>(*this, db);
 }
 
-Explain::Explain(const std::shared_ptr<LogicalOperator> &input,
-                 const Symbol &output_symbol)
-    : input_(input), output_symbol_(output_symbol) {}
+Explain::Explain(
+    const std::shared_ptr<LogicalOperator> &input, const Symbol &output_symbol,
+    const std::function<void(const database::GraphDbAccessor &,
+                             LogicalOperator *, std::ostream *)> &pretty_print)
+    : pretty_print_(pretty_print),
+      input_(input),
+      output_symbol_(output_symbol) {}
 
 ACCEPT_WITH_INPUT(Explain);
 
@@ -3883,7 +3886,7 @@ class ExplainCursor : public Cursor {
                 const Symbol &output_symbol)
       : printed_plan_rows_([&dba, &self]() {
           std::stringstream stream;
-          PrettyPrint(dba, self.input().get(), &stream);
+          self.pretty_print_(dba, self.input().get(), &stream);
           return utils::Split(stream.str(), "\n");
         }()),
         print_it_(printed_plan_rows_.begin()),

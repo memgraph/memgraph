@@ -26,11 +26,22 @@ using DistributedOperatorCompositeVisitor =
                               DistributedCreateNode, DistributedCreateExpand>;
 
 /// Base class for visiting regular and distributed LogicalOperator instances.
-class DistributedOperatorVisitor : public HierarchicalLogicalOperatorVisitor,
+///
+/// HierarchicalLogicalOperatorVisitor is inherited virtually, so that potential
+/// multiple inheritance of DistributedOperatorVisitor and other
+/// HierarchicalLogicalOperatorVisitor derived types is possible. Note that
+/// virtual inheritance resolves the diamond problem, but this still carries a
+/// cost. For example, you can no longer use static_cast to downcast a type even
+/// though you are 100% sure downcast would be correct. dynamic_cast should work
+/// as usual.
+class DistributedOperatorVisitor : public virtual HierarchicalLogicalOperatorVisitor,
                                    public DistributedOperatorCompositeVisitor {
  public:
   using DistributedOperatorCompositeVisitor::PostVisit;
   using DistributedOperatorCompositeVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
 };
 cpp<#
 

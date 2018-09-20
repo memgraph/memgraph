@@ -20,8 +20,8 @@
 #include "query/frontend/stripped.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/distributed.hpp"
+#include "query/plan/distributed_pretty_print.hpp"
 #include "query/plan/planner.hpp"
-#include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string.hpp"
@@ -398,7 +398,7 @@ DEFCOMMAND(Top) {
     auto &plan_pair = plans[i];
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plan_pair.second << std::endl;
-    query::plan::PrettyPrint(dba, plan_pair.first.get());
+    query::plan::DistributedPrettyPrint(dba, plan_pair.first.get());
     std::cout << std::endl;
   }
 }
@@ -411,7 +411,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].first;
   auto cost = plans[plan_ix].second;
   std::cout << "Plan cost: " << cost << std::endl;
-  query::plan::PrettyPrint(dba, plan.get());
+  query::plan::DistributedPrettyPrint(dba, plan.get());
 }
 
 DEFCOMMAND(ShowDistributed) {
@@ -424,7 +424,7 @@ DEFCOMMAND(ShowDistributed) {
   auto distributed_plan = MakeDistributedPlan(*plan, symbol_table, plan_id);
   {
     std::cout << "---- Master Plan ---- " << std::endl;
-    query::plan::PrettyPrint(dba, distributed_plan.master_plan.get());
+    query::plan::DistributedPrettyPrint(dba, distributed_plan.master_plan.get());
     std::cout << std::endl;
   }
   for (size_t i = 0; i < distributed_plan.worker_plans.size(); ++i) {
@@ -432,7 +432,7 @@ DEFCOMMAND(ShowDistributed) {
     std::shared_ptr<query::plan::LogicalOperator> worker_plan;
     std::tie(id, worker_plan) = distributed_plan.worker_plans[i];
     std::cout << "---- Worker Plan #" << id << " ---- " << std::endl;
-    query::plan::PrettyPrint(dba, worker_plan.get());
+    query::plan::DistributedPrettyPrint(dba, worker_plan.get());
     std::cout << std::endl;
   }
 }

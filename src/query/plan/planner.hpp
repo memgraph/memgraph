@@ -8,6 +8,7 @@
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/pretty_print.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -101,7 +102,10 @@ auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
   if (context.ast_storage.query()->explain_) {
     last_op = std::make_unique<Explain>(
         std::move(last_op),
-        context.symbol_table.CreateSymbol("QUERY PLAN", false));
+        context.symbol_table.CreateSymbol("QUERY PLAN", false),
+        [](const auto &dba, auto *root, auto *stream) {
+          return PrettyPrint(dba, root, stream);
+        });
   }
 
   return std::make_pair(std::move(last_op), total_cost);

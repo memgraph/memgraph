@@ -2510,12 +2510,18 @@ in the db.")
   ((input "std::shared_ptr<LogicalOperator>"
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (output-symbol "Symbol" :reader t))
+   (output-symbol "Symbol" :reader t)
+   (pretty-print
+    "std::function<void(const database::GraphDbAccessor &, LogicalOperator *, std::ostream *)>"
+    :scope :public :documentation "Pretty printer function"
+    :capnp-save :dont-save))
   (:documentation "Pretty print a LogicalOperator plan")
   (:public
    #>cpp
-   Explain(const std::shared_ptr<LogicalOperator> &input,
-           const Symbol &output_symbol);
+   Explain(
+       const std::shared_ptr<LogicalOperator> &input, const Symbol &output_symbol,
+       const std::function<void(const database::GraphDbAccessor &,
+                                LogicalOperator *, std::ostream *)> &pretty_print);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
