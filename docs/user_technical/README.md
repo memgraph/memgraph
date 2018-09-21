@@ -11,7 +11,7 @@ data structures, multi-version concurrency control and asynchronous IO.
 ## Contents
 
   * [About Memgraph](#about-memgraph)
-  * [Quick Start](quick-start.md)
+  * [Quick Start](quick_start.md)
   * [Tutorials](tutorials/tutorials_overview.md)
   * [How-to Guides](how-to_guides/how-to_guides_overview.md)
   * [Concepts](concepts/concepts_overview.md)
