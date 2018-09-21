@@ -64,7 +64,7 @@ class Listener final {
         utils::ThreadSetName(fmt::format("{} timeout", service_name));
         while (alive_) {
           {
-            std::unique_lock<utils::SpinLock> guard(lock_);
+            std::lock_guard<utils::SpinLock> guard(lock_);
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
                 LOG(WARNING) << service_name << " session associated with "
@@ -100,7 +100,7 @@ class Listener final {
    * @param connection socket which should be added to the event pool
    */
   void AddConnection(io::network::Socket &&connection) {
-    std::unique_lock<utils::SpinLock> guard(lock_);
+    std::lock_guard<utils::SpinLock> guard(lock_);
 
     // Remember fd before moving connection into Session.
     int fd = connection.fd();
@@ -133,6 +133,10 @@ class Listener final {
     for (auto &worker_thread : worker_threads_) {
       if (worker_thread.joinable()) worker_thread.join();
     }
+    // Here we free all active connections to close them and notify the other
+    // end that we won't process them because we stopped all worker threads.
+    std::lock_guard<utils::SpinLock> guard(lock_);
+    sessions_.clear();
   }
 
  private:
@@ -224,7 +228,7 @@ class Listener final {
     // https://idea.popcount.org/2017-03-20-epoll-is-fundamentally-broken-22/
     epoll_.Delete(session.socket().fd());
 
-    std::unique_lock<utils::SpinLock> guard(lock_);
+    std::lock_guard<utils::SpinLock> guard(lock_);
     auto it = std::find_if(sessions_.begin(), sessions_.end(),
                            [&](const auto &l) { return l.get() == &session; });
 
