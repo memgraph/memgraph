@@ -19,6 +19,7 @@
 #include "communication/helpers.hpp"
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/thread/sync.hpp"
 
 namespace communication {
@@ -142,7 +143,8 @@ class Session final {
    */
   bool Execute() {
     // Refresh the last event time in the session.
-    RefreshLastEventTime();
+    RefreshLastEventTime(true);
+    utils::OnScopeExit on_exit([this] { RefreshLastEventTime(false); });
 
     // Allocate the buffer to fill the data.
     auto buf = input_buffer_.write_end()->Allocate();
@@ -212,9 +214,6 @@ class Session final {
     // Execute the session.
     session_.Execute();
 
-    // Refresh the last event time.
-    RefreshLastEventTime();
-
     return false;
   }
 
@@ -226,6 +225,7 @@ class Session final {
    */
   bool TimedOut() {
     std::unique_lock<utils::SpinLock> guard(lock_);
+    if (execution_active_) return false;
     return last_event_time_ + std::chrono::seconds(inactivity_timeout_sec_) <
            std::chrono::steady_clock::now();
   }
@@ -236,8 +236,9 @@ class Session final {
   io::network::Socket &socket() { return socket_; }
 
  private:
-  void RefreshLastEventTime() {
+  void RefreshLastEventTime(bool active) {
     std::unique_lock<utils::SpinLock> guard(lock_);
+    execution_active_ = active;
     last_event_time_ = std::chrono::steady_clock::now();
   }
 
@@ -300,6 +301,7 @@ class Session final {
   // Time of the last event and associated lock.
   std::chrono::time_point<std::chrono::steady_clock> last_event_time_{
       std::chrono::steady_clock::now()};
+  bool execution_active_{false};
   utils::SpinLock lock_;
   const int inactivity_timeout_sec_;
 

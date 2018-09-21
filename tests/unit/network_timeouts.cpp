@@ -1,5 +1,6 @@
 #include <chrono>
 #include <iostream>
+#include <thread>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -25,6 +26,9 @@ class TestSession {
                      reinterpret_cast<const char *>(input_stream_->data()),
                      input_stream_->size())
               << "'";
+    if (input_stream_->data()[0] == 'e') {
+      std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
     output_stream_->Write(input_stream_->data(), input_stream_->size());
     input_stream_->Shift(input_stream_->size());
   }
@@ -34,9 +38,10 @@ class TestSession {
   communication::OutputStream *output_stream_;
 };
 
-const std::string query("timeout test");
+const std::string safe_query("tttt");
+const std::string expensive_query("eeee");
 
-bool QueryServer(io::network::Socket &socket) {
+bool QueryServer(io::network::Socket &socket, const std::string &query) {
   if (!socket.Write(query)) return false;
   char response[105];
   int len = 0;
@@ -62,19 +67,47 @@ TEST(NetworkTimeouts, InactiveSession) {
   ASSERT_TRUE(client.Connect(server.endpoint()));
 
   // Send some data to the server.
-  ASSERT_TRUE(QueryServer(client));
+  ASSERT_TRUE(QueryServer(client, safe_query));
 
   for (int i = 0; i < 3; ++i) {
     // After this sleep the session should still be alive.
     std::this_thread::sleep_for(500ms);
 
     // Send some data to the server.
-    ASSERT_TRUE(QueryServer(client));
+    ASSERT_TRUE(QueryServer(client, safe_query));
   }
 
   // After this sleep the session should have timed out.
   std::this_thread::sleep_for(3500ms);
-  ASSERT_FALSE(QueryServer(client));
+  ASSERT_FALSE(QueryServer(client, safe_query));
+}
+
+TEST(NetworkTimeouts, ActiveSession) {
+  // Instantiate the server and set the session timeout to 2 seconds.
+  TestData test_data;
+  communication::ServerContext context;
+  communication::Server<TestSession, TestData> server{
+      {"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
+
+  // Create the client and connect to the server.
+  io::network::Socket client;
+  ASSERT_TRUE(client.Connect(server.endpoint()));
+
+  // Send some data to the server.
+  ASSERT_TRUE(QueryServer(client, expensive_query));
+
+  for (int i = 0; i < 3; ++i) {
+    // After this sleep the session should still be alive.
+    std::this_thread::sleep_for(500ms);
+
+    // Send some data to the server.
+    ASSERT_TRUE(QueryServer(client, safe_query));
+  }
+
+  // After this sleep the session should have timed out.
+  std::this_thread::sleep_for(3500ms);
+  ASSERT_FALSE(QueryServer(client, safe_query));
+
 }
 
 int main(int argc, char **argv) {
