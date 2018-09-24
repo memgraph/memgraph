@@ -7,6 +7,7 @@ import logging
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from fcntl import fcntl, F_GETFL, F_SETFL
 from steps.test_parameters import TestParameters
@@ -26,6 +27,7 @@ MEMGRAPH_PORT = 7687
 
 # Module-scoped variables
 test_results = TestResults()
+temporary_directory = tempfile.TemporaryDirectory()
 
 
 # Helper functions
@@ -51,7 +53,7 @@ def is_tested_system_inactive(context):
     return not any(proc.poll() is None for proc in context.memgraph_processes)
 
 
-def worker_flags(worker_id):
+def get_worker_flags(worker_id):
     flags = ["--worker",
              "--worker-id", str(worker_id),
              "--worker-port", str(10000 + worker_id),
@@ -61,8 +63,13 @@ def worker_flags(worker_id):
 
 def wait_for_server(port, delay=0.01):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", port]
+    count = 0
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
+        if count > 20 / 0.01:
+            print("Could not wait for server on port", port, "to startup!")
+            sys.exit(1)
+        count += 1
     time.sleep(delay)
 
 
@@ -77,13 +84,21 @@ def start_memgraph(context):
         flags = COMMON_FLAGS.copy()
         if context.config.memgraph_params:
             flags += context.extra_flags
-        run_memgraph(context, flags + DISTRIBUTED_FLAGS + MASTER_FLAGS)
+        master_flags = flags.copy()
+        master_flags.append("--durability-directory=" + os.path.join(
+            temporary_directory.name, "master"))
+        run_memgraph(context, master_flags + DISTRIBUTED_FLAGS + MASTER_FLAGS)
         for i in range(1, int(context.config.num_machines)):
-            run_memgraph(context, flags + DISTRIBUTED_FLAGS + worker_flags(i))
+            worker_flags = flags.copy()
+            worker_flags.append("--durability-directory=" + os.path.join(
+                temporary_directory.name, "worker" + str(i)))
+            run_memgraph(context, worker_flags + DISTRIBUTED_FLAGS +
+                         get_worker_flags(i))
     else:  # Run single machine memgraph
         flags = COMMON_FLAGS.copy()
         if context.config.memgraph_params:
             flags += context.extra_flags
+        flags.append("--durability-directory=" + temporary_directory.name)
         run_memgraph(context, flags)
     assert is_tested_system_active(context), "Failed to start memgraph"
     wait_for_server(str(MEMGRAPH_PORT))  # wait for memgraph to start
@@ -250,7 +265,8 @@ def after_all(context):
 
     test_suite = get_test_suite(context)
     file_name = context.config.output_folder + timestamp + \
-        "-" + context.config.database + "-" + context.config.test_name + ".json"
+        "-" + context.config.database + "-" + context.config.test_name + \
+        ".json"
 
     js = {
         "total": test_results.num_total(),
