@@ -120,6 +120,7 @@ class Interpreter {
             access.remove(kv.first);
           }
         }
+        cursor_->Shutdown();
       }
 
       return return_value;

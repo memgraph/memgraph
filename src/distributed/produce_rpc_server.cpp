@@ -78,6 +78,7 @@ ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
       }
     } else {
       cursor_state_ = PullState::CURSOR_EXHAUSTED;
+      cursor_->Shutdown();
     }
   } catch (const mvcc::SerializationError &) {
     cursor_state_ = PullState::SERIALIZATION_ERROR;

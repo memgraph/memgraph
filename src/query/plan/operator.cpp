@@ -84,6 +84,8 @@ std::unique_ptr<Cursor> Once::MakeCursor(database::GraphDbAccessor &) const {
 
 WITHOUT_SINGLE_INPUT(Once);
 
+void Once::OnceCursor::Shutdown() {}
+
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input,
@@ -134,6 +136,8 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
   }
   return false;
 }
+
+void CreateNode::CreateNodeCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void CreateNode::CreateNodeCursor::Reset() { input_cursor_->Reset(); }
 
@@ -206,6 +210,8 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
   return true;
 }
 
+void CreateExpand::CreateExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 
 VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
@@ -262,6 +268,8 @@ class ScanAllCursor : public Cursor {
     frame[output_symbol_] = *vertices_it_.value()++;
     return true;
   }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
     input_cursor_->Reset();
@@ -507,6 +515,8 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
   }
 }
 
+void Expand::ExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void Expand::ExpandCursor::Reset() {
   input_cursor_->Reset();
   in_edges_ = std::experimental::nullopt;
@@ -681,6 +691,8 @@ class ExpandVariableCursor : public Cursor {
       // because we succesfully pulled from the input
     }
   }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
     input_cursor_->Reset();
@@ -923,6 +935,8 @@ class STShortestPathCursor : public query::plan::Cursor {
     }
     return false;
   }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override { input_cursor_->Reset(); }
 
@@ -1232,6 +1246,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       return true;
     }
   }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
   void Reset() override {
     input_cursor_->Reset();
     processed_.clear();
@@ -1436,6 +1453,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     }
   }
 
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
   void Reset() override {
     input_cursor_->Reset();
     previous_.clear();
@@ -1586,6 +1605,8 @@ class ConstructNamedPathCursor : public Cursor {
     return true;
   }
 
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
   void Reset() override { input_cursor_->Reset(); }
 
  private:
@@ -1639,6 +1660,8 @@ bool Filter::FilterCursor::Pull(Frame &frame, Context &context) {
   return false;
 }
 
+void Filter::FilterCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void Filter::FilterCursor::Reset() { input_cursor_->Reset(); }
 
 Produce::Produce(const std::shared_ptr<LogicalOperator> &input,
@@ -1682,6 +1705,8 @@ bool Produce::ProduceCursor::Pull(Frame &frame, Context &context) {
   }
   return false;
 }
+
+void Produce::ProduceCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Produce::ProduceCursor::Reset() { input_cursor_->Reset(); }
 
@@ -1754,6 +1779,8 @@ bool Delete::DeleteCursor::Pull(Frame &frame, Context &context) {
   return true;
 }
 
+void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input,
@@ -1810,6 +1837,8 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
   return true;
 }
 
+void SetProperty::SetPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input,
@@ -1858,6 +1887,10 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, Context &context) {
           "Properties can only be set on edges and vertices.");
   }
   return true;
+}
+
+void SetProperties::SetPropertiesCursor::Shutdown() {
+  input_cursor_->Shutdown();
 }
 
 void SetProperties::SetPropertiesCursor::Reset() { input_cursor_->Reset(); }
@@ -1948,6 +1981,8 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, Context &context) {
   return true;
 }
 
+void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
@@ -2007,6 +2042,10 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
   return true;
 }
 
+void RemoveProperty::RemovePropertyCursor::Shutdown() {
+  input_cursor_->Shutdown();
+}
+
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input,
@@ -2047,6 +2086,8 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, Context &context) {
 
   return true;
 }
+
+void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void RemoveLabels::RemoveLabelsCursor::Reset() { input_cursor_->Reset(); }
 
@@ -2130,6 +2171,12 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
 }
 
 template <typename TAccessor>
+void ExpandUniquenessFilter<
+    TAccessor>::ExpandUniquenessFilterCursor::Shutdown() {
+  input_cursor_->Shutdown();
+}
+
+template <typename TAccessor>
 void ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Reset() {
   input_cursor_->Reset();
 }
@@ -2183,6 +2230,8 @@ bool Accumulate::AccumulateCursor::Pull(Frame &frame, Context &context) {
   for (const Symbol &symbol : self_.symbols_) frame[symbol] = *row_it++;
   return true;
 }
+
+void Accumulate::AccumulateCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Accumulate::AccumulateCursor::Reset() {
   input_cursor_->Reset();
@@ -2433,6 +2482,8 @@ void Aggregate::AggregateCursor::Update(
   }    // end loop over all aggregations
 }
 
+void Aggregate::AggregateCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void Aggregate::AggregateCursor::Reset() {
   input_cursor_->Reset();
   aggregation_.clear();
@@ -2524,6 +2575,8 @@ bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
   return false;
 }
 
+void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void Skip::SkipCursor::Reset() {
   input_cursor_->Reset();
   to_skip_ = -1;
@@ -2581,6 +2634,8 @@ bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
 
   return input_cursor_->Pull(frame, context);
 }
+
+void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void Limit::LimitCursor::Reset() {
   input_cursor_->Reset();
@@ -2669,6 +2724,8 @@ bool OrderBy::OrderByCursor::Pull(Frame &frame, Context &context) {
   return true;
 }
 
+void OrderBy::OrderByCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void OrderBy::OrderByCursor::Reset() {
   input_cursor_->Reset();
   did_pull_all_ = false;
@@ -2746,6 +2803,12 @@ bool Merge::MergeCursor::Pull(Frame &frame, Context &context) {
   }
 }
 
+void Merge::MergeCursor::Shutdown() {
+  input_cursor_->Shutdown();
+  merge_match_cursor_->Shutdown();
+  merge_create_cursor_->Shutdown();
+}
+
 void Merge::MergeCursor::Reset() {
   input_cursor_->Reset();
   merge_match_cursor_->Reset();
@@ -2820,6 +2883,11 @@ bool Optional::OptionalCursor::Pull(Frame &frame, Context &context) {
   }
 }
 
+void Optional::OptionalCursor::Shutdown() {
+  input_cursor_->Shutdown();
+  optional_cursor_->Shutdown();
+}
+
 void Optional::OptionalCursor::Reset() {
   input_cursor_->Reset();
   optional_cursor_->Reset();
@@ -2876,6 +2944,8 @@ bool Unwind::UnwindCursor::Pull(Frame &frame, Context &context) {
   return true;
 }
 
+void Unwind::UnwindCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void Unwind::UnwindCursor::Reset() {
   input_cursor_->Reset();
   input_value_.clear();
@@ -2920,6 +2990,8 @@ bool Distinct::DistinctCursor::Pull(Frame &frame, Context &context) {
   }
 }
 
+void Distinct::DistinctCursor::Shutdown() { input_cursor_->Shutdown(); }
+
 void Distinct::DistinctCursor::Reset() {
   input_cursor_->Reset();
   seen_rows_.clear();
@@ -2952,6 +3024,8 @@ class CreateIndexCursor : public Cursor {
     ctx.is_index_created_ = did_create_ = true;
     return true;
   }
+
+  void Shutdown() override {}
 
   void Reset() override { did_create_ = false; }
 
@@ -3027,6 +3101,11 @@ bool Union::UnionCursor::Pull(Frame &frame, Context &context) {
     frame[symbol] = results[symbol.name()];
   }
   return true;
+}
+
+void Union::UnionCursor::Shutdown() {
+  left_cursor_->Shutdown();
+  right_cursor_->Shutdown();
 }
 
 void Union::UnionCursor::Reset() {
@@ -3111,6 +3190,11 @@ class CartesianCursor : public Cursor {
     restore_frame(self_.left_symbols(), *left_op_frames_it_);
     left_op_frames_it_++;
     return true;
+  }
+
+  void Shutdown() override {
+    left_op_cursor_->Shutdown();
+    right_op_cursor_->Shutdown();
   }
 
   void Reset() override {
@@ -3503,6 +3587,8 @@ class AuthHandlerCursor : public Cursor {
     }
   }
 
+  void Shutdown() override {}
+
   void Reset() override {
     LOG(FATAL) << "AuthHandler cursor should never be reset";
   }
@@ -3587,6 +3673,8 @@ class CreateStreamCursor : public Cursor {
     return false;
   }
 
+  void Shutdown() override {}
+
   void Reset() override { throw utils::NotYetImplemented("Create Stream"); }
 
  private:
@@ -3620,6 +3708,8 @@ class DropStreamCursor : public Cursor {
     }
     return false;
   }
+
+  void Shutdown() override {}
 
   void Reset() override { throw utils::NotYetImplemented("Drop Stream"); }
 
@@ -3676,6 +3766,8 @@ class ShowStreamsCursor : public Cursor {
 
     return true;
   }
+
+  void Shutdown() override {}
 
   void Reset() override { throw utils::NotYetImplemented("Show Streams"); }
 
@@ -3734,6 +3826,8 @@ class StartStopStreamCursor : public Cursor {
     return false;
   }
 
+  void Shutdown() override {}
+
   void Reset() override { throw utils::NotYetImplemented("Start/Stop Stream"); }
 
  private:
@@ -3772,6 +3866,8 @@ class StartStopAllStreamsCursor : public Cursor {
 
     return false;
   }
+
+  void Shutdown() override {}
 
   void Reset() override {
     throw utils::NotYetImplemented("Start/Stop All Streams");
@@ -3846,6 +3942,8 @@ class TestStreamCursor : public Cursor {
     return true;
   }
 
+  void Shutdown() override {}
+
   void Reset() override { throw utils::NotYetImplemented("Test Stream"); }
 
  private:
@@ -3900,6 +3998,8 @@ class ExplainCursor : public Cursor {
     }
     return false;
   }
+
+  void Shutdown() override {}
 
   void Reset() override { print_it_ = printed_plan_rows_.begin(); }
 

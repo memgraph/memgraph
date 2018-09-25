@@ -47,6 +47,10 @@ void BfsRpcClients::RegisterSubcursors(
       });
   subcursor_storage_->Get(subcursor_ids.at(db_->WorkerId()))
       ->RegisterSubcursors(subcursor_ids);
+  // Wait and get all of the replies.
+  for (auto &future : futures) {
+    if (future.valid()) future.get();
+  }
 }
 
 void BfsRpcClients::ResetSubcursors(
@@ -58,6 +62,10 @@ void BfsRpcClients::ResetSubcursors(
         CHECK(res) << "ResetSubcursor RPC failed!";
       });
   subcursor_storage_->Get(subcursor_ids.at(db_->WorkerId()))->Reset();
+  // Wait and get all of the replies.
+  for (auto &future : futures) {
+    if (future.valid()) future.get();
+  }
 }
 
 void BfsRpcClients::RemoveBfsSubcursors(
@@ -69,6 +77,10 @@ void BfsRpcClients::RemoveBfsSubcursors(
         CHECK(res) << "RemoveBfsSubcursor RPC failed!";
       });
   subcursor_storage_->Erase(subcursor_ids.at(db_->WorkerId()));
+  // Wait and get all of the replies.
+  for (auto &future : futures) {
+    if (future.valid()) future.get();
+  }
 }
 
 std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
@@ -178,7 +190,7 @@ PathSegment BfsRpcClients::ReconstructPath(
 
 void BfsRpcClients::PrepareForExpand(
     const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear) {
-  auto res = clients_->ExecuteOnWorkers<void>(
+  auto futures = clients_->ExecuteOnWorkers<void>(
       db_->WorkerId(), [clear, &subcursor_ids](int worker_id, auto &client) {
         auto res = client.template Call<PrepareForExpandRpc>(
             subcursor_ids.at(worker_id), clear);
@@ -186,6 +198,10 @@ void BfsRpcClients::PrepareForExpand(
       });
   subcursor_storage_->Get(subcursor_ids.at(db_->WorkerId()))
       ->PrepareForExpand(clear);
+  // Wait and get all of the replies.
+  for (auto &future : futures) {
+    if (future.valid()) future.get();
+  }
 }
 
 }  // namespace distributed

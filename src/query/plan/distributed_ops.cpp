@@ -278,6 +278,15 @@ class RemotePuller {
     }
   }
 
+  void Shutdown() {
+    // Explicitly get all of the requested RPC futures, so that we register any
+    // exceptions.
+    for (auto &remote_pull : remote_pulls_) {
+      if (remote_pull.second.valid()) remote_pull.second.get();
+    }
+    remote_pulls_.clear();
+  }
+
   void Reset() {
     worker_ids_ = pull_clients_->GetWorkerIds();
     // Remove master from the worker ids list.
@@ -286,6 +295,9 @@ class RemotePuller {
     // We must clear remote_pulls before reseting cursors to make sure that all
     // outstanding remote pulls are done. Otherwise we might try to reset cursor
     // during its pull.
+    for (auto &remote_pull : remote_pulls_) {
+      if (remote_pull.second.valid()) remote_pull.second.get();
+    }
     remote_pulls_.clear();
     for (auto &worker_id : worker_ids_) {
       pull_clients_->ResetCursor(&db_, worker_id, plan_id_, command_id_);
@@ -432,6 +444,11 @@ class PullRemoteCursor : public Cursor {
     return true;
   }
 
+  void Shutdown() override {
+    if (input_cursor_) input_cursor_->Reset();
+    remote_puller_.Shutdown();
+  }
+
   void Reset() override {
     if (input_cursor_) input_cursor_->Reset();
     remote_puller_.Reset();
@@ -499,9 +516,14 @@ class SynchronizeCursor : public Cursor {
     return false;
   }
 
+  void Shutdown() override {
+    input_cursor_->Shutdown();
+    if (pull_remote_cursor_) pull_remote_cursor_->Shutdown();
+  }
+
   void Reset() override {
     input_cursor_->Reset();
-    pull_remote_cursor_->Reset();
+    if (pull_remote_cursor_) pull_remote_cursor_->Reset();
     initial_pull_done_ = false;
     local_frames_.clear();
   }
@@ -608,7 +630,7 @@ class SynchronizeCursor : public Cursor {
     // If the command advanced, let the workers know.
     if (self_.advance_command()) {
       auto futures = pull_clients_->NotifyAllTransactionCommandAdvanced(tx_id);
-      for (auto &future : futures) future.wait();
+      for (auto &future : futures) future.get();
     }
   }
 };
@@ -625,7 +647,7 @@ class PullRemoteOrderByCursor : public Cursor {
             &dynamic_cast<database::Master *>(&db.db())->pull_clients(), db,
             self.symbols(), self.plan_id(), command_id_) {}
 
-  bool Pull(Frame &frame, Context &context) {
+  bool Pull(Frame &frame, Context &context) override {
     if (context.db_accessor_.should_abort()) throw HintedAbortError();
     ExpressionEvaluator evaluator(&frame, context.symbol_table_,
                                   context.evaluation_context_,
@@ -736,7 +758,12 @@ class PullRemoteOrderByCursor : public Cursor {
     return true;
   }
 
-  void Reset() {
+  void Shutdown() override {
+    input_->Shutdown();
+    remote_puller_.Shutdown();
+  }
+
+  void Reset() override {
     input_->Reset();
     remote_puller_.Reset();
     merge_.clear();
@@ -768,7 +795,7 @@ class DistributedExpandCursor : public query::plan::Cursor {
                           database::GraphDbAccessor *db)
       : input_cursor_(self->input()->MakeCursor(*db)), self_(self) {}
 
-  bool Pull(Frame &frame, Context &context) {
+  bool Pull(Frame &frame, Context &context) override {
     // A helper function for expanding a node from an edge.
     auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
                                     EdgeAtom::Direction direction) {
@@ -888,12 +915,27 @@ class DistributedExpandCursor : public query::plan::Cursor {
     }
   }
 
-  void Reset() {
+  void Shutdown() override {
+    input_cursor_->Shutdown();
+    // Explicitly get all of the requested RPC futures, so that we register any
+    // exceptions.
+    for (auto &future_expand : future_expands_) {
+      if (future_expand.edge_to.valid()) future_expand.edge_to.get();
+    }
+    future_expands_.clear();
+  }
+
+  void Reset() override {
     input_cursor_->Reset();
     in_edges_ = std::experimental::nullopt;
     in_edges_it_ = std::experimental::nullopt;
     out_edges_ = std::experimental::nullopt;
     out_edges_it_ = std::experimental::nullopt;
+    // Explicitly get all of the requested RPC futures, so that we register any
+    // exceptions.
+    for (auto &future_expand : future_expands_) {
+      if (future_expand.edge_to.valid()) future_expand.edge_to.get();
+    }
     future_expands_.clear();
     last_frame_.clear();
   }
@@ -1125,7 +1167,10 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     }
   }
 
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
   void Reset() override {
+    input_cursor_->Reset();
     bfs_subcursor_clients_->ResetSubcursors(subcursor_ids_);
     pull_pos_ = subcursor_ids_.end();
   }
@@ -1217,7 +1262,7 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
     CHECK(node_atom_);
   }
 
-  bool Pull(Frame &frame, Context &context) {
+  bool Pull(Frame &frame, Context &context) override {
     if (input_cursor_->Pull(frame, context)) {
       if (on_random_worker_) {
         CreateVertexOnWorker(RandomWorkerId(*db_), node_atom_, frame, context);
@@ -1229,7 +1274,9 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
     return false;
   }
 
-  void Reset() { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { input_cursor_->Reset(); }
 
  private:
   std::unique_ptr<query::plan::Cursor> input_cursor_;
@@ -1249,7 +1296,7 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
     CHECK(db_);
   }
 
-  bool Pull(Frame &frame, Context &context) {
+  bool Pull(Frame &frame, Context &context) override {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     // get the origin vertex
@@ -1289,7 +1336,9 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
     return true;
   }
 
-  void Reset() { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override { input_cursor_->Reset(); }
 
   VertexAccessor &OtherVertex(int worker_id, Frame &frame, Context &context) {
     if (self_->existing_node()) {

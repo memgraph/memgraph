@@ -45,29 +45,30 @@ cpp<#
 (lcp:namespace plan)
 
 #>cpp
-/** @brief Base class for iteration cursors of @c LogicalOperator classes.
- *
- *  Each @c LogicalOperator must produce a concrete @c Cursor, which provides
- *  the iteration mechanism.
- */
+/// Base class for iteration cursors of @c LogicalOperator classes.
+///
+/// Each @c LogicalOperator must produce a concrete @c Cursor, which provides
+/// the iteration mechanism.
 class Cursor {
  public:
-  /** @brief Run an iteration of a @c LogicalOperator.
-   *
-   *  Since operators may be chained, the iteration may pull results from
-   *  multiple operators.
-   *
-   *  @param Frame May be read from or written to while performing the
-   *      iteration.
-   *  @param Context Used to get the position of symbols in frame and other
-   * information.
-   */
+  /// Run an iteration of a @c LogicalOperator.
+  ///
+  /// Since operators may be chained, the iteration may pull results from
+  /// multiple operators.
+  ///
+  /// @param Frame May be read from or written to while performing the
+  ///     iteration.
+  /// @param Context Used to get the position of symbols in frame and other
+  /// information.
+  ///
+  /// @throws QueryRuntimeException if something went wrong with execution
   virtual bool Pull(Frame &, Context &) = 0;
 
-  /**
-   * Resets the Cursor to it's initial state.
-   */
+  /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
+
+  /// Perform cleanup which may throw an exception
+  virtual void Shutdown() = 0;
 
   virtual ~Cursor() {}
 };
@@ -317,6 +318,7 @@ and false on every following Pull.")
     public:
      OnceCursor() {}
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -371,6 +373,7 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
     public:
      CreateNodeCursor(const CreateNode &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -446,6 +449,7 @@ chained in cases when longer paths need creating.
     public:
      CreateExpandCursor(const CreateExpand &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -791,6 +795,7 @@ pulled.")
     public:
      ExpandCursor(const Expand &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -993,6 +998,7 @@ a boolean value.")
     public:
      FilterCursor(const Filter &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1042,6 +1048,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
     public:
      ProduceCursor(const Produce &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1091,6 +1098,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
     public:
      DeleteCursor(const Delete &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1139,6 +1147,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
     public:
      SetPropertyCursor(const SetProperty &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1198,6 +1207,7 @@ that the old props are discarded and replaced with new ones.")
      SetPropertiesCursor(const SetProperties &self,
                          database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1251,6 +1261,7 @@ It does NOT remove labels that are already set on that Vertex.")
     public:
      SetLabelsCursor(const SetLabels &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1293,6 +1304,7 @@ It does NOT remove labels that are already set on that Vertex.")
      RemovePropertyCursor(const RemoveProperty &self,
                           database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1337,6 +1349,7 @@ If a label does not exist on a Vertex, nothing happens.")
     public:
      RemoveLabelsCursor(const RemoveLabels &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1401,6 +1414,7 @@ between edges and an edge lists).")
      ExpandUniquenessFilterCursor(const ExpandUniquenessFilter &self,
                                   database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1468,6 +1482,7 @@ has been cached will be reconstructed before Pull returns.
     public:
      AccumulateCursor(const Accumulate &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1569,6 +1584,7 @@ elements are in an undefined state after aggregation.")
     public:
      AggregateCursor(const Aggregate &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1688,6 +1704,7 @@ operator's implementation does not expect this.")
     public:
      SkipCursor(const Skip &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1746,6 +1763,7 @@ input should be performed).")
     public:
      LimitCursor(const Limit &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1808,6 +1826,7 @@ are valid for usage after the OrderBy operator.")
     public:
      OrderByCursor(const OrderBy &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1875,6 +1894,7 @@ documentation.")
     public:
      MergeCursor(const Merge &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -1933,6 +1953,7 @@ and returns true, once.")
     public:
      OptionalCursor(const Optional &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -2116,6 +2137,7 @@ Input is optional (unwind can be the first clause in a query).")
     public:
      UnwindCursor(const Unwind &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -2169,6 +2191,7 @@ This implementation maintains input ordering.")
      DistinctCursor(const Distinct &self, database::GraphDbAccessor &db);
 
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
@@ -2260,6 +2283,7 @@ vectors of symbols used  by each of the inputs.")
     public:
      UnionCursor(const Union &self, database::GraphDbAccessor &db);
      bool Pull(Frame &, Context &) override;
+     void Shutdown() override;
      void Reset() override;
 
     private:
