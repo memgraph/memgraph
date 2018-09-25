@@ -165,8 +165,33 @@ class Value {
   }
   Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
 
+  // move constructors for non-primitive values
+  Value(std::string &&value) : type_(Type::String) {
+    new (&string_v) std::string(std::move(value));
+  }
+  Value(std::vector<Value> &&value) : type_(Type::List) {
+    new (&list_v) std::vector<Value>(std::move(value));
+  }
+  Value(std::map<std::string, Value> &&value) : type_(Type::Map) {
+    new (&map_v) std::map<std::string, Value>(std::move(value));
+  }
+  Value(Vertex &&value) : type_(Type::Vertex) {
+    new (&vertex_v) Vertex(std::move(value));
+  }
+  Value(Edge &&value) : type_(Type::Edge) {
+    new (&edge_v) Edge(std::move(value));
+  }
+  Value(UnboundedEdge &&value) : type_(Type::UnboundedEdge) {
+    new (&unbounded_edge_v) UnboundedEdge(std::move(value));
+  }
+  Value(Path &&value) : type_(Type::Path) {
+    new (&path_v) Path(std::move(value));
+  }
+
   Value &operator=(const Value &other);
+  Value &operator=(Value &&other);
   Value(const Value &other);
+  Value(Value &&other);
   ~Value();
 
   Type type() const { return type_; }

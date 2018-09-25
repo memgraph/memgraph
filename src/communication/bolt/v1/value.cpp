@@ -1,7 +1,5 @@
 #include "communication/bolt/v1/value.hpp"
 
-#include <glog/logging.h>
-
 #include "utils/algorithm.hpp"
 
 namespace communication::bolt {
@@ -78,7 +76,6 @@ Value::Value(const Value &other) : type_(other.type_) {
       new (&path_v) Path(other.path_v);
       return;
   }
-  LOG(FATAL) << "Unsupported Value::Type";
 }
 
 Value &Value::operator=(const Value &other) {
@@ -121,7 +118,96 @@ Value &Value::operator=(const Value &other) {
         new (&path_v) Path(other.path_v);
         return *this;
     }
-    LOG(FATAL) << "Unsupported Value::Type";
+  }
+  return *this;
+}
+
+Value::Value(Value &&other) : type_(other.type_) {
+  switch (other.type_) {
+    case Type::Null:
+      break;
+    case Type::Bool:
+      this->bool_v = other.bool_v;
+      break;
+    case Type::Int:
+      this->int_v = other.int_v;
+      break;
+    case Type::Double:
+      this->double_v = other.double_v;
+      break;
+    case Type::String:
+      new (&string_v) std::string(std::move(other.string_v));
+      break;
+    case Type::List:
+      new (&list_v) std::vector<Value>(std::move(other.list_v));
+      break;
+    case Type::Map:
+      new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+      break;
+    case Type::Vertex:
+      new (&vertex_v) Vertex(std::move(other.vertex_v));
+      break;
+    case Type::Edge:
+      new (&edge_v) Edge(std::move(other.edge_v));
+      break;
+    case Type::UnboundedEdge:
+      new (&unbounded_edge_v) UnboundedEdge(std::move(other.unbounded_edge_v));
+      break;
+    case Type::Path:
+      new (&path_v) Path(std::move(other.path_v));
+      break;
+  }
+
+  // reset the type of other
+  other.~Value();
+  other.type_ = Type::Null;
+}
+
+Value &Value::operator=(Value &&other) {
+  if (this != &other) {
+    this->~Value();
+    // set the type of this
+    type_ = other.type_;
+
+    switch (other.type_) {
+      case Type::Null:
+        break;
+      case Type::Bool:
+        this->bool_v = other.bool_v;
+        break;
+      case Type::Int:
+        this->int_v = other.int_v;
+        break;
+      case Type::Double:
+        this->double_v = other.double_v;
+        break;
+      case Type::String:
+        new (&string_v) std::string(std::move(other.string_v));
+        break;
+      case Type::List:
+        new (&list_v) std::vector<Value>(std::move(other.list_v));
+        break;
+      case Type::Map:
+        new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+        break;
+      case Type::Vertex:
+        new (&vertex_v) Vertex(std::move(other.vertex_v));
+        break;
+      case Type::Edge:
+        new (&edge_v) Edge(std::move(other.edge_v));
+        break;
+      case Type::UnboundedEdge:
+        new (&unbounded_edge_v)
+            UnboundedEdge(std::move(other.unbounded_edge_v));
+        break;
+      case Type::Path:
+        new (&path_v) Path(std::move(other.path_v));
+        break;
+    }
+
+    // reset the type of other
+    other.~Value();
+    other.type_ = Type::Null;
   }
   return *this;
 }
@@ -164,7 +250,6 @@ Value::~Value() {
       path_v.~Path();
       return;
   }
-  LOG(FATAL) << "Unsupported Value::Type";
 }
 
 std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
@@ -201,7 +286,6 @@ std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge) {
 
 std::ostream &operator<<(std::ostream &os, const Path &path) {
   os << path.vertices[0];
-  DCHECK(path.indices.size() % 2 == 0) << "Must have even number of indices";
   for (auto it = path.indices.begin(); it != path.indices.end();) {
     auto edge_ind = *it++;
     auto vertex_ind = *it++;
@@ -252,7 +336,6 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
     case Value::Type::Path:
       return os << value.ValuePath();
   }
-  LOG(FATAL) << "Unsupported Value::Type";
 }
 
 std::ostream &operator<<(std::ostream &os, const Value::Type type) {
@@ -280,6 +363,5 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
     case Value::Type::Path:
       return os << "path";
   }
-  LOG(FATAL) << "Unsupported Value::Type";
 }
 }

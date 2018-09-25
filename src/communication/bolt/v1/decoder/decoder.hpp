@@ -285,13 +285,13 @@ class Decoder {
     if (size == -1) {
       return false;
     }
-    std::vector<Value> ret(size);
+    *data = Value(std::vector<Value>(size));
+    auto &ret = data->ValueList();
     for (int64_t i = 0; i < size; ++i) {
       if (!ReadValue(&ret[i])) {
         return false;
       }
     }
-    *data = Value(ret);
     return true;
   }
 
@@ -301,34 +301,30 @@ class Decoder {
       return false;
     }
 
-    Value dv;
-    std::string str;
-    std::map<std::string, Value> ret;
-    for (int64_t i = 0; i < size; ++i) {
-      if (!ReadValue(&dv)) {
-        return false;
-      }
-      if (dv.type() != Value::Type::String) {
-        return false;
-      }
-      str = dv.ValueString();
+    Value dv_key, dv_val;
 
-      if (!ReadValue(&dv)) {
+    *data = Value(std::map<std::string, Value>());
+    auto &ret = data->ValueMap();
+    for (int64_t i = 0; i < size; ++i) {
+      if (!ReadValue(&dv_key, Value::Type::String)) {
         return false;
       }
-      ret.insert(std::make_pair(str, dv));
+      if (!ReadValue(&dv_val)) {
+        return false;
+      }
+      ret.emplace(std::move(dv_key.ValueString()), std::move(dv_val));
     }
     if (ret.size() != size) {
       return false;
     }
 
-    *data = Value(ret);
     return true;
   }
 
   bool ReadVertex(Value *data) {
     Value dv;
-    Vertex vertex;
+    *data = Value(Vertex());
+    auto &vertex = data->ValueVertex();
 
     // read ID
     if (!ReadValue(&dv, Value::Type::Int)) {
@@ -341,21 +337,19 @@ class Decoder {
       return false;
     }
     auto &labels = dv.ValueList();
-    vertex.labels.resize(labels.size());
+    vertex.labels.reserve(labels.size());
     for (size_t i = 0; i < labels.size(); ++i) {
       if (labels[i].type() != Value::Type::String) {
         return false;
       }
-      vertex.labels[i] = labels[i].ValueString();
+      vertex.labels.emplace_back(std::move(labels[i].ValueString()));
     }
 
     // read properties
     if (!ReadValue(&dv, Value::Type::Map)) {
       return false;
     }
-    vertex.properties = dv.ValueMap();
-
-    *data = Value(vertex);
+    vertex.properties = std::move(dv.ValueMap());
 
     return true;
   }
@@ -363,7 +357,8 @@ class Decoder {
   bool ReadEdge(const Marker &marker, Value *data) {
     uint8_t value;
     Value dv;
-    Edge edge;
+    *data = Value(Edge());
+    auto &edge = data->ValueEdge();
 
     if (!buffer_.Read(&value, 1)) {
       return false;
@@ -399,22 +394,21 @@ class Decoder {
     if (!ReadValue(&dv, Value::Type::String)) {
       return false;
     }
-    edge.type = dv.ValueString();
+    edge.type = std::move(dv.ValueString());
 
     // read properties
     if (!ReadValue(&dv, Value::Type::Map)) {
       return false;
     }
-    edge.properties = dv.ValueMap();
-
-    *data = Value(edge);
+    edge.properties = std::move(dv.ValueMap());
 
     return true;
   }
 
   bool ReadUnboundedEdge(Value *data) {
     Value dv;
-    UnboundedEdge edge;
+    *data = Value(UnboundedEdge());
+    auto &edge = data->ValueUnboundedEdge();
 
     // read ID
     if (!ReadValue(&dv, Value::Type::Int)) {
@@ -426,22 +420,21 @@ class Decoder {
     if (!ReadValue(&dv, Value::Type::String)) {
       return false;
     }
-    edge.type = dv.ValueString();
+    edge.type = std::move(dv.ValueString());
 
     // read properties
     if (!ReadValue(&dv, Value::Type::Map)) {
       return false;
     }
-    edge.properties = dv.ValueMap();
-
-    *data = Value(edge);
+    edge.properties = std::move(dv.ValueMap());
 
     return true;
   }
 
   bool ReadPath(Value *data) {
     Value dv;
-    Path path;
+    *data = Value(Path());
+    auto &path = data->ValuePath();
 
     // vertices
     if (!ReadValue(&dv, Value::Type::List)) {
@@ -451,7 +444,7 @@ class Decoder {
       if (vertex.type() != Value::Type::Vertex) {
         return false;
       }
-      path.vertices.emplace_back(vertex.ValueVertex());
+      path.vertices.emplace_back(std::move(vertex.ValueVertex()));
     }
 
     // edges
@@ -462,7 +455,7 @@ class Decoder {
       if (edge.type() != Value::Type::UnboundedEdge) {
         return false;
       }
-      path.edges.emplace_back(edge.ValueUnboundedEdge());
+      path.edges.emplace_back(std::move(edge.ValueUnboundedEdge()));
     }
 
     // indices
@@ -475,8 +468,6 @@ class Decoder {
       }
       path.indices.emplace_back(index.ValueInt());
     }
-
-    *data = Value(path);
 
     return true;
   }

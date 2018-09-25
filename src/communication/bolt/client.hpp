@@ -140,7 +140,7 @@ class Client final {
         if (!decoder_.ReadValue(&record, Value::Type::List)) {
           throw ClientFatalException();
         }
-        records.push_back(record.ValueList());
+        records.emplace_back(std::move(record.ValueList()));
       } else if (signature == Signature::Success) {
         if (!decoder_.ReadValue(&metadata)) {
           throw ClientFatalException();
@@ -167,7 +167,7 @@ class Client final {
       throw ClientFatalException();
     }
 
-    QueryData ret{{}, records, metadata.ValueMap()};
+    QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
     auto &header = fields.ValueMap();
     if (header.find("fields") == header.end()) {
@@ -182,7 +182,7 @@ class Client final {
       if (field_item.type() != Value::Type::String) {
         throw ClientFatalException();
       }
-      ret.fields.push_back(field_item.ValueString());
+      ret.fields.emplace_back(std::move(field_item.ValueString()));
     }
 
     return ret;
