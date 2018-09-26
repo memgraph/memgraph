@@ -114,9 +114,10 @@ endmacro(define_add_capnp)
 set(lcp_exe ${CMAKE_SOURCE_DIR}/tools/lcp)
 set(lcp_src_files ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp ${lcp_exe})
 
-# Define `add_lcp` function for registering a lcp file for generation.
+# Define `add_lcp` function named `name` for registering a lcp file for generation.
 #
-# The `define_add_lcp` expects 2 arguments:
+# The `define_add_lcp` expects 3 arguments:
+#   * name -- name for the function, you usually want `add_lcp`
 #   * main_src_files -- variable to be updated with generated cpp files
 #   * generated_lcp_files -- variable to be updated with generated hpp, cpp and capnp files
 #
@@ -130,8 +131,8 @@ set(lcp_src_files ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp ${lcp_exe})
 # information will break RPC between different compilations of memgraph.
 # Instead of CAPNP_SCHEMA, you may pass the CAPNP_DECLARATION option. This will
 # generate serialization declarations but not the implementation.
-macro(define_add_lcp main_src_files generated_lcp_files)
-  function(add_lcp lcp_file)
+macro(define_add_lcp name main_src_files generated_lcp_files)
+  function(${name} lcp_file)
     set(options CAPNP_DECLARATION)
     set(one_value_kwargs CAPNP_SCHEMA)
     set(multi_value_kwargs DEPENDS)
@@ -159,5 +160,5 @@ macro(define_add_lcp main_src_files generated_lcp_files)
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
     # Update *global* generated_lcp_files
     set(${generated_lcp_files} ${${generated_lcp_files}} ${h_file} ${cpp_file} ${capnp_file} PARENT_SCOPE)
-  endfunction(add_lcp)
+  endfunction(${name})
 endmacro(define_add_lcp)

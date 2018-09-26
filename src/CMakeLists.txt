@@ -85,7 +85,7 @@ set(memgraph_src_files
 
 define_add_capnp(memgraph_src_files generated_capnp_files)
 
-define_add_lcp(memgraph_src_files generated_lcp_files)
+define_add_lcp(add_lcp memgraph_src_files generated_lcp_files)
 
 add_lcp(database/counters_rpc_messages.lcp CAPNP_SCHEMA @0x95a2c3ea3871e945)
 add_capnp(database/counters_rpc_messages.capnp)

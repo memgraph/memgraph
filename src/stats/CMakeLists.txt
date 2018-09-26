@@ -3,7 +3,7 @@ set(stats_src_files
     stats.cpp)
 
 define_add_capnp(stats_src_files stats_capnp_files)
-define_add_lcp(stats_src_files stats_lcp_files)
+define_add_lcp(add_lcp stats_src_files stats_lcp_files)
 
 add_lcp(stats_rpc_messages.lcp CAPNP_SCHEMA @0xc19a87c81b9b4512)
 add_capnp(stats_rpc_messages.capnp)
