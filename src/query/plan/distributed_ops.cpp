@@ -1054,6 +1054,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
                                   &context.db_accessor_, self_.graph_view());
 
     while (true) {
+      if (context.db_accessor_.should_abort()) throw HintedAbortError();
       TypedValue last_vertex;
 
       if (!skip_rest_) {
