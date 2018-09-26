@@ -1,125 +1,193 @@
 #pragma once
 
-#include "communication/bolt/v1/encoder/primitive_encoder.hpp"
+#include <experimental/type_traits>
+
+#include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/value.hpp"
+#include "utils/bswap.hpp"
+#include "utils/cast.hpp"
+
+static_assert(std::experimental::is_same_v<std::uint8_t, char> ||
+                  std::experimental::is_same_v<std::uint8_t, unsigned char>,
+              "communication::bolt::Encoder requires uint8_t to be "
+              "implemented as char or unsigned char.");
 
 namespace communication::bolt {
 
 /**
- * Bolt BaseEncoder. Subclass of PrimitiveEncoder. Extends it with the
- * capability to encode Values (as well as lists and maps of Values), Edges,
- * Vertices and Paths.
+ * Bolt BaseEncoder. Has public interfaces for writing Bolt encoded data.
+ * Supported types are: Null, Bool, Int, Double, String, List, Map, Vertex, Edge
+ *
+ * The purpose of this class is to stream bolt data into the given Buffer.
  *
  * @tparam Buffer the output buffer that should be used
  */
 template <typename Buffer>
-class BaseEncoder : public PrimitiveEncoder<Buffer> {
+class BaseEncoder {
  public:
-  explicit BaseEncoder(Buffer &buffer) : PrimitiveEncoder<Buffer>(buffer) {}
+  explicit BaseEncoder(Buffer &buffer) : buffer_(buffer) {}
 
+  void WriteRAW(const uint8_t *data, uint64_t len) { buffer_.Write(data, len); }
+
+  void WriteRAW(const char *data, uint64_t len) {
+    WriteRAW((const uint8_t *)data, len);
+  }
+
+  void WriteRAW(const uint8_t data) { WriteRAW(&data, 1); }
+
+  void WriteNull() { WriteRAW(utils::UnderlyingCast(Marker::Null)); }
+
+  void WriteBool(const bool &value) {
+    if (value)
+      WriteRAW(utils::UnderlyingCast(Marker::True));
+    else
+      WriteRAW(utils::UnderlyingCast(Marker::False));
+  }
+
+  void WriteInt(const int64_t &value) {
+    if (value >= -16L && value < 128L) {
+      WriteRAW(static_cast<uint8_t>(value));
+    } else if (value >= -128L && value < -16L) {
+      WriteRAW(utils::UnderlyingCast(Marker::Int8));
+      WriteRAW(static_cast<uint8_t>(value));
+    } else if (value >= -32768L && value < 32768L) {
+      WriteRAW(utils::UnderlyingCast(Marker::Int16));
+      WritePrimitiveValue(static_cast<int16_t>(value));
+    } else if (value >= -2147483648L && value < 2147483648L) {
+      WriteRAW(utils::UnderlyingCast(Marker::Int32));
+      WritePrimitiveValue(static_cast<int32_t>(value));
+    } else {
+      WriteRAW(utils::UnderlyingCast(Marker::Int64));
+      WritePrimitiveValue(value);
+    }
+  }
+
+  void WriteDouble(const double &value) {
+    WriteRAW(utils::UnderlyingCast(Marker::Float64));
+    uint64_t tmp = utils::MemcpyCast<uint64_t>(value);
+    WritePrimitiveValue(tmp);
+  }
+
+  void WriteTypeSize(const size_t size, const uint8_t typ) {
+    if (size <= 15) {
+      uint8_t len = size;
+      len &= 0x0F;
+      WriteRAW(utils::UnderlyingCast(MarkerTiny[typ]) + len);
+    } else if (size <= 255) {
+      uint8_t len = size;
+      WriteRAW(utils::UnderlyingCast(Marker8[typ]));
+      WriteRAW(len);
+    } else if (size <= 65535) {
+      uint16_t len = size;
+      WriteRAW(utils::UnderlyingCast(Marker16[typ]));
+      WritePrimitiveValue(len);
+    } else {
+      uint32_t len = size;
+      WriteRAW(utils::UnderlyingCast(Marker32[typ]));
+      WritePrimitiveValue(len);
+    }
+  }
+
+  void WriteString(const std::string &value) {
+    WriteTypeSize(value.size(), MarkerString);
+    WriteRAW(value.c_str(), value.size());
+  }
   void WriteList(const std::vector<Value> &value) {
-    this->WriteTypeSize(value.size(), MarkerList);
+    WriteTypeSize(value.size(), MarkerList);
     for (auto &x : value) WriteValue(x);
   }
 
-  /**
-   * Writes a map value.
-   *
-   * @tparam TMap - an iterable of (std::string, Value) pairs.
-   */
-  template <typename TMap>
-  void WriteMap(const TMap &value) {
-    this->WriteTypeSize(value.size(), MarkerMap);
+  void WriteMap(const std::map<std::string, Value> &value) {
+    WriteTypeSize(value.size(), MarkerMap);
     for (auto &x : value) {
-      this->WriteString(x.first);
+      WriteString(x.first);
       WriteValue(x.second);
     }
   }
 
   void WriteVertex(const Vertex &vertex) {
-    this->WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
-    this->WriteRAW(utils::UnderlyingCast(Signature::Node));
-    this->WriteInt(vertex.id.AsInt());
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    WriteRAW(utils::UnderlyingCast(Signature::Node));
+    WriteInt(vertex.id.AsInt());
 
     // write labels
     const auto &labels = vertex.labels;
-    this->WriteTypeSize(labels.size(), MarkerList);
-    for (const auto &label : labels) this->WriteString(label);
+    WriteTypeSize(labels.size(), MarkerList);
+    for (const auto &label : labels) WriteString(label);
 
     // write properties
     const auto &props = vertex.properties;
-    this->WriteTypeSize(props.size(), MarkerMap);
+    WriteTypeSize(props.size(), MarkerMap);
     for (const auto &prop : props) {
-      this->WriteString(prop.first);
+      WriteString(prop.first);
       WriteValue(prop.second);
     }
   }
 
   void WriteEdge(const Edge &edge, bool unbound = false) {
-    this->WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) +
-                   (unbound ? 3 : 5));
-    this->WriteRAW(utils::UnderlyingCast(
-        unbound ? Signature::UnboundRelationship : Signature::Relationship));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + (unbound ? 3 : 5));
+    WriteRAW(utils::UnderlyingCast(unbound ? Signature::UnboundRelationship
+                                           : Signature::Relationship));
 
-    this->WriteInt(edge.id.AsInt());
+    WriteInt(edge.id.AsInt());
     if (!unbound) {
-      this->WriteInt(edge.from.AsInt());
-      this->WriteInt(edge.to.AsInt());
+      WriteInt(edge.from.AsInt());
+      WriteInt(edge.to.AsInt());
     }
 
-    this->WriteString(edge.type);
+    WriteString(edge.type);
 
     const auto &props = edge.properties;
-    this->WriteTypeSize(props.size(), MarkerMap);
+    WriteTypeSize(props.size(), MarkerMap);
     for (const auto &prop : props) {
-      this->WriteString(prop.first);
+      WriteString(prop.first);
       WriteValue(prop.second);
     }
   }
 
   void WriteEdge(const UnboundedEdge &edge) {
-    this->WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
-    this->WriteRAW(utils::UnderlyingCast(Signature::UnboundRelationship));
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    WriteRAW(utils::UnderlyingCast(Signature::UnboundRelationship));
 
-    this->WriteInt(edge.id.AsInt());
+    WriteInt(edge.id.AsInt());
 
-    this->WriteString(edge.type);
+    WriteString(edge.type);
 
     const auto &props = edge.properties;
-    this->WriteTypeSize(props.size(), MarkerMap);
+    WriteTypeSize(props.size(), MarkerMap);
     for (const auto &prop : props) {
-      this->WriteString(prop.first);
+      WriteString(prop.first);
       WriteValue(prop.second);
     }
   }
 
   void WritePath(const Path &path) {
-    this->WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
-    this->WriteRAW(utils::UnderlyingCast(Signature::Path));
-    this->WriteTypeSize(path.vertices.size(), MarkerList);
+    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct) + 3);
+    WriteRAW(utils::UnderlyingCast(Signature::Path));
+    WriteTypeSize(path.vertices.size(), MarkerList);
     for (auto &v : path.vertices) WriteVertex(v);
-    this->WriteTypeSize(path.edges.size(), MarkerList);
+    WriteTypeSize(path.edges.size(), MarkerList);
     for (auto &e : path.edges) WriteEdge(e);
-    this->WriteTypeSize(path.indices.size(), MarkerList);
-    for (auto &i : path.indices) this->WriteInt(i);
+    WriteTypeSize(path.indices.size(), MarkerList);
+    for (auto &i : path.indices) WriteInt(i);
   }
 
   void WriteValue(const Value &value) {
     switch (value.type()) {
       case Value::Type::Null:
-        this->WriteNull();
+        WriteNull();
         break;
       case Value::Type::Bool:
-        this->WriteBool(value.ValueBool());
+        WriteBool(value.ValueBool());
         break;
       case Value::Type::Int:
-        this->WriteInt(value.ValueInt());
+        WriteInt(value.ValueInt());
         break;
       case Value::Type::Double:
-        this->WriteDouble(value.ValueDouble());
+        WriteDouble(value.ValueDouble());
         break;
       case Value::Type::String:
-        this->WriteString(value.ValueString());
+        WriteString(value.ValueString());
         break;
       case Value::Type::List:
         WriteList(value.ValueList());
@@ -140,6 +208,16 @@ class BaseEncoder : public PrimitiveEncoder<Buffer> {
         WritePath(value.ValuePath());
         break;
     }
+  }
+
+ protected:
+  Buffer &buffer_;
+
+ private:
+  template <class T>
+  void WritePrimitiveValue(T value) {
+    value = utils::Bswap(value);
+    WriteRAW(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
   }
 };
 
