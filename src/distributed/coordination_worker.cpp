@@ -1,5 +1,4 @@
 #include <chrono>
-#include <condition_variable>
 #include <mutex>
 #include <thread>
 
@@ -10,37 +9,91 @@
 
 namespace distributed {
 
-using namespace std::literals::chrono_literals;
+// Expect that a heartbeat should be received in this time interval. If it is
+// not received we assume that the communication is broken and start a shutdown.
+const int kHeartbeatMaxDelaySeconds = 10;
 
-WorkerCoordination::WorkerCoordination(communication::rpc::Server &server,
-                                       const Endpoint &master_endpoint)
-    : Coordination(master_endpoint), server_(server) {}
+// Check whether a heartbeat is received every `kHeartbeatCheckSeconds`. It
+// should be larger than `kHeartbeatIntervalSeconds` defined in the master
+// coordination because it makes no sense to check more often than the heartbeat
+// is sent. Also, it must be smaller than `kHeartbeatMaxDelaySeconds` to
+// function properly.
+const int kHeartbeatCheckSeconds = 2;
+
+using namespace std::chrono_literals;
+
+WorkerCoordination::WorkerCoordination(communication::rpc::Server *server,
+                                       const Endpoint &master_endpoint,
+                                       int worker_id, int client_workers_count)
+    : Coordination(master_endpoint, worker_id, client_workers_count),
+      server_(server) {
+  server_->Register<StopWorkerRpc>(
+      [&](const auto &req_reader, auto *res_builder) {
+        LOG(INFO) << "The master initiated shutdown of this worker.";
+        Shutdown();
+      });
+
+  server_->Register<HeartbeatRpc>([&](const auto &req_reader,
+                                      auto *res_builder) {
+    std::lock_guard<std::mutex> guard(heartbeat_lock_);
+    last_heartbeat_time_ = std::chrono::steady_clock::now();
+    if (!scheduler_.IsRunning()) {
+      scheduler_.Run(
+          "Heartbeat", std::chrono::seconds(kHeartbeatCheckSeconds), [this] {
+            std::lock_guard<std::mutex> guard(heartbeat_lock_);
+            auto duration =
+                std::chrono::steady_clock::now() - last_heartbeat_time_;
+            if (duration > std::chrono::seconds(kHeartbeatMaxDelaySeconds)) {
+              LOG(WARNING) << "The master hasn't given us a heartbeat request "
+                              "for at least "
+                           << kHeartbeatMaxDelaySeconds
+                           << " seconds! We are shutting down...";
+              // Set the `cluster_alive_` flag to `false` to indicate that
+              // something in the cluster failed.
+              cluster_alive_ = false;
+              // Shutdown the worker.
+              Shutdown();
+            }
+          });
+    }
+  });
+}
+
+WorkerCoordination::~WorkerCoordination() {
+  CHECK(!alive_) << "You must call Shutdown and AwaitShutdown on "
+                    "distributed::WorkerCoordination!";
+}
 
 void WorkerCoordination::RegisterWorker(int worker_id, Endpoint endpoint) {
-  std::lock_guard<std::mutex> guard(lock_);
   AddWorker(worker_id, endpoint);
 }
 
-void WorkerCoordination::WaitForShutdown() {
-  using namespace std::chrono_literals;
-  std::mutex mutex;
-  std::condition_variable cv;
-  bool shutdown = false;
+bool WorkerCoordination::AwaitShutdown(
+    std::function<bool(bool)> call_before_shutdown) {
+  // Wait for a shutdown notification.
+  while (alive_) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
 
-  server_.Register<StopWorkerRpc>([&](const auto &req_reader, auto *res_builder) {
-    std::unique_lock<std::mutex> lk(mutex);
-    shutdown = true;
-    lk.unlock();
-    cv.notify_one();
-  });
+  // The first thing we need to do is to stop our heartbeat scheduler because
+  // the master stopped their scheduler immediately before issuing the shutdown
+  // request to the worker. This will prevent our heartbeat from timing out on a
+  // regular shutdown.
+  scheduler_.Stop();
 
-  std::unique_lock<std::mutex> lk(mutex);
-  cv.wait(lk, [&shutdown] { return shutdown; });
+  // Copy the current value of the cluster state.
+  bool is_cluster_alive = cluster_alive_;
+
+  // Call the before shutdown callback.
+  bool ret = call_before_shutdown(is_cluster_alive);
+
+  // All other cleanup must be done here.
+
+  // Return `true` if the cluster is alive and the `call_before_shutdown`
+  // succeeded.
+  return ret && is_cluster_alive;
 }
 
-io::network::Endpoint WorkerCoordination::GetEndpoint(int worker_id) {
-  std::lock_guard<std::mutex> guard(lock_);
-  return Coordination::GetEndpoint(worker_id);
-}
+void WorkerCoordination::Shutdown() { alive_.store(false); }
 
 }  // namespace distributed

@@ -32,7 +32,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // Create a new SSL object that will be used for SSL communication.
     ssl_ = SSL_new(context_->context());
     if (ssl_ == nullptr) {
-      LOG(WARNING) << "Couldn't create client SSL object!";
+      LOG(ERROR) << "Couldn't create client SSL object!";
       socket_.Close();
       return false;
     }
@@ -43,7 +43,7 @@ bool Client::Connect(const io::network::Endpoint &endpoint) {
     // handle that in our socket destructor).
     bio_ = BIO_new_socket(socket_.fd(), BIO_NOCLOSE);
     if (bio_ == nullptr) {
-      LOG(WARNING) << "Couldn't create client BIO object!";
+      LOG(ERROR) << "Couldn't create client BIO object!";
       socket_.Close();
       return false;
     }
@@ -111,7 +111,7 @@ bool Client::Read(size_t len) {
           continue;
         } else {
           // This is a fatal error.
-          LOG(WARNING) << "Received an unexpected SSL error: " << err;
+          LOG(ERROR) << "Received an unexpected SSL error: " << err;
           return false;
         }
       } else if (got == 0) {

@@ -77,6 +77,11 @@ class Scheduler {
     if (thread_.joinable()) thread_.join();
   }
 
+  /**
+   * Returns whether the scheduler is running.
+   */
+  bool IsRunning() { return is_working_; }
+
   ~Scheduler() { Stop(); }
 
  private:

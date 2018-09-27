@@ -73,5 +73,9 @@ int main(int argc, char **argv) {
                     message.size()) == message)
       << "Received message isn't equal to sent message!";
 
+  // Shutdown the server.
+  server.Shutdown();
+  server.AwaitShutdown();
+
   return 0;
 }

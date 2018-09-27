@@ -1,26 +1,16 @@
+#include "communication/rpc/client.hpp"
+
 #include <chrono>
 #include <thread>
 
 #include "gflags/gflags.h"
 
-#include "communication/rpc/client.hpp"
-
-DEFINE_HIDDEN_bool(rpc_random_latency, false,
-                   "If a random wait should happen on each RPC call, to "
-                   "simulate network latency.");
-
 namespace communication::rpc {
 
 Client::Client(const io::network::Endpoint &endpoint) : endpoint_(endpoint) {}
 
-std::experimental::optional<::capnp::FlatArrayMessageReader> Client::Send(
-    ::capnp::MessageBuilder *message) {
+::capnp::FlatArrayMessageReader Client::Send(::capnp::MessageBuilder *message) {
   std::lock_guard<std::mutex> guard(mutex_);
-
-  if (FLAGS_rpc_random_latency) {
-    auto microseconds = (int)(1000 * rand_(gen_));
-    std::this_thread::sleep_for(std::chrono::microseconds(microseconds));
-  }
 
   // Check if the connection is broken (if we haven't used the client for a
   // long time the server could have died).
@@ -32,9 +22,9 @@ std::experimental::optional<::capnp::FlatArrayMessageReader> Client::Send(
   if (!client_) {
     client_.emplace(&context_);
     if (!client_->Connect(endpoint_)) {
-      LOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
+      DLOG(ERROR) << "Couldn't connect to remote address " << endpoint_;
       client_ = std::experimental::nullopt;
-      return std::experimental::nullopt;
+      throw RpcFailedException(endpoint_);
     }
   }
 
@@ -49,22 +39,22 @@ std::experimental::optional<::capnp::FlatArrayMessageReader> Client::Send(
   MessageSize request_data_size = request_bytes.size();
   if (!client_->Write(reinterpret_cast<uint8_t *>(&request_data_size),
                       sizeof(MessageSize), true)) {
-    LOG(ERROR) << "Couldn't send request size to " << client_->endpoint();
+    DLOG(ERROR) << "Couldn't send request size to " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return std::experimental::nullopt;
+    throw RpcFailedException(endpoint_);
   }
 
   if (!client_->Write(request_bytes.begin(), request_bytes.size())) {
-    LOG(ERROR) << "Couldn't send request data to " << client_->endpoint();
+    DLOG(ERROR) << "Couldn't send request data to " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return std::experimental::nullopt;
+    throw RpcFailedException(endpoint_);
   }
 
   // Receive response data size.
   if (!client_->Read(sizeof(MessageSize))) {
-    LOG(ERROR) << "Couldn't get response from " << client_->endpoint();
+    DLOG(ERROR) << "Couldn't get response from " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return std::experimental::nullopt;
+    throw RpcFailedException(endpoint_);
   }
   MessageSize response_data_size =
       *reinterpret_cast<MessageSize *>(client_->GetData());
@@ -72,9 +62,9 @@ std::experimental::optional<::capnp::FlatArrayMessageReader> Client::Send(
 
   // Receive response data.
   if (!client_->Read(response_data_size)) {
-    LOG(ERROR) << "Couldn't get response from " << client_->endpoint();
+    DLOG(ERROR) << "Couldn't get response from " << client_->endpoint();
     client_ = std::experimental::nullopt;
-    return std::experimental::nullopt;
+    throw RpcFailedException(endpoint_);
   }
 
   // Read the response message.
@@ -86,7 +76,7 @@ std::experimental::optional<::capnp::FlatArrayMessageReader> Client::Send(
                      reinterpret_cast<::capnp::word *>(data.end()));
   ::capnp::FlatArrayMessageReader response_message(data_words.asConst());
   client_->ShiftData(response_data_size);
-  return std::experimental::make_optional(std::move(response_message));
+  return response_message;
 }
 
 void Client::Abort() {

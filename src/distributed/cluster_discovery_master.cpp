@@ -12,16 +12,14 @@ namespace distributed {
 using Server = communication::rpc::Server;
 
 ClusterDiscoveryMaster::ClusterDiscoveryMaster(
-    Server &server, MasterCoordination &coordination,
-    RpcWorkerClients &rpc_worker_clients,
+    Server *server, MasterCoordination *coordination,
     const std::string &durability_directory)
     : server_(server),
       coordination_(coordination),
-      rpc_worker_clients_(rpc_worker_clients),
       durability_directory_(durability_directory) {
-  server_.Register<RegisterWorkerRpc>([this](const auto &endpoint,
-                                             const auto &req_reader,
-                                             auto *res_builder) {
+  server_->Register<RegisterWorkerRpc>([this](const auto &endpoint,
+                                              const auto &req_reader,
+                                              auto *res_builder) {
     bool registration_successful = false;
     bool durability_error = false;
 
@@ -56,34 +54,38 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
 
     // Register the worker if the durability check succeeded.
     if (!durability_error) {
-      registration_successful = this->coordination_.RegisterWorker(
-          req.desired_worker_id, worker_endpoint);
+      registration_successful =
+          coordination_->RegisterWorker(req.desired_worker_id, worker_endpoint);
     }
 
     // Notify the cluster of the new worker if the registration succeeded.
     if (registration_successful) {
-      rpc_worker_clients_.ExecuteOnWorkers<void>(
-          0, [req, worker_endpoint](
-                 int worker_id, communication::rpc::ClientPool &client_pool) {
-            auto result = client_pool.Call<ClusterDiscoveryRpc>(
-                req.desired_worker_id, worker_endpoint);
-            CHECK(result) << "ClusterDiscoveryRpc failed";
-          });
+      coordination_->ExecuteOnWorkers<
+          void>(0, [req, worker_endpoint](
+                       int worker_id,
+                       communication::rpc::ClientPool &client_pool) {
+        try {
+          client_pool.Call<ClusterDiscoveryRpc>(req.desired_worker_id,
+                                                worker_endpoint);
+        } catch (const communication::rpc::RpcFailedException &) {
+          LOG(FATAL)
+              << "Couldn't notify the cluster of the changed configuration!";
+        }
+      });
     }
 
     RegisterWorkerRes res(registration_successful, durability_error,
-                          this->coordination_.RecoveredSnapshotTx(),
-                          this->coordination_.GetWorkers());
+                          coordination_->RecoveredSnapshotTx(),
+                          coordination_->GetWorkers());
     res.Save(res_builder);
   });
 
-  server_.Register<NotifyWorkerRecoveredRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        NotifyWorkerRecoveredReq req;
-        req.Load(req_reader);
-        this->coordination_.WorkerRecoveredSnapshot(req.worker_id,
-                                                    req.recovery_info);
-      });
+  server_->Register<NotifyWorkerRecoveredRpc>([this](const auto &req_reader,
+                                                     auto *res_builder) {
+    NotifyWorkerRecoveredReq req;
+    req.Load(req_reader);
+    coordination_->WorkerRecoveredSnapshot(req.worker_id, req.recovery_info);
+  });
 }
 
 }  // namespace distributed

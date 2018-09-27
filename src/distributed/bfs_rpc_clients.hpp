@@ -2,7 +2,7 @@
 #pragma once
 
 #include "distributed/bfs_subcursor.hpp"
-#include "distributed/rpc_worker_clients.hpp"
+#include "distributed/coordination.hpp"
 #include "transactions/transaction.hpp"
 
 namespace database {
@@ -23,7 +23,7 @@ class BfsRpcClients {
  public:
   BfsRpcClients(database::DistributedGraphDb *db,
                 BfsSubcursorStorage *subcursor_storage,
-                RpcWorkerClients *clients,
+                Coordination *coordination,
                 DataManager *data_manager);
 
   std::unordered_map<int16_t, int64_t> CreateBfsSubcursors(
@@ -64,10 +64,10 @@ class BfsRpcClients {
       const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear);
 
  private:
-  database::DistributedGraphDb *db_{nullptr};
-  distributed::BfsSubcursorStorage *subcursor_storage_{nullptr};
-  distributed::RpcWorkerClients *clients_{nullptr};
-  distributed::DataManager *data_manager_{nullptr};
+  database::DistributedGraphDb *db_;
+  distributed::BfsSubcursorStorage *subcursor_storage_;
+  distributed::Coordination *coordination_;
+  distributed::DataManager *data_manager_;
 };
 
 }  // namespace distributed

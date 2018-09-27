@@ -813,6 +813,8 @@ TEST_F(Durability, WorkerIdRecovery) {
     auto dba = recovered.Access();
     EXPECT_NE(dba->VerticesCount(), 0);
     EXPECT_NE(dba->EdgesCount(), 0);
+    recovered.Shutdown();
+    EXPECT_TRUE(recovered.AwaitShutdown());
   }
 
   // WorkerIds are not equal and recovery should fail
@@ -826,7 +828,12 @@ TEST_F(Durability, WorkerIdRecovery) {
     auto dba = recovered.Access();
     EXPECT_EQ(dba->VerticesCount(), 0);
     EXPECT_EQ(dba->EdgesCount(), 0);
+    recovered.Shutdown();
+    EXPECT_TRUE(recovered.AwaitShutdown());
   }
+
+  db.Shutdown();
+  EXPECT_TRUE(db.AwaitShutdown());
 }
 
 TEST_F(Durability, SequentialRecovery) {

@@ -2,7 +2,6 @@
 
 #include "communication/rpc/server.hpp"
 #include "distributed/coordination_master.hpp"
-#include "distributed/rpc_worker_clients.hpp"
 
 namespace distributed {
 using Server = communication::rpc::Server;
@@ -15,14 +14,12 @@ using Server = communication::rpc::Server;
  */
 class ClusterDiscoveryMaster final {
  public:
-  ClusterDiscoveryMaster(Server &server, MasterCoordination &coordination,
-                         RpcWorkerClients &rpc_worker_clients,
+  ClusterDiscoveryMaster(Server *server, MasterCoordination *coordination,
                          const std::string &durability_directory);
 
  private:
-  Server &server_;
-  MasterCoordination &coordination_;
-  RpcWorkerClients &rpc_worker_clients_;
+  Server *server_;
+  MasterCoordination *coordination_;
   std::string durability_directory_;
 };
 

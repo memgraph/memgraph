@@ -164,20 +164,40 @@ void MasterMain() {
                  service_name, FLAGS_num_workers);
 
   // Handler for regular termination signals
-  auto shutdown = [&server] {
-    // Server needs to be shutdown first and then the database. This prevents a
-    // race condition when a transaction is accepted during server shutdown.
-    server.Shutdown();
+  auto shutdown = [&db] {
+    // We call the shutdown method on the worker database so that we exit
+    // cleanly.
+    db.Shutdown();
   };
 
   InitSignalHandlers(shutdown);
-  server.AwaitShutdown();
+
+  // The return code of `AwaitShutdown` is ignored because we want the database
+  // to exit cleanly no matter what.
+  db.AwaitShutdown([&server] {
+    // Server needs to be shutdown first and then the database. This prevents a
+    // race condition when a transaction is accepted during server shutdown.
+    server.Shutdown();
+    server.AwaitShutdown();
+  });
 }
 
 void WorkerMain() {
   google::SetUsageMessage("Memgraph distributed worker");
   database::Worker db;
-  db.WaitForShutdown();
+
+  // Handler for regular termination signals
+  auto shutdown = [&db] {
+    // We call the shutdown method on the worker database so that we exit
+    // cleanly.
+    db.Shutdown();
+  };
+
+  InitSignalHandlers(shutdown);
+
+  // The return code of `AwaitShutdown` is ignored because we want the database
+  // to exit cleanly no matter what.
+  db.AwaitShutdown();
 }
 
 int main(int argc, char **argv) {

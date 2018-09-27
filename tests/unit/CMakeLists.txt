@@ -191,9 +191,6 @@ target_link_libraries(${test_prefix}queue memgraph_lib kvstore_dummy_lib)
 add_unit_test(record_edge_vertex_accessor.cpp)
 target_link_libraries(${test_prefix}record_edge_vertex_accessor memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(rpc_worker_clients.cpp)
-target_link_libraries(${test_prefix}rpc_worker_clients memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(serialization.cpp)
 target_link_libraries(${test_prefix}serialization memgraph_lib kvstore_dummy_lib)
 

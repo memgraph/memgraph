@@ -20,15 +20,26 @@ class WorkerEngineTest : public testing::Test {
  protected:
   const std::string local{"127.0.0.1"};
 
+  void TearDown() override {
+    // First we shutdown the master.
+    master_coordination_.Shutdown();
+    EXPECT_TRUE(master_coordination_.AwaitShutdown());
+
+    // Shutdown the RPC servers.
+    master_server_.Shutdown();
+    master_server_.AwaitShutdown();
+    worker_server_.Shutdown();
+    worker_server_.AwaitShutdown();
+  }
+
   Server master_server_{{local, 0}};
   Server worker_server_{{local, 0}};
+
   MasterCoordination master_coordination_{master_server_.endpoint()};
-  RpcWorkerClients rpc_worker_clients_{master_coordination_};
+  EngineMaster master_{&master_server_, &master_coordination_};
 
-  EngineMaster master_{master_server_, rpc_worker_clients_};
   ClientPool master_client_pool{master_server_.endpoint()};
-
-  EngineWorker worker_{worker_server_, master_client_pool};
+  EngineWorker worker_{&worker_server_, &master_client_pool};
 };
 
 TEST_F(WorkerEngineTest, BeginOnWorker) {
@@ -66,8 +77,7 @@ TEST_F(WorkerEngineTest, RunningTransaction) {
   worker_.LocalForEachActiveTransaction([&count](Transaction &t) {
     ++count;
     if (t.id_ == 1) {
-      EXPECT_EQ(t.snapshot(),
-                tx::Snapshot(std::vector<tx::TransactionId>{}));
+      EXPECT_EQ(t.snapshot(), tx::Snapshot(std::vector<tx::TransactionId>{}));
     } else {
       EXPECT_EQ(t.snapshot(), tx::Snapshot({1}));
     }

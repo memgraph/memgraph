@@ -18,8 +18,8 @@ namespace tx {
  * begin/advance/end transactions on the master. */
 class EngineWorker final : public EngineDistributed {
  public:
-  EngineWorker(communication::rpc::Server &server,
-               communication::rpc::ClientPool &master_client_pool,
+  EngineWorker(communication::rpc::Server *server,
+               communication::rpc::ClientPool *master_client_pool,
                durability::WriteAheadLog *wal = nullptr);
   ~EngineWorker();
 
@@ -60,10 +60,10 @@ class EngineWorker final : public EngineDistributed {
   mutable CommitLog clog_;
 
   // Our local RPC server.
-  communication::rpc::Server &server_;
+  communication::rpc::Server *server_;
 
   // Communication to the transactional master.
-  communication::rpc::ClientPool &master_client_pool_;
+  communication::rpc::ClientPool *master_client_pool_;
 
   // Write ahead log.
   durability::WriteAheadLog *wal_;

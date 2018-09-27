@@ -15,6 +15,7 @@
 #include "distributed/durability_rpc_master.hpp"
 #include "distributed/durability_rpc_worker.hpp"
 #include "distributed/dynamic_worker.hpp"
+#include "distributed/index_rpc_messages.hpp"
 #include "distributed/index_rpc_server.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
@@ -366,27 +367,27 @@ class DistributedAccessor : public GraphDbAccessor {
 };
 
 class MasterAccessor final : public DistributedAccessor {
-  distributed::IndexRpcClients *index_rpc_clients_{nullptr};
-  distributed::PullRpcClients *pull_clients_{nullptr};
+  distributed::Coordination *coordination_;
+  distributed::PullRpcClients *pull_clients_;
   int worker_id_{0};
 
  public:
-  MasterAccessor(Master *db, distributed::IndexRpcClients *index_rpc_clients,
+  MasterAccessor(Master *db, distributed::Coordination *coordination,
                  distributed::PullRpcClients *pull_clients_,
                  DistributedVertexAccessor *vertex_accessor,
                  DistributedEdgeAccessor *edge_accessor)
       : DistributedAccessor(db, vertex_accessor, edge_accessor),
-        index_rpc_clients_(index_rpc_clients),
+        coordination_(coordination),
         pull_clients_(pull_clients_),
         worker_id_(db->WorkerId()) {}
 
   MasterAccessor(Master *db, tx::TransactionId tx_id,
-                 distributed::IndexRpcClients *index_rpc_clients,
+                 distributed::Coordination *coordination,
                  distributed::PullRpcClients *pull_clients_,
                  DistributedVertexAccessor *vertex_accessor,
                  DistributedEdgeAccessor *edge_accessor)
       : DistributedAccessor(db, tx_id, vertex_accessor, edge_accessor),
-        index_rpc_clients_(index_rpc_clients),
+        coordination_(coordination),
         pull_clients_(pull_clients_),
         worker_id_(db->WorkerId()) {}
 
@@ -395,8 +396,17 @@ class MasterAccessor final : public DistributedAccessor {
         index_rpc_completions;
 
     // Notify all workers to create the index
-    index_rpc_completions.emplace(index_rpc_clients_->GetCreateIndexFutures(
-        key.label_, key.property_, worker_id_));
+    index_rpc_completions.emplace(coordination_->ExecuteOnWorkers<bool>(
+        worker_id_,
+        [&key](int worker_id, communication::rpc::ClientPool &client_pool) {
+          try {
+            client_pool.Call<distributed::CreateIndexRpc>(key.label_,
+                                                          key.property_);
+            return true;
+          } catch (const communication::rpc::RpcFailedException &) {
+            return false;
+          }
+        }));
 
     if (index_rpc_completions) {
       // Wait first, check later - so that every thread finishes and none
@@ -404,6 +414,8 @@ class MasterAccessor final : public DistributedAccessor {
       // that we notify other workers to stop building indexes
       for (auto &index_built : *index_rpc_completions) index_built.wait();
       for (auto &index_built : *index_rpc_completions) {
+        // TODO: `get()` can throw an exception, should we delete the index when
+        // it throws?
         if (!index_built.get()) {
           db().storage().label_property_index().DeleteIndex(key);
           throw IndexCreationOnWorkerException("Index exists on a worker");
@@ -418,8 +430,17 @@ class MasterAccessor final : public DistributedAccessor {
     // since they don't have to wait anymore
     std::experimental::optional<std::vector<utils::Future<bool>>>
         index_rpc_completions;
-    index_rpc_completions.emplace(index_rpc_clients_->GetPopulateIndexFutures(
-        key.label_, key.property_, transaction_id(), worker_id_));
+    index_rpc_completions.emplace(coordination_->ExecuteOnWorkers<bool>(
+        worker_id_, [this, &key](int worker_id,
+                                 communication::rpc::ClientPool &client_pool) {
+          try {
+            client_pool.Call<distributed::PopulateIndexRpc>(
+                key.label_, key.property_, transaction_id());
+            return true;
+          } catch (const communication::rpc::RpcFailedException &) {
+            return false;
+          }
+        }));
 
     // Populate our own storage
     GraphDbAccessor::PopulateIndexFromBuildIndex(key);
@@ -432,6 +453,8 @@ class MasterAccessor final : public DistributedAccessor {
       // that we notify other workers to stop building indexes
       for (auto &index_built : *index_rpc_completions) index_built.wait();
       for (auto &index_built : *index_rpc_completions) {
+        // TODO: `get()` can throw an exception, should we delete the index when
+        // it throws?
         if (!index_built.get()) {
           db().storage().label_property_index().DeleteIndex(key);
           throw IndexCreationOnWorkerException("Index exists on a worker");
@@ -440,11 +463,12 @@ class MasterAccessor final : public DistributedAccessor {
     }
   }
 
+  // TODO (mferencevic): Move this logic into the transaction engine.
   void AdvanceCommand() override {
     DistributedAccessor::AdvanceCommand();
     auto tx_id = transaction_id();
     auto futures = pull_clients_->NotifyAllTransactionCommandAdvanced(tx_id);
-    for (auto &future : futures) future.wait();
+    for (auto &future : futures) future.get();
   }
 };
 
@@ -591,13 +615,14 @@ class Master {
   // constructors of members.
   database::Master *self_{nullptr};
   communication::rpc::Server server_{
-      config_.master_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
-  tx::EngineMaster tx_engine_{server_, rpc_worker_clients_, &wal_};
-  distributed::MasterCoordination coordination_{server_.endpoint()};
+      config_.master_endpoint,
+      static_cast<size_t>(config_.rpc_num_server_workers)};
+  tx::EngineMaster tx_engine_{&server_, &coordination_, &wal_};
+  distributed::MasterCoordination coordination_{server_.endpoint(),
+                                                config_.rpc_num_client_workers};
   std::unique_ptr<StorageGcMaster> storage_gc_ =
       std::make_unique<StorageGcMaster>(
           *storage_, tx_engine_, config_.gc_cycle_sec, server_, coordination_);
-  distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
   TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{&server_};
   distributed::BfsSubcursorStorage subcursor_storage_{self_,
@@ -605,25 +630,19 @@ class Master {
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{
-      self_, &subcursor_storage_, &rpc_worker_clients_, &data_manager_};
-  distributed::DurabilityRpcMaster durability_rpc_{rpc_worker_clients_};
+      self_, &subcursor_storage_, &coordination_, &data_manager_};
+  distributed::DurabilityRpcMaster durability_rpc_{&coordination_};
   distributed::DataRpcServer data_server_{self_, &server_};
-  distributed::DataRpcClients data_clients_{rpc_worker_clients_};
-  distributed::PlanDispatcher plan_dispatcher_{rpc_worker_clients_};
-  distributed::PullRpcClients pull_clients_{&rpc_worker_clients_,
-                                            &data_manager_};
-  distributed::IndexRpcClients index_rpc_clients_{rpc_worker_clients_};
+  distributed::DataRpcClients data_clients_{&coordination_};
+  distributed::PlanDispatcher plan_dispatcher_{&coordination_};
+  distributed::PullRpcClients pull_clients_{&coordination_, &data_manager_};
   distributed::UpdatesRpcServer updates_server_{self_, &server_};
-  distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
+  distributed::UpdatesRpcClients updates_clients_{&coordination_};
   distributed::DataManager data_manager_{*self_, data_clients_};
   distributed::ClusterDiscoveryMaster cluster_discovery_{
-      server_, coordination_, rpc_worker_clients_,
-      config_.durability_directory};
-  distributed::TokenSharingRpcClients token_sharing_clients_{
-      &rpc_worker_clients_};
+      &server_, &coordination_, config_.durability_directory};
   distributed::TokenSharingRpcServer token_sharing_server_{
-      self_, config_.worker_id, &coordination_, &server_,
-      &token_sharing_clients_};
+      self_, config_.worker_id, &coordination_, &server_};
   distributed::DynamicWorkerAddition dynamic_worker_addition_{self_, &server_};
 };
 
@@ -739,34 +758,17 @@ Master::Master(Config config)
   }
 }
 
-Master::~Master() {
-  snapshot_creator_ = nullptr;
-
-  is_accepting_transactions_ = false;
-  impl_->tx_engine_.LocalForEachActiveTransaction(
-      [](auto &t) { t.set_should_abort(); });
-
-  // We are not a worker, so we can do a snapshot on exit if it's enabled. Doing
-  // this on the master forces workers to do the same through rpcs
-  if (impl_->config_.snapshot_on_exit) {
-    auto dba = Access();
-    MakeSnapshot(*dba);
-  }
-
-  // Transactional cache cleanup must be stopped before all of the objects
-  // that were registered for cleanup are destructed.
-  impl_->tx_engine_.StopTransactionalCacheCleanup();
-}
+Master::~Master() {}
 
 std::unique_ptr<GraphDbAccessor> Master::Access() {
   return std::make_unique<MasterAccessor>(
-      this, &impl_->index_rpc_clients_, &impl_->pull_clients_,
+      this, &impl_->coordination_, &impl_->pull_clients_,
       &impl_->vertex_accessor_, &impl_->edge_accessor_);
 }
 
 std::unique_ptr<GraphDbAccessor> Master::Access(tx::TransactionId tx_id) {
   return std::make_unique<MasterAccessor>(
-      this, tx_id, &impl_->index_rpc_clients_, &impl_->pull_clients_,
+      this, tx_id, &impl_->coordination_, &impl_->pull_clients_,
       &impl_->vertex_accessor_, &impl_->edge_accessor_);
 }
 
@@ -823,6 +825,7 @@ bool Master::MakeSnapshot(GraphDbAccessor &accessor) {
 
 void Master::ReinitializeStorage() {
   // Release gc scheduler to stop it from touching storage
+  impl_->storage_gc_->Stop();
   impl_->storage_gc_ = nullptr;
   impl_->storage_ = std::make_unique<Storage>(
       impl_->config_.worker_id, impl_->config_.properties_on_disk);
@@ -838,6 +841,71 @@ io::network::Endpoint Master::endpoint() const {
 io::network::Endpoint Master::GetEndpoint(int worker_id) {
   return impl_->coordination_.GetEndpoint(worker_id);
 }
+
+bool Master::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
+  bool ret =
+      impl_->coordination_.AwaitShutdown(
+          [this, &call_before_shutdown](bool is_cluster_alive) -> bool {
+            snapshot_creator_ = nullptr;
+
+            // Stop all running transactions. This will allow all shutdowns in
+            // the callback that depend on query execution to be aborted and
+            // cleaned up.
+            // TODO (mferencevic): When we have full cluster management
+            // (detection of failure and automatic failure recovery) this should
+            // this be done directly through the transaction engine (eg. using
+            // cluster degraded/operational hooks and callbacks).
+            is_accepting_transactions_ = false;
+            impl_->tx_engine_.LocalForEachActiveTransaction(
+                [](auto &t) { t.set_should_abort(); });
+
+            // Call the toplevel callback to stop everything that the caller
+            // wants us to stop.
+            call_before_shutdown();
+
+            // Now we stop everything that calls RPCs (garbage collection, etc.)
+
+            // Stop the storage garbage collector.
+            impl_->storage_gc_->Stop();
+
+            // Transactional cache cleanup must be stopped before all of the
+            // objects that were registered for cleanup are destructed.
+            impl_->tx_engine_.StopTransactionalCacheCleanup();
+
+            // We are not a worker, so we can do a snapshot on exit if it's
+            // enabled. Doing this on the master forces workers to do the same
+            // through RPCs. If the cluster is in a degraded state then don't
+            // attempt to do a snapshot because the snapshot can't be created on
+            // all workers. The cluster will have to recover from a previous
+            // snapshot and WALs.
+            if (impl_->config_.snapshot_on_exit) {
+              if (is_cluster_alive) {
+                auto dba = Access();
+                // Here we make the snapshot and return the snapshot creation
+                // success to the caller.
+                return MakeSnapshot(*dba);
+              } else {
+                LOG(WARNING)
+                    << "Because the cluster is in a degraded state we can't "
+                       "create a snapshot. The cluster will be recovered from "
+                       "previous snapshots and WALs.";
+              }
+            }
+
+            // The shutdown was completed successfully.
+            return true;
+          });
+
+  // We stop the RPC server to disable further requests.
+  // TODO (mferencevic): Move the RPC into coordination.
+  impl_->server_.Shutdown();
+  impl_->server_.AwaitShutdown();
+
+  // Return the shutdown success status.
+  return ret;
+}
+
+void Master::Shutdown() { return impl_->coordination_.Shutdown(); }
 
 distributed::BfsRpcClients &Master::bfs_subcursor_clients() {
   return impl_->bfs_subcursor_clients_;
@@ -867,15 +935,10 @@ distributed::PlanDispatcher &Master::plan_dispatcher() {
   return impl_->plan_dispatcher_;
 }
 
-distributed::IndexRpcClients &Master::index_rpc_clients() {
-  return impl_->index_rpc_clients_;
-}
-
 VertexAccessor InsertVertexIntoRemote(
     GraphDbAccessor *dba, int worker_id,
     const std::vector<storage::Label> &labels,
-    const std::unordered_map<storage::Property, PropertyValue>
-        &properties,
+    const std::unordered_map<storage::Property, PropertyValue> &properties,
     std::experimental::optional<int64_t> cypher_id) {
   // TODO: Replace this with virtual call or some other mechanism.
   auto *distributed_db =
@@ -930,44 +993,43 @@ class Worker {
   // constructors of members.
   database::Worker *self_{nullptr};
   communication::rpc::Server server_{
-      config_.worker_endpoint, static_cast<size_t>(config_.rpc_num_workers)};
-  distributed::WorkerCoordination coordination_{server_,
-                                                config_.master_endpoint};
-  distributed::RpcWorkerClients rpc_worker_clients_{coordination_};
-  tx::EngineWorker tx_engine_{server_, rpc_worker_clients_.GetClientPool(0),
-                              &wal_};
+      config_.worker_endpoint,
+      static_cast<size_t>(config_.rpc_num_server_workers)};
+  distributed::WorkerCoordination coordination_{
+      &server_, config_.master_endpoint, config_.worker_id,
+      config_.rpc_num_client_workers};
+  // TODO (mferencevic): Pass the coordination object directly wherever there is
+  // a `GetClientPool(xyz)` call.
+  tx::EngineWorker tx_engine_{&server_, coordination_.GetClientPool(0), &wal_};
   std::unique_ptr<StorageGcWorker> storage_gc_ =
       std::make_unique<StorageGcWorker>(
           *storage_, tx_engine_, config_.gc_cycle_sec,
-          rpc_worker_clients_.GetClientPool(0), config_.worker_id);
+          *coordination_.GetClientPool(0), config_.worker_id);
   TypemapPack<storage::WorkerConcurrentIdMapper> typemap_pack_{
-      rpc_worker_clients_.GetClientPool(0)};
-  database::WorkerCounters counters_{&rpc_worker_clients_.GetClientPool(0)};
+      *coordination_.GetClientPool(0)};
+  database::WorkerCounters counters_{coordination_.GetClientPool(0)};
   distributed::BfsSubcursorStorage subcursor_storage_{self_,
                                                       &bfs_subcursor_clients_};
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{
-      self_, &subcursor_storage_, &rpc_worker_clients_, &data_manager_};
+      self_, &subcursor_storage_, &coordination_, &data_manager_};
   distributed::DataRpcServer data_server_{self_, &server_};
-  distributed::DataRpcClients data_clients_{rpc_worker_clients_};
+  distributed::DataRpcClients data_clients_{&coordination_};
   distributed::PlanConsumer plan_consumer_{server_};
   distributed::ProduceRpcServer produce_server_{self_, &tx_engine_, server_,
                                                 plan_consumer_, &data_manager_};
   distributed::IndexRpcServer index_rpc_server_{*self_, server_};
   distributed::UpdatesRpcServer updates_server_{self_, &server_};
-  distributed::UpdatesRpcClients updates_clients_{rpc_worker_clients_};
+  distributed::UpdatesRpcClients updates_clients_{&coordination_};
   distributed::DataManager data_manager_{*self_, data_clients_};
   distributed::DurabilityRpcWorker durability_rpc_{self_, &server_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
-      server_, coordination_, rpc_worker_clients_.GetClientPool(0)};
-  distributed::TokenSharingRpcClients token_sharing_clients_{
-      &rpc_worker_clients_};
+      server_, coordination_, *coordination_.GetClientPool(0)};
   distributed::TokenSharingRpcServer token_sharing_server_{
-      self_, config_.worker_id, &coordination_, &server_,
-      &token_sharing_clients_};
+      self_, config_.worker_id, &coordination_, &server_};
   distributed::DynamicWorkerRegistration dynamic_worker_registration_{
-      &rpc_worker_clients_.GetClientPool(0)};
+      coordination_.GetClientPool(0)};
 };
 
 }  // namespace impl
@@ -1064,14 +1126,7 @@ Worker::Worker(Config config)
   }
 }
 
-Worker::~Worker() {
-  is_accepting_transactions_ = false;
-  impl_->tx_engine_.LocalForEachActiveTransaction(
-      [](auto &t) { t.set_should_abort(); });
-  // Transactional cache cleanup must be stopped before all of the objects
-  // that were registered for cleanup are destructed.
-  impl_->tx_engine_.StopTransactionalCacheCleanup();
-}
+Worker::~Worker() {}
 
 std::unique_ptr<GraphDbAccessor> Worker::Access() {
   return std::make_unique<WorkerAccessor>(this, &impl_->vertex_accessor_,
@@ -1127,12 +1182,13 @@ bool Worker::MakeSnapshot(GraphDbAccessor &accessor) {
 
 void Worker::ReinitializeStorage() {
   // Release gc scheduler to stop it from touching storage
+  impl_->storage_gc_->Stop();
   impl_->storage_gc_ = nullptr;
   impl_->storage_ = std::make_unique<Storage>(
       impl_->config_.worker_id, impl_->config_.properties_on_disk);
   impl_->storage_gc_ = std::make_unique<StorageGcWorker>(
       *impl_->storage_, impl_->tx_engine_, impl_->config_.gc_cycle_sec,
-      impl_->rpc_worker_clients_.GetClientPool(0), impl_->config_.worker_id);
+      *impl_->coordination_.GetClientPool(0), impl_->config_.worker_id);
 }
 
 void Worker::RecoverWalAndIndexes(durability::RecoveryData *recovery_data) {
@@ -1150,9 +1206,42 @@ io::network::Endpoint Worker::GetEndpoint(int worker_id) {
   return impl_->coordination_.GetEndpoint(worker_id);
 }
 
-void Worker::WaitForShutdown() {
-  return impl_->coordination_.WaitForShutdown();
+bool Worker::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
+  bool ret = impl_->coordination_.AwaitShutdown(
+      [this, &call_before_shutdown](bool is_cluster_alive) -> bool {
+        // Stop all running transactions. This will allow all shutdowns in the
+        // callback that depend on query execution to be aborted and cleaned up.
+        // TODO (mferencevic): See the note for this same code for the `Master`.
+        is_accepting_transactions_ = false;
+        impl_->tx_engine_.LocalForEachActiveTransaction(
+            [](auto &t) { t.set_should_abort(); });
+
+        // Call the toplevel callback to stop everything that the caller wants
+        // us to stop.
+        call_before_shutdown();
+
+        // Now we stop everything that calls RPCs (garbage collection, etc.)
+
+        // Stop the storage garbage collector.
+        impl_->storage_gc_->Stop();
+
+        // Transactional cache cleanup must be stopped before all of the objects
+        // that were registered for cleanup are destructed.
+        impl_->tx_engine_.StopTransactionalCacheCleanup();
+
+        // The worker shutdown always succeeds.
+        return true;
+      });
+
+  // Stop the RPC server
+  impl_->server_.Shutdown();
+  impl_->server_.AwaitShutdown();
+
+  // Return the shutdown success status.
+  return ret;
 }
+
+void Worker::Shutdown() { return impl_->coordination_.Shutdown(); }
 
 distributed::BfsRpcClients &Worker::bfs_subcursor_clients() {
   return impl_->bfs_subcursor_clients_;

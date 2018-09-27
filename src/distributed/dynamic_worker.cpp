@@ -39,8 +39,7 @@ DynamicWorkerRegistration::DynamicWorkerRegistration(ClientPool *client_pool)
 std::vector<std::pair<std::string, std::string>>
 DynamicWorkerRegistration::GetIndicesToCreate() {
   auto result = client_pool_->Call<DynamicWorkerRpc>();
-  CHECK(result) << "DynamicWorkerRpc failed";
-  return result->recover_indices;
+  return result.recover_indices;
 }
 
 }  // namespace distributed

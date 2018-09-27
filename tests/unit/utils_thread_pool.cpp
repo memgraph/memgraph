@@ -10,7 +10,7 @@
 #include "utils/timer.hpp"
 
 TEST(ThreadPool, RunMany) {
-  utils::ThreadPool tp(10);
+  utils::ThreadPool tp(10, "Test");
   const int kResults = 10000;
   std::vector<utils::Future<int>> results;
   for (int i = 0; i < kResults; ++i) {
@@ -26,7 +26,7 @@ TEST(ThreadPool, EnsureParallel) {
   using namespace std::chrono_literals;
 
   const int kSize = 10;
-  utils::ThreadPool tp(kSize);
+  utils::ThreadPool tp(kSize, "Test");
   std::vector<utils::Future<void>> results;
 
   utils::Timer t;

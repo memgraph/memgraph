@@ -13,6 +13,7 @@
 #include "storage/gid.hpp"
 #include "storage/vertex.hpp"
 #include "transactions/engine.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 
@@ -46,13 +47,19 @@ class StorageGc {
         vertices_(storage.vertices_),
         edges_(storage.edges_) {
     if (pause_sec > 0)
-      scheduler_.Run("Storage GC", std::chrono::seconds(pause_sec),
-                     [this] { CollectGarbage(); });
+      scheduler_.Run(
+          "Storage GC", std::chrono::seconds(pause_sec), [this] {
+            try {
+              CollectGarbage();
+            } catch (const utils::BasicException &e) {
+              DLOG(WARNING)
+                  << "Couldn't perform storage garbage collection due to: "
+                  << e.what();
+            }
+          });
   }
 
   virtual ~StorageGc() {
-    scheduler_.Stop();
-
     edges_.record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
     vertices_.record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
     edges_.version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());

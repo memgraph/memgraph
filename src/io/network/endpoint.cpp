@@ -42,6 +42,10 @@ bool Endpoint::operator==(const Endpoint &other) const {
 }
 
 std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
+  if (endpoint.family() == 6) {
+    return os << "[" << endpoint.address() << "]"
+              << ":" << endpoint.port();
+  }
   return os << endpoint.address() << ":" << endpoint.port();
 }
 

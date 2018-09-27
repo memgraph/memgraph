@@ -2,7 +2,6 @@
 
 #include "distributed/coordination.hpp"
 #include "distributed/plan_rpc_messages.hpp"
-#include "distributed/rpc_worker_clients.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 
@@ -13,7 +12,7 @@ namespace distributed {
  */
 class PlanDispatcher {
  public:
-  explicit PlanDispatcher(RpcWorkerClients &clients);
+  explicit PlanDispatcher(Coordination *coordination);
 
   /** Dispatch a plan to all workers and wait for their acknowledgement. */
   void DispatchPlan(int64_t plan_id,
@@ -24,7 +23,7 @@ class PlanDispatcher {
   void RemovePlan(int64_t plan_id);
 
  private:
-  RpcWorkerClients &clients_;
+  Coordination *coordination_;
 };
 
 }  // namespace distributed

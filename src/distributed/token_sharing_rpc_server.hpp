@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "distributed/rpc_worker_clients.hpp"
+#include "distributed/coordination.hpp"
 #include "distributed/dgp/partitioner.hpp"
 
 namespace communication::rpc {
@@ -29,12 +29,10 @@ class TokenSharingRpcServer {
  public:
   TokenSharingRpcServer(database::DistributedGraphDb *db, int worker_id,
                         distributed::Coordination *coordination,
-                        communication::rpc::Server *server,
-                        distributed::TokenSharingRpcClients *clients)
+                        communication::rpc::Server *server)
       : worker_id_(worker_id),
         coordination_(coordination),
         server_(server),
-        clients_(clients),
         dgp_(db) {
     server_->Register<distributed::TokenTransferRpc>(
         [this](const auto &req_reader, auto *res_builder) { token_ = true; });
@@ -73,7 +71,17 @@ class TokenSharingRpcServer {
           next_worker = workers[0];
         }
 
-        clients_->TransferToken(next_worker);
+        // Try to transfer the token until successful.
+        while (true) {
+          try {
+            coordination_->GetClientPool(next_worker)->Call<TokenTransferRpc>();
+            break;
+          } catch (const communication::rpc::RpcFailedException &e) {
+            DLOG(WARNING) << "Unable to transfer token to worker "
+                          << next_worker;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+          }
+        }
       }
     });
   }
@@ -104,7 +112,6 @@ class TokenSharingRpcServer {
   int worker_id_;
   distributed::Coordination *coordination_;
   communication::rpc::Server *server_;
-  distributed::TokenSharingRpcClients *clients_;
 
   std::atomic<bool> started_{false};
   std::atomic<bool> token_{false};

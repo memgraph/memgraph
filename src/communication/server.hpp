@@ -80,8 +80,9 @@ class Server final {
   }
 
   ~Server() {
-    Shutdown();
-    AwaitShutdown();
+    CHECK(!alive_ && !thread_.joinable()) << "You should call Shutdown and "
+                                             "AwaitShutdown on "
+                                             "communication::Server!";
   }
 
   Server(const Server &) = delete;

@@ -3,7 +3,7 @@
 #pragma once
 
 #include "communication/rpc/server.hpp"
-#include "distributed/rpc_worker_clients.hpp"
+#include "distributed/coordination.hpp"
 #include "transactions/distributed/engine_distributed.hpp"
 #include "transactions/single_node/engine_single_node.hpp"
 
@@ -14,12 +14,11 @@ namespace tx {
 class EngineMaster final : public EngineDistributed {
  public:
   /// @param server - Required. Used for rpc::Server construction.
-  /// @param rpc_worker_clients - Required. Used for
-  /// OngoingProduceJoinerRpcClients construction.
+  /// @param coordination - Required. Used for communication with the workers.
   /// @param wal - Optional. If present, the Engine will write tx
   /// Begin/Commit/Abort atomically (while under lock).
-  EngineMaster(communication::rpc::Server &server,
-               distributed::RpcWorkerClients &rpc_worker_clients,
+  EngineMaster(communication::rpc::Server *server,
+               distributed::Coordination *coordination,
                durability::WriteAheadLog *wal = nullptr);
 
   EngineMaster(const EngineMaster &) = delete;
@@ -47,7 +46,7 @@ class EngineMaster final : public EngineDistributed {
 
  private:
   EngineSingleNode engine_single_node_;
-  communication::rpc::Server &rpc_server_;
-  distributed::RpcWorkerClients &rpc_worker_clients_;
+  communication::rpc::Server *server_;
+  distributed::Coordination *coordination_;
 };
 }  // namespace tx

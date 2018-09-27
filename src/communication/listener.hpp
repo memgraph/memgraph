@@ -85,8 +85,13 @@ class Listener final {
   }
 
   ~Listener() {
-    Shutdown();
-    AwaitShutdown();
+    bool worker_alive = false;
+    for (auto &thread : worker_threads_) {
+      if (thread.joinable()) worker_alive = true;
+    }
+    CHECK(!alive_ && !worker_alive && !timeout_thread_.joinable())
+        << "You should call Shutdown and AwaitShutdown on "
+           "communication::Listener!";
   }
 
   Listener(const Listener &) = delete;

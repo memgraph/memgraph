@@ -3,8 +3,9 @@
 #pragma once
 
 #include "communication/rpc/server.hpp"
-#include "distributed/rpc_worker_clients.hpp"
+#include "distributed/coordination.hpp"
 #include "transactions/engine.hpp"
+#include "utils/exceptions.hpp"
 
 namespace tx {
 
@@ -22,13 +23,17 @@ class EngineDistributed : public Engine {
   void StartTransactionalCacheCleanup() {
     cache_clearing_scheduler_.Run("TX cache GC", kCacheReleasePeriod, [this]() {
       std::lock_guard<std::mutex> guard(lock_);
-      // TODO (mferencevic): this has to be aware that `GlobalGcSnapshot` can
-      // throw!
-      auto oldest_active = GlobalGcSnapshot().back();
-      // Call all registered functions for cleanup.
-      for (auto &f : functions_) f(oldest_active);
-      // Clean our cache.
-      ClearTransactionalCache(oldest_active);
+      try {
+        auto oldest_active = GlobalGcSnapshot().back();
+        // Call all registered functions for cleanup.
+        for (auto &f : functions_) f(oldest_active);
+        // Clean our cache.
+        ClearTransactionalCache(oldest_active);
+      } catch (const utils::BasicException &e) {
+        DLOG(WARNING)
+            << "Couldn't perform transactional cache cleanup due to exception: "
+            << e.what();
+      }
     });
   }
 

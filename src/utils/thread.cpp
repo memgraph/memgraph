@@ -2,6 +2,7 @@
 
 #include <sys/prctl.h>
 
+#include <fmt/format.h>
 #include <glog/logging.h>
 
 namespace utils {
@@ -12,19 +13,10 @@ void ThreadSetName(const std::string &name) {
       << "Couldn't set thread name: " << name << "!";
 }
 
-Thread::Thread(Thread &&other) {
-  DCHECK(thread_id == UNINITIALIZED) << "Thread was initialized before.";
-  thread_id = other.thread_id;
-  thread = std::move(other.thread);
-}
-
-void Thread::join() { return thread.join(); }
-
-std::atomic<unsigned> Thread::thread_counter{1};
-
-ThreadPool::ThreadPool(size_t threads) {
+ThreadPool::ThreadPool(size_t threads, const std::string &name) {
   for (size_t i = 0; i < threads; ++i)
-    workers_.emplace_back([this] {
+    workers_.emplace_back([this, name, i] {
+      ThreadSetName(fmt::format("{} {}", name, i + 1));
       while (true) {
         std::function<void()> task;
         {

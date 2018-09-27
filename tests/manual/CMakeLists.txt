@@ -34,10 +34,10 @@ add_manual_test(card_fraud_generate_snapshot.cpp)
 target_link_libraries(${test_prefix}card_fraud_generate_snapshot memgraph_lib kvstore_dummy_lib)
 
 add_manual_test(card_fraud_local.cpp)
-target_link_libraries(${test_prefix}card_fraud_local memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}card_fraud_local memgraph_lib kvstore_dummy_lib gtest)
 
 add_manual_test(distributed_repl.cpp)
-target_link_libraries(${test_prefix}distributed_repl memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_repl memgraph_lib kvstore_dummy_lib gtest)
 
 add_manual_test(endinan.cpp)
 

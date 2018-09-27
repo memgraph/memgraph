@@ -8,8 +8,8 @@
 
 namespace tx {
 
-EngineWorker::EngineWorker(communication::rpc::Server &server,
-                           communication::rpc::ClientPool &master_client_pool,
+EngineWorker::EngineWorker(communication::rpc::Server *server,
+                           communication::rpc::ClientPool *master_client_pool,
                            durability::WriteAheadLog *wal)
     : server_(server), master_client_pool_(master_client_pool), wal_(wal) {
   // Register our `NotifyCommittedRpc` server. This RPC should only write the
@@ -27,7 +27,7 @@ EngineWorker::EngineWorker(communication::rpc::Server &server,
   // RPC call could fail on other workers which will cause the transaction to be
   // aborted. This mismatch in committed/aborted across workers is resolved by
   // using the master as a single source of truth when doing recovery.
-  server_.Register<NotifyCommittedRpc>(
+  server_->Register<NotifyCommittedRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         auto tid = req_reader.getMember();
         if (wal_) {
@@ -43,9 +43,8 @@ EngineWorker::~EngineWorker() {
 }
 
 Transaction *EngineWorker::Begin() {
-  auto res = master_client_pool_.Call<BeginRpc>();
-  CHECK(res) << "BeginRpc failed";
-  auto &data = res->member;
+  auto res = master_client_pool_->Call<BeginRpc>();
+  auto &data = res.member;
   UpdateOldestActive(data.snapshot, data.tx_id);
   Transaction *tx = CreateTransaction(data.tx_id, data.snapshot);
   auto insertion = active_.access().insert(data.tx_id, tx);
@@ -55,20 +54,18 @@ Transaction *EngineWorker::Begin() {
 }
 
 CommandId EngineWorker::Advance(TransactionId tx_id) {
-  auto res = master_client_pool_.Call<AdvanceRpc>(tx_id);
-  CHECK(res) << "AdvanceRpc failed";
+  auto res = master_client_pool_->Call<AdvanceRpc>(tx_id);
   auto access = active_.access();
   auto found = access.find(tx_id);
   CHECK(found != access.end())
       << "Can't advance a transaction not in local cache";
-  SetCommand(found->second, res->member);
-  return res->member;
+  SetCommand(found->second, res.member);
+  return res.member;
 }
 
 CommandId EngineWorker::UpdateCommand(TransactionId tx_id) {
-  auto res = master_client_pool_.Call<CommandRpc>(tx_id);
-  CHECK(res) << "CommandRpc failed";
-  auto cmd_id = res->member;
+  auto res = master_client_pool_->Call<CommandRpc>(tx_id);
+  auto cmd_id = res.member;
 
   // Assume there is no concurrent work being done on this worker in the given
   // transaction. This assumption is sound because command advancing needs to be
@@ -86,15 +83,13 @@ CommandId EngineWorker::UpdateCommand(TransactionId tx_id) {
 }
 
 void EngineWorker::Commit(const Transaction &t) {
-  auto res = master_client_pool_.Call<CommitRpc>(t.id_);
-  CHECK(res) << "CommitRpc failed";
+  master_client_pool_->Call<CommitRpc>(t.id_);
   VLOG(11) << "[Tx] Commiting worker transaction " << t.id_;
   ClearSingleTransaction(t.id_);
 }
 
 void EngineWorker::Abort(const Transaction &t) {
-  auto res = master_client_pool_.Call<AbortRpc>(t.id_);
-  CHECK(res) << "AbortRpc failed";
+  master_client_pool_->Call<AbortRpc>(t.id_);
   VLOG(11) << "[Tx] Aborting worker transaction " << t.id_;
   ClearSingleTransaction(t.id_);
 }
@@ -106,9 +101,8 @@ CommitLog::Info EngineWorker::Info(TransactionId tid) const {
   if (!(info.is_aborted() || info.is_committed())) {
     // @review: this version of Call is just used because Info has no
     // default constructor.
-    auto res = master_client_pool_.Call<ClogInfoRpc>(tid);
-    CHECK(res) << "ClogInfoRpc failed";
-    info = res->member;
+    auto res = master_client_pool_->Call<ClogInfoRpc>(tid);
+    info = res.member;
     if (!info.is_active()) {
       if (info.is_committed()) clog_.set_committed(tid);
       if (info.is_aborted()) clog_.set_aborted(tid);
@@ -120,17 +114,15 @@ CommitLog::Info EngineWorker::Info(TransactionId tid) const {
 }
 
 Snapshot EngineWorker::GlobalGcSnapshot() {
-  auto res = master_client_pool_.Call<GcSnapshotRpc>();
-  CHECK(res) << "GcSnapshotRpc failed";
-  auto snapshot = std::move(res->member);
+  auto res = master_client_pool_->Call<GcSnapshotRpc>();
+  auto snapshot = std::move(res.member);
   UpdateOldestActive(snapshot, local_last_.load());
   return snapshot;
 }
 
 Snapshot EngineWorker::GlobalActiveTransactions() {
-  auto res = master_client_pool_.Call<ActiveTransactionsRpc>();
-  CHECK(res) << "ActiveTransactionsRpc failed";
-  auto snapshot = std::move(res->member);
+  auto res = master_client_pool_->Call<ActiveTransactionsRpc>();
+  auto snapshot = std::move(res.member);
   UpdateOldestActive(snapshot, local_last_.load());
   return snapshot;
 }
@@ -138,9 +130,7 @@ Snapshot EngineWorker::GlobalActiveTransactions() {
 TransactionId EngineWorker::LocalLast() const { return local_last_; }
 
 TransactionId EngineWorker::GlobalLast() const {
-  auto res = master_client_pool_.Call<GlobalLastRpc>();
-  CHECK(res) << "GlobalLastRpc failed";
-  return res->member;
+  return master_client_pool_->Call<GlobalLastRpc>().member;
 }
 
 void EngineWorker::LocalForEachActiveTransaction(
@@ -155,9 +145,8 @@ Transaction *EngineWorker::RunningTransaction(TransactionId tx_id) {
   auto found = accessor.find(tx_id);
   if (found != accessor.end()) return found->second;
 
-  auto res = master_client_pool_.Call<SnapshotRpc>(tx_id);
-  CHECK(res) << "SnapshotRpc failed";
-  auto snapshot = std::move(res->member);
+  auto res = master_client_pool_->Call<SnapshotRpc>(tx_id);
+  auto snapshot = std::move(res.member);
   UpdateOldestActive(snapshot, local_last_.load());
   return RunningTransaction(tx_id, snapshot);
 }
@@ -208,7 +197,7 @@ void EngineWorker::UpdateOldestActive(const Snapshot &snapshot,
 }
 
 void EngineWorker::EnsureNextIdGreater(TransactionId tx_id) {
-  master_client_pool_.Call<EnsureNextIdGreaterRpc>(tx_id);
+  master_client_pool_->Call<EnsureNextIdGreaterRpc>(tx_id);
 }
 
 void EngineWorker::GarbageCollectCommitLog(TransactionId tx_id) {

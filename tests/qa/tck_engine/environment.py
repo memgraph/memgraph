@@ -20,7 +20,8 @@ COMMON_FLAGS = ["--durability-enabled=false",
                 "--snapshot-on-exit=false",
                 "--db-recover-on-startup=false"]
 DISTRIBUTED_FLAGS = ["--num-workers", str(6),
-                     "--rpc-num-workers", str(6)]
+                     "--rpc-num-client-workers", str(6),
+                     "--rpc-num-server-workers", str(6)]
 MASTER_FLAGS = ["--master",
                 "--master-port", "10000"]
 MEMGRAPH_PORT = 7687

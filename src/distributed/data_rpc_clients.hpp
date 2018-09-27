@@ -7,6 +7,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "distributed/coordination.hpp"
 #include "storage/gid.hpp"
 #include "transactions/type.hpp"
 
@@ -34,7 +35,8 @@ struct RemoteElementInfo {
 /// Provides access to other worker's data.
 class DataRpcClients {
  public:
-  DataRpcClients(RpcWorkerClients &clients) : clients_(clients) {}
+  explicit DataRpcClients(Coordination *coordination)
+      : coordination_(coordination) {}
 
   /// Returns a remote worker's record (vertex/edge) data for the given params.
   /// That worker must own the vertex/edge for the given id, and that vertex
@@ -49,7 +51,7 @@ class DataRpcClients {
   std::unordered_map<int, int64_t> VertexCounts(tx::TransactionId tx_id);
 
  private:
-  RpcWorkerClients &clients_;
+  Coordination *coordination_;
 };
 
 }  // namespace distributed

@@ -60,9 +60,13 @@ DEFINE_VALIDATED_HIDDEN_int32(
     "indicates the port on which to serve. If zero (default value), a port is "
     "chosen at random. Sent to the master when registring worker node.",
     FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
-DEFINE_VALIDATED_HIDDEN_int32(rpc_num_workers,
+DEFINE_VALIDATED_HIDDEN_int32(rpc_num_client_workers,
                               std::max(std::thread::hardware_concurrency(), 1U),
-                              "Number of workers (RPC)",
+                              "Number of client workers (RPC)",
+                              FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_VALIDATED_HIDDEN_int32(rpc_num_server_workers,
+                              std::max(std::thread::hardware_concurrency(), 1U),
+                              "Number of server workers (RPC)",
                               FLAG_IN_RANGE(1, INT32_MAX));
 DEFINE_VALIDATED_int32(recovering_cluster_size, 0,
                        "Number of workers (including master) in the "
@@ -94,7 +98,8 @@ database::Config::Config()
       ,
       // Distributed flags.
       dynamic_graph_partitioner_enabled{FLAGS_dynamic_graph_partitioner_enabled},
-      rpc_num_workers{FLAGS_rpc_num_workers},
+      rpc_num_client_workers{FLAGS_rpc_num_client_workers},
+      rpc_num_server_workers{FLAGS_rpc_num_server_workers},
       worker_id{FLAGS_worker_id},
       master_endpoint{FLAGS_master_host,
                       static_cast<uint16_t>(FLAGS_master_port)},

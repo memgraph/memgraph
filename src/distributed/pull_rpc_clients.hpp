@@ -3,8 +3,8 @@
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
+#include "distributed/coordination.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
-#include "distributed/rpc_worker_clients.hpp"
 #include "query/context.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "transactions/type.hpp"
@@ -22,8 +22,8 @@ class PullRpcClients {
   using ClientPool = communication::rpc::ClientPool;
 
  public:
-  PullRpcClients(RpcWorkerClients *clients, DataManager *data_manager)
-      : clients_(clients), data_manager_(data_manager) {}
+  PullRpcClients(Coordination *coordination, DataManager *data_manager)
+      : coordination_(coordination), data_manager_(data_manager) {}
 
   /// Calls a remote pull asynchroniously. IMPORTANT: take care not to call this
   /// function for the same (tx_id, worker_id, plan_id, command_id) before the
@@ -42,14 +42,14 @@ class PullRpcClients {
   utils::Future<void> ResetCursor(database::GraphDbAccessor *dba, int worker_id,
                                   int64_t plan_id, tx::CommandId command_id);
 
-  auto GetWorkerIds() { return clients_->GetWorkerIds(); }
+  auto GetWorkerIds() { return coordination_->GetWorkerIds(); }
 
   std::vector<utils::Future<void>> NotifyAllTransactionCommandAdvanced(
       tx::TransactionId tx_id);
 
  private:
-  RpcWorkerClients *clients_{nullptr};
-  DataManager *data_manager_{nullptr};
+  Coordination *coordination_;
+  DataManager *data_manager_;
 };
 
 }  // namespace distributed

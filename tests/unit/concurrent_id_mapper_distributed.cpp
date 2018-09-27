@@ -26,6 +26,8 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
     worker_mapper_.emplace(master_client_pool_.value());
   }
   void TearDown() override {
+    master_server_.Shutdown();
+    master_server_.AwaitShutdown();
     worker_mapper_ = std::experimental::nullopt;
     master_mapper_ = std::experimental::nullopt;
     master_client_pool_ = std::experimental::nullopt;

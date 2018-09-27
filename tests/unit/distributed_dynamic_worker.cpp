@@ -105,9 +105,9 @@ TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorker) {
     EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
   }
 
-  auto t = std::thread([&]() { master = nullptr; });
+  master->Shutdown();
+  EXPECT_TRUE(master->AwaitShutdown());
   worker1 = nullptr;
-  if (t.joinable()) t.join();
 }
 
 TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorkerAfterRecovery) {
@@ -152,7 +152,9 @@ TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorkerAfterRecovery) {
       dba->BuildIndex(label, property);
       EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
     }
-    master = nullptr;
+
+    master->Shutdown();
+    EXPECT_TRUE(master->AwaitShutdown());
   }
 
   {
@@ -182,8 +184,8 @@ TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorkerAfterRecovery) {
       EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
     }
 
-    auto t = std::thread([&]() { master = nullptr; });
+    master->Shutdown();
+    EXPECT_TRUE(master->AwaitShutdown());
     worker1 = nullptr;
-    if (t.joinable()) t.join();
   }
 }

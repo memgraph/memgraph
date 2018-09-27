@@ -18,8 +18,7 @@ class ClientPool {
       : endpoint_(endpoint) {}
 
   template <class TRequestResponse, class... Args>
-  std::experimental::optional<typename TRequestResponse::Response> Call(
-      Args &&... args) {
+  typename TRequestResponse::Response Call(Args &&... args) {
     return WithUnusedClient([&](const auto &client) {
       return client->template Call<TRequestResponse>(
           std::forward<Args>(args)...);
@@ -27,7 +26,7 @@ class ClientPool {
   };
 
   template <class TRequestResponse, class... Args>
-  std::experimental::optional<typename TRequestResponse::Response> CallWithLoad(
+  typename TRequestResponse::Response CallWithLoad(
       std::function<typename TRequestResponse::Response(
           const typename TRequestResponse::Response::Capnp::Reader &)>
           load,

@@ -66,6 +66,8 @@ class Master final : public DistributedGraphDb {
   /** Gets the endpoint of the worker with the given id. */
   // TODO make const once Coordination::GetEndpoint is const.
   io::network::Endpoint GetEndpoint(int worker_id);
+  bool AwaitShutdown(std::function<void(void)> call_before_shutdown = [] {});
+  void Shutdown();
 
   distributed::BfsRpcClients &bfs_subcursor_clients() override;
   distributed::DataRpcClients &data_clients() override;
@@ -111,7 +113,8 @@ class Worker final : public DistributedGraphDb {
   /** Gets the endpoint of the worker with the given id. */
   // TODO make const once Coordination::GetEndpoint is const.
   io::network::Endpoint GetEndpoint(int worker_id);
-  void WaitForShutdown();
+  bool AwaitShutdown(std::function<void(void)> call_before_shutdown = [] {});
+  void Shutdown();
 
   distributed::BfsRpcClients &bfs_subcursor_clients() override;
   distributed::DataRpcClients &data_clients() override;

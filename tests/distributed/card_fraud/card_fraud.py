@@ -55,7 +55,8 @@ class MgCluster:
             "--db-recover-on-startup",
             "--query-vertex-count-to-expand-existing", "-1",
             "--num-workers", str(WORKERS),
-            "--rpc-num-workers", str(WORKERS),
+            "--rpc-num-client-workers", str(WORKERS),
+            "--rpc-num-server-workers", str(WORKERS),
             "--recovering-cluster-size", str(len(self._workers) + 1)
         ])
 
@@ -74,7 +75,8 @@ class MgCluster:
                                                        "worker_" + str(i)),
                 "--db-recover-on-startup",
                 "--num-workers", str(WORKERS),
-                "--rpc-num-workers", str(WORKERS),
+                "--rpc-num-client-workers", str(WORKERS),
+                "--rpc-num-server-workers", str(WORKERS),
             ])
 
         # sleep to allow the workers to startup

@@ -97,8 +97,10 @@ TEST(Rpc, Call) {
 
   Client client(server.endpoint());
   auto sum = client.Call<Sum>(10, 20);
-  ASSERT_TRUE(sum);
-  EXPECT_EQ(sum->sum, 30);
+  EXPECT_EQ(sum.sum, 30);
+
+  server.Shutdown();
+  server.AwaitShutdown();
 }
 
 TEST(Rpc, Abort) {
@@ -121,11 +123,14 @@ TEST(Rpc, Abort) {
   });
 
   utils::Timer timer;
-  auto sum = client.Call<Sum>(10, 20);
-  EXPECT_FALSE(sum);
+  EXPECT_THROW(client.Call<Sum>(10, 20),
+               communication::rpc::RpcFailedException);
   EXPECT_LT(timer.Elapsed(), 200ms);
 
   thread.join();
+
+  server.Shutdown();
+  server.AwaitShutdown();
 }
 
 TEST(Rpc, ClientPool) {
@@ -145,8 +150,7 @@ TEST(Rpc, ClientPool) {
    * client */
   auto get_sum_client = [&client](int x, int y) {
     auto sum = client.Call<Sum>(x, y);
-    ASSERT_TRUE(sum);
-    EXPECT_EQ(sum->sum, x + y);
+    EXPECT_EQ(sum.sum, x + y);
   };
 
   utils::Timer t1;
@@ -167,8 +171,7 @@ TEST(Rpc, ClientPool) {
    * parallel */
   auto get_sum = [&pool](int x, int y) {
     auto sum = pool.Call<Sum>(x, y);
-    ASSERT_TRUE(sum);
-    EXPECT_EQ(sum->sum, x + y);
+    EXPECT_EQ(sum.sum, x + y);
   };
 
   utils::Timer t2;
@@ -179,6 +182,9 @@ TEST(Rpc, ClientPool) {
     threads[i].join();
   }
   EXPECT_LE(t2.Elapsed(), 200ms);
+
+  server.Shutdown();
+  server.AwaitShutdown();
 }
 
 TEST(Rpc, LargeMessage) {
@@ -194,6 +200,8 @@ TEST(Rpc, LargeMessage) {
 
   Client client(server.endpoint());
   auto echo = client.Call<Echo>(testdata);
-  ASSERT_TRUE(echo);
-  EXPECT_EQ(echo->data, testdata);
+  EXPECT_EQ(echo.data, testdata);
+
+  server.Shutdown();
+  server.AwaitShutdown();
 }

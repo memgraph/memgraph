@@ -10,16 +10,12 @@ namespace storage {
   template <>                                                         \
   type WorkerConcurrentIdMapper<type>::RpcValueToId(                  \
       const std::string &value) {                                     \
-    auto response = master_client_pool_.Call<type##IdRpc>(value);     \
-    CHECK(response) << (#type "IdRpc failed");                        \
-    return response->member;                                          \
+    return master_client_pool_.Call<type##IdRpc>(value).member;       \
   }                                                                   \
                                                                       \
   template <>                                                         \
   std::string WorkerConcurrentIdMapper<type>::RpcIdToValue(type id) { \
-    auto response = master_client_pool_.Call<Id##type##Rpc>(id);      \
-    CHECK(response) << ("Id" #type "Rpc failed");                     \
-    return response->member;                                          \
+    return master_client_pool_.Call<Id##type##Rpc>(id).member;        \
   }
 
 using namespace storage;

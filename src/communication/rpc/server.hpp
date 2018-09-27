@@ -25,7 +25,8 @@ class Server {
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
 
-  void StopProcessingCalls();
+  void Shutdown();
+  void AwaitShutdown();
 
   const io::network::Endpoint &endpoint() const;
 

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <atomic>
 #include <experimental/optional>
+#include <functional>
 #include <mutex>
 #include <set>
 #include <unordered_map>
@@ -8,6 +10,7 @@
 #include "distributed/coordination.hpp"
 #include "durability/recovery.hpp"
 #include "io/network/endpoint.hpp"
+#include "utils/scheduler.hpp"
 
 namespace distributed {
 using Endpoint = io::network::Endpoint;
@@ -16,9 +19,10 @@ using Endpoint = io::network::Endpoint;
  * coordinated shutdown in a distributed memgraph. Master side. */
 class MasterCoordination final : public Coordination {
  public:
-  explicit MasterCoordination(const Endpoint &master_endpoint);
+  explicit MasterCoordination(
+      const Endpoint &master_endpoint,
+      int client_workers_count = std::thread::hardware_concurrency());
 
-  /** Shuts down all the workers and this master server. */
   ~MasterCoordination();
 
   /** Registers a new worker with this master coordination.
@@ -37,8 +41,6 @@ class MasterCoordination final : public Coordination {
       int worker_id, const std::experimental::optional<durability::RecoveryInfo>
                          &recovery_info);
 
-  Endpoint GetEndpoint(int worker_id);
-
   /// Sets the recovery info. nullopt indicates nothing was recovered.
   void SetRecoveredSnapshot(
       std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
@@ -52,19 +54,47 @@ class MasterCoordination final : public Coordination {
   std::vector<tx::TransactionId> CommonWalTransactions(
       const durability::RecoveryInfo &master_info) const;
 
- private:
-  // Most master functions aren't thread-safe.
-  mutable std::mutex lock_;
+  /// Waits while the cluster is in a valid state or the `Shutdown` method is
+  /// called (suitable for use with signal handlers). Blocks the calling thread
+  /// until that has finished.
+  /// @param call_before_shutdown function that should be called before
+  /// shutdown, the function gets a bool argument indicating whether the cluster
+  /// is alive and should return a bool indicating whether the shutdown
+  /// succeeded without any issues
+  /// @returns `true` if the shutdown was completed without any issues, `false`
+  /// otherwise
+  bool AwaitShutdown(std::function<bool(bool)> call_before_shutdown =
+                         [](bool is_cluster_alive) -> bool { return true; });
 
-  /// Durabilility recovery info.
-  /// Indicates if the recovery phase is done.
+  /// Hints that the coordination should start shutting down the whole cluster.
+  void Shutdown();
+
+  /// Returns `true` if the cluster is in a consistent state.
+  bool IsClusterAlive();
+
+ private:
+  /// Sends a heartbeat request to all workers.
+  void IssueHeartbeats();
+
+  // Most master functions aren't thread-safe.
+  mutable std::mutex master_lock_;
+
+  // Durabilility recovery info.
+  // Indicates if the recovery phase is done.
   bool recovery_done_{false};
-  /// Set of workers that finished sucesfully recovering snapshot
+  // Set of workers that finished sucesfully recovering snapshot
   std::map<int, std::experimental::optional<durability::RecoveryInfo>>
       recovered_workers_;
-  /// If nullopt nothing was recovered.
+  // If nullopt nothing was recovered.
   std::experimental::optional<std::pair<int64_t, tx::TransactionId>>
       recovered_snapshot_tx_;
+
+  // Scheduler that is used to periodically ping all registered workers.
+  utils::Scheduler scheduler_;
+
+  // Flags used for shutdown.
+  std::atomic<bool> alive_{true};
+  std::atomic<bool> cluster_alive_{true};
 };
 
 }  // namespace distributed

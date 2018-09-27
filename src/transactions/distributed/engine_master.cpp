@@ -9,36 +9,36 @@
 
 namespace tx {
 
-EngineMaster::EngineMaster(communication::rpc::Server &server,
-                           distributed::RpcWorkerClients &rpc_worker_clients,
+EngineMaster::EngineMaster(communication::rpc::Server *server,
+                           distributed::Coordination *coordination,
                            durability::WriteAheadLog *wal)
     : engine_single_node_(wal),
-      rpc_server_(server),
-      rpc_worker_clients_(rpc_worker_clients) {
-  rpc_server_.Register<BeginRpc>(
+      server_(server),
+      coordination_(coordination) {
+  server_->Register<BeginRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         auto tx = this->Begin();
         BeginRes res(TxAndSnapshot{tx->id_, tx->snapshot()});
         res.Save(res_builder);
       });
 
-  rpc_server_.Register<AdvanceRpc>(
+  server_->Register<AdvanceRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         AdvanceRes res(this->Advance(req_reader.getMember()));
         res.Save(res_builder);
       });
 
-  rpc_server_.Register<CommitRpc>(
+  server_->Register<CommitRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         this->Commit(*this->RunningTransaction(req_reader.getMember()));
       });
 
-  rpc_server_.Register<AbortRpc>(
+  server_->Register<AbortRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         this->Abort(*this->RunningTransaction(req_reader.getMember()));
       });
 
-  rpc_server_.Register<SnapshotRpc>(
+  server_->Register<SnapshotRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         // It is guaranteed that the Worker will not be requesting this for a
         // transaction that's done, and that there are no race conditions here.
@@ -47,7 +47,7 @@ EngineMaster::EngineMaster(communication::rpc::Server &server,
         res.Save(res_builder);
       });
 
-  rpc_server_.Register<CommandRpc>(
+  server_->Register<CommandRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         // It is guaranteed that the Worker will not be requesting this for a
         // transaction that's done, and that there are no race conditions here.
@@ -55,30 +55,30 @@ EngineMaster::EngineMaster(communication::rpc::Server &server,
         res.Save(res_builder);
       });
 
-  rpc_server_.Register<GcSnapshotRpc>(
+  server_->Register<GcSnapshotRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         GcSnapshotRes res(this->GlobalGcSnapshot());
         res.Save(res_builder);
       });
 
-  rpc_server_.Register<ClogInfoRpc>(
+  server_->Register<ClogInfoRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ClogInfoRes res(this->Info(req_reader.getMember()));
         res.Save(res_builder);
       });
 
-  rpc_server_.Register<ActiveTransactionsRpc>(
+  server_->Register<ActiveTransactionsRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ActiveTransactionsRes res(this->GlobalActiveTransactions());
         res.Save(res_builder);
       });
 
-  rpc_server_.Register<EnsureNextIdGreaterRpc>(
+  server_->Register<EnsureNextIdGreaterRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         this->EnsureNextIdGreater(req_reader.getMember());
       });
 
-  rpc_server_.Register<GlobalLastRpc>(
+  server_->Register<GlobalLastRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         GlobalLastRes res(this->GlobalLast());
         res.Save(res_builder);
@@ -97,18 +97,15 @@ CommandId EngineMaster::UpdateCommand(TransactionId id) {
 
 void EngineMaster::Commit(const Transaction &t) {
   auto tx_id = t.id_;
-  auto futures = rpc_worker_clients_.ExecuteOnWorkers<void>(
+  auto futures = coordination_->ExecuteOnWorkers<void>(
       0, [tx_id](int worker_id, communication::rpc::ClientPool &client_pool) {
-        auto result = client_pool.Call<NotifyCommittedRpc>(tx_id);
-        CHECK(result)
-            << "[NotifyCommittedRpc] failed to notify that transaction "
-            << tx_id << " committed";
+        client_pool.Call<NotifyCommittedRpc>(tx_id);
       });
 
   // We need to wait for all workers to destroy pending futures to avoid
   // using already destroyed (released) transaction objects.
   for (auto &future : futures) {
-    future.wait();
+    future.get();
   }
 
   engine_single_node_.Commit(t);

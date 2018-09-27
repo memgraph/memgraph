@@ -80,6 +80,10 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
 
   // cleanup clients
   for (int i = 0; i < Nc; ++i) clients[i].join();
+
+  // shutdown server
+  server.Shutdown();
+  server.AwaitShutdown();
 }
 
 int main(int argc, char **argv) {

@@ -1,34 +1,75 @@
 #include "glog/logging.h"
 
+#include <thread>
+
 #include "distributed/coordination.hpp"
 
 namespace distributed {
-using Endpoint = io::network::Endpoint;
 
-Coordination::Coordination(const Endpoint &master_endpoint) {
+Coordination::Coordination(const io::network::Endpoint &master_endpoint,
+                           int worker_id, int client_workers_count)
+    : worker_id_(worker_id), thread_pool_(client_workers_count, "RPC client") {
   // The master is always worker 0.
   workers_.emplace(0, master_endpoint);
 }
 
-Endpoint Coordination::GetEndpoint(int worker_id) {
+Coordination::~Coordination() {}
+
+io::network::Endpoint Coordination::GetEndpoint(int worker_id) {
+  std::lock_guard<std::mutex> guard(lock_);
   auto found = workers_.find(worker_id);
-  CHECK(found != workers_.end()) << "No endpoint registered for worker id: "
-                                 << worker_id;
+  // TODO (mferencevic): Handle this error situation differently.
+  CHECK(found != workers_.end())
+      << "No endpoint registered for worker id: " << worker_id;
   return found->second;
 }
 
-std::vector<int> Coordination::GetWorkerIds() const {
+std::vector<int> Coordination::GetWorkerIds() {
+  std::lock_guard<std::mutex> guard(lock_);
   std::vector<int> worker_ids;
   for (auto worker : workers_) worker_ids.push_back(worker.first);
   return worker_ids;
 }
 
-void Coordination::AddWorker(int worker_id, Endpoint endpoint) {
-  workers_.emplace(worker_id, endpoint);
+std::unordered_map<int, io::network::Endpoint> Coordination::GetWorkers() {
+  std::lock_guard<std::mutex> guard(lock_);
+  return workers_;
 }
 
-std::unordered_map<int, Endpoint> Coordination::GetWorkers() {
-  return workers_;
+communication::rpc::ClientPool *Coordination::GetClientPool(int worker_id) {
+  std::lock_guard<std::mutex> guard(lock_);
+  auto found = client_pools_.find(worker_id);
+  if (found != client_pools_.end()) return &found->second;
+  auto found_endpoint = workers_.find(worker_id);
+  // TODO (mferencevic): Handle this error situation differently.
+  CHECK(found_endpoint != workers_.end())
+      << "No endpoint registered for worker id: " << worker_id;
+  auto &endpoint = found_endpoint->second;
+  return &client_pools_
+              .emplace(std::piecewise_construct,
+                       std::forward_as_tuple(worker_id),
+                       std::forward_as_tuple(endpoint))
+              .first->second;
+}
+
+void Coordination::AddWorker(int worker_id,
+                             const io::network::Endpoint &endpoint) {
+  std::lock_guard<std::mutex> guard(lock_);
+  workers_.insert({worker_id, endpoint});
+}
+
+std::string Coordination::GetWorkerName(const io::network::Endpoint &endpoint) {
+  std::lock_guard<std::mutex> guard(lock_);
+  for (const auto &worker : workers_) {
+    if (worker.second == endpoint) {
+      if (worker.first == 0) {
+        return fmt::format("master ({})", worker.second);
+      } else {
+        return fmt::format("worker {} ({})", worker.first, worker.second);
+      }
+    }
+  }
+  return fmt::format("unknown worker ({})", endpoint);
 }
 
 }  // namespace distributed

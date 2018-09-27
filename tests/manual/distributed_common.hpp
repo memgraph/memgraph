@@ -1,7 +1,11 @@
 #pragma once
 
 #include <chrono>
+#include <experimental/filesystem>
 #include <vector>
+
+#include <gflags/gflags.h>
+#include <gtest/gtest.h>
 
 #include "communication/result_stream_faker.hpp"
 #include "database/distributed_graph_db.hpp"
@@ -9,11 +13,17 @@
 #include "glue/communication.hpp"
 #include "query/distributed_interpreter.hpp"
 #include "query/typed_value.hpp"
+#include "utils/file.hpp"
+
+DECLARE_string(durability_directory);
+
+namespace fs = std::experimental::filesystem;
 
 class WorkerInThread {
  public:
   explicit WorkerInThread(database::Config config) : worker_(config) {
-    thread_ = std::thread([this, config] { worker_.WaitForShutdown(); });
+    thread_ =
+        std::thread([this, config] { EXPECT_TRUE(worker_.AwaitShutdown()); });
   }
 
   ~WorkerInThread() {
@@ -29,10 +39,17 @@ class Cluster {
   const std::string kLocal = "127.0.0.1";
 
  public:
-  Cluster(int worker_count) {
-    database::Config masterconfig;
-    masterconfig.master_endpoint = {kLocal, 0};
-    master_ = std::make_unique<database::Master>(masterconfig);
+  Cluster(int worker_count, const std::string &test_name) {
+    tmp_dir_ = fs::temp_directory_path() / "MG_test_unit_distributed_common_" /
+               test_name;
+    EXPECT_TRUE(utils::EnsureDir(tmp_dir_));
+
+    database::Config master_config;
+    master_config.master_endpoint = {kLocal, 0};
+    master_config.durability_directory = GetDurabilityDirectory(0);
+    // Flag needs to be updated due to props on disk storage.
+    FLAGS_durability_directory = GetDurabilityDirectory(0);
+    master_ = std::make_unique<database::Master>(master_config);
     interpreter_ =
         std::make_unique<query::DistributedInterpreter>(master_.get());
     std::this_thread::sleep_for(kInitTime);
@@ -41,11 +58,14 @@ class Cluster {
       database::Config config;
       config.worker_id = worker_id;
       config.master_endpoint = master_->endpoint();
+      config.durability_directory = GetDurabilityDirectory(worker_id);
       config.worker_endpoint = {kLocal, 0};
       return config;
     };
 
     for (int i = 0; i < worker_count; ++i) {
+      // Flag needs to be updated due to props on disk storage.
+      FLAGS_durability_directory = GetDurabilityDirectory(i + 1);
       workers_.emplace_back(
           std::make_unique<WorkerInThread>(worker_config(i + 1)));
       std::this_thread::sleep_for(kInitTime);
@@ -54,9 +74,9 @@ class Cluster {
 
   void Stop() {
     interpreter_ = nullptr;
-    auto t = std::thread([this]() { master_ = nullptr; });
+    master_->Shutdown();
+    EXPECT_TRUE(master_->AwaitShutdown());
     workers_.clear();
-    if (t.joinable()) t.join();
   }
 
   ~Cluster() {
@@ -72,10 +92,17 @@ class Cluster {
     return result.GetResults();
   };
 
+  fs::path GetDurabilityDirectory(int worker_id) {
+    if (worker_id == 0) return tmp_dir_ / "master";
+    return tmp_dir_ / fmt::format("worker{}", worker_id);
+  }
+
  private:
   std::unique_ptr<database::Master> master_;
   std::vector<std::unique_ptr<WorkerInThread>> workers_;
   std::unique_ptr<query::DistributedInterpreter> interpreter_;
+  fs::path tmp_dir_{fs::temp_directory_path() /
+                    "MG_test_manual_distributed_common"};
 };
 
 void CheckResults(

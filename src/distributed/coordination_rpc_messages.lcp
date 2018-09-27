@@ -90,4 +90,8 @@ cpp<#
                      :capnp-type "Utils.Optional(Dur.RecoveryInfo)")))
   (:response ()))
 
+(lcp:define-rpc heartbeat
+    (:request ())
+  (:response ()))
+
 (lcp:pop-namespace) ;; distributed

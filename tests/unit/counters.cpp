@@ -24,4 +24,7 @@ TEST(CountersDistributed, All) {
   EXPECT_EQ(w2.Get("b"), 1);
   w1.Set("b", 42);
   EXPECT_EQ(w2.Get("b"), 42);
+
+  master_server.Shutdown();
+  master_server.AwaitShutdown();
 }

@@ -3207,6 +3207,8 @@ class CartesianCursor : public Cursor {
       restore_frame(self_.right_symbols(), right_op_frame_);
     }
 
+    if (context.db_accessor_.should_abort()) throw HintedAbortError();
+
     restore_frame(self_.left_symbols(), *left_op_frames_it_);
     left_op_frames_it_++;
     return true;

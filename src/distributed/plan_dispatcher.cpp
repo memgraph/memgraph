@@ -2,33 +2,30 @@
 
 namespace distributed {
 
-PlanDispatcher::PlanDispatcher(RpcWorkerClients &clients) : clients_(clients) {}
+PlanDispatcher::PlanDispatcher(Coordination *coordination) : coordination_(coordination) {}
 
 void PlanDispatcher::DispatchPlan(
     int64_t plan_id, std::shared_ptr<query::plan::LogicalOperator> plan,
     const query::SymbolTable &symbol_table) {
-  auto futures = clients_.ExecuteOnWorkers<void>(
+  auto futures = coordination_->ExecuteOnWorkers<void>(
       0, [plan_id, plan, symbol_table](
              int worker_id, communication::rpc::ClientPool &client_pool) {
-        auto result =
-            client_pool.Call<DispatchPlanRpc>(plan_id, plan, symbol_table);
-        CHECK(result) << "DispatchPlanRpc failed";
+        client_pool.Call<DispatchPlanRpc>(plan_id, plan, symbol_table);
       });
 
   for (auto &future : futures) {
-    future.wait();
+    future.get();
   }
 }
 
 void PlanDispatcher::RemovePlan(int64_t plan_id) {
-  auto futures = clients_.ExecuteOnWorkers<void>(
+  auto futures = coordination_->ExecuteOnWorkers<void>(
       0, [plan_id](int worker_id, communication::rpc::ClientPool &client_pool) {
-        auto result = client_pool.Call<RemovePlanRpc>(plan_id);
-        CHECK(result) << "Failed to remove plan from worker";
+        client_pool.Call<RemovePlanRpc>(plan_id);
       });
 
   for (auto &future : futures) {
-    future.wait();
+    future.get();
   }
 }
 

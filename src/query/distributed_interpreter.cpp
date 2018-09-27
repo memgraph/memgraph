@@ -27,7 +27,13 @@ class DistributedLogicalPlan final : public LogicalPlan {
   ~DistributedLogicalPlan() {
     for (const auto &plan_pair : plan_.worker_plans) {
       const auto &plan_id = plan_pair.first;
-      plan_dispatcher_->RemovePlan(plan_id);
+      try {
+        plan_dispatcher_->RemovePlan(plan_id);
+      } catch (const communication::rpc::RpcFailedException &) {
+        // We ignore RPC exceptions here because the other side can be possibly
+        // shutting down. TODO: If that is not the case then something is really
+        // wrong with the cluster!
+      }
     }
   }
 

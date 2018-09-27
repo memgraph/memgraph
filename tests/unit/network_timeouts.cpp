@@ -80,6 +80,10 @@ TEST(NetworkTimeouts, InactiveSession) {
   // After this sleep the session should have timed out.
   std::this_thread::sleep_for(3500ms);
   ASSERT_FALSE(QueryServer(client, safe_query));
+
+  // Shutdown the server.
+  server.Shutdown();
+  server.AwaitShutdown();
 }
 
 TEST(NetworkTimeouts, ActiveSession) {
@@ -108,6 +112,9 @@ TEST(NetworkTimeouts, ActiveSession) {
   std::this_thread::sleep_for(3500ms);
   ASSERT_FALSE(QueryServer(client, safe_query));
 
+  // Shutdown the server.
+  server.Shutdown();
+  server.AwaitShutdown();
 }
 
 int main(int argc, char **argv) {

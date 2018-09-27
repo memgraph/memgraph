@@ -31,6 +31,11 @@ class StorageGcMaster : public StorageGc {
     // We have to stop scheduler before destroying this class because otherwise
     // a task might try to utilize methods in this class which might cause pure
     // virtual method called since they are not implemented for the base class.
+    CHECK(!scheduler_.IsRunning())
+        << "You must call Stop on database::StorageGcMaster!";
+  }
+
+  void Stop() {
     scheduler_.Stop();
     rpc_server_.UnRegister<distributed::RanLocalGcRpc>();
   }

@@ -13,7 +13,7 @@ DEFINE_int32(tx_per_thread, 1000, "Number of transactions each thread creates");
 int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
 
-  Cluster cluster(5);
+  Cluster cluster(5, "card_fraud_local");
 
   cluster.Execute("CREATE INDEX ON :Card(id)");
   cluster.Execute("CREATE INDEX ON :Transaction(id)");

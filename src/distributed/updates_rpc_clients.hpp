@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "database/state_delta.hpp"
-#include "distributed/rpc_worker_clients.hpp"
+#include "distributed/coordination.hpp"
 #include "distributed/updates_rpc_messages.hpp"
 #include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
@@ -20,8 +20,8 @@ namespace distributed {
 /// apply the accumulated deferred updates, or discard them.
 class UpdatesRpcClients {
  public:
-  explicit UpdatesRpcClients(RpcWorkerClients &clients)
-      : worker_clients_(clients) {}
+  explicit UpdatesRpcClients(Coordination *coordination)
+      : coordination_(coordination) {}
 
   /// Sends an update delta to the given worker.
   UpdateResult Update(int worker_id, const database::StateDelta &delta);
@@ -76,7 +76,7 @@ class UpdatesRpcClients {
       int skip_worker_id, tx::TransactionId tx_id);
 
  private:
-  RpcWorkerClients &worker_clients_;
+  Coordination *coordination_;
 };
 
 }  // namespace distributed

@@ -40,7 +40,8 @@ struct Config {
 
   // Distributed master/worker flags.
   bool dynamic_graph_partitioner_enabled{false};
-  int rpc_num_workers{0};
+  int rpc_num_client_workers{0};
+  int rpc_num_server_workers{0};
   int worker_id{0};
   io::network::Endpoint master_endpoint{"0.0.0.0", 0};
   io::network::Endpoint worker_endpoint{"0.0.0.0", 0};

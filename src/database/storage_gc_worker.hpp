@@ -19,8 +19,11 @@ class StorageGcWorker : public StorageGc {
     // We have to stop scheduler before destroying this class because otherwise
     // a task might try to utilize methods in this class which might cause pure
     // virtual method called since they are not implemented for the base class.
-    scheduler_.Stop();
+    CHECK(!scheduler_.IsRunning())
+        << "You must call Stop on database::StorageGcWorker!";
   }
+
+  void Stop() { scheduler_.Stop(); }
 
   void CollectCommitLogGarbage(tx::TransactionId oldest_active) final {
     // We first need to delete transactions that we can delete to be sure that
@@ -28,6 +31,12 @@ class StorageGcWorker : public StorageGc {
     // try to acquire a lock which hasn't been released (if the transaction
     // cache cleaner was not scheduled at this time), and take a look into the
     // commit log which no longer contains that transaction id.
+    // TODO: when I (mferencevic) refactored the transaction engine code, I
+    // found out that the function `ClearTransactionalCache` of the
+    // `tx::EngineWorker` was called periodically in the transactional cache
+    // cleaner. That code was then moved and can now be found in the
+    // `tx::EngineDistributed` garbage collector. This may not be correct,
+    // @storage_team please investigate this.
     dynamic_cast<tx::EngineWorker &>(tx_engine_)
         .ClearTransactionalCache(oldest_active);
     auto safe_to_delete = GetClogSafeTransaction(oldest_active);

@@ -56,8 +56,11 @@ void StatsDispatchMain(const io::network::Endpoint &endpoint) {
     size_t sent = 0, total = 0;
 
     auto flush_batch = [&] {
-      if (client.Call<BatchStatsRpc>(batch_request)) {
+      try {
+        client.Call<BatchStatsRpc>(batch_request);
         sent += batch_request.requests.size();
+      } catch (const communication::rpc::RpcFailedException &) {
+        DLOG(WARNING) << "BatchStatsRpc failed!";
       }
       total += batch_request.requests.size();
       batch_request.requests.clear();

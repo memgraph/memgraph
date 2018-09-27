@@ -114,7 +114,7 @@ void KafkaStreamWriter(
   try {
     (*session_data.interpreter)(query, *dba, params_pv, false).PullAll(stream);
     dba->Commit();
-  } catch (const query::QueryException &e) {
+  } catch (const utils::BasicException &e) {
     LOG(WARNING) << "[Kafka] query execution failed with an exception: "
                  << e.what();
     dba->Abort();

@@ -6,8 +6,11 @@ Server::Server(const io::network::Endpoint &endpoint,
                size_t workers_count)
     : server_(endpoint, this, &context_, -1, "RPC", workers_count) {}
 
-void Server::StopProcessingCalls() {
+void Server::Shutdown() {
   server_.Shutdown();
+}
+
+void Server::AwaitShutdown() {
   server_.AwaitShutdown();
 }
 

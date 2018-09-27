@@ -20,7 +20,8 @@ namespace fs = std::experimental::filesystem;
 class WorkerInThread {
  public:
   explicit WorkerInThread(database::Config config) : worker_(config) {
-    thread_ = std::thread([this, config] { worker_.WaitForShutdown(); });
+    thread_ =
+        std::thread([this, config] { EXPECT_TRUE(worker_.AwaitShutdown()); });
   }
 
   ~WorkerInThread() {
@@ -84,11 +85,11 @@ class DistributedGraphDbTest : public ::testing::Test {
   }
 
   void ShutDown() {
-    // Kill master first because it will expect a shutdown response from the
-    // workers.
-    auto t = std::thread([this]() { master_ = nullptr; });
+    // Shutdown the master. It will send a shutdown signal to the workers.
+    master_->Shutdown();
+    EXPECT_TRUE(master_->AwaitShutdown());
+    // Wait for all workers to finish shutting down.
     workers_.clear();
-    if (t.joinable()) t.join();
   }
 
   fs::path GetDurabilityDirectory(int worker_id) {
@@ -213,9 +214,9 @@ class Cluster {
   Cluster &operator=(Cluster &&) = delete;
 
   ~Cluster() {
-    auto t = std::thread([this] { master_ = nullptr; });
+    master_->Shutdown();
+    EXPECT_TRUE(master_->AwaitShutdown());
     workers_.clear();
-    if (t.joinable()) t.join();
     if (fs::exists(tmp_dir_)) fs::remove_all(tmp_dir_);
   }
 

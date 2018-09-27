@@ -41,6 +41,10 @@ TEST(Network, SessionLeak) {
   for (int i = 0; i < N; ++i) clients[i].join();
 
   std::this_thread::sleep_for(2s);
+
+  // shutdown server
+  server.Shutdown();
+  server.AwaitShutdown();
 }
 
 // run with "valgrind --leak-check=full ./network_session_leak" to check for

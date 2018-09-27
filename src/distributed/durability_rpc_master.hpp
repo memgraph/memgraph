@@ -4,7 +4,7 @@
 #include <mutex>
 #include <utility>
 
-#include "distributed/rpc_worker_clients.hpp"
+#include "distributed/coordination.hpp"
 #include "durability/recovery.hpp"
 #include "storage/gid.hpp"
 #include "transactions/type.hpp"
@@ -14,7 +14,8 @@ namespace distributed {
 /// Provides an ability to trigger snapshooting on other workers.
 class DurabilityRpcMaster {
  public:
-  explicit DurabilityRpcMaster(RpcWorkerClients &clients) : clients_(clients) {}
+  explicit DurabilityRpcMaster(Coordination *coordination)
+      : coordination_(coordination) {}
 
   // Sends a snapshot request to workers and returns a future which becomes true
   // if all workers sucesfully completed their snapshot creation, false
@@ -26,7 +27,7 @@ class DurabilityRpcMaster {
       durability::RecoveryData *recovery_data);
 
  private:
-  RpcWorkerClients &clients_;
+  Coordination *coordination_;
 };
 
 }  // namespace distributed
