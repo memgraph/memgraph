@@ -137,9 +137,6 @@ if (USE_READLINE)
   endif()
 endif()
 
-set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.62 REQUIRED COMPONENTS iostreams serialization)
-
 # OpenSSL
 find_package(OpenSSL REQUIRED)
 
