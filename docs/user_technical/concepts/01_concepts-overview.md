@@ -6,6 +6,6 @@ are recommended for advanced users and other graph database enthusiasts.
 
 So far we have covered the following topics:
 
-  * [Data Storage](storage.md)
-  * [Graph Algorithms](graph_algorithms.md)
-  * [Indexing](indexing.md)
+  * [Data Storage](02_storage.md)
+  * [Graph Algorithms](03_graph-algorithms.md)
+  * [Indexing](04_indexing.md)

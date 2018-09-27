@@ -6,8 +6,8 @@ information.
 
 We highly recommend checking out the other articles from this series:
 
-  * [Analyzing TED Talks](analyzing_TED_talks.md)
-  * [Graphing the Premier League](graphing_the_premier_league.md)
+  * [Analyzing TED Talks](02_analyzing-TED-talks.md)
+  * [Graphing the Premier League](03_graphing-the-premier-league.md)
 
 ### Introduction
 

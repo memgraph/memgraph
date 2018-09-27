@@ -6,8 +6,8 @@ information.
 
 We highly recommend checking out the other articles from this series:
 
-  * [Exploring the European Road Network](exploring_the_european_road_network.md)
-  * [Graphing the Premier League](graphing_the_premier_league.md)
+  * [Exploring the European Road Network](04_exploring-the-european-road-network.md)
+  * [Graphing the Premier League](03_graphing-the-premier-league.md)
 
 ### Introduction
 

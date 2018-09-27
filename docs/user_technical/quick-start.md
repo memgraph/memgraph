@@ -256,7 +256,7 @@ for some popular programming languages are listed below:
   * [PHP](https://github.com/graphaware/neo4j-bolt-php)
 
 We have included some basic usage examples for some of the supported languages
-in the article about [programmatic querying](how-to_guides/programmatic_querying.md).
+in the article about [programmatic querying](how_to_guides/03_programmatic-querying.md).
 
 ### Telemetry {#telemetry}
 
@@ -276,15 +276,15 @@ as a command-line argument when running the executable.
 ### Where to Next
 
 To learn more about the openCypher language, the user should visit our
-[reference guide](reference_guide/reference_overview.md) article.
+[reference guide](reference_guide/01_reference-overview.md) article.
 For real-world examples of how to use Memgraph, we strongly suggest reading
 through the following articles:
 
-  * [Analyzing TED Talks](tutorials/analyzing_TED_talks.md)
-  * [Graphing the Premier League](tutorials/graphing_the_premier_league.md)
-  * [Exploring the European Road Network](tutorials/exploring_the_european_road_network.md)
+  * [Analyzing TED Talks](tutorials/02_analyzing-TED-talks.md)
+  * [Graphing the Premier League](tutorials/03_graphing-the-premier-league.md)
+  * [Exploring the European Road Network](tutorials/04_exploring-the-european-road-network.md)
 
 Details on what can be stored in Memgraph can be found in the article about
-[Data Storage](concepts/storage.md).
+[Data Storage](concepts/02_storage.md).
 
 We *welcome and encourage* your feedback!

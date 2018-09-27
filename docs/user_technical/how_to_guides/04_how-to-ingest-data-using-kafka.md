@@ -8,7 +8,7 @@ Memgraph offers easy data import at the source using Kafka as the
 high-throughput messaging system.
 
 At this point, we strongly advise you to read the streaming section of our
-[reference guide](../reference_guide/graph_streams.md)
+[reference guide](../reference_guide/07_graph-streams.md)
 
 In this article, we assume you have a local instance of Kafka. You can find
 more about running Kafka [here](https://kafka.apache.org/quickstart).

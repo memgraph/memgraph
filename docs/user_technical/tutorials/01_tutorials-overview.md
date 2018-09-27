@@ -9,6 +9,6 @@ is successfully installed on your system.
 
 So far we have covered the following topics:
 
-  * [Analyzing TED Talks](analyzing_TED_talks.md)
-  * [Graphing the Premier League](graphing_the_premier_league.md)
-  * [Exploring the European Road Network](exploring_the_european_road_network.md)
+  * [Analyzing TED Talks](02_analyzing-TED-talks.md)
+  * [Graphing the Premier League](03_graphing-the-premier-league.md)
+  * [Exploring the European Road Network](04_exploring-the-european-road-network.md)
