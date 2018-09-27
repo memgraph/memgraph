@@ -1,32 +1,81 @@
-# set current directory name as a test type
-get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+set(test_prefix memgraph__concurrent__)
 
-# get all cpp abs file names recursively starting from current directory
-file(GLOB_RECURSE test_type_cpps *.cpp)
-message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
+add_custom_target(memgraph__concurrent)
 
-# for each cpp file build binary and register test
-foreach(test_cpp ${test_type_cpps})
+function(add_concurrent_test test_cpp)
+  # get exec name (remove extension from the abs path)
+  get_filename_component(exec_name ${test_cpp} NAME_WE)
+  set(target_name ${test_prefix}${exec_name})
+  add_executable(${target_name} ${test_cpp})
+  # OUTPUT_NAME sets the real name of a target when it is built and can be
+  # used to help create two targets of the same name even though CMake
+  # requires unique logical target names
+  set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
+  target_link_libraries(${target_name} gtest gmock gtest_main)
+  # register test
+  add_test(${target_name} ${exec_name})
+  add_dependencies(memgraph__concurrent ${target_name})
+endfunction(add_concurrent_test)
 
-    # get exec name (remove extension from the abs path)
-    get_filename_component(exec_name ${test_cpp} NAME_WE)
+add_concurrent_test(dynamic_bitset_clear_n.cpp)
+target_link_libraries(${test_prefix}dynamic_bitset_clear_n memgraph_lib kvstore_dummy_lib)
 
-    set(target_name memgraph__${test_type}__${exec_name})
+add_concurrent_test(dynamic_bitset.cpp)
+target_link_libraries(${test_prefix}dynamic_bitset memgraph_lib kvstore_dummy_lib)
 
-    # build exec file
-    add_executable(${target_name} ${test_cpp})
+add_concurrent_test(dynamic_bitset_set.cpp)
+target_link_libraries(${test_prefix}dynamic_bitset_set memgraph_lib kvstore_dummy_lib)
 
-    # OUTPUT_NAME sets the real name of a target when it is built and can be
-    # used to help create two targets of the same name even though CMake
-    # requires unique logical target names
-    set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
+add_concurrent_test(dynamic_bitset_set_n.cpp)
+target_link_libraries(${test_prefix}dynamic_bitset_set_n memgraph_lib kvstore_dummy_lib)
 
-    # Regular link of libraries we depend on.
-    target_link_libraries(${target_name} gtest gmock gtest_main memgraph_lib)
-    # Link the appropriate kvstore library for required components.
-    target_link_libraries(${target_name} kvstore_dummy_lib)
+add_concurrent_test(futex.cpp)
+target_link_libraries(${test_prefix}futex memgraph_lib kvstore_dummy_lib)
 
-    # register test
-    add_test(${target_name} ${exec_name})
+add_concurrent_test(network_read_hang.cpp)
+target_link_libraries(${test_prefix}network_read_hang memgraph_lib kvstore_dummy_lib)
 
-endforeach()
+add_concurrent_test(network_server.cpp)
+target_link_libraries(${test_prefix}network_server memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(network_session_leak.cpp)
+target_link_libraries(${test_prefix}network_session_leak memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(push_queue.cpp)
+target_link_libraries(${test_prefix}push_queue memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_hang.cpp)
+target_link_libraries(${test_prefix}sl_hang memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_insert_competetive.cpp)
+target_link_libraries(${test_prefix}sl_insert_competetive memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_insert.cpp)
+target_link_libraries(${test_prefix}sl_insert memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_map.cpp)
+target_link_libraries(${test_prefix}sl_map memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_memory.cpp)
+target_link_libraries(${test_prefix}sl_memory memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_memory_leak.cpp)
+target_link_libraries(${test_prefix}sl_memory_leak memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_remove_competetive.cpp)
+target_link_libraries(${test_prefix}sl_remove_competetive memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_remove_disjoint.cpp)
+target_link_libraries(${test_prefix}sl_remove_disjoint memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_remove_joint.cpp)
+target_link_libraries(${test_prefix}sl_remove_joint memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_set.cpp)
+target_link_libraries(${test_prefix}sl_set memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(sl_simulation.cpp)
+target_link_libraries(${test_prefix}sl_simulation memgraph_lib kvstore_dummy_lib)
+
+add_concurrent_test(spinlock.cpp)
+target_link_libraries(${test_prefix}spinlock memgraph_lib kvstore_dummy_lib)

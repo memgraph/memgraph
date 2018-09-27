@@ -1,37 +1,61 @@
-include_directories(${BENCHMARK_INCLUDE_DIR})
+set(test_prefix memgraph__benchmark__)
 
-# set current directory name as a test type
-get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+add_custom_target(memgraph__benchmark)
 
-# get all cpp abs file names recursively starting from current directory
-file(GLOB_RECURSE test_type_cpps *.cpp)
-message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
+function(add_benchmark test_cpp)
+  # get exec name (remove extension from the abs path)
+  get_filename_component(exec_name ${test_cpp} NAME_WE)
+  set(target_name ${test_prefix}${exec_name})
+  add_executable(${target_name} ${test_cpp})
+  # OUTPUT_NAME sets the real name of a target when it is built and can be
+  # used to help create two targets of the same name even though CMake
+  # requires unique logical target names
+  set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
+  target_link_libraries(${target_name} benchmark)
+  target_include_directories(${target_name} PRIVATE ${BENCHMARK_INCLUDE_DIR})
+  # register test
+  set(output_path
+      ${CMAKE_BINARY_DIR}/test_results/benchmark/${target_name}.json)
+  add_test(${target_name} ${exec_name}
+           --benchmark_out_format=json --benchmark_out=${output_path})
+  add_dependencies(memgraph__benchmark ${target_name})
+endfunction(add_benchmark)
 
-# for each cpp file build binary and register test
-foreach(test_cpp ${test_type_cpps})
+add_benchmark(data_structures/concurrent/map_mix_concurrent.cpp)
+target_link_libraries(${test_prefix}map_mix_concurrent memgraph_lib kvstore_dummy_lib)
 
-    # get exec name (remove extension from the abs path)
-    get_filename_component(exec_name ${test_cpp} NAME_WE)
+add_benchmark(data_structures/concurrent/skiplist_insert.cpp)
+target_link_libraries(${test_prefix}skiplist_insert memgraph_lib kvstore_dummy_lib)
 
-    set(target_name memgraph__${test_type}__${exec_name})
+add_benchmark(data_structures/concurrent/skiplist_reverse_iteration.cpp)
+target_link_libraries(${test_prefix}skiplist_reverse_iteration memgraph_lib kvstore_dummy_lib)
 
-    # build exec file
-    add_executable(${target_name} ${test_cpp})
+add_benchmark(data_structures/concurrent/map_concurrent.cpp)
+target_link_libraries(${test_prefix}map_concurrent memgraph_lib kvstore_dummy_lib)
 
-    # OUTPUT_NAME sets the real name of a target when it is built and can be
-    # used to help create two targets of the same name even though CMake
-    # requires unique logical target names
-    set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
+add_benchmark(data_structures/ring_buffer.cpp)
+target_link_libraries(${test_prefix}ring_buffer memgraph_lib kvstore_dummy_lib)
 
-    # Regular link of libraries we depend on.
-    target_link_libraries(${target_name} benchmark memgraph_lib)
-    # Link the appropriate kvstore library for required components.
-    target_link_libraries(${target_name} kvstore_dummy_lib)
+add_benchmark(query/eval.cpp)
+target_link_libraries(${test_prefix}eval memgraph_lib kvstore_dummy_lib)
 
-    # register test
-    set(output_path
-        ${CMAKE_BINARY_DIR}/test_results/benchmark/${target_name}.json)
-    add_test(${target_name} ${exec_name}
-             --benchmark_out_format=json --benchmark_out=${output_path})
+add_benchmark(query/planner.cpp)
+target_link_libraries(${test_prefix}planner memgraph_lib kvstore_dummy_lib)
 
-endforeach()
+add_benchmark(query/stripped.cpp)
+target_link_libraries(${test_prefix}stripped memgraph_lib kvstore_dummy_lib)
+
+add_benchmark(edge_storage.cpp)
+target_link_libraries(${test_prefix}edge_storage memgraph_lib kvstore_dummy_lib)
+
+add_benchmark(mvcc.cpp)
+target_link_libraries(${test_prefix}mvcc memgraph_lib kvstore_dummy_lib)
+
+add_benchmark(serialization.cpp)
+target_link_libraries(${test_prefix}serialization memgraph_lib kvstore_dummy_lib)
+
+add_benchmark(tx_engine.cpp)
+target_link_libraries(${test_prefix}tx_engine memgraph_lib kvstore_dummy_lib)
+
+add_benchmark(expansion.cpp)
+target_link_libraries(${test_prefix}expansion memgraph_lib kvstore_dummy_lib)

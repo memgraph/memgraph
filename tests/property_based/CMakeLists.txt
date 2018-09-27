@@ -1,34 +1,22 @@
-# set current directory name as a test type
-get_filename_component(test_type ${CMAKE_CURRENT_SOURCE_DIR} NAME)
+set(test_prefix memgraph__property_based__)
 
-# get all cpp abs file names recursively starting from current directory
-file(GLOB_RECURSE test_type_cpps *.cpp)
-message(STATUS "Available ${test_type} cpp files are: ${test_type_cpps}")
+add_custom_target(memgraph__property_based)
 
-# for each cpp file build binary and register test
-foreach(test_cpp ${test_type_cpps})
-
+function(add_property_based_test test_cpp)
     # get exec name (remove extension from the abs path)
     get_filename_component(exec_name ${test_cpp} NAME_WE)
-
-    set(target_name memgraph__${test_type}__${exec_name})
-
-    # build exec file
+    set(target_name ${test_prefix}${exec_name})
     add_executable(${target_name} ${test_cpp})
-
     # OUTPUT_NAME sets the real name of a target when it is built and can be
     # used to help create two targets of the same name even though CMake
     # requires unique logical target names
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-
-    # link libraries
-    target_link_libraries(${target_name} memgraph_lib kvstore_dummy_lib)
-    # gtest
     target_link_libraries(${target_name} gtest gtest_main)
     target_link_libraries(${target_name} rapidcheck rapidcheck_gtest)
-
-    # register test
     set(output_path ${CMAKE_BINARY_DIR}/test_results/unit/${target_name}.xml)
     add_test(${target_name} ${exec_name} --gtest_output=xml:${output_path})
+    add_dependencies(memgraph__property_based ${target_name})
+endfunction(add_property_based_test)
 
-endforeach()
+add_property_based_test(random_graph.cpp)
+target_link_libraries(${test_prefix}random_graph memgraph_lib kvstore_dummy_lib)
