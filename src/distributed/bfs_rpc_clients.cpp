@@ -16,20 +16,23 @@ BfsRpcClients::BfsRpcClients(database::DistributedGraphDb *db,
       data_manager_(data_manager) {}
 
 std::unordered_map<int16_t, int64_t> BfsRpcClients::CreateBfsSubcursors(
-    tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
+    database::GraphDbAccessor *dba, query::EdgeAtom::Direction direction,
     const std::vector<storage::EdgeType> &edge_types,
-    query::GraphView graph_view) {
+    const query::plan::ExpansionLambda &filter_lambda,
+    const query::SymbolTable &symbol_table,
+    const query::EvaluationContext &evaluation_context) {
   auto futures = coordination_->ExecuteOnWorkers<std::pair<int16_t, int64_t>>(
-      db_->WorkerId(),
-      [tx_id, direction, &edge_types, graph_view](int worker_id, auto &client) {
+      db_->WorkerId(), [&](int worker_id, auto &client) {
         auto res = client.template Call<CreateBfsSubcursorRpc>(
-            tx_id, direction, edge_types, graph_view);
+            dba->transaction_id(), direction, edge_types, filter_lambda,
+            symbol_table, evaluation_context);
         return std::make_pair(worker_id, res.member);
       });
   std::unordered_map<int16_t, int64_t> subcursor_ids;
   subcursor_ids.emplace(
       db_->WorkerId(),
-      subcursor_storage_->Create(tx_id, direction, edge_types, graph_view));
+      subcursor_storage_->Create(dba, direction, edge_types, symbol_table,
+                                 nullptr, filter_lambda, evaluation_context));
   for (auto &future : futures) {
     auto got = subcursor_ids.emplace(future.get());
     CHECK(got.second) << "CreateBfsSubcursors failed: duplicate worker id";
@@ -55,8 +58,7 @@ void BfsRpcClients::ResetSubcursors(
     const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
   auto futures = coordination_->ExecuteOnWorkers<void>(
       db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
-        client.template Call<ResetSubcursorRpc>(
-            subcursor_ids.at(worker_id));
+        client.template Call<ResetSubcursorRpc>(subcursor_ids.at(worker_id));
       });
   subcursor_storage_->Get(subcursor_ids.at(db_->WorkerId()))->Reset();
   // Wait and get all of the replies.
@@ -85,13 +87,14 @@ std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
     return subcursor_storage_->Get(subcursor_id)->Pull();
   }
 
-  auto res = coordination_->GetClientPool(worker_id)->CallWithLoad<SubcursorPullRpc>(
-      [this, dba](const auto &reader) {
-        SubcursorPullRes res;
-        Load(&res, reader, dba, this->data_manager_);
-        return res;
-      },
-      subcursor_id);
+  auto res =
+      coordination_->GetClientPool(worker_id)->CallWithLoad<SubcursorPullRpc>(
+          [this, dba](const auto &reader) {
+            SubcursorPullRes res;
+            Load(&res, reader, dba, this->data_manager_);
+            return res;
+          },
+          subcursor_id);
   return res.vertex;
 }
 
@@ -101,7 +104,15 @@ bool BfsRpcClients::ExpandLevel(
       db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
         auto res =
             client.template Call<ExpandLevelRpc>(subcursor_ids.at(worker_id));
-        return res.member;
+        switch (res.result) {
+          case ExpandResult::SUCCESS:
+            return true;
+          case ExpandResult::FAILURE:
+            return false;
+          case ExpandResult::LAMBDA_ERROR:
+            throw query::QueryRuntimeException(
+                "Expansion condition must evaluate to boolean or null");
+        }
       });
   bool expanded =
       subcursor_storage_->Get(subcursor_ids.at(db_->WorkerId()))->ExpandLevel();
@@ -133,9 +144,10 @@ bool BfsRpcClients::ExpandToRemoteVertex(
   CHECK(!vertex.is_local())
       << "ExpandToRemoteVertex should not be called with local vertex";
   int worker_id = vertex.address().worker_id();
-  auto res = coordination_->GetClientPool(worker_id)->Call<ExpandToRemoteVertexRpc>(
-      subcursor_ids.at(worker_id), edge.GlobalAddress(),
-      vertex.GlobalAddress());
+  auto res =
+      coordination_->GetClientPool(worker_id)->Call<ExpandToRemoteVertexRpc>(
+          subcursor_ids.at(worker_id), edge.GlobalAddress(),
+          vertex.GlobalAddress());
   return res.member;
 }
 
@@ -179,14 +191,16 @@ PathSegment BfsRpcClients::ReconstructPath(
 }
 
 void BfsRpcClients::PrepareForExpand(
-    const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear) {
+    const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear,
+    const std::vector<query::TypedValue> &frame) {
   auto futures = coordination_->ExecuteOnWorkers<void>(
-      db_->WorkerId(), [clear, &subcursor_ids](int worker_id, auto &client) {
+      db_->WorkerId(),
+      [this, clear, &frame, &subcursor_ids](int worker_id, auto &client) {
         client.template Call<PrepareForExpandRpc>(
-            subcursor_ids.at(worker_id), clear);
+            subcursor_ids.at(worker_id), clear, frame, db_->WorkerId());
       });
   subcursor_storage_->Get(subcursor_ids.at(db_->WorkerId()))
-      ->PrepareForExpand(clear);
+      ->PrepareForExpand(clear, frame);
   // Wait and get all of the replies.
   for (auto &future : futures) {
     if (future.valid()) future.get();

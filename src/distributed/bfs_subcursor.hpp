@@ -8,6 +8,9 @@
 #include "glog/logging.h"
 
 #include "database/graph_db_accessor.hpp"
+#include "query/context.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/eval.hpp"
 #include "query/plan/operator.hpp"
 
 namespace database {
@@ -32,10 +35,13 @@ struct PathSegment {
 /// class per worker, and those instances communicate via RPC calls.
 class ExpandBfsSubcursor {
  public:
-  ExpandBfsSubcursor(database::GraphDb *db, tx::TransactionId tx_id,
+  ExpandBfsSubcursor(database::GraphDbAccessor *dba,
                      query::EdgeAtom::Direction direction,
                      std::vector<storage::EdgeType> edge_types,
-                     query::GraphView graph_view,
+                     query::SymbolTable symbol_table,
+                     std::unique_ptr<query::AstStorage> ast_storage,
+                     query::plan::ExpansionLambda filter_lambda,
+                     query::EvaluationContext evaluation_context,
                      BfsRpcClients *bfs_subcursor_clients);
 
   // Stores subcursor ids of other workers.
@@ -55,7 +61,8 @@ class ExpandBfsSubcursor {
   ///
   /// @param clear   if set to true, `Reset` will be called instead of moving
   ///                `to_visit_next_`
-  void PrepareForExpand(bool clear);
+  //  @param frame   frame for evaluation of filter lambda expression
+  void PrepareForExpand(bool clear, std::vector<query::TypedValue> frame);
 
   /// Expands the BFS frontier once. Returns true if there was a successful
   /// expansion.
@@ -77,7 +84,7 @@ class ExpandBfsSubcursor {
   /// Reconstruct the part of path to given vertex stored on this worker.
   PathSegment ReconstructPath(storage::VertexAddress vertex_addr);
 
-  database::GraphDbAccessor *db_accessor() { return dba_.get(); }
+  database::GraphDbAccessor *db_accessor() { return dba_; }
 
   /// Used to reset subcursor state before starting expansion from new source.
   void Reset();
@@ -96,14 +103,26 @@ class ExpandBfsSubcursor {
 
   BfsRpcClients *bfs_subcursor_clients_{nullptr};
 
-  std::unique_ptr<database::GraphDbAccessor> dba_;
+  database::GraphDbAccessor *dba_;
 
   /// IDs of subcursors on other workers, used when sending RPCs.
   std::unordered_map<int16_t, int64_t> subcursor_ids_;
 
   query::EdgeAtom::Direction direction_;
   std::vector<storage::EdgeType> edge_types_;
-  query::GraphView graph_view_;
+
+  /// Symbol table and AstStorage for filter lambda evaluation. If subcursor
+  /// doesn't own the filter lambda expression, `ast_storage_` is set to
+  /// nullptr.
+  query::SymbolTable symbol_table_;
+  std::unique_ptr<query::AstStorage> ast_storage_;
+  query::plan::ExpansionLambda filter_lambda_;
+
+  /// Evaluation context, frame and expression evaluator for evaluation of
+  /// filter lambda.
+  query::EvaluationContext evaluation_context_;
+  query::Frame frame_;
+  query::ExpressionEvaluator expression_evaluator_;
 
   /// Mutex protecting `to_visit_next_` and `processed_`, because there is a
   /// race between expansions done locally using `ExpandToLocalVertex` and
@@ -130,17 +149,19 @@ class ExpandBfsSubcursor {
 /// Thread-safe storage for BFS subcursors.
 class BfsSubcursorStorage {
  public:
-  explicit BfsSubcursorStorage(database::GraphDb *db,
-                               BfsRpcClients *bfs_subcursor_clients);
+  explicit BfsSubcursorStorage(BfsRpcClients *bfs_subcursor_clients);
 
-  int64_t Create(tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
+  int64_t Create(database::GraphDbAccessor *dba,
+                 query::EdgeAtom::Direction direction,
                  std::vector<storage::EdgeType> edge_types,
-                 query::GraphView graph_view);
+                 query::SymbolTable symbol_table,
+                 std::unique_ptr<query::AstStorage> ast_storage,
+                 query::plan::ExpansionLambda filter_lambda,
+                 query::EvaluationContext evaluation_context);
   void Erase(int64_t subcursor_id);
   ExpandBfsSubcursor *Get(int64_t subcursor_id);
 
  private:
-  database::GraphDb *db_{nullptr};
   BfsRpcClients *bfs_subcursor_clients_{nullptr};
 
   std::mutex mutex_;

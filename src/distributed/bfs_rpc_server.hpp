@@ -24,9 +24,15 @@ class BfsRpcServer {
     server_->Register<CreateBfsSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           CreateBfsSubcursorReq req;
-          Load(&req, req_reader);
-          CreateBfsSubcursorRes res(subcursor_storage_->Create(
-              req.tx_id, req.direction, req.edge_types, req.graph_view));
+          auto ast_storage = std::make_unique<query::AstStorage>();
+          Load(&req, req_reader, ast_storage.get());
+          auto db_accessor = db_->Access(req.tx_id);
+          auto id = subcursor_storage_->Create(
+              db_accessor.get(), req.direction, req.edge_types,
+              std::move(req.symbol_table), std::move(ast_storage),
+              req.filter_lambda, std::move(req.evaluation_context));
+          db_accessors_[id] = std::move(db_accessor);
+          CreateBfsSubcursorRes res(id);
           Save(res, res_builder);
         });
 
@@ -53,6 +59,7 @@ class BfsRpcServer {
         [this](const auto &req_reader, auto *res_builder) {
           RemoveBfsSubcursorReq req;
           Load(&req, req_reader);
+          db_accessors_.erase(req.member);
           subcursor_storage_->Erase(req.member);
           RemoveBfsSubcursorRes res;
           Save(res, res_builder);
@@ -67,13 +74,21 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<ExpandLevelRpc>([this](const auto &req_reader,
-                                             auto *res_builder) {
-      ExpandLevelReq req;
-      Load(&req, req_reader);
-      ExpandLevelRes res(subcursor_storage_->Get(req.member)->ExpandLevel());
-      Save(res, res_builder);
-    });
+    server_->Register<ExpandLevelRpc>(
+        [this](const auto &req_reader, auto *res_builder) {
+          ExpandLevelReq req;
+          Load(&req, req_reader);
+          auto subcursor = subcursor_storage_->Get(req.member);
+          ExpandResult result;
+          try {
+            result = subcursor->ExpandLevel() ? ExpandResult::SUCCESS
+                                              : ExpandResult::FAILURE;
+          } catch (const query::QueryRuntimeException &) {
+            result = ExpandResult::LAMBDA_ERROR;
+          }
+          ExpandLevelRes res(result);
+          Save(res, res_builder);
+        });
 
     server_->Register<SubcursorPullRpc>(
         [this](const auto &req_reader, auto *res_builder) {
@@ -107,15 +122,18 @@ class BfsRpcServer {
       } else {
         LOG(FATAL) << "`edge` or `vertex` should be set in ReconstructPathReq";
       }
-      ReconstructPathRes res(result.edges, result.next_vertex, result.next_edge);
+      ReconstructPathRes res(result.edges, result.next_vertex,
+                             result.next_edge);
       Save(res, res_builder, db_->WorkerId());
     });
 
     server_->Register<PrepareForExpandRpc>([this](const auto &req_reader,
                                                   auto *res_builder) {
       PrepareForExpandReq req;
-      Load(&req, req_reader);
-      subcursor_storage_->Get(req.subcursor_id)->PrepareForExpand(req.clear);
+      auto subcursor_id = req_reader.getSubcursorId();
+      auto *subcursor = subcursor_storage_->Get(subcursor_id);
+      Load(&req, req_reader, subcursor->db_accessor(), &db_->data_manager());
+      subcursor->PrepareForExpand(req.clear, std::move(req.frame));
       PrepareForExpandRes res;
       Save(res, res_builder);
     });
@@ -125,6 +143,7 @@ class BfsRpcServer {
   database::DistributedGraphDb *db_;
 
   communication::rpc::Server *server_;
+  std::map<int64_t, std::unique_ptr<database::GraphDbAccessor>> db_accessors_;
   BfsSubcursorStorage *subcursor_storage_;
 };
 

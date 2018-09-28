@@ -406,11 +406,11 @@ class RuleBasedPlanner {
         DCHECK(!utils::Contains(bound_symbols, edge_symbol))
             << "Existing edges are not supported";
         if (edge->IsVariable()) {
-          std::experimental::optional<ExpandVariable::Lambda> weight_lambda;
+          std::experimental::optional<ExpansionLambda> weight_lambda;
           std::experimental::optional<Symbol> total_weight;
 
           if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
-            weight_lambda.emplace(ExpandVariable::Lambda{
+            weight_lambda.emplace(ExpansionLambda{
                 symbol_table.at(*edge->weight_lambda_.inner_edge),
                 symbol_table.at(*edge->weight_lambda_.inner_node),
                 edge->weight_lambda_.expression});
@@ -418,7 +418,7 @@ class RuleBasedPlanner {
             total_weight.emplace(symbol_table.at(*edge->total_weight_));
           }
 
-          ExpandVariable::Lambda filter_lambda;
+          ExpansionLambda filter_lambda;
           filter_lambda.inner_edge_symbol =
               symbol_table.at(*edge->filter_lambda_.inner_edge);
           filter_lambda.inner_node_symbol =

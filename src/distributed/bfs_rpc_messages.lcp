@@ -6,7 +6,9 @@
 #include "communication/rpc/messages.hpp"
 #include "distributed/bfs_rpc_messages.capnp.h"
 #include "distributed/bfs_subcursor.hpp"
-#include "query/plan/operator.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+#include "query/plan/distributed_ops.hpp"
+#include "query/serialization.hpp"
 #include "storage/serialization.hpp"
 #include "transactions/type.hpp"
 #include "utils/serialization.hpp"
@@ -17,12 +19,15 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'ast "/query/frontend/ast/ast.capnp")
-(lcp:capnp-import 'query "/query/common.capnp")
+(lcp:capnp-import 'dist-ops "/query/plan/distributed_ops.capnp")
+(lcp:capnp-import 'query "/query/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/serialization.capnp")
+(lcp:capnp-import 'symbol "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "storage::EdgeAddress" "Storage.Address")
 (lcp:capnp-type-conversion "storage::VertexAddress" "Storage.Address")
+(lcp:capnp-type-conversion "storage::EdgeType" "Storage.Common")
 
 (lcp:define-rpc create-bfs-subcursor
     (:request
@@ -35,17 +40,36 @@ cpp<#
                  :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Direction"
                                                   "query::EdgeAtom::Direction"
                                                   '(in out both)))
-      ;; TODO(mtomic): Why isn't edge-types serialized?
       (edge-types "std::vector<storage::EdgeType>"
-                  :capnp-save :dont-save)
-      (graph-view "query::GraphView"
-                  :capnp-type "Query.GraphView" :capnp-init nil
-                  :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView"
-                                                   "query::GraphView"
-                                                   '(old new))
-                  :capnp-load (lcp:capnp-load-enum "::query::capnp::GraphView"
-                                                   "query::GraphView"
-                                                   '(old new)))))
+                  :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common"
+                                                     "storage::EdgeType")
+                  :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common"
+                                                     "storage::EdgeType"))
+      (filter-lambda "query::plan::ExpansionLambda"
+                     :capnp-type "DistOps.ExpansionLambda"
+                     :capnp-save (lambda (builder member capnp-name)
+                                   #>cpp
+                                   std::vector<int> saved_ast_uids;
+                                   Save(${member}, &${builder}, &saved_ast_uids);
+                                   cpp<#)
+                     :capnp-load (lambda (reader member capnp-name)
+                                    #>cpp
+                                    std::vector<int> loaded_ast_uids;
+                                    Load(&${member}, ${reader}, ast_storage, &loaded_ast_uids);
+                                    cpp<#))
+      (symbol-table "query::SymbolTable"
+                    :capnp-type "Symbol.SymbolTable")
+      (evaluation-context "query::EvaluationContext"
+                          :capnp-type "Query.EvaluationContext"
+                          :capnp-save (lambda (builder member capnp-name)
+                                        #>cpp
+                                        query::SaveEvaluationContext(${member}, &${builder});
+                                        cpp<#)
+                          :capnp-load (lambda (reader member capnp-name)
+                                        #>cpp
+                                        query::LoadEvaluationContext(${reader}, &${member});
+                                        cpp<#)))
+     (:serialize :capnp :load-args '((ast-storage "query::AstStorage *"))))
   (:response ((member :int64_t))))
 
 (lcp:define-rpc register-subcursors
@@ -86,9 +110,13 @@ cpp<#
     (:request ((member :int64_t)))
   (:response ()))
 
+(lcp:define-enum expand-result
+  (success failure lambda-error)
+  (:serialize :capnp))
+
 (lcp:define-rpc expand-level
     (:request ((member :int64_t)))
-  (:response ((member :bool))))
+  (:response ((result "ExpandResult"))))
 
 (lcp:define-rpc subcursor-pull
   (:request ((member :int64_t)))
@@ -193,7 +221,28 @@ cpp<#
 (lcp:define-rpc prepare-for-expand
     (:request
      ((subcursor-id :int64_t)
-      (clear :bool)))
+      (clear :bool)
+      (frame "std::vector<query::TypedValue>"
+             :capnp-type "List(Query.TypedValue)"
+             :capnp-save (lcp:capnp-save-vector
+                           "query::capnp::TypedValue"
+                           "query::TypedValue"
+                           "[&self](auto *builder, const auto &value) {
+                              query::SaveCapnpTypedValue(value, builder,
+                                                         storage::SendVersions::ONLY_OLD, self.worker_id);
+                            }")
+             :capnp-load (lcp:capnp-load-vector
+                           "query::capnp::TypedValue"
+                           "query::TypedValue"
+                           "[dba, data_manager](const auto &reader) {
+                              query::TypedValue value;
+                              query::LoadCapnpTypedValue(reader, &value, dba, data_manager);
+                              return value;
+                            }"))
+      (worker-id :int :capnp-save :dont-save))
+     (:serialize :capnp
+                 :load-args '((dba "database::GraphDbAccessor *")
+                              (data-manager "distributed::DataManager *"))))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

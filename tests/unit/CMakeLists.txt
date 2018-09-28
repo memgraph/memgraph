@@ -58,9 +58,6 @@ target_link_libraries(${test_prefix}datastructure_union_find memgraph_lib kvstor
 add_unit_test(deferred_deleter.cpp)
 target_link_libraries(${test_prefix}deferred_deleter memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(distributed_bfs.cpp)
-target_link_libraries(${test_prefix}distributed_bfs memgraph_lib kvstore_dummy_lib)
-
 add_unit_test(distributed_coordination.cpp)
 target_link_libraries(${test_prefix}distributed_coordination memgraph_lib kvstore_dummy_lib)
 
@@ -100,6 +97,12 @@ target_link_libraries(${test_prefix}distributed_updates memgraph_lib kvstore_dum
 # TODO (buda): Replace token sharing with centralized solution and write an appropriate test.
 # add_unit_test(distributed_token_sharing.cpp)
 # target_link_libraries(${test_prefix}distributed_token_sharing memgraph_lib kvstore_dummy_lib)
+
+add_unit_test(bfs_distributed.cpp)
+target_link_libraries(${test_prefix}bfs_distributed memgraph_lib kvstore_dummy_lib)
+
+add_unit_test(bfs_single_node.cpp)
+target_link_libraries(${test_prefix}bfs_single_node memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(distributed_dgp_partitioner.cpp)
 target_link_libraries(${test_prefix}distributed_dgp_partitioner memgraph_lib kvstore_dummy_lib)

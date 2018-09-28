@@ -23,13 +23,14 @@ class BfsRpcClients {
  public:
   BfsRpcClients(database::DistributedGraphDb *db,
                 BfsSubcursorStorage *subcursor_storage,
-                Coordination *coordination,
-                DataManager *data_manager);
+                Coordination *coordination, DataManager *data_manager);
 
   std::unordered_map<int16_t, int64_t> CreateBfsSubcursors(
-      tx::TransactionId tx_id, query::EdgeAtom::Direction direction,
+      database::GraphDbAccessor *dba, query::EdgeAtom::Direction direction,
       const std::vector<storage::EdgeType> &edge_types,
-      query::GraphView graph_view);
+      const query::plan::ExpansionLambda &filter_lambda,
+      const query::SymbolTable &symbol_table,
+      const query::EvaluationContext &evaluation_context);
 
   void RegisterSubcursors(
       const std::unordered_map<int16_t, int64_t> &subcursor_ids);
@@ -61,7 +62,8 @@ class BfsRpcClients {
       storage::VertexAddress vertex, database::GraphDbAccessor *dba);
 
   void PrepareForExpand(
-      const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear);
+      const std::unordered_map<int16_t, int64_t> &subcursor_ids, bool clear,
+      const std::vector<query::TypedValue> &frame);
 
  private:
   database::DistributedGraphDb *db_;

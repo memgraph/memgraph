@@ -1,10 +1,20 @@
 @0xf47e119e21912f20;
 
+using Ast = import "/query/frontend/ast/ast.capnp";
 using Cxx = import "/capnp/c++.capnp";
 using Storage = import "/storage/serialization.capnp";
 using Utils = import "/utils/serialization.capnp";
 
 $Cxx.namespace("query::capnp");
+
+enum GraphView {
+  old @0;
+  new @1;
+}
+
+struct TypedValueVectorCompare {
+  ordering @0 :List(Ast.Ordering);
+}
 
 struct EvaluationContext {
   timestamp @0 : Int64;

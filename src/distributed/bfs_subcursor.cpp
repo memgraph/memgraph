@@ -4,6 +4,7 @@
 
 #include "database/distributed_graph_db.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
+#include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
 #include "storage/address_types.hpp"
 #include "storage/vertex_accessor.hpp"
@@ -13,15 +14,23 @@ namespace distributed {
 using query::TypedValue;
 
 ExpandBfsSubcursor::ExpandBfsSubcursor(
-    database::GraphDb *db, tx::TransactionId tx_id,
-    query::EdgeAtom::Direction direction,
-    std::vector<storage::EdgeType> edge_types, query::GraphView graph_view,
+    database::GraphDbAccessor *dba, query::EdgeAtom::Direction direction,
+    std::vector<storage::EdgeType> edge_types, query::SymbolTable symbol_table,
+    std::unique_ptr<query::AstStorage> ast_storage,
+    query::plan::ExpansionLambda filter_lambda,
+    query::EvaluationContext evaluation_context,
     BfsRpcClients *bfs_subcursor_clients)
     : bfs_subcursor_clients_(bfs_subcursor_clients),
-      dba_(db->Access(tx_id)),
+      dba_(dba),
       direction_(direction),
       edge_types_(std::move(edge_types)),
-      graph_view_(graph_view) {
+      symbol_table_(std::move(symbol_table)),
+      ast_storage_(std::move(ast_storage)),
+      filter_lambda_(filter_lambda),
+      evaluation_context_(std::move(evaluation_context)),
+      frame_(symbol_table_.max_position()),
+      expression_evaluator_(&frame_, symbol_table_, evaluation_context_, dba_,
+                            query::GraphView::OLD) {
   Reset();
 }
 
@@ -35,14 +44,15 @@ void ExpandBfsSubcursor::Reset() {
 void ExpandBfsSubcursor::SetSource(storage::VertexAddress source_address) {
   Reset();
   auto source = VertexAccessor(source_address, *dba_);
-  SwitchAccessor(source, graph_view_);
   processed_.emplace(source, std::experimental::nullopt);
   ExpandFromVertex(source);
 }
 
-void ExpandBfsSubcursor::PrepareForExpand(bool clear) {
+void ExpandBfsSubcursor::PrepareForExpand(
+    bool clear, std::vector<query::TypedValue> frame) {
   if (clear) {
     Reset();
+    frame_.elems() = std::move(frame);
   } else {
     std::swap(to_visit_current_, to_visit_next_);
     to_visit_next_.clear();
@@ -71,7 +81,6 @@ bool ExpandBfsSubcursor::ExpandToLocalVertex(storage::EdgeAddress edge,
       << "ExpandToLocalVertex called with remote vertex";
 
   edge = dba_->db().storage().LocalizedAddressIfPossible(edge);
-  SwitchAccessor(vertex, graph_view_);
 
   std::lock_guard<std::mutex> lock(mutex_);
   auto got = processed_.emplace(vertex, edge);
@@ -146,7 +155,18 @@ void ExpandBfsSubcursor::ReconstructPathHelper(VertexAccessor vertex,
 
 bool ExpandBfsSubcursor::ExpandToVertex(EdgeAccessor edge,
                                         VertexAccessor vertex) {
-  // TODO(mtomic): lambda filtering in distributed
+  if (filter_lambda_.expression) {
+    frame_[filter_lambda_.inner_edge_symbol] = edge;
+    frame_[filter_lambda_.inner_node_symbol] = vertex;
+    TypedValue result =
+        filter_lambda_.expression->Accept(expression_evaluator_);
+    if (!result.IsNull() && !result.IsBool()) {
+      throw query::QueryRuntimeException(
+          "Expansion condition must evaluate to boolean or null");
+    }
+    if (result.IsNull() || !result.ValueBool()) return false;
+  }
+
   return vertex.is_local() ? ExpandToLocalVertex(edge.address(), vertex)
                            : bfs_subcursor_clients_->ExpandToRemoteVertex(
                                  subcursor_ids_, edge, vertex);
@@ -165,20 +185,22 @@ bool ExpandBfsSubcursor::ExpandFromVertex(VertexAccessor vertex) {
   return expanded;
 }
 
-BfsSubcursorStorage::BfsSubcursorStorage(database::GraphDb *db,
-                                         BfsRpcClients *bfs_subcursor_clients)
-    : db_(db), bfs_subcursor_clients_(bfs_subcursor_clients) {}
+BfsSubcursorStorage::BfsSubcursorStorage(BfsRpcClients *bfs_subcursor_clients)
+    : bfs_subcursor_clients_(bfs_subcursor_clients) {}
 
-int64_t BfsSubcursorStorage::Create(tx::TransactionId tx_id,
-                                    query::EdgeAtom::Direction direction,
-                                    std::vector<storage::EdgeType> edge_types,
-                                    query::GraphView graph_view) {
+int64_t BfsSubcursorStorage::Create(
+    database::GraphDbAccessor *dba, query::EdgeAtom::Direction direction,
+    std::vector<storage::EdgeType> edge_types, query::SymbolTable symbol_table,
+    std::unique_ptr<query::AstStorage> ast_storage,
+    query::plan::ExpansionLambda filter_lambda,
+    query::EvaluationContext evaluation_context) {
   std::lock_guard<std::mutex> lock(mutex_);
   int64_t id = next_subcursor_id_++;
-  auto got =
-      storage_.emplace(id, std::make_unique<ExpandBfsSubcursor>(
-                               db_, tx_id, direction, std::move(edge_types),
-                               graph_view, bfs_subcursor_clients_));
+  auto got = storage_.emplace(
+      id, std::make_unique<ExpandBfsSubcursor>(
+              dba, direction, std::move(edge_types), std::move(symbol_table),
+              std::move(ast_storage), filter_lambda,
+              std::move(evaluation_context), bfs_subcursor_clients_));
   CHECK(got.second) << "Subcursor with ID " << id << " already exists";
   return id;
 }

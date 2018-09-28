@@ -139,4 +139,30 @@ void LoadCapnpTypedValue(const capnp::TypedValue::Reader &reader,
   }
 }
 
+void SaveEvaluationContext(const EvaluationContext &ctx,
+                           capnp::EvaluationContext::Builder *builder) {
+  builder->setTimestamp(ctx.timestamp);
+  auto params_builder =
+      builder->initParams().initEntries(ctx.parameters.size());
+  size_t i = 0;
+  for (auto &entry : ctx.parameters) {
+    auto builder = params_builder[i];
+    auto key_builder = builder.initKey();
+    key_builder.setValue(entry.first);
+    auto value_builder = builder.initValue();
+    storage::SaveCapnpPropertyValue(entry.second, &value_builder);
+    ++i;
+  }
+}
+
+void LoadEvaluationContext(const capnp::EvaluationContext::Reader &reader,
+                           EvaluationContext *ctx) {
+  ctx->timestamp = reader.getTimestamp();
+  for (const auto &entry_reader : reader.getParams().getEntries()) {
+    PropertyValue value;
+    storage::LoadCapnpPropertyValue(entry_reader.getValue(), &value);
+    ctx->parameters.Add(entry_reader.getKey().getValue(), value);
+  }
+}
+
 }  // namespace query

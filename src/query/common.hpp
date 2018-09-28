@@ -7,10 +7,9 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/serialization.capnp.h"
 #include "query/typed_value.hpp"
 #include "storage/types.hpp"
-
-#include "query/common.capnp.h"
 
 namespace query {
 

@@ -141,13 +141,13 @@ cpp<#
 (lcp:capnp-import 'storage "/storage/serialization.capnp")
 (lcp:capnp-import 'ast "/query/frontend/ast/ast.capnp")
 (lcp:capnp-import 'semantic "/query/frontend/semantic/symbol.capnp")
-(lcp:capnp-import 'common "/query/common.capnp")
+(lcp:capnp-import 'query "/query/serialization.capnp")
 
 (lcp:capnp-type-conversion "Symbol" "Semantic.Symbol")
 (lcp:capnp-type-conversion "storage::Label" "Storage.Common")
 (lcp:capnp-type-conversion "storage::Property" "Storage.Common")
 (lcp:capnp-type-conversion "storage::EdgeType" "Storage.Common")
-(lcp:capnp-type-conversion "GraphView" "Common.GraphView")
+(lcp:capnp-type-conversion "GraphView" "Query.GraphView")
 
 (lcp:define-class logical-operator ("::utils::Visitable<HierarchicalLogicalOperatorVisitor>")
   ()
@@ -810,6 +810,33 @@ pulled.")
    cpp<#)
   (:serialize :capnp :inherit-compose '(expand-common)))
 
+(lcp:define-struct expansion-lambda ()
+  ((inner-edge-symbol "Symbol" :documentation "Currently expanded edge symbol.")
+   (inner-node-symbol "Symbol" :documentation "Currently expanded node symbol.")
+   (expression "Expression *" :documentation "Expression used in lambda during expansion."
+               :capnp-type "Ast.Tree" :capnp-init nil
+               :capnp-save (lambda (builder member capnp-name)
+                             #>cpp
+                             if (${member}) {
+                               auto expression_builder = ${builder}->initExpression();
+                               ${member}->Save(&expression_builder, saved_ast_uids);
+                             }
+                             cpp<#)
+               :capnp-load (lambda (reader member capnp-name)
+                             #>cpp
+                             if (${reader}.hasExpression()) {
+                               ${member} = static_cast<Expression *>(
+                                             ast_storage->Load(${reader}.getExpression(),
+                                             loaded_ast_uids));
+                             } else {
+                               ${member} = nullptr;
+                             }
+                             cpp<#)))
+  (:serialize :capnp
+              :save-args '((saved-ast-uids "std::vector<int> *"))
+              :load-args '((ast-storage "AstStorage *")
+                           (loaded-ast-uids "std::vector<int> *"))))
+
 (lcp:define-class expand-variable (logical-operator expand-common)
   ((type "EdgeAtom::Type" :scope :public :capnp-type "Ast.EdgeAtom.Type"
          :capnp-init nil
@@ -827,14 +854,29 @@ pulled.")
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Optional upper bound of the variable length expansion, defaults are (1, inf)")
-   (filter-lambda "Lambda" :scope :public)
-   (weight-lambda "std::experimental::optional<Lambda>" :scope :public
+   (filter-lambda "ExpansionLambda" 
+                  :scope :public
+                  :capnp-save (lambda (builder member capnp-name)
+                                #>cpp
+                                Save(${member}, &${builder}, &helper->saved_ast_uids);
+                                cpp<#)
+                  :capnp-load (lambda (reader member capnp-name)
+                                #>cpp
+                                Load(&${member}, ${reader}, &helper->ast_storage, &helper->loaded_ast_uids);
+                                cpp<#))
+   (weight-lambda "std::experimental::optional<ExpansionLambda>" :scope :public
                   :capnp-save (lcp:capnp-save-optional
-                               "capnp::ExpandVariable::Lambda" "ExpandVariable::Lambda"
-                               "[helper](auto *builder, const auto &val) { Save(val, builder, helper); }")
+                               "capnp::ExpansionLambda" "ExpansionLambda"
+                               "[helper](auto *builder, const auto &val) { 
+                                  Save(val, builder, &helper->saved_ast_uids); 
+                                }")
                   :capnp-load (lcp:capnp-load-optional
-                               "capnp::ExpandVariable::Lambda" "ExpandVariable::Lambda"
-                               "[helper](const auto &reader) { ExpandVariable::Lambda val; Load(&val, reader, helper); return val; }"))
+                               "capnp::ExpansionLambda" "ExpansionLambda"
+                               "[helper](const auto &reader) { 
+                                  ExpansionLambda val;
+                                  Load(&val, reader, &helper->ast_storage, &helper->loaded_ast_uids);
+                                  return val;
+                                }"))
    (total-weight "std::experimental::optional<Symbol>" :scope :public
                  :capnp-save (lcp:capnp-save-optional "::query::capnp::Symbol" "Symbol")
                  :capnp-load (lcp:capnp-load-optional "::query::capnp::Symbol" "Symbol")))
@@ -856,15 +898,6 @@ MATCH (a) MATCH (a)--(b)),
 only expansions that match defined equalities are succesfully
 pulled.")
   (:public
-   (lcp:define-struct lambda ()
-     ((inner-edge-symbol "Symbol" :documentation "Currently expanded edge symbol.")
-      (inner-node-symbol "Symbol" :documentation "Currently expanded node symbol.")
-      (expression "Expression *" :documentation "Expression used in lambda during expansion."
-                  :capnp-type "Ast.Tree" :capnp-init nil
-                  :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")))
-     (:serialize :capnp
-                 :save-args '((helper "LogicalOperator::SaveHelper *"))
-                 :load-args '((helper "LogicalOperator::LoadHelper *"))))
    #>cpp
    ExpandVariable() {}
 
@@ -897,8 +930,9 @@ pulled.")
                   bool is_reverse, Expression *lower_bound,
                   Expression *upper_bound,
                   const std::shared_ptr<LogicalOperator> &input,
-                  Symbol input_symbol, bool existing_node, Lambda filter_lambda,
-                  std::experimental::optional<Lambda> weight_lambda,
+                  Symbol input_symbol, bool existing_node,
+                  ExpansionLambda filter_lambda,
+                  std::experimental::optional<ExpansionLambda> weight_lambda,
                   std::experimental::optional<Symbol> total_weight,
                   GraphView graph_view);
 
@@ -1774,7 +1808,7 @@ input should be performed).")
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (compare "TypedValueVectorCompare" :scope :public
-            :capnp-type "Common.TypedValueVectorCompare")
+            :capnp-type "Query.TypedValueVectorCompare")
    (order-by "std::vector<Expression *>" :scope :public
              :capnp-type "List(Ast.Tree)"
              :capnp-save (save-ast-vector "Expression *")

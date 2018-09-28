@@ -123,7 +123,7 @@ DistributedExpandBfs::DistributedExpandBfs(
     const std::vector<storage::EdgeType> &edge_types,
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
     bool existing_node, GraphView graph_view, Expression *lower_bound,
-    Expression *upper_bound, const ExpandVariable::Lambda &filter_lambda)
+    Expression *upper_bound, const ExpansionLambda &filter_lambda)
     : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
                    input_symbol, existing_node, graph_view),
       lower_bound_(lower_bound),
@@ -1023,18 +1023,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   DistributedExpandBfsCursor(const DistributedExpandBfs &self,
                              database::GraphDbAccessor &db)
       : self_(self), db_(db), input_cursor_(self_.input()->MakeCursor(db)) {
-    // TODO: Pass in a DistributedGraphDb.
-    if (auto *distributed_db =
-            dynamic_cast<database::DistributedGraphDb *>(&db.db())) {
-      bfs_subcursor_clients_ = &distributed_db->bfs_subcursor_clients();
-    }
-    CHECK(bfs_subcursor_clients_);
-    subcursor_ids_ = bfs_subcursor_clients_->CreateBfsSubcursors(
-        db_.transaction_id(), self_.direction_, self_.edge_types_,
-        self_.graph_view_);
-    bfs_subcursor_clients_->RegisterSubcursors(subcursor_ids_);
-    VLOG(10) << "BFS subcursors initialized";
-    pull_pos_ = subcursor_ids_.end();
+    CHECK(self_.graph_view_ == GraphView::OLD)
+        << "ExpandVariable should only be planned with GraphView::OLD";
   }
 
   ~DistributedExpandBfsCursor() {
@@ -1042,10 +1032,28 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     bfs_subcursor_clients_->RemoveBfsSubcursors(subcursor_ids_);
   }
 
+  void InitSubcursors(database::GraphDbAccessor *dba,
+                      const query::SymbolTable &symbol_table,
+                      const EvaluationContext &evaluation_context) {
+    // TODO: Pass in a DistributedGraphDb.
+    if (auto *distributed_db =
+            dynamic_cast<database::DistributedGraphDb *>(&dba->db())) {
+      bfs_subcursor_clients_ = &distributed_db->bfs_subcursor_clients();
+    }
+    CHECK(bfs_subcursor_clients_);
+    subcursor_ids_ = bfs_subcursor_clients_->CreateBfsSubcursors(
+        dba, self_.direction_, self_.edge_types_, self_.filter_lambda_,
+        symbol_table, evaluation_context);
+    bfs_subcursor_clients_->RegisterSubcursors(subcursor_ids_);
+    VLOG(10) << "BFS subcursors initialized";
+    pull_pos_ = subcursor_ids_.end();
+  }
+
   bool Pull(Frame &frame, Context &context) override {
-    // TODO(mtomic): lambda filtering in distributed
-    if (self_.filter_lambda_.expression) {
-      throw utils::NotYetImplemented("lambda filtering in distributed BFS");
+    if (!subcursors_initialized_) {
+      InitSubcursors(&context.db_accessor_, context.symbol_table_,
+                     context.evaluation_context_);
+      subcursors_initialized_ = true;
     }
 
     // Evaluator for the filtering condition and expansion depth.
@@ -1064,7 +1072,6 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
                                                        pull_pos_->second, &db_);
             if (vertex) {
               last_vertex = *vertex;
-              SwitchAccessor(last_vertex.ValueVertex(), self_.graph_view_);
               break;
             }
             VLOG(10) << "Nothing to pull from " << pull_pos_->first;
@@ -1075,8 +1082,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
           // Handle existence flag
           if (self_.existing_node_) {
             TypedValue &node = frame[self_.node_symbol_];
-            // Due to optional matching the existing node could be null
-            if (node.IsNull() || (node != last_vertex).ValueBool()) continue;
+            if ((node != last_vertex).ValueBool()) continue;
             // There is no point in traversing the rest of the graph because BFS
             // can find only one path to a certain node.
             skip_rest_ = true;
@@ -1115,8 +1121,6 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
             if (!current_vertex_addr && !current_edge_addr) break;
           }
           std::reverse(edges.begin(), edges.end());
-          for (auto &edge : edges)
-            SwitchAccessor(edge.ValueEdge(), self_.graph_view_);
           frame[self_.edge_symbol_] = std::move(edges);
           return true;
         }
@@ -1128,7 +1132,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
         if (current_depth_ < upper_bound_) {
           VLOG(10) << "Trying to expand again...";
           current_depth_++;
-          bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, false);
+          bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, false, {});
           if (bfs_subcursor_clients_->ExpandLevel(subcursor_ids_)) {
             continue;
           }
@@ -1141,8 +1145,9 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
       auto vertex_value = frame[self_.input_symbol_];
 
-      // It is possible that the vertex is Null due to optional matching.
+      // Source or sink node could be null due to optional matching.
       if (vertex_value.IsNull()) continue;
+      if (self_.existing_node_ && frame[self_.node_symbol_].IsNull()) continue;
 
       auto vertex = vertex_value.ValueVertex();
       lower_bound_ = self_.lower_bound_
@@ -1153,16 +1158,18 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
                          ? EvaluateInt(&evaluator, self_.upper_bound_,
                                        "Max depth in breadth-first expansion")
                          : std::numeric_limits<int64_t>::max();
+
+      if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
+
       skip_rest_ = false;
 
-      if (upper_bound_ < 1) {
-        throw QueryRuntimeException(
-            "Max depth in breadth-first expansion must be at least 1");
-      }
+      pull_pos_ = subcursor_ids_.begin();
 
       VLOG(10) << "Starting BFS from " << vertex << " with limits "
                << lower_bound_ << ".." << upper_bound_;
-      bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, true);
+
+      bfs_subcursor_clients_->PrepareForExpand(subcursor_ids_, true,
+                                               frame.elems());
       bfs_subcursor_clients_->SetSource(subcursor_ids_, vertex.GlobalAddress());
       current_depth_ = 1;
     }
@@ -1199,6 +1206,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
   // Next worker master should try pulling from.
   std::unordered_map<int16_t, int64_t>::iterator pull_pos_;
+
+  bool subcursors_initialized_{false};
 };
 
 // Returns a random worker id. Worker ID is obtained from the Db.
@@ -1349,8 +1358,7 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
       ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
       return dest_node_value.Value<VertexAccessor>();
     } else {
-      return CreateVertexOnWorker(worker_id, self_->node_atom_, frame,
-                                  context);
+      return CreateVertexOnWorker(worker_id, self_->node_atom_, frame, context);
     }
   }
 

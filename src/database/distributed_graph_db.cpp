@@ -625,8 +625,7 @@ class Master {
           *storage_, tx_engine_, config_.gc_cycle_sec, server_, coordination_);
   TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{server_};
   database::MasterCounters counters_{&server_};
-  distributed::BfsSubcursorStorage subcursor_storage_{self_,
-                                                      &bfs_subcursor_clients_};
+  distributed::BfsSubcursorStorage subcursor_storage_{&bfs_subcursor_clients_};
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{
@@ -1008,8 +1007,7 @@ class Worker {
   TypemapPack<storage::WorkerConcurrentIdMapper> typemap_pack_{
       *coordination_.GetClientPool(0)};
   database::WorkerCounters counters_{coordination_.GetClientPool(0)};
-  distributed::BfsSubcursorStorage subcursor_storage_{self_,
-                                                      &bfs_subcursor_clients_};
+  distributed::BfsSubcursorStorage subcursor_storage_{&bfs_subcursor_clients_};
   distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{

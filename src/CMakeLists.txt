@@ -134,7 +134,6 @@ add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
 
 add_capnp(communication/rpc/messages.capnp)
 add_capnp(durability/recovery.capnp)
-add_capnp(query/common.capnp)
 add_capnp(query/frontend/ast/ast.capnp)
 add_capnp(query/frontend/semantic/symbol.capnp)
 add_capnp(query/serialization.capnp)

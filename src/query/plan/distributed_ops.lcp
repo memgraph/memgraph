@@ -160,7 +160,7 @@ Logic of the synchronize operator is:
              :capnp-save (save-ast-vector "Expression *")
              :capnp-load (load-ast-vector "Expression *"))
    (compare "TypedValueVectorCompare" :scope :public
-            :capnp-type "Common.TypedValueVectorCompare"))
+            :capnp-type "Query.TypedValueVectorCompare"))
   (:documentation
    "Operator that merges distributed OrderBy operators.
 Instead of using a regular OrderBy on master (which would collect all remote
@@ -220,9 +220,17 @@ by having only one result from each worker.")
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
                 :capnp-load (load-ast-pointer "Expression *"))
-   (filter-lambda "ExpandVariable::Lambda" :scope :public
+   (filter-lambda "ExpansionLambda" :scope :public
                   :documentation "Filter that must be satisfied for expansion to succeed."
-                  :capnp-type "ExpandVariable.Lambda"))
+                  :capnp-type "ExpansionLambda"
+                  :capnp-save (lambda (builder member capnp-name)
+                                #>cpp
+                                Save(${member}, &${builder}, &helper->saved_ast_uids);
+                                cpp<#)
+                  :capnp-load (lambda (reader member capnp-name)
+                                #>cpp
+                                Load(&${member}, ${reader}, &helper->ast_storage, &helper->loaded_ast_uids);
+                                cpp<#)))
   (:documentation "BFS expansion operator suited for distributed execution.")
   (:public
    #>cpp
@@ -234,7 +242,7 @@ by having only one result from each worker.")
                         Symbol input_symbol, bool existing_node,
                         GraphView graph_view, Expression *lower_bound,
                         Expression *upper_bound,
-                        const ExpandVariable::Lambda &filter_lambda);
+                        const ExpansionLambda &filter_lambda);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(

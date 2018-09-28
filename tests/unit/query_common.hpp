@@ -483,6 +483,8 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   std::make_pair(property_name, dba.Property(property_name))
 #define PROPERTY_LOOKUP(...) \
   query::test_common::GetPropertyLookup(storage, dba, __VA_ARGS__)
+#define PARAMETER_LOOKUP(token_position) \
+  storage.Create<query::ParameterLookup>((token_position))
 #define NEXPR(name, expr) storage.Create<query::NamedExpression>((name), (expr))
 // AS is alternative to NEXPR which does not initialize NamedExpression with
 // Expression. It should be used with RETURN or WITH. For example:
@@ -554,6 +556,8 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define OR(expr1, expr2) storage.Create<query::OrOperator>((expr1), (expr2))
 #define IN_LIST(expr1, expr2) \
   storage.Create<query::InListOperator>((expr1), (expr2))
+#define IF(cond, then, else) \
+  storage.Create<query::IfOperator>((cond), (then), (else))
 // Function call
 #define FN(function_name, ...)           \
   storage.Create<query::Function>(       \

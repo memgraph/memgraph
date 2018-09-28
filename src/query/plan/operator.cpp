@@ -584,8 +584,8 @@ ExpandVariable::ExpandVariable(
     const std::vector<storage::EdgeType> &edge_types, bool is_reverse,
     Expression *lower_bound, Expression *upper_bound,
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, Lambda filter_lambda,
-    std::experimental::optional<Lambda> weight_lambda,
+    bool existing_node, ExpansionLambda filter_lambda,
+    std::experimental::optional<ExpansionLambda> weight_lambda,
     std::experimental::optional<Symbol> total_weight, GraphView graph_view)
     : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
                    input_symbol, existing_node, graph_view),
@@ -1130,9 +1130,9 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     CHECK(self_.graph_view_ == GraphView::OLD)
         << "ExpandVariable should only be planned with GraphView::OLD";
     CHECK(!self_.existing_node_) << "Single source shortest path algorithm "
-                                     "should not be used when `existing_node` "
-                                     "flag is set, s-t shortest path algorithm "
-                                     "should be used instead!";
+                                    "should not be used when `existing_node` "
+                                    "flag is set, s-t shortest path algorithm "
+                                    "should be used instead!";
   }
 
   bool Pull(Frame &frame, Context &context) override {
@@ -1191,6 +1191,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       // input
       if (to_visit_current_.empty()) {
         if (!input_cursor_->Pull(frame, context)) return false;
+
         to_visit_current_.clear();
         to_visit_next_.clear();
         processed_.clear();
@@ -1198,9 +1199,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         auto vertex_value = frame[self_.input_symbol_];
         // it is possible that the vertex is Null due to optional matching
         if (vertex_value.IsNull()) continue;
-        auto vertex = vertex_value.Value<VertexAccessor>();
-        processed_.emplace(vertex, std::experimental::nullopt);
-        expand_from_vertex(vertex);
         lower_bound_ = self_.lower_bound_
                            ? EvaluateInt(&evaluator, self_.lower_bound_,
                                          "Min depth in breadth-first expansion")
@@ -1209,9 +1207,12 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
                            ? EvaluateInt(&evaluator, self_.upper_bound_,
                                          "Max depth in breadth-first expansion")
                            : std::numeric_limits<int64_t>::max();
-        if (upper_bound_ < 1)
-          throw QueryRuntimeException(
-              "Maximum depth in breadth-first expansion must be at least 1.");
+
+        if (upper_bound_ < 1 || lower_bound_ > upper_bound_) continue;
+
+        auto vertex = vertex_value.Value<VertexAccessor>();
+        processed_.emplace(vertex, std::experimental::nullopt);
+        expand_from_vertex(vertex);
 
         // go back to loop start and see if we expanded anything
         continue;
