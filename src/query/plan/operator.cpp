@@ -4008,7 +4008,7 @@ class ExplainCursor : public Cursor {
       : printed_plan_rows_([&dba, &self]() {
           std::stringstream stream;
           self.pretty_print_(dba, self.input().get(), &stream);
-          return utils::Split(stream.str(), "\n");
+          return utils::Split(utils::RTrim(stream.str()), "\n");
         }()),
         print_it_(printed_plan_rows_.begin()),
         output_symbol_(output_symbol) {}

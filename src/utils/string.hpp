@@ -186,7 +186,7 @@ inline std::string Join(const std::vector<std::string> &strings,
 /**
  * Replaces all occurences of <match> in <src> with <replacement>.
  */
-// TODO: This could be implemented much more efficient.
+// TODO: This could be implemented much more efficiently.
 inline std::string Replace(std::string src, const std::string &match,
                            const std::string &replacement) {
   for (size_t pos = src.find(match); pos != std::string::npos;
@@ -226,7 +226,7 @@ inline std::vector<std::string> Split(const std::string &src,
 }
 
 /**
- * Split string by delimeter, from right to left, and return vector of results.
+ * Split string by delimiter, from right to left, and return vector of results.
  * For example, RSplit("a.b.c.", ".", 1) results in {"a.b", "c"}.
  *
  * @param src - The string to split.
@@ -260,7 +260,7 @@ inline std::vector<std::string> RSplit(const std::string &src,
 /**
  * Split string by whitespace and return vector of results.
  * Runs of consecutive whitespace are regarded as a single delimiter.
- * Additionally, the result will not contain empty strings at the start of end
+ * Additionally, the result will not contain empty strings at the start or end
  * as if the string was trimmed before splitting.
  */
 inline std::vector<std::string> Split(const std::string &src) {
