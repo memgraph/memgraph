@@ -1,0 +1,19 @@
+mg-client
+Connected to 'memgraph://127.0.0.1:7687'
+memgraph> CREATE (n:Node) RETURN n; CREATE (n:Vertex) RETURN n; MATCH (n:Vertex) RETURN n;
++-------+
+|n      |
++-------+
+|(:Node)|
++-------+
++---------+
+|n        |
++---------+
+|(:Vertex)|
++---------+
++---------+
+|n        |
++---------+
+|(:Vertex)|
++---------+
+memgraph> 

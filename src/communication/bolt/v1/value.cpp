@@ -253,35 +253,50 @@ Value::~Value() {
 }
 
 std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
-  os << "V(";
+  os << "(";
+  if (vertex.labels.size() > 0) {
+    os << ":";
+  }
   utils::PrintIterable(os, vertex.labels, ":",
                        [&](auto &stream, auto label) { stream << label; });
-  os << " {";
-  utils::PrintIterable(os, vertex.properties, ", ",
-                       [&](auto &stream, const auto &pair) {
-                         stream << pair.first << ": " << pair.second;
-                       });
-  return os << "})";
+  if (vertex.labels.size() > 0 && vertex.properties.size() > 0) {
+    os << " ";
+  }
+  if (vertex.properties.size() > 0) {
+    os << "{";
+    utils::PrintIterable(os, vertex.properties, ", ",
+                         [&](auto &stream, const auto &pair) {
+                           stream << pair.first << ": " << pair.second;
+                         });
+    os << "}";
+  }
+  return os << ")";
 }
 
 std::ostream &operator<<(std::ostream &os, const Edge &edge) {
-  os << "E[" << edge.type;
-  os << " {";
-  utils::PrintIterable(os, edge.properties, ", ",
-                       [&](auto &stream, const auto &pair) {
-                         stream << pair.first << ": " << pair.second;
-                       });
-  return os << "}]";
+  os << "[" << edge.type;
+  if (edge.properties.size() > 0) {
+    os << " {";
+    utils::PrintIterable(os, edge.properties, ", ",
+                         [&](auto &stream, const auto &pair) {
+                           stream << pair.first << ": " << pair.second;
+                         });
+    os << "}";
+  }
+  return os << "]";
 }
 
 std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge) {
-  os << "E[" << edge.type;
-  os << " {";
-  utils::PrintIterable(os, edge.properties, ", ",
-                       [&](auto &stream, const auto &pair) {
-                         stream << pair.first << ": " << pair.second;
-                       });
-  return os << "}]";
+  os << "[" << edge.type;
+  if (edge.properties.size() > 0) {
+    os << " {";
+    utils::PrintIterable(os, edge.properties, ", ",
+                         [&](auto &stream, const auto &pair) {
+                           stream << pair.first << ": " << pair.second;
+                         });
+    os << "}";
+  }
+  return os << "]";
 }
 
 std::ostream &operator<<(std::ostream &os, const Path &path) {

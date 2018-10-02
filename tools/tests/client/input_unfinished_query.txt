@@ -1,0 +1,6 @@
+CREATE (n:Ovid{quote:"Exitus Acta Probat"}) RETURN n; MATCH (n)
+RETURN n;
+MATCH (n) RETURN n; CREATE (n:Bible{quote:"Fiat Lux"}) RETURN n; CREATE (n:Plinius{quote:"In vino veritas"}) RETURN n; MATCH
+(n:Plinius)
+RETURN
+n;

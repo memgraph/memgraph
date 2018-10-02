@@ -1,0 +1,9 @@
+mg-client
+Connected to 'memgraph://127.0.0.1:7687'
+memgraph> CREATE (n:Node{tmp:"\"\\;\\"}) RETURN n;
++-------------------+
+|n                  |
++-------------------+
+|(:Node {tmp: "\;\})|
++-------------------+
+memgraph> 

@@ -1,0 +1,5 @@
+CREATE (n:Ciceron{quote:"o tempora o mores"}) RETURN n;
+CREATE (n:Ciceron{quote:'o tempora o mores!'}) RETURN n;
+CREATE (n:Ciceron{quote:"o tempora 'o mores'"}) RETURN n;
+CREATE (n:Ciceron{quote:'o tempora "o mores"'}) RETURN n;
+CREATE (n:Ciceron{quote:"o tempora \"o mores\""}) RETURN n;

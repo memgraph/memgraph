@@ -1,0 +1,106 @@
+#!/bin/bash
+
+## Helper functions
+
+function wait_for_server {
+    port=$1
+    while ! nc -z -w 1 127.0.0.1 $port; do
+        sleep 0.1
+    done
+    sleep 1
+}
+
+function echo_info { printf "\033[1;36m~~ $1 ~~\033[0m\n"; }
+function echo_success { printf "\033[1;32m~~ $1 ~~\033[0m\n\n"; }
+function echo_failure { printf "\033[1;31m~~ $1 ~~\033[0m\n\n"; }
+
+
+## Environment setup
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+
+# Create a temporary directory for output files
+tmpdir=/tmp/mg_client/output
+if [ -d $tmpdir ]; then
+    rm -rf $tmpdir
+fi
+mkdir -p $tmpdir
+cd $tmpdir
+
+# Find memgraph binaries.
+memgraph_dir="$DIR/../../build"
+if [ ! -d $memgraph_dir ]; then
+    memgraph_dir="$DIR/../../build_release"
+fi
+
+# Find mg_client binaries.
+client_dir="$memgraph_dir/tools/src"
+if [ ! -d $client_dir ]; then
+    echo_failure "mg-client directory not found"
+    exit 1
+fi
+
+# Find tests input files.
+tests_dir="$DIR/client"
+if [ ! -d $tests_dir ]; then
+    echo_failure "Directory with tests input not found"
+    exit 1
+fi
+
+
+## Startup
+
+# Start the memgraph process and wait for it to start.
+echo_info "Starting memgraph"
+$memgraph_dir/memgraph &> /dev/null &
+pid=$!
+wait_for_server 7687
+echo_success "Started memgraph"
+
+
+## Tests
+
+echo_info "Running tests"
+echo  # Blank line
+
+client_flags="--use-ssl=false"
+test_code=0
+for filename in $tests_dir/input_*.txt; do
+    test_name=$(basename $filename)
+    test_name=${test_name#*_}
+    test_name=${test_name%.*}
+    output_name="output_$test_name.txt"
+
+    echo_info "Running test $test_name"
+    $client_dir/mg_client $client_flags < $filename > $tmpdir/$test_name
+    diff -b $tmpdir/$test_name $tests_dir/$output_name
+    test_code=$?
+    if [ $test_code -ne 0 ]; then
+        echo_failure "Test $test_name failed"
+        break
+    else
+        echo_success "Test $test_name passed"
+    fi
+
+    # Clear database for each test.
+    $client_dir/mg_client $client_flags <<< "MATCH (n) DETACH DELETE n;" \
+                            &> /dev/null || exit 1
+done
+
+
+## Cleanup
+echo_info "Starting test cleanup"
+
+# Shutdown the memgraph process.
+kill $pid
+wait -n
+code_mg=$?
+
+# Check memgraph exit code.
+if [ $code_mg -ne 0 ]; then
+    echo_failure "The memgraph process didn't terminate properly!"
+    exit $code_mg
+fi
+echo_success "Test cleanup done"
+
+exit $test_code
