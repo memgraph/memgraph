@@ -9,3 +9,4 @@ So far we have covered the following topics:
   * [Import Tools](02_import-tools.md)
   * [Programmatic Querying](03_programmatic-querying.md)
   * [How to Ingest Data Using Kafka](04_how-to-ingest-data-using-kafka.md)
+  * [Manage User Privileges](05_manage-user-privileges.md)
