@@ -1,4 +1,4 @@
-## Import Tools
+## How to Import Data?
 
 Memgraph comes with tools for importing data into the database. Currently,
 only import of CSV formatted is supported. We plan to support more formats in

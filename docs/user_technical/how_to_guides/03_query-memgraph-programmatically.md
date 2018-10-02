@@ -1,4 +1,4 @@
-## Programmatic Querying
+## How to Query Memgraph Programmatically?
 
 ### Supported Languages
 

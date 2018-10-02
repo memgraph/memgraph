@@ -6,7 +6,7 @@ guide on how to use certain Memgraph feature or solve a particular problem.
 
 So far we have covered the following topics:
 
-  * [Import Tools](02_import-tools.md)
-  * [Programmatic Querying](03_programmatic-querying.md)
-  * [How to Ingest Data Using Kafka](04_how-to-ingest-data-using-kafka.md)
-  * [Manage User Privileges](05_manage-user-privileges.md)
+  * [How to Import Data?](02_import-tools.md)
+  * [How to Query Memgraph Programmatically?](03_query-memgraph-programmatically.md)
+  * [How to Ingest Data Using Kafka](04_ingest-data-using-kafka.md)
+  * [How to Manage User Privileges](05_manage-user-privileges.md)
