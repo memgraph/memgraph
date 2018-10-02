@@ -921,7 +921,9 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAll &scan) override {
     prev_ops_.pop_back();
     should_split_ = true;
-    if (has_scan_all_) {
+    // Having performed a merge point (e.g. a write or accumulation) behaves the
+    // same as a Cartesian, for each produced result we perform a ScanAll.
+    if (on_master_ || has_scan_all_) {
       AddForCartesian(&scan);
     }
     has_scan_all_ = true;
@@ -935,7 +937,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAllByLabel &scan) override {
     prev_ops_.pop_back();
     should_split_ = true;
-    if (has_scan_all_) {
+    if (on_master_ || has_scan_all_) {
       AddForCartesian(&scan);
     }
     has_scan_all_ = true;
@@ -948,7 +950,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAllByLabelPropertyRange &scan) override {
     prev_ops_.pop_back();
     should_split_ = true;
-    if (has_scan_all_) {
+    if (on_master_ || has_scan_all_) {
       AddForCartesian(&scan);
     }
     has_scan_all_ = true;
@@ -961,7 +963,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAllByLabelPropertyValue &scan) override {
     prev_ops_.pop_back();
     should_split_ = true;
-    if (has_scan_all_) {
+    if (on_master_ || has_scan_all_) {
       AddForCartesian(&scan);
     }
     has_scan_all_ = true;

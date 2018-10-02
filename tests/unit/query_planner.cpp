@@ -3150,7 +3150,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianUnwind) {
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
-TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
+TYPED_TEST(TestPlanner, DistributedCartesianMatchCreateNode) {
   // Test MATCH (a) CREATE (b) WITH b MATCH (c) CREATE (d)
   AstStorage storage;
   auto *node_b = NODE("b");
@@ -3169,6 +3169,27 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
       MakeCheckers(ExpectCartesian(left_cart, right_cart),
                    ExpectDistributedCreateNode(true), ExpectSynchronize(false)),
       MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode()),
+      MakeCheckers(ExpectScanAll()));
+  FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
+  // Test CREATE (a) WITH a MATCH (b) RETURN b
+  AstStorage storage;
+  auto *node_a = NODE("a");
+  auto *node_b = NODE("b");
+  QUERY(SINGLE_QUERY(CREATE(PATTERN(node_a)), WITH("a"), MATCH(PATTERN(node_b)),
+                     RETURN("b")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*node_a->identifier_);
+  auto left_cart = MakeCheckers(ExpectDistributedCreateNode(true),
+                                ExpectSynchronize(true), ExpectProduce());
+  auto sym_b = symbol_table.at(*node_b->identifier_);
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectCartesian(left_cart, right_cart), ExpectProduce()),
       MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
