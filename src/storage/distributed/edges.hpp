@@ -1,5 +1,6 @@
 #pragma once
 
+#include <experimental/optional>
 #include <utility>
 #include <vector>
 
@@ -49,7 +50,7 @@ class Edges {
      */
     Iterator(std::vector<Element>::const_iterator position,
              std::vector<Element>::const_iterator end,
-             storage::VertexAddress vertex,
+             std::experimental::optional<storage::VertexAddress> vertex,
              const std::vector<storage::EdgeType> *edge_types)
         : position_(position),
           end_(end),
@@ -79,17 +80,17 @@ class Edges {
     std::vector<Element>::const_iterator end_;
 
     // Optional predicates. If set they define which edges are skipped by the
-    // iterator. Only one can be not-null in the current implementation.
-    storage::VertexAddress vertex_{nullptr};
+    // iterator.
+    std::experimental::optional<storage::VertexAddress> vertex_;
     // For edge types we use a vector pointer because it's optional.
     const std::vector<storage::EdgeType> *edge_types_ = nullptr;
 
     /** Helper function that skips edges that don't satisfy the predicate
      * present in this iterator. */
     void update_position() {
-      if (vertex_.local()) {
-        position_ = std::find_if(position_,
-                                 end_, [v = this->vertex_](const Element &e) {
+      if (vertex_) {
+        position_ = std::find_if(position_, end_,
+                                 [v = this->vertex_.value()](const Element &e) {
                                    return e.vertex == v;
                                  });
       }
@@ -143,7 +144,7 @@ class Edges {
    * @param edge_types - The edge types at least one of which must be matched.
    * If nullptr edges are not filtered on type.
    */
-  auto begin(storage::VertexAddress vertex,
+  auto begin(std::experimental::optional<storage::VertexAddress> vertex,
              const std::vector<storage::EdgeType> *edge_types) const {
     if (edge_types && edge_types->empty()) edge_types = nullptr;
     return Iterator(storage_.begin(), storage_.end(), vertex, edge_types);

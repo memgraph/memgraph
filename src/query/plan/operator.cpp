@@ -548,7 +548,9 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
       } else {
         in_edges_.emplace(vertex.in(&self_.edge_types_));
       }
-      in_edges_it_.emplace(in_edges_->begin());
+      if (in_edges_) {
+        in_edges_it_.emplace(in_edges_->begin());
+      }
     }
 
     if (direction == EdgeAtom::Direction::OUT ||
@@ -565,7 +567,9 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
       } else {
         out_edges_.emplace(vertex.out(&self_.edge_types_));
       }
-      out_edges_it_.emplace(out_edges_->begin());
+      if (out_edges_) {
+        out_edges_it_.emplace(out_edges_->begin());
+      }
     }
 
     return true;

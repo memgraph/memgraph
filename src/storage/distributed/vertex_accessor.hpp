@@ -1,5 +1,6 @@
 #pragma once
 
+#include <experimental/optional>
 #include <limits>
 #include <set>
 #include <vector>
@@ -107,7 +108,7 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    */
   auto in(const std::vector<storage::EdgeType> *edge_types) const {
     return MakeAccessorIterator(
-        current().in_.begin(storage::VertexAddress(nullptr), edge_types),
+        current().in_.begin(std::experimental::nullopt, edge_types),
         current().in_.end(), false, address(), db_accessor());
   }
 
@@ -140,7 +141,7 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    */
   auto out(const std::vector<storage::EdgeType> *edge_types) const {
     return MakeAccessorIterator(
-        current().out_.begin(storage::VertexAddress(nullptr), edge_types),
+        current().out_.begin(std::experimental::nullopt, edge_types),
         current().out_.end(), true, address(), db_accessor());
   }
 

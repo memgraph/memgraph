@@ -1,5 +1,6 @@
 #pragma once
 
+#include <experimental/optional>
 #include <utility>
 #include <vector>
 
@@ -77,7 +78,7 @@ class Edges {
     std::vector<Element>::const_iterator end_;
 
     // Optional predicates. If set they define which edges are skipped by the
-    // iterator. Only one can be not-null in the current implementation.
+    // iterator.
     mvcc::VersionList<Vertex> *vertex_{nullptr};
     // For edge types we use a vector pointer because it's optional.
     const std::vector<storage::EdgeType> *edge_types_ = nullptr;
