@@ -1214,11 +1214,11 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       }
       // Create a copy of OrderBy but with added symbols used in expressions, so
       // that they can be pulled.
-      std::vector<std::pair<Ordering, Expression *>> ordering;
+      std::vector<SortItem> ordering;
       ordering.reserve(order_by.order_by_.size());
       for (int i = 0; i < order_by.order_by_.size(); ++i) {
-        ordering.emplace_back(order_by.compare_.ordering()[i],
-                              order_by.order_by_[i]);
+        ordering.emplace_back(
+            SortItem{order_by.compare_.ordering()[i], order_by.order_by_[i]});
       }
       auto worker_plan = std::make_shared<OrderBy>(
           order_by.input(), ordering,
@@ -1328,7 +1328,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     auto make_merge_aggregation = [&](auto op, const auto &worker_sym) {
       auto *worker_ident = make_ident(worker_sym);
       auto merge_name = Aggregation::OpToString(op) +
-                        std::to_string(worker_ident->uid()) + "<-" +
+                        std::to_string(worker_ident->uid_) + "<-" +
                         worker_sym.name();
       auto merge_sym = distributed_plan_.symbol_table.CreateSymbol(
           merge_name, false, Symbol::Type::Number);

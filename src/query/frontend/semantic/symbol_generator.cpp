@@ -84,7 +84,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
   }
   scope_.in_order_by = true;
   for (const auto &order_pair : body.order_by) {
-    order_pair.second->Accept(*this);
+    order_pair.expression->Accept(*this);
   }
   scope_.in_order_by = false;
   if (body.skip) {
@@ -318,7 +318,7 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
   auto aggr_name =
-      Aggregation::OpToString(aggr.op_) + std::to_string(aggr.uid());
+      Aggregation::OpToString(aggr.op_) + std::to_string(aggr.uid_);
   symbol_table_[aggr] =
       symbol_table_.CreateSymbol(aggr_name, false, Symbol::Type::Number);
   scope_.in_aggregation = true;

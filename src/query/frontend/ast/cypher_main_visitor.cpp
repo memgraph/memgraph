@@ -638,9 +638,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnBody(
     MemgraphCypher::ReturnBodyContext *ctx) {
   ReturnBody body;
   if (ctx->order()) {
-    body.order_by = ctx->order()
-                        ->accept(this)
-                        .as<std::vector<std::pair<Ordering, Expression *>>>();
+    body.order_by = ctx->order()->accept(this).as<std::vector<SortItem>>();
   }
   if (ctx->skip()) {
     body.skip = static_cast<Expression *>(ctx->skip()->accept(this));
@@ -684,7 +682,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(
 }
 
 antlrcpp::Any CypherMainVisitor::visitOrder(MemgraphCypher::OrderContext *ctx) {
-  std::vector<std::pair<Ordering, Expression *>> order_by;
+  std::vector<SortItem> order_by;
   for (auto *sort_item : ctx->sortItem()) {
     order_by.push_back(sort_item->accept(this));
   }
@@ -693,9 +691,9 @@ antlrcpp::Any CypherMainVisitor::visitOrder(MemgraphCypher::OrderContext *ctx) {
 
 antlrcpp::Any CypherMainVisitor::visitSortItem(
     MemgraphCypher::SortItemContext *ctx) {
-  return std::pair<Ordering, Expression *>(
+  return SortItem{
       ctx->DESC() || ctx->DESCENDING() ? Ordering::DESC : Ordering::ASC,
-      ctx->expression()->accept(this));
+      ctx->expression()->accept(this)};
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodePattern(

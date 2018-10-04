@@ -158,7 +158,7 @@ class CapnpAstGenerator : public Base {
             query::capnp::Tree::Builder builder =
                 message.initRoot<query::capnp::Tree>();
             std::vector<int> saved_uids;
-            visitor.query()->Save(&builder, &saved_uids);
+            Save(*visitor.query(), &builder, &saved_uids);
           }
 
           AstStorage new_ast;
@@ -332,8 +332,8 @@ TYPED_TEST(CypherMainVisitorTest, ReturnOrderBy) {
   ASSERT_EQ(return_clause->body_.order_by.size(), 3U);
   std::vector<std::pair<Ordering, std::string>> ordering;
   for (const auto &sort_item : return_clause->body_.order_by) {
-    auto *identifier = dynamic_cast<Identifier *>(sort_item.second);
-    ordering.emplace_back(sort_item.first, identifier->name_);
+    auto *identifier = dynamic_cast<Identifier *>(sort_item.expression);
+    ordering.emplace_back(sort_item.ordering, identifier->name_);
   }
   ASSERT_THAT(ordering, UnorderedElementsAre(Pair(Ordering::ASC, "z"),
                                              Pair(Ordering::ASC, "x"),
@@ -762,7 +762,7 @@ TYPED_TEST(CypherMainVisitorTest, Function) {
   auto *function = dynamic_cast<Function *>(
       return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(function);
-  ASSERT_TRUE(function->function());
+  ASSERT_TRUE(function->function_);
 }
 
 TYPED_TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {

@@ -132,7 +132,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       // about collecting used_symbols. Also, semantic analysis should
       // have prevented any aggregations from appearing here.
       for (const auto &order_pair : body.order_by) {
-        order_pair.second->Accept(*this);
+        order_pair.expression->Accept(*this);
       }
       if (where) {
         where->Accept(*this);

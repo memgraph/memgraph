@@ -329,16 +329,14 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
   auto n_p = PROPERTY_LOOKUP("n", prop);
   ctx.symbol_table_[*n_p->expression_] = n.sym_;
   auto order_by = std::make_shared<plan::OrderBy>(
-      n.op_,
-      std::vector<std::pair<Ordering, Expression *>>{{Ordering::ASC, n_p}},
+      n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
       std::vector<Symbol>{n.sym_});
 
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, order_by, ctx.symbol_table_);
 
   auto pull_remote_order_by = std::make_shared<plan::PullRemoteOrderBy>(
-      order_by, plan_id,
-      std::vector<std::pair<Ordering, Expression *>>{{Ordering::ASC, n_p}},
+      order_by, plan_id, std::vector<SortItem>{{Ordering::ASC, n_p}},
       std::vector<Symbol>{n.sym_});
 
   auto n_p_ne = NEXPR("n.prop", n_p);

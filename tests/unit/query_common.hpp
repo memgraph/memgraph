@@ -57,7 +57,7 @@ auto ToMap(const TypedValue &t) {
 // Custom types for ORDER BY, SKIP, LIMIT, ON MATCH and ON CREATE expressions,
 // so that they can be used to resolve function calls.
 struct OrderBy {
-  std::vector<std::pair<Ordering, Expression *>> expressions;
+  std::vector<SortItem> expressions;
 };
 struct Skip {
   Expression *expression = nullptr;
@@ -75,7 +75,7 @@ struct OnCreate {
 // Helper functions for filling the OrderBy with expressions.
 auto FillOrderBy(OrderBy &order_by, Expression *expression,
                  Ordering ordering = Ordering::ASC) {
-  order_by.expressions.emplace_back(ordering, expression);
+  order_by.expressions.push_back({ordering, expression});
 }
 template <class... T>
 auto FillOrderBy(OrderBy &order_by, Expression *expression, Ordering ordering,

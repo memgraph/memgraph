@@ -358,12 +358,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::ReturnItemContext *ctx) override;
 
   /**
-   * @return vector<pair<Ordering, Expression*>>
+   * @return vector<SortItem>
    */
   antlrcpp::Any visitOrder(MemgraphCypher::OrderContext *ctx) override;
 
   /**
-   * @return pair<Ordering, Expression*>
+   * @return SortItem
    */
   antlrcpp::Any visitSortItem(MemgraphCypher::SortItemContext *ctx) override;
 

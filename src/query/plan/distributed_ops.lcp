@@ -172,8 +172,7 @@ by having only one result from each worker.")
    PullRemoteOrderBy() {}
    PullRemoteOrderBy(
        const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-       const std::vector<std::pair<Ordering, Expression *>> &order_by,
-       const std::vector<Symbol> &symbols);
+       const std::vector<SortItem> &order_by, const std::vector<Symbol> &symbols);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;

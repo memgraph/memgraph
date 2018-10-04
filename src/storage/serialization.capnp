@@ -39,7 +39,7 @@ struct PropertyValue {
 
 struct PropertyValueStore {
   properties @0 :List(Entry);
-  
+
   struct Entry {
     id @0 :Common;
     value @1 :PropertyValue;

@@ -19,10 +19,10 @@ class SymbolTable final {
     return Symbol(name, position, user_declared, type, token_position);
   }
 
-  auto &operator[](const Tree &tree) { return table_[tree.uid()]; }
+  auto &operator[](const Tree &tree) { return table_[tree.uid_]; }
 
-  Symbol &at(const Tree &tree) { return table_.at(tree.uid()); }
-  const Symbol &at(const Tree &tree) const { return table_.at(tree.uid()); }
+  Symbol &at(const Tree &tree) { return table_.at(tree.uid_); }
+  const Symbol &at(const Tree &tree) const { return table_.at(tree.uid_); }
 
   // TODO: Remove these since members are public
   int max_position() const { return position_; }

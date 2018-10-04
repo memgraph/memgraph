@@ -377,16 +377,16 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
       for (size_t i = 0; i < function.arguments_.size(); ++i) {
         arguments[i] = function.arguments_[i]->Accept(*this);
       }
-      return function.function()(arguments, function.arguments_.size(), *ctx_,
-                                 dba_);
+      return function.function_(arguments, function.arguments_.size(), *ctx_,
+                                dba_);
     } else {
       std::vector<TypedValue> arguments;
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      return function.function()(arguments.data(), arguments.size(), *ctx_,
-                                 dba_);
+      return function.function_(arguments.data(), arguments.size(), *ctx_,
+                                dba_);
     }
   }
 

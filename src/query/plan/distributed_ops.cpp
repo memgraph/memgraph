@@ -81,8 +81,7 @@ bool Synchronize::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
 
 PullRemoteOrderBy::PullRemoteOrderBy(
     const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-    const std::vector<std::pair<Ordering, Expression *>> &order_by,
-    const std::vector<Symbol> &symbols)
+    const std::vector<SortItem> &order_by, const std::vector<Symbol> &symbols)
     : input_(input), plan_id_(plan_id), symbols_(symbols) {
   CHECK(input_ != nullptr)
       << "PullRemoteOrderBy should always be constructed with input!";
@@ -90,8 +89,8 @@ PullRemoteOrderBy::PullRemoteOrderBy(
   ordering.reserve(order_by.size());
   order_by_.reserve(order_by.size());
   for (const auto &ordering_expression_pair : order_by) {
-    ordering.emplace_back(ordering_expression_pair.first);
-    order_by_.emplace_back(ordering_expression_pair.second);
+    ordering.emplace_back(ordering_expression_pair.ordering);
+    order_by_.emplace_back(ordering_expression_pair.expression);
   }
   compare_ = TypedValueVectorCompare(ordering);
 }

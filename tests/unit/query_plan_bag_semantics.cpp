@@ -151,9 +151,7 @@ TEST(QueryPlan, OrderBy) {
     auto n_p = PROPERTY_LOOKUP("n", prop);
     symbol_table[*n_p->expression_] = n.sym_;
     auto order_by = std::make_shared<plan::OrderBy>(
-        n.op_,
-        std::vector<std::pair<Ordering, Expression *>>{
-            {order_value_pair.first, n_p}},
+        n.op_, std::vector<SortItem>{{order_value_pair.first, n_p}},
         std::vector<Symbol>{n.sym_});
     auto n_p_ne = NEXPR("n.p", n_p);
     symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.p", true);
@@ -201,13 +199,12 @@ TEST(QueryPlan, OrderByMultiple) {
   // (p1: 0, p2: N-2)
   // ...
   // (p1: N-1, p2:0)
-  auto order_by = std::make_shared<plan::OrderBy>(
-      n.op_,
-      std::vector<std::pair<Ordering, Expression *>>{
-          {Ordering::ASC, n_p1},
-          {Ordering::DESC, n_p2},
-      },
-      std::vector<Symbol>{n.sym_});
+  auto order_by = std::make_shared<plan::OrderBy>(n.op_,
+                                                  std::vector<SortItem>{
+                                                      {Ordering::ASC, n_p1},
+                                                      {Ordering::DESC, n_p2},
+                                                  },
+                                                  std::vector<Symbol>{n.sym_});
   auto n_p1_ne = NEXPR("n.p1", n_p1);
   symbol_table[*n_p1_ne] = symbol_table.CreateSymbol("n.p1", true);
   auto n_p2_ne = NEXPR("n.p2", n_p2);
@@ -262,8 +259,7 @@ TEST(QueryPlan, OrderByExceptions) {
     auto n_p = PROPERTY_LOOKUP("n", prop);
     symbol_table[*n_p->expression_] = n.sym_;
     auto order_by = std::make_shared<plan::OrderBy>(
-        n.op_,
-        std::vector<std::pair<Ordering, Expression *>>{{Ordering::ASC, n_p}},
+        n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
         std::vector<Symbol>{});
     EXPECT_THROW(PullAll(order_by, dba, symbol_table), QueryRuntimeException);
   }

@@ -2658,7 +2658,7 @@ void Limit::LimitCursor::Reset() {
 }
 
 OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input,
-                 const std::vector<std::pair<Ordering, Expression *>> &order_by,
+                 const std::vector<SortItem> &order_by,
                  const std::vector<Symbol> &output_symbols)
     : input_(input), output_symbols_(output_symbols) {
   // split the order_by vector into two vectors of orderings and expressions
@@ -2666,8 +2666,8 @@ OrderBy::OrderBy(const std::shared_ptr<LogicalOperator> &input,
   ordering.reserve(order_by.size());
   order_by_.reserve(order_by.size());
   for (const auto &ordering_expression_pair : order_by) {
-    ordering.emplace_back(ordering_expression_pair.first);
-    order_by_.emplace_back(ordering_expression_pair.second);
+    ordering.emplace_back(ordering_expression_pair.ordering);
+    order_by_.emplace_back(ordering_expression_pair.expression);
   }
   compare_ = TypedValueVectorCompare(ordering);
 }

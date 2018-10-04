@@ -3201,7 +3201,7 @@ TEST(CapnpSerial, PullRemoteOrderBy) {
   AstStorage storage;
   std::vector<Symbol> symbols{
       Symbol("my_symbol", 2, true, Symbol::Type::Vertex, 3)};
-  std::vector<std::pair<query::Ordering, query::Expression *>> order_by{
+  std::vector<query::SortItem> order_by{
       {query::Ordering::ASC, IDENT("my_symbol")}};
   auto pull_remote_order_by =
       std::make_unique<PullRemoteOrderBy>(once, 42, order_by, symbols);
