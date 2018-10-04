@@ -3,9 +3,9 @@
 
 #pragma once
 
+#include "query/frontend/ast/ast_serialization.hpp"
 #include "query/plan/distributed_ops.capnp.h"
 #include "query/plan/operator.hpp"
-
 cpp<#
 
 (load "query/plan/operator.lcp")

@@ -11,13 +11,14 @@
 
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_serialization.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
 
 #include "capnp/message.h"
-#include "query/frontend/ast/ast.capnp.h"
+#include "query/frontend/ast/ast_serialization.capnp.h"
 
 namespace {
 
@@ -166,7 +167,7 @@ class CapnpAstGenerator : public Base {
             const query::capnp::Tree::Reader reader =
                 message.getRoot<query::capnp::Tree>();
             std::vector<int> loaded_uids;
-            new_ast.Load(reader, &loaded_uids);
+            Load(&new_ast, reader, &loaded_uids);
           }
           return new_ast;
         }()),

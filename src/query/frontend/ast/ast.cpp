@@ -2,9 +2,6 @@
 
 #include <algorithm>
 
-#include "storage/serialization.hpp"
-#include "utils/serialization.capnp.h"
-
 namespace query {
 
 AstStorage::AstStorage() {
@@ -31,17 +28,6 @@ ReturnBody CloneReturnBody(AstStorage &storage, const ReturnBody &body) {
   new_body.skip = body.skip ? body.skip->Clone(storage) : nullptr;
   new_body.limit = body.limit ? body.limit->Clone(storage) : nullptr;
   return new_body;
-}
-
-// Capnproto serialization.
-Tree *AstStorage::Load(const capnp::Tree::Reader &tree,
-                       std::vector<int> *loaded_uids) {
-  storage_.clear();
-  std::unique_ptr<Tree> root;
-  ::query::Load(&root, tree, this, loaded_uids);
-  root_idx_ = storage_.size();
-  storage_.emplace_back(std::move(root));
-  return storage_[root_idx_].get();
 }
 
 }  // namespace query

@@ -139,7 +139,7 @@ cpp<#
 
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/serialization.capnp")
-(lcp:capnp-import 'ast "/query/frontend/ast/ast.capnp")
+(lcp:capnp-import 'ast "/query/frontend/ast/ast_serialization.capnp")
 (lcp:capnp-import 'semantic "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
 

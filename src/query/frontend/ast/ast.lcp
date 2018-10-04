@@ -11,9 +11,6 @@
 #include "query/typed_value.hpp"
 #include "storage/property_value.hpp"
 #include "storage/types.hpp"
-#include "utils/serialization.hpp"
-
-#include "ast.capnp.h"
 
 // Hash function for the key in pattern atom property maps.
 namespace std {
@@ -35,10 +32,6 @@ class GraphDbAccessor;
 }
 
 cpp<#
-(lcp:in-impl
-  #>cpp
-  #include "storage/serialization.hpp"
-  cpp<#)
 
 (lcp:namespace query)
 (lcp:capnp-namespace "query")
@@ -168,12 +161,10 @@ class AstStorage {
 
   Query *query() const;
 
-  Tree *Load(const capnp::Tree::Reader &tree, std::vector<int> *loaded_uids);
-
- private:
+  // Public only for serialization access
+  std::vector<std::unique_ptr<Tree>> storage_;
   int next_uid_ = 0;
   size_t root_idx_;
-  std::vector<std::unique_ptr<Tree>> storage_;
 };
 cpp<#
 
@@ -2504,4 +2495,4 @@ cpp<#
 #undef CLONE_UNARY_EXPRESSION
 cpp<#
 
-(lcp:pop-namespace) ; namespace query
+(lcp:pop-namespace) ;; namespace query

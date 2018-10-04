@@ -117,8 +117,10 @@ add_capnp(distributed/dynamic_worker_rpc_messages.capnp)
 
 # distributed_ops.lcp is leading the capnp code generation, so we don't need
 # to generate any capnp for operator.lcp
-add_lcp(query/frontend/ast/ast.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b)
-add_capnp(query/frontend/ast/ast.capnp)
+add_lcp(query/frontend/ast/ast.lcp)
+add_lcp(query/frontend/ast/ast_serialization.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b
+        DEPENDS query/frontend/ast/ast.lcp)
+add_capnp(query/frontend/ast/ast_serialization.capnp)
 add_lcp(query/plan/operator.lcp)
 add_lcp(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
         DEPENDS query/plan/operator.lcp)

@@ -66,8 +66,9 @@ src/distributed/token_sharing_rpc_messages.capnp
 src/distributed/token_sharing_rpc_messages.hpp
 src/distributed/updates_rpc_messages.capnp
 src/distributed/updates_rpc_messages.hpp
-src/query/frontend/ast/ast.capnp
 src/query/frontend/ast/ast.hpp
+src/query/frontend/ast/ast_serialization.capnp
+src/query/frontend/ast/ast_serialization.hpp
 src/query/plan/distributed_ops.capnp
 src/query/plan/distributed_ops.hpp
 src/query/plan/operator.hpp

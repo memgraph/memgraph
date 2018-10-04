@@ -1,0 +1,31 @@
+#>cpp
+#pragma once
+
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_serialization.capnp.h"
+#include "storage/serialization.hpp"
+cpp<#
+
+(load "query/frontend/ast/ast.lcp")
+
+(lcp:namespace query)
+
+#>cpp
+Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree,
+           std::vector<int> *loaded_uids);
+cpp<#
+
+(lcp:in-impl
+  #>cpp
+  Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree,
+             std::vector<int> *loaded_uids) {
+    ast->storage_.clear();
+    std::unique_ptr<Tree> root;
+    ::query::Load(&root, tree, ast, loaded_uids);
+    ast->root_idx_ = ast->storage_.size();
+    ast->storage_.emplace_back(std::move(root));
+    return ast->storage_[ast->root_idx_].get();
+  }
+  cpp<#)
+
+(lcp:pop-namespace) ;; namespace query
