@@ -1,4 +1,4 @@
-/* Memgraph specific Cypher reserved words. */
+/* Memgraph specific Cypher reserved words used for enterprise features. */
 
 /*
  * When changing this grammar make sure to update constants in
@@ -18,7 +18,6 @@ CLEAR          : C L E A R ;
 DATA           : D A T A ;
 DENY           : D E N Y ;
 DROP           : D R O P ;
-EXPLAIN        : E X P L A I N ;
 FOR            : F O R ;
 FROM           : F R O M ;
 GRANT          : G R A N T ;

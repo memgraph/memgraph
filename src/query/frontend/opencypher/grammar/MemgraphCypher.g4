@@ -1,4 +1,4 @@
-/* Memgraph specific part of Cypher grammar. */
+/* Memgraph specific part of Cypher grammar with enterprise features. */
 
 parser grammar MemgraphCypher ;
 
@@ -50,8 +50,6 @@ query : regularQuery
       | streamQuery
       | explainQuery
       ;
-
-explainQuery : EXPLAIN regularQuery ;
 
 authQuery : createRole
           | dropRole

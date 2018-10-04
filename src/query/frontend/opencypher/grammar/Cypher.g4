@@ -23,7 +23,11 @@ cypher : statement ';'? EOF ;
 
 statement : query ;
 
-query : regularQuery ;
+query : regularQuery
+      | explainQuery
+      ;
+
+explainQuery : EXPLAIN regularQuery ;
 
 regularQuery : singleQuery ( cypherUnion )* ;
 
@@ -291,6 +295,7 @@ cypherKeyword : ALL
               | ELSE
               | END
               | ENDS
+              | EXPLAIN
               | EXTRACT
               | FALSE
               | FILTER

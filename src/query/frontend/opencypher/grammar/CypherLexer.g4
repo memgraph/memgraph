@@ -89,6 +89,7 @@ DISTINCT       : D I S T I N C T ;
 ELSE           : E L S E ;
 END            : E N D ;
 ENDS           : E N D S ;
+EXPLAIN        : E X P L A I N ;
 EXTRACT        : E X T R A C T ;
 FALSE          : F A L S E ;
 FILTER         : F I L T E R ;
