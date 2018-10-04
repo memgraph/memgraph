@@ -5,7 +5,7 @@
 
 #include <json/json.hpp>
 
-#include "storage/kvstore.hpp"
+#include "storage/kvstore/kvstore.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 

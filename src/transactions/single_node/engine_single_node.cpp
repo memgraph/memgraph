@@ -1,10 +1,17 @@
+#include "transactions/single_node/engine_single_node.hpp"
+
 #include <limits>
 #include <mutex>
 
 #include "glog/logging.h"
 
-#include "database/state_delta.hpp"
-#include "transactions/single_node/engine_single_node.hpp"
+// TODO: THIS IS A HACK!
+#ifdef MG_SINGLE_NODE
+#include "durability/single_node/state_delta.hpp"
+#endif
+#ifdef MG_DISTRIBUTED
+#include "durability/distributed/state_delta.hpp"
+#endif
 
 namespace tx {
 

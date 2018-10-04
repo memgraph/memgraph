@@ -30,7 +30,7 @@
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
 #include "utils/string.hpp"
 
 namespace query {

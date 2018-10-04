@@ -1,13 +1,12 @@
 /// @file
 #pragma once
 
-#include "integrations/kafka/consumer.hpp"
-
 #include <experimental/optional>
 #include <mutex>
 #include <unordered_map>
 
-#include "storage/kvstore.hpp"
+#include "integrations/kafka/consumer.hpp"
+#include "storage/kvstore/kvstore.hpp"
 
 namespace integrations::kafka {
 

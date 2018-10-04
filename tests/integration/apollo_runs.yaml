@@ -48,5 +48,5 @@
   commands: TIMEOUT=480 ./runner.py
   infiles:
     - runner.py # runner script
-    - ../../../build_debug/memgraph # memgraph binary
+    - ../../../build_debug/memgraph_distributed # memgraph distributed binary
     - ../../../build_debug/tests/integration/distributed/tester # tester binary

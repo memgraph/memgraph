@@ -20,218 +20,218 @@ function(add_unit_test test_cpp)
 endfunction(add_unit_test)
 
 add_unit_test(bolt_encoder.cpp)
-target_link_libraries(${test_prefix}bolt_encoder memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}bolt_encoder mg-single-node kvstore_dummy_lib)
 
 add_unit_test(concurrent_id_mapper_distributed.cpp)
-target_link_libraries(${test_prefix}concurrent_id_mapper_distributed memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}concurrent_id_mapper_distributed mg-distributed kvstore_dummy_lib)
 
 add_unit_test(concurrent_id_mapper_single_node.cpp)
-target_link_libraries(${test_prefix}concurrent_id_mapper_single_node memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}concurrent_id_mapper_single_node mg-single-node kvstore_dummy_lib)
 
 add_unit_test(concurrent_map_access.cpp)
-target_link_libraries(${test_prefix}concurrent_map_access memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}concurrent_map_access mg-single-node kvstore_dummy_lib)
 
 add_unit_test(concurrent_map.cpp)
-target_link_libraries(${test_prefix}concurrent_map memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_lib)
 
 add_unit_test(counters.cpp)
-target_link_libraries(${test_prefix}counters memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}counters mg-distributed kvstore_dummy_lib)
 
 add_unit_test(cypher_main_visitor.cpp)
-target_link_libraries(${test_prefix}cypher_main_visitor memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node kvstore_dummy_lib)
 
 add_unit_test(database_key_index.cpp)
-target_link_libraries(${test_prefix}database_key_index memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}database_key_index mg-single-node kvstore_dummy_lib)
 
 add_unit_test(database_label_property_index.cpp)
-target_link_libraries(${test_prefix}database_label_property_index memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}database_label_property_index mg-single-node kvstore_dummy_lib)
 
 add_unit_test(database_master.cpp)
-target_link_libraries(${test_prefix}database_master memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}database_master mg-distributed kvstore_dummy_lib)
 
 add_unit_test(database_transaction_timeout.cpp)
-target_link_libraries(${test_prefix}database_transaction_timeout memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}database_transaction_timeout mg-single-node kvstore_dummy_lib)
 
 add_unit_test(datastructure_union_find.cpp)
-target_link_libraries(${test_prefix}datastructure_union_find memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}datastructure_union_find mg-single-node kvstore_dummy_lib)
 
 add_unit_test(deferred_deleter.cpp)
-target_link_libraries(${test_prefix}deferred_deleter memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}deferred_deleter mg-single-node kvstore_dummy_lib)
 
 add_unit_test(distributed_coordination.cpp)
-target_link_libraries(${test_prefix}distributed_coordination memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_coordination mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_data_exchange.cpp)
-target_link_libraries(${test_prefix}distributed_data_exchange memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_data_exchange mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_dgp_vertex_migrator.cpp)
-target_link_libraries(${test_prefix}distributed_dgp_vertex_migrator memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_dgp_vertex_migrator mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_durability.cpp)
-target_link_libraries(${test_prefix}distributed_durability memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_durability mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_dynamic_worker.cpp)
-target_link_libraries(${test_prefix}distributed_dynamic_worker memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_dynamic_worker mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_gc.cpp)
-target_link_libraries(${test_prefix}distributed_gc memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_gc mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_graph_db.cpp)
-target_link_libraries(${test_prefix}distributed_graph_db memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_graph_db mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_interpretation.cpp)
-target_link_libraries(${test_prefix}distributed_interpretation memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_interpretation mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_query_plan.cpp)
-target_link_libraries(${test_prefix}distributed_query_plan memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_query_plan mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_reset.cpp)
-target_link_libraries(${test_prefix}distributed_reset memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_reset mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_serialization.cpp)
-target_link_libraries(${test_prefix}distributed_serialization memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_serialization mg-distributed kvstore_dummy_lib)
 
 add_unit_test(distributed_updates.cpp)
-target_link_libraries(${test_prefix}distributed_updates memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_updates mg-distributed kvstore_dummy_lib)
 
 # TODO (buda): Replace token sharing with centralized solution and write an appropriate test.
 # add_unit_test(distributed_token_sharing.cpp)
 # target_link_libraries(${test_prefix}distributed_token_sharing memgraph_lib kvstore_dummy_lib)
 
 add_unit_test(bfs_distributed.cpp)
-target_link_libraries(${test_prefix}bfs_distributed memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}bfs_distributed mg-distributed kvstore_dummy_lib)
 
 add_unit_test(bfs_single_node.cpp)
-target_link_libraries(${test_prefix}bfs_single_node memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}bfs_single_node mg-single-node kvstore_dummy_lib)
 
 add_unit_test(distributed_dgp_partitioner.cpp)
-target_link_libraries(${test_prefix}distributed_dgp_partitioner memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}distributed_dgp_partitioner mg-distributed kvstore_dummy_lib)
 
 add_unit_test(durability.cpp)
-target_link_libraries(${test_prefix}durability memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}durability mg-single-node kvstore_dummy_lib)
 
 add_unit_test(dynamic_bitset.cpp)
-target_link_libraries(${test_prefix}dynamic_bitset memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}dynamic_bitset mg-single-node kvstore_dummy_lib)
 
 add_unit_test(gid.cpp)
-target_link_libraries(${test_prefix}gid memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}gid mg-distributed kvstore_dummy_lib)
 
 add_unit_test(graph_db_accessor.cpp)
-target_link_libraries(${test_prefix}graph_db_accessor memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}graph_db_accessor mg-single-node kvstore_dummy_lib)
 
 add_unit_test(graph_db_accessor_index_api.cpp)
-target_link_libraries(${test_prefix}graph_db_accessor_index_api memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}graph_db_accessor_index_api mg-single-node kvstore_dummy_lib)
 
 add_unit_test(graph_db.cpp)
-target_link_libraries(${test_prefix}graph_db memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}graph_db mg-single-node kvstore_dummy_lib)
 
 add_unit_test(interpreter.cpp)
-target_link_libraries(${test_prefix}interpreter memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}interpreter mg-single-node kvstore_dummy_lib)
 
 add_unit_test(kvstore.cpp)
-target_link_libraries(${test_prefix}kvstore kvstore_lib memgraph_lib glog)
+target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
 
 add_unit_test(metrics.cpp)
-target_link_libraries(${test_prefix}metrics memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}metrics mg-single-node kvstore_dummy_lib)
 
 add_unit_test(mvcc.cpp)
-target_link_libraries(${test_prefix}mvcc memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
 
 add_unit_test(mvcc_find.cpp)
-target_link_libraries(${test_prefix}mvcc_find memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}mvcc_find mg-single-node kvstore_dummy_lib)
 
 add_unit_test(mvcc_gc.cpp)
-target_link_libraries(${test_prefix}mvcc_gc memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}mvcc_gc mg-single-node kvstore_dummy_lib)
 
 add_unit_test(mvcc_one_transaction.cpp)
-target_link_libraries(${test_prefix}mvcc_one_transaction memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}mvcc_one_transaction mg-single-node kvstore_dummy_lib)
 
 add_unit_test(mvcc_parallel_update.cpp)
-target_link_libraries(${test_prefix}mvcc_parallel_update memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}mvcc_parallel_update mg-single-node kvstore_dummy_lib)
 
 add_unit_test(pod_buffer.cpp)
-target_link_libraries(${test_prefix}pod_buffer memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}pod_buffer mg-single-node kvstore_dummy_lib)
 
 add_unit_test(property_value_store.cpp)
-target_link_libraries(${test_prefix}property_value_store kvstore_lib memgraph_lib)
+target_link_libraries(${test_prefix}property_value_store kvstore_lib mg-single-node)
 
 add_unit_test(query_cost_estimator.cpp)
-target_link_libraries(${test_prefix}query_cost_estimator memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_cost_estimator mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_expression_evaluator.cpp)
-target_link_libraries(${test_prefix}query_expression_evaluator memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_expression_evaluator mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_plan_accumulate_aggregate.cpp)
-target_link_libraries(${test_prefix}query_plan_accumulate_aggregate memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_plan_bag_semantics.cpp)
-target_link_libraries(${test_prefix}query_plan_bag_semantics memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_bag_semantics mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_plan_create_set_remove_delete.cpp)
-target_link_libraries(${test_prefix}query_plan_create_set_remove_delete memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_create_set_remove_delete mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_plan_edge_cases.cpp)
-target_link_libraries(${test_prefix}query_plan_edge_cases memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_edge_cases mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_plan_match_filter_return.cpp)
-target_link_libraries(${test_prefix}query_plan_match_filter_return memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_plan_match_filter_return mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_planner.cpp)
-target_link_libraries(${test_prefix}query_planner memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_planner mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_required_privileges.cpp)
-target_link_libraries(${test_prefix}query_required_privileges memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_required_privileges mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_semantic.cpp)
-target_link_libraries(${test_prefix}query_semantic memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_semantic mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_variable_start_planner.cpp)
-target_link_libraries(${test_prefix}query_variable_start_planner memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_variable_start_planner mg-single-node kvstore_dummy_lib)
 
 add_unit_test(queue.cpp)
-target_link_libraries(${test_prefix}queue memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}queue mg-single-node kvstore_dummy_lib)
 
 add_unit_test(record_edge_vertex_accessor.cpp)
-target_link_libraries(${test_prefix}record_edge_vertex_accessor memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}record_edge_vertex_accessor mg-single-node kvstore_dummy_lib)
 
 add_unit_test(serialization.cpp)
-target_link_libraries(${test_prefix}serialization memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
 
 add_unit_test(skiplist_access.cpp)
-target_link_libraries(${test_prefix}skiplist_access memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}skiplist_access mg-single-node kvstore_dummy_lib)
 
 add_unit_test(skiplist_gc.cpp)
-target_link_libraries(${test_prefix}skiplist_gc memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}skiplist_gc mg-single-node kvstore_dummy_lib)
 
 add_unit_test(skiplist_position_and_count.cpp)
-target_link_libraries(${test_prefix}skiplist_position_and_count memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}skiplist_position_and_count mg-single-node kvstore_dummy_lib)
 
 add_unit_test(skiplist_reverse_iteration.cpp)
-target_link_libraries(${test_prefix}skiplist_reverse_iteration memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}skiplist_reverse_iteration mg-single-node kvstore_dummy_lib)
 
 add_unit_test(skiplist_suffix.cpp)
-target_link_libraries(${test_prefix}skiplist_suffix memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}skiplist_suffix mg-single-node kvstore_dummy_lib)
 
 add_unit_test(state_delta.cpp)
-target_link_libraries(${test_prefix}state_delta memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}state_delta mg-single-node kvstore_dummy_lib)
 
 add_unit_test(static_bitset.cpp)
-target_link_libraries(${test_prefix}static_bitset memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}static_bitset mg-single-node kvstore_dummy_lib)
 
 add_unit_test(storage_address.cpp)
-target_link_libraries(${test_prefix}storage_address memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}storage_address mg-distributed kvstore_dummy_lib)
 
 add_unit_test(stripped.cpp)
-target_link_libraries(${test_prefix}stripped memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}stripped mg-single-node kvstore_dummy_lib)
 
 add_unit_test(transaction_engine_distributed.cpp)
-target_link_libraries(${test_prefix}transaction_engine_distributed memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}transaction_engine_distributed mg-distributed kvstore_dummy_lib)
 
 add_unit_test(transaction_engine_single_node.cpp)
-target_link_libraries(${test_prefix}transaction_engine_single_node memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}transaction_engine_single_node mg-single-node kvstore_dummy_lib)
 
 add_unit_test(typed_value.cpp)
-target_link_libraries(${test_prefix}typed_value memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}typed_value mg-single-node kvstore_dummy_lib)
 
 # Test mg-communication
 
@@ -265,9 +265,12 @@ target_link_libraries(${test_prefix}ring_buffer mg-utils)
 
 add_unit_test(network_endpoint.cpp)
 target_link_libraries(${test_prefix}network_endpoint mg-io)
+
 add_unit_test(network_utils.cpp)
 target_link_libraries(${test_prefix}network_utils mg-io)
 
+add_unit_test(socket.cpp)
+target_link_libraries(${test_prefix}socket mg-io)
 
 # Test mg-utils
 

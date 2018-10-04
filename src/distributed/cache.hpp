@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 #include "distributed/data_rpc_clients.hpp"
-#include "storage/gid.hpp"
+#include "storage/distributed/gid.hpp"
 
 namespace database {
 class Storage;

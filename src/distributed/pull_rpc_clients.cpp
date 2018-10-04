@@ -1,8 +1,9 @@
+#include "distributed/pull_rpc_clients.hpp"
+
 #include <functional>
 
-#include "distributed/pull_rpc_clients.hpp"
-#include "storage/edge.hpp"
-#include "storage/vertex.hpp"
+#include "storage/distributed/edge.hpp"
+#include "storage/distributed/vertex.hpp"
 
 namespace distributed {
 

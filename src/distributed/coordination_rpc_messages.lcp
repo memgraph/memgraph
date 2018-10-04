@@ -6,7 +6,8 @@
 
 #include "communication/rpc/messages.hpp"
 #include "distributed/coordination_rpc_messages.capnp.h"
-#include "durability/recovery.hpp"
+#include "durability/distributed/recovery.hpp"
+#include "durability/distributed/serialization.hpp"
 #include "io/network/endpoint.hpp"
 cpp<#
 
@@ -14,7 +15,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'dur "/durability/recovery.capnp")
+(lcp:capnp-import 'dur "/durability/distributed/serialization.capnp")
 (lcp:capnp-import 'io "/io/network/endpoint.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 

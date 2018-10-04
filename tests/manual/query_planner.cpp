@@ -19,8 +19,10 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/plan/cost_estimator.hpp"
+/* TODO: FIXME
 #include "query/plan/distributed.hpp"
 #include "query/plan/distributed_pretty_print.hpp"
+*/
 #include "query/plan/planner.hpp"
 #include "query/typed_value.hpp"
 #include "utils/hashing/fnv.hpp"
@@ -398,7 +400,8 @@ DEFCOMMAND(Top) {
     auto &plan_pair = plans[i];
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plan_pair.second << std::endl;
-    query::plan::DistributedPrettyPrint(dba, plan_pair.first.get());
+    // TODO: Was `DistributedPrettyPrint`
+    query::plan::PrettyPrint(dba, plan_pair.first.get());
     std::cout << std::endl;
   }
 }
@@ -411,9 +414,11 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].first;
   auto cost = plans[plan_ix].second;
   std::cout << "Plan cost: " << cost << std::endl;
-  query::plan::DistributedPrettyPrint(dba, plan.get());
+  // TODO: Was `DistributedPrettyPrint`
+  query::plan::PrettyPrint(dba, plan.get());
 }
 
+/* TODO: FIXME
 DEFCOMMAND(ShowDistributed) {
   int64_t plan_ix = 0;
   std::stringstream ss(args[0]);
@@ -436,15 +441,18 @@ DEFCOMMAND(ShowDistributed) {
     std::cout << std::endl;
   }
 }
+*/
 
 DEFCOMMAND(Help);
 
 std::map<std::string, Command> commands = {
     {"top", {TopCommand, 1, "Show top N plans"}},
     {"show", {ShowCommand, 1, "Show the Nth plan"}},
+    /* TODO: FIXME
     {"show-distributed",
      {ShowDistributedCommand, 1,
       "Show the Nth plan as for distributed execution"}},
+    */
     {"help", {HelpCommand, 0, "Show available commands"}},
 };
 

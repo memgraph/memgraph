@@ -5,12 +5,24 @@
 
 #include <glog/logging.h>
 
-#include "database/state_delta.hpp"
-#include "storage/address_types.hpp"
-#include "storage/edge.hpp"
-#include "storage/edge_accessor.hpp"
-#include "storage/vertex.hpp"
-#include "storage/vertex_accessor.hpp"
+// TODO: THIS IS A HACK!
+#ifdef MG_SINGLE_NODE
+#include "durability/single_node/state_delta.hpp"
+#include "storage/single_node/address_types.hpp"
+#include "storage/single_node/edge.hpp"
+#include "storage/single_node/edge_accessor.hpp"
+#include "storage/single_node/vertex.hpp"
+#include "storage/single_node/vertex_accessor.hpp"
+#endif
+#ifdef MG_DISTRIBUTED
+#include "durability/distributed/state_delta.hpp"
+#include "storage/distributed/address_types.hpp"
+#include "storage/distributed/edge.hpp"
+#include "storage/distributed/edge_accessor.hpp"
+#include "storage/distributed/vertex.hpp"
+#include "storage/distributed/vertex_accessor.hpp"
+#endif
+
 #include "utils/cast.hpp"
 #include "utils/on_scope_exit.hpp"
 

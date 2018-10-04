@@ -1,16 +1,16 @@
 #include <set>
 #include <vector>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "mvcc/version_list.hpp"
-#include "storage/address.hpp"
-#include "storage/edge_accessor.hpp"
-#include "storage/property_value.hpp"
-#include "storage/vertex.hpp"
-#include "storage/vertex_accessor.hpp"
+#include "mvcc/single_node/version_list.hpp"
+#include "storage/common/property_value.hpp"
+#include "storage/single_node/address.hpp"
+#include "storage/single_node/edge_accessor.hpp"
+#include "storage/single_node/vertex.hpp"
+#include "storage/single_node/vertex_accessor.hpp"
 
 TEST(RecordAccessor, Properties) {
   database::SingleNode db;

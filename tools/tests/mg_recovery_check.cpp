@@ -1,12 +1,12 @@
 #include <experimental/optional>
 #include <string>
 
-#include "gflags/gflags.h"
-#include "gtest/gtest.h"
+#include <gflags/gflags.h>
+#include <gtest/gtest.h>
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "durability/recovery.hpp"
+#include "durability/single_node/recovery.hpp"
 #include "query/typed_value.hpp"
 
 static const char *usage =

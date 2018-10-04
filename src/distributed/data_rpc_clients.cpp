@@ -1,9 +1,10 @@
+#include "distributed/data_rpc_clients.hpp"
+
 #include <unordered_map>
 
-#include "distributed/data_rpc_clients.hpp"
 #include "distributed/data_rpc_messages.hpp"
-#include "storage/edge.hpp"
-#include "storage/vertex.hpp"
+#include "storage/distributed/edge.hpp"
+#include "storage/distributed/vertex.hpp"
 
 namespace distributed {
 

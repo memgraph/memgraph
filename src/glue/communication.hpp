@@ -3,7 +3,7 @@
 
 #include "communication/bolt/v1/value.hpp"
 #include "query/typed_value.hpp"
-#include "storage/property_value.hpp"
+#include "storage/common/property_value.hpp"
 
 namespace glue {
 

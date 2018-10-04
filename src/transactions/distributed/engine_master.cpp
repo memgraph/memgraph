@@ -3,7 +3,7 @@
 
 #include "glog/logging.h"
 
-#include "database/state_delta.hpp"
+#include "durability/distributed/state_delta.hpp"
 #include "transactions/distributed/engine_master.hpp"
 #include "transactions/distributed/engine_rpc_messages.hpp"
 

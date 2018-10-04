@@ -1,10 +1,10 @@
 # CSV Import Tool Target
 add_executable(mg_import_csv mg_import_csv/main.cpp)
-target_link_libraries(mg_import_csv memgraph_lib kvstore_dummy_lib)
+target_link_libraries(mg_import_csv mg-single-node kvstore_dummy_lib)
 
 # StatsD Target
 add_executable(mg_statsd mg_statsd/main.cpp)
-target_link_libraries(mg_statsd memgraph_lib kvstore_dummy_lib)
+target_link_libraries(mg_statsd mg-communication mg-io mg-utils mg-stats)
 
 # Memgraph Client Target
 add_executable(mg_client mg_client/main.cpp)

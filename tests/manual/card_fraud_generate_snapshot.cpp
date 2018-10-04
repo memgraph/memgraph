@@ -10,10 +10,10 @@
 #include <json/json.hpp>
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "durability/distributed/snapshot_encoder.hpp"
+#include "durability/distributed/version.hpp"
 #include "durability/paths.hpp"
-#include "durability/snapshot_encoder.hpp"
-#include "durability/version.hpp"
-#include "storage/address_types.hpp"
+#include "storage/distributed/address_types.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 

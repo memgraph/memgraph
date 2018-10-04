@@ -9,7 +9,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/distributed_ops.hpp"
 #include "query/serialization.hpp"
-#include "storage/serialization.hpp"
+#include "storage/distributed/serialization.hpp"
 #include "transactions/type.hpp"
 #include "utils/serialization.hpp"
 cpp<#
@@ -21,7 +21,7 @@ cpp<#
 (lcp:capnp-import 'ast "/query/frontend/ast/ast_serialization.capnp")
 (lcp:capnp-import 'dist-ops "/query/plan/distributed_ops.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
-(lcp:capnp-import 'storage "/storage/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
 (lcp:capnp-import 'symbol "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 

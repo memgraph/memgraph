@@ -18,64 +18,64 @@ function(add_concurrent_test test_cpp)
 endfunction(add_concurrent_test)
 
 add_concurrent_test(dynamic_bitset_clear_n.cpp)
-target_link_libraries(${test_prefix}dynamic_bitset_clear_n memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}dynamic_bitset_clear_n mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(dynamic_bitset.cpp)
-target_link_libraries(${test_prefix}dynamic_bitset memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}dynamic_bitset mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(dynamic_bitset_set.cpp)
-target_link_libraries(${test_prefix}dynamic_bitset_set memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}dynamic_bitset_set mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(dynamic_bitset_set_n.cpp)
-target_link_libraries(${test_prefix}dynamic_bitset_set_n memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}dynamic_bitset_set_n mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(futex.cpp)
-target_link_libraries(${test_prefix}futex memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}futex mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(network_read_hang.cpp)
-target_link_libraries(${test_prefix}network_read_hang memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}network_read_hang mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(network_server.cpp)
-target_link_libraries(${test_prefix}network_server memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}network_server mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(network_session_leak.cpp)
-target_link_libraries(${test_prefix}network_session_leak memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}network_session_leak mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(push_queue.cpp)
-target_link_libraries(${test_prefix}push_queue memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}push_queue mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_hang.cpp)
-target_link_libraries(${test_prefix}sl_hang memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_hang mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_insert_competetive.cpp)
-target_link_libraries(${test_prefix}sl_insert_competetive memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_insert_competetive mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_insert.cpp)
-target_link_libraries(${test_prefix}sl_insert memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_insert mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_map.cpp)
-target_link_libraries(${test_prefix}sl_map memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_map mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_memory.cpp)
-target_link_libraries(${test_prefix}sl_memory memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_memory mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_memory_leak.cpp)
-target_link_libraries(${test_prefix}sl_memory_leak memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_memory_leak mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_remove_competetive.cpp)
-target_link_libraries(${test_prefix}sl_remove_competetive memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_remove_competetive mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_remove_disjoint.cpp)
-target_link_libraries(${test_prefix}sl_remove_disjoint memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_remove_disjoint mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_remove_joint.cpp)
-target_link_libraries(${test_prefix}sl_remove_joint memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_remove_joint mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_set.cpp)
-target_link_libraries(${test_prefix}sl_set memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_set mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(sl_simulation.cpp)
-target_link_libraries(${test_prefix}sl_simulation memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_simulation mg-single-node kvstore_dummy_lib)
 
 add_concurrent_test(spinlock.cpp)
-target_link_libraries(${test_prefix}spinlock memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}spinlock mg-single-node kvstore_dummy_lib)

@@ -9,8 +9,8 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
-#include "storage/property_value.hpp"
-#include "storage/types.hpp"
+#include "storage/common/property_value.hpp"
+#include "storage/common/types.hpp"
 
 // Hash function for the key in pattern atom property maps.
 namespace std {
@@ -36,7 +36,7 @@ cpp<#
 (lcp:namespace query)
 (lcp:capnp-namespace "query")
 
-(lcp:capnp-import 'storage "/storage/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
 (lcp:capnp-import 'symbol "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 

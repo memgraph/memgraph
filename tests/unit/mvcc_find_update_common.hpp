@@ -1,9 +1,10 @@
 #include <vector>
-#include "gtest/gtest.h"
 
-#include "mvcc/record.hpp"
-#include "mvcc/version.hpp"
-#include "mvcc/version_list.hpp"
+#include <gtest/gtest.h>
+
+#include "mvcc/common/version.hpp"
+#include "mvcc/single_node/record.hpp"
+#include "mvcc/single_node/version_list.hpp"
 #include "transactions/single_node/engine_single_node.hpp"
 #include "transactions/transaction.hpp"
 

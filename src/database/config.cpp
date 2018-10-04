@@ -1,7 +1,13 @@
 #include <limits>
 
 #include "database/graph_db.hpp"
-#include "storage/gid.hpp"
+// TODO: THIS IS A HACK!
+#ifdef MG_SINGLE_NODE
+#include "storage/single_node/gid.hpp"
+#endif
+#ifdef MG_DISTRIBUTED
+#include "storage/distributed/gid.hpp"
+#endif
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 

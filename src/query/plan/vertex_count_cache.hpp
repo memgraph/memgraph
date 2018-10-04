@@ -3,8 +3,8 @@
 
 #include <experimental/optional>
 
-#include "storage/property_value.hpp"
-#include "storage/types.hpp"
+#include "storage/common/property_value.hpp"
+#include "storage/common/types.hpp"
 #include "utils/bound.hpp"
 #include "utils/hashing/fnv.hpp"
 

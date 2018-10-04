@@ -5,7 +5,7 @@
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "durability/wal.hpp"
+#include "durability/distributed/wal.hpp"
 #include "io/network/endpoint.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/distributed/engine_distributed.hpp"

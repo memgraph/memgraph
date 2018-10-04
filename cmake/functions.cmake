@@ -128,7 +128,7 @@ set(lcp_src_files ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp ${lcp_exe})
 # file through `add_capnp` function. To generate the <id> use `capnp id`
 # invocation, and specify it here. This preserves correct id information across
 # multiple schema generations. If this wasn't the case, wrong typeId
-# information will break serialization between different compilations of memgraph.
+# information will break serialization between different compilations.
 macro(define_add_lcp name main_src_files generated_lcp_files)
   function(${name} lcp_file)
     set(one_value_kwargs CAPNP_SCHEMA)

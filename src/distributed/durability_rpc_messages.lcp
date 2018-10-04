@@ -3,13 +3,14 @@
 
 #include "communication/rpc/messages.hpp"
 #include "distributed/durability_rpc_messages.capnp.h"
-#include "durability/recovery.hpp"
+#include "durability/distributed/recovery.hpp"
+#include "durability/distributed/serialization.hpp"
 #include "transactions/transaction.hpp"
 cpp<#
 
 (lcp:namespace distributed)
 
-(lcp:capnp-import 'dur "/durability/recovery.capnp")
+(lcp:capnp-import 'dur "/durability/distributed/serialization.capnp")
 
 (lcp:capnp-namespace "distributed")
 

@@ -4,10 +4,12 @@
 #include <unordered_map>
 
 #include "communication/rpc/messages.hpp"
-#include "database/state_delta.hpp"
+#include "database/serialization.hpp"
 #include "distributed/updates_rpc_messages.capnp.h"
-#include "storage/address_types.hpp"
-#include "storage/gid.hpp"
+#include "durability/distributed/state_delta.hpp"
+#include "storage/distributed/address_types.hpp"
+#include "storage/distributed/gid.hpp"
+#include "storage/distributed/serialization.hpp"
 #include "transactions/type.hpp"
 #include "utils/serialization.hpp"
 cpp<#
@@ -16,8 +18,8 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'db "/database/state_delta.capnp")
-(lcp:capnp-import 'storage "/storage/serialization.capnp")
+(lcp:capnp-import 'db "/database/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")

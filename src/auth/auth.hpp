@@ -6,7 +6,7 @@
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
-#include "storage/kvstore.hpp"
+#include "storage/kvstore/kvstore.hpp"
 
 namespace auth {
 

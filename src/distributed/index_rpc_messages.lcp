@@ -6,7 +6,8 @@
 
 #include "communication/rpc/messages.hpp"
 #include "distributed/index_rpc_messages.capnp.h"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
+#include "storage/distributed/serialization.hpp"
 #include "transactions/transaction.hpp"
 cpp<#
 
@@ -14,7 +15,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'storage "/storage/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
 
 (lcp:define-rpc populate-index
     (:request

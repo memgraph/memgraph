@@ -6,7 +6,7 @@
 #include "distributed/bfs_rpc_clients.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
-#include "storage/address_types.hpp"
+#include "storage/distributed/address_types.hpp"
 #include "storage/vertex_accessor.hpp"
 
 namespace distributed {

@@ -6,15 +6,28 @@
 #include <vector>
 
 #include "database/counters.hpp"
-#include "database/storage.hpp"
-#include "database/storage_gc.hpp"
-#include "durability/recovery.hpp"
-#include "durability/wal.hpp"
 #include "io/network/endpoint.hpp"
-#include "storage/concurrent_id_mapper.hpp"
-#include "storage/types.hpp"
+#include "storage/common/concurrent_id_mapper.hpp"
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
+
+// TODO: THIS IS A HACK!
+#ifdef MG_SINGLE_NODE
+#include "durability/single_node/recovery.hpp"
+#include "durability/single_node/wal.hpp"
+#include "storage/common/types.hpp"
+#include "storage/single_node/storage.hpp"
+#include "storage/single_node/storage_gc.hpp"
+#endif
+#ifdef MG_DISTRIBUTED
+#include "durability/distributed/recovery.hpp"
+#include "durability/distributed/wal.hpp"
+#include "storage/common/types.hpp"
+#include "storage/distributed/storage.hpp"
+#include "storage/distributed/storage_gc.hpp"
+#include "storage/distributed/vertex_accessor.hpp"
+#endif
+
 
 namespace database {
 

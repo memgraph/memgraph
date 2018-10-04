@@ -5,11 +5,11 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "database/state_delta.hpp"
 #include "durability/hashed_file_reader.hpp"
-#include "durability/recovery.hpp"
-#include "durability/version.hpp"
-#include "durability/wal.hpp"
+#include "durability/single_node/recovery.hpp"
+#include "durability/single_node/state_delta.hpp"
+#include "durability/single_node/version.hpp"
+#include "durability/single_node/wal.hpp"
 #include "transactions/type.hpp"
 
 DEFINE_string(wal_file, "", "WAL file location");

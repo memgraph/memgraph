@@ -16,4 +16,4 @@ function(add_stress_test test_cpp)
 endfunction(add_stress_test)
 
 add_stress_test(long_running.cpp)
-target_link_libraries(${test_prefix}long_running memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}long_running mg-communication mg-io mg-utils)

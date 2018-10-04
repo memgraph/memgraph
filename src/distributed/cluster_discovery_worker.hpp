@@ -5,7 +5,7 @@
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/server.hpp"
 #include "distributed/coordination_worker.hpp"
-#include "durability/recovery.hpp"
+#include "durability/distributed/recovery.hpp"
 
 namespace distributed {
 using Server = communication::rpc::Server;

@@ -1,9 +1,9 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/indexes/label_property_index.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
+#include "storage/single_node/indexes/label_property_index.hpp"
 #include "transactions/single_node/engine_single_node.hpp"
 
 #include "mvcc_gc_common.hpp"

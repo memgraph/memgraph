@@ -74,8 +74,12 @@ def wait_for_server(port, delay=0.01):
     time.sleep(delay)
 
 
-def run_memgraph(context, flags):
-    memgraph_cmd = [os.path.join(context.memgraph_dir, "memgraph")]
+def run_memgraph(context, flags, distributed):
+    if distributed:
+        memgraph_binary = "memgraph_distributed"
+    else:
+        memgraph_binary = "memgraph"
+    memgraph_cmd = [os.path.join(context.memgraph_dir, memgraph_binary)]
     memgraph_subprocess = start_process(memgraph_cmd + flags)
     context.memgraph_processes.append(memgraph_subprocess)
 
@@ -88,19 +92,20 @@ def start_memgraph(context):
         master_flags = flags.copy()
         master_flags.append("--durability-directory=" + os.path.join(
             temporary_directory.name, "master"))
-        run_memgraph(context, master_flags + DISTRIBUTED_FLAGS + MASTER_FLAGS)
+        run_memgraph(context, master_flags + DISTRIBUTED_FLAGS + MASTER_FLAGS,
+                     context.config.distributed)
         for i in range(1, int(context.config.num_machines)):
             worker_flags = flags.copy()
             worker_flags.append("--durability-directory=" + os.path.join(
                 temporary_directory.name, "worker" + str(i)))
             run_memgraph(context, worker_flags + DISTRIBUTED_FLAGS +
-                         get_worker_flags(i))
+                         get_worker_flags(i), context.config.distributed)
     else:  # Run single machine memgraph
         flags = COMMON_FLAGS.copy()
         if context.config.memgraph_params:
             flags += context.extra_flags
         flags.append("--durability-directory=" + temporary_directory.name)
-        run_memgraph(context, flags)
+        run_memgraph(context, flags, context.config.distributed)
     assert is_tested_system_active(context), "Failed to start memgraph"
     wait_for_server(str(MEMGRAPH_PORT))  # wait for memgraph to start
 

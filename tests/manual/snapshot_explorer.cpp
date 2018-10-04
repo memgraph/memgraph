@@ -5,10 +5,10 @@
 #include <glog/logging.h>
 
 #include "durability/hashed_file_reader.hpp"
-#include "durability/recovery.hpp"
-#include "durability/snapshot_decoder.hpp"
-#include "durability/snapshot_value.hpp"
-#include "durability/version.hpp"
+#include "durability/single_node/recovery.hpp"
+#include "durability/single_node/snapshot_decoder.hpp"
+#include "durability/single_node/snapshot_value.hpp"
+#include "durability/single_node/version.hpp"
 
 DEFINE_string(snapshot_file, "", "Snapshot file location");
 

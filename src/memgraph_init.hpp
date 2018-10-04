@@ -11,8 +11,8 @@
 
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
+#include "communication/init.hpp"
 #include "communication/session.hpp"
-#include "distributed/pull_rpc_clients.hpp"
 #include "query/interpreter.hpp"
 #include "query/transaction_engine.hpp"
 

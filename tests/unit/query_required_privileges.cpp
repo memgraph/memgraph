@@ -1,8 +1,8 @@
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "query/frontend/semantic/required_privileges.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
 
 #include "query_common.hpp"
 

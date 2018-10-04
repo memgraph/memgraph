@@ -1,7 +1,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "storage/pod_buffer.hpp"
+#include "storage/common/pod_buffer.hpp"
 
 class PODBufferTest : public ::testing::Test {
  protected:

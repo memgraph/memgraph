@@ -31,45 +31,45 @@ add_manual_test(bolt_client.cpp)
 target_link_libraries(${test_prefix}bolt_client mg-communication)
 
 add_manual_test(card_fraud_generate_snapshot.cpp)
-target_link_libraries(${test_prefix}card_fraud_generate_snapshot memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}card_fraud_generate_snapshot mg-distributed kvstore_dummy_lib)
 
 add_manual_test(card_fraud_local.cpp)
-target_link_libraries(${test_prefix}card_fraud_local memgraph_lib kvstore_dummy_lib gtest)
+target_link_libraries(${test_prefix}card_fraud_local mg-distributed kvstore_dummy_lib gtest)
 
 add_manual_test(distributed_repl.cpp)
-target_link_libraries(${test_prefix}distributed_repl memgraph_lib kvstore_dummy_lib gtest)
+target_link_libraries(${test_prefix}distributed_repl mg-distributed kvstore_dummy_lib gtest readline)
 
 add_manual_test(endinan.cpp)
 
 add_manual_test(generate_snapshot.cpp)
-target_link_libraries(${test_prefix}generate_snapshot memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}generate_snapshot mg-distributed kvstore_dummy_lib)
 
 add_manual_test(graph_500_generate_snapshot.cpp)
-target_link_libraries(${test_prefix}graph_500_generate_snapshot memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}graph_500_generate_snapshot mg-distributed kvstore_dummy_lib)
 
 add_manual_test(kvstore_console.cpp)
 target_link_libraries(${test_prefix}kvstore_console kvstore_lib gflags glog)
 
 add_manual_test(query_hash.cpp)
-target_link_libraries(${test_prefix}query_hash memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_hash mg-single-node kvstore_dummy_lib)
 
 add_manual_test(query_planner.cpp)
-target_link_libraries(${test_prefix}query_planner memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}query_planner mg-single-node kvstore_dummy_lib)
 
 add_manual_test(repl.cpp)
-target_link_libraries(${test_prefix}repl memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}repl mg-single-node kvstore_dummy_lib)
 
 add_manual_test(single_query.cpp)
-target_link_libraries(${test_prefix}single_query memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}single_query mg-single-node kvstore_dummy_lib)
 
 add_manual_test(sl_position_and_count.cpp)
-target_link_libraries(${test_prefix}sl_position_and_count memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}sl_position_and_count mg-single-node kvstore_dummy_lib)
 
 add_manual_test(snapshot_explorer.cpp)
-target_link_libraries(${test_prefix}snapshot_explorer memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}snapshot_explorer mg-single-node kvstore_dummy_lib)
 
 add_manual_test(stripped_timing.cpp)
-target_link_libraries(${test_prefix}stripped_timing memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}stripped_timing mg-single-node kvstore_dummy_lib)
 
 add_manual_test(ssl_client.cpp)
 target_link_libraries(${test_prefix}ssl_client mg-communication)
@@ -78,7 +78,7 @@ add_manual_test(ssl_server.cpp)
 target_link_libraries(${test_prefix}ssl_server mg-communication)
 
 add_manual_test(wal_explorer.cpp)
-target_link_libraries(${test_prefix}wal_explorer memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}wal_explorer mg-single-node kvstore_dummy_lib)
 
 add_manual_test(xorshift.cpp)
 target_link_libraries(${test_prefix}xorshift mg-utils)

@@ -284,28 +284,6 @@ bool TypedValueVectorCompare::operator()(
   return (c1_it == c1.end()) && (c2_it != c2.end());
 }
 
-void Save(const TypedValueVectorCompare &comparator,
-          capnp::TypedValueVectorCompare::Builder *builder) {
-  auto ordering_builder = builder->initOrdering(comparator.ordering().size());
-  for (size_t i = 0; i < comparator.ordering().size(); ++i) {
-    ordering_builder.set(i, comparator.ordering()[i] == Ordering::ASC
-                                ? capnp::Ordering::ASC
-                                : capnp::Ordering::DESC);
-  }
-}
-
-void Load(TypedValueVectorCompare *comparator,
-          const capnp::TypedValueVectorCompare::Reader &reader) {
-  std::vector<Ordering> ordering;
-  ordering.reserve(reader.getOrdering().size());
-  for (auto ordering_reader : reader.getOrdering()) {
-    ordering.push_back(ordering_reader == capnp::Ordering::ASC
-                           ? Ordering::ASC
-                           : Ordering::DESC);
-  }
-  comparator->ordering_ = ordering;
-}
-
 template <typename TAccessor>
 void SwitchAccessor(TAccessor &accessor, GraphView graph_view) {
   switch (graph_view) {

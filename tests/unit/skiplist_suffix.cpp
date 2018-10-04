@@ -2,10 +2,10 @@
 #include <iterator>
 #include <vector>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "database/indexes/index_common.hpp"
+#include "storage/common/index.hpp"
 
 template <class TIterable>
 int Count(TIterable &collection) {

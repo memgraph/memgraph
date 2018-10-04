@@ -1,8 +1,8 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
-#include "mvcc/record.hpp"
-#include "storage/deferred_deleter.hpp"
-#include "storage/vertex.hpp"
+#include "mvcc/single_node/record.hpp"
+#include "storage/single_node/deferred_deleter.hpp"
+#include "storage/single_node/vertex.hpp"
 
 #include "mvcc_gc_common.hpp"
 

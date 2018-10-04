@@ -3,7 +3,8 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_serialization.capnp.h"
-#include "storage/serialization.hpp"
+#include "query/serialization.hpp"
+#include "storage/distributed/serialization.hpp"
 cpp<#
 
 (load "query/frontend/ast/ast.lcp")

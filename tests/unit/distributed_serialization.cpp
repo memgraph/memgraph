@@ -3,13 +3,14 @@
 
 #include <capnp/message.h>
 
-#include "mvcc/version_list.hpp"
+#include "mvcc/distributed/version_list.hpp"
 #include "query/typed_value.hpp"
-#include "storage/edge.hpp"
-#include "storage/property_value_store.hpp"
-#include "storage/serialization.hpp"
-#include "storage/types.hpp"
-#include "storage/vertex.hpp"
+#include "storage/common/property_value_store.hpp"
+#include "storage/common/types.hpp"
+#include "storage/distributed/edge.hpp"
+#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/vertex.hpp"
+// TODO: THIS SHOULD BE CHANGED!
 #include "transactions/single_node/engine_single_node.hpp"
 
 using namespace storage;

@@ -6,11 +6,11 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/single_node_counters.hpp"
-#include "database/storage_gc_single_node.hpp"
 #include "durability/paths.hpp"
-#include "durability/recovery.hpp"
-#include "durability/snapshooter.hpp"
-#include "storage/concurrent_id_mapper_single_node.hpp"
+#include "durability/single_node/recovery.hpp"
+#include "durability/single_node/snapshooter.hpp"
+#include "storage/single_node/concurrent_id_mapper_single_node.hpp"
+#include "storage/single_node/storage_gc_single_node.hpp"
 #include "transactions/single_node/engine_single_node.hpp"
 #include "utils/file.hpp"
 

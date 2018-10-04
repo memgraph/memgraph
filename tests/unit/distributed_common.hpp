@@ -9,7 +9,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "distributed/data_manager.hpp"
 #include "distributed/updates_rpc_server.hpp"
-#include "storage/address_types.hpp"
+#include "storage/distributed/address_types.hpp"
 #include "transactions/distributed/engine_master.hpp"
 #include "utils/file.hpp"
 

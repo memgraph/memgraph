@@ -10,15 +10,85 @@ add_subdirectory(communication)
 add_subdirectory(stats)
 add_subdirectory(auth)
 
-# all memgraph src files
-set(memgraph_src_files
+# ----------------------------------------------------------------------------
+# Memgraph Single Node
+# ----------------------------------------------------------------------------
+set(mg_single_node_sources
     data_structures/concurrent/skiplist_gc.cpp
     database/config.cpp
-    database/distributed_counters.cpp
-    database/distributed_graph_db.cpp
     database/graph_db.cpp
     database/graph_db_accessor.cpp
-    database/state_delta.cpp
+    durability/single_node/state_delta.cpp
+    durability/paths.cpp
+    durability/single_node/recovery.cpp
+    durability/single_node/snapshooter.cpp
+    durability/single_node/wal.cpp
+    glue/auth.cpp
+    glue/communication.cpp
+    query/common.cpp
+    query/frontend/ast/ast.cpp
+    query/frontend/ast/cypher_main_visitor.cpp
+    query/frontend/semantic/required_privileges.cpp
+    query/frontend/semantic/symbol_generator.cpp
+    query/frontend/stripped.cpp
+    query/interpret/awesome_memgraph_functions.cpp
+    query/interpreter.cpp
+    query/plan/operator.cpp
+    query/plan/preprocess.cpp
+    query/plan/pretty_print.cpp
+    query/plan/rule_based_planner.cpp
+    query/plan/variable_start_planner.cpp
+    query/repl.cpp
+    query/typed_value.cpp
+    storage/single_node/edge_accessor.cpp
+    storage/locking/record_lock.cpp
+    storage/common/property_value.cpp
+    storage/common/property_value_store.cpp
+    storage/single_node/record_accessor.cpp
+    storage/single_node/vertex_accessor.cpp
+    transactions/single_node/engine_single_node.cpp
+    memgraph_init.cpp
+)
+
+define_add_lcp(add_lcp_single_node mg_single_node_sources generated_lcp_single_node_files)
+
+add_lcp_single_node(durability/single_node/state_delta.lcp)
+add_lcp_single_node(query/frontend/ast/ast.lcp)
+add_lcp_single_node(query/plan/operator.lcp)
+
+add_custom_target(generate_lcp_single_node DEPENDS ${generated_lcp_single_node_files})
+
+set(MG_SINGLE_NODE_LIBS stdc++fs Threads::Threads fmt cppitertools
+    antlr_opencypher_parser_lib dl glog gflags capnp kj
+    mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-auth mg-stats)
+
+if (USE_LTALLOC)
+  list(APPEND MG_SINGLE_NODE_LIBS ltalloc)
+  # TODO(mferencevic): Enable this when clang is updated on apollo.
+  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+endif()
+
+if (READLINE_FOUND)
+  list(APPEND MG_SINGLE_NODE_LIBS readline)
+endif()
+
+add_library(mg-single-node STATIC ${mg_single_node_sources})
+target_link_libraries(mg-single-node ${MG_SINGLE_NODE_LIBS})
+add_dependencies(mg-single-node generate_opencypher_parser)
+add_dependencies(mg-single-node generate_lcp_single_node)
+target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
+
+# ----------------------------------------------------------------------------
+# END Memgraph Single Node
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# Memgraph Distributed
+# ----------------------------------------------------------------------------
+
+set(mg_distributed_sources
+    database/distributed_counters.cpp
+    database/distributed_graph_db.cpp
     distributed/bfs_rpc_clients.cpp
     distributed/bfs_subcursor.cpp
     distributed/cluster_discovery_master.cpp
@@ -41,14 +111,25 @@ set(memgraph_src_files
     distributed/pull_rpc_clients.cpp
     distributed/updates_rpc_clients.cpp
     distributed/updates_rpc_server.cpp
+    query/distributed_interpreter.cpp
+    query/plan/distributed.cpp
+    query/plan/distributed_ops.cpp
+    query/plan/distributed_pretty_print.cpp
+    storage/distributed/concurrent_id_mapper_master.cpp
+    storage/distributed/concurrent_id_mapper_worker.cpp
+    transactions/distributed/engine_master.cpp
+    transactions/distributed/engine_worker.cpp
+    data_structures/concurrent/skiplist_gc.cpp
+    database/config.cpp
+    database/graph_db_accessor.cpp
+    durability/distributed/state_delta.cpp
     durability/paths.cpp
-    durability/recovery.cpp
-    durability/snapshooter.cpp
-    durability/wal.cpp
+    durability/distributed/recovery.cpp
+    durability/distributed/snapshooter.cpp
+    durability/distributed/wal.cpp
     glue/auth.cpp
     glue/communication.cpp
     query/common.cpp
-    query/distributed_interpreter.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/semantic/required_privileges.cpp
@@ -56,9 +137,6 @@ set(memgraph_src_files
     query/frontend/stripped.cpp
     query/interpret/awesome_memgraph_functions.cpp
     query/interpreter.cpp
-    query/plan/distributed.cpp
-    query/plan/distributed_ops.cpp
-    query/plan/distributed_pretty_print.cpp
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/pretty_print.cpp
@@ -67,115 +145,106 @@ set(memgraph_src_files
     query/repl.cpp
     query/serialization.cpp
     query/typed_value.cpp
-    storage/concurrent_id_mapper_master.cpp
-    storage/concurrent_id_mapper_worker.cpp
-    storage/edge_accessor.cpp
+    storage/common/property_value.cpp
+    storage/common/property_value_store.cpp
+    storage/distributed/edge_accessor.cpp
+    storage/distributed/record_accessor.cpp
+    storage/distributed/serialization.cpp
+    storage/distributed/vertex_accessor.cpp
     storage/locking/record_lock.cpp
-    storage/property_value.cpp
-    storage/property_value_store.cpp
-    storage/record_accessor.cpp
-    storage/serialization.cpp
-    storage/vertex_accessor.cpp
-    transactions/distributed/engine_master.cpp
-    transactions/distributed/engine_worker.cpp
-    transactions/single_node/engine_single_node.cpp
     memgraph_init.cpp
+    transactions/single_node/engine_single_node.cpp
 )
+
 # -----------------------------------------------------------------------------
 
-define_add_capnp(memgraph_src_files generated_capnp_files)
+define_add_capnp(mg_distributed_sources generated_capnp_files)
 
-define_add_lcp(add_lcp memgraph_src_files generated_lcp_files)
+define_add_lcp(add_lcp_distributed mg_distributed_sources generated_lcp_distributed_files)
 
-add_lcp(database/counters_rpc_messages.lcp CAPNP_SCHEMA @0x95a2c3ea3871e945)
+add_lcp_distributed(durability/distributed/state_delta.lcp)
+add_lcp_distributed(database/counters_rpc_messages.lcp CAPNP_SCHEMA @0x95a2c3ea3871e945)
 add_capnp(database/counters_rpc_messages.capnp)
-add_lcp(database/state_delta.lcp CAPNP_SCHEMA @0xdea01657b3563887)
-add_capnp(database/state_delta.capnp)
-add_lcp(distributed/bfs_rpc_messages.lcp CAPNP_SCHEMA @0x8e508640b09b6d2a)
+add_lcp_distributed(database/serialization.lcp CAPNP_SCHEMA @0xdea01657b3563887
+                    DEPENDS durability/distributed/state_delta.lcp)
+add_capnp(database/serialization.capnp)
+add_lcp_distributed(distributed/bfs_rpc_messages.lcp CAPNP_SCHEMA @0x8e508640b09b6d2a)
 add_capnp(distributed/bfs_rpc_messages.capnp)
-add_lcp(distributed/coordination_rpc_messages.lcp CAPNP_SCHEMA @0x93df0c4703cf98fb)
+add_lcp_distributed(distributed/coordination_rpc_messages.lcp CAPNP_SCHEMA @0x93df0c4703cf98fb)
 add_capnp(distributed/coordination_rpc_messages.capnp)
-add_lcp(distributed/data_rpc_messages.lcp CAPNP_SCHEMA @0xc1c8a341ba37aaf5)
+add_lcp_distributed(distributed/data_rpc_messages.lcp CAPNP_SCHEMA @0xc1c8a341ba37aaf5)
 add_capnp(distributed/data_rpc_messages.capnp)
-add_lcp(distributed/durability_rpc_messages.lcp CAPNP_SCHEMA @0xf5e53bc271e2163d)
+add_lcp_distributed(distributed/durability_rpc_messages.lcp CAPNP_SCHEMA @0xf5e53bc271e2163d)
 add_capnp(distributed/durability_rpc_messages.capnp)
-add_lcp(distributed/index_rpc_messages.lcp CAPNP_SCHEMA @0xa8aab46862945bd6)
+add_lcp_distributed(distributed/index_rpc_messages.lcp CAPNP_SCHEMA @0xa8aab46862945bd6)
 add_capnp(distributed/index_rpc_messages.capnp)
-add_lcp(distributed/plan_rpc_messages.lcp CAPNP_SCHEMA @0xfcbc48dc9f106d28)
+add_lcp_distributed(distributed/plan_rpc_messages.lcp CAPNP_SCHEMA @0xfcbc48dc9f106d28)
 add_capnp(distributed/plan_rpc_messages.capnp)
-add_lcp(distributed/pull_produce_rpc_messages.lcp CAPNP_SCHEMA @0xa78a9254a73685bd
-        DEPENDS transactions/distributed/serialization.lcp)
+add_lcp_distributed(distributed/pull_produce_rpc_messages.lcp CAPNP_SCHEMA @0xa78a9254a73685bd
+                    DEPENDS transactions/distributed/serialization.lcp)
 add_capnp(distributed/pull_produce_rpc_messages.capnp)
-add_lcp(distributed/storage_gc_rpc_messages.lcp CAPNP_SCHEMA @0xd705663dfe36cf81)
+add_lcp_distributed(distributed/storage_gc_rpc_messages.lcp CAPNP_SCHEMA @0xd705663dfe36cf81)
 add_capnp(distributed/storage_gc_rpc_messages.capnp)
-add_lcp(distributed/token_sharing_rpc_messages.lcp CAPNP_SCHEMA @0x8f295db54ec4caec)
+add_lcp_distributed(distributed/token_sharing_rpc_messages.lcp CAPNP_SCHEMA @0x8f295db54ec4caec)
 add_capnp(distributed/token_sharing_rpc_messages.capnp)
-add_lcp(distributed/updates_rpc_messages.lcp CAPNP_SCHEMA @0x82d5f38d73c7b53a)
+add_lcp_distributed(distributed/updates_rpc_messages.lcp CAPNP_SCHEMA @0x82d5f38d73c7b53a)
 add_capnp(distributed/updates_rpc_messages.capnp)
-add_lcp(distributed/dynamic_worker_rpc_messages.lcp CAPNP_SCHEMA @0x8c53f6c9a0c71b05)
+add_lcp_distributed(distributed/dynamic_worker_rpc_messages.lcp CAPNP_SCHEMA @0x8c53f6c9a0c71b05)
 add_capnp(distributed/dynamic_worker_rpc_messages.capnp)
 
 # distributed_ops.lcp is leading the capnp code generation, so we don't need
 # to generate any capnp for operator.lcp
-add_lcp(query/frontend/ast/ast.lcp)
-add_lcp(query/frontend/ast/ast_serialization.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b
+add_lcp_distributed(query/frontend/ast/ast.lcp)
+add_lcp_distributed(query/frontend/ast/ast_serialization.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b
         DEPENDS query/frontend/ast/ast.lcp)
 add_capnp(query/frontend/ast/ast_serialization.capnp)
-add_lcp(query/plan/operator.lcp)
-add_lcp(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
+add_lcp_distributed(query/plan/operator.lcp)
+add_lcp_distributed(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
         DEPENDS query/plan/operator.lcp)
 add_capnp(query/plan/distributed_ops.capnp)
 
-add_lcp(storage/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
-add_capnp(storage/concurrent_id_mapper_rpc_messages.capnp)
-add_lcp(transactions/distributed/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5
+add_lcp_distributed(storage/distributed/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
+add_capnp(storage/distributed/concurrent_id_mapper_rpc_messages.capnp)
+add_lcp_distributed(transactions/distributed/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5
         DEPENDS transactions/distributed/serialization.lcp)
 add_capnp(transactions/distributed/engine_rpc_messages.capnp)
 
-add_custom_target(generate_lcp DEPENDS ${generated_lcp_files})
+add_custom_target(generate_lcp_distributed DEPENDS ${generated_lcp_distributed_files})
 
 # Registering capnp must come after registering lcp files.
 
 add_capnp(communication/rpc/messages.capnp)
-add_capnp(durability/recovery.capnp)
+add_capnp(durability/distributed/serialization.capnp)
 add_capnp(query/frontend/semantic/symbol.capnp)
 add_capnp(query/serialization.capnp)
-add_capnp(storage/serialization.capnp)
+add_capnp(storage/distributed/serialization.capnp)
 
-add_custom_target(generate_capnp DEPENDS generate_lcp ${generated_capnp_files})
+add_custom_target(generate_capnp DEPENDS generate_lcp_distributed ${generated_capnp_files})
 
-# -----------------------------------------------------------------------------
-
-string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
-
-# memgraph_lib depend on these libraries
-set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
+set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
     mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-auth mg-stats)
 
-if (USE_LTALLOC)
-    list(APPEND MEMGRAPH_ALL_LIBS ltalloc)
-# TODO(mferencevic): Enable this when clang is updated on apollo.
-#    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
-endif()
-
-if (READLINE_FOUND)
-    list(APPEND MEMGRAPH_ALL_LIBS readline)
-endif()
-
 # STATIC library used by memgraph executables
-add_library(memgraph_lib STATIC ${memgraph_src_files})
-target_link_libraries(memgraph_lib ${MEMGRAPH_ALL_LIBS})
-add_dependencies(memgraph_lib generate_opencypher_parser)
-add_dependencies(memgraph_lib generate_lcp)
-add_dependencies(memgraph_lib generate_capnp)
+add_library(mg-distributed STATIC ${mg_distributed_sources})
+target_link_libraries(mg-distributed ${MG_DISTRIBUTED_LIBS})
+add_dependencies(mg-distributed generate_opencypher_parser)
+add_dependencies(mg-distributed generate_lcp_distributed)
+add_dependencies(mg-distributed generate_capnp)
+target_compile_definitions(mg-distributed PUBLIC MG_DISTRIBUTED)
+
+# ----------------------------------------------------------------------------
+# END Memgraph Distributed
+# ----------------------------------------------------------------------------
+
+string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # STATIC library used to store key-value pairs
-add_library(kvstore_lib STATIC storage/kvstore.cpp)
+add_library(kvstore_lib STATIC storage/kvstore/kvstore.cpp)
 target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib glog gflags)
 
 # STATIC library for dummy key-value storage
-add_library(kvstore_dummy_lib STATIC storage/kvstore_dummy.cpp)
+add_library(kvstore_dummy_lib STATIC storage/kvstore/kvstore_dummy.cpp)
 target_link_libraries(kvstore_dummy_lib mg-utils)
 
 # Generate a version.hpp file
@@ -184,8 +253,8 @@ configure_file(version.hpp.in version.hpp @ONLY)
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
 
 # memgraph main executable
-add_executable(memgraph memgraph_bolt.cpp)
-target_link_libraries(memgraph memgraph_lib kvstore_lib telemetry_lib)
+add_executable(memgraph memgraph.cpp)
+target_link_libraries(memgraph mg-single-node kvstore_lib telemetry_lib)
 set_target_properties(memgraph PROPERTIES
                       # Set the executable output name to include version information.
                       OUTPUT_NAME "memgraph-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
@@ -241,3 +310,18 @@ install(
                    ${CMAKE_BINARY_DIR}/tests/manual/bolt_client
                    WORKING_DIRECTORY ${examples})")
 install(DIRECTORY ${examples}/build/ DESTINATION share/memgraph/examples)
+
+
+# memgraph distributed main executable
+add_executable(memgraph_distributed memgraph_distributed.cpp)
+target_link_libraries(memgraph_distributed mg-distributed kvstore_lib telemetry_lib)
+set_target_properties(memgraph_distributed PROPERTIES
+                      # Set the executable output name to include version information.
+                      OUTPUT_NAME "memgraph_distributed-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
+                      # Output the executable in main binary dir.
+                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+# Create symlink to the built executable.
+add_custom_command(TARGET memgraph_distributed POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph_distributed> ${CMAKE_BINARY_DIR}/memgraph_distributed
+                   BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph_distributed
+                   COMMENT Creating symlink to memgraph distributed executable)

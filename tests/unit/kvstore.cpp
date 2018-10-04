@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "durability/paths.hpp"
-#include "storage/kvstore.hpp"
+#include "storage/kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::experimental::filesystem;

@@ -22,40 +22,40 @@ function(add_benchmark test_cpp)
 endfunction(add_benchmark)
 
 add_benchmark(data_structures/concurrent/map_mix_concurrent.cpp)
-target_link_libraries(${test_prefix}map_mix_concurrent memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}map_mix_concurrent mg-single-node kvstore_dummy_lib)
 
 add_benchmark(data_structures/concurrent/skiplist_insert.cpp)
-target_link_libraries(${test_prefix}skiplist_insert memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}skiplist_insert mg-single-node kvstore_dummy_lib)
 
 add_benchmark(data_structures/concurrent/skiplist_reverse_iteration.cpp)
-target_link_libraries(${test_prefix}skiplist_reverse_iteration memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}skiplist_reverse_iteration mg-single-node kvstore_dummy_lib)
 
 add_benchmark(data_structures/concurrent/map_concurrent.cpp)
-target_link_libraries(${test_prefix}map_concurrent memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}map_concurrent mg-single-node kvstore_dummy_lib)
 
 add_benchmark(data_structures/ring_buffer.cpp)
-target_link_libraries(${test_prefix}ring_buffer memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}ring_buffer mg-single-node kvstore_dummy_lib)
 
 add_benchmark(query/eval.cpp)
-target_link_libraries(${test_prefix}eval memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}eval mg-single-node kvstore_dummy_lib)
 
 add_benchmark(query/planner.cpp)
-target_link_libraries(${test_prefix}planner memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}planner mg-single-node kvstore_dummy_lib)
 
 add_benchmark(query/stripped.cpp)
-target_link_libraries(${test_prefix}stripped memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}stripped mg-single-node kvstore_dummy_lib)
 
 add_benchmark(edge_storage.cpp)
-target_link_libraries(${test_prefix}edge_storage memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}edge_storage mg-single-node kvstore_dummy_lib)
 
 add_benchmark(mvcc.cpp)
-target_link_libraries(${test_prefix}mvcc memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
 
 add_benchmark(serialization.cpp)
-target_link_libraries(${test_prefix}serialization memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
 
 add_benchmark(tx_engine.cpp)
-target_link_libraries(${test_prefix}tx_engine memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}tx_engine mg-single-node kvstore_dummy_lib)
 
 add_benchmark(expansion.cpp)
-target_link_libraries(${test_prefix}expansion memgraph_lib kvstore_dummy_lib)
+target_link_libraries(${test_prefix}expansion mg-single-node kvstore_dummy_lib)

@@ -4,8 +4,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
@@ -15,7 +15,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"

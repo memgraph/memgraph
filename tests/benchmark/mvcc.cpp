@@ -2,8 +2,8 @@
 #include <benchmark/benchmark_api.h>
 #include <glog/logging.h>
 
-#include "mvcc/record.hpp"
-#include "mvcc/version_list.hpp"
+#include "mvcc/single_node/record.hpp"
+#include "mvcc/single_node/version_list.hpp"
 #include "transactions/single_node/engine_single_node.hpp"
 
 class Prop : public mvcc::Record<Prop> {

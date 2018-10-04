@@ -1,10 +1,11 @@
 #include <experimental/optional>
-#include "gtest/gtest.h"
+
+#include <gtest/gtest.h>
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
+#include "storage/common/types.hpp"
 #include "storage/edge_accessor.hpp"
-#include "storage/types.hpp"
 #include "storage/vertex_accessor.hpp"
 
 using namespace database;

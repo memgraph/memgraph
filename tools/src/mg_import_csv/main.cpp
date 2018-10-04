@@ -5,18 +5,18 @@
 #include <fstream>
 #include <unordered_map>
 
-#include "cppitertools/chain.hpp"
-#include "gflags/gflags.h"
-#include "glog/logging.h"
+#include <cppitertools/chain.hpp>
+#include <gflags/gflags.h>
+#include <glog/logging.h>
 
 #include "config.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
-#include "durability/snapshooter.hpp"
-#include "durability/snapshot_encoder.hpp"
-#include "durability/snapshot_value.hpp"
-#include "durability/version.hpp"
-#include "storage/address_types.hpp"
+#include "durability/single_node/snapshooter.hpp"
+#include "durability/single_node/snapshot_encoder.hpp"
+#include "durability/single_node/snapshot_value.hpp"
+#include "durability/single_node/version.hpp"
+#include "storage/single_node/address_types.hpp"
 #include "utils/cast.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"

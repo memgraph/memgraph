@@ -11,7 +11,7 @@
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
 #include "query/serialization.hpp"
-#include "storage/address_types.hpp"
+#include "storage/distributed/address_types.hpp"
 #include "transactions/type.hpp"
 #include "utils/serialization.hpp"
 cpp<#
@@ -29,7 +29,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'storage "/storage/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
 (lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")

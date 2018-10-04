@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "storage/property_value.hpp"
+#include "storage/common/property_value.hpp"
 
 /**
  * Encapsulates user provided parameters (and stripped literals)

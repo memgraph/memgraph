@@ -2,7 +2,7 @@
 
 using Ast = import "/query/frontend/ast/ast_serialization.capnp";
 using Cxx = import "/capnp/c++.capnp";
-using Storage = import "/storage/serialization.capnp";
+using Storage = import "/storage/distributed/serialization.capnp";
 using Utils = import "/utils/serialization.capnp";
 
 $Cxx.namespace("query::capnp");

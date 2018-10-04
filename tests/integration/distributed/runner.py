@@ -127,9 +127,11 @@ def execute_test(memgraph_binary, tester_binary, cluster_size, disaster,
 
 
 if __name__ == "__main__":
-    memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
+    memgraph_binary = os.path.join(PROJECT_DIR, "build",
+                                   "memgraph_distributed")
     if not os.path.exists(memgraph_binary):
-        memgraph_binary = os.path.join(PROJECT_DIR, "build_debug", "memgraph")
+        memgraph_binary = os.path.join(PROJECT_DIR, "build_debug",
+                                       "memgraph_distributed")
     tester_binary = os.path.join(PROJECT_DIR, "build", "tests",
                                  "integration", "distributed", "tester")
     if not os.path.exists(tester_binary):

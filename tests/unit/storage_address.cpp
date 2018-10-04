@@ -1,7 +1,7 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
-#include "storage/address.hpp"
-#include "storage/gid.hpp"
+#include "storage/distributed/address.hpp"
+#include "storage/distributed/gid.hpp"
 
 using storage::Address;
 

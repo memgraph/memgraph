@@ -1,6 +1,6 @@
 - name: quality_assurance
   commands: TIMEOUT=300 ./continuous_integration
-  infiles: &INFILES
+  infiles:
     - . # current directory
     - ../../build_debug/memgraph # memgraph debug binary
     - ../../config # directory with config files
@@ -9,5 +9,8 @@
 
 - name: quality_assurance_distributed
   commands: TIMEOUT=300 ./continuous_integration --distributed
-  infiles: *INFILES
+  infiles:
+    - . # current directory
+    - ../../build_debug/memgraph_distributed # memgraph distributed debug binary
+    - ../../config # directory with config files
   outfile_paths: *OUTFILE_PATHS

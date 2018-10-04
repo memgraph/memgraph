@@ -1,5 +1,6 @@
 #include "distributed/data_manager.hpp"
-#include "database/storage.hpp"
+
+#include "storage/distributed/storage.hpp"
 
 namespace {
 

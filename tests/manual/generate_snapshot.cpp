@@ -12,8 +12,8 @@
 #include <json/json.hpp>
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
+#include "durability/distributed/version.hpp"
 #include "durability/hashed_file_writer.hpp"
-#include "durability/version.hpp"
 #include "transactions/type.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"

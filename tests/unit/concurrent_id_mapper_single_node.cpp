@@ -2,11 +2,11 @@
 #include <thread>
 #include <vector>
 
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
-#include "storage/concurrent_id_mapper_single_node.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
+#include "storage/single_node/concurrent_id_mapper_single_node.hpp"
 
 using IdLabel = storage::Label;
 using MapperLabel = storage::SingleNodeConcurrentIdMapper<IdLabel>;

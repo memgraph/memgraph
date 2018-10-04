@@ -3,13 +3,13 @@
 #include <unordered_map>
 #include <vector>
 
-#include "database/state_delta.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/updates_rpc_messages.hpp"
+#include "durability/distributed/state_delta.hpp"
 #include "query/typed_value.hpp"
-#include "storage/address_types.hpp"
-#include "storage/gid.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
+#include "storage/distributed/address_types.hpp"
+#include "storage/distributed/gid.hpp"
 #include "transactions/type.hpp"
 #include "utils/future.hpp"
 

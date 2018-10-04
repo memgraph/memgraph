@@ -11,14 +11,24 @@
 #include <cppitertools/imap.hpp>
 
 #include "database/graph_db.hpp"
-#include "storage/address_types.hpp"
-#include "storage/edge_accessor.hpp"
-#include "storage/types.hpp"
-#include "storage/vertex_accessor.hpp"
 #include "transactions/transaction.hpp"
 #include "transactions/type.hpp"
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
+
+// TODO: THIS IS A HACK!
+#ifdef MG_SINGLE_NODE
+#include "storage/common/types.hpp"
+#include "storage/single_node/address_types.hpp"
+#include "storage/single_node/edge_accessor.hpp"
+#include "storage/single_node/vertex_accessor.hpp"
+#endif
+#ifdef MG_DISTRIBUTED
+#include "storage/common/types.hpp"
+#include "storage/distributed/address_types.hpp"
+#include "storage/distributed/edge_accessor.hpp"
+#include "storage/distributed/vertex_accessor.hpp"
+#endif
 
 namespace database {
 

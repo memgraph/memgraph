@@ -1,7 +1,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "storage/kvstore.hpp"
+#include "storage/kvstore/kvstore.hpp"
 #include "utils/string.hpp"
 
 DEFINE_string(path, "", "Path to the storage directory.");

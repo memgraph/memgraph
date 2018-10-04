@@ -7,8 +7,8 @@
 #include "cppitertools/itertools.hpp"
 #include "json/json.hpp"
 
-#include "storage/gid.hpp"
-#include "storage/property_value.hpp"
+#include "storage/common/property_value.hpp"
+#include "storage/distributed/gid.hpp"
 #include "utils/string.hpp"
 
 #include "value_generator.hpp"

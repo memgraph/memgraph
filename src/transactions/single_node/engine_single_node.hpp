@@ -6,7 +6,14 @@
 #include <experimental/optional>
 #include <unordered_map>
 
-#include "durability/wal.hpp"
+// TODO: THIS IS A HACK!
+#ifdef MG_SINGLE_NODE
+#include "durability/single_node/wal.hpp"
+#endif
+#ifdef MG_DISTRIBUTED
+#include "durability/distributed/wal.hpp"
+#endif
+
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"

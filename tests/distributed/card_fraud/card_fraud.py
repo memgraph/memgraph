@@ -12,7 +12,7 @@ WORKERS = 6
 
 # constants
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
-MEMGRAPH_BINARY = "memgraph"
+MEMGRAPH_BINARY = "memgraph_distributed"
 CLIENT_BINARY   = "tests/macro_benchmark/card_fraud_client"
 BINARIES = [MEMGRAPH_BINARY, CLIENT_BINARY]
 

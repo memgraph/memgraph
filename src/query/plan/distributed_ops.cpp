@@ -1223,14 +1223,9 @@ VertexAccessor &CreateVertexOnWorker(int worker_id, NodeAtom *node_atom,
                                      Frame &frame, Context &context) {
   auto &dba = context.db_accessor_;
 
-  int current_worker_id = 0;
-  // TODO: Figure out a better solution.
-  if (auto *distributed_db =
-          dynamic_cast<database::DistributedGraphDb *>(&dba.db())) {
-    current_worker_id = distributed_db->WorkerId();
-  } else {
-    CHECK(dynamic_cast<database::SingleNode *>(&dba.db()));
-  }
+  auto *distributed_db =
+      dynamic_cast<database::DistributedGraphDb *>(&dba.db());
+  int current_worker_id = distributed_db->WorkerId();
 
   if (worker_id == current_worker_id)
     return CreateLocalVertex(node_atom, frame, context);

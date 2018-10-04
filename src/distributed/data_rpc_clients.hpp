@@ -8,7 +8,7 @@
 #include <utility>
 
 #include "distributed/coordination.hpp"
-#include "storage/gid.hpp"
+#include "storage/distributed/gid.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {

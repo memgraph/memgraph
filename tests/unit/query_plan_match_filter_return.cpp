@@ -6,24 +6,19 @@
 
 #include <fmt/format.h>
 
-#include "cppitertools/enumerate.hpp"
-#include "cppitertools/product.hpp"
-#include "cppitertools/range.hpp"
-#include "cppitertools/repeat.hpp"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
+#include <cppitertools/enumerate.hpp>
+#include <cppitertools/product.hpp>
+#include <cppitertools/range.hpp>
+#include <cppitertools/repeat.hpp>
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db.hpp"
-#include "distributed/data_manager.hpp"
-#include "distributed/plan_dispatcher.hpp"
-#include "distributed/updates_rpc_server.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
-#include "query/plan/distributed_ops.hpp"
 #include "query/plan/operator.hpp"
 
-#include "distributed_common.hpp"
 #include "query_plan_common.hpp"
 
 using namespace query;

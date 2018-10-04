@@ -1,6 +1,6 @@
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
-#include "storage/gid.hpp"
+#include "storage/distributed/gid.hpp"
 
 TEST(Generator, GeneratedOnCorrectWorker) {
   int my_worker = 775;

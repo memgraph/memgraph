@@ -1,6 +1,5 @@
 #pragma once
 
-#include "database/distributed_graph_db.hpp"
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
 #include "query/exceptions.hpp"

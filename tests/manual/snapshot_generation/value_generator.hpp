@@ -4,10 +4,10 @@
 #include <random>
 #include <unordered_map>
 
-#include "glog/logging.h"
-#include "json/json.hpp"
+#include <glog/logging.h>
+#include <json/json.hpp>
 
-#include "storage/property_value.hpp"
+#include "storage/common/property_value.hpp"
 
 namespace snapshot_generation {
 

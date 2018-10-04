@@ -1,11 +1,11 @@
 #include <unistd.h>
 #include <vector>
 
-#include "gflags/gflags.h"
-#include "gtest/gtest.h"
+#include <gflags/gflags.h>
+#include <gtest/gtest.h>
 
-#include "storage/property_value.hpp"
-#include "storage/property_value_store.hpp"
+#include "storage/common/property_value.hpp"
+#include "storage/common/property_value_store.hpp"
 #include "utils/file.hpp"
 
 using Location = storage::Location;

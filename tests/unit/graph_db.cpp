@@ -1,11 +1,11 @@
 #include <memory>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "database/graph_db.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "database/indexes/label_property_index.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
+#include "storage/single_node/indexes/label_property_index.hpp"
 
 TEST(GraphDbTest, GarbageCollectIndices) {
   database::Config config;

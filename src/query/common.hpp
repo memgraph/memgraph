@@ -7,9 +7,8 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
-#include "query/serialization.capnp.h"
 #include "query/typed_value.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
 
 namespace query {
 
@@ -48,12 +47,6 @@ class TypedValueVectorCompare final {
 
   std::vector<Ordering> ordering_;
 };
-
-void Save(const TypedValueVectorCompare &comparator,
-          capnp::TypedValueVectorCompare::Builder *builder);
-
-void Load(TypedValueVectorCompare *comparator,
-          const capnp::TypedValueVectorCompare::Reader &reader);
 
 /// Switch the given [Vertex/Edge]Accessor to the desired state.
 template <class TAccessor>

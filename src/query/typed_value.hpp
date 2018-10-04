@@ -9,8 +9,8 @@
 #include <vector>
 
 #include "query/path.hpp"
+#include "storage/common/property_value.hpp"
 #include "storage/edge_accessor.hpp"
-#include "storage/property_value.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/total_ordering.hpp"

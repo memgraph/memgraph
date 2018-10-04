@@ -8,7 +8,7 @@
 #include <unordered_map>
 
 #include "distributed/coordination.hpp"
-#include "durability/recovery.hpp"
+#include "durability/distributed/recovery.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/scheduler.hpp"
 

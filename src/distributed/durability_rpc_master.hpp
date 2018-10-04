@@ -5,8 +5,8 @@
 #include <utility>
 
 #include "distributed/coordination.hpp"
-#include "durability/recovery.hpp"
-#include "storage/gid.hpp"
+#include "durability/distributed/recovery.hpp"
+#include "storage/distributed/gid.hpp"
 #include "transactions/type.hpp"
 
 namespace distributed {

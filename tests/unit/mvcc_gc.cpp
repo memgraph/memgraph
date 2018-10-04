@@ -1,4 +1,3 @@
-
 #include <chrono>
 #include <memory>
 #include <thread>
@@ -8,10 +7,10 @@
 #include <gtest/gtest.h>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "mvcc/record.hpp"
-#include "mvcc/version_list.hpp"
-#include "storage/garbage_collector.hpp"
-#include "storage/vertex.hpp"
+#include "mvcc/single_node/record.hpp"
+#include "mvcc/single_node/version_list.hpp"
+#include "storage/single_node/garbage_collector.hpp"
+#include "storage/single_node/vertex.hpp"
 #include "transactions/single_node/engine_single_node.hpp"
 
 #include "mvcc_gc_common.hpp"

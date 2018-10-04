@@ -1,11 +1,11 @@
 #include <experimental/optional>
 
-#include "gtest/gtest.h"
+#include <gtest/gtest.h>
 
 #include "communication/rpc/server.hpp"
-#include "storage/concurrent_id_mapper_master.hpp"
-#include "storage/concurrent_id_mapper_worker.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
+#include "storage/distributed/concurrent_id_mapper_master.hpp"
+#include "storage/distributed/concurrent_id_mapper_worker.hpp"
 
 template <typename TId>
 class DistributedConcurrentIdMapperTest : public ::testing::Test {

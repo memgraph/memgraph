@@ -14,7 +14,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
-#include "storage/types.hpp"
+#include "storage/common/types.hpp"
 #include "utils/bound.hpp"
 #include "utils/future.hpp"
 #include "utils/hashing/fnv.hpp"
@@ -138,7 +138,7 @@ cpp<#
 (lcp:capnp-namespace "query::plan")
 
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
-(lcp:capnp-import 'storage "/storage/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
 (lcp:capnp-import 'ast "/query/frontend/ast/ast_serialization.capnp")
 (lcp:capnp-import 'semantic "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")

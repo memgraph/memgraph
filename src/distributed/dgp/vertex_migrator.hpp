@@ -5,8 +5,8 @@
 #include <thread>
 #include <unordered_map>
 
-#include "storage/gid.hpp"
-#include "storage/vertex_accessor.hpp"
+#include "storage/distributed/gid.hpp"
+#include "storage/distributed/vertex_accessor.hpp"
 
 namespace database {
 class GraphDbAccessor;
