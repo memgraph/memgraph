@@ -1,11 +1,11 @@
-#include "transactions/single_node/engine_single_node.hpp"
+#include "transactions/distributed/engine_single_node.hpp"
 
 #include <limits>
 #include <mutex>
 
 #include "glog/logging.h"
 
-#include "durability/single_node/state_delta.hpp"
+#include "durability/distributed/state_delta.hpp"
 
 namespace tx {
 

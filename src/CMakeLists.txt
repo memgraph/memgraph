@@ -153,7 +153,7 @@ set(mg_distributed_sources
     storage/distributed/vertex_accessor.cpp
     storage/locking/record_lock.cpp
     memgraph_init.cpp
-    transactions/single_node/engine_single_node.cpp
+    transactions/distributed/engine_single_node.cpp
 )
 
 # -----------------------------------------------------------------------------

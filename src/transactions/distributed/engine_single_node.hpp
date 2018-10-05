@@ -6,7 +6,7 @@
 #include <experimental/optional>
 #include <unordered_map>
 
-#include "durability/single_node/wal.hpp"
+#include "durability/distributed/wal.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/engine.hpp"
 #include "transactions/transaction.hpp"

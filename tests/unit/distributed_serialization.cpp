@@ -10,8 +10,7 @@
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/serialization.hpp"
 #include "storage/distributed/vertex.hpp"
-// TODO: THIS SHOULD BE CHANGED!
-#include "transactions/single_node/engine_single_node.hpp"
+#include "transactions/distributed/engine_single_node.hpp"
 
 using namespace storage;
 
