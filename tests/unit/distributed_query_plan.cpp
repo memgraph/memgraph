@@ -4,7 +4,7 @@
 
 #include "gtest/gtest.h"
 
-#include "database/graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/coordination_master.hpp"
 #include "distributed/coordination_worker.hpp"

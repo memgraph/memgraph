@@ -2,7 +2,7 @@
 
 #include "distributed_common.hpp"
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "durability/distributed/snapshooter.hpp"
 #include "durability/distributed/version.hpp"
 #include "durability/paths.hpp"

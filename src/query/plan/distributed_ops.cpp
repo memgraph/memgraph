@@ -1,6 +1,6 @@
 #include "query/plan/distributed_ops.hpp"
 
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "distributed/pull_rpc_clients.hpp"

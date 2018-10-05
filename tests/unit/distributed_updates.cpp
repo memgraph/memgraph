@@ -3,7 +3,7 @@
 
 #include <gtest/gtest.h>
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
 #include "query/typed_value.hpp"

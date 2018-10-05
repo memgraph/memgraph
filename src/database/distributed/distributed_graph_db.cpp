@@ -1,6 +1,6 @@
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 
-#include "database/distributed_counters.hpp"
+#include "database/distributed/distributed_counters.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "distributed/bfs_rpc_server.hpp"
 #include "distributed/bfs_subcursor.hpp"

@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "database/graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "durability/distributed/version.hpp"
 
 namespace distributed {

@@ -3,7 +3,7 @@
 #pragma once
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "distributed/cache.hpp"
 #include "distributed/data_rpc_clients.hpp"
 #include "transactions/type.hpp"

@@ -7,7 +7,7 @@
 
 #include "glog/logging.h"
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"

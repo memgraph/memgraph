@@ -1,6 +1,6 @@
 #include "storage/edge_accessor.hpp"
 
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/algorithm.hpp"
 

@@ -1,6 +1,6 @@
 #include "storage/distributed/serialization.hpp"
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/data_manager.hpp"
 
 namespace storage {

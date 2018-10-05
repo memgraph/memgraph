@@ -40,10 +40,10 @@ TAGS
 
 # LCP generated C++ & Cap'n Proto files
 *.lcp.cpp
-src/database/counters_rpc_messages.capnp
-src/database/counters_rpc_messages.hpp
-src/database/serialization.capnp
-src/database/serialization.hpp
+src/database/distributed/counters_rpc_messages.capnp
+src/database/distributed/counters_rpc_messages.hpp
+src/database/distributed/serialization.capnp
+src/database/distributed/serialization.hpp
 src/distributed/bfs_rpc_messages.capnp
 src/distributed/bfs_rpc_messages.hpp
 src/distributed/coordination_rpc_messages.capnp

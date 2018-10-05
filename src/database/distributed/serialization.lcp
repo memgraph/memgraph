@@ -1,7 +1,7 @@
 #>cpp
 #pragma once
 
-#include "database/serialization.capnp.h"
+#include "database/distributed/serialization.capnp.h"
 #include "durability/distributed/state_delta.hpp"
 #include "storage/distributed/serialization.hpp"
 cpp<#

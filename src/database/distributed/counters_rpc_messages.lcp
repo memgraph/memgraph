@@ -4,7 +4,7 @@
 #include <string>
 
 #include "communication/rpc/messages.hpp"
-#include "database/counters_rpc_messages.capnp.h"
+#include "database/distributed/counters_rpc_messages.capnp.h"
 cpp<#
 
 (lcp:namespace database)

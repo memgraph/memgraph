@@ -4,7 +4,7 @@
 #include <limits>
 #include <unordered_map>
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "durability/distributed/snapshot_decoder.hpp"
 #include "durability/distributed/snapshot_value.hpp"
 #include "durability/distributed/version.hpp"

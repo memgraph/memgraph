@@ -1,7 +1,7 @@
 #pragma once
 
 #include "communication/rpc/server.hpp"
-#include "database/graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 
 namespace database {
 class DistributedGraphDb;

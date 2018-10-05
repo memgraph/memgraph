@@ -1,8 +1,8 @@
-#include "database/distributed_counters.hpp"
+#include "database/distributed/distributed_counters.hpp"
 
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/server.hpp"
-#include "database/counters_rpc_messages.hpp"
+#include "database/distributed/counters_rpc_messages.hpp"
 
 namespace database {
 

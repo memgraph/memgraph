@@ -15,9 +15,9 @@ add_subdirectory(auth)
 # ----------------------------------------------------------------------------
 set(mg_single_node_sources
     data_structures/concurrent/skiplist_gc.cpp
-    database/config.cpp
-    database/graph_db.cpp
-    database/graph_db_accessor.cpp
+    database/single_node/config.cpp
+    database/single_node/graph_db.cpp
+    database/single_node/graph_db_accessor.cpp
     durability/single_node/state_delta.cpp
     durability/paths.cpp
     durability/single_node/recovery.cpp
@@ -87,8 +87,8 @@ target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
 # ----------------------------------------------------------------------------
 
 set(mg_distributed_sources
-    database/distributed_counters.cpp
-    database/distributed_graph_db.cpp
+    database/distributed/distributed_counters.cpp
+    database/distributed/distributed_graph_db.cpp
     distributed/bfs_rpc_clients.cpp
     distributed/bfs_subcursor.cpp
     distributed/cluster_discovery_master.cpp
@@ -120,8 +120,8 @@ set(mg_distributed_sources
     transactions/distributed/engine_master.cpp
     transactions/distributed/engine_worker.cpp
     data_structures/concurrent/skiplist_gc.cpp
-    database/config.cpp
-    database/graph_db_accessor.cpp
+    database/distributed/config.cpp
+    database/distributed/graph_db_accessor.cpp
     durability/distributed/state_delta.cpp
     durability/paths.cpp
     durability/distributed/recovery.cpp
@@ -163,11 +163,11 @@ define_add_capnp(mg_distributed_sources generated_capnp_files)
 define_add_lcp(add_lcp_distributed mg_distributed_sources generated_lcp_distributed_files)
 
 add_lcp_distributed(durability/distributed/state_delta.lcp)
-add_lcp_distributed(database/counters_rpc_messages.lcp CAPNP_SCHEMA @0x95a2c3ea3871e945)
-add_capnp(database/counters_rpc_messages.capnp)
-add_lcp_distributed(database/serialization.lcp CAPNP_SCHEMA @0xdea01657b3563887
+add_lcp_distributed(database/distributed/counters_rpc_messages.lcp CAPNP_SCHEMA @0x95a2c3ea3871e945)
+add_capnp(database/distributed/counters_rpc_messages.capnp)
+add_lcp_distributed(database/distributed/serialization.lcp CAPNP_SCHEMA @0xdea01657b3563887
                     DEPENDS durability/distributed/state_delta.lcp)
-add_capnp(database/serialization.capnp)
+add_capnp(database/distributed/serialization.capnp)
 add_lcp_distributed(distributed/bfs_rpc_messages.lcp CAPNP_SCHEMA @0x8e508640b09b6d2a)
 add_capnp(distributed/bfs_rpc_messages.capnp)
 add_lcp_distributed(distributed/coordination_rpc_messages.lcp CAPNP_SCHEMA @0x93df0c4703cf98fb)

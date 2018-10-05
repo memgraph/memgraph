@@ -9,7 +9,7 @@
 
 #include "gtest/gtest.h"
 
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"
 
 using query::TypedValue;

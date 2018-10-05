@@ -1,6 +1,6 @@
 #include "bfs_rpc_clients.hpp"
 
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "distributed/bfs_rpc_messages.hpp"
 #include "distributed/data_manager.hpp"
 

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "glue/communication.hpp"
 #include "utils/cast.hpp"
 

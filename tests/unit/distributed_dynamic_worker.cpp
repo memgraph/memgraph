@@ -3,8 +3,7 @@
 
 #include "gtest/gtest.h"
 
-#include "database/distributed_graph_db.hpp"
-#include "database/graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "distributed_common.hpp"
 #include "io/network/endpoint.hpp"
 #include "query_plan_common.hpp"

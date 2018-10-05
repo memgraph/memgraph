@@ -7,7 +7,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/parser.hpp"

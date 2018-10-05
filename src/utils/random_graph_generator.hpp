@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "mvcc/single_node/version_list.hpp"
 #include "storage/common/property_value.hpp"
 #include "storage/common/types.hpp"

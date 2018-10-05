@@ -3,8 +3,8 @@
 
 #include <gtest/gtest.h>
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "mvcc/single_node/version_list.hpp"
 #include "storage/common/property_value.hpp"
 #include "storage/single_node/address.hpp"

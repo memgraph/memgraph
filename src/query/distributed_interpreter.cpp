@@ -1,6 +1,6 @@
 #include "query/distributed_interpreter.hpp"
 
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "distributed/plan_dispatcher.hpp"
 #include "query/plan/distributed.hpp"
 #include "query/plan/planner.hpp"

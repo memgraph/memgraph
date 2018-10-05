@@ -1,13 +1,7 @@
 #include <limits>
 
-#include "database/graph_db.hpp"
-// TODO: THIS IS A HACK!
-#ifdef MG_SINGLE_NODE
-#include "storage/single_node/gid.hpp"
-#endif
-#ifdef MG_DISTRIBUTED
+#include "database/distributed/graph_db.hpp"
 #include "storage/distributed/gid.hpp"
-#endif
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 
@@ -43,7 +37,6 @@ DEFINE_bool(synchronous_commit, false,
             "Should a transaction end wait for WAL records to be written to "
             "disk before the transaction finishes.");
 
-#ifndef MG_COMMUNITY
 // Distributed master/worker flags.
 DEFINE_VALIDATED_HIDDEN_int32(worker_id, 0,
                               "ID of a worker in a distributed system. Igored "
@@ -83,9 +76,7 @@ DEFINE_VALIDATED_int32(recovering_cluster_size, 0,
 //              The implementation should be straightforward.
 DEFINE_bool(dynamic_graph_partitioner_enabled, false,
             "If the dynamic graph partitioner should be enabled.");
-#endif
 
-// clang-format off
 database::Config::Config()
     // Durability flags.
     : durability_enabled{FLAGS_durability_enabled},
@@ -99,11 +90,10 @@ database::Config::Config()
       gc_cycle_sec{FLAGS_gc_cycle_sec},
       query_execution_time_sec{FLAGS_query_execution_time_sec},
       // Data location.
-      properties_on_disk(utils::Split(FLAGS_properties_on_disk, ","))
-#ifndef MG_COMMUNITY
-      ,
+      properties_on_disk(utils::Split(FLAGS_properties_on_disk, ",")),
       // Distributed flags.
-      dynamic_graph_partitioner_enabled{FLAGS_dynamic_graph_partitioner_enabled},
+      dynamic_graph_partitioner_enabled{
+          FLAGS_dynamic_graph_partitioner_enabled},
       rpc_num_client_workers{FLAGS_rpc_num_client_workers},
       rpc_num_server_workers{FLAGS_rpc_num_server_workers},
       worker_id{FLAGS_worker_id},
@@ -111,7 +101,4 @@ database::Config::Config()
                       static_cast<uint16_t>(FLAGS_master_port)},
       worker_endpoint{FLAGS_worker_host,
                       static_cast<uint16_t>(FLAGS_worker_port)},
-      recovering_cluster_size{FLAGS_recovering_cluster_size}
-#endif
-{}
-// clang-format on
+      recovering_cluster_size{FLAGS_recovering_cluster_size} {}

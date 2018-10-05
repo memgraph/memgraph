@@ -13,7 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "communication/server.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 
 static constexpr const char interface[] = "127.0.0.1";
 

@@ -1,11 +1,11 @@
-#include "database/graph_db.hpp"
+#include "database/single_node/graph_db.hpp"
 
 #include <experimental/optional>
 
 #include <glog/logging.h>
 
-#include "database/graph_db_accessor.hpp"
-#include "database/single_node_counters.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
+#include "database/single_node/single_node_counters.hpp"
 #include "durability/paths.hpp"
 #include "durability/single_node/recovery.hpp"
 #include "durability/single_node/snapshooter.hpp"

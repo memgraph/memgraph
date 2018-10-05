@@ -12,7 +12,7 @@
 #include <glog/logging.h>
 #include "json/json.hpp"
 
-#include "database/graph_db.hpp"
+#include "database/single_node/graph_db.hpp"
 #include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"
 #include "utils/flag_validation.hpp"

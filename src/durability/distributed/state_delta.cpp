@@ -3,7 +3,7 @@
 #include <string>
 
 #include "communication/bolt/v1/value.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "glue/communication.hpp"
 
 namespace database {

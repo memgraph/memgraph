@@ -4,8 +4,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "database/distributed_graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "query/exceptions.hpp"
 #include "distributed/dgp/vertex_migrator.hpp"

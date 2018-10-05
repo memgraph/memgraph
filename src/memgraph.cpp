@@ -10,7 +10,7 @@
 #include <glog/logging.h>
 
 #include "communication/server.hpp"
-#include "database/graph_db.hpp"
+#include "database/single_node/graph_db.hpp"
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"

@@ -5,8 +5,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "utils/bound.hpp"
 
 using testing::UnorderedElementsAreArray;

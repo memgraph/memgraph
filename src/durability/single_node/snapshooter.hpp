@@ -2,7 +2,7 @@
 
 #include <experimental/filesystem>
 
-#include "database/graph_db.hpp"
+#include "database/single_node/graph_db.hpp"
 
 namespace durability {
 

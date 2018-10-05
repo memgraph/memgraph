@@ -11,7 +11,7 @@
 #include <gtest/gtest.h>
 
 #include "communication/server.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 
 static constexpr const int SIZE = 60000;
 static constexpr const int REPLY = 10;

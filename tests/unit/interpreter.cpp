@@ -1,7 +1,7 @@
 #include <cstdlib>
 
 #include "communication/result_stream_faker.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "query/exceptions.hpp"

@@ -1,7 +1,7 @@
 #include "distributed/dgp/vertex_migrator.hpp"
 
-#include "database/distributed_graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "query/typed_value.hpp"
 
 namespace distributed::dgp {

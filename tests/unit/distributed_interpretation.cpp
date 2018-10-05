@@ -5,7 +5,7 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
-#include "database/graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/pull_rpc_clients.hpp"

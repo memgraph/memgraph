@@ -10,8 +10,8 @@
 #include "gflags/gflags.h"
 #include "glog/logging.h"
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"

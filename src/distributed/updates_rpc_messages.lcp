@@ -4,7 +4,7 @@
 #include <unordered_map>
 
 #include "communication/rpc/messages.hpp"
-#include "database/serialization.hpp"
+#include "database/distributed/serialization.hpp"
 #include "distributed/updates_rpc_messages.capnp.h"
 #include "durability/distributed/state_delta.hpp"
 #include "storage/distributed/address_types.hpp"
@@ -18,7 +18,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'db "/database/serialization.capnp")
+(lcp:capnp-import 'db "/database/distributed/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 

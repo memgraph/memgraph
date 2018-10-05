@@ -1,7 +1,7 @@
 #include "gtest/gtest.h"
 
 #include "config.hpp"
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 
 TEST(DatabaseMaster, Instantiate) {
   database::Config config;

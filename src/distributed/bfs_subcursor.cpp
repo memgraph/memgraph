@@ -2,7 +2,7 @@
 
 #include <unordered_map>
 
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"

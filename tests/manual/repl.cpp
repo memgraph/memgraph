@@ -5,7 +5,7 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
-#include "database/graph_db.hpp"
+#include "database/single_node/graph_db.hpp"
 #include "query/repl.hpp"
 #include "query/interpreter.hpp"
 #include "utils/random_graph_generator.hpp"

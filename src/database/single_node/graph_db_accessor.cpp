@@ -1,28 +1,16 @@
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 
 #include <chrono>
 #include <thread>
 
 #include <glog/logging.h>
 
-// TODO: THIS IS A HACK!
-#ifdef MG_SINGLE_NODE
 #include "durability/single_node/state_delta.hpp"
 #include "storage/single_node/address_types.hpp"
 #include "storage/single_node/edge.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex.hpp"
 #include "storage/single_node/vertex_accessor.hpp"
-#endif
-#ifdef MG_DISTRIBUTED
-#include "durability/distributed/state_delta.hpp"
-#include "storage/distributed/address_types.hpp"
-#include "storage/distributed/edge.hpp"
-#include "storage/distributed/edge_accessor.hpp"
-#include "storage/distributed/vertex.hpp"
-#include "storage/distributed/vertex_accessor.hpp"
-#endif
-
 #include "utils/cast.hpp"
 #include "utils/on_scope_exit.hpp"
 

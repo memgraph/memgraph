@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/coordination.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/context.hpp"

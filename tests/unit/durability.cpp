@@ -12,9 +12,9 @@
 #include <gtest/gtest.h>
 
 // TODO: FIXME
-// #include "database/distributed_graph_db.hpp"
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+// #include "database/distributed/distributed_graph_db.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/paths.hpp"
 #include "durability/single_node/recovery.hpp"

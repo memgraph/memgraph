@@ -2,7 +2,7 @@
 
 #include <glog/logging.h>
 
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "durability/distributed/state_delta.hpp"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/vertex.hpp"

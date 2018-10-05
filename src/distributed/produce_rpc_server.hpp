@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "communication/rpc/server.hpp"
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/graph_db.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/context.hpp"

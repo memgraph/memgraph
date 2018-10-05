@@ -8,7 +8,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "query/distributed_interpreter.hpp"
 #include "query/repl.hpp"
 #include "utils/file.hpp"

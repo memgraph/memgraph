@@ -3,15 +3,15 @@
 #include <glog/logging.h>
 
 #include "communication/result_stream_faker.hpp"
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
 #include "query/typed_value.hpp"
 
 class ExpansionBenchFixture : public benchmark::Fixture {
  protected:
   // GraphDb shouldn't be global constructed/destructed. See
-  // documentation in database/graph_db.hpp for details.
+  // documentation in database/single_node/graph_db.hpp for details.
   std::experimental::optional<database::SingleNode> db_;
   query::Interpreter interpreter_;
 

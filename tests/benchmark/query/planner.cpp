@@ -2,8 +2,8 @@
 
 #include <benchmark/benchmark_api.h>
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/cost_estimator.hpp"
 #include "query/plan/planner.hpp"

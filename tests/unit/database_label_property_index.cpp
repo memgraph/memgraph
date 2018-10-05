@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "storage/common/types.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"
 #include "transactions/single_node/engine_single_node.hpp"

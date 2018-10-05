@@ -8,8 +8,8 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
-#include "database/graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "query/interpreter.hpp"
 
 DECLARE_bool(query_cost_planner);

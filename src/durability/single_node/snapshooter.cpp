@@ -4,7 +4,7 @@
 
 #include <glog/logging.h>
 
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "durability/hashed_file_writer.hpp"
 #include "durability/paths.hpp"
 #include "durability/single_node/snapshot_encoder.hpp"

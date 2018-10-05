@@ -1,6 +1,6 @@
 #include "distributed/produce_rpc_server.hpp"
 
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "distributed/data_manager.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/common.hpp"

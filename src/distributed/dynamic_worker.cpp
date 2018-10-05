@@ -1,6 +1,6 @@
 #include "distributed/dynamic_worker.hpp"
 
-#include "database/distributed_graph_db.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "distributed/dynamic_worker_rpc_messages.hpp"
 
 namespace distributed {

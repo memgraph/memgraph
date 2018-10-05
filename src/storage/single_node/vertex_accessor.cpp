@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-#include "database/graph_db_accessor.hpp"
+#include "database/single_node/graph_db_accessor.hpp"
 #include "durability/single_node/state_delta.hpp"
 #include "utils/algorithm.hpp"
 

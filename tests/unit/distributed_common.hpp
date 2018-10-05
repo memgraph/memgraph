@@ -5,8 +5,8 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
-#include "database/distributed_graph_db.hpp"
-#include "database/graph_db_accessor.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
+#include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/data_manager.hpp"
 #include "distributed/updates_rpc_server.hpp"
 #include "storage/distributed/address_types.hpp"
