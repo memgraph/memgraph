@@ -1743,11 +1743,11 @@ TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
       MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectPullRemote({sym_a}));
   auto mid_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
   auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
-  auto mid_right_cart = MakeCheckers(
-      ExpectDistributedCartesian(mid_cart, right_cart), ExpectFilter());
+  auto mid_right_cart =
+      MakeCheckers(ExpectDistributedCartesian(mid_cart, right_cart));
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectDistributedCartesian(left_cart, mid_right_cart),
-                   ExpectFilter(), ExpectProduce()),
+                   ExpectFilter(), ExpectFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAll(), ExpectFilter()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
@@ -2102,6 +2102,50 @@ TYPED_TEST(TestPlanner, DistributedOptionalCartesian) {
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
+  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+}
+
+TYPED_TEST(TestPlanner, DistributedCartesianTransitiveDependency) {
+  // Test MATCH (n:L)-[a]-(m:L)-[b]-(l:L) RETURN l;
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("L");
+  // Set indexes so that multiple scans and expanding to existing is preferred.
+  dba.SetIndexCount(label, 1);
+  auto *node_n = NODE("n", label);
+  auto *node_m = NODE("m", label);
+  auto *node_l = NODE("l", label);
+  auto *edge_a = EDGE("a");
+  auto *edge_b = EDGE("b");
+  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge_a, node_m, edge_b, node_l)),
+                     RETURN("l")));
+  auto symbol_table = MakeSymbolTable(*storage.query());
+  auto sym_a = symbol_table.at(*edge_a->identifier_);
+  auto sym_b = symbol_table.at(*edge_b->identifier_);
+  auto sym_n = symbol_table.at(*node_n->identifier_);
+  auto sym_m = symbol_table.at(*node_m->identifier_);
+  auto sym_l = symbol_table.at(*node_l->identifier_);
+  auto right_cart =
+      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_l}));
+  auto mid_cart =
+      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_m}));
+  auto left_cart =
+      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_n}));
+  auto mid_right_cart =
+      MakeCheckers(ExpectDistributedCartesian(mid_cart, right_cart));
+  auto expected = ExpectDistributed(
+      MakeCheckers(ExpectDistributedCartesian(left_cart, mid_right_cart),
+                   // This expand depends on Cartesian branches.
+                   ExpectDistributedExpand(),
+                   // This expand depends on the previous one.
+                   ExpectDistributedExpand(),
+                   // UniquenessFilter depends on both expands.
+                   ExpectExpandUniquenessFilter<EdgeAccessor>(),
+                   ExpectProduce()),
+      MakeCheckers(ExpectScanAllByLabel()),
+      MakeCheckers(ExpectScanAllByLabel()),
+      MakeCheckers(ExpectScanAllByLabel()));
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }

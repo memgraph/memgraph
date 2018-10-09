@@ -851,20 +851,17 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       dependent_branches.push_back(right_branch);
     }
     auto append_dependants = [&dependent_branches](auto op, int64_t branch_ix) {
-      // Append dependent parents, iteration is in reverse because we want
-      // LIFO behaviour.
-      for (auto it = dependent_branches.rbegin();
-           it != dependent_branches.rend(); ++it) {
-        if (it->depends_on.value() != branch_ix) continue;
-        it->parent_end->set_input(op);
-        op = it->parent_start;
+      // Append dependent parents, using LIFO behaviour, because
+      // dependent_branches is filled in reverse.
+      while (!dependent_branches.empty()) {
+        auto branch = dependent_branches.back();
+        // Following branches may depend on this one, so we have to break as
+        // soon as the first one cannot be appended.
+        if (branch.depends_on.value() < branch_ix) break;
+        branch.parent_end->set_input(op);
+        op = branch.parent_start;
+        dependent_branches.pop_back();
       }
-      dependent_branches.erase(
-          std::remove_if(dependent_branches.begin(), dependent_branches.end(),
-                         [branch_ix](const auto &branch) {
-                           return branch.depends_on.value() == branch_ix;
-                         }),
-          dependent_branches.end());
       return op;
     };
     // We use this ordering of operators, so that left hand side can be
