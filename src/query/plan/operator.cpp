@@ -3165,18 +3165,10 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, Context &context) override {
-    auto copy_frame = [&frame]() {
-      std::vector<TypedValue> result;
-      for (auto &elem : frame.elems()) {
-        result.emplace_back(std::move(elem));
-      }
-      return result;
-    };
-
     if (!cartesian_pull_initialized_) {
       // Pull all left_op frames.
       while (left_op_cursor_->Pull(frame, context)) {
-        left_op_frames_.emplace_back(copy_frame());
+        left_op_frames_.emplace_back(frame.elems());
       }
 
       // We're setting the iterator to 'end' here so it pulls the right
@@ -3201,7 +3193,7 @@ class CartesianCursor : public Cursor {
       // Advance right_op_cursor_.
       if (!right_op_cursor_->Pull(frame, context)) return false;
 
-      right_op_frame_ = copy_frame();
+      right_op_frame_ = frame.elems();
       left_op_frames_it_ = left_op_frames_.begin();
     } else {
       // Make sure right_op_cursor last pulled results are on frame.

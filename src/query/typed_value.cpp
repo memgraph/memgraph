@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <memory>
+#include <utility>
 
 #include "glog/logging.h"
 
@@ -50,6 +51,51 @@ TypedValue::TypedValue(const PropertyValue &value) {
   LOG(FATAL) << "Unsupported type";
 }
 
+TypedValue::TypedValue(PropertyValue &&value) {
+  switch (value.type()) {
+    case PropertyValue::Type::Null:
+      type_ = Type::Null;
+      break;
+    case PropertyValue::Type::Bool:
+      type_ = Type::Bool;
+      bool_v = value.Value<bool>();
+      break;
+    case PropertyValue::Type::Int:
+      type_ = Type::Int;
+      int_v = value.Value<int64_t>();
+      break;
+    case PropertyValue::Type::Double:
+      type_ = Type::Double;
+      double_v = value.Value<double>();
+      break;
+    case PropertyValue::Type::String:
+      type_ = Type::String;
+      // TODO: std::move() when PropertyValue is fixed
+      new (&string_v) std::string(value.Value<std::string>());
+      break;
+    case PropertyValue::Type::List: {
+      // TODO: std::move() when PropertyValue is fixed
+      type_ = Type::List;
+      auto vec = value.Value<std::vector<PropertyValue>>();
+      new (&list_v)
+          std::vector<TypedValue>(std::make_move_iterator(vec.begin()),
+                                  std::make_move_iterator(vec.end()));
+      break;
+    }
+    case PropertyValue::Type::Map: {
+      // TODO: std::move() when PropertyValue is fixed
+      type_ = Type::Map;
+      auto map = value.Value<std::map<std::string, PropertyValue>>();
+      new (&map_v) std::map<std::string, TypedValue>(
+          std::make_move_iterator(map.begin()),
+          std::make_move_iterator(map.end()));
+      break;
+    }
+  }
+
+  value = PropertyValue::Null;
+}
+
 TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
   switch (other.type_) {
     case TypedValue::Type::Null:
@@ -83,6 +129,42 @@ TypedValue::TypedValue(const TypedValue &other) : type_(other.type_) {
       return;
   }
   LOG(FATAL) << "Unsupported TypedValue::Type";
+}
+
+TypedValue::TypedValue(TypedValue &&other) : type_(other.type_) {
+  switch (other.type_) {
+    case TypedValue::Type::Null:
+      break;
+    case TypedValue::Type::Bool:
+      this->bool_v = other.bool_v;
+      break;
+    case Type::Int:
+      this->int_v = other.int_v;
+      break;
+    case Type::Double:
+      this->double_v = other.double_v;
+      break;
+    case TypedValue::Type::String:
+      new (&string_v) std::string(std::move(other.string_v));
+      break;
+    case Type::List:
+      new (&list_v) std::vector<TypedValue>(std::move(other.list_v));
+      break;
+    case Type::Map:
+      new (&map_v) std::map<std::string, TypedValue>(std::move(other.map_v));
+      break;
+    case Type::Vertex:
+      new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
+      break;
+    case Type::Edge:
+      new (&edge_v) EdgeAccessor(std::move(other.edge_v));
+      break;
+    case Type::Path:
+      new (&path_v) Path(std::move(other.path_v));
+      break;
+  }
+
+  other = TypedValue::Null;
 }
 
 TypedValue::operator PropertyValue() const {
@@ -227,35 +309,57 @@ std::ostream &operator<<(std::ostream &os, const TypedValue &value) {
   LOG(FATAL) << "Unsupported PropertyValue::Type";
 }
 
-#define DEFINE_TYPED_VALUE_ASSIGNMENT(type_param, typed_value_type, member) \
-  TypedValue &TypedValue::operator=(const type_param &other) {              \
-    if (this->type_ == TypedValue::Type::typed_value_type) {                \
-      this->member = other;                                                 \
-    } else {                                                                \
-      *this = TypedValue(other);                                            \
-    }                                                                       \
-                                                                            \
-    return *this;                                                           \
+#define DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(type_param, typed_value_type, \
+                                           member)                       \
+  TypedValue &TypedValue::operator=(type_param other) {                  \
+    if (this->type_ == TypedValue::Type::typed_value_type) {             \
+      this->member = other;                                              \
+    } else {                                                             \
+      *this = TypedValue(other);                                         \
+    }                                                                    \
+                                                                         \
+    return *this;                                                        \
   }
 
-DEFINE_TYPED_VALUE_ASSIGNMENT(char *const, String, string_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(int, Int, int_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(bool, Bool, bool_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(int64_t, Int, int_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(double, Double, double_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(std::string, String, string_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(std::vector<TypedValue>, List, list_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(TypedValue::value_map_t, Map, map_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(VertexAccessor, Vertex, vertex_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(EdgeAccessor, Edge, edge_v)
-DEFINE_TYPED_VALUE_ASSIGNMENT(Path, Path, path_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const char *, String, string_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int, Int, int_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(bool, Bool, bool_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(int64_t, Int, int_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(double, Double, double_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::string &, String, string_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const std::vector<TypedValue> &, List,
+                                   list_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const TypedValue::value_map_t &, Map, map_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const VertexAccessor &, Vertex, vertex_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const EdgeAccessor &, Edge, edge_v)
+DEFINE_TYPED_VALUE_COPY_ASSIGNMENT(const Path &, Path, path_v)
 
-#undef DEFINE_TYPED_VALUE_ASSIGNMENT
+#undef DEFINE_TYPED_VALUE_COPY_ASSIGNMENT
+
+#define DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(type_param, typed_value_type, \
+                                           member)                       \
+  TypedValue &TypedValue::operator=(type_param &&other) {                \
+    if (this->type_ == TypedValue::Type::typed_value_type) {             \
+      this->member = std::move(other);                                   \
+    } else {                                                             \
+      *this = TypedValue(std::move(other));                              \
+    }                                                                    \
+                                                                         \
+    return *this;                                                        \
+  }
+
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(std::string, String, string_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(std::vector<TypedValue>, List, list_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(TypedValue::value_map_t, Map, map_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(VertexAccessor, Vertex, vertex_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(EdgeAccessor, Edge, edge_v)
+DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT(Path, Path, path_v)
+
+#undef DEFINE_TYPED_VALUE_MOVE_ASSIGNMENT
 
 TypedValue &TypedValue::operator=(const TypedValue &other) {
   if (this != &other) {
-    this->~TypedValue();
-    // set the type of this
+    DestroyValue();
     type_ = other.type_;
 
     switch (other.type_) {
@@ -294,44 +398,92 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
   return *this;
 }
 
+TypedValue &TypedValue::operator=(TypedValue &&other) {
+  if (this != &other) {
+    DestroyValue();
+    type_ = other.type_;
+
+    switch (other.type_) {
+      case TypedValue::Type::Null:
+        break;
+      case TypedValue::Type::Bool:
+        this->bool_v = other.bool_v;
+        break;
+      case TypedValue::Type::Int:
+        this->int_v = other.int_v;
+        break;
+      case TypedValue::Type::Double:
+        this->double_v = other.double_v;
+        break;
+      case TypedValue::Type::String:
+        new (&string_v) std::string(std::move(other.string_v));
+        break;
+      case TypedValue::Type::List:
+        new (&list_v) std::vector<TypedValue>(std::move(other.list_v));
+        break;
+      case TypedValue::Type::Map:
+        new (&map_v) std::map<std::string, TypedValue>(std::move(other.map_v));
+        break;
+      case TypedValue::Type::Vertex:
+        new (&vertex_v) VertexAccessor(std::move(other.vertex_v));
+        break;
+      case TypedValue::Type::Edge:
+        new (&edge_v) EdgeAccessor(std::move(other.edge_v));
+        break;
+      case TypedValue::Type::Path:
+        new (&path_v) Path(std::move(other.path_v));
+        break;
+    }
+
+    other = TypedValue::Null;
+  }
+
+  return *this;
+}
+
 const TypedValue TypedValue::Null = TypedValue();
 
-TypedValue::~TypedValue() {
+void TypedValue::DestroyValue() {
   switch (type_) {
     // destructor for primitive types does nothing
-    case Type::Null:
-    case Type::Bool:
-    case Type::Int:
-    case Type::Double:
-      return;
+  case Type::Null:
+  case Type::Bool:
+  case Type::Int:
+  case Type::Double:
+    break;
 
     // we need to call destructors for non primitive types since we used
     // placement new
-    case Type::String:
-      // Clang fails to compile ~std::string. It seems it is a bug in some
-      // versions of clang. using namespace std statement solves the issue.
-      using namespace std;
-      string_v.~string();
-      return;
-    case Type::List:
-      using namespace std;
-      list_v.~vector<TypedValue>();
-      return;
-    case Type::Map:
-      using namespace std;
-      map_v.~map<std::string, TypedValue>();
-      return;
-    case Type::Vertex:
-      vertex_v.~VertexAccessor();
-      return;
-    case Type::Edge:
-      edge_v.~EdgeAccessor();
-      return;
-    case Type::Path:
-      path_v.~Path();
-      return;
+  case Type::String:
+    // Clang fails to compile ~std::string. It seems it is a bug in some
+    // versions of clang. using namespace std statement solves the issue.
+    using namespace std;
+    string_v.~string();
+    break;
+  case Type::List:
+    using namespace std;
+    list_v.~vector<TypedValue>();
+    break;
+  case Type::Map:
+    using namespace std;
+    map_v.~map<std::string, TypedValue>();
+    break;
+  case Type::Vertex:
+    vertex_v.~VertexAccessor();
+    break;
+  case Type::Edge:
+    edge_v.~EdgeAccessor();
+    break;
+  case Type::Path:
+    path_v.~Path();
+    break;
   }
-  LOG(FATAL) << "Unsupported TypedValue::Type";
+
+  type_ = TypedValue::Type::Null;
+}
+
+TypedValue::~TypedValue() {
+  DestroyValue();
 }
 
 /**
@@ -651,7 +803,7 @@ bool TypedValue::BoolEqual::operator()(const TypedValue &lhs,
     default:
       LOG(FATAL)
           << "Equality between two TypedValues resulted in something other "
-             "then Null or bool";
+             "than Null or bool";
   }
 }
 

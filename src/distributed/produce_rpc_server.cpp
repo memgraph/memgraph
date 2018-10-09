@@ -74,7 +74,7 @@ ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
     if (cursor_->Pull(frame_, context_)) {
       results.reserve(pull_symbols_.size());
       for (const auto &symbol : pull_symbols_) {
-        results.emplace_back(std::move(frame_[symbol]));
+        results.push_back(frame_[symbol]);
       }
     } else {
       cursor_state_ = PullState::CURSOR_EXHAUSTED;

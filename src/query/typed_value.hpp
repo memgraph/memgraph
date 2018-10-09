@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "query/path.hpp"
@@ -55,6 +56,7 @@ class TypedValue
    * in the floating point domain (TypedValue operator== behaves the same).
    * */
   using unordered_set = std::unordered_set<TypedValue, Hash, BoolEqual>;
+  using value_map_t = std::map<std::string, TypedValue>;
 
   /** Private default constructor, makes Null */
   TypedValue() : type_(Type::Null) {}
@@ -77,6 +79,9 @@ class TypedValue
   // single static reference to Null, used whenever Null should be returned
   static const TypedValue Null;
 
+  TypedValue(const TypedValue &other);
+  TypedValue(TypedValue &&other);
+
   // constructors for primitive types
   TypedValue(bool value) : type_(Type::Bool) { bool_v = value; }
   TypedValue(int value) : type_(Type::Int) { int_v = value; }
@@ -86,7 +91,7 @@ class TypedValue
   // conversion function to PropertyValue
   explicit operator PropertyValue() const;
 
-  /// constructors for non-primitive types
+  // copy constructors for non-primitive types
   TypedValue(const std::string &value) : type_(Type::String) {
     new (&string_v) std::string(value);
   }
@@ -109,33 +114,50 @@ class TypedValue
   TypedValue(const Path &path) : type_(Type::Path) { new (&path_v) Path(path); }
   TypedValue(const PropertyValue &value);
 
-/**
- * There are all sorts of explicit assignments here because this way we avoid
- * destructor and constructor of TypedValue for creating intermediary values,
- * and can fill the typed value storage directly if it has the same underlying
- * type.
- */
-#define DECLARE_TYPED_VALUE_ASSIGNMENT(type_param) \
-  TypedValue &operator=(const type_param &other);
+  // move constructors for non-primitive types
+  TypedValue(std::string &&value) : type_(Type::String) {
+    new (&string_v) std::string(std::move(value));
+  }
+  TypedValue(std::vector<TypedValue> &&value) : type_(Type::List) {
+    new (&list_v) std::vector<TypedValue>(std::move(value));
+  }
+  TypedValue(std::map<std::string, TypedValue> &&value) : type_(Type::Map) {
+    new (&map_v) std::map<std::string, TypedValue>(std::move(value));
+  }
+  TypedValue(VertexAccessor &&vertex) : type_(Type::Vertex) {
+    new (&vertex_v) VertexAccessor(std::move(vertex));
+  }
+  TypedValue(EdgeAccessor &&edge) : type_(Type::Edge) {
+    new (&edge_v) EdgeAccessor(std::move(edge));
+  }
+  TypedValue(Path &&path) : type_(Type::Path) {
+    new (&path_v) Path(std::move(path));
+  }
+  TypedValue(PropertyValue &&value);
 
-  using value_map_t = std::map<std::string, TypedValue>;
-  // Don't delete char * const assignment because char* strings will be assigned
-  // using boolean assignment (not good).
-  DECLARE_TYPED_VALUE_ASSIGNMENT(char *const)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(int)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(bool)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(int64_t)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(double)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(std::string)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(std::vector<TypedValue>)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(TypedValue::value_map_t)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(VertexAccessor)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(EdgeAccessor)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(Path)
-  DECLARE_TYPED_VALUE_ASSIGNMENT(TypedValue)
-#undef DECLARE_TYPED_VALUE_ASSIGNMENT
+  // copy assignment operators
+  TypedValue &operator=(const char *);
+  TypedValue &operator=(int);
+  TypedValue &operator=(bool);
+  TypedValue &operator=(int64_t);
+  TypedValue &operator=(double);
+  TypedValue &operator=(const std::string &);
+  TypedValue &operator=(const std::vector<TypedValue> &);
+  TypedValue &operator=(const TypedValue::value_map_t &);
+  TypedValue &operator=(const VertexAccessor &);
+  TypedValue &operator=(const EdgeAccessor &);
+  TypedValue &operator=(const Path &);
+  TypedValue &operator=(const TypedValue &);
 
-  TypedValue(const TypedValue &other);
+  // move assignment operators
+  TypedValue &operator=(std::string &&);
+  TypedValue &operator=(std::vector<TypedValue> &&);
+  TypedValue &operator=(TypedValue::value_map_t &&);
+  TypedValue &operator=(VertexAccessor &&);
+  TypedValue &operator=(EdgeAccessor &&);
+  TypedValue &operator=(Path &&);
+  TypedValue &operator=(TypedValue &&);
+
   ~TypedValue();
 
   Type type() const { return type_; }
@@ -189,6 +211,8 @@ class TypedValue
   friend std::ostream &operator<<(std::ostream &stream, const TypedValue &prop);
 
  private:
+  void DestroyValue();
+
   // storage for the value of the property
   union {
     bool bool_v;

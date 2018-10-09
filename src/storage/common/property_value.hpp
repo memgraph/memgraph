@@ -10,8 +10,8 @@
 #include "utils/total_ordering.hpp"
 
 /**
- * Encapsulation of a value and it's type encapsulated in a class that has no
- * compiled-time info about that type.
+ * Encapsulation of a value and its type in a class that has no compile-time
+ * info about the type.
  *
  * Values can be of a number of predefined types that are enumerated in
  * PropertyValue::Type. Each such type corresponds to exactly one C++ type.
