@@ -176,8 +176,8 @@ target_link_libraries(${test_prefix}query_plan_edge_cases mg-single-node kvstore
 add_unit_test(query_plan_match_filter_return.cpp)
 target_link_libraries(${test_prefix}query_plan_match_filter_return mg-single-node kvstore_dummy_lib)
 
-add_unit_test(query_planner.cpp)
-target_link_libraries(${test_prefix}query_planner mg-single-node kvstore_dummy_lib)
+add_unit_test(query_plan.cpp)
+target_link_libraries(${test_prefix}query_plan mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_required_privileges.cpp)
 target_link_libraries(${test_prefix}query_required_privileges mg-single-node kvstore_dummy_lib)
