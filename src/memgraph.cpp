@@ -44,7 +44,7 @@ using communication::ServerContext;
 
 void SingleNodeMain() {
   google::SetUsageMessage("Memgraph single-node database server");
-  database::SingleNode db;
+  database::GraphDb db;
   query::Interpreter interpreter;
   SessionData session_data{&db, &interpreter};
 

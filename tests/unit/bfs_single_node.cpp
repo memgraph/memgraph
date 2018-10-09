@@ -60,7 +60,7 @@ class SingleNodeDb : public Database {
   }
 
  protected:
-  database::SingleNode db_;
+  database::GraphDb db_;
 };
 
 class SingleNodeBfsTest

@@ -3,8 +3,8 @@
 #include <mutex>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "storage/common/concurrent_id_mapper.hpp"
 #include "storage/common/types.hpp"
+#include "storage/distributed/concurrent_id_mapper.hpp"
 #include "utils/algorithm.hpp"
 
 namespace storage {

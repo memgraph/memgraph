@@ -24,7 +24,7 @@ RC_GTEST_PROP(RandomGraph, RandomGraph, (std::vector<std::string> vertex_labels,
   int vertices_num = vertex_labels.size();
   int edges_num = edge_types.size();
 
-  database::SingleNode db;
+  database::GraphDb db;
   std::vector<VertexAccessor> vertices;
   std::unordered_map<VertexAccessor, std::string> vertex_label_map;
   std::unordered_map<EdgeAccessor, std::string> edge_type_map;

@@ -5,16 +5,16 @@
 #include <memory>
 #include <vector>
 
-#include "database/counters.hpp"
+#include "database/distributed/counters.hpp"
 #include "durability/distributed/recovery.hpp"
 #include "durability/distributed/wal.hpp"
 #include "io/network/endpoint.hpp"
-#include "storage/common/concurrent_id_mapper.hpp"
 #include "storage/common/types.hpp"
+#include "storage/distributed/concurrent_id_mapper.hpp"
 #include "storage/distributed/storage.hpp"
 #include "storage/distributed/storage_gc.hpp"
 #include "storage/distributed/vertex_accessor.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/distributed/engine.hpp"
 #include "utils/scheduler.hpp"
 
 namespace database {

@@ -12,7 +12,7 @@
 #include "storage/distributed/gid.hpp"
 #include "storage/distributed/storage.hpp"
 #include "storage/distributed/vertex.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/distributed/engine.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"

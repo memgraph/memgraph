@@ -4,7 +4,7 @@
 #include "database/single_node/graph_db_accessor.hpp"
 #include "storage/common/types.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"
-#include "transactions/single_node/engine_single_node.hpp"
+#include "transactions/single_node/engine.hpp"
 
 #include "mvcc_gc_common.hpp"
 
@@ -42,11 +42,11 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
   }
 
  public:
-  SingleNode db_;
+  GraphDb db_;
   LabelPropertyIndex index;
   LabelPropertyIndex::Key *key;
 
-  tx::EngineSingleNode engine;
+  tx::Engine engine;
   tx::Transaction *t{nullptr};
 
   mvcc::VersionList<Vertex> *vlist;
@@ -59,7 +59,7 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
 };
 
 TEST(LabelPropertyIndex, CreateIndex) {
-  SingleNode db;
+  GraphDb db;
   auto accessor = db.Access();
   LabelPropertyIndex::Key key(accessor->Label("test"),
                               accessor->Property("test2"));
@@ -69,7 +69,7 @@ TEST(LabelPropertyIndex, CreateIndex) {
 }
 
 TEST(LabelPropertyIndex, DeleteIndex) {
-  SingleNode db;
+  GraphDb db;
   auto accessor = db.Access();
   LabelPropertyIndex::Key key(accessor->Label("test"),
                               accessor->Property("test2"));
@@ -81,7 +81,7 @@ TEST(LabelPropertyIndex, DeleteIndex) {
 }
 
 TEST(LabelPropertyIndex, IndexExistance) {
-  SingleNode db;
+  GraphDb db;
   auto accessor = db.Access();
   LabelPropertyIndex::Key key(accessor->Label("test"),
                               accessor->Property("test2"));
@@ -94,7 +94,7 @@ TEST(LabelPropertyIndex, IndexExistance) {
 }
 
 TEST(LabelPropertyIndex, Count) {
-  SingleNode db;
+  GraphDb db;
   auto accessor = db.Access();
   auto label = accessor->Label("label");
   auto property = accessor->Property("property");

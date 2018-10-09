@@ -419,6 +419,36 @@ RecoveryInfo RecoverOnlySnapshot(
                                          *recovery_data)};
 }
 
+RecoveryTransactions::RecoveryTransactions(database::GraphDb *db) : db_(db) {}
+
+void RecoveryTransactions::Begin(const tx::TransactionId &tx_id) {
+  CHECK(accessors_.find(tx_id) == accessors_.end())
+      << "Double transaction start";
+  accessors_.emplace(tx_id, db_->Access());
+}
+
+void RecoveryTransactions::Abort(const tx::TransactionId &tx_id) {
+  GetAccessor(tx_id)->Abort();
+  accessors_.erase(accessors_.find(tx_id));
+}
+
+void RecoveryTransactions::Commit(const tx::TransactionId &tx_id) {
+  GetAccessor(tx_id)->Commit();
+  accessors_.erase(accessors_.find(tx_id));
+}
+
+void RecoveryTransactions::Apply(const database::StateDelta &delta) {
+  delta.Apply(*GetAccessor(delta.transaction_id));
+}
+
+database::GraphDbAccessor *RecoveryTransactions::GetAccessor(
+    const tx::TransactionId &tx_id) {
+  auto found = accessors_.find(tx_id);
+  CHECK(found != accessors_.end())
+      << "Accessor does not exist for transaction: " << tx_id;
+  return found->second.get();
+}
+
 // TODO - finer-grained recovery feedback could be useful here.
 void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
                 RecoveryData *recovery_data,

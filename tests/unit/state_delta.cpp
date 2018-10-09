@@ -5,7 +5,7 @@
 #include "durability/single_node/state_delta.hpp"
 
 TEST(StateDelta, CreateVertex) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   {
@@ -24,7 +24,7 @@ TEST(StateDelta, CreateVertex) {
 }
 
 TEST(StateDelta, RemoveVertex) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   {
@@ -47,7 +47,7 @@ TEST(StateDelta, RemoveVertex) {
 }
 
 TEST(StateDelta, CreateEdge) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
@@ -74,7 +74,7 @@ TEST(StateDelta, CreateEdge) {
 }
 
 TEST(StateDelta, RemoveEdge) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
@@ -100,7 +100,7 @@ TEST(StateDelta, RemoveEdge) {
 }
 
 TEST(StateDelta, AddLabel) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   {
@@ -126,7 +126,7 @@ TEST(StateDelta, AddLabel) {
 }
 
 TEST(StateDelta, RemoveLabel) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   {
@@ -152,7 +152,7 @@ TEST(StateDelta, RemoveLabel) {
 }
 
 TEST(StateDelta, SetPropertyVertex) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   {
@@ -178,7 +178,7 @@ TEST(StateDelta, SetPropertyVertex) {
 }
 
 TEST(StateDelta, SetPropertyEdge) {
-  database::SingleNode db;
+  database::GraphDb db;
   gid::Generator generator(0);
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();

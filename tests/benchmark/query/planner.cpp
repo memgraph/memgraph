@@ -31,7 +31,7 @@ static void AddChainedMatches(int num_matches, query::AstStorage &storage) {
 }
 
 static void BM_PlanChainedMatches(benchmark::State &state) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   while (state.KeepRunning()) {
     state.PauseTiming();
@@ -101,7 +101,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count,
 }
 
 static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
-  database::SingleNode db;
+  database::GraphDb db;
   storage::Label label;
   storage::Property prop;
   int index_count = state.range(0);
@@ -134,7 +134,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
 
 static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
     benchmark::State &state) {
-  database::SingleNode db;
+  database::GraphDb db;
   storage::Label label;
   storage::Property prop;
   int index_count = state.range(0);

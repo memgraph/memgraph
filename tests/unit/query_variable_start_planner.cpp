@@ -83,7 +83,7 @@ void CheckPlansProduce(
 }
 
 TEST(TestVariableStartPlanner, MatchReturn) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba->InsertVertex();
@@ -103,7 +103,7 @@ TEST(TestVariableStartPlanner, MatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba->InsertVertex();
@@ -139,7 +139,7 @@ TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba->InsertVertex();
@@ -165,7 +165,7 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Graph (v1) -[:r]-> (v2)
   auto v1 = dba->InsertVertex();
@@ -190,7 +190,7 @@ TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Graph (v1) -[:r]-> (v2)
   auto v1 = dba->InsertVertex();
@@ -213,7 +213,7 @@ TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpand) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba->InsertVertex();
@@ -236,7 +236,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   auto id = dba.Property("id");
@@ -264,7 +264,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
 }
 
 TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto id = dba->Property("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
@@ -290,7 +290,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
 }
 
 TEST(TestVariableStartPlanner, MatchBfs) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   auto id = dba.Property("id");

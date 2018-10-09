@@ -15,7 +15,7 @@ using namespace query;
 
 class TestSymbolGenerator : public ::testing::Test {
  protected:
-  database::SingleNode db;
+  database::GraphDb db;
   std::unique_ptr<database::GraphDbAccessor> dba_ptr{db.Access()};
   database::GraphDbAccessor &dba{*dba_ptr};
   SymbolTable symbol_table;

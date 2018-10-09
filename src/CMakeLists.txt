@@ -46,7 +46,7 @@ set(mg_single_node_sources
     storage/common/property_value_store.cpp
     storage/single_node/record_accessor.cpp
     storage/single_node/vertex_accessor.cpp
-    transactions/single_node/engine_single_node.cpp
+    transactions/single_node/engine.cpp
     memgraph_init.cpp
 )
 

@@ -5,7 +5,7 @@
 #include <iostream>
 
 #include "transactions/commit_log.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/distributed/engine.hpp"
 #include "transactions/transaction.hpp"
 
 #include "mvcc/common/version.hpp"

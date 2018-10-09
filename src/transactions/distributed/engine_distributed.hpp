@@ -4,7 +4,7 @@
 
 #include "communication/rpc/server.hpp"
 #include "distributed/coordination.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/distributed/engine.hpp"
 #include "utils/exceptions.hpp"
 
 namespace tx {

@@ -116,12 +116,23 @@ RecoveryInfo RecoverOnlySnapshot(
 /** Interface for accessing transactions during WAL recovery. */
 class RecoveryTransactions {
  public:
-  virtual ~RecoveryTransactions() {}
+  RecoveryTransactions(database::GraphDb *db);
 
-  virtual void Begin(const tx::TransactionId &) = 0;
-  virtual void Abort(const tx::TransactionId &) = 0;
-  virtual void Commit(const tx::TransactionId &) = 0;
-  virtual void Apply(const database::StateDelta &) = 0;
+  void Begin(const tx::TransactionId &tx_id);
+
+  void Abort(const tx::TransactionId &tx_id);
+
+  void Commit(const tx::TransactionId &tx_id);
+
+  void Apply(const database::StateDelta &delta);
+
+ private:
+  database::GraphDbAccessor *GetAccessor(const tx::TransactionId &tx_id);
+
+  database::GraphDb *db_;
+  std::unordered_map<tx::TransactionId,
+                     std::unique_ptr<database::GraphDbAccessor>>
+      accessors_;
 };
 
 void RecoverWal(const std::experimental::filesystem::path &durability_dir,

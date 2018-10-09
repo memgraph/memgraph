@@ -23,7 +23,7 @@ using MiscParam = CostEstimator<database::GraphDbAccessor>::MiscParam;
  * estimation testing. */
 class QueryCostEstimator : public ::testing::Test {
  protected:
-  database::SingleNode db;
+  database::GraphDb db;
   std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
   storage::Label label = dba->Label("label");
   storage::Property property = dba->Property("property");

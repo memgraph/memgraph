@@ -11,7 +11,7 @@ int main(int argc, char *argv[]) {
     std::cout << "Usage: ./single_query 'RETURN \"query here\"'" << std::endl;
     exit(1);
   }
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   ResultStreamFaker<query::TypedValue> stream;
   auto results = query::Interpreter()(argv[1], *dba, {}, false);

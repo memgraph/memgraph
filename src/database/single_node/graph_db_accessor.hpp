@@ -45,6 +45,7 @@ class GraphDbAccessor {
   // the code.
   friend class ::RecordAccessor<Vertex>;
   friend class ::VertexAccessor;
+  friend class GraphDb;
 
  protected:
   // Construction should only be done through GraphDb::Access function and
@@ -56,15 +57,12 @@ class GraphDbAccessor {
   GraphDbAccessor(GraphDb &db, tx::TransactionId tx_id);
 
  public:
-  virtual ~GraphDbAccessor();
+  ~GraphDbAccessor();
 
   GraphDbAccessor(const GraphDbAccessor &other) = delete;
   GraphDbAccessor(GraphDbAccessor &&other) = delete;
   GraphDbAccessor &operator=(const GraphDbAccessor &other) = delete;
   GraphDbAccessor &operator=(GraphDbAccessor &&other) = delete;
-
-  virtual ::VertexAccessor::Impl *GetVertexImpl() = 0;
-  virtual ::RecordAccessor<Edge>::Impl *GetEdgeImpl() = 0;
 
   /**
    * Creates a new Vertex and returns an accessor to it. If the ID is
@@ -101,8 +99,7 @@ class GraphDbAccessor {
    * before deletion.
    * @return  If or not the vertex was deleted.
    */
-  virtual bool RemoveVertex(VertexAccessor &vertex_accessor,
-                            bool check_empty = true);
+  bool RemoveVertex(VertexAccessor &vertex_accessor, bool check_empty = true);
 
   /**
    * Removes the vertex of the given accessor along with all it's outgoing
@@ -340,8 +337,8 @@ class GraphDbAccessor {
    * @param remove_in_edge If the edge should be removed from the its
    * destination side.
    */
-  virtual void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
-                          bool remove_in_edge = true);
+  void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
+                  bool remove_in_edge = true);
 
   /**
    * Obtains the edge for the given ID. If there is no edge for the given
@@ -444,7 +441,7 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  virtual void BuildIndex(storage::Label label, storage::Property property);
+  void BuildIndex(storage::Label label, storage::Property property);
 
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);
@@ -574,7 +571,7 @@ class GraphDbAccessor {
   tx::TransactionId transaction_id() const;
 
   /** Advances transaction's command id by 1. */
-  virtual void AdvanceCommand();
+  void AdvanceCommand();
 
   /** Commit transaction. */
   void Commit();
@@ -621,10 +618,10 @@ class GraphDbAccessor {
 
  protected:
   /** Called in `BuildIndex` after creating an index, but before populating. */
-  virtual void PostCreateIndex(const LabelPropertyIndex::Key &key) {}
+  void PostCreateIndex(const LabelPropertyIndex::Key &key) {}
 
   /** Populates the index from a *new* transaction after creating the index. */
-  virtual void PopulateIndexFromBuildIndex(const LabelPropertyIndex::Key &key) {
+  void PopulateIndexFromBuildIndex(const LabelPropertyIndex::Key &key) {
     PopulateIndex(key);
   }
 
@@ -632,7 +629,7 @@ class GraphDbAccessor {
    * Insert a new edge to `from` vertex and return the address.
    * Called from `InsertEdge` as the first step in edge insertion.
    * */
-  virtual storage::EdgeAddress InsertEdgeOnFrom(
+  storage::EdgeAddress InsertEdgeOnFrom(
       VertexAccessor *from, VertexAccessor *to,
       const storage::EdgeType &edge_type,
       const std::experimental::optional<gid::Gid> &requested_gid,
@@ -643,9 +640,9 @@ class GraphDbAccessor {
    * Called after `InsertEdgeOnFrom` in `InsertEdge`. The given `edge_address`
    * is from the created edge, returned by `InsertEdgeOnFrom`.
    */
-  virtual void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
-                              const storage::EdgeType &edge_type,
-                              const storage::EdgeAddress &edge_address);
+  void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
+                      const storage::EdgeType &edge_type,
+                      const storage::EdgeAddress &edge_address);
 
  private:
   GraphDb &db_;

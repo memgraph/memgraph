@@ -30,7 +30,7 @@ DEFINE_string(output_file, "", "Output file where shold the results be.");
 void KafkaBenchmarkMain() {
   google::SetUsageMessage("Memgraph kafka benchmark database server");
   query::Interpreter interpreter;
-  database::SingleNode db;
+  database::GraphDb db;
   SessionData session_data{&db, &interpreter};
 
   std::atomic<int64_t> query_counter{0};

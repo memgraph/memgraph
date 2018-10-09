@@ -14,7 +14,7 @@
 
 class InterpreterTest : public ::testing::Test {
  protected:
-  database::SingleNode db_;
+  database::GraphDb db_;
   query::Interpreter interpreter_;
 
   auto Interpret(const std::string &query,

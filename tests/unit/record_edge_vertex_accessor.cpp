@@ -13,7 +13,7 @@
 #include "storage/single_node/vertex_accessor.hpp"
 
 TEST(RecordAccessor, Properties) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto vertex = dba->InsertVertex();
@@ -35,7 +35,7 @@ TEST(RecordAccessor, Properties) {
 }
 
 TEST(RecordAccessor, DbAccessor) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto vertex = dba->InsertVertex();
@@ -46,7 +46,7 @@ TEST(RecordAccessor, DbAccessor) {
 }
 
 TEST(RecordAccessor, RecordEquality) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto v1 = dba->InsertVertex();
@@ -61,7 +61,7 @@ TEST(RecordAccessor, RecordEquality) {
 }
 
 TEST(RecordAccessor, GlobalToLocalAddressConversion) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto v1 = dba->InsertVertex();
@@ -73,7 +73,7 @@ TEST(RecordAccessor, GlobalToLocalAddressConversion) {
 }
 
 TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
-  database::SingleNode db;
+  database::GraphDb db;
 
   // test both Switches work on new record
   {
@@ -109,7 +109,7 @@ TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {
 }
 
 TEST(RecordAccessor, Reconstruct) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto label = db.Access()->Label("label");
 
   {
@@ -143,7 +143,7 @@ TEST(RecordAccessor, Reconstruct) {
 }
 
 TEST(RecordAccessor, VertexLabels) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto v1 = dba->InsertVertex();
   auto &labels = v1.labels();
@@ -184,7 +184,7 @@ TEST(RecordAccessor, VertexLabels) {
 }
 
 TEST(RecordAccessor, EdgeType) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto v1 = dba->InsertVertex();
   auto v2 = dba->InsertVertex();
@@ -198,7 +198,7 @@ TEST(RecordAccessor, EdgeType) {
 }
 
 TEST(RecordAccessor, EdgeIsCycle) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto v1 = dba->InsertVertex();
   auto v2 = dba->InsertVertex();
@@ -211,7 +211,7 @@ TEST(RecordAccessor, EdgeIsCycle) {
 }
 
 TEST(RecordAccessor, VertexEdgeConnections) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto v1 = dba->InsertVertex();
   auto v2 = dba->InsertVertex();
@@ -243,7 +243,7 @@ TEST(RecordAccessor, VertexEdgeConnections) {
   }
 
 TEST(RecordAccessor, VertexEdgeConnectionsWithExistingVertex) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto v1 = dba->InsertVertex();
   auto v2 = dba->InsertVertex();
@@ -278,7 +278,7 @@ TEST(RecordAccessor, VertexEdgeConnectionsWithExistingVertex) {
 }
 
 TEST(RecordAccessor, VertexEdgeConnectionsWithEdgeType) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto v1 = dba->InsertVertex();
   auto v2 = dba->InsertVertex();

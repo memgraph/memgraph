@@ -1,4 +1,4 @@
-#include "transactions/single_node/engine_single_node.hpp"
+#include "transactions/single_node/engine.hpp"
 
 #include <limits>
 #include <mutex>
@@ -9,10 +9,9 @@
 
 namespace tx {
 
-EngineSingleNode::EngineSingleNode(durability::WriteAheadLog *wal)
-    : wal_(wal) {}
+Engine::Engine(durability::WriteAheadLog *wal) : wal_(wal) {}
 
-Transaction *EngineSingleNode::Begin() {
+Transaction *Engine::Begin() {
   VLOG(11) << "[Tx] Starting transaction " << counter_ + 1;
   std::lock_guard<utils::SpinLock> guard(lock_);
 
@@ -26,7 +25,7 @@ Transaction *EngineSingleNode::Begin() {
   return t;
 }
 
-CommandId EngineSingleNode::Advance(TransactionId id) {
+CommandId Engine::Advance(TransactionId id) {
   std::lock_guard<utils::SpinLock> guard(lock_);
 
   auto it = store_.find(id);
@@ -37,7 +36,7 @@ CommandId EngineSingleNode::Advance(TransactionId id) {
   return AdvanceCommand(t);
 }
 
-CommandId EngineSingleNode::UpdateCommand(TransactionId id) {
+CommandId Engine::UpdateCommand(TransactionId id) {
   std::lock_guard<utils::SpinLock> guard(lock_);
   auto it = store_.find(id);
   DCHECK(it != store_.end())
@@ -45,7 +44,7 @@ CommandId EngineSingleNode::UpdateCommand(TransactionId id) {
   return it->second->cid();
 }
 
-void EngineSingleNode::Commit(const Transaction &t) {
+void Engine::Commit(const Transaction &t) {
   VLOG(11) << "[Tx] Commiting transaction " << t.id_;
   std::lock_guard<utils::SpinLock> guard(lock_);
   clog_.set_committed(t.id_);
@@ -56,7 +55,7 @@ void EngineSingleNode::Commit(const Transaction &t) {
   store_.erase(store_.find(t.id_));
 }
 
-void EngineSingleNode::Abort(const Transaction &t) {
+void Engine::Abort(const Transaction &t) {
   VLOG(11) << "[Tx] Aborting transaction " << t.id_;
   std::lock_guard<utils::SpinLock> guard(lock_);
   clog_.set_aborted(t.id_);
@@ -67,11 +66,11 @@ void EngineSingleNode::Abort(const Transaction &t) {
   store_.erase(store_.find(t.id_));
 }
 
-CommitLog::Info EngineSingleNode::Info(TransactionId tx) const {
+CommitLog::Info Engine::Info(TransactionId tx) const {
   return clog_.fetch_info(tx);
 }
 
-Snapshot EngineSingleNode::GlobalGcSnapshot() {
+Snapshot Engine::GlobalGcSnapshot() {
   std::lock_guard<utils::SpinLock> guard(lock_);
 
   // No active transactions.
@@ -87,29 +86,29 @@ Snapshot EngineSingleNode::GlobalGcSnapshot() {
   return snapshot_copy;
 }
 
-Snapshot EngineSingleNode::GlobalActiveTransactions() {
+Snapshot Engine::GlobalActiveTransactions() {
   std::lock_guard<utils::SpinLock> guard(lock_);
   Snapshot active_transactions = active_;
   return active_transactions;
 }
 
-TransactionId EngineSingleNode::LocalLast() const {
+TransactionId Engine::LocalLast() const {
   std::lock_guard<utils::SpinLock> guard(lock_);
   return counter_;
 }
 
-TransactionId EngineSingleNode::GlobalLast() const { return LocalLast(); }
+TransactionId Engine::GlobalLast() const { return LocalLast(); }
 
-TransactionId EngineSingleNode::LocalOldestActive() const {
+TransactionId Engine::LocalOldestActive() const {
   std::lock_guard<utils::SpinLock> guard(lock_);
   return active_.empty() ? counter_ + 1 : active_.front();
 }
 
-void EngineSingleNode::GarbageCollectCommitLog(TransactionId tx_id) {
+void Engine::GarbageCollectCommitLog(TransactionId tx_id) {
   clog_.garbage_collect_older(tx_id);
 }
 
-void EngineSingleNode::LocalForEachActiveTransaction(
+void Engine::LocalForEachActiveTransaction(
     std::function<void(Transaction &)> f) {
   std::lock_guard<utils::SpinLock> guard(lock_);
   for (auto transaction : active_) {
@@ -117,7 +116,7 @@ void EngineSingleNode::LocalForEachActiveTransaction(
   }
 }
 
-Transaction *EngineSingleNode::RunningTransaction(TransactionId tx_id) {
+Transaction *Engine::RunningTransaction(TransactionId tx_id) {
   std::lock_guard<utils::SpinLock> guard(lock_);
   auto found = store_.find(tx_id);
   CHECK(found != store_.end())
@@ -125,7 +124,7 @@ Transaction *EngineSingleNode::RunningTransaction(TransactionId tx_id) {
   return found->second.get();
 }
 
-void EngineSingleNode::EnsureNextIdGreater(TransactionId tx_id) {
+void Engine::EnsureNextIdGreater(TransactionId tx_id) {
   std::lock_guard<utils::SpinLock> guard(lock_);
   counter_ = std::max(tx_id, counter_);
 }

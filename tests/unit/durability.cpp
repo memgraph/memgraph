@@ -343,7 +343,7 @@ TEST_F(Durability, WalEncoding) {
   {
     auto config = DbConfig();
     config.durability_enabled = true;
-    database::SingleNode db{config};
+    database::GraphDb db{config};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
     ASSERT_EQ(v0.gid(), gid0);
@@ -418,7 +418,7 @@ TEST_F(Durability, SnapshotEncoding) {
   auto gid1 = generator.Next();
   auto gid2 = generator.Next();
   {
-    database::SingleNode db{DbConfig()};
+    database::GraphDb db{DbConfig()};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
     ASSERT_EQ(v0.gid(), gid0);
@@ -532,7 +532,7 @@ TEST_F(Durability, SnapshotEncoding) {
 }
 
 TEST_F(Durability, SnapshotRecovery) {
-  database::SingleNode db{DbConfig()};
+  database::GraphDb db{DbConfig()};
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
   MakeDb(db, 300, {3, 4});
@@ -540,13 +540,13 @@ TEST_F(Durability, SnapshotRecovery) {
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
+    database::GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
   }
 }
 
 TEST_F(Durability, SnapshotNoVerticesIdRecovery) {
-  database::SingleNode db{DbConfig()};
+  database::GraphDb db{DbConfig()};
   MakeDb(db, 10);
 
   // Erase all vertices, this should cause snapshot to not have any more
@@ -562,7 +562,7 @@ TEST_F(Durability, SnapshotNoVerticesIdRecovery) {
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
+    database::GraphDb recovered{recovered_config};
     EXPECT_EQ(db.storage().VertexGenerator().LocalCount(),
               recovered.storage().VertexGenerator().LocalCount());
     EXPECT_EQ(db.storage().EdgeGenerator().LocalCount(),
@@ -573,7 +573,7 @@ TEST_F(Durability, SnapshotNoVerticesIdRecovery) {
 TEST_F(Durability, SnapshotAndWalIdRecovery) {
   auto config = DbConfig();
   config.durability_enabled = true;
-  database::SingleNode db{config};
+  database::GraphDb db{config};
   MakeDb(db, 300);
   MakeSnapshot(0, db);
   MakeDb(db, 300);
@@ -583,7 +583,7 @@ TEST_F(Durability, SnapshotAndWalIdRecovery) {
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
+    database::GraphDb recovered{recovered_config};
     EXPECT_EQ(db.storage().VertexGenerator().LocalCount(),
               recovered.storage().VertexGenerator().LocalCount());
     EXPECT_EQ(db.storage().EdgeGenerator().LocalCount(),
@@ -594,7 +594,7 @@ TEST_F(Durability, SnapshotAndWalIdRecovery) {
 TEST_F(Durability, OnlyWalIdRecovery) {
   auto config = DbConfig();
   config.durability_enabled = true;
-  database::SingleNode db{config};
+  database::GraphDb db{config};
   MakeDb(db, 300);
   db.wal().Flush();
   ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
@@ -602,7 +602,7 @@ TEST_F(Durability, OnlyWalIdRecovery) {
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
+    database::GraphDb recovered{recovered_config};
     EXPECT_EQ(db.storage().VertexGenerator().LocalCount(),
               recovered.storage().VertexGenerator().LocalCount());
     EXPECT_EQ(db.storage().EdgeGenerator().LocalCount(),
@@ -621,7 +621,7 @@ TEST_F(Durability, WalRecovery) {
   for (auto &synchronous_commit : {false, true}) {
     CleanDurability();
     auto config = modify_config(DbConfig(), true, synchronous_commit);
-    database::SingleNode db{config};
+    database::GraphDb db{config};
     MakeDb(db, 100, {0, 1, 2});
     MakeDb(db, 100);
     MakeDb(db, 100, {3, 4});
@@ -637,7 +637,7 @@ TEST_F(Durability, WalRecovery) {
     {
       auto recovered_config = DbConfig();
       recovered_config.db_recover_on_startup = true;
-      database::SingleNode recovered{recovered_config};
+      database::GraphDb recovered{recovered_config};
       CompareDbs(db, recovered);
     }
   }
@@ -646,7 +646,7 @@ TEST_F(Durability, WalRecovery) {
 TEST_F(Durability, SnapshotAndWalRecovery) {
   auto config = DbConfig();
   config.durability_enabled = true;
-  database::SingleNode db{config};
+  database::GraphDb db{config};
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
   MakeSnapshot(0, db);
@@ -661,7 +661,7 @@ TEST_F(Durability, SnapshotAndWalRecovery) {
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
+    database::GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
   }
 }
@@ -669,7 +669,7 @@ TEST_F(Durability, SnapshotAndWalRecovery) {
 TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
   auto config = DbConfig();
   config.durability_enabled = true;
-  database::SingleNode db{config};
+  database::GraphDb db{config};
 
   // The first transaction modifies and commits.
   auto dba_1 = db.Access();
@@ -711,7 +711,7 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
+    database::GraphDb recovered{recovered_config};
     ASSERT_EQ(VisibleVertexCount(recovered), 400);
     CompareDbs(db, recovered);
   }
@@ -722,7 +722,7 @@ TEST_F(Durability, NoWalDuringRecovery) {
   {
     auto config = DbConfig();
     config.durability_enabled = true;
-    database::SingleNode db{config};
+    database::GraphDb db{config};
     MakeDb(db, 300, {0, 1, 2});
 
     db.wal().Flush();
@@ -732,13 +732,13 @@ TEST_F(Durability, NoWalDuringRecovery) {
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
-    database::SingleNode recovered{recovered_config};
+    database::GraphDb recovered{recovered_config};
     EXPECT_EQ(DirFiles(wal_dir_).size(), wal_files_before);
   }
 }
 
 TEST_F(Durability, SnapshotRetention) {
-  database::SingleNode db{DbConfig()};
+  database::GraphDb db{DbConfig()};
   for (auto &pair : {std::pair<int, int>{5, 10}, {5, 3}, {7, -1}}) {
     CleanDurability();
     int count, retain;
@@ -765,7 +765,7 @@ TEST_F(Durability, WalRetention) {
   {
     auto config = DbConfig();
     config.durability_enabled = true;
-    database::SingleNode db{config};
+    database::GraphDb db{config};
     MakeDb(db, 100);
     MakeSnapshot(0, db);
     MakeDb(db, 100);
@@ -788,7 +788,7 @@ TEST_F(Durability, SnapshotOnExit) {
   {
     auto config = DbConfig();
     config.snapshot_on_exit = true;
-    database::SingleNode graph_db{config};
+    database::GraphDb graph_db{config};
   }
   EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
 }
@@ -877,7 +877,7 @@ TEST_F(Durability, SequentialRecovery) {
   };
 
   auto make_updates = [&run_updates, this](
-      database::SingleNode &db, bool snapshot_during, bool snapshot_after) {
+      database::GraphDb &db, bool snapshot_during, bool snapshot_after) {
     std::atomic<bool> keep_running{true};
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);
@@ -899,7 +899,7 @@ TEST_F(Durability, SequentialRecovery) {
     CleanDurability();
     auto config = DbConfig();
     config.durability_enabled = true;
-    database::SingleNode db{config};
+    database::GraphDb db{config};
     init_db(db);
     make_updates(db, combo.first, combo.second);
 
@@ -907,12 +907,12 @@ TEST_F(Durability, SequentialRecovery) {
       auto recovered_config = DbConfig();
       recovered_config.db_recover_on_startup = true;
       recovered_config.durability_enabled = true;
-      database::SingleNode recovered{recovered_config};
+      database::GraphDb recovered{recovered_config};
       CompareDbs(db, recovered);
       {
         for (auto &combo2 : combinations) {
           make_updates(recovered, combo2.first, combo2.second);
-          database::SingleNode recovered_2{recovered_config};
+          database::GraphDb recovered_2{recovered_config};
           CompareDbs(recovered, recovered_2);
         }
       }
@@ -923,7 +923,7 @@ TEST_F(Durability, SequentialRecovery) {
 TEST_F(Durability, ContainsDurabilityFilesSnapshot) {
   ASSERT_FALSE(durability::ContainsDurabilityFiles(durability_dir_));
   {
-    database::SingleNode db{DbConfig()};
+    database::GraphDb db{DbConfig()};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
     MakeSnapshot(0, db);
@@ -934,7 +934,7 @@ TEST_F(Durability, ContainsDurabilityFilesSnapshot) {
 TEST_F(Durability, ContainsDurabilityFilesWal) {
   ASSERT_FALSE(durability::ContainsDurabilityFiles(durability_dir_));
   {
-    database::SingleNode db{DbConfig(true, false)};
+    database::GraphDb db{DbConfig(true, false)};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
     dba->Commit();
@@ -946,21 +946,21 @@ TEST_F(Durability, ContainsDurabilityFilesWal) {
 TEST_F(Durability, MoveToBackupSnapshot) {
   ASSERT_FALSE(durability::ContainsDurabilityFiles(backup_dir_));
   {
-    database::SingleNode db{DbConfig()};
+    database::GraphDb db{DbConfig()};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
     MakeSnapshot(0, db);
   }
 
   // durability-enabled=true, db-recover-on-startup=false
-  database::SingleNode db{DbConfig(true, false)};
+  database::GraphDb db{DbConfig(true, false)};
   ASSERT_TRUE(durability::ContainsDurabilityFiles(backup_dir_));
 }
 
 TEST_F(Durability, MoveToBackupWal) {
   ASSERT_FALSE(durability::ContainsDurabilityFiles(backup_dir_));
   {
-    database::SingleNode db{DbConfig(true, false)};
+    database::GraphDb db{DbConfig(true, false)};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
     dba->Commit();
@@ -968,6 +968,6 @@ TEST_F(Durability, MoveToBackupWal) {
   }
 
   // durability-enabled=true, db-recover-on-startup=false
-  database::SingleNode db{DbConfig(true, false)};
+  database::GraphDb db{DbConfig(true, false)};
   ASSERT_TRUE(durability::ContainsDurabilityFiles(backup_dir_));
 }

@@ -5,7 +5,7 @@
 #include "data_structures/concurrent/skiplist.hpp"
 #include "mvcc/single_node/version_list.hpp"
 #include "storage/single_node/deferred_deleter.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/single_node/engine.hpp"
 
 /**
  * @brief - Garbage collects deleted records.

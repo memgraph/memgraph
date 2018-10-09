@@ -11,10 +11,8 @@ using database::StateDelta;
 
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(AddressT address,
-                                        database::GraphDbAccessor &db_accessor,
-                                        Impl *impl)
-    : impl_(impl),
-      db_accessor_(&db_accessor),
+                                        database::GraphDbAccessor &db_accessor)
+    : db_accessor_(&db_accessor),
       address_(db_accessor.db().storage().LocalizedAddressIfPossible(address)) {
 }
 
@@ -107,7 +105,10 @@ typename RecordAccessor<TRecord>::AddressT RecordAccessor<TRecord>::address()
 template <typename TRecord>
 typename RecordAccessor<TRecord>::AddressT
 RecordAccessor<TRecord>::GlobalAddress() const {
-  return impl_->GlobalAddress(*this);
+  // TODO: This is still coupled to distributed storage, albeit loosely.
+  int worker_id = 0;
+  CHECK(is_local());
+  return storage::Address<mvcc::VersionList<TRecord>>(gid(), worker_id);
 }
 
 template <typename TRecord>
@@ -138,7 +139,10 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
-  impl_->SetOldNew(*this, &old_, &new_);
+  auto &dba = db_accessor();
+  const auto &addr = address();
+  CHECK(is_local());
+  addr.local()->find_set_old_new(dba.transaction(), &old_, &new_);
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
 }
@@ -160,14 +164,17 @@ TRecord &RecordAccessor<TRecord>::update() const {
 
   if (new_) return *new_;
 
-  new_ = impl_->FindNew(*this);
+  const auto &addr = address();
+  CHECK(addr.is_local());
+  new_ = addr.local()->update(dba.transaction());
+
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
 }
 
 template <typename TRecord>
 int64_t RecordAccessor<TRecord>::CypherId() const {
-  return impl_->CypherId(*this);
+  return address().local()->cypher_id();
 }
 
 template <typename TRecord>
@@ -184,7 +191,8 @@ const TRecord &RecordAccessor<TRecord>::current() const {
 template <typename TRecord>
 void RecordAccessor<TRecord>::ProcessDelta(
     const database::StateDelta &delta) const {
-  impl_->ProcessDelta(*this, delta);
+  CHECK(is_local());
+  db_accessor().wal().Emplace(delta);
 }
 
 template class RecordAccessor<Vertex>;

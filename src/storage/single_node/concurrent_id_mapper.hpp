@@ -3,7 +3,6 @@
 #include <mutex>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "storage/common/concurrent_id_mapper.hpp"
 #include "storage/common/types.hpp"
 #include "utils/algorithm.hpp"
 
@@ -11,16 +10,16 @@ namespace storage {
 
 /** SingleNode implementation of ConcurrentIdMapper. */
 template <typename TId>
-class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId> {
+class ConcurrentIdMapper {
   using StorageT = typename TId::IdT;
 
  public:
-  SingleNodeConcurrentIdMapper() = default;
-  explicit SingleNodeConcurrentIdMapper(
+  ConcurrentIdMapper() = default;
+  explicit ConcurrentIdMapper(
       const std::vector<std::string> &properties_on_disk)
       : properties_on_disk_(properties_on_disk) {}
 
-  TId value_to_id(const std::string &value) override {
+  TId value_to_id(const std::string &value) {
     auto value_to_id_acc = value_to_id_.access();
     auto found = value_to_id_acc.find(value);
     TId inserted_id(0);
@@ -46,7 +45,7 @@ class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId> {
     return inserted_id;
   }
 
-  const std::string &id_to_value(const TId &id) override {
+  const std::string &id_to_value(const TId &id) {
     auto id_to_value_acc = id_to_value_.access();
     auto result = id_to_value_acc.find(id);
     DCHECK(result != id_to_value_acc.end());

@@ -25,7 +25,7 @@
 #include "durability/distributed/snapshooter.hpp"
 // TODO: Why do we depend on query here?
 #include "query/exceptions.hpp"
-#include "storage/common/concurrent_id_mapper.hpp"
+#include "storage/distributed/concurrent_id_mapper.hpp"
 #include "storage/distributed/concurrent_id_mapper_master.hpp"
 #include "storage/distributed/concurrent_id_mapper_worker.hpp"
 #include "storage/distributed/storage_gc_master.hpp"

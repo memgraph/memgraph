@@ -17,7 +17,7 @@ auto Count(TIterable iterable) {
 }
 
 TEST(GraphDbAccessorTest, InsertVertex) {
-  SingleNode db;
+  GraphDb db;
   auto accessor = db.Access();
   gid::Generator generator(0);
 
@@ -37,7 +37,7 @@ TEST(GraphDbAccessorTest, InsertVertex) {
 }
 
 TEST(GraphDbAccessorTest, UniqueVertexId) {
-  SingleNode db;
+  GraphDb db;
   SkipList<int64_t> ids;
 
   std::vector<std::thread> threads;
@@ -54,7 +54,7 @@ TEST(GraphDbAccessorTest, UniqueVertexId) {
 }
 
 TEST(GraphDbAccessorTest, RemoveVertexSameTransaction) {
-  SingleNode db;
+  GraphDb db;
   auto accessor = db.Access();
 
   EXPECT_EQ(Count(accessor->Vertices(false)), 0);
@@ -72,7 +72,7 @@ TEST(GraphDbAccessorTest, RemoveVertexSameTransaction) {
 }
 
 TEST(GraphDbAccessorTest, RemoveVertexDifferentTransaction) {
-  SingleNode db;
+  GraphDb db;
   // first transaction creates a vertex
   {
     auto accessor = db.Access();
@@ -97,7 +97,7 @@ TEST(GraphDbAccessorTest, RemoveVertexDifferentTransaction) {
 }
 
 TEST(GraphDbAccessorTest, InsertEdge) {
-  SingleNode db;
+  GraphDb db;
   auto dba = db.Access();
 
   auto va1 = dba->InsertVertex();
@@ -139,7 +139,7 @@ TEST(GraphDbAccessorTest, InsertEdge) {
 }
 
 TEST(GraphDbAccessorTest, UniqueEdgeId) {
-  SingleNode db;
+  GraphDb db;
   SkipList<int64_t> ids;
 
   std::vector<std::thread> threads;
@@ -160,7 +160,7 @@ TEST(GraphDbAccessorTest, UniqueEdgeId) {
 }
 
 TEST(GraphDbAccessorTest, RemoveEdge) {
-  SingleNode db;
+  GraphDb db;
   auto dba = db.Access();
 
   // setup (v1) - [:likes] -> (v2) <- [:hates] - (v3)
@@ -207,7 +207,7 @@ TEST(GraphDbAccessorTest, RemoveEdge) {
 }
 
 TEST(GraphDbAccessorTest, DetachRemoveVertex) {
-  SingleNode db;
+  GraphDb db;
   auto dba = db.Access();
 
   // setup (v0)- []->(v1)<-[]-(v2)<-[]-(v3)
@@ -281,7 +281,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
   // This test checks that we can detach remove the
   // same vertex / edge multiple times
 
-  SingleNode db;
+  GraphDb db;
   auto dba = db.Access();
 
   // setup: make a fully connected N graph
@@ -324,7 +324,7 @@ TEST(GraphDbAccessorTest, DetachRemoveVertexMultiple) {
 }
 
 TEST(GraphDbAccessorTest, Labels) {
-  SingleNode db;
+  GraphDb db;
   auto dba = db.Access();
 
   Label label_friend = dba->Label("friend");
@@ -338,7 +338,7 @@ TEST(GraphDbAccessorTest, Labels) {
 }
 
 TEST(GraphDbAccessorTest, EdgeTypes) {
-  SingleNode db;
+  GraphDb db;
   auto dba = db.Access();
 
   EdgeType edge_type = dba->EdgeType("likes");
@@ -352,7 +352,7 @@ TEST(GraphDbAccessorTest, EdgeTypes) {
 }
 
 TEST(GraphDbAccessorTest, Properties) {
-  SingleNode db;
+  GraphDb db;
   auto dba = db.Access();
 
   Property prop = dba->Property("name");
@@ -366,7 +366,7 @@ TEST(GraphDbAccessorTest, Properties) {
 }
 
 TEST(GraphDbAccessorTest, Transfer) {
-  SingleNode db;
+  GraphDb db;
 
   auto dba1 = db.Access();
   auto prop = dba1->Property("property");

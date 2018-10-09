@@ -3,7 +3,7 @@
 #include "communication/rpc/client_pool.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "io/network/endpoint.hpp"
-#include "storage/common/concurrent_id_mapper.hpp"
+#include "storage/distributed/concurrent_id_mapper.hpp"
 
 namespace storage {
 

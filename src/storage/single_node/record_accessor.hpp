@@ -27,34 +27,27 @@ struct StateDelta;
  */
 template <typename TRecord>
 class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
- public:
+ protected:
   using AddressT = storage::Address<mvcc::VersionList<TRecord>>;
 
   /**
-   * Interface for the underlying implementation of the record accessor.
-   * The RecordAccessor only borrows the pointer to the implementation, it does
-   * *not* own it. When a RecordAccessor is copied, so is the pointer but *not*
-   * the implementation itself. This means that concrete Impl types need to be
-   * shareable among different accessors. To achieve that, it's best for derived
-   * Impl types to contain *no state*. The reason we are using this approach is
-   * to prevent large amounts of allocations, because RecordAccessor are often
-   * created and copied.
+   * The database::GraphDbAccessor is friend to this accessor so it can
+   * operate on it's data (mvcc version-list and the record itself).
+   * This is legitimate because database::GraphDbAccessor creates
+   * RecordAccessors
+   * and is semantically their parent/owner. It is necessary because
+   * the database::GraphDbAccessor handles insertions and deletions, and these
+   * operations modify data intensively.
    */
-  class Impl {
-   public:
-    virtual ~Impl() {}
+  friend database::GraphDbAccessor;
 
-    virtual AddressT GlobalAddress(const RecordAccessor<TRecord> &ra) = 0;
-    /** Set the pointers for old and new records during `Reconstruct`. */
-    virtual void SetOldNew(const RecordAccessor<TRecord> &ra,
-                           TRecord **old_record, TRecord **new_record) = 0;
-    /** Find the pointer to the new, updated record. */
-    virtual TRecord *FindNew(const RecordAccessor<TRecord> &ra) = 0;
-    /** Process a change delta, e.g. by writing WAL. */
-    virtual void ProcessDelta(const RecordAccessor<TRecord> &ra,
-                              const database::StateDelta &delta) = 0;
-    virtual int64_t CypherId(const RecordAccessor<TRecord> &ra) = 0;
-  };
+ public:
+  /**
+   * @param address Address (local or global) of the Vertex/Edge of this
+   * accessor.
+   * @param db_accessor The DB accessor that "owns" this record accessor.
+   */
+  RecordAccessor(AddressT address, database::GraphDbAccessor &db_accessor);
 
   // this class is default copyable, movable and assignable
   RecordAccessor(const RecordAccessor &other) = default;
@@ -62,25 +55,6 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   RecordAccessor &operator=(const RecordAccessor &other) = default;
   RecordAccessor &operator=(RecordAccessor &&other) = default;
 
- protected:
-  /**
-   * Protected destructor because we allow inheritance, but nobody should own a
-   * pointer to plain RecordAccessor.
-   */
-  ~RecordAccessor() = default;
-
-  /**
-   * Only derived types may allow construction.
-   *
-   * @param address Address (local or global) of the Vertex/Edge of this
-   * accessor.
-   * @param db_accessor The DB accessor that "owns" this record accessor.
-   * @param impl Borrowed pointer to the underlying implementation.
-   */
-  RecordAccessor(AddressT address, database::GraphDbAccessor &db_accessor,
-                 Impl *impl);
-
- public:
   /** Gets the property for the given key. */
   PropertyValue PropsAt(storage::Property key) const;
 
@@ -183,17 +157,6 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   int64_t CypherId() const;
 
  protected:
-  /**
-   * The database::GraphDbAccessor is friend to this accessor so it can
-   * operate on it's data (mvcc version-list and the record itself).
-   * This is legitimate because database::GraphDbAccessor creates
-   * RecordAccessors
-   * and is semantically their parent/owner. It is necessary because
-   * the database::GraphDbAccessor handles insertions and deletions, and these
-   * operations modify data intensively.
-   */
-  friend database::GraphDbAccessor;
-
   /** Process a change delta, e.g. by writing WAL. */
   void ProcessDelta(const database::StateDelta &delta) const;
 
@@ -212,7 +175,6 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   const TRecord &current() const;
 
  private:
-  Impl *impl_;
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.

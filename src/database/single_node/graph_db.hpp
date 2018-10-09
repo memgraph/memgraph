@@ -5,15 +5,15 @@
 #include <memory>
 #include <vector>
 
-#include "database/counters.hpp"
+#include "database/single_node/counters.hpp"
 #include "durability/single_node/recovery.hpp"
 #include "durability/single_node/wal.hpp"
 #include "io/network/endpoint.hpp"
-#include "storage/common/concurrent_id_mapper.hpp"
 #include "storage/common/types.hpp"
+#include "storage/single_node/concurrent_id_mapper.hpp"
 #include "storage/single_node/storage.hpp"
 #include "storage/single_node/storage_gc.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/single_node/engine.hpp"
 #include "utils/scheduler.hpp"
 
 namespace database {
@@ -73,91 +73,63 @@ class GraphDbAccessor;
 /// -> CRASH
 class GraphDb {
  public:
-  GraphDb() {}
+  explicit GraphDb(Config config = Config());
+  ~GraphDb();
+
   GraphDb(const GraphDb &) = delete;
   GraphDb(GraphDb &&) = delete;
   GraphDb &operator=(const GraphDb &) = delete;
   GraphDb &operator=(GraphDb &&) = delete;
 
-  virtual ~GraphDb() {}
-
   /// Create a new accessor by starting a new transaction.
-  virtual std::unique_ptr<GraphDbAccessor> Access() = 0;
+  std::unique_ptr<GraphDbAccessor> Access();
   /// Create an accessor for a running transaction.
-  virtual std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) = 0;
+  std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId);
 
-  virtual Storage &storage() = 0;
-  virtual durability::WriteAheadLog &wal() = 0;
-  virtual tx::Engine &tx_engine() = 0;
-  virtual storage::ConcurrentIdMapper<storage::Label> &label_mapper() = 0;
-  virtual storage::ConcurrentIdMapper<storage::EdgeType>
-      &edge_type_mapper() = 0;
-  virtual storage::ConcurrentIdMapper<storage::Property> &property_mapper() = 0;
-  virtual database::Counters &counters() = 0;
-  virtual void CollectGarbage() = 0;
+  Storage &storage();
+  durability::WriteAheadLog &wal();
+  tx::Engine &tx_engine();
+  storage::ConcurrentIdMapper<storage::Label> &label_mapper();
+  storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
+  storage::ConcurrentIdMapper<storage::Property> &property_mapper();
+  database::Counters &counters();
+  void CollectGarbage();
 
   /// Makes a snapshot from the visibility of the given accessor
-  virtual bool MakeSnapshot(GraphDbAccessor &accessor) = 0;
+  bool MakeSnapshot(GraphDbAccessor &accessor);
 
   /// Releases the storage object safely and creates a new object.
   /// This is needed because of recovery, otherwise we might try to recover into
   /// a storage which has already been polluted because of a failed previous
   /// recovery
-  virtual void ReinitializeStorage() = 0;
+  void ReinitializeStorage();
 
   /// When this is false, no new transactions should be created.
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
 
  protected:
   std::atomic<bool> is_accepting_transactions_{true};
-};
-
-namespace impl {
-class SingleNode;
-}  // namespace impl
-
-class SingleNode final : public GraphDb {
- public:
-  explicit SingleNode(Config config = Config());
-  ~SingleNode();
-
-  std::unique_ptr<GraphDbAccessor> Access() override;
-  std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;
-
-  Storage &storage() override;
-  durability::WriteAheadLog &wal() override;
-  tx::Engine &tx_engine() override;
-  storage::ConcurrentIdMapper<storage::Label> &label_mapper() override;
-  storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper() override;
-  storage::ConcurrentIdMapper<storage::Property> &property_mapper() override;
-  database::Counters &counters() override;
-  void CollectGarbage() override;
-
-  bool MakeSnapshot(GraphDbAccessor &accessor) override;
-  void ReinitializeStorage() override;
-
- private:
-  std::unique_ptr<impl::SingleNode> impl_;
 
   std::unique_ptr<utils::Scheduler> snapshot_creator_;
   utils::Scheduler transaction_killer_;
-};
 
-class SingleNodeRecoveryTransanctions final
-    : public durability::RecoveryTransactions {
- public:
-  explicit SingleNodeRecoveryTransanctions(SingleNode *db);
-  ~SingleNodeRecoveryTransanctions();
+  Config config_;
+  std::unique_ptr<Storage> storage_ =
+      std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
+  durability::WriteAheadLog wal_{
+      config_.worker_id, config_.durability_directory,
+      config_.durability_enabled, config_.synchronous_commit};
 
-  void Begin(const tx::TransactionId &tx_id) override;
-  void Abort(const tx::TransactionId &tx_id) override;
-  void Commit(const tx::TransactionId &tx_id) override;
-  void Apply(const database::StateDelta &delta) override;
-
- private:
-  SingleNode *db_;
-  std::unordered_map<tx::TransactionId, std::unique_ptr<GraphDbAccessor>>
-      accessors_;
+  tx::Engine tx_engine_{&wal_};
+  std::unique_ptr<StorageGc> storage_gc_ =
+      std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);
+  storage::ConcurrentIdMapper<storage::Label> label_mapper_{
+      storage_->PropertiesOnDisk()};
+  storage::ConcurrentIdMapper<storage::EdgeType> edge_mapper_{
+      storage_->PropertiesOnDisk()};
+  storage::ConcurrentIdMapper<storage::Property> property_mapper_{
+      storage_->PropertiesOnDisk()};
+  database::Counters counters_;
 };
 
 }  // namespace database

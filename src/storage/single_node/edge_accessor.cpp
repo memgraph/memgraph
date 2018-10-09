@@ -6,7 +6,7 @@
 
 EdgeAccessor::EdgeAccessor(EdgeAddress address,
                            database::GraphDbAccessor &db_accessor)
-    : RecordAccessor(address, db_accessor, db_accessor.GetEdgeImpl()),
+    : RecordAccessor(address, db_accessor),
       from_(nullptr),
       to_(nullptr),
       edge_type_() {
@@ -22,7 +22,7 @@ EdgeAccessor::EdgeAccessor(EdgeAddress address,
                            database::GraphDbAccessor &db_accessor,
                            VertexAddress from, VertexAddress to,
                            storage::EdgeType edge_type)
-    : RecordAccessor(address, db_accessor, db_accessor.GetEdgeImpl()),
+    : RecordAccessor(address, db_accessor),
       from_(from),
       to_(to),
       edge_type_(edge_type) {}

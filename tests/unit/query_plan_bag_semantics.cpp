@@ -22,7 +22,7 @@ using namespace query;
 using namespace query::plan;
 
 TEST(QueryPlan, Skip) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   AstStorage storage;
@@ -51,7 +51,7 @@ TEST(QueryPlan, Skip) {
 }
 
 TEST(QueryPlan, Limit) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   AstStorage storage;
@@ -83,7 +83,7 @@ TEST(QueryPlan, CreateLimit) {
   // CREATE (n), (m)
   // MATCH (n) CREATE (m) LIMIT 1
   // in the end we need to have 3 vertices in the db
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   dba->InsertVertex();
   dba->InsertVertex();
@@ -104,7 +104,7 @@ TEST(QueryPlan, CreateLimit) {
 }
 
 TEST(QueryPlan, OrderBy) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   AstStorage storage;
@@ -164,7 +164,7 @@ TEST(QueryPlan, OrderBy) {
 }
 
 TEST(QueryPlan, OrderByMultiple) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   AstStorage storage;
@@ -221,7 +221,7 @@ TEST(QueryPlan, OrderByMultiple) {
 }
 
 TEST(QueryPlan, OrderByExceptions) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   AstStorage storage;

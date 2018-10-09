@@ -5,14 +5,14 @@
 #include "mvcc/common/version.hpp"
 #include "mvcc/single_node/record.hpp"
 #include "mvcc/single_node/version_list.hpp"
-#include "transactions/single_node/engine_single_node.hpp"
+#include "transactions/single_node/engine.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/thread/sync.hpp"
 
 #include "mvcc_gc_common.hpp"
 
 TEST(MVCC, Deadlock) {
-  tx::EngineSingleNode engine;
+  tx::Engine engine;
 
   auto t0 = engine.Begin();
   mvcc::VersionList<Prop> version_list1(*t0, 0, 0);
@@ -32,7 +32,7 @@ TEST(MVCC, Deadlock) {
 TEST(MVCC, UpdateDontDelete) {
   std::atomic<int> count{0};
   {
-    tx::EngineSingleNode engine;
+    tx::Engine engine;
     auto t1 = engine.Begin();
     mvcc::VersionList<DestrCountRec> version_list(*t1, 0, 0, count);
     engine.Commit(*t1);
@@ -56,7 +56,7 @@ TEST(MVCC, UpdateDontDelete) {
 
 // Check that we get the oldest record.
 TEST(MVCC, Oldest) {
-  tx::EngineSingleNode engine;
+  tx::Engine engine;
   auto t1 = engine.Begin();
   mvcc::VersionList<Prop> version_list(*t1, 0, 0);
   auto first = version_list.Oldest();

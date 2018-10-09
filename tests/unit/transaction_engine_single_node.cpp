@@ -4,13 +4,13 @@
 #include <vector>
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "transactions/single_node/engine_single_node.hpp"
+#include "transactions/single_node/engine.hpp"
 #include "transactions/transaction.hpp"
 
 using namespace tx;
 
 TEST(Engine, GcSnapshot) {
-  EngineSingleNode engine;
+  Engine engine;
   ASSERT_EQ(engine.GlobalGcSnapshot(), Snapshot({1}));
 
   std::vector<Transaction *> transactions;
@@ -38,7 +38,7 @@ TEST(Engine, GcSnapshot) {
 }
 
 TEST(Engine, Advance) {
-  EngineSingleNode engine;
+  Engine engine;
 
   auto t0 = engine.Begin();
   auto t1 = engine.Begin();
@@ -51,7 +51,7 @@ TEST(Engine, Advance) {
 }
 
 TEST(Engine, ConcurrentBegin) {
-  EngineSingleNode engine;
+  Engine engine;
   std::vector<std::thread> threads;
   SkipList<TransactionId> tx_ids;
   for (int i = 0; i < 10; ++i) {
@@ -67,7 +67,7 @@ TEST(Engine, ConcurrentBegin) {
 }
 
 TEST(Engine, RunningTransaction) {
-  EngineSingleNode engine;
+  Engine engine;
   auto t0 = engine.Begin();
   auto t1 = engine.Begin();
   EXPECT_EQ(t0, engine.RunningTransaction(t0->id_));
@@ -76,7 +76,7 @@ TEST(Engine, RunningTransaction) {
 }
 
 TEST(Engine, EnsureTxIdGreater) {
-  EngineSingleNode engine;
+  Engine engine;
   ASSERT_LE(engine.Begin()->id_, 40);
   engine.EnsureNextIdGreater(42);
   EXPECT_EQ(engine.Begin()->id_, 43);

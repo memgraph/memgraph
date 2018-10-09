@@ -29,7 +29,7 @@ namespace {
 
 class ExpressionEvaluatorTest : public ::testing::Test {
  protected:
-  database::SingleNode db;
+  database::GraphDb db;
   std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
 
   AstStorage storage;

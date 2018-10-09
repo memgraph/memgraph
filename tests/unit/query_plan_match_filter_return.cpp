@@ -26,7 +26,7 @@ using namespace query::plan;
 
 class MatchReturnFixture : public testing::Test {
  protected:
-  database::SingleNode db_;
+  database::GraphDb db_;
   std::unique_ptr<database::GraphDbAccessor> dba_{db_.Access()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -90,7 +90,7 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
 }
 
 TEST(QueryPlan, MatchReturnCartesian) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   dba->InsertVertex().add_label(dba->Label("l1"));
@@ -123,7 +123,7 @@ TEST(QueryPlan, MatchReturnCartesian) {
 }
 
 TEST(QueryPlan, StandaloneReturn) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   // add a few nodes to the database
@@ -145,7 +145,7 @@ TEST(QueryPlan, StandaloneReturn) {
 }
 
 TEST(QueryPlan, NodeFilterLabelsAndProperties) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -202,7 +202,7 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 }
 
 TEST(QueryPlan, NodeFilterMultipleLabels) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   // add a few nodes to the database
@@ -252,7 +252,7 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
 }
 
 TEST(QueryPlan, Cartesian) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto add_vertex = [&dba](std::string label) {
@@ -297,7 +297,7 @@ TEST(QueryPlan, Cartesian) {
 }
 
 TEST(QueryPlan, CartesianEmptySet) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   AstStorage storage;
@@ -326,7 +326,7 @@ TEST(QueryPlan, CartesianEmptySet) {
 }
 
 TEST(QueryPlan, CartesianThreeWay) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto add_vertex = [&dba](std::string label) {
     auto vertex = dba->InsertVertex();
@@ -386,7 +386,7 @@ TEST(QueryPlan, CartesianThreeWay) {
 
 class ExpandFixture : public testing::Test {
  protected:
-  database::SingleNode db_;
+  database::GraphDb db_;
   std::unique_ptr<database::GraphDbAccessor> dba_{db_.Access()};
   AstStorage storage;
   SymbolTable symbol_table;
@@ -483,7 +483,7 @@ class QueryPlanExpandVariable : public testing::Test {
   // a lot below in test declaration
   using map_int = std::unordered_map<int, int>;
 
-  database::SingleNode db_;
+  database::GraphDb db_;
   std::unique_ptr<database::GraphDbAccessor> dba_{db_.Access()};
   // labels for layers in the double chain
   std::vector<storage::Label> labels;
@@ -839,7 +839,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
  protected:
   // style-guide non-conformant name due to PROPERTY_PAIR and
   // PROPERTY_LOOKUP macro requirements
-  database::SingleNode db;
+  database::GraphDb db;
   std::unique_ptr<database::GraphDbAccessor> dba_ptr{db.Access()};
   database::GraphDbAccessor &dba{*dba_ptr};
   std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
@@ -1192,7 +1192,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Exceptions) {
 }
 
 TEST(QueryPlan, ExpandOptional) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   AstStorage storage;
@@ -1252,7 +1252,7 @@ TEST(QueryPlan, ExpandOptional) {
 }
 
 TEST(QueryPlan, OptionalMatchEmptyDB) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   AstStorage storage;
@@ -1274,7 +1274,7 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
 }
 
 TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1302,7 +1302,7 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
 }
 
 TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Make a graph with 2 connected, unlabeled nodes.
   auto v1 = dba->InsertVertex();
@@ -1351,7 +1351,7 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
 }
 
 TEST(QueryPlan, ExpandExistingNode) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   // make a graph (v1)->(v2) that
@@ -1395,7 +1395,7 @@ TEST(QueryPlan, ExpandExistingNode) {
 TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   // we're testing that expanding on BOTH
   // does only one expansion for a cycle
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto v = dba->InsertVertex();
@@ -1413,7 +1413,7 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
 }
 
 TEST(QueryPlan, EdgeFilter) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -1483,7 +1483,7 @@ TEST(QueryPlan, EdgeFilter) {
 }
 
 TEST(QueryPlan, EdgeFilterMultipleTypes) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto v1 = dba->InsertVertex();
@@ -1518,7 +1518,7 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
 }
 
 TEST(QueryPlan, Filter) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -1548,7 +1548,7 @@ TEST(QueryPlan, Filter) {
 }
 
 TEST(QueryPlan, ExpandUniquenessFilter) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   // make a graph that has (v1)->(v2) and a recursive edge (v1)->(v1)
@@ -1596,7 +1596,7 @@ TEST(QueryPlan, Distinct) {
   // test queries like
   // UNWIND [1, 2, 3, 3] AS x RETURN DISTINCT x
 
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
@@ -1638,7 +1638,7 @@ TEST(QueryPlan, Distinct) {
 }
 
 TEST(QueryPlan, ScanAllByLabel) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Add a vertex with a label and one without.
   auto label = dba->Label("label");
@@ -1665,7 +1665,7 @@ TEST(QueryPlan, ScanAllByLabel) {
 }
 
 TEST(QueryPlan, ScanAllByLabelProperty) {
-  database::SingleNode db;
+  database::GraphDb db;
   // Add 5 vertices with same label, but with different property values.
   auto label = db.Access()->Label("label");
   auto prop = db.Access()->Property("prop");
@@ -1735,7 +1735,7 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
-  database::SingleNode db;
+  database::GraphDb db;
   // Add 2 vertices with same label, but with property values that cannot be
   // compared. On the other hand, equality works fine.
   auto label = db.Access()->Label("label");
@@ -1774,7 +1774,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto label = db.Access()->Label("label");
   auto prop = db.Access()->Property("prop");
   {
@@ -1802,7 +1802,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto label = db.Access()->Label("label");
   auto prop = db.Access()->Property("prop");
   {
@@ -1852,7 +1852,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
-  database::SingleNode db;
+  database::GraphDb db;
   // Add 2 vertices with the same label, but one has a property value while
   // the other does not. Checking if the value is equal to null, should
   // yield no results.
@@ -1885,7 +1885,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
-  database::SingleNode db;
+  database::GraphDb db;
   // Add 2 vertices with the same label, but one has a property value while
   // the other does not. Checking if the value is between nulls, should
   // yield no results.
@@ -1920,7 +1920,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto label = db.Access()->Label("label");
   auto prop = db.Access()->Property("prop");
   {
@@ -1952,7 +1952,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
 }
 
 TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto label = db.Access()->Label("label");
   auto prop = db.Access()->Property("prop");
 

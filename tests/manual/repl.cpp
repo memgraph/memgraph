@@ -75,7 +75,7 @@ int main(int argc, char *argv[]) {
   // TODO switch to GFlags, once finally available
   if (argc > 3) google::InitGoogleLogging(argv[0]);
 
-  database::SingleNode db;
+  database::GraphDb db;
   std::cout << "Generating graph..." << std::endl;
   //  fill_db;
   random_generate(db, node_count, edge_count);

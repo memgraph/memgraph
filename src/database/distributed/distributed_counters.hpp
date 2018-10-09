@@ -6,7 +6,7 @@
 #include <string>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "database/counters.hpp"
+#include "database/distributed/counters.hpp"
 
 namespace communication::rpc {
 class Server;

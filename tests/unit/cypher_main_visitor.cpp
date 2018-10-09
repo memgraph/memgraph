@@ -35,7 +35,7 @@ using testing::UnorderedElementsAre;
 class Base {
  public:
   explicit Base(const std::string &query) : query_string_(query) {}
-  database::SingleNode db_;
+  database::GraphDb db_;
   std::unique_ptr<database::GraphDbAccessor> db_accessor_{db_.Access()};
   ParsingContext context_;
   Parameters parameters_;

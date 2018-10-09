@@ -553,7 +553,7 @@ int main(int argc, char *argv[]) {
     std::cerr << "File '" << in_db_filename << "' does not exist!" << std::endl;
     std::exit(EXIT_FAILURE);
   }
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   Timer planning_timer;
   InteractiveDbAccessor interactive_db(

@@ -22,7 +22,7 @@ auto Count(TIterable iterable) {
  */
 class GraphDbAccessorIndex : public testing::Test {
  protected:
-  database::SingleNode db;
+  database::GraphDb db;
   std::unique_ptr<database::GraphDbAccessor> dba{db.Access()};
   storage::Property property = dba->Property("property");
   storage::Label label = dba->Label("label");
@@ -137,7 +137,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
 TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
   const int ITER_COUNT = 10;
   for (int iter = 0; iter < ITER_COUNT; ++iter) {
-    database::SingleNode db;
+    database::GraphDb db;
     const int THREAD_COUNT = 10;
     std::vector<std::thread> threads;
     for (int index = 0; index < THREAD_COUNT; ++index) {

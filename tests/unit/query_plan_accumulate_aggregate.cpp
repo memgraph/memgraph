@@ -27,7 +27,7 @@ TEST(QueryPlan, Accumulate) {
   // with accumulation we expect them to be [[2, 2], [2, 2]]
 
   auto check = [&](bool accumulate) {
-    database::SingleNode db;
+    database::GraphDb db;
     auto dba_ptr = db.Access();
     auto &dba = *dba_ptr;
     auto prop = dba.Property("x");
@@ -88,7 +88,7 @@ TEST(QueryPlan, AccumulateAdvance) {
   // to get correct results we need to advance the command
 
   auto check = [&](bool advance) {
-    database::SingleNode db;
+    database::GraphDb db;
     auto dba = db.Access();
     AstStorage storage;
     SymbolTable symbol_table;
@@ -150,7 +150,7 @@ std::shared_ptr<Produce> MakeAggregationProduce(
 /** Test fixture for all the aggregation ops in one return. */
 class QueryPlanAggregateOps : public ::testing::Test {
  protected:
-  database::SingleNode db;
+  database::GraphDb db;
   std::unique_ptr<database::GraphDbAccessor> dba_ptr{db.Access()};
   database::GraphDbAccessor &dba{*dba_ptr};
   storage::Property prop = dba.Property("prop");
@@ -290,7 +290,7 @@ TEST(QueryPlan, AggregateGroupByValues) {
   // Tests that distinct groups are aggregated properly for values of all types.
   // Also test the "remember" part of the Aggregation API as final results are
   // obtained via a property lookup of a remembered node.
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -350,7 +350,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
   // in this test we have 3 different properties that have different values
   // for different records and assert that we get the correct combination
   // of values in our groups
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -386,7 +386,7 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
 }
 
 TEST(QueryPlan, AggregateNoInput) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
@@ -413,7 +413,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   //  - 2 vertices in database, property set on one
   //  - 2 vertices in database, property set on both
 
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   auto prop = dba.Property("prop");
@@ -466,7 +466,7 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   // testing exceptions that get emitted by the first-value
   // type check
 
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -524,7 +524,7 @@ TEST(QueryPlan, AggregateTypes) {
   // does not check all combinations that can result in an exception
   // (that logic is defined and tested by TypedValue)
 
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -581,7 +581,7 @@ TEST(QueryPlan, AggregateTypes) {
 }
 
 TEST(QueryPlan, Unwind) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;

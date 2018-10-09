@@ -12,7 +12,7 @@
 #include "storage/single_node/gid.hpp"
 #include "storage/single_node/storage.hpp"
 #include "storage/single_node/vertex.hpp"
-#include "transactions/engine.hpp"
+#include "transactions/single_node/engine.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
@@ -59,7 +59,10 @@ class StorageGc {
           });
   }
 
-  virtual ~StorageGc() {
+  ~StorageGc() {
+    // We have to stop the scheduler before destroying this class.
+    scheduler_.Stop();
+
     edges_.record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
     vertices_.record_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
     edges_.version_list_deleter_.FreeExpiredObjects(tx::Transaction::MaxId());
@@ -72,7 +75,10 @@ class StorageGc {
   StorageGc &operator=(const StorageGc &) = delete;
   StorageGc &operator=(StorageGc &&) = delete;
 
-  virtual void CollectCommitLogGarbage(tx::TransactionId oldest_active) = 0;
+  void CollectCommitLogGarbage(tx::TransactionId oldest_active) {
+    auto safe_to_delete = GetClogSafeTransaction(oldest_active);
+    if (safe_to_delete) tx_engine_.GarbageCollectCommitLog(*safe_to_delete);
+  }
 
   void CollectGarbage() {
     // main garbage collection logic

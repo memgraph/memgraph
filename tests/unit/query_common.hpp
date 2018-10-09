@@ -6,7 +6,7 @@
 ///     AstStorage storage;  // Macros rely on storage being in scope.
 ///     // PROPERTY_LOOKUP and PROPERTY_PAIR macros
 ///     // rely on a DbAccessor *reference* named dba.
-///     database::SingleNode db;
+///     database::GraphDb db;
 ///     auto dba_ptr = db.Access();
 ///     auto &dba = *dba_ptr;
 ///

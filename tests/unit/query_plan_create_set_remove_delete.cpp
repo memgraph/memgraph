@@ -17,7 +17,7 @@ using namespace query;
 using namespace query::plan;
 
 TEST(QueryPlan, CreateNodeWithAttributes) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -52,7 +52,7 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
 
 TEST(QueryPlan, CreateReturn) {
   // test CREATE (n:Person {age: 42}) RETURN n, n.age
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -94,7 +94,7 @@ TEST(QueryPlan, CreateReturn) {
 }
 
 TEST(QueryPlan, CreateExpand) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -169,7 +169,7 @@ TEST(QueryPlan, CreateExpand) {
 }
 
 TEST(QueryPlan, MatchCreateNode) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   // add three nodes we'll match and expand-create from
@@ -196,7 +196,7 @@ TEST(QueryPlan, MatchCreateNode) {
 }
 
 TEST(QueryPlan, MatchCreateExpand) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   // add three nodes we'll match and expand-create from
@@ -248,7 +248,7 @@ TEST(QueryPlan, MatchCreateExpand) {
 }
 
 TEST(QueryPlan, Delete) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   // make a fully-connected (one-direction, no cycles) with 4 nodes
@@ -338,7 +338,7 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
   // MATCH (n)-[r]-(m) [DETACH] DELETE n, r, m
 
   auto test_delete = [](bool detach) {
-    database::SingleNode db;
+    database::GraphDb db;
     auto dba = db.Access();
 
     auto v1 = dba->InsertVertex();
@@ -377,7 +377,7 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
 }
 
 TEST(QueryPlan, DeleteReturn) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -417,7 +417,7 @@ TEST(QueryPlan, DeleteReturn) {
 
 TEST(QueryPlan, DeleteNull) {
   // test (simplified) WITH Null as x delete x
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
@@ -438,7 +438,7 @@ TEST(QueryPlan, DeleteAdvance) {
   // note that Neo does not fail when the deleted
   // record is not used in subsequent clauses, but
   // we are not yet compatible with that
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   dba->InsertVertex();
   dba->AdvanceCommand();
@@ -457,7 +457,7 @@ TEST(QueryPlan, DeleteAdvance) {
 }
 
 TEST(QueryPlan, SetProperty) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -510,7 +510,7 @@ TEST(QueryPlan, SetProperty) {
 
 TEST(QueryPlan, SetProperties) {
   auto test_set_properties = [](bool update) {
-    database::SingleNode db;
+    database::GraphDb db;
     auto dba = db.Access();
 
     // graph: ({a: 0})-[:R {b:1}]->({c:2})
@@ -580,7 +580,7 @@ TEST(QueryPlan, SetProperties) {
 }
 
 TEST(QueryPlan, SetLabels) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto label1 = dba->Label("label1");
@@ -607,7 +607,7 @@ TEST(QueryPlan, SetLabels) {
 }
 
 TEST(QueryPlan, RemoveProperty) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
 
@@ -661,7 +661,7 @@ TEST(QueryPlan, RemoveProperty) {
 }
 
 TEST(QueryPlan, RemoveLabels) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
 
   auto label1 = dba->Label("label1");
@@ -693,7 +693,7 @@ TEST(QueryPlan, RemoveLabels) {
 }
 
 TEST(QueryPlan, NodeFilterSet) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
@@ -735,7 +735,7 @@ TEST(QueryPlan, NodeFilterSet) {
 }
 
 TEST(QueryPlan, FilterRemove) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   // Create a graph such that (v1 {prop: 42}) is connected to v2 and v3.
@@ -773,7 +773,7 @@ TEST(QueryPlan, FilterRemove) {
 }
 
 TEST(QueryPlan, SetRemove) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto v = dba->InsertVertex();
   auto label1 = dba->Label("label1");
@@ -803,7 +803,7 @@ TEST(QueryPlan, Merge) {
   //  - merge_match branch looks for an expansion (any direction)
   //    and sets some property (for result validation)
   //  - merge_create branch just sets some other property
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   auto v1 = dba.InsertVertex();
@@ -850,7 +850,7 @@ TEST(QueryPlan, Merge) {
 TEST(QueryPlan, MergeNoInput) {
   // merge with no input, creates a single node
 
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
@@ -869,7 +869,7 @@ TEST(QueryPlan, MergeNoInput) {
 
 TEST(QueryPlan, SetPropertyOnNull) {
   // SET (Null).prop = 42
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   AstStorage storage;
@@ -885,7 +885,7 @@ TEST(QueryPlan, SetPropertyOnNull) {
 
 TEST(QueryPlan, SetPropertiesOnNull) {
   // OPTIONAL MATCH (n) SET n = n
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   AstStorage storage;
   SymbolTable symbol_table;
@@ -902,7 +902,7 @@ TEST(QueryPlan, SetPropertiesOnNull) {
 
 TEST(QueryPlan, SetLabelsOnNull) {
   // OPTIONAL MATCH (n) SET n :label
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto label = dba->Label("label");
   AstStorage storage;
@@ -920,7 +920,7 @@ TEST(QueryPlan, SetLabelsOnNull) {
 
 TEST(QueryPlan, RemovePropertyOnNull) {
   // REMOVE (Null).prop
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   AstStorage storage;
@@ -935,7 +935,7 @@ TEST(QueryPlan, RemovePropertyOnNull) {
 
 TEST(QueryPlan, RemoveLabelsOnNull) {
   // OPTIONAL MATCH (n) REMOVE n :label
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto label = dba->Label("label");
   AstStorage storage;
@@ -953,7 +953,7 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
 
 TEST(QueryPlan, CreateIndex) {
   // CREATE INDEX ON :Label(property)
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto label = dba->Label("label");
   auto property = dba->Property("property");
@@ -965,7 +965,7 @@ TEST(QueryPlan, CreateIndex) {
 }
 
 TEST(QueryPlan, DeleteSetProperty) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   // Add a single vertex.
@@ -989,7 +989,7 @@ TEST(QueryPlan, DeleteSetProperty) {
 }
 
 TEST(QueryPlan, DeleteSetPropertiesFromMap) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   // Add a single vertex.
@@ -1021,7 +1021,7 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
 }
 
 TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   // Add a single vertex.
@@ -1053,7 +1053,7 @@ TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
 }
 
 TEST(QueryPlan, DeleteRemoveLabels) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   // Add a single vertex.
   dba->InsertVertex();
@@ -1073,7 +1073,7 @@ TEST(QueryPlan, DeleteRemoveLabels) {
 }
 
 TEST(QueryPlan, DeleteRemoveProperty) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba_ptr = db.Access();
   auto &dba = *dba_ptr;
   // Add a single vertex.

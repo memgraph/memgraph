@@ -16,7 +16,7 @@ DECLARE_bool(query_cost_planner);
 
 class QueryExecution : public testing::Test {
  protected:
-  std::experimental::optional<database::SingleNode> db_;
+  std::experimental::optional<database::GraphDb> db_;
   std::unique_ptr<database::GraphDbAccessor> dba_;
 
   void SetUp() {

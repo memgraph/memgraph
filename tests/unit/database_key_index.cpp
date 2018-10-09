@@ -5,7 +5,7 @@
 #include "database/single_node/graph_db_accessor.hpp"
 #include "storage/common/types.hpp"
 #include "storage/single_node/vertex.hpp"
-#include "transactions/single_node/engine_single_node.hpp"
+#include "transactions/single_node/engine.hpp"
 
 #include "mvcc_gc_common.hpp"
 
@@ -14,9 +14,9 @@ using testing::UnorderedElementsAreArray;
 // Test index does it insert everything uniquely
 TEST(LabelsIndex, UniqueInsert) {
   database::KeyIndex<storage::Label, Vertex> index;
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
-  tx::EngineSingleNode engine;
+  tx::Engine engine;
 
   auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist(*t1, 0, 0);
@@ -42,10 +42,10 @@ TEST(LabelsIndex, UniqueInsert) {
 
 // Check if index filters duplicates.
 TEST(LabelsIndex, UniqueFilter) {
-  database::SingleNode db;
+  database::GraphDb db;
   database::KeyIndex<storage::Label, Vertex> index;
   auto dba = db.Access();
-  tx::EngineSingleNode engine;
+  tx::Engine engine;
 
   auto t1 = engine.Begin();
   mvcc::VersionList<Vertex> vlist1(*t1, 0, 0);
@@ -83,9 +83,9 @@ TEST(LabelsIndex, UniqueFilter) {
 // Delete not anymore relevant recods from index.
 TEST(LabelsIndex, Refresh) {
   database::KeyIndex<storage::Label, Vertex> index;
-  database::SingleNode db;
+  database::GraphDb db;
   auto access = db.Access();
-  tx::EngineSingleNode engine;
+  tx::Engine engine;
 
   // add two vertices to  database
   auto t1 = engine.Begin();
@@ -122,7 +122,7 @@ TEST(LabelsIndex, Refresh) {
 
 // Transaction hasn't ended and so the vertex is not visible.
 TEST(LabelsIndexDb, AddGetZeroLabels) {
-  database::SingleNode db;
+  database::GraphDb db;
   auto dba = db.Access();
   auto vertex = dba->InsertVertex();
   vertex.add_label(dba->Label("test"));
@@ -135,7 +135,7 @@ TEST(LabelsIndexDb, AddGetZeroLabels) {
 // Test label index by adding and removing one vertex, and removing label from
 // another, while the third one with an irrelevant label exists.
 TEST(LabelsIndexDb, AddGetRemoveLabel) {
-  database::SingleNode db;
+  database::GraphDb db;
   {
     auto dba = db.Access();
 

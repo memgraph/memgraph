@@ -6,10 +6,10 @@
 #include <gtest/gtest.h>
 
 #include "storage/common/types.hpp"
-#include "storage/single_node/concurrent_id_mapper_single_node.hpp"
+#include "storage/single_node/concurrent_id_mapper.hpp"
 
 using IdLabel = storage::Label;
-using MapperLabel = storage::SingleNodeConcurrentIdMapper<IdLabel>;
+using MapperLabel = storage::ConcurrentIdMapper<IdLabel>;
 
 TEST(ConcurrentIdMapper, SameValueGivesSameId) {
   MapperLabel mapper;
@@ -54,7 +54,7 @@ TEST(ConcurrentIdMapper, SameIdReturnedMultipleThreads) {
 }
 
 using IdProperty = storage::Property;
-using MapperProperty = storage::SingleNodeConcurrentIdMapper<IdProperty>;
+using MapperProperty = storage::ConcurrentIdMapper<IdProperty>;
 
 TEST(ConcurrentIdMapper, PropertyLocation) {
   // TODO(ipaljak): write unit tests for storage::Common and all
