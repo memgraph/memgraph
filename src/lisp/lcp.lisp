@@ -272,6 +272,8 @@ produces:
   ;; Extra arguments to the generated save function. List of (name cpp-type).
   (save-args nil :read-only t)
   (load-args nil :read-only t)
+  ;; Function to be called after saving the instance. Lambda taking builder name as only argument.
+  (post-save nil :read-only t)
   (construct nil :read-only t)
   ;; Explicit instantiation of template to generate schema with enum.
   (type-args nil :read-only t)
@@ -1019,7 +1021,11 @@ Proto schema."
                                        (cpp-variable-name (first name-and-type)))
                                      (capnp-extra-args (find-cpp-class parent) :save))))))
                ;; Save members
-               (write-string (capnp-save-members cpp-class builder :instance-access "self.") cpp-out))))
+               (write-string (capnp-save-members cpp-class builder :instance-access "self.") cpp-out)
+               ;; Call post-save function if necessary
+               (let ((capnp-opts (cpp-class-capnp-opts cpp-class)))
+                 (when (capnp-opts-post-save capnp-opts)
+                   (write-string (cpp-code (funcall (capnp-opts-post-save capnp-opts) builder)) cpp-out))))))
     (with-output-to-string (cpp-out)
       (let ((subclasses (capnp-union-subclasses cpp-class))
             (builder (if (capnp-union-parents-rec cpp-class)

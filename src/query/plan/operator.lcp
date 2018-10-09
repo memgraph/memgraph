@@ -245,16 +245,15 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
 (defun load-ast-pointer (ast-type)
   (lambda (reader member capnp-name)
-    (let ((cpp-type (remove #\* ast-type)))
-      #>cpp
-      if (${reader}.has${capnp-name}()) {
-        std::unique_ptr<${cpp-type}> tmp;
-        Load(&tmp, ${reader}.get${capnp-name}(), &helper->ast_storage, &helper->loaded_ast_uids);
-        ${member} = helper->ast_storage.Take(std::move(tmp));
-      } else {
-        ${member} = nullptr;
-      }
-    cpp<#)))
+    #>cpp
+    if (${reader}.has${capnp-name}()) {
+      ${member} = static_cast<${ast-type}>(Load(&helper->ast_storage,
+                                           ${reader}.get${capnp-name}(),
+                                           &helper->loaded_ast_uids));
+    } else {
+      ${member} = nullptr;
+    }
+    cpp<#))
 
 (defun save-ast-vector (ast-type)
   (lcp:capnp-save-vector "::query::capnp::Tree" ast-type
@@ -267,11 +266,10 @@ can serve as inputs to others and thus a sequence of operations is formed.")
                          (format
                           nil
                           "[helper](const auto &reader) {
-                             std::unique_ptr<~A> tmp;
-                             Load(&tmp, reader, &helper->ast_storage, &helper->loaded_ast_uids);
-                             return helper->ast_storage.Take(std::move(tmp));
+                             return static_cast<~A>(Load(&helper->ast_storage, reader, 
+                                                         &helper->loaded_ast_uids));
                            }"
-                           (remove #\* ast-type))))
+                           ast-type)))
 
 (defun save-operator-pointer (builder member-name capnp-name)
   (declare (ignore capnp-name))
@@ -563,14 +561,15 @@ given label.
 
 (defun load-optional-bound (reader member capnp-name)
   (let ((load-bound
-         "[helper](const auto &reader) {
-           auto type = reader.getType() == ::utils::capnp::Bound<::query::capnp::Tree>::Type::INCLUSIVE
-                       ? utils::BoundType::INCLUSIVE : utils::BoundType::EXCLUSIVE;
-           std::unique_ptr<Tree> tmp;
-           Load(&tmp, reader.getValue(), &helper->ast_storage, &helper->loaded_ast_uids);
-           auto *value = static_cast<Expression *>(helper->ast_storage.Take(std::move(tmp)));
-           return utils::Bound<Expression *>(value, type);
-         }"))
+          "[helper](const auto &reader) {
+             auto type = reader.getType() ==
+                                 ::utils::capnp::Bound<::query::capnp::Tree>::Type::INCLUSIVE
+                             ? utils::BoundType::INCLUSIVE
+                             : utils::BoundType::EXCLUSIVE;
+             auto *value = static_cast<Expression *>(
+                 Load(&helper->ast_storage, reader.getValue(), &helper->loaded_ast_uids));
+             return utils::Bound<Expression *>(value, type);
+           }"))
     (funcall (lcp:capnp-load-optional "::utils::capnp::Bound<::query::capnp::Tree>"
                                       "utils::Bound<Expression *>"
                                       load-bound)
@@ -834,9 +833,8 @@ pulled.")
                :capnp-load (lambda (reader member capnp-name)
                              #>cpp
                              if (${reader}.hasExpression()) {
-                               std::unique_ptr<Expression> tmp;
-                               Load(&tmp, ${reader}.getExpression(), ast_storage, loaded_ast_uids);
-                               ${member} = ast_storage->Take(std::move(tmp));
+                               ${member} = static_cast<Expression *>(
+                                               Load(ast_storage, ${reader}.getExpression(), loaded_ast_uids));
                              } else {
                                ${member} = nullptr;
                              }

@@ -20,12 +20,26 @@ cpp<#
   #>cpp
   Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree,
              std::vector<int> *loaded_uids) {
-    ast->storage_.clear();
+    // Check if element already deserialized and if yes, return existing
+    // element from storage.
+    auto uid = tree.getUid();
+    if (utils::Contains(*loaded_uids, uid)) {
+      auto found = std::find_if(ast->storage_.begin(), ast->storage_.end(),
+                                [&](const auto &n) { return n->uid_ == uid; });
+      CHECK(found != ast->storage_.end());
+      return found->get();
+    }
+
     std::unique_ptr<Tree> root;
     ::query::Load(&root, tree, ast, loaded_uids);
-    ast->root_idx_ = ast->storage_.size();
+
+    if (dynamic_cast<Query *>(root.get())) {
+      ast->root_idx_ = ast->storage_.size();
+    }
     ast->storage_.emplace_back(std::move(root));
-    return ast->storage_[ast->root_idx_].get();
+    loaded_uids->emplace_back(uid);
+    ast->max_existing_uid_ = std::max(ast->max_existing_uid_, uid);
+    return ast->storage_.back().get();
   }
   cpp<#)
 

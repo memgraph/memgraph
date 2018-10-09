@@ -5,7 +5,7 @@
 namespace query {
 
 AstStorage::AstStorage() {
-  std::unique_ptr<Query> root(new Query(next_uid_++));
+  std::unique_ptr<Query> root(new Query(++max_existing_uid_));
   root_idx_ = 0;
   storage_.emplace_back(std::move(root));
 }

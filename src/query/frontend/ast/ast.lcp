@@ -56,16 +56,14 @@ cpp<#
 
 (defun load-ast-pointer (type)
   (lambda (reader member capnp-name)
-    (let ((cpp-type (lcp::cpp-type-name type)))
-      #>cpp
-      if (${reader}.has${capnp-name}()) {
-        std::unique_ptr<${cpp-type}> tmp;
-        Load(&tmp, ${reader}.get${capnp-name}(), storage, loaded_uids);
-        ${member} = storage->Take(std::move(tmp));
-      } else {
-        ${member} = nullptr;
-      }
-      cpp<#)))
+    #>cpp
+    if (${reader}.has${capnp-name}()) {
+      ${member} = static_cast<${type}>(
+          Load(storage, ${reader}.get${capnp-name}(), loaded_uids));
+    } else {
+      ${member} = nullptr;
+    }
+    cpp<#))
 
 (defun save-ast-vector (type)
   (lcp:capnp-save-vector "capnp::Tree" type
@@ -78,11 +76,9 @@ cpp<#
                          (format
                            nil
                            "[storage, loaded_uids](const auto &reader) {
-                              std::unique_ptr<~A> tmp;
-                              Load(&tmp, reader, storage, loaded_uids);
-                              return storage->Take(std::move(tmp));
+                              return static_cast<~A>(Load(storage, reader, loaded_uids));
                             }"
-                            (remove #\* type))))
+                            type)))
 
 (defun save-property-map (builder member capnp-name)
   #>cpp
@@ -102,13 +98,11 @@ cpp<#
 (defun load-property-map (reader member capnp-name)
   #>cpp
   for (const auto &entry : ${reader}.getEntries()) {
-    std::unique_ptr<Expression> value;
-    Load(&value, entry.getValue(), storage, loaded_uids);
     std::string prop_name = entry.getKey().getFirst();
     storage::Property prop_id;
     storage::Load(&prop_id, entry.getKey().getSecond());
     ${member}.emplace(std::make_pair(prop_name, prop_id),
-                      storage->Take(std::move(value)));
+                      static_cast<Expression *>(Load(storage, entry.getValue(), loaded_uids)));
   }
   cpp<#)
 
@@ -144,26 +138,20 @@ class AstStorage {
 
   template <typename T, typename... Args>
   T *Create(Args &&... args) {
-    // Never call create for a Query. Call query() instead.
-    static_assert(!std::is_same<T, Query>::value, "Call query() instead");
-    T *ptr = new T(next_uid_++, std::forward<Args>(args)...);
+    T *ptr = new T(++max_existing_uid_, std::forward<Args>(args)...);
     std::unique_ptr<T> tmp(ptr);
+    if (std::is_same<T, Query>::value) {
+      root_idx_ = storage_.size();
+    }
     storage_.emplace_back(std::move(tmp));
     return ptr;
-  }
-
-  template <typename T>
-  T *Take(std::unique_ptr<T> &&node) {
-    T *ret = node.get();
-    storage_.emplace_back(std::move(node));
-    return ret;
   }
 
   Query *query() const;
 
   // Public only for serialization access
   std::vector<std::unique_ptr<Tree>> storage_;
-  int next_uid_ = 0;
+  int max_existing_uid_ = -1;
   size_t root_idx_;
 };
 cpp<#
@@ -192,7 +180,18 @@ cpp<#
   (:serialize :capnp :base t
               :save-args '((saved-uids "std::vector<int32_t> *"))
               :load-args '((storage "AstStorage *")
-                           (loaded-uids "std::vector<int32_t> *"))))
+                           (loaded-uids "std::vector<int32_t> *"))
+              :post-save (lambda (builder)
+                           (declare (ignore builder))
+                           ;; This is a bit hacky because it relies on the fact that parent class
+                           ;; serialization is inlined so we can short-circuit and avoid serializing
+                           ;; the derived class.
+                           #>cpp
+                           if (utils::Contains(*saved_uids, self.uid_)) {
+                             return;
+                           }
+                           saved_uids->push_back(self.uid_);
+                           cpp<#)))
 
 (lcp:define-class expression (tree)
   ()
@@ -217,7 +216,7 @@ cpp<#
   ((expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression")))
+               :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
     Where() = default;
@@ -249,11 +248,11 @@ cpp<#
   ((expression1 "Expression *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression"))
+                :capnp-load (load-ast-pointer "Expression *"))
    (expression2 "Expression *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression")))
+                :capnp-load (load-ast-pointer "Expression *")))
   (:abstractp t)
   (:public
     #>cpp
@@ -277,7 +276,7 @@ cpp<#
   ((expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression")))
+               :capnp-load (load-ast-pointer "Expression *")))
   (:abstractp t)
   (:public
     #>cpp
@@ -426,15 +425,15 @@ cpp<#
   ((list "Expression *" :initval "nullptr" :scope :public
          :capnp-type "Tree" :capnp-init nil
          :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression"))
+         :capnp-load (load-ast-pointer "Expression *"))
    (lower-bound "Expression *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression"))
+                :capnp-load (load-ast-pointer "Expression *"))
    (upper-bound "Expression *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression")))
+                :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
     ListSlicingOperator() = default;
@@ -479,16 +478,16 @@ cpp<#
   ((condition "Expression *" :scope :public
               :capnp-type "Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer
-              :capnp-load (load-ast-pointer "Expression")
+              :capnp-load (load-ast-pointer "Expression *")
               :documentation "None of the expressions should be nullptr. If there is no else_expression, you should make it null PrimitiveLiteral.")
    (then-expression "Expression *" :scope :public
                     :capnp-type "Tree" :capnp-init nil
                     :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression"))
+                    :capnp-load (load-ast-pointer "Expression *"))
    (else-expression "Expression *" :scope :public
                     :capnp-type "Tree" :capnp-init nil
                     :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression")))
+                    :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
     IfOperator() = default;
@@ -689,7 +688,7 @@ cpp<#
   ((expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression"))
+               :capnp-load (load-ast-pointer "Expression *"))
    (property-name "std::string" :scope :public)
    (property "storage::Property" :scope :public))
   (:public
@@ -734,7 +733,7 @@ cpp<#
   ((expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression"))
+               :capnp-load (load-ast-pointer "Expression *"))
    (labels "std::vector<storage::Label>" :scope :public
            :capnp-save (lcp:capnp-save-vector
                          "storage::capnp::Common"
@@ -829,27 +828,27 @@ cpp<#
   ((accumulator "Identifier *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Identifier")
+                :capnp-load (load-ast-pointer "Identifier *")
                 :documentation "Identifier for the accumulating variable")
    (initializer "Expression *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression")
+                :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Expression which produces the initial accumulator value.")
    (identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier")
+               :capnp-load (load-ast-pointer "Identifier *")
                :documentation "Identifier for the list element.")
    (list "Expression *" :initval "nullptr" :scope :public
          :capnp-type "Tree" :capnp-init nil
          :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression")
+         :capnp-load (load-ast-pointer "Expression *")
          :documentation "Expression which produces a list to be reduced.")
    (expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression")
+               :capnp-load (load-ast-pointer "Expression *")
                :documentation "Expression which does the reduction, i.e. produces the new accumulator value."))
   (:public
     #>cpp
@@ -893,17 +892,17 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier")
+               :capnp-load (load-ast-pointer "Identifier *")
                :documentation "Identifier for the list element.")
    (list "Expression *" :initval "nullptr" :scope :public
          :capnp-type "Tree" :capnp-init nil
          :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression")
+         :capnp-load (load-ast-pointer "Expression *")
          :documentation "Expression which produces a list which will be extracted.")
    (expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression")
+               :capnp-load (load-ast-pointer "Expression *")
                :documentation "Expression which produces the new value for list element."))
   (:public
     #>cpp
@@ -943,15 +942,15 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier"))
+               :capnp-load (load-ast-pointer "Identifier *"))
    (list-expression "Expression *" :initval "nullptr" :scope :public
                     :capnp-type "Tree" :capnp-init nil
                     :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression"))
+                    :capnp-load (load-ast-pointer "Expression *"))
    (where "Where *" :initval "nullptr" :scope :public
           :capnp-type "Tree" :capnp-init nil
           :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where")))
+          :capnp-load (load-ast-pointer "Where *")))
   (:public
     #>cpp
     All() = default;
@@ -993,15 +992,15 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier"))
+               :capnp-load (load-ast-pointer "Identifier *"))
    (list-expression "Expression *" :initval "nullptr" :scope :public
                     :capnp-type "Tree" :capnp-init nil
                     :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "Expression"))
+                    :capnp-load (load-ast-pointer "Expression *"))
    (where "Where *" :initval "nullptr" :scope :public
           :capnp-type "Tree" :capnp-init nil
           :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where")))
+          :capnp-load (load-ast-pointer "Where *")))
   (:public
     #>cpp
     Single() = default;
@@ -1067,7 +1066,7 @@ cpp<#
    (expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression"))
+               :capnp-load (load-ast-pointer "Expression *"))
    (token-position :int32_t :initval -1 :scope :public
                    :documentation "This field contains token position of first token in named expression used to create name_. If NamedExpression object is not created from query or it is aliased leave this value at -1."))
   (:public
@@ -1110,7 +1109,7 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier")))
+               :capnp-load (load-ast-pointer "Identifier *")))
   (:abstractp t)
   (:public
     #>cpp
@@ -1195,12 +1194,12 @@ cpp<#
    (lower-bound "Expression *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression")
+                :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Evaluates to lower bound in variable length expands.")
    (upper-bound "Expression *" :initval "nullptr" :scope :public
                 :capnp-type "Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
-                :capnp-load (load-ast-pointer "Expression")
+                :capnp-load (load-ast-pointer "Expression *")
                 :documentation "Evaluated to upper bound in variable length expands.")
    (filter-lambda "Lambda" :scope :public
                   :documentation "Filter lambda for variable length expands. Can have an empty expression, but identifiers must be valid, because an optimization pass may inline other expressions into this lambda.")
@@ -1209,7 +1208,7 @@ cpp<#
    (total-weight "Identifier *" :initval "nullptr" :scope :public
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "Identifier")
+                 :capnp-load (load-ast-pointer "Identifier *")
                  :documentation "Variable where the total weight for weighted shortest path will be stored."))
   (:public
     (lcp:define-enum type
@@ -1222,17 +1221,17 @@ cpp<#
       ((inner-edge "Identifier *" :initval "nullptr"
                    :capnp-type "Tree" :capnp-init nil
                    :capnp-save #'save-ast-pointer
-                   :capnp-load (load-ast-pointer "Identifier")
+                   :capnp-load (load-ast-pointer "Identifier *")
                    :documentation "Argument identifier for the edge currently being traversed.")
        (inner-node "Identifier *" :initval "nullptr"
                    :capnp-type "Tree" :capnp-init nil
                    :capnp-save #'save-ast-pointer
-                   :capnp-load (load-ast-pointer "Identifier")
+                   :capnp-load (load-ast-pointer "Identifier *")
                    :documentation "Argument identifier for the destination node of the edge.")
        (expression "Expression *" :initval "nullptr"
                    :capnp-type "Tree" :capnp-init nil
                    :capnp-save #'save-ast-pointer
-                   :capnp-load (load-ast-pointer "Expression")
+                   :capnp-load (load-ast-pointer "Expression *")
                    :documentation "Evaluates the result of the lambda."))
       (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
       (:serialize :capnp
@@ -1323,7 +1322,7 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier"))
+               :capnp-load (load-ast-pointer "Identifier *"))
    (atoms "std::vector<PatternAtom *>"
           :scope :public
           :capnp-type "List(Tree)"
@@ -1426,7 +1425,7 @@ cpp<#
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "SingleQuery"))
+                 :capnp-load (load-ast-pointer "SingleQuery *"))
    (distinct :bool :initval "false" :scope :public)
    (union-symbols "std::vector<Symbol>" :scope :public
                   :documentation "Holds symbols that are created during symbol generation phase. These symbols are used when UNION/UNION ALL combines single query results."))
@@ -1472,7 +1471,7 @@ cpp<#
    (single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "SingleQuery")
+                 :capnp-load (load-ast-pointer "SingleQuery *")
                  :documentation "First and potentially only query.")
    (cypher-unions "std::vector<CypherUnion *>"
                   :scope :public
@@ -1499,7 +1498,7 @@ cpp<#
 
     // Creates deep copy of whole ast.
     Query *Clone(AstStorage &storage) const override {
-      auto *query = storage.query();
+      auto *query = storage.Create<Query>();
       query->single_query_ = single_query_->Clone(storage);
       for (auto *cypher_union : cypher_unions_) {
         query->cypher_unions_.push_back(cypher_union->Clone(storage));
@@ -1567,7 +1566,7 @@ cpp<#
    (where "Where *" :initval "nullptr" :scope :public
           :capnp-type "Tree" :capnp-init nil
           :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where"))
+          :capnp-load (load-ast-pointer "Where *"))
    (optional :bool :initval "false" :scope :public))
   (:public
     #>cpp
@@ -1622,7 +1621,7 @@ cpp<#
    (expression "Expression *"
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression")))
+               :capnp-load (load-ast-pointer "Expression *")))
   (:serialize :capnp
               :save-args '((saved-uids "std::vector<int32_t> *"))
               :load-args '((storage "AstStorage *")
@@ -1658,12 +1657,12 @@ cpp<#
    (skip "Expression *" :initval "nullptr"
          :capnp-type "Tree" :capnp-init nil
          :capnp-save #'save-ast-pointer
-         :capnp-load (load-ast-pointer "Expression")
+         :capnp-load (load-ast-pointer "Expression *")
          :documentation "Optional expression on how many results to skip.")
    (limit "Expression *" :initval "nullptr"
           :capnp-type "Tree" :capnp-init nil
           :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Expression")
+          :capnp-load (load-ast-pointer "Expression *")
           :documentation "Optional expression on how many results to produce."))
   (:documentation "Contents common to @c Return and @c With clauses.")
   (:serialize :capnp
@@ -1730,7 +1729,7 @@ cpp<#
    (where "Where *" :initval "nullptr" :scope :public
           :capnp-type "Tree" :capnp-init nil
           :capnp-save #'save-ast-pointer
-          :capnp-load (load-ast-pointer "Where")))
+          :capnp-load (load-ast-pointer "Where *")))
   (:public
     #>cpp
     With() = default;
@@ -1825,11 +1824,11 @@ cpp<#
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
                     :capnp-type "Tree" :capnp-init nil
                     :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "PropertyLookup"))
+                    :capnp-load (load-ast-pointer "PropertyLookup *"))
    (expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression")))
+               :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
     SetProperty() = default;
@@ -1865,11 +1864,11 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier"))
+               :capnp-load (load-ast-pointer "Identifier *"))
    (expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression"))
+               :capnp-load (load-ast-pointer "Expression *"))
    (update :bool :initval "false" :scope :public))
   (:public
     #>cpp
@@ -1908,7 +1907,7 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier"))
+               :capnp-load (load-ast-pointer "Identifier *"))
    (labels "std::vector<storage::Label>" :scope :public
            :capnp-save (lcp:capnp-save-vector
                          "storage::capnp::Common"
@@ -1949,7 +1948,7 @@ cpp<#
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
                     :capnp-type "Tree" :capnp-init nil
                     :capnp-save #'save-ast-pointer
-                    :capnp-load (load-ast-pointer "PropertyLookup")))
+                    :capnp-load (load-ast-pointer "PropertyLookup *")))
   (:public
     #>cpp
     RemoveProperty() = default;
@@ -1982,7 +1981,7 @@ cpp<#
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Identifier"))
+               :capnp-load (load-ast-pointer "Identifier *"))
    (labels "std::vector<storage::Label>" :scope :public
            :capnp-save (lcp:capnp-save-vector
                          "storage::capnp::Common"
@@ -2023,7 +2022,7 @@ cpp<#
   ((pattern "Pattern *" :initval "nullptr" :scope :public
             :capnp-type "Tree" :capnp-init nil
             :capnp-save #'save-ast-pointer
-            :capnp-load (load-ast-pointer "Pattern"))
+            :capnp-load (load-ast-pointer "Pattern *"))
    (on-match "std::vector<Clause *>"
              :scope :public
              :capnp-type "List(Tree)"
@@ -2094,7 +2093,7 @@ cpp<#
   ((named-expression "NamedExpression *" :initval "nullptr" :scope :public
                      :capnp-type "Tree" :capnp-init nil
                      :capnp-save #'save-ast-pointer
-                     :capnp-load (load-ast-pointer "NamedExpression")))
+                     :capnp-load (load-ast-pointer "NamedExpression *")))
   (:public
     #>cpp
     Unwind() = default;
@@ -2161,7 +2160,7 @@ cpp<#
    (password "Expression *" :initval "nullptr" :scope :public
              :capnp-type "Tree" :capnp-init nil
              :capnp-save #'save-ast-pointer
-             :capnp-load (load-ast-pointer "Expression"))
+             :capnp-load (load-ast-pointer "Expression *"))
    (privileges "std::vector<Privilege>" :scope :public
                :capnp-save (lambda (builder member capnp-name)
                              #>cpp
@@ -2293,23 +2292,23 @@ cpp<#
    (stream-uri "Expression *" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression"))
+               :capnp-load (load-ast-pointer "Expression *"))
    (stream-topic "Expression *" :scope :public
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
-                 :capnp-load (load-ast-pointer "Expression"))
+                 :capnp-load (load-ast-pointer "Expression *"))
    (transform-uri "Expression *" :scope :public
                   :capnp-type "Tree" :capnp-init nil
                   :capnp-save #'save-ast-pointer
-                  :capnp-load (load-ast-pointer "Expression"))
+                  :capnp-load (load-ast-pointer "Expression *"))
    (batch-interval-in-ms "Expression *" :scope :public
                          :capnp-type "Tree" :capnp-init nil
                          :capnp-save #'save-ast-pointer
-                         :capnp-load (load-ast-pointer "Expression"))
+                         :capnp-load (load-ast-pointer "Expression *"))
    (batch-size "Expression *" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression")))
+               :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
     CreateStream() = default;
@@ -2399,7 +2398,7 @@ cpp<#
    (limit-batches "Expression *" :scope :public
                   :capnp-type "Tree" :capnp-init nil
                   :capnp-save #'save-ast-pointer
-                  :capnp-load (load-ast-pointer "Expression")))
+                  :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
     StartStopStream() = default;
@@ -2460,7 +2459,7 @@ cpp<#
    (limit-batches "Expression *" :scope :public
                   :capnp-type "Tree" :capnp-init nil
                   :capnp-save #'save-ast-pointer
-                  :capnp-load (load-ast-pointer "Expression")))
+                  :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
     TestStream() = default;
