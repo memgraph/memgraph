@@ -45,10 +45,11 @@ symbolicName : UnescapedSymbolicName
              | memgraphCypherKeyword
              ;
 
-query : regularQuery
+query : cypherQuery 
+      | indexQuery
+      | explainQuery
       | authQuery
       | streamQuery
-      | explainQuery
       ;
 
 authQuery : createRole

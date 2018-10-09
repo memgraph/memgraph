@@ -23,13 +23,16 @@ cypher : statement ';'? EOF ;
 
 statement : query ;
 
-query : regularQuery
+query : cypherQuery
+      | indexQuery
       | explainQuery
       ;
 
-explainQuery : EXPLAIN regularQuery ;
+explainQuery : EXPLAIN cypherQuery ;
 
-regularQuery : singleQuery ( cypherUnion )* ;
+cypherQuery : singleQuery ( cypherUnion )* ;
+
+indexQuery : createIndex ;
 
 singleQuery : clause ( clause )* ;
 
@@ -46,7 +49,6 @@ clause : cypherMatch
        | remove
        | with
        | cypherReturn
-       | createIndex
        ;
 
 cypherMatch : OPTIONAL? MATCH pattern where? ;

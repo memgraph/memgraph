@@ -1510,14 +1510,6 @@ TYPED_TEST(CypherMainVisitorTest, ClausesOrdering) {
                SemanticException);
   TypeParam("UNWIND [1,2,3] AS x CREATE (n) RETURN x");
   TypeParam("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x");
-
-  TypeParam("CREATE INDEX ON :a(b)");
-  ASSERT_THROW(TypeParam("CREATE INDEX ON :a(n) CREATE INDEX ON :b(c)"),
-               SemanticException);
-  ASSERT_THROW(TypeParam("CREATE (n) CREATE INDEX ON :a(n)"),
-               SemanticException);
-  ASSERT_THROW(TypeParam("CREATE INDEX ON :a(n) RETURN 2 + 2"),
-               SemanticException);
 }
 
 TYPED_TEST(CypherMainVisitorTest, Merge) {

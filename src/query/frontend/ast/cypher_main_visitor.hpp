@@ -137,6 +137,18 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return Query*
    */
+  antlrcpp::Any visitCypherQuery(
+      MemgraphCypher::CypherQueryContext *ctx) override;
+
+  /**
+   * @return Query*
+   */
+  antlrcpp::Any visitIndexQuery(
+      MemgraphCypher::IndexQueryContext *ctx) override;
+
+  /**
+   * @return Query*
+   */
   antlrcpp::Any visitExplainQuery(
       MemgraphCypher::ExplainQueryContext *ctx) override;
 
@@ -150,12 +162,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitStreamQuery(
       MemgraphCypher::StreamQueryContext *ctx) override;
-
-  /**
-   * @return Query*
-   */
-  antlrcpp::Any visitRegularQuery(
-      MemgraphCypher::RegularQueryContext *ctx) override;
 
   /**
    * @return CypherUnion*

@@ -33,6 +33,40 @@ antlrcpp::Any CypherMainVisitor::visitExplainQuery(
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCypherQuery(
+    MemgraphCypher::CypherQueryContext *ctx) {
+  query_ = storage_.query();
+  DCHECK(ctx->singleQuery()) << "Expected single query.";
+  query_->single_query_ = ctx->singleQuery()->accept(this).as<SingleQuery *>();
+
+  // Check that union and union all dont mix
+  bool has_union = false;
+  bool has_union_all = false;
+  for (auto *child : ctx->cypherUnion()) {
+    if (child->ALL()) {
+      has_union_all = true;
+    } else {
+      has_union = true;
+    }
+    if (has_union && has_union_all) {
+      throw SemanticException("Invalid combination of UNION and UNION ALL.");
+    }
+    query_->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
+  }
+
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitIndexQuery(
+    MemgraphCypher::IndexQueryContext *ctx) {
+  query_ = storage_.query();
+  DCHECK(ctx->createIndex()) << "Expected CREATE INDEX";
+  query_->single_query_ = storage_.Create<SingleQuery>();
+  query_->single_query_->clauses_.emplace_back(
+      ctx->createIndex()->accept(this).as<CreateIndex *>());
+  return query_;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAuthQuery(
     MemgraphCypher::AuthQueryContext *ctx) {
   query_ = storage_.query();
@@ -64,30 +98,6 @@ antlrcpp::Any CypherMainVisitor::visitStreamQuery(
     clause = ctx->testStream()->accept(this).as<TestStream *>();
   }
   query_->single_query_->clauses_ = {clause};
-  return query_;
-}
-
-antlrcpp::Any CypherMainVisitor::visitRegularQuery(
-    MemgraphCypher::RegularQueryContext *ctx) {
-  query_ = storage_.query();
-  DCHECK(ctx->singleQuery()) << "Expected single query.";
-  query_->single_query_ = ctx->singleQuery()->accept(this).as<SingleQuery *>();
-
-  // Check that union and union all dont mix
-  bool has_union = false;
-  bool has_union_all = false;
-  for (auto *child : ctx->cypherUnion()) {
-    if (child->ALL()) {
-      has_union_all = true;
-    } else {
-      has_union = true;
-    }
-    if (has_union && has_union_all) {
-      throw SemanticException("Invalid combination of UNION and UNION ALL.");
-    }
-    query_->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
-  }
-
   return query_;
 }
 
@@ -226,10 +236,6 @@ antlrcpp::Any CypherMainVisitor::visitClause(
   }
   if (ctx->unwind()) {
     return static_cast<Clause *>(ctx->unwind()->accept(this).as<Unwind *>());
-  }
-  if (ctx->createIndex()) {
-    return static_cast<Clause *>(
-        ctx->createIndex()->accept(this).as<CreateIndex *>());
   }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
