@@ -84,11 +84,6 @@
     cd output
     cpack -G DEB --config ../CPackConfig.cmake
 
-    # Create user technical documentation for community site.
-    cd ../../docs/user_technical
-    # TODO (mferencevic): uncomment this once couscous is replaced with pandoc
-    #./bundle_community
-
     # Generate distributed card fraud dataset.
     cd ../../tests/distributed/card_fraud
     ./generate_dataset.sh
