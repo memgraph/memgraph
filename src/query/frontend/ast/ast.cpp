@@ -4,16 +4,6 @@
 
 namespace query {
 
-AstStorage::AstStorage() {
-  std::unique_ptr<Query> root(new Query(++max_existing_uid_));
-  root_idx_ = 0;
-  storage_.emplace_back(std::move(root));
-}
-
-Query *AstStorage::query() const {
-  return dynamic_cast<Query *>(storage_[root_idx_].get());
-}
-
 ReturnBody CloneReturnBody(AstStorage &storage, const ReturnBody &body) {
   ReturnBody new_body;
   new_body.distinct = body.distinct;

@@ -20,43 +20,43 @@ using query::Context;
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
-  explicit CypherMainVisitor(ParsingContext context,
+  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage,
                              database::GraphDbAccessor *dba)
-      : context_(context), dba_(dba) {}
+      : context_(context), storage_(storage), dba_(dba) {}
 
  private:
   Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1,
                                           Expression *e2) {
     switch (token) {
       case MemgraphCypher::OR:
-        return storage_.Create<OrOperator>(e1, e2);
+        return storage_->Create<OrOperator>(e1, e2);
       case MemgraphCypher::XOR:
-        return storage_.Create<XorOperator>(e1, e2);
+        return storage_->Create<XorOperator>(e1, e2);
       case MemgraphCypher::AND:
-        return storage_.Create<AndOperator>(e1, e2);
+        return storage_->Create<AndOperator>(e1, e2);
       case MemgraphCypher::PLUS:
-        return storage_.Create<AdditionOperator>(e1, e2);
+        return storage_->Create<AdditionOperator>(e1, e2);
       case MemgraphCypher::MINUS:
-        return storage_.Create<SubtractionOperator>(e1, e2);
+        return storage_->Create<SubtractionOperator>(e1, e2);
       case MemgraphCypher::ASTERISK:
-        return storage_.Create<MultiplicationOperator>(e1, e2);
+        return storage_->Create<MultiplicationOperator>(e1, e2);
       case MemgraphCypher::SLASH:
-        return storage_.Create<DivisionOperator>(e1, e2);
+        return storage_->Create<DivisionOperator>(e1, e2);
       case MemgraphCypher::PERCENT:
-        return storage_.Create<ModOperator>(e1, e2);
+        return storage_->Create<ModOperator>(e1, e2);
       case MemgraphCypher::EQ:
-        return storage_.Create<EqualOperator>(e1, e2);
+        return storage_->Create<EqualOperator>(e1, e2);
       case MemgraphCypher::NEQ1:
       case MemgraphCypher::NEQ2:
-        return storage_.Create<NotEqualOperator>(e1, e2);
+        return storage_->Create<NotEqualOperator>(e1, e2);
       case MemgraphCypher::LT:
-        return storage_.Create<LessOperator>(e1, e2);
+        return storage_->Create<LessOperator>(e1, e2);
       case MemgraphCypher::GT:
-        return storage_.Create<GreaterOperator>(e1, e2);
+        return storage_->Create<GreaterOperator>(e1, e2);
       case MemgraphCypher::LTE:
-        return storage_.Create<LessEqualOperator>(e1, e2);
+        return storage_->Create<LessEqualOperator>(e1, e2);
       case MemgraphCypher::GTE:
-        return storage_.Create<GreaterEqualOperator>(e1, e2);
+        return storage_->Create<GreaterEqualOperator>(e1, e2);
       default:
         throw utils::NotYetImplemented("binary operator");
     }
@@ -65,11 +65,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   Expression *CreateUnaryOperatorByToken(size_t token, Expression *e) {
     switch (token) {
       case MemgraphCypher::NOT:
-        return storage_.Create<NotOperator>(e);
+        return storage_->Create<NotOperator>(e);
       case MemgraphCypher::PLUS:
-        return storage_.Create<UnaryPlusOperator>(e);
+        return storage_->Create<UnaryPlusOperator>(e);
       case MemgraphCypher::MINUS:
-        return storage_.Create<UnaryMinusOperator>(e);
+        return storage_->Create<UnaryMinusOperator>(e);
       default:
         throw utils::NotYetImplemented("unary operator");
     }
@@ -750,18 +750,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
 
  public:
   Query *query() { return query_; }
-  AstStorage &storage() { return storage_; }
   const static std::string kAnonPrefix;
 
  private:
   ParsingContext context_;
+  AstStorage *storage_;
   database::GraphDbAccessor *dba_;
 
   // Set of identifiers from queries.
   std::unordered_set<std::string> users_identifiers;
   // Identifiers that user didn't name.
   std::vector<Identifier **> anonymous_identifiers;
-  AstStorage storage_;
   Query *query_ = nullptr;
   // All return items which are not variables must be aliased in with.
   // We use this variable in visitReturnItem to check if we are in with or

@@ -247,21 +247,18 @@ auto GetCypherUnion(CypherUnion *cypher_union, SingleQuery *single_query) {
 }
 
 auto GetQuery(AstStorage &storage, SingleQuery *single_query) {
-  storage.query()->single_query_ = single_query;
-  return storage.query();
-}
-
-auto GetQuery(AstStorage &storage, SingleQuery *single_query,
-              CypherUnion *cypher_union) {
-  storage.query()->cypher_unions_.emplace_back(cypher_union);
-  return GetQuery(storage, single_query);
+  auto *query = storage.Create<Query>();
+  query->single_query_ = single_query;
+  return query;
 }
 
 template <class... T>
 auto GetQuery(AstStorage &storage, SingleQuery *single_query,
-              CypherUnion *cypher_union, T *... cypher_unions) {
-  storage.query()->cypher_unions_.emplace_back(cypher_union);
-  return GetQuery(storage, single_query, cypher_unions...);
+              T *... cypher_unions) {
+  auto *query = storage.Create<Query>();
+  query->single_query_ = single_query;
+  query->cypher_unions_ = std::vector<CypherUnion *>{cypher_unions...};
+  return query;
 }
 
 // Helper functions for constructing RETURN and WITH clauses.

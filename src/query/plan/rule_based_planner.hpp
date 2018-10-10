@@ -21,9 +21,10 @@ struct PlanningContext {
   ///
   /// Newly created AST nodes may be added to reference existing symbols.
   SymbolTable &symbol_table;
-  /// @brief The storage is used to traverse the AST as well as create new nodes
-  /// for use in operators.
+  /// @brief The storage is used to create new AST nodes for use in operators.
   AstStorage &ast_storage;
+  /// @brief Query to be planned
+  Query *query;
   /// @brief TDbAccessor, which may be used to get some information from the
   /// database to generate better plans. The accessor is required only to live
   /// long enough for the plan generation to finish.
@@ -39,8 +40,8 @@ struct PlanningContext {
 
 template <class TDbAccessor>
 auto MakePlanningContext(AstStorage &ast_storage, SymbolTable &symbol_table,
-                         const TDbAccessor &db) {
-  return PlanningContext<TDbAccessor>{symbol_table, ast_storage, db};
+                         Query *query, const TDbAccessor &db) {
+  return PlanningContext<TDbAccessor>{symbol_table, ast_storage, query, db};
 }
 
 // Contextual information used for generating match operators.

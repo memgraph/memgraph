@@ -99,10 +99,9 @@ class PrivilegeExtractor : public HierarchicalTreeVisitor {
   std::vector<AuthQuery::Privilege> privileges_;
 };
 
-std::vector<AuthQuery::Privilege> GetRequiredPrivileges(
-    const AstStorage &ast_storage) {
+std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query) {
   PrivilegeExtractor extractor;
-  ast_storage.query()->Accept(extractor);
+  query->Accept(extractor);
   return extractor.privileges();
 }
 

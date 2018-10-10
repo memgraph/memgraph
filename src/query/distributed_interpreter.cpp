@@ -57,10 +57,10 @@ DistributedInterpreter::DistributedInterpreter(database::Master *db)
     : plan_dispatcher_(&db->plan_dispatcher()) {}
 
 std::unique_ptr<LogicalPlan> DistributedInterpreter::MakeLogicalPlan(
-    AstStorage ast_storage, Context *context) {
+    Query *query, AstStorage ast_storage, Context *context) {
   auto vertex_counts = plan::MakeVertexCountCache(context->db_accessor_);
   auto planning_context = plan::MakePlanningContext(
-      ast_storage, context->symbol_table_, vertex_counts);
+      ast_storage, context->symbol_table_, query, vertex_counts);
   std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
   double cost;
   std::tie(tmp_logical_plan, cost) = plan::MakeLogicalPlan(

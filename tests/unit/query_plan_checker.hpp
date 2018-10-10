@@ -540,9 +540,10 @@ auto MakeSymbolTable(query::Query &query) {
 
 template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(const TDbAccessor &dba, AstStorage &storage,
-                     SymbolTable &symbol_table) {
-  auto planning_context = MakePlanningContext(storage, symbol_table, dba);
-  auto query_parts = CollectQueryParts(symbol_table, storage);
+                     SymbolTable &symbol_table, Query *query) {
+  auto planning_context =
+      MakePlanningContext(storage, symbol_table, query, dba);
+  auto query_parts = CollectQueryParts(symbol_table, storage, query);
   auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
   return TPlanner(single_query_parts, planning_context);
 }

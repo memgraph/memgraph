@@ -57,10 +57,13 @@ Interpreter::Results Interpreter::operator()(
 
   ParsingContext parsing_context;
   parsing_context.is_query_cached = true;
-  AstStorage ast_storage = QueryToAst(stripped, parsing_context, &db_accessor);
+
+  AstStorage ast_storage;
+  Query *ast =
+      QueryToAst(stripped, parsing_context, &ast_storage, &db_accessor);
   // TODO: Maybe cache required privileges to improve performance on very simple
   // queries.
-  auto required_privileges = query::GetRequiredPrivileges(ast_storage);
+  auto required_privileges = query::GetRequiredPrivileges(ast);
   auto frontend_time = frontend_timer.Elapsed();
 
   // Try to get a cached plan. Note that this local shared_ptr might be the only
@@ -78,7 +81,8 @@ Interpreter::Results Interpreter::operator()(
   utils::Timer planning_timer;
   if (!plan) {
     plan = plan_cache_access
-               .insert(stripped.hash(), AstToPlan(std::move(ast_storage), &ctx))
+               .insert(stripped.hash(),
+                       AstToPlan(ast, std::move(ast_storage), &ctx))
                .first->second;
   }
   auto planning_time = planning_timer.Elapsed();
@@ -114,16 +118,17 @@ Interpreter::Results Interpreter::operator()(
 }
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::AstToPlan(
-    AstStorage ast_storage, Context *ctx) {
+    Query *query, AstStorage ast_storage, Context *ctx) {
   SymbolGenerator symbol_generator(ctx->symbol_table_);
-  ast_storage.query()->Accept(symbol_generator);
+  query->Accept(symbol_generator);
   return std::make_shared<CachedPlan>(
-      MakeLogicalPlan(std::move(ast_storage), ctx));
+      MakeLogicalPlan(query, std::move(ast_storage), ctx));
 }
 
-AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
-                                   const ParsingContext &context,
-                                   database::GraphDbAccessor *db_accessor) {
+Query *Interpreter::QueryToAst(const StrippedQuery &stripped,
+                               const ParsingContext &context,
+                               AstStorage *ast_storage,
+                               database::GraphDbAccessor *db_accessor) {
   if (!context.is_query_cached) {
     // stripped query -> AST
     auto parser = [&] {
@@ -134,9 +139,9 @@ AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
     }();
     auto low_level_tree = parser->tree();
     // AST -> high level tree
-    frontend::CypherMainVisitor visitor(context, db_accessor);
+    frontend::CypherMainVisitor visitor(context, ast_storage, db_accessor);
     visitor.visit(low_level_tree);
-    return std::move(visitor.storage());
+    return visitor.query();
   }
   auto ast_cache_accessor = ast_cache_.access();
   auto ast_it = ast_cache_accessor.find(stripped.hash());
@@ -160,16 +165,16 @@ AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,
     }();
     auto low_level_tree = parser->tree();
     // AST -> high level tree
-    frontend::CypherMainVisitor visitor(context, db_accessor);
+    CachedQuery cached_query;
+    frontend::CypherMainVisitor visitor(context, &cached_query.ast_storage,
+                                        db_accessor);
     visitor.visit(low_level_tree);
+    cached_query.query = visitor.query();
     // Cache it.
-    ast_it =
-        ast_cache_accessor.insert(stripped.hash(), std::move(visitor.storage()))
-            .first;
+    ast_it = ast_cache_accessor.insert(stripped.hash(), std::move(cached_query))
+                 .first;
   }
-  AstStorage new_ast;
-  ast_it->second.query()->Clone(new_ast);
-  return new_ast;
+  return ast_it->second.query->Clone(*ast_storage);
 }
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
@@ -194,10 +199,10 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
 };
 
 std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(
-    AstStorage ast_storage, Context *context) {
+    Query *query, AstStorage ast_storage, Context *context) {
   auto vertex_counts = plan::MakeVertexCountCache(context->db_accessor_);
   auto planning_context = plan::MakePlanningContext(
-      ast_storage, context->symbol_table_, vertex_counts);
+      ast_storage, context->symbol_table_, query, vertex_counts);
   std::unique_ptr<plan::LogicalOperator> root;
   double cost;
   std::tie(root, cost) = plan::MakeLogicalPlan(

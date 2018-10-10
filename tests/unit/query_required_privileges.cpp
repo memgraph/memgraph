@@ -24,83 +24,89 @@ class TestPrivilegeExtractor : public ::testing::Test {
 };
 
 TEST_F(TestPrivilegeExtractor, CreateNode) {
-  QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")))));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")))));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::CREATE));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeDelete) {
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::DELETE));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeReturn) {
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchCreateExpand) {
-  QUERY(SINGLE_QUERY(
+  auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       CREATE(PATTERN(NODE("n"),
                      EDGE("r", EdgeAtom::Direction::OUT, {EDGE_TYPE}),
                      NODE("m")))));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::CREATE));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeSetLabels) {
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET("n", {LABEL_0, LABEL_1})));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET("n", {LABEL_0, LABEL_1})));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::SET));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeSetProperty) {
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                     SET(PROPERTY_LOOKUP("n", {"prop", PROP_0}), LITERAL(42))));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   SET(PROPERTY_LOOKUP("n", {"prop", PROP_0}), LITERAL(42))));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::SET));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeSetProperties) {
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET("n", LIST())));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), SET("n", LIST())));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::SET));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeRemoveLabels) {
-  QUERY(
+  auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE("n", {LABEL_0, LABEL_1})));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::REMOVE));
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeRemoveProperty) {
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                     REMOVE(PROPERTY_LOOKUP("n", {"prop", PROP_0}))));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         REMOVE(PROPERTY_LOOKUP("n", {"prop", PROP_0}))));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::REMOVE));
 }
 
 TEST_F(TestPrivilegeExtractor, CreateIndex) {
-  QUERY(SINGLE_QUERY(CREATE_INDEX_ON(LABEL_0, PROP_0)));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query = QUERY(SINGLE_QUERY(CREATE_INDEX_ON(LABEL_0, PROP_0)));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::INDEX));
 }
 
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
-  QUERY(SINGLE_QUERY(AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "",
-                                nullptr, std::vector<AuthQuery::Privilege>{})));
-  EXPECT_THAT(GetRequiredPrivileges(storage),
+  auto *query = QUERY(
+      SINGLE_QUERY(AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "",
+                              nullptr, std::vector<AuthQuery::Privilege>{})));
+  EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
 
@@ -121,8 +127,8 @@ TEST_F(TestPrivilegeExtractor, StreamQuery) {
       STOP_ALL_STREAMS};
 
   for (auto *stream_clause : stream_clauses) {
-    QUERY(SINGLE_QUERY(stream_clause));
-    EXPECT_THAT(GetRequiredPrivileges(storage),
+    auto *query = QUERY(SINGLE_QUERY(stream_clause));
+    EXPECT_THAT(GetRequiredPrivileges(query),
                 UnorderedElementsAre(AuthQuery::Privilege::STREAM));
   }
 }

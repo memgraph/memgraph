@@ -443,8 +443,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
 // Converts a Query to multiple QueryParts. In the process new Ast nodes may be
 // created, e.g. filter expressions.
 std::vector<SingleQueryPart> CollectSingleQueryParts(
-    SymbolTable &symbol_table, AstStorage &storage,
-    SingleQuery *single_query) {
+    SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query) {
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
   for (auto &clause : single_query->clauses_) {
@@ -477,8 +476,8 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage) {
-  auto *query = storage.query();
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage,
+                             Query *query) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;

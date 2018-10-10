@@ -3,6 +3,5 @@
 #include "query/frontend/ast/ast.hpp"
 
 namespace query {
-std::vector<AuthQuery::Privilege> GetRequiredPrivileges(
-    const AstStorage &ast_storage);
+std::vector<AuthQuery::Privilege> GetRequiredPrivileges(Query *query);
 }

@@ -290,6 +290,6 @@ struct QueryParts {
 /// and do some other preprocessing in order to generate multiple @c QueryPart
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-QueryParts CollectQueryParts(SymbolTable &, AstStorage &);
+QueryParts CollectQueryParts(SymbolTable &, AstStorage &, Query *);
 
 }  // namespace query::plan

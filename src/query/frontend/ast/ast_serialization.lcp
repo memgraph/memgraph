@@ -29,13 +29,8 @@ cpp<#
       CHECK(found != ast->storage_.end());
       return found->get();
     }
-
     std::unique_ptr<Tree> root;
     ::query::Load(&root, tree, ast, loaded_uids);
-
-    if (dynamic_cast<Query *>(root.get())) {
-      ast->root_idx_ = ast->storage_.size();
-    }
     ast->storage_.emplace_back(std::move(root));
     loaded_uids->emplace_back(uid);
     ast->max_existing_uid_ = std::max(ast->max_existing_uid_, uid);

@@ -432,33 +432,34 @@ void ExaminePlans(
   }
 }
 
-query::AstStorage MakeAst(const std::string &query,
-                          database::GraphDbAccessor &dba) {
+query::Query *MakeAst(const std::string &query, query::AstStorage *storage,
+                      database::GraphDbAccessor &dba) {
   query::ParsingContext parsing_context;
   parsing_context.is_query_cached = false;
   // query -> AST
   auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);
   // AST -> high level tree
-  query::frontend::CypherMainVisitor visitor(parsing_context, &dba);
+  query::frontend::CypherMainVisitor visitor(parsing_context, storage, &dba);
   visitor.visit(parser->tree());
-  return std::move(visitor.storage());
+  return visitor.query();
 }
 
-query::SymbolTable MakeSymbolTable(const query::AstStorage &ast) {
+query::SymbolTable MakeSymbolTable(query::Query *query) {
   query::SymbolTable symbol_table;
   query::SymbolGenerator symbol_generator(symbol_table);
-  ast.query()->Accept(symbol_generator);
+  query->Accept(symbol_generator);
   return symbol_table;
 }
 
 // Returns a list of pairs (plan, estimated cost), sorted in the ascending
 // order by cost.
-auto MakeLogicalPlans(query::AstStorage &ast, query::SymbolTable &symbol_table,
+auto MakeLogicalPlans(query::Query *query, query::AstStorage &ast,
+                      query::SymbolTable &symbol_table,
                       InteractiveDbAccessor &dba) {
-  auto query_parts = query::plan::CollectQueryParts(symbol_table, ast);
+  auto query_parts = query::plan::CollectQueryParts(symbol_table, ast, query);
   std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
       plans_with_cost;
-  auto ctx = query::plan::MakePlanningContext(ast, symbol_table, dba);
+  auto ctx = query::plan::MakePlanningContext(ast, symbol_table, query, dba);
   if (query_parts.query_parts.size() <= 0) {
     std::cerr << "Failed to extract query parts" << std::endl;
     std::exit(EXIT_FAILURE);
@@ -499,10 +500,11 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
     if (!line || *line == "quit") break;
     if (line->empty()) continue;
     try {
-      auto ast = MakeAst(*line, *dba);
-      auto symbol_table = MakeSymbolTable(ast);
+      query::AstStorage ast;
+      auto *query = MakeAst(*line, &ast, *dba);
+      auto symbol_table = MakeSymbolTable(query);
       planning_timer.Start();
-      auto plans = MakeLogicalPlans(ast, symbol_table, interactive_db);
+      auto plans = MakeLogicalPlans(query, ast, symbol_table, interactive_db);
       auto planning_time = planning_timer.Elapsed();
       std::cout
           << "Planning took "

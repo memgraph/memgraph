@@ -1,5 +1,6 @@
 /// @file
-/// This file is an entry point for invoking various planners via the following API:
+/// This file is an entry point for invoking various planners via the following
+/// API:
 ///   * `MakeLogicalPlanForSingleQuery`
 ///   * `MakeLogicalPlan`
 
@@ -51,8 +52,8 @@ auto MakeLogicalPlanForSingleQuery(
 template <class TPlanningContext>
 auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
                      bool use_variable_planner) {
-  auto query_parts =
-      CollectQueryParts(context.symbol_table, context.ast_storage);
+  auto query_parts = CollectQueryParts(context.symbol_table,
+                                       context.ast_storage, context.query);
   auto &vertex_counts = context.db;
   double total_cost = 0;
   std::unique_ptr<LogicalOperator> last_op;
@@ -99,7 +100,7 @@ auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
         prev_op, prev_op->OutputSymbols(context.symbol_table));
   }
 
-  if (context.ast_storage.query()->explain_) {
+  if (context.query->explain_) {
     last_op = std::make_unique<Explain>(
         std::move(last_op),
         context.symbol_table.CreateSymbol("QUERY PLAN", false),

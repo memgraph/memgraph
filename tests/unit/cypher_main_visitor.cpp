@@ -82,17 +82,14 @@ class Base {
 // This generator uses ast constructed by parsing the query.
 class AstGenerator : public Base {
  public:
-  explicit AstGenerator(const std::string &query)
-      : Base(query),
-        parser_(query),
-        visitor_(context_, db_accessor_.get()),
-        query_([&]() {
-          visitor_.visit(parser_.tree());
-          return visitor_.query();
-        }()) {}
+  explicit AstGenerator(const std::string &query) : Base(query) {
+    ::frontend::opencypher::Parser parser(query);
+    CypherMainVisitor visitor(context_, &ast_storage_, db_accessor_.get());
+    visitor.visit(parser.tree());
+    query_ = visitor.query();
+  }
 
-  ::frontend::opencypher::Parser parser_;
-  CypherMainVisitor visitor_;
+  AstStorage ast_storage_;
   Query *query_;
 };
 
@@ -103,7 +100,7 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
   explicit OriginalAfterCloningAstGenerator(const std::string &query)
       : AstGenerator(query) {
     AstStorage storage;
-    visitor_.query()->Clone(storage);
+    query_->Clone(storage);
   }
 };
 
@@ -112,15 +109,15 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
 // any data from original ast.
 class ClonedAstGenerator : public Base {
  public:
-  explicit ClonedAstGenerator(const std::string &query)
-      : Base(query), query_([&]() {
-          ::frontend::opencypher::Parser parser(query);
-          CypherMainVisitor visitor(context_, db_accessor_.get());
-          visitor.visit(parser.tree());
-          return visitor.query()->Clone(storage);
-        }()) {}
+  explicit ClonedAstGenerator(const std::string &query) : Base(query) {
+    ::frontend::opencypher::Parser parser(query);
+    AstStorage tmp_storage;
+    CypherMainVisitor visitor(context_, &tmp_storage, db_accessor_.get());
+    visitor.visit(parser.tree());
+    query_ = visitor.query()->Clone(ast_storage_);
+  }
 
-  AstStorage storage;
+  AstStorage ast_storage_;
   Query *query_;
 };
 
@@ -128,22 +125,18 @@ class ClonedAstGenerator : public Base {
 // the same way it is done in ast cacheing in interpreter.
 class CachedAstGenerator : public Base {
  public:
-  explicit CachedAstGenerator(const std::string &query)
-      : Base(query),
-        storage_([&]() {
-          context_.is_query_cached = true;
-          StrippedQuery stripped(query_string_);
-          parameters_ = stripped.literals();
-          ::frontend::opencypher::Parser parser(stripped.query());
-          CypherMainVisitor visitor(context_, db_accessor_.get());
-          visitor.visit(parser.tree());
-          AstStorage new_ast;
-          visitor.storage().query()->Clone(new_ast);
-          return new_ast;
-        }()),
-        query_(storage_.query()) {}
+  explicit CachedAstGenerator(const std::string &query) : Base(query) {
+    context_.is_query_cached = true;
+    StrippedQuery stripped(query_string_);
+    parameters_ = stripped.literals();
+    ::frontend::opencypher::Parser parser(stripped.query());
+    AstStorage tmp_storage;
+    CypherMainVisitor visitor(context_, &tmp_storage, db_accessor_.get());
+    visitor.visit(parser.tree());
+    query_ = visitor.query()->Clone(ast_storage_);
+  }
 
-  AstStorage storage_;
+  AstStorage ast_storage_;
   Query *query_;
 };
 

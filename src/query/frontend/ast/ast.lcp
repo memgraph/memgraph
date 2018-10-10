@@ -130,7 +130,7 @@ class Tree;
 // called NodeAtom...
 class AstStorage {
  public:
-  AstStorage();
+  AstStorage() = default;
   AstStorage(const AstStorage &) = delete;
   AstStorage &operator=(const AstStorage &) = delete;
   AstStorage(AstStorage &&) = default;
@@ -140,19 +140,13 @@ class AstStorage {
   T *Create(Args &&... args) {
     T *ptr = new T(++max_existing_uid_, std::forward<Args>(args)...);
     std::unique_ptr<T> tmp(ptr);
-    if (std::is_same<T, Query>::value) {
-      root_idx_ = storage_.size();
-    }
     storage_.emplace_back(std::move(tmp));
     return ptr;
   }
 
-  Query *query() const;
-
   // Public only for serialization access
   std::vector<std::unique_ptr<Tree>> storage_;
   int max_existing_uid_ = -1;
-  size_t root_idx_;
 };
 cpp<#
 

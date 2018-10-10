@@ -57,6 +57,11 @@ class Interpreter {
     utils::Timer cache_timer_;
   };
 
+  struct CachedQuery {
+    AstStorage ast_storage;
+    Query *query;
+  };
+
   using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
 
  public:
@@ -180,10 +185,11 @@ class Interpreter {
   // high level tree -> logical plan
   // AstStorage and SymbolTable may be modified during planning. The created
   // LogicalPlan must take ownership of AstStorage and SymbolTable.
-  virtual std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage, Context *);
+  virtual std::unique_ptr<LogicalPlan> MakeLogicalPlan(Query *, AstStorage,
+                                                       Context *);
 
  private:
-  ConcurrentMap<HashType, AstStorage> ast_cache_;
+  ConcurrentMap<HashType, CachedQuery> ast_cache_;
   PlanCacheT plan_cache_;
   // Antlr has singleton instance that is shared between threads. It is
   // protected by locks inside of antlr. Unfortunately, they are not protected
@@ -194,11 +200,12 @@ class Interpreter {
   utils::SpinLock antlr_lock_;
 
   // high level tree -> CachedPlan
-  std::shared_ptr<CachedPlan> AstToPlan(AstStorage ast_storage, Context *ctx);
+  std::shared_ptr<CachedPlan> AstToPlan(Query *query, AstStorage ast_storage,
+                                        Context *ctx);
   // stripped query -> high level tree
-  AstStorage QueryToAst(const StrippedQuery &stripped,
-                        const ParsingContext &context,
-                        database::GraphDbAccessor *db_accessor);
+  Query *QueryToAst(const StrippedQuery &stripped,
+                    const ParsingContext &context, AstStorage *ast_storage,
+                    database::GraphDbAccessor *db_accessor);
 };
 
 }  // namespace query
