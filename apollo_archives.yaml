@@ -15,8 +15,3 @@
     - .
   filename: documentation.tar.gz
   host: true
-
-- name: Release (user docs)
-  project: ^NEVER$ # TODO (mferencevic): replace with 'release' once user documentation creation is fixed (couscous -> pandoc)
-  archive: docs/user_technical/docs.tar.gz
-  filename: release_user_docs.tar.gz
