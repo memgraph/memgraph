@@ -6,7 +6,7 @@ function(add_manual_test test_cpp)
   # get exec name (remove extension from the abs path)
   get_filename_component(exec_name ${test_cpp} NAME_WE)
   set(target_name ${test_prefix}${exec_name})
-  add_executable(${target_name} ${test_cpp})
+  add_executable(${target_name} ${test_cpp} ${ARGN})
   # OUTPUT_NAME sets the real name of a target when it is built and can be
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
@@ -36,6 +36,13 @@ target_link_libraries(${test_prefix}card_fraud_generate_snapshot mg-distributed 
 add_manual_test(card_fraud_local.cpp)
 target_link_libraries(${test_prefix}card_fraud_local mg-distributed kvstore_dummy_lib gtest)
 
+add_manual_test(distributed_query_planner.cpp interactive_planning.cpp)
+target_link_libraries(${test_prefix}distributed_query_planner mg-distributed
+                      kvstore_dummy_lib)
+if (READLINE_FOUND)
+  target_link_libraries(${test_prefix}distributed_query_planner readline)
+endif()
+
 add_manual_test(distributed_repl.cpp)
 target_link_libraries(${test_prefix}distributed_repl mg-distributed kvstore_dummy_lib gtest readline)
 
@@ -53,7 +60,7 @@ target_link_libraries(${test_prefix}kvstore_console kvstore_lib gflags glog)
 add_manual_test(query_hash.cpp)
 target_link_libraries(${test_prefix}query_hash mg-single-node kvstore_dummy_lib)
 
-add_manual_test(query_planner.cpp)
+add_manual_test(query_planner.cpp interactive_planning.cpp)
 target_link_libraries(${test_prefix}query_planner mg-single-node kvstore_dummy_lib)
 
 add_manual_test(repl.cpp)
