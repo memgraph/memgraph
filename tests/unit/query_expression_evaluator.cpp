@@ -999,6 +999,36 @@ TEST_F(FunctionTest, Degree) {
   ASSERT_THROW(EvaluateFunction("DEGREE", {e12}), QueryRuntimeException);
 }
 
+TEST_F(FunctionTest, InDegree) {
+  ASSERT_THROW(EvaluateFunction("INDEGREE", {}), QueryRuntimeException);
+  ASSERT_TRUE(EvaluateFunction("INDEGREE", {TypedValue::Null}).IsNull());
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
+  ASSERT_EQ(EvaluateFunction("INDEGREE", {v1}).ValueInt(), 0);
+  ASSERT_EQ(EvaluateFunction("INDEGREE", {v2}).ValueInt(), 2);
+  ASSERT_EQ(EvaluateFunction("INDEGREE", {v3}).ValueInt(), 0);
+  ASSERT_THROW(EvaluateFunction("INDEGREE", {2}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("INDEGREE", {e12}), QueryRuntimeException);
+}
+
+TEST_F(FunctionTest, OutDegree) {
+  ASSERT_THROW(EvaluateFunction("OUTDEGREE", {}), QueryRuntimeException);
+  ASSERT_TRUE(EvaluateFunction("OUTDEGREE", {TypedValue::Null}).IsNull());
+  auto v1 = dba->InsertVertex();
+  auto v2 = dba->InsertVertex();
+  auto v3 = dba->InsertVertex();
+  auto e12 = dba->InsertEdge(v1, v2, dba->EdgeType("t"));
+  dba->InsertEdge(v3, v2, dba->EdgeType("t"));
+  ASSERT_EQ(EvaluateFunction("OUTDEGREE", {v1}).ValueInt(), 1);
+  ASSERT_EQ(EvaluateFunction("OUTDEGREE", {v2}).ValueInt(), 0);
+  ASSERT_EQ(EvaluateFunction("OUTDEGREE", {v3}).ValueInt(), 1);
+  ASSERT_THROW(EvaluateFunction("OUTDEGREE", {2}), QueryRuntimeException);
+  ASSERT_THROW(EvaluateFunction("OUTDEGREE", {e12}), QueryRuntimeException);
+}
+
 TEST_F(FunctionTest, ToBoolean) {
   ASSERT_THROW(EvaluateFunction("TOBOOLEAN", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("TOBOOLEAN", {TypedValue::Null}).IsNull());

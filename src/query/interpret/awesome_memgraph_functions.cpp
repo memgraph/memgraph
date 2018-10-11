@@ -182,6 +182,42 @@ TypedValue Degree(TypedValue *args, int64_t nargs, const EvaluationContext &,
   }
 }
 
+TypedValue InDegree(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                    database::GraphDbAccessor *) {
+  if (nargs != 1) {
+    throw QueryRuntimeException("'inDegree' requires exactly one argument.");
+  }
+
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Vertex: {
+      auto &vertex = args[0].Value<VertexAccessor>();
+      return static_cast<int64_t>(vertex.in_degree());
+    }
+    default:
+      throw QueryRuntimeException("'inDegree' argument must be a node.");
+  }
+}
+
+TypedValue OutDegree(TypedValue *args, int64_t nargs, const EvaluationContext &,
+                     database::GraphDbAccessor *) {
+  if (nargs != 1) {
+    throw QueryRuntimeException("'outDegree' requires exactly one argument.");
+  }
+
+  switch (args[0].type()) {
+    case TypedValue::Type::Null:
+      return TypedValue::Null;
+    case TypedValue::Type::Vertex: {
+      auto &vertex = args[0].Value<VertexAccessor>();
+      return static_cast<int64_t>(vertex.out_degree());
+    }
+    default:
+      throw QueryRuntimeException("'outDegree' argument must be a node.");
+  }
+}
+
 TypedValue ToBoolean(TypedValue *args, int64_t nargs, const EvaluationContext &,
                      database::GraphDbAccessor *) {
   if (nargs != 1) {
@@ -853,6 +889,8 @@ NameToFunction(const std::string &function_name) {
   // Scalar functions
   if (function_name == "COALESCE") return Coalesce;
   if (function_name == "DEGREE") return Degree;
+  if (function_name == "INDEGREE") return InDegree;
+  if (function_name == "OUTDEGREE") return OutDegree;
   if (function_name == "ENDNODE") return EndNode;
   if (function_name == "HEAD") return Head;
   if (function_name == "ID") return Id;
