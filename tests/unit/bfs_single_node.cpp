@@ -30,18 +30,18 @@ class SingleNodeDb : public Database {
         std::experimental::nullopt, GraphView::OLD);
   }
 
-  std::pair<std::vector<storage::VertexAddress>,
-            std::vector<storage::EdgeAddress>>
+  std::pair<std::vector<VertexAddress>,
+            std::vector<EdgeAddress>>
   BuildGraph(
       database::GraphDbAccessor *dba, const std::vector<int> &vertex_locations,
       const std::vector<std::tuple<int, int, std::string>> &edges) override {
-    std::vector<storage::VertexAddress> vertex_addr;
-    std::vector<storage::EdgeAddress> edge_addr;
+    std::vector<VertexAddress> vertex_addr;
+    std::vector<EdgeAddress> edge_addr;
 
     for (size_t id = 0; id < vertex_locations.size(); ++id) {
       auto vertex = dba->InsertVertex();
       vertex.PropsSet(dba->Property("id"), (int64_t)id);
-      vertex_addr.push_back(vertex.GlobalAddress());
+      vertex_addr.push_back(vertex.address());
     }
 
     for (auto e : edges) {
@@ -53,7 +53,7 @@ class SingleNodeDb : public Database {
       auto edge = dba->InsertEdge(from, to, dba->EdgeType(type));
       edge.PropsSet(dba->Property("from"), u);
       edge.PropsSet(dba->Property("to"), v);
-      edge_addr.push_back(edge.GlobalAddress());
+      edge_addr.push_back(edge.address());
     }
 
     return std::make_pair(vertex_addr, edge_addr);

@@ -625,6 +625,7 @@ TypedValue IndexInfo(TypedValue *, int64_t nargs, const EvaluationContext &,
   return std::vector<TypedValue>(info.begin(), info.end());
 }
 
+#ifdef MG_DISTRIBUTED
 TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
                     database::GraphDbAccessor *) {
   if (nargs != 1) {
@@ -641,6 +642,7 @@ TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
           "'workerId' argument must be a node or an edge.");
   }
 }
+#endif
 
 TypedValue Id(TypedValue *args, int64_t nargs, const EvaluationContext &,
               database::GraphDbAccessor *dba) {
@@ -919,7 +921,9 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "COUNTER") return Counter;
   if (function_name == "COUNTERSET") return CounterSet;
   if (function_name == "INDEXINFO") return IndexInfo;
+#ifdef MG_DISTRIBUTED
   if (function_name == "WORKERID") return WorkerId;
+#endif
 
   return nullptr;
 }

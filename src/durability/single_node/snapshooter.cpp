@@ -4,11 +4,12 @@
 
 #include <glog/logging.h>
 
+#include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
 #include "durability/hashed_file_writer.hpp"
-#include "durability/paths.hpp"
-#include "durability/single_node/snapshot_encoder.hpp"
+#include "durability/single_node/paths.hpp"
 #include "durability/single_node/version.hpp"
+#include "glue/communication.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::experimental::filesystem;
@@ -16,29 +17,20 @@ namespace fs = std::experimental::filesystem;
 namespace durability {
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 6,
+static_assert(durability::kVersion == 7,
               "Wrong snapshot version, please update!");
 
 namespace {
 bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
-            database::GraphDbAccessor &dba, int worker_id) {
+            database::GraphDbAccessor &dba) {
   try {
     HashedFileWriter buffer(snapshot_file);
-    SnapshotEncoder<HashedFileWriter> encoder(buffer);
+    communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
     int64_t vertex_num = 0, edge_num = 0;
 
     encoder.WriteRAW(durability::kSnapshotMagic.data(),
                      durability::kSnapshotMagic.size());
     encoder.WriteInt(durability::kVersion);
-
-    // Writes the worker id to snapshot, used to guarantee consistent cluster
-    // state after recovery
-    encoder.WriteInt(worker_id);
-
-    // Write the number of generated vertex and edges, used to recover
-    // generators internal states
-    encoder.WriteInt(db.storage().VertexGenerator().LocalCount());
-    encoder.WriteInt(db.storage().EdgeGenerator().LocalCount());
 
     // Write the ID of the transaction doing the snapshot.
     encoder.WriteInt(dba.transaction_id());
@@ -63,12 +55,11 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     }
 
     for (const auto &vertex : dba.Vertices(false)) {
-      encoder.WriteSnapshotVertex(vertex);
+      encoder.WriteVertex(glue::ToBoltVertex(vertex));
       vertex_num++;
     }
     for (const auto &edge : dba.Edges(false)) {
       encoder.WriteEdge(glue::ToBoltEdge(edge));
-      encoder.WriteInt(edge.CypherId());
       edge_num++;
     }
     buffer.WriteValue(vertex_num);
@@ -122,13 +113,12 @@ void RemoveOldWals(const fs::path &wal_dir,
 }  // namespace
 
 bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
-                  int worker_id, const fs::path &durability_dir,
-                  int snapshot_max_retained) {
+                  const fs::path &durability_dir, int snapshot_max_retained) {
   if (!utils::EnsureDir(durability_dir / kSnapshotDir)) return false;
   const auto snapshot_file =
-      MakeSnapshotPath(durability_dir, worker_id, dba.transaction_id());
+      MakeSnapshotPath(durability_dir, dba.transaction_id());
   if (fs::exists(snapshot_file)) return false;
-  if (Encode(snapshot_file, db, dba, worker_id)) {
+  if (Encode(snapshot_file, db, dba)) {
     RemoveOldSnapshots(durability_dir / kSnapshotDir, snapshot_max_retained);
     RemoveOldWals(durability_dir / kWalDir, dba.transaction());
     return true;

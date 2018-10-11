@@ -1,6 +1,5 @@
 #pragma once
 
-#include "storage/single_node/address_types.hpp"
 #include "storage/single_node/edge.hpp"
 #include "storage/single_node/record_accessor.hpp"
 
@@ -20,20 +19,19 @@ class VertexAccessor;
  * location, which is often a performance bottleneck in traversals.
  */
 class EdgeAccessor final : public RecordAccessor<Edge> {
-  using EdgeAddress = storage::EdgeAddress;
-  using VertexAddress = storage::VertexAddress;
-
  public:
   /** Constructor that reads data from the random memory location (lower
    * performance, see class docs). */
-  EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor);
+  EdgeAccessor(mvcc::VersionList<Edge> *address,
+               database::GraphDbAccessor &db_accessor);
 
   /**
    * Constructor that does NOT read data from the random memory location
    * (better performance, see class docs).
    */
-  EdgeAccessor(EdgeAddress address, database::GraphDbAccessor &db_accessor,
-               VertexAddress from, VertexAddress to,
+  EdgeAccessor(mvcc::VersionList<Edge> *address,
+               database::GraphDbAccessor &db_accessor,
+               mvcc::VersionList<Vertex> *from, mvcc::VersionList<Vertex> *to,
                storage::EdgeType edge_type);
 
   storage::EdgeType EdgeType() const;
@@ -63,8 +61,8 @@ class EdgeAccessor final : public RecordAccessor<Edge> {
   bool is_cycle() const;
 
  private:
-  VertexAddress from_;
-  VertexAddress to_;
+  mvcc::VersionList<Vertex> *from_;
+  mvcc::VersionList<Vertex> *to_;
   storage::EdgeType edge_type_;
 };
 

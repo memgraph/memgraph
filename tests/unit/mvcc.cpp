@@ -15,8 +15,8 @@ TEST(MVCC, Deadlock) {
   tx::Engine engine;
 
   auto t0 = engine.Begin();
-  mvcc::VersionList<Prop> version_list1(*t0, 0, 0);
-  mvcc::VersionList<Prop> version_list2(*t0, 1, 1);
+  mvcc::VersionList<Prop> version_list1(*t0, 0);
+  mvcc::VersionList<Prop> version_list2(*t0, 1);
   engine.Commit(*t0);
 
   auto t1 = engine.Begin();
@@ -34,7 +34,7 @@ TEST(MVCC, UpdateDontDelete) {
   {
     tx::Engine engine;
     auto t1 = engine.Begin();
-    mvcc::VersionList<DestrCountRec> version_list(*t1, 0, 0, count);
+    mvcc::VersionList<DestrCountRec> version_list(*t1, 0, count);
     engine.Commit(*t1);
 
     auto t2 = engine.Begin();
@@ -58,7 +58,7 @@ TEST(MVCC, UpdateDontDelete) {
 TEST(MVCC, Oldest) {
   tx::Engine engine;
   auto t1 = engine.Begin();
-  mvcc::VersionList<Prop> version_list(*t1, 0, 0);
+  mvcc::VersionList<Prop> version_list(*t1, 0);
   auto first = version_list.Oldest();
   EXPECT_NE(first, nullptr);
   // TODO Gleich: no need to do 10 checks of the same thing

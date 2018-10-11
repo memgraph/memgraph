@@ -1,6 +1,6 @@
 #include "wal.hpp"
 
-#include "durability/paths.hpp"
+#include "durability/single_node/paths.hpp"
 #include "durability/single_node/version.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
@@ -19,11 +19,12 @@ DEFINE_VALIDATED_HIDDEN_int32(wal_buffer_size, 4096,
                               FLAG_IN_RANGE(1, 1 << 30));
 
 namespace durability {
+
 WriteAheadLog::WriteAheadLog(
-    int worker_id, const std::experimental::filesystem::path &durability_dir,
+    const std::experimental::filesystem::path &durability_dir,
     bool durability_enabled, bool synchronous_commit)
     : deltas_{FLAGS_wal_buffer_size},
-      wal_file_{worker_id, durability_dir},
+      wal_file_{durability_dir},
       durability_enabled_(durability_enabled),
       synchronous_commit_(synchronous_commit) {
   if (durability_enabled_) {
@@ -39,8 +40,8 @@ WriteAheadLog::~WriteAheadLog() {
 }
 
 WriteAheadLog::WalFile::WalFile(
-    int worker_id, const std::experimental::filesystem::path &durability_dir)
-    : worker_id_(worker_id), wal_dir_{durability_dir / kWalDir} {}
+    const std::experimental::filesystem::path &durability_dir)
+    : wal_dir_{durability_dir / kWalDir} {}
 
 WriteAheadLog::WalFile::~WalFile() {
   if (!current_wal_file_.empty()) writer_.Close();
@@ -51,7 +52,7 @@ void WriteAheadLog::WalFile::Init() {
     LOG(ERROR) << "Can't write to WAL directory: " << wal_dir_;
     current_wal_file_ = std::experimental::filesystem::path();
   } else {
-    current_wal_file_ = WalFilenameForTransactionId(wal_dir_, worker_id_);
+    current_wal_file_ = WalFilenameForTransactionId(wal_dir_);
     // TODO: Fix error handling, the encoder_ returns `true` or `false`.
     try {
       writer_.Open(current_wal_file_);
@@ -104,7 +105,7 @@ void WriteAheadLog::WalFile::RotateFile() {
   writer_.Close();
   std::experimental::filesystem::rename(
       current_wal_file_,
-      WalFilenameForTransactionId(wal_dir_, worker_id_, latest_tx_));
+      WalFilenameForTransactionId(wal_dir_, latest_tx_));
   Init();
 }
 
@@ -138,10 +139,6 @@ bool WriteAheadLog::IsStateDeltaTransactionEnd(
     case database::StateDelta::Type::TRANSACTION_BEGIN:
     case database::StateDelta::Type::CREATE_VERTEX:
     case database::StateDelta::Type::CREATE_EDGE:
-    case database::StateDelta::Type::ADD_OUT_EDGE:
-    case database::StateDelta::Type::REMOVE_OUT_EDGE:
-    case database::StateDelta::Type::ADD_IN_EDGE:
-    case database::StateDelta::Type::REMOVE_IN_EDGE:
     case database::StateDelta::Type::SET_PROPERTY_VERTEX:
     case database::StateDelta::Type::SET_PROPERTY_EDGE:
     case database::StateDelta::Type::ADD_LABEL:

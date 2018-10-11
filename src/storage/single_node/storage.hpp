@@ -8,16 +8,11 @@
 #include "mvcc/single_node/version_list.hpp"
 #include "storage/common/types.hpp"
 #include "storage/kvstore/kvstore.hpp"
-#include "storage/single_node/address.hpp"
 #include "storage/single_node/edge.hpp"
 #include "storage/single_node/indexes/key_index.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"
 #include "storage/single_node/vertex.hpp"
 #include "transactions/type.hpp"
-
-namespace distributed {
-class IndexRpcServer;
-};
 
 namespace database {
 class GraphDb;
@@ -28,11 +23,8 @@ namespace database {
 /** A data structure containing the main data members of a graph database. */
 class Storage {
  public:
-  Storage(int worker_id, const std::vector<std::string> &properties_on_disk)
-      : worker_id_(worker_id),
-        vertex_generator_{worker_id},
-        edge_generator_{worker_id},
-        properties_on_disk_{properties_on_disk} {}
+  explicit Storage(const std::vector<std::string> &properties_on_disk)
+      : properties_on_disk_{properties_on_disk} {}
 
  public:
   ~Storage() {
@@ -64,41 +56,13 @@ class Storage {
     return found->second;
   }
 
-  /// Converts an address to local, if possible. Returns the same address if
-  /// not.
-  template <typename TRecord>
-  storage::Address<mvcc::VersionList<TRecord>> LocalizedAddressIfPossible(
-      storage::Address<mvcc::VersionList<TRecord>> address) const {
-    if (address.is_local()) return address;
-    if (address.worker_id() == worker_id_) {
-      auto vlist = LocalAddress<TRecord>(address.gid());
-      if constexpr (std::is_same<TRecord, Vertex>::value)
-        return storage::VertexAddress(vlist);
-      else
-        return storage::EdgeAddress(vlist);
-    }
-    return address;
-  }
-
-  /// Returns remote address for the given local or remote address.
-  template <typename TAddress>
-  TAddress GlobalizedAddress(TAddress address) const {
-    if (address.is_remote()) return address;
-    return {address.local()->gid_, worker_id_};
-  }
-
-  /// Gets the local edge address for the given gid. Fails if not present.
-  mvcc::VersionList<Edge> *LocalEdgeAddress(gid::Gid gid) const;
-
   /// Gets names of properties stored on disk
   std::vector<std::string> &PropertiesOnDisk() { return properties_on_disk_; }
 
  private:
   friend class GraphDbAccessor;
   friend class StorageGc;
-  friend class distributed::IndexRpcServer;
 
-  int worker_id_;
   gid::Generator vertex_generator_;
   gid::Generator edge_generator_;
 

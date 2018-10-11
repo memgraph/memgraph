@@ -6,7 +6,7 @@
 #include "durability/single_node/state_delta.hpp"
 #include "utils/algorithm.hpp"
 
-VertexAccessor::VertexAccessor(VertexAddress address,
+VertexAccessor::VertexAccessor(mvcc::VersionList<Vertex> *address,
                                database::GraphDbAccessor &db_accessor)
     : RecordAccessor(address, db_accessor) {
   Reconstruct();
@@ -17,7 +17,6 @@ size_t VertexAccessor::out_degree() const { return current().out_.size(); }
 size_t VertexAccessor::in_degree() const { return current().in_.size(); }
 
 void VertexAccessor::add_label(storage::Label label) {
-  CHECK(is_local());
   auto &dba = db_accessor();
   auto delta = database::StateDelta::AddLabel(dba.transaction_id(), gid(),
                                               label, dba.LabelName(label));
@@ -31,7 +30,6 @@ void VertexAccessor::add_label(storage::Label label) {
 }
 
 void VertexAccessor::remove_label(storage::Label label) {
-  CHECK(is_local());
   auto &dba = db_accessor();
   auto delta = database::StateDelta::RemoveLabel(dba.transaction_id(), gid(),
                                                  label, dba.LabelName(label));
@@ -54,28 +52,22 @@ const std::vector<storage::Label> &VertexAccessor::labels() const {
   return this->current().labels_;
 }
 
-void VertexAccessor::RemoveOutEdge(storage::EdgeAddress edge) {
+void VertexAccessor::RemoveOutEdge(mvcc::VersionList<Edge> *edge) {
   auto &dba = db_accessor();
-  auto delta = database::StateDelta::RemoveOutEdge(
-      dba.transaction_id(), gid(), dba.db().storage().GlobalizedAddress(edge));
 
   SwitchNew();
   if (current().is_expired_by(dba.transaction())) return;
 
-  update().out_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
-  ProcessDelta(delta);
+  update().out_.RemoveEdge(edge);
 }
 
-void VertexAccessor::RemoveInEdge(storage::EdgeAddress edge) {
+void VertexAccessor::RemoveInEdge(mvcc::VersionList<Edge> *edge) {
   auto &dba = db_accessor();
-  auto delta = database::StateDelta::RemoveInEdge(
-      dba.transaction_id(), gid(), dba.db().storage().GlobalizedAddress(edge));
 
   SwitchNew();
   if (current().is_expired_by(dba.transaction())) return;
 
-  update().in_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
-  ProcessDelta(delta);
+  update().in_.RemoveEdge(edge);
 }
 
 std::ostream &operator<<(std::ostream &os, const VertexAccessor &va) {

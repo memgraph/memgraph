@@ -6,12 +6,12 @@
 
 TEST(StateDelta, CreateVertex) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   {
     auto dba = db.Access();
     auto delta =
-        database::StateDelta::CreateVertex(dba->transaction_id(), gid0, 0);
+        database::StateDelta::CreateVertex(dba->transaction_id(), gid0);
     delta.Apply(*dba);
     dba->Commit();
   }
@@ -25,7 +25,7 @@ TEST(StateDelta, CreateVertex) {
 
 TEST(StateDelta, RemoveVertex) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   {
     auto dba = db.Access();
@@ -48,7 +48,7 @@ TEST(StateDelta, RemoveVertex) {
 
 TEST(StateDelta, CreateEdge) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
   auto gid2 = generator.Next();
@@ -61,7 +61,7 @@ TEST(StateDelta, CreateEdge) {
   {
     auto dba = db.Access();
     auto delta =
-        database::StateDelta::CreateEdge(dba->transaction_id(), gid2, 0, gid0,
+        database::StateDelta::CreateEdge(dba->transaction_id(), gid2, gid0,
                                          gid1, dba->EdgeType("edge"), "edge");
     delta.Apply(*dba);
     dba->Commit();
@@ -75,7 +75,7 @@ TEST(StateDelta, CreateEdge) {
 
 TEST(StateDelta, RemoveEdge) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
   auto gid2 = generator.Next();
@@ -101,7 +101,7 @@ TEST(StateDelta, RemoveEdge) {
 
 TEST(StateDelta, AddLabel) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   {
     auto dba = db.Access();
@@ -127,7 +127,7 @@ TEST(StateDelta, AddLabel) {
 
 TEST(StateDelta, RemoveLabel) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   {
     auto dba = db.Access();
@@ -153,7 +153,7 @@ TEST(StateDelta, RemoveLabel) {
 
 TEST(StateDelta, SetPropertyVertex) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   {
     auto dba = db.Access();
@@ -179,7 +179,7 @@ TEST(StateDelta, SetPropertyVertex) {
 
 TEST(StateDelta, SetPropertyEdge) {
   database::GraphDb db;
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
   auto gid2 = generator.Next();

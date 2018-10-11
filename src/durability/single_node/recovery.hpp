@@ -110,13 +110,12 @@ void MoveToBackup(const std::experimental::filesystem::path &durability_dir);
 RecoveryInfo RecoverOnlySnapshot(
     const std::experimental::filesystem::path &durability_dir,
     database::GraphDb *db, durability::RecoveryData *recovery_data,
-    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id,
-    int worker_id);
+    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id);
 
 /** Interface for accessing transactions during WAL recovery. */
 class RecoveryTransactions {
  public:
-  RecoveryTransactions(database::GraphDb *db);
+  explicit RecoveryTransactions(database::GraphDb *db);
 
   void Begin(const tx::TransactionId &tx_id);
 

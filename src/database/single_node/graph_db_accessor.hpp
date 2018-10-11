@@ -12,7 +12,6 @@
 
 #include "database/single_node/graph_db.hpp"
 #include "storage/common/types.hpp"
-#include "storage/single_node/address_types.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex_accessor.hpp"
 #include "transactions/transaction.hpp"
@@ -77,14 +76,11 @@ class GraphDbAccessor {
    *
    * @param requested_gid The requested GID. Should only be provided when
    * recovering from durability.
-   * @param cypher_id Take a look under mvcc::VersionList::cypher_id
    *
    * @return See above.
    */
   VertexAccessor InsertVertex(std::experimental::optional<gid::Gid>
-                                  requested_gid = std::experimental::nullopt,
-                              std::experimental::optional<int64_t> cypher_id =
-                                  std::experimental::nullopt);
+                                  requested_gid = std::experimental::nullopt);
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or
@@ -150,7 +146,7 @@ class GraphDbAccessor {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
         [this](auto id_vlist) {
-          return VertexAccessor(storage::VertexAddress(id_vlist.second), *this);
+          return VertexAccessor(id_vlist.second, *this);
         },
         db_.storage().vertices_.access());
 
@@ -176,7 +172,7 @@ class GraphDbAccessor {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
         [this](auto vlist) {
-          return VertexAccessor(storage::VertexAddress(vlist), *this);
+          return VertexAccessor(vlist, *this);
         },
         db_.storage().labels_index_.GetVlists(label, transaction_,
                                               current_state));
@@ -202,7 +198,7 @@ class GraphDbAccessor {
         << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) {
-          return VertexAccessor(storage::VertexAddress(vlist), *this);
+          return VertexAccessor(vlist, *this);
         },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), transaction_,
@@ -232,7 +228,7 @@ class GraphDbAccessor {
         << "Can't query index for propery value type null.";
     return iter::imap(
         [this](auto vlist) {
-          return VertexAccessor(storage::VertexAddress(vlist), *this);
+          return VertexAccessor(vlist, *this);
         },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), value, transaction_,
@@ -277,7 +273,7 @@ class GraphDbAccessor {
         << "Label+property index doesn't exist.";
     return iter::imap(
         [this](auto vlist) {
-          return VertexAccessor(storage::VertexAddress(vlist), *this);
+          return VertexAccessor(vlist, *this);
         },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), lower, upper,
@@ -300,30 +296,13 @@ class GraphDbAccessor {
    * @param type Edge type.
    * @param requested_gid The requested GID. Should only be provided when
    * recovering from durability.
-   * @param cypher_id Take a look under mvcc::VersionList::cypher_id
    *
    * @return  An accessor to the edge.
    */
   EdgeAccessor InsertEdge(VertexAccessor &from, VertexAccessor &to,
                           storage::EdgeType type,
                           std::experimental::optional<gid::Gid> requested_gid =
-                              std::experimental::nullopt,
-                          std::experimental::optional<int64_t> cypher_id =
                               std::experimental::nullopt);
-
-  /**
-   * Insert edge into main storage, but don't insert it into from and to
-   * vertices edge lists.
-   *
-   * @param cypher_id Take a look under mvcc::VersionList::cypher_id
-   */
-  EdgeAccessor InsertOnlyEdge(storage::VertexAddress from,
-                              storage::VertexAddress to,
-                              storage::EdgeType edge_type,
-                              std::experimental::optional<gid::Gid>
-                                  requested_gid = std::experimental::nullopt,
-                              std::experimental::optional<int64_t> cypher_id =
-                                  std::experimental::nullopt);
 
   /**
    * Removes an edge from the graph. Parameters can indicate if the edge should
@@ -382,7 +361,7 @@ class GraphDbAccessor {
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
         [this](auto id_vlist) {
-          return EdgeAccessor(storage::EdgeAddress(id_vlist.second), *this);
+          return EdgeAccessor(id_vlist.second, *this);
         },
         db_.storage().edges_.access());
 
@@ -615,34 +594,6 @@ class GraphDbAccessor {
   void UpdateLabelIndices(storage::Label label,
                           const VertexAccessor &vertex_accessor,
                           const Vertex *const vertex);
-
- protected:
-  /** Called in `BuildIndex` after creating an index, but before populating. */
-  void PostCreateIndex(const LabelPropertyIndex::Key &key) {}
-
-  /** Populates the index from a *new* transaction after creating the index. */
-  void PopulateIndexFromBuildIndex(const LabelPropertyIndex::Key &key) {
-    PopulateIndex(key);
-  }
-
-  /**
-   * Insert a new edge to `from` vertex and return the address.
-   * Called from `InsertEdge` as the first step in edge insertion.
-   * */
-  storage::EdgeAddress InsertEdgeOnFrom(
-      VertexAccessor *from, VertexAccessor *to,
-      const storage::EdgeType &edge_type,
-      const std::experimental::optional<gid::Gid> &requested_gid,
-      const std::experimental::optional<int64_t> &cypher_id);
-
-  /**
-   * Set the newly created edge on `to` vertex.
-   * Called after `InsertEdgeOnFrom` in `InsertEdge`. The given `edge_address`
-   * is from the created edge, returned by `InsertEdgeOnFrom`.
-   */
-  void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
-                      const storage::EdgeType &edge_type,
-                      const storage::EdgeAddress &edge_address);
 
  private:
   GraphDb &db_;

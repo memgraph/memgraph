@@ -16,16 +16,6 @@ namespace gid {
  */
 using Gid = uint64_t;
 
-static constexpr std::size_t kWorkerIdSize{10};
-
-/// Returns `local` id from global id.
-static inline uint64_t LocalId(Gid gid) { return gid >> kWorkerIdSize; }
-
-/// Returns id of the worker that created this gid.
-static inline int CreatorWorker(Gid gid) {
-  return gid & ((1ULL << kWorkerIdSize) - 1);
-}
-
 /**
  * Threadsafe generation of new global ids which belong to the
  * worker_id machine. Never call SetId after calling Next without an Id you are
@@ -36,8 +26,6 @@ static inline int CreatorWorker(Gid gid) {
  */
 class Generator {
  public:
-  Generator(int worker_id) : worker_id_(worker_id) {}
-
   /**
    * Returns a globally unique identifier.
    *
@@ -47,29 +35,14 @@ class Generator {
   gid::Gid Next(std::experimental::optional<gid::Gid> requested_gid =
                     std::experimental::nullopt) {
     if (requested_gid) {
-      if (gid::CreatorWorker(*requested_gid) == worker_id_)
-        utils::EnsureAtomicGe(next_local_id_, gid::LocalId(*requested_gid) + 1);
+      utils::EnsureAtomicGe(next_local_id_, *requested_gid + 1);
       return *requested_gid;
     } else {
-      generated_id_ = true;
-      return worker_id_ | next_local_id_++ << kWorkerIdSize;
+      return next_local_id_++;
     }
   }
 
-  /// Returns number of locally generated ids
-  uint64_t LocalCount() const { return next_local_id_; };
-
-  // Sets a new id from which every new gid will be generated, should only be
-  // set before first Next is called
-  void SetId(uint64_t id) {
-    DCHECK(!generated_id_)
-        << "Id should be set only before first id is generated";
-    next_local_id_ = id;
-  }
-
  private:
-  bool generated_id_{false};
-  int worker_id_;
   std::atomic<uint64_t> next_local_id_{0};
 };
 }  // namespace gid

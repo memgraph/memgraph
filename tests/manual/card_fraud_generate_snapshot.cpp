@@ -12,7 +12,7 @@
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/distributed/snapshot_encoder.hpp"
 #include "durability/distributed/version.hpp"
-#include "durability/paths.hpp"
+#include "durability/distributed/paths.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"

@@ -5,10 +5,13 @@
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
+#include "mvcc/single_node/version_list.hpp"
 #include "storage/common/property_value.hpp"
 #include "storage/common/types.hpp"
-#include "storage/single_node/address_types.hpp"
 #include "storage/single_node/gid.hpp"
+
+class Vertex;
+class Edge;
 cpp<#
 
 (lcp:namespace database)
@@ -27,12 +30,11 @@ cpp<#
    ;; only keep addresses.
    (vertex-id "gid::Gid")
    (edge-id "gid::Gid")
-   (cypher-id :int64_t)
-   (edge-address "storage::EdgeAddress")
+   (edge-address "mvcc::VersionList<Edge> *")
    (vertex-from-id "gid::Gid")
-   (vertex-from-address "storage::VertexAddress")
+   (vertex-from-address "mvcc::VersionList<Vertex> *")
    (vertex-to-id "gid::Gid")
-   (vertex-to-address "storage::VertexAddress")
+   (vertex-to-address "mvcc::VersionList<Vertex> *")
    (edge-type "storage::EdgeType")
    (edge-type-name "std::string")
    (property "storage::Property")
@@ -60,10 +62,6 @@ in StateDeltas.")
         transaction-abort
         create-vertex ;; vertex_id
         create-edge   ;; edge_id, from_vertex_id, to_vertex_id, edge_type, edge_type_name
-        add-out-edge  ;; vertex_id, edge_address, vertex_to_address, edge_type
-        remove-out-edge ;; vertex_id, edge_address
-        add-in-edge     ;; vertex_id, edge_address, vertex_from_address, edge_type
-        remove-in-edge  ;; vertex_id, edge_address
         set-property-vertex ;; vertex_id, property, property_name, property_value
         set-property-edge   ;; edge_id, property, property_name, property_value
         ;; remove property is done by setting a PropertyValue::Null
@@ -98,27 +96,12 @@ omitted in the comment."))
      static StateDelta TxCommit(tx::TransactionId tx_id);
      static StateDelta TxAbort(tx::TransactionId tx_id);
      static StateDelta CreateVertex(tx::TransactionId tx_id,
-                                    gid::Gid vertex_id,
-                                    int64_t cypher_id);
+                                    gid::Gid vertex_id);
      static StateDelta CreateEdge(tx::TransactionId tx_id, gid::Gid edge_id,
-                                  int64_t cypher_id,
                                   gid::Gid vertex_from_id,
                                   gid::Gid vertex_to_id,
                                   storage::EdgeType edge_type,
                                   const std::string &edge_type_name);
-     static StateDelta AddOutEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
-                                  storage::VertexAddress vertex_to_address,
-                                  storage::EdgeAddress edge_address,
-                                  storage::EdgeType edge_type);
-     static StateDelta RemoveOutEdge(tx::TransactionId tx_id,
-                                     gid::Gid vertex_id,
-                                     storage::EdgeAddress edge_address);
-     static StateDelta AddInEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
-                                 storage::VertexAddress vertex_from_address,
-                                 storage::EdgeAddress edge_address,
-                                 storage::EdgeType edge_type);
-     static StateDelta RemoveInEdge(tx::TransactionId tx_id, gid::Gid vertex_id,
-                                    storage::EdgeAddress edge_address);
      static StateDelta PropsSetVertex(tx::TransactionId tx_id,
                                       gid::Gid vertex_id,
                                       storage::Property property,

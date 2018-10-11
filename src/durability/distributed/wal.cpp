@@ -1,7 +1,7 @@
 #include "durability/distributed/wal.hpp"
 
 #include "durability/distributed/version.hpp"
-#include "durability/paths.hpp"
+#include "durability/distributed/paths.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
 

@@ -4,10 +4,9 @@
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/single_node/recovery.hpp"
-#include "durability/single_node/snapshot_decoder.hpp"
-#include "durability/single_node/snapshot_value.hpp"
 #include "durability/single_node/version.hpp"
 
 DEFINE_string(snapshot_file, "", "Snapshot file location");
@@ -19,16 +18,16 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  // At the time this was written, the version was 6. This makes sure we update
+  // At the time this was written, the version was 7. This makes sure we update
   // the explorer when we bump the snapshot version.
-  static_assert(durability::kVersion == 6,
+  static_assert(durability::kVersion == 7,
                 "Wrong snapshot version, please update!");
 
   fs::path snapshot_path(FLAGS_snapshot_file);
   CHECK(fs::exists(snapshot_path)) << "File doesn't exist!";
 
   HashedFileReader reader;
-  durability::SnapshotDecoder<HashedFileReader> decoder(reader);
+  communication::bolt::Decoder<HashedFileReader> decoder(reader);
 
   CHECK(reader.Open(snapshot_path)) << "Couldn't open snapshot file!";
 
@@ -52,9 +51,6 @@ int main(int argc, char *argv[]) {
   CHECK(dv.ValueInt() == durability::kVersion)
       << "Snapshot version mismatch"
       << ", got " << dv.ValueInt() << " expected " << durability::kVersion;
-
-  decoder.ReadValue(&dv, Value::Type::Int);
-  LOG(INFO) << "Snapshot was generated for worker id: " << dv.ValueInt();
 
   decoder.ReadValue(&dv, Value::Type::Int);
   LOG(INFO) << "Vertex generator last id: " << dv.ValueInt();
@@ -87,7 +83,7 @@ int main(int argc, char *argv[]) {
   }
 
   for (int64_t i = 0; i < vertex_count; ++i) {
-    auto vertex = decoder.ReadSnapshotVertex();
+    auto vertex = decoder.ReadValue(&dv, Value::Type::Vertex);
     CHECK(vertex) << "Failed to read vertex " << i;
   }
 

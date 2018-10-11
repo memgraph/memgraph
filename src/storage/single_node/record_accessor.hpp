@@ -7,7 +7,6 @@
 #include "storage/common/property_value.hpp"
 #include "storage/common/property_value_store.hpp"
 #include "storage/common/types.hpp"
-#include "storage/single_node/address.hpp"
 #include "storage/single_node/gid.hpp"
 #include "utils/total_ordering.hpp"
 
@@ -28,8 +27,6 @@ struct StateDelta;
 template <typename TRecord>
 class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
  protected:
-  using AddressT = storage::Address<mvcc::VersionList<TRecord>>;
-
   /**
    * The database::GraphDbAccessor is friend to this accessor so it can
    * operate on it's data (mvcc version-list and the record itself).
@@ -47,7 +44,7 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
    * accessor.
    * @param db_accessor The DB accessor that "owns" this record accessor.
    */
-  RecordAccessor(AddressT address, database::GraphDbAccessor &db_accessor);
+  RecordAccessor(mvcc::VersionList<TRecord> *address, database::GraphDbAccessor &db_accessor);
 
   // this class is default copyable, movable and assignable
   RecordAccessor(const RecordAccessor &other) = default;
@@ -82,9 +79,7 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
    */
   gid::Gid gid() const;
 
-  AddressT address() const;
-
-  AddressT GlobalAddress() const;
+  mvcc::VersionList<TRecord> *address() const;
 
   /*
    * Switches this record accessor to use the latest version visible to the
@@ -146,20 +141,12 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
            (current_state && new_ && !new_->is_expired_by(t));
   }
 
-  // TODO: This shouldn't be here, because it's only relevant in distributed.
-  /** Indicates if this accessor represents a local Vertex/Edge, or one whose
-   * owner is some other worker in a distributed system. */
-  bool is_local() const { return address_.is_local(); }
-
   /**
    * Returns Cypher Id of this record.
    */
   int64_t CypherId() const;
 
  protected:
-  /** Process a change delta, e.g. by writing WAL. */
-  void ProcessDelta(const database::StateDelta &delta) const;
-
   /**
    * Pointer to the version (either old_ or new_) that READ operations
    * in the accessor should take data from. Note that WRITE operations
@@ -180,7 +167,7 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   // Immutable, set in the constructor and never changed.
   database::GraphDbAccessor *db_accessor_;
 
-  AddressT address_;
+  mvcc::VersionList<TRecord> *address_;
 
   /**
    * Latest version which is visible to the current transaction+command

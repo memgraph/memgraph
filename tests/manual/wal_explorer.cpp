@@ -29,14 +29,6 @@ std::string StateDeltaTypeToString(database::StateDelta::Type type) {
       return "CREATE_VERTEX";
     case database::StateDelta::Type::CREATE_EDGE:
       return "CREATE_EDGE";
-    case database::StateDelta::Type::ADD_OUT_EDGE:
-      return "ADD_OUT_EDGE";
-    case database::StateDelta::Type::REMOVE_OUT_EDGE:
-      return "REMOVE_OUT_EDGE";
-    case database::StateDelta::Type::ADD_IN_EDGE:
-      return "ADD_IN_EDGE";
-    case database::StateDelta::Type::REMOVE_IN_EDGE:
-      return "REMOVE_IN_EDGE";
     case database::StateDelta::Type::SET_PROPERTY_VERTEX:
       return "SET_PROPERTY_VERTEX";
     case database::StateDelta::Type::SET_PROPERTY_EDGE:

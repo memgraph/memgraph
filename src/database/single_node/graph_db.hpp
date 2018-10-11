@@ -37,15 +37,6 @@ struct Config {
 
   // set of properties which will be stored on disk
   std::vector<std::string> properties_on_disk;
-
-  // Distributed master/worker flags.
-  bool dynamic_graph_partitioner_enabled{false};
-  int rpc_num_client_workers{0};
-  int rpc_num_server_workers{0};
-  int worker_id{0};
-  io::network::Endpoint master_endpoint{"0.0.0.0", 0};
-  io::network::Endpoint worker_endpoint{"0.0.0.0", 0};
-  int recovering_cluster_size{0};
 };
 
 class GraphDbAccessor;
@@ -115,10 +106,10 @@ class GraphDb {
 
   Config config_;
   std::unique_ptr<Storage> storage_ =
-      std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
-  durability::WriteAheadLog wal_{
-      config_.worker_id, config_.durability_directory,
-      config_.durability_enabled, config_.synchronous_commit};
+      std::make_unique<Storage>(config_.properties_on_disk);
+  durability::WriteAheadLog wal_{config_.durability_directory,
+                                 config_.durability_enabled,
+                                 config_.synchronous_commit};
 
   tx::Engine tx_engine_{&wal_};
   std::unique_ptr<StorageGc> storage_gc_ =

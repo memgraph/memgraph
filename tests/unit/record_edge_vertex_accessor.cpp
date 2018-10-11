@@ -7,7 +7,6 @@
 #include "database/single_node/graph_db_accessor.hpp"
 #include "mvcc/single_node/version_list.hpp"
 #include "storage/common/property_value.hpp"
-#include "storage/single_node/address.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex.hpp"
 #include "storage/single_node/vertex_accessor.hpp"
@@ -58,18 +57,6 @@ TEST(RecordAccessor, RecordEquality) {
   auto e2 = dba->InsertEdge(v1, v2, dba->EdgeType("type"));
   EXPECT_EQ(e1, e1);
   EXPECT_NE(e1, e2);
-}
-
-TEST(RecordAccessor, GlobalToLocalAddressConversion) {
-  database::GraphDb db;
-  auto dba = db.Access();
-
-  auto v1 = dba->InsertVertex();
-  storage::Address<mvcc::VersionList<Vertex>> global_address{v1.gid(), 0};
-  EXPECT_FALSE(global_address.is_local());
-  auto v1_from_global = VertexAccessor(global_address, *dba);
-  EXPECT_TRUE(v1_from_global.address().is_local());
-  EXPECT_EQ(v1_from_global.address(), v1.address());
 }
 
 TEST(RecordAccessor, SwitchOldAndSwitchNewMemberFunctionTest) {

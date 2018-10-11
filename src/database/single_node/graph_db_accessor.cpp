@@ -6,7 +6,6 @@
 #include <glog/logging.h>
 
 #include "durability/single_node/state_delta.hpp"
-#include "storage/single_node/address_types.hpp"
 #include "storage/single_node/edge.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex.hpp"
@@ -61,29 +60,26 @@ bool GraphDbAccessor::should_abort() const {
 durability::WriteAheadLog &GraphDbAccessor::wal() { return db_.wal(); }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
-    std::experimental::optional<gid::Gid> requested_gid,
-    std::experimental::optional<int64_t> cypher_id) {
+    std::experimental::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   auto gid = db_.storage().vertex_generator_.Next(requested_gid);
-  if (!cypher_id) cypher_id = utils::MemcpyCast<int64_t>(gid);
-  auto vertex_vlist =
-      new mvcc::VersionList<Vertex>(transaction_, gid, *cypher_id);
+  auto vertex_vlist = new mvcc::VersionList<Vertex>(transaction_, gid);
 
   bool success =
       db_.storage().vertices_.access().insert(gid, vertex_vlist).second;
   CHECK(success) << "Attempting to insert a vertex with an existing GID: "
                  << gid;
-  wal().Emplace(database::StateDelta::CreateVertex(
-      transaction_.id_, vertex_vlist->gid_, vertex_vlist->cypher_id()));
-  auto va = VertexAccessor(storage::VertexAddress(vertex_vlist), *this);
+  wal().Emplace(
+      database::StateDelta::CreateVertex(transaction_.id_, vertex_vlist->gid_));
+  auto va = VertexAccessor(vertex_vlist, *this);
   return va;
 }
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
     gid::Gid gid, bool current_state) {
-  VertexAccessor record_accessor(
-      storage::VertexAddress(db_.storage().LocalAddress<Vertex>(gid)), *this);
+  VertexAccessor record_accessor(db_.storage().LocalAddress<Vertex>(gid),
+                                 *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -97,8 +93,7 @@ VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
 
 std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
     gid::Gid gid, bool current_state) {
-  EdgeAccessor record_accessor(
-      storage::EdgeAddress(db_.storage().LocalAddress<Edge>(gid)), *this);
+  EdgeAccessor record_accessor(db_.storage().LocalAddress<Edge>(gid), *this);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
@@ -131,8 +126,6 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
         "Index is either being created by another transaction or already "
         "exists.");
   }
-  // Call the hook for inherited classes.
-  PostCreateIndex(key);
 
   // Everything that happens after the line above ended will be added to the
   // index automatically, but we still have to add to index everything that
@@ -171,7 +164,7 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
     DCHECK(removed) << "Index building (read) transaction should be inside set";
   });
 
-  dba->PopulateIndexFromBuildIndex(key);
+  dba->PopulateIndex(key);
 
   dba->EnableIndex(key);
   dba->Commit();
@@ -197,8 +190,8 @@ void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
   for (auto vertex : Vertices(key.label_, false)) {
     if (vertex.PropsAt(key.property_).type() == PropertyValue::Type::Null)
       continue;
-    db_.storage().label_property_index_.UpdateOnLabelProperty(
-        vertex.address().local(), vertex.current_);
+    db_.storage().label_property_index_.UpdateOnLabelProperty(vertex.address(),
+                                                              vertex.current_);
   }
 }
 
@@ -206,8 +199,7 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
                                          const VertexAccessor &vertex_accessor,
                                          const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  DCHECK(vertex_accessor.is_local()) << "Only local vertices belong in indexes";
-  auto *vlist_ptr = vertex_accessor.address().local();
+  auto *vlist_ptr = vertex_accessor.address();
   db_.storage().labels_index_.Update(label, vlist_ptr, vertex);
   db_.storage().label_property_index_.UpdateOnLabel(label, vlist_ptr, vertex);
 }
@@ -216,9 +208,8 @@ void GraphDbAccessor::UpdatePropertyIndex(
     storage::Property property, const RecordAccessor<Vertex> &vertex_accessor,
     const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  DCHECK(vertex_accessor.is_local()) << "Only local vertices belong in indexes";
   db_.storage().label_property_index_.UpdateOnProperty(
-      property, vertex_accessor.address().local(), vertex);
+      property, vertex_accessor.address(), vertex);
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {
@@ -305,7 +296,7 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
       vertex_accessor.out_degree() + vertex_accessor.in_degree() > 0)
     return false;
 
-  auto *vlist_ptr = vertex_accessor.address().local();
+  auto *vlist_ptr = vertex_accessor.address();
   wal().Emplace(database::StateDelta::RemoveVertex(
       transaction_.id_, vlist_ptr->gid_, check_empty));
   vlist_ptr->remove(vertex_accessor.current_, transaction_);
@@ -331,76 +322,34 @@ void GraphDbAccessor::DetachRemoveVertex(VertexAccessor &vertex_accessor) {
 
 EdgeAccessor GraphDbAccessor::InsertEdge(
     VertexAccessor &from, VertexAccessor &to, storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid,
-    std::experimental::optional<int64_t> cypher_id) {
+    std::experimental::optional<gid::Gid> requested_gid) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-
-  auto edge_address =
-      InsertEdgeOnFrom(&from, &to, edge_type, requested_gid, cypher_id);
-
-  InsertEdgeOnTo(&from, &to, edge_type, edge_address);
-  return EdgeAccessor(edge_address, *this, from.address(), to.address(),
-                      edge_type);
-}
-
-storage::EdgeAddress GraphDbAccessor::InsertEdgeOnFrom(
-    VertexAccessor *from, VertexAccessor *to,
-    const storage::EdgeType &edge_type,
-    const std::experimental::optional<gid::Gid> &requested_gid,
-    const std::experimental::optional<int64_t> &cypher_id) {
-  auto edge_accessor = InsertOnlyEdge(from->address(), to->address(), edge_type,
-                                      requested_gid, cypher_id);
-  auto edge_address = edge_accessor.address();
-
-  from->SwitchNew();
-  auto from_updated = &from->update();
-
-  // TODO when preparing WAL for distributed, most likely never use
-  // `CREATE_EDGE`, but always have it split into 3 parts (edge insertion,
-  // in/out modification).
-  wal().Emplace(database::StateDelta::CreateEdge(
-      transaction_.id_, edge_accessor.gid(), edge_accessor.CypherId(),
-      from->gid(), to->gid(), edge_type, EdgeTypeName(edge_type)));
-
-  from_updated->out_.emplace(
-      db_.storage().LocalizedAddressIfPossible(to->address()), edge_address,
-      edge_type);
-  return edge_address;
-}
-
-void GraphDbAccessor::InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
-                                     const storage::EdgeType &edge_type,
-                                     const storage::EdgeAddress &edge_address) {
-  // Ensure that the "to" accessor has the latest version (switch new).
-  // WARNING: Must do that after the above "from->update()" for cases when
-  // we are creating a cycle and "from" and "to" are the same vlist.
-  to->SwitchNew();
-  auto *to_updated = &to->update();
-  to_updated->in_.emplace(
-      db_.storage().LocalizedAddressIfPossible(from->address()), edge_address,
-      edge_type);
-}
-
-EdgeAccessor GraphDbAccessor::InsertOnlyEdge(
-    storage::VertexAddress from, storage::VertexAddress to,
-    storage::EdgeType edge_type,
-    std::experimental::optional<gid::Gid> requested_gid,
-    std::experimental::optional<int64_t> cypher_id) {
-  CHECK(from.is_local())
-      << "`from` address should be local when calling InsertOnlyEdge";
   auto gid = db_.storage().edge_generator_.Next(requested_gid);
-  if (!cypher_id) cypher_id = utils::MemcpyCast<int64_t>(gid);
-  auto edge_vlist = new mvcc::VersionList<Edge>(transaction_, gid, *cypher_id,
-                                                from, to, edge_type);
+  auto edge_vlist = new mvcc::VersionList<Edge>(
+      transaction_, gid, from.address(), to.address(), edge_type);
   // We need to insert edge_vlist to edges_ before calling update since update
   // can throw and edge_vlist will not be garbage collected if it is not in
   // edges_ skiplist.
   bool success = db_.storage().edges_.access().insert(gid, edge_vlist).second;
   CHECK(success) << "Attempting to insert an edge with an existing GID: "
                  << gid;
-  auto ea = EdgeAccessor(storage::EdgeAddress(edge_vlist), *this, from, to,
-                         edge_type);
-  return ea;
+
+  // ensure that the "from" accessor has the latest version
+  from.SwitchNew();
+  from.update().out_.emplace(to.address(), edge_vlist, edge_type);
+
+  // ensure that the "to" accessor has the latest version (Switch new)
+  // WARNING: must do that after the above "from.update()" for cases when
+  // we are creating a cycle and "from" and "to" are the same vlist
+  to.SwitchNew();
+  to.update().in_.emplace(from.address(), edge_vlist, edge_type);
+
+  wal().Emplace(database::StateDelta::CreateEdge(
+      transaction_.id_, edge_vlist->gid_, from.gid(), to.gid(), edge_type,
+      EdgeTypeName(edge_type)));
+
+  return EdgeAccessor(edge_vlist, *this, from.address(), to.address(),
+                      edge_type);
 }
 
 int64_t GraphDbAccessor::EdgesCount() const {
@@ -419,7 +368,7 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
   if (remove_out_edge) edge.from().RemoveOutEdge(edge.address());
   if (remove_in_edge) edge.to().RemoveInEdge(edge.address());
 
-  edge.address().local()->remove(edge.current_, transaction_);
+  edge.address()->remove(edge.current_, transaction_);
   wal().Emplace(database::StateDelta::RemoveEdge(transaction_.id_, edge.gid()));
 }
 

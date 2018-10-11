@@ -19,7 +19,7 @@ set(mg_single_node_sources
     database/single_node/graph_db.cpp
     database/single_node/graph_db_accessor.cpp
     durability/single_node/state_delta.cpp
-    durability/paths.cpp
+    durability/single_node/paths.cpp
     durability/single_node/recovery.cpp
     durability/single_node/snapshooter.cpp
     durability/single_node/wal.cpp
@@ -123,7 +123,7 @@ set(mg_distributed_sources
     database/distributed/config.cpp
     database/distributed/graph_db_accessor.cpp
     durability/distributed/state_delta.cpp
-    durability/paths.cpp
+    durability/distributed/paths.cpp
     durability/distributed/recovery.cpp
     durability/distributed/snapshooter.cpp
     durability/distributed/wal.cpp

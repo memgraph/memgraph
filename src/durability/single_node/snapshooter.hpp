@@ -14,7 +14,6 @@ namespace durability {
  * @param snapshot_max_retained - maximum number of snapshots to retain.
  */
 bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
-                  int worker_id,
                   const std::experimental::filesystem::path &durability_dir,
                   int snapshot_max_retained);
 

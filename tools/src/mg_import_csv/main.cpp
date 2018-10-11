@@ -10,13 +10,11 @@
 #include <glog/logging.h>
 
 #include "config.hpp"
+#include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/hashed_file_writer.hpp"
-#include "durability/paths.hpp"
+#include "durability/single_node/paths.hpp"
 #include "durability/single_node/snapshooter.hpp"
-#include "durability/single_node/snapshot_encoder.hpp"
-#include "durability/single_node/snapshot_value.hpp"
 #include "durability/single_node/version.hpp"
-#include "storage/single_node/address_types.hpp"
 #include "utils/cast.hpp"
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
@@ -156,7 +154,7 @@ class MemgraphNodeIdMap {
   }
 
  private:
-  gid::Generator generator_{0};
+  gid::Generator generator_;
   std::unordered_map<NodeId, int64_t> node_id_to_mg_;
 };
 
@@ -262,7 +260,7 @@ std::string GetIdSpace(const std::string &type) {
 }
 
 void WriteNodeRow(
-    std::unordered_map<gid::Gid, durability::SnapshotVertex> &partial_vertices,
+    std::unordered_map<gid::Gid, communication::bolt::Vertex> &partial_vertices,
     const std::vector<Field> &fields, const std::vector<std::string> &row,
     const std::vector<std::string> &additional_labels,
     MemgraphNodeIdMap &node_id_map) {
@@ -298,12 +296,12 @@ void WriteNodeRow(
   labels.insert(labels.end(), additional_labels.begin(),
                 additional_labels.end());
   CHECK(id) << "Node ID must be specified";
-  partial_vertices[*id] = {
-      *id, utils::MemcpyCast<int64_t>(*id), labels, properties, {}};
+  partial_vertices[*id] = {communication::bolt::Id::FromUint(*id), labels,
+                           properties};
 }
 
 auto PassNodes(
-    std::unordered_map<gid::Gid, durability::SnapshotVertex> &partial_vertices,
+    std::unordered_map<gid::Gid, communication::bolt::Vertex> &partial_vertices,
     const std::string &nodes_path, MemgraphNodeIdMap &node_id_map,
     const std::vector<std::string> &additional_labels) {
   int64_t node_count = 0;
@@ -395,10 +393,10 @@ void Convert(const std::vector<std::string> &nodes,
              const std::string &output_path) {
   try {
     HashedFileWriter buffer(output_path);
-    durability::SnapshotEncoder<HashedFileWriter> encoder(buffer);
+    communication::bolt::BaseEncoder<HashedFileWriter> encoder(buffer);
     int64_t node_count = 0;
     int64_t edge_count = 0;
-    gid::Generator relationship_id_generator(0);
+    gid::Generator relationship_id_generator;
     MemgraphNodeIdMap node_id_map;
     // Snapshot file has the following contents in order:
     //   1) Magic number.
@@ -413,20 +411,10 @@ void Convert(const std::vector<std::string> &nodes,
                      durability::kSnapshotMagic.size());
     encoder.WriteValue(durability::kVersion);
 
-    encoder.WriteInt(0);  // Worker Id - for this use case it's okay to set to 0
-                          // since we are using a single-node version of
-                          // memgraph here
-    // The following two entries indicate the starting points for generating new
-    // Vertex/Edge IDs in the DB. They are only important when there are
-    // vertices/edges that were moved to another worker (in distributed
-    // Memgraph), so it's safe to set them to 0 in snapshot generation.
-    encoder.WriteInt(0);  // Internal Id of vertex generator
-    encoder.WriteInt(0);  // Internal Id of edge generator
-
     encoder.WriteInt(0);    // Id of transaction that is snapshooting.
     encoder.WriteList({});  // Transactional snapshot.
     encoder.WriteList({});  // Label + property indexes.
-    std::unordered_map<gid::Gid, durability::SnapshotVertex> vertices;
+    std::unordered_map<gid::Gid, communication::bolt::Vertex> vertices;
     std::unordered_map<gid::Gid, communication::bolt::Edge> edges;
     for (const auto &nodes_file : nodes) {
       node_count +=
@@ -436,66 +424,15 @@ void Convert(const std::vector<std::string> &nodes,
       edge_count += PassRelationships(edges, relationships_file, node_id_map,
                                       relationship_id_generator);
     }
-    for (auto edge : edges) {
-      auto encoded = edge.second;
-      auto edge_address = storage::EdgeAddress(encoded.id.AsUint(), 0);
-      vertices[encoded.from.AsUint()].out.push_back(
-          {edge_address, storage::VertexAddress(encoded.to.AsUint(), 0),
-           encoded.type});
-      vertices[encoded.to.AsUint()].in.push_back(
-          {edge_address, storage::VertexAddress(encoded.from.AsUint(), 0),
-           encoded.type});
-    }
+
     for (auto vertex_pair : vertices) {
       auto &vertex = vertex_pair.second;
-      // write node
-      encoder.WriteRAW(
-          utils::UnderlyingCast(communication::bolt::Marker::TinyStruct) + 3);
-      encoder.WriteRAW(
-          utils::UnderlyingCast(communication::bolt::Signature::Node));
-
-      encoder.WriteInt(vertex.gid);
-      auto &labels = vertex.labels;
-      std::vector<communication::bolt::Value> transformed;
-      std::transform(labels.begin(), labels.end(),
-                     std::back_inserter(transformed),
-                     [](const std::string &str) {
-                       return communication::bolt::Value(str);
-                     });
-      encoder.WriteList(transformed);
-      encoder.WriteMap(vertex.properties);
-
-      encoder.WriteInt(vertex.cypher_id);
-
-      encoder.WriteInt(vertex.in.size());
-      for (auto edge : vertex.in) {
-        encoder.WriteInt(edge.address.raw());
-        encoder.WriteInt(edge.vertex.raw());
-        encoder.WriteString(edge.type);
-      }
-      encoder.WriteInt(vertex.out.size());
-      for (auto edge : vertex.out) {
-        encoder.WriteInt(edge.address.raw());
-        encoder.WriteInt(edge.vertex.raw());
-        encoder.WriteString(edge.type);
-      }
+      encoder.WriteVertex(vertex);
     }
 
     for (auto edge_pair : edges) {
       auto &edge = edge_pair.second;
-      // write relationship
-      encoder.WriteRAW(
-          utils::UnderlyingCast(communication::bolt::Marker::TinyStruct) + 5);
-      encoder.WriteRAW(
-          utils::UnderlyingCast(communication::bolt::Signature::Relationship));
-      encoder.WriteInt(edge.id.AsInt());
-      encoder.WriteInt(edge.from.AsInt());
-      encoder.WriteInt(edge.to.AsInt());
-      encoder.WriteString(edge.type);
-      encoder.WriteMap(edge.properties);
-
-      // cypher_id
-      encoder.WriteInt(edge.id.AsInt());
+      encoder.WriteEdge(edge);
     }
 
     buffer.WriteValue(node_count);
@@ -557,10 +494,8 @@ std::string GetOutputPath() {
   } catch (const std::experimental::filesystem::filesystem_error &error) {
     LOG(FATAL) << error.what();
   }
-  int worker_id = 0;
-  // TODO(dgleich): Remove this transaction id hack
   return std::string(
-      durability::MakeSnapshotPath(durability_dir, worker_id, 0));
+      durability::MakeSnapshotPath(durability_dir, 0));
 }
 
 int main(int argc, char *argv[]) {

@@ -13,15 +13,17 @@
 
 // TODO: FIXME
 // #include "database/distributed/distributed_graph_db.hpp"
+#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/single_node/graph_db.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
 #include "durability/hashed_file_reader.hpp"
-#include "durability/paths.hpp"
+#include "durability/single_node/paths.hpp"
 #include "durability/single_node/recovery.hpp"
 #include "durability/single_node/snapshooter.hpp"
-#include "durability/single_node/snapshot_decoder.hpp"
 #include "durability/single_node/state_delta.hpp"
 #include "durability/single_node/version.hpp"
+// TODO: Why do we depend on TypedValue here?
+#include "query/typed_value.hpp"
 #include "utils/string.hpp"
 
 DECLARE_int32(wal_flush_interval_millis);
@@ -314,10 +316,9 @@ class Durability : public ::testing::Test {
     return config;
   }
 
-  void MakeSnapshot(int worker_id, database::GraphDb &db,
-                    int snapshot_max_retained = -1) {
+  void MakeSnapshot(database::GraphDb &db, int snapshot_max_retained = -1) {
     auto dba = db.Access();
-    ASSERT_TRUE(durability::MakeSnapshot(db, *dba, worker_id, durability_dir_,
+    ASSERT_TRUE(durability::MakeSnapshot(db, *dba, durability_dir_,
                                          snapshot_max_retained));
   }
 
@@ -337,7 +338,7 @@ class Durability : public ::testing::Test {
 // Tests wal encoder to encode correctly non-CRUD deltas, and that all deltas
 // are written in the correct order
 TEST_F(Durability, WalEncoding) {
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
   {
@@ -413,7 +414,7 @@ TEST_F(Durability, WalEncoding) {
 }
 
 TEST_F(Durability, SnapshotEncoding) {
-  gid::Generator generator(0);
+  gid::Generator generator;
   auto gid0 = generator.Next();
   auto gid1 = generator.Next();
   auto gid2 = generator.Next();
@@ -439,12 +440,12 @@ TEST_F(Durability, SnapshotEncoding) {
     ASSERT_EQ(e1.gid(), gid1);
     dba->BuildIndex(dba->Label("l1"), dba->Property("p1"));
     dba->Commit();
-    MakeSnapshot(0, db);
+    MakeSnapshot(db);
   }
 
   auto snapshot = GetLastFile(snapshot_dir_);
   HashedFileReader buffer;
-  durability::SnapshotDecoder<HashedFileReader> decoder(buffer);
+  communication::bolt::Decoder<HashedFileReader> decoder(buffer);
 
   int64_t vertex_count, edge_count;
   uint64_t hash;
@@ -461,15 +462,6 @@ TEST_F(Durability, SnapshotEncoding) {
   communication::bolt::Value dv;
   decoder.ReadValue(&dv);
   ASSERT_EQ(dv.ValueInt(), durability::kVersion);
-  // Worker id
-  decoder.ReadValue(&dv);
-  ASSERT_EQ(dv.ValueInt(), 0);
-  // Number of generated vertex ids.
-  decoder.ReadValue(&dv);
-  ASSERT_TRUE(dv.IsInt());
-  // Number of generated edge ids.
-  decoder.ReadValue(&dv);
-  ASSERT_TRUE(dv.IsInt());
   // Transaction ID.
   decoder.ReadValue(&dv);
   ASSERT_TRUE(dv.IsInt());
@@ -482,13 +474,14 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(dv.ValueList()[0].ValueString(), "l1");
   EXPECT_EQ(dv.ValueList()[1].ValueString(), "p1");
 
-  std::map<gid::Gid, durability::SnapshotVertex> decoded_vertices;
+  std::map<gid::Gid, communication::bolt::Vertex> decoded_vertices;
 
   // Decode vertices.
   for (int i = 0; i < vertex_count; ++i) {
-    auto vertex = decoder.ReadSnapshotVertex();
-    ASSERT_NE(vertex, std::experimental::nullopt);
-    decoded_vertices.emplace(vertex->gid, *vertex);
+    ASSERT_TRUE(
+        decoder.ReadValue(&dv, communication::bolt::Value::Type::Vertex));
+    auto &vertex = dv.ValueVertex();
+    decoded_vertices.emplace(vertex.id.AsUint(), vertex);
   }
   ASSERT_EQ(decoded_vertices.size(), 3);
   ASSERT_EQ(decoded_vertices[gid0].labels.size(), 1);
@@ -504,13 +497,9 @@ TEST_F(Durability, SnapshotEncoding) {
 
   // Decode edges.
   for (int i = 0; i < edge_count; ++i) {
-    decoder.ReadValue(&dv);
-    ASSERT_EQ(dv.type(), communication::bolt::Value::Type::Edge);
+    ASSERT_TRUE(decoder.ReadValue(&dv, communication::bolt::Value::Type::Edge));
     auto &edge = dv.ValueEdge();
     decoded_edges.emplace(edge.id.AsUint(), edge);
-    // Read cypher_id.
-    decoder.ReadValue(&dv);
-    ASSERT_EQ(dv.type(), communication::bolt::Value::Type::Int);
   }
   EXPECT_EQ(decoded_edges.size(), 2);
   EXPECT_EQ(decoded_edges[gid0].from.AsUint(), gid0);
@@ -536,77 +525,12 @@ TEST_F(Durability, SnapshotRecovery) {
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
   MakeDb(db, 300, {3, 4});
-  MakeSnapshot(0, db);
+  MakeSnapshot(db);
   {
     auto recovered_config = DbConfig();
     recovered_config.db_recover_on_startup = true;
     database::GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
-  }
-}
-
-TEST_F(Durability, SnapshotNoVerticesIdRecovery) {
-  database::GraphDb db{DbConfig()};
-  MakeDb(db, 10);
-
-  // Erase all vertices, this should cause snapshot to not have any more
-  // vertices which should make it not change any id after snapshot recovery,
-  // but we still have to make sure that the id for generators is recovered
-  {
-    auto dba = db.Access();
-    for (auto vertex : dba->Vertices(false)) dba->RemoveVertex(vertex);
-    dba->Commit();
-  }
-
-  MakeSnapshot(0, db);
-  {
-    auto recovered_config = DbConfig();
-    recovered_config.db_recover_on_startup = true;
-    database::GraphDb recovered{recovered_config};
-    EXPECT_EQ(db.storage().VertexGenerator().LocalCount(),
-              recovered.storage().VertexGenerator().LocalCount());
-    EXPECT_EQ(db.storage().EdgeGenerator().LocalCount(),
-              recovered.storage().EdgeGenerator().LocalCount());
-  }
-}
-
-TEST_F(Durability, SnapshotAndWalIdRecovery) {
-  auto config = DbConfig();
-  config.durability_enabled = true;
-  database::GraphDb db{config};
-  MakeDb(db, 300);
-  MakeSnapshot(0, db);
-  MakeDb(db, 300);
-  db.wal().Flush();
-  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 1);
-  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
-  {
-    auto recovered_config = DbConfig();
-    recovered_config.db_recover_on_startup = true;
-    database::GraphDb recovered{recovered_config};
-    EXPECT_EQ(db.storage().VertexGenerator().LocalCount(),
-              recovered.storage().VertexGenerator().LocalCount());
-    EXPECT_EQ(db.storage().EdgeGenerator().LocalCount(),
-              recovered.storage().EdgeGenerator().LocalCount());
-  }
-}
-
-TEST_F(Durability, OnlyWalIdRecovery) {
-  auto config = DbConfig();
-  config.durability_enabled = true;
-  database::GraphDb db{config};
-  MakeDb(db, 300);
-  db.wal().Flush();
-  ASSERT_EQ(DirFiles(snapshot_dir_).size(), 0);
-  EXPECT_GT(DirFiles(wal_dir_).size(), 1);
-  {
-    auto recovered_config = DbConfig();
-    recovered_config.db_recover_on_startup = true;
-    database::GraphDb recovered{recovered_config};
-    EXPECT_EQ(db.storage().VertexGenerator().LocalCount(),
-              recovered.storage().VertexGenerator().LocalCount());
-    EXPECT_EQ(db.storage().EdgeGenerator().LocalCount(),
-              recovered.storage().EdgeGenerator().LocalCount());
   }
 }
 
@@ -649,7 +573,7 @@ TEST_F(Durability, SnapshotAndWalRecovery) {
   database::GraphDb db{config};
   MakeDb(db, 300, {0, 1, 2});
   MakeDb(db, 300);
-  MakeSnapshot(0, db);
+  MakeSnapshot(db);
   MakeDb(db, 300, {3, 4});
   MakeDb(db, 300);
   MakeDb(db, 300, {5});
@@ -685,7 +609,7 @@ TEST_F(Durability, SnapshotAndWalRecoveryAfterComplexTxSituation) {
   MakeDb(*dba_3, 100);
   dba_3->Commit();
 
-  MakeSnapshot(0, db);  // Snapshooter takes the fourth transaction.
+  MakeSnapshot(db);  // Snapshooter takes the fourth transaction.
   dba_2->Commit();
 
   // The fifth transaction starts and commits after snapshot.
@@ -747,7 +671,7 @@ TEST_F(Durability, SnapshotRetention) {
     // Track the added snapshots to ensure the correct ones are pruned.
     std::unordered_set<std::string> snapshots;
     for (int i = 0; i < count; ++i) {
-      MakeSnapshot(0, db, retain);
+      MakeSnapshot(db, retain);
       auto latest = GetLastFile(snapshot_dir_);
       snapshots.emplace(GetLastFile(snapshot_dir_));
       // Ensures that the latest snapshot was not in the snapshots collection
@@ -767,13 +691,13 @@ TEST_F(Durability, WalRetention) {
     config.durability_enabled = true;
     database::GraphDb db{config};
     MakeDb(db, 100);
-    MakeSnapshot(0, db);
+    MakeSnapshot(db);
     MakeDb(db, 100);
     EXPECT_EQ(DirFiles(snapshot_dir_).size(), 1);
     db.wal().Flush();
     // 1 current WAL file, plus retained ones
     EXPECT_GT(DirFiles(wal_dir_).size(), 1);
-    MakeSnapshot(0, db);
+    MakeSnapshot(db);
     db.wal().Flush();
   }
 
@@ -882,13 +806,13 @@ TEST_F(Durability, SequentialRecovery) {
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);
     if (snapshot_during) {
-      MakeSnapshot(0, db);
+      MakeSnapshot(db);
     }
     std::this_thread::sleep_for(25ms);
     keep_running = false;
     for (auto &t : update_theads) t.join();
     if (snapshot_after) {
-      MakeSnapshot(0, db);
+      MakeSnapshot(db);
     }
 
     db.wal().Flush();
@@ -926,7 +850,7 @@ TEST_F(Durability, ContainsDurabilityFilesSnapshot) {
     database::GraphDb db{DbConfig()};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
-    MakeSnapshot(0, db);
+    MakeSnapshot(db);
   }
   ASSERT_TRUE(durability::ContainsDurabilityFiles(durability_dir_));
 }
@@ -949,7 +873,7 @@ TEST_F(Durability, MoveToBackupSnapshot) {
     database::GraphDb db{DbConfig()};
     auto dba = db.Access();
     auto v0 = dba->InsertVertex();
-    MakeSnapshot(0, db);
+    MakeSnapshot(db);
   }
 
   // durability-enabled=true, db-recover-on-startup=false

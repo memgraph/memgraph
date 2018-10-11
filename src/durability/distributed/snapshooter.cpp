@@ -5,10 +5,10 @@
 #include <glog/logging.h>
 
 #include "database/distributed/graph_db_accessor.hpp"
+#include "durability/distributed/paths.hpp"
 #include "durability/distributed/snapshot_encoder.hpp"
 #include "durability/distributed/version.hpp"
 #include "durability/hashed_file_writer.hpp"
-#include "durability/paths.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::experimental::filesystem;

@@ -26,8 +26,7 @@ namespace durability {
 /// indeterminism.
 class WriteAheadLog {
  public:
-  WriteAheadLog(int worker_id,
-                const std::experimental::filesystem::path &durability_dir,
+  WriteAheadLog(const std::experimental::filesystem::path &durability_dir,
                 bool durability_enabled, bool synchronous_commit);
   ~WriteAheadLog();
 
@@ -48,7 +47,7 @@ class WriteAheadLog {
   /// Groups the logic of WAL file handling (flushing, naming, rotating)
   class WalFile {
    public:
-    WalFile(int worker_id, const std::experimental::filesystem::path &wal__dir);
+    explicit WalFile(const std::experimental::filesystem::path &durability_dir);
     ~WalFile();
 
     /// Initializes the WAL file. Must be called before first flush. Can be
@@ -62,7 +61,6 @@ class WriteAheadLog {
    private:
     /// Mutex used for flushing wal data
     std::mutex flush_mutex_;
-    int worker_id_;
     const std::experimental::filesystem::path wal_dir_;
     HashedFileWriter writer_;
     communication::bolt::BaseEncoder<HashedFileWriter> encoder_{writer_};

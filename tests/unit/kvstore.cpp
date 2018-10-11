@@ -3,7 +3,6 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "durability/paths.hpp"
 #include "storage/kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 

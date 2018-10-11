@@ -10,11 +10,9 @@
 using database::StateDelta;
 
 template <typename TRecord>
-RecordAccessor<TRecord>::RecordAccessor(AddressT address,
+RecordAccessor<TRecord>::RecordAccessor(mvcc::VersionList<TRecord> *address,
                                         database::GraphDbAccessor &db_accessor)
-    : db_accessor_(&db_accessor),
-      address_(db_accessor.db().storage().LocalizedAddressIfPossible(address)) {
-}
+    : db_accessor_(&db_accessor), address_(address) {}
 
 template <typename TRecord>
 PropertyValue RecordAccessor<TRecord>::PropsAt(storage::Property key) const {
@@ -28,10 +26,8 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                           dba.PropertyName(key), value);
   update().properties_.set(key, value);
-  if (is_local()) {
-    dba.UpdatePropertyIndex(key, *this, &update());
-  }
-  ProcessDelta(delta);
+  dba.UpdatePropertyIndex(key, *this, &update());
+  db_accessor().wal().Emplace(delta);
 }
 
 template <>
@@ -42,7 +38,7 @@ void RecordAccessor<Edge>::PropsSet(storage::Property key,
                                         dba.PropertyName(key), value);
 
   update().properties_.set(key, value);
-  ProcessDelta(delta);
+  db_accessor().wal().Emplace(delta);
 }
 
 template <>
@@ -52,7 +48,7 @@ void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
       StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                  dba.PropertyName(key), PropertyValue::Null);
   update().properties_.set(key, PropertyValue::Null);
-  ProcessDelta(delta);
+  db_accessor().wal().Emplace(delta);
 }
 
 template <>
@@ -62,7 +58,7 @@ void RecordAccessor<Edge>::PropsErase(storage::Property key) {
       StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
                                dba.PropertyName(key), PropertyValue::Null);
   update().properties_.set(key, PropertyValue::Null);
-  ProcessDelta(delta);
+  db_accessor().wal().Emplace(delta);
 }
 
 template <typename TRecord>
@@ -93,39 +89,24 @@ database::GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
 
 template <typename TRecord>
 gid::Gid RecordAccessor<TRecord>::gid() const {
-  return is_local() ? address_.local()->gid_ : address_.gid();
+  return address_->gid_;
 }
 
 template <typename TRecord>
-typename RecordAccessor<TRecord>::AddressT RecordAccessor<TRecord>::address()
-    const {
+typename mvcc::VersionList<TRecord> *RecordAccessor<TRecord>::address() const {
   return address_;
 }
 
 template <typename TRecord>
-typename RecordAccessor<TRecord>::AddressT
-RecordAccessor<TRecord>::GlobalAddress() const {
-  // TODO: This is still coupled to distributed storage, albeit loosely.
-  int worker_id = 0;
-  CHECK(is_local());
-  return storage::Address<mvcc::VersionList<TRecord>>(gid(), worker_id);
-}
-
-template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
-  if (is_local()) {
-    if (!new_) {
-      // if new_ is not set yet, look for it
-      // we can just Reconstruct the pointers, old_ will get initialized
-      // to the same value as it has now, and the amount of work is the
-      // same as just looking for a new_ record
-      if (!Reconstruct())
-        DLOG(FATAL)
-            << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
-    }
-  } else {
-    // A remote record only sees local updates, until the command is advanced.
-    // So this does nothing, as the old/new switch happens below.
+  if (!new_) {
+    // if new_ is not set yet, look for it
+    // we can just Reconstruct the pointers, old_ will get initialized
+    // to the same value as it has now, and the amount of work is the
+    // same as just looking for a new_ record
+    if (!Reconstruct())
+      DLOG(FATAL)
+          << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
   }
   current_ = new_ ? new_ : old_;
   return *this;
@@ -141,8 +122,7 @@ template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
   auto &dba = db_accessor();
   const auto &addr = address();
-  CHECK(is_local());
-  addr.local()->find_set_old_new(dba.transaction(), &old_, &new_);
+  addr->find_set_old_new(dba.transaction(), &old_, &new_);
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
 }
@@ -165,8 +145,7 @@ TRecord &RecordAccessor<TRecord>::update() const {
   if (new_) return *new_;
 
   const auto &addr = address();
-  CHECK(addr.is_local());
-  new_ = addr.local()->update(dba.transaction());
+  new_ = addr->update(dba.transaction());
 
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
@@ -174,7 +153,7 @@ TRecord &RecordAccessor<TRecord>::update() const {
 
 template <typename TRecord>
 int64_t RecordAccessor<TRecord>::CypherId() const {
-  return address().local()->cypher_id();
+  return address()->cypher_id();
 }
 
 template <typename TRecord>
@@ -186,13 +165,6 @@ const TRecord &RecordAccessor<TRecord>::current() const {
   }
   DCHECK(current_ != nullptr) << "RecordAccessor.current_ pointer is nullptr";
   return *current_;
-}
-
-template <typename TRecord>
-void RecordAccessor<TRecord>::ProcessDelta(
-    const database::StateDelta &delta) const {
-  CHECK(is_local());
-  db_accessor().wal().Emplace(delta);
 }
 
 template class RecordAccessor<Vertex>;

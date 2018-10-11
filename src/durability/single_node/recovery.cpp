@@ -4,17 +4,13 @@
 #include <limits>
 #include <unordered_map>
 
+#include "communication/bolt/v1/decoder/decoder.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
 #include "durability/hashed_file_reader.hpp"
-#include "durability/paths.hpp"
-#include "durability/single_node/snapshot_decoder.hpp"
-#include "durability/single_node/snapshot_value.hpp"
+#include "durability/single_node/paths.hpp"
 #include "durability/single_node/version.hpp"
 #include "durability/single_node/wal.hpp"
 #include "glue/communication.hpp"
-// TODO: WTF is typed value doing here?!
-#include "query/typed_value.hpp"
-#include "storage/single_node/address_types.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
@@ -44,7 +40,7 @@ bool VersionConsistency(const fs::path &durability_dir) {
 
     for (const auto &file : fs::directory_iterator(recovery_dir)) {
       HashedFileReader reader;
-      SnapshotDecoder<HashedFileReader> decoder(reader);
+      communication::bolt::Decoder<HashedFileReader> decoder(reader);
 
       // The following checks are ok because we are only trying to detect
       // version inconsistencies.
@@ -108,9 +104,9 @@ using communication::bolt::Value;
   }
 
 bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
-                     RecoveryData *recovery_data, int worker_id) {
+                     RecoveryData *recovery_data) {
   HashedFileReader reader;
-  SnapshotDecoder<HashedFileReader> decoder(reader);
+  communication::bolt::Decoder<HashedFileReader> decoder(reader);
 
   RETURN_IF_NOT(reader.Open(snapshot_file));
 
@@ -128,20 +124,6 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   Value dv;
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
                 dv.ValueInt() == durability::kVersion);
-
-  // Checks worker id was set correctly
-  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int) &&
-                dv.ValueInt() == worker_id);
-
-  // Vertex and edge generator ids
-  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
-  uint64_t vertex_generator_cnt = dv.ValueInt();
-  db->storage().VertexGenerator().SetId(std::max(
-      db->storage().VertexGenerator().LocalCount(), vertex_generator_cnt));
-  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
-  uint64_t edge_generator_cnt = dv.ValueInt();
-  db->storage().EdgeGenerator().SetId(
-      std::max(db->storage().EdgeGenerator().LocalCount(), edge_generator_cnt));
 
   RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::Int));
   recovery_data->snapshooter_tx_id = dv.ValueInt();
@@ -165,87 +147,33 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   }
 
   auto dba = db->Access();
-  std::unordered_map<gid::Gid,
-                     std::pair<storage::VertexAddress, storage::VertexAddress>>
-      edge_gid_endpoints_mapping;
-
+  std::unordered_map<uint64_t, VertexAccessor> vertices;
   for (int64_t i = 0; i < vertex_count; ++i) {
-    auto vertex = decoder.ReadSnapshotVertex();
-    RETURN_IF_NOT(vertex);
+    Value vertex_dv;
+    RETURN_IF_NOT(decoder.ReadValue(&vertex_dv, Value::Type::Vertex));
+    auto &vertex = vertex_dv.ValueVertex();
+    auto vertex_accessor = dba->InsertVertex(vertex.id.AsUint());
 
-    auto vertex_accessor = dba->InsertVertex(vertex->gid, vertex->cypher_id);
-    for (const auto &label : vertex->labels) {
+    for (const auto &label : vertex.labels) {
       vertex_accessor.add_label(dba->Label(label));
     }
-    for (const auto &property_pair : vertex->properties) {
+    for (const auto &property_pair : vertex.properties) {
       vertex_accessor.PropsSet(dba->Property(property_pair.first),
                                glue::ToPropertyValue(property_pair.second));
     }
-    auto vertex_record = vertex_accessor.GetNew();
-    for (const auto &edge : vertex->in) {
-      vertex_record->in_.emplace(edge.vertex, edge.address,
-                                 dba->EdgeType(edge.type));
-      edge_gid_endpoints_mapping[edge.address.gid()] = {
-          edge.vertex, vertex_accessor.GlobalAddress()};
-    }
-    for (const auto &edge : vertex->out) {
-      vertex_record->out_.emplace(edge.vertex, edge.address,
-                                  dba->EdgeType(edge.type));
-      edge_gid_endpoints_mapping[edge.address.gid()] = {
-          vertex_accessor.GlobalAddress(), edge.vertex};
-    }
+    vertices.insert({vertex.id.AsUint(), vertex_accessor});
   }
 
-  auto vertex_transform_to_local_if_possible =
-      [&dba, worker_id](storage::VertexAddress &address) {
-        if (address.is_local()) return;
-        // If the worker id matches it should be a local apperance
-        if (address.worker_id() == worker_id) {
-          address = storage::VertexAddress(
-              dba->db().storage().LocalAddress<Vertex>(address.gid()));
-          CHECK(address.is_local()) << "Address should be local but isn't";
-        }
-      };
-
-  auto edge_transform_to_local_if_possible =
-      [&dba, worker_id](storage::EdgeAddress &address) {
-        if (address.is_local()) return;
-        // If the worker id matches it should be a local apperance
-        if (address.worker_id() == worker_id) {
-          address = storage::EdgeAddress(
-              dba->db().storage().LocalAddress<Edge>(address.gid()));
-          CHECK(address.is_local()) << "Address should be local but isn't";
-        }
-      };
-
-  Value dv_cypher_id;
-
   for (int64_t i = 0; i < edge_count; ++i) {
-    RETURN_IF_NOT(
-        decoder.ReadValue(&dv, communication::bolt::Value::Type::Edge));
-    auto &edge = dv.ValueEdge();
-
-    // Read cypher_id
-    RETURN_IF_NOT(decoder.ReadValue(&dv_cypher_id,
-                                    communication::bolt::Value::Type::Int));
-    auto cypher_id = dv_cypher_id.ValueInt();
-
-    // We have to take full edge endpoints from vertices since the endpoints
-    // found here don't containt worker_id, and this can't be changed since this
-    // edges must be bolt-compliant
-    auto &edge_endpoints = edge_gid_endpoints_mapping[edge.id.AsUint()];
-
-    storage::VertexAddress from;
-    storage::VertexAddress to;
-    std::tie(from, to) = edge_endpoints;
-
-    // From and to are written in the global_address format and we should
-    // convert them back to local format for speedup - if possible
-    vertex_transform_to_local_if_possible(from);
-    vertex_transform_to_local_if_possible(to);
-
-    auto edge_accessor = dba->InsertOnlyEdge(from, to, dba->EdgeType(edge.type),
-                                             edge.id.AsUint(), cypher_id);
+    Value edge_dv;
+    RETURN_IF_NOT(decoder.ReadValue(&edge_dv, Value::Type::Edge));
+    auto &edge = edge_dv.ValueEdge();
+    auto it_from = vertices.find(edge.from.AsUint());
+    auto it_to = vertices.find(edge.to.AsUint());
+    RETURN_IF_NOT(it_from != vertices.end() && it_to != vertices.end());
+    auto edge_accessor =
+        dba->InsertEdge(it_from->second, it_to->second,
+                        dba->EdgeType(edge.type), edge.id.AsUint());
 
     for (const auto &property_pair : edge.properties)
       edge_accessor.PropsSet(dba->Property(property_pair.first),
@@ -259,32 +187,6 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
   if (!reader.Close() || reader.hash() != hash) {
     dba->Abort();
     return false;
-  }
-
-  // We have to replace global_ids with local ids where possible for all edges
-  // in every vertex and this can only be done after we inserted the edges; this
-  // is to speedup execution
-  for (auto &vertex_accessor : dba->Vertices(true)) {
-    auto vertex = vertex_accessor.GetNew();
-    auto iterate_and_transform =
-        [vertex_transform_to_local_if_possible,
-         edge_transform_to_local_if_possible](Edges &edges) {
-          Edges transformed;
-          for (auto &element : edges) {
-            auto vertex = element.vertex;
-            vertex_transform_to_local_if_possible(vertex);
-
-            auto edge = element.edge;
-            edge_transform_to_local_if_possible(edge);
-
-            transformed.emplace(vertex, edge, element.edge_type);
-          }
-
-          return transformed;
-        };
-
-    vertex->in_ = iterate_and_transform(vertex->in_);
-    vertex->out_ = iterate_and_transform(vertex->out_);
   }
 
   // Ensure that the next transaction ID in the recovered DB will be greater
@@ -374,8 +276,7 @@ std::vector<tx::TransactionId> ReadWalRecoverableTransactions(
 RecoveryInfo RecoverOnlySnapshot(
     const fs::path &durability_dir, database::GraphDb *db,
     RecoveryData *recovery_data,
-    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id,
-    int worker_id) {
+    std::experimental::optional<tx::TransactionId> required_snapshot_tx_id) {
   // Attempt to recover from snapshot files in reverse order (from newest
   // backwards).
   const auto snapshot_dir = durability_dir / kSnapshotDir;
@@ -397,7 +298,7 @@ RecoveryInfo RecoverOnlySnapshot(
       }
     }
     LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
-    if (!RecoverSnapshot(snapshot_file, db, recovery_data, worker_id)) {
+    if (!RecoverSnapshot(snapshot_file, db, recovery_data)) {
       db->ReinitializeStorage();
       recovery_data->Clear();
       LOG(WARNING) << "Snapshot recovery failed, trying older snapshot...";

@@ -6,7 +6,7 @@
 
 #include "database/single_node/counters.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
-#include "durability/paths.hpp"
+#include "durability/single_node/paths.hpp"
 #include "durability/single_node/recovery.hpp"
 #include "durability/single_node/snapshooter.hpp"
 #include "storage/single_node/concurrent_id_mapper.hpp"
@@ -17,8 +17,6 @@
 namespace database {
 
 GraphDb::GraphDb(Config config) : config_(config) {
-  CHECK(config.worker_id == 0)
-      << "Worker ID should only be set in distributed GraphDb";
   if (config_.durability_enabled) utils::CheckDir(config_.durability_directory);
 
   // Durability recovery.
@@ -33,7 +31,7 @@ GraphDb::GraphDb(Config config) : config_(config) {
 
     recovery_info = durability::RecoverOnlySnapshot(
         config_.durability_directory, this, &recovery_data,
-        std::experimental::nullopt, 0);
+        std::experimental::nullopt);
 
     // Post-recovery setup and checking.
     if (recovery_info) {
@@ -132,7 +130,7 @@ void GraphDb::CollectGarbage() { storage_gc_->CollectGarbage(); }
 
 bool GraphDb::MakeSnapshot(GraphDbAccessor &accessor) {
   const bool status = durability::MakeSnapshot(
-      *this, accessor, 0, fs::path(config_.durability_directory),
+      *this, accessor, fs::path(config_.durability_directory),
       config_.snapshot_max_retained);
   if (status) {
     LOG(INFO) << "Snapshot created successfully.";
@@ -145,8 +143,7 @@ bool GraphDb::MakeSnapshot(GraphDbAccessor &accessor) {
 void GraphDb::ReinitializeStorage() {
   // Release gc scheduler to stop it from touching storage
   storage_gc_ = nullptr;
-  storage_ =
-      std::make_unique<Storage>(config_.worker_id, config_.properties_on_disk);
+  storage_ = std::make_unique<Storage>(config_.properties_on_disk);
   storage_gc_ =
       std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);
 }

@@ -4,7 +4,7 @@
 #include "storage/vertex_accessor.hpp"
 #include "utils/algorithm.hpp"
 
-EdgeAccessor::EdgeAccessor(EdgeAddress address,
+EdgeAccessor::EdgeAccessor(mvcc::VersionList<Edge> *address,
                            database::GraphDbAccessor &db_accessor)
     : RecordAccessor(address, db_accessor),
       from_(nullptr),
@@ -18,9 +18,10 @@ EdgeAccessor::EdgeAccessor(EdgeAddress address,
   }
 }
 
-EdgeAccessor::EdgeAccessor(EdgeAddress address,
+EdgeAccessor::EdgeAccessor(mvcc::VersionList<Edge> *address,
                            database::GraphDbAccessor &db_accessor,
-                           VertexAddress from, VertexAddress to,
+                           mvcc::VersionList<Vertex> *from,
+                           mvcc::VersionList<Vertex> *to,
                            storage::EdgeType edge_type)
     : RecordAccessor(address, db_accessor),
       from_(from),

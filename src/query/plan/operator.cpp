@@ -176,8 +176,6 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
   TypedValue &vertex_value = frame[self_.input_symbol_];
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
   auto &v1 = vertex_value.Value<VertexAccessor>();
-  CHECK(v1.GlobalAddress().worker_id() == 0 && v1.is_local())
-      << "Expected CreateExpand only in single node execution";
 
   // Similarly to CreateNode, newly created edges and nodes should use the
   // latest accesors.
@@ -485,8 +483,6 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
-      CHECK(edge.address().is_local() && edge.from().address().is_local())
-          << "Expected Expand only in single node execution";
       frame[self_.edge_symbol_] = edge;
       pull_node(edge, EdgeAtom::Direction::IN);
       return true;
@@ -495,8 +491,6 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
     // attempt to get a value from the outgoing edges
     if (out_edges_ && *out_edges_it_ != out_edges_->end()) {
       auto edge = *(*out_edges_it_)++;
-      CHECK(edge.address().is_local() && edge.to().address().is_local())
-          << "Expected Expand only in single node execution";
       // when expanding in EdgeAtom::Direction::BOTH directions
       // we should do only one expansion for cycles, and it was
       // already done in the block above

@@ -809,7 +809,7 @@ Feature: Functions
             MATCH (n) WITH n ORDER BY id(n)
             WITH COLLECT(id(n)) AS node_ids
             UNWIND node_ids AS node_id
-            RETURN (node_id - node_ids[0]) / 1024 AS id;
+            RETURN node_id - node_ids[0] AS id;
             """
         Then the result should be:
             | id |
@@ -828,7 +828,7 @@ Feature: Functions
             MATCH ()-[e]->() WITH e ORDER BY id(e)
             WITH COLLECT(id(e)) AS edge_ids
             UNWIND edge_ids AS edge_id
-            RETURN (edge_id - edge_ids[0]) / 1024 AS id;
+            RETURN edge_id - edge_ids[0] AS id;
             """
         Then the result should be:
             | id |

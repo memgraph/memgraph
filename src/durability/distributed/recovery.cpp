@@ -5,12 +5,12 @@
 #include <unordered_map>
 
 #include "database/distributed/graph_db_accessor.hpp"
+#include "durability/distributed/paths.hpp"
 #include "durability/distributed/snapshot_decoder.hpp"
 #include "durability/distributed/snapshot_value.hpp"
 #include "durability/distributed/version.hpp"
 #include "durability/distributed/wal.hpp"
 #include "durability/hashed_file_reader.hpp"
-#include "durability/paths.hpp"
 #include "glue/communication.hpp"
 // TODO: WTF is typed value doing here?!
 #include "query/typed_value.hpp"

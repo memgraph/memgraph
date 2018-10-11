@@ -24,6 +24,15 @@ void PrintTo(const query::EdgeAtom::Direction &dir, std::ostream *os) {
 }
 }  // namespace query
 
+#ifdef MG_SINGLE_NODE
+using VertexAddress = mvcc::VersionList<Vertex> *;
+using EdgeAddress = mvcc::VersionList<Edge> *;
+#endif
+#ifdef MG_DISTRIBUTED
+using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
+using EdgeAddress = storage::Address<mvcc::VersionList<Edge>>;
+#endif
+
 const auto kVertexCount = 6;
 // Maps vertices to workers
 const std::vector<int> kVertexLocations = {0, 1, 1, 0, 2, 2};
@@ -195,8 +204,8 @@ class Database {
       bool existing_node, query::Expression *lower_bound,
       query::Expression *upper_bound,
       const query::plan::ExpansionLambda &filter_lambda) = 0;
-  virtual std::pair<std::vector<storage::VertexAddress>,
-                    std::vector<storage::EdgeAddress>>
+  virtual std::pair<std::vector<VertexAddress>,
+                    std::vector<EdgeAddress>>
   BuildGraph(database::GraphDbAccessor *dba,
              const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
@@ -208,7 +217,7 @@ class Database {
 // include query::TypedValue::Null to account for the optional match case.
 std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
     database::GraphDbAccessor *dba,
-    std::vector<storage::VertexAddress> vertices, query::Symbol symbol,
+    std::vector<VertexAddress> vertices, query::Symbol symbol,
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
   frames.push_back(std::vector<query::TypedValue>{query::TypedValue::Null});
@@ -223,8 +232,8 @@ std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
 // Returns an operator that yields edges and vertices given by their address.
 std::unique_ptr<query::plan::LogicalOperator> YieldEntities(
     database::GraphDbAccessor *dba,
-    std::vector<storage::VertexAddress> vertices,
-    std::vector<storage::EdgeAddress> edges, query::Symbol symbol,
+    std::vector<VertexAddress> vertices,
+    std::vector<EdgeAddress> edges, query::Symbol symbol,
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
   for (const auto &vertex : vertices) {
@@ -312,8 +321,8 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
   context.symbol_table_[*inner_node] = inner_node_sym;
   context.symbol_table_[*inner_edge] = inner_edge_sym;
 
-  std::vector<storage::VertexAddress> vertices;
-  std::vector<storage::EdgeAddress> edges;
+  std::vector<VertexAddress> vertices;
+  std::vector<EdgeAddress> edges;
 
   std::tie(vertices, edges) =
       db->BuildGraph(dba_ptr.get(), kVertexLocations, kEdges);

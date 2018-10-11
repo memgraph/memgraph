@@ -20,7 +20,6 @@
  * takes care of MVCC versioning.
  */
 class VertexAccessor final : public RecordAccessor<Vertex> {
-  using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
   // Helper function for creating an iterator over edges.
   // @param begin - begin iterator
   // @param end - end iterator
@@ -31,7 +30,8 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
   // @return - Iterator over EdgeAccessors
   template <typename TIterator>
   static inline auto MakeAccessorIterator(
-      TIterator &&begin, TIterator &&end, bool from, VertexAddress vertex,
+      TIterator &&begin, TIterator &&end, bool from,
+      mvcc::VersionList<Vertex> *vertex,
       database::GraphDbAccessor &db_accessor) {
     return iter::imap(
         [from, vertex, &db_accessor](auto &edges_element) {
@@ -49,7 +49,8 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
   }
 
  public:
-  VertexAccessor(VertexAddress address, database::GraphDbAccessor &db_accessor);
+  VertexAccessor(mvcc::VersionList<Vertex> *address,
+                 database::GraphDbAccessor &db_accessor);
 
   /** Returns the number of outgoing edges. */
   size_t out_degree() const;
@@ -97,9 +98,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto in(const std::vector<storage::EdgeType> *edge_types) const {
-    return MakeAccessorIterator(
-        current().in_.begin(storage::VertexAddress(nullptr), edge_types),
-        current().in_.end(), false, address(), db_accessor());
+    return MakeAccessorIterator(current().in_.begin(nullptr, edge_types),
+                                current().in_.end(), false, address(),
+                                db_accessor());
   }
 
   /** Returns EdgeAccessors for all outgoing edges. */
@@ -130,20 +131,20 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto out(const std::vector<storage::EdgeType> *edge_types) const {
-    return MakeAccessorIterator(
-        current().out_.begin(storage::VertexAddress(nullptr), edge_types),
-        current().out_.end(), true, address(), db_accessor());
+    return MakeAccessorIterator(current().out_.begin(nullptr, edge_types),
+                                current().out_.end(), true, address(),
+                                db_accessor());
   }
 
   /** Removes the given edge from the outgoing edges of this vertex. Note that
    * this operation should always be accompanied by the removal of the edge from
    * the incoming edges on the other side and edge deletion. */
-  void RemoveOutEdge(storage::EdgeAddress edge);
+  void RemoveOutEdge(mvcc::VersionList<Edge> *edge);
 
   /** Removes the given edge from the incoming edges of this vertex. Note that
    * this operation should always be accompanied by the removal of the edge from
    * the outgoing edges on the other side and edge deletion. */
-  void RemoveInEdge(storage::EdgeAddress edge);
+  void RemoveInEdge(mvcc::VersionList<Edge> *edge);
 };
 
 std::ostream &operator<<(std::ostream &, const VertexAccessor &);
