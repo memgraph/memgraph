@@ -860,19 +860,34 @@ TEST_F(ExpressionEvaluatorPropertyLookup, MapLiteral) {
 
 class FunctionTest : public ExpressionEvaluatorTest {
  protected:
-  TypedValue EvaluateFunction(const std::string &function_name,
-                              const std::vector<TypedValue> &args) {
+  std::vector<Expression *> ExpressionsFromTypedValues(
+      const std::vector<TypedValue> &tvs) {
     std::vector<Expression *> expressions;
-    for (size_t i = 0; i < args.size(); ++i) {
+    expressions.reserve(tvs.size());
+
+    for (size_t i = 0; i < tvs.size(); ++i) {
       auto *ident =
           storage.Create<Identifier>("arg_" + std::to_string(i), true);
       auto sym = symbol_table.CreateSymbol("arg_" + std::to_string(i), true);
       symbol_table[*ident] = sym;
-      frame[sym] = args[i];
+      frame[sym] = tvs[i];
       expressions.push_back(ident);
     }
+
+    return expressions;
+  }
+
+  TypedValue EvaluateFunctionWithExprs(
+      const std::string &function_name,
+      const std::vector<Expression *> &expressions) {
     auto *op = storage.Create<Function>(function_name, expressions);
     return op->Accept(eval);
+  }
+
+  TypedValue EvaluateFunction(const std::string &function_name,
+                              const std::vector<TypedValue> &args) {
+    return EvaluateFunctionWithExprs(function_name,
+                                     ExpressionsFromTypedValues(args));
   }
 };
 
@@ -882,6 +897,20 @@ TEST_F(FunctionTest, Coalesce) {
                   .IsNull());
   ASSERT_EQ(EvaluateFunction("COALESCE", {TypedValue::Null, 2, 3}).ValueInt(),
             2);
+
+  // (null, 2, assert(false), 3)
+  auto expressions1 = ExpressionsFromTypedValues({TypedValue::Null, 2, 3});
+  expressions1.insert(
+      expressions1.begin() + 2,
+      storage.Create<Function>("ASSERT", ExpressionsFromTypedValues({false})));
+  ASSERT_EQ(EvaluateFunctionWithExprs("COALESCE", expressions1).ValueInt(), 2);
+
+  // (null, assert(false))
+  auto expressions2 = ExpressionsFromTypedValues({TypedValue::Null});
+  expressions2.push_back(
+      storage.Create<Function>("ASSERT", ExpressionsFromTypedValues({false})));
+  ASSERT_THROW(EvaluateFunctionWithExprs("COALESCE", expressions2),
+               QueryRuntimeException);
 }
 
 TEST_F(FunctionTest, EndNode) {

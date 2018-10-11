@@ -371,6 +371,24 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
+    // Handle COALESCE specially -- evaluate the arguments in order until one of
+    // them produces a non-null value.
+    if (function.function_name_ == kCoalesce) {
+      if (function.arguments_.size() == 0) {
+        throw QueryRuntimeException(
+            "'coalesce' requires at least one argument.");
+      }
+
+      for (int64_t i = 0; i < function.arguments_.size(); ++i) {
+        TypedValue val = function.arguments_[i]->Accept(*this);
+        if (val.type() != TypedValue::Type::Null) {
+          return val;
+        }
+      }
+
+      return TypedValue::Null;
+    }
+
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       TypedValue arguments[8];
