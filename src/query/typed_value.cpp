@@ -70,22 +70,19 @@ TypedValue::TypedValue(PropertyValue &&value) {
       break;
     case PropertyValue::Type::String:
       type_ = Type::String;
-      // TODO: std::move() when PropertyValue is fixed
-      new (&string_v) std::string(value.Value<std::string>());
+      new (&string_v) std::string(std::move(value.Value<std::string>()));
       break;
     case PropertyValue::Type::List: {
-      // TODO: std::move() when PropertyValue is fixed
       type_ = Type::List;
-      auto vec = value.Value<std::vector<PropertyValue>>();
+      auto &vec = value.Value<std::vector<PropertyValue>>();
       new (&list_v)
           std::vector<TypedValue>(std::make_move_iterator(vec.begin()),
                                   std::make_move_iterator(vec.end()));
       break;
     }
     case PropertyValue::Type::Map: {
-      // TODO: std::move() when PropertyValue is fixed
       type_ = Type::Map;
-      auto map = value.Value<std::map<std::string, PropertyValue>>();
+      auto &map = value.Value<std::map<std::string, PropertyValue>>();
       new (&map_v) std::map<std::string, TypedValue>(
           std::make_move_iterator(map.begin()),
           std::make_move_iterator(map.end()));

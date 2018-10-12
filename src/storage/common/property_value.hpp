@@ -2,12 +2,10 @@
 
 #include <iostream>
 #include <map>
-#include <memory>
 #include <string>
 #include <vector>
 
 #include "utils/exceptions.hpp"
-#include "utils/total_ordering.hpp"
 
 /**
  * Encapsulation of a value and its type in a class that has no compile-time
@@ -42,21 +40,31 @@ class PropertyValue {
   PropertyValue(int64_t value) : type_(Type::Int) { int_v = value; }
   PropertyValue(double value) : type_(Type::Double) { double_v = value; }
 
-  /// constructors for non-primitive types (shared pointers)
+  // constructors for non-primitive types
   PropertyValue(const std::string &value) : type_(Type::String) {
-    new (&string_v) std::unique_ptr<std::string>(new std::string(value));
+    new (&string_v) std::string(value);
   }
   PropertyValue(const char *value) : type_(Type::String) {
-    new (&string_v) std::unique_ptr<std::string>(new std::string(value));
+    new (&string_v) std::string(value);
   }
   PropertyValue(const std::vector<PropertyValue> &value) : type_(Type::List) {
-    new (&list_v) std::unique_ptr<std::vector<PropertyValue>>(
-        new std::vector<PropertyValue>(value));
+    new (&list_v) std::vector<PropertyValue>(value);
   }
   PropertyValue(const std::map<std::string, PropertyValue> &value)
       : type_(Type::Map) {
-    new (&map_v) std::unique_ptr<std::map<std::string, PropertyValue>>(
-        new std::map<std::string, PropertyValue>(value));
+    new (&map_v) std::map<std::string, PropertyValue>(value);
+  }
+
+  // move constructors for non-primitive types
+  PropertyValue(std::string &&value) : type_(Type::String) {
+    new (&string_v) std::string(std::move(value));
+  }
+  PropertyValue(std::vector<PropertyValue> &&value) : type_(Type::List) {
+    new (&list_v) std::vector<PropertyValue>(std::move(value));
+  }
+  PropertyValue(std::map<std::string, PropertyValue> &&value)
+      : type_(Type::Map) {
+    new (&map_v) std::map<std::string, PropertyValue>(std::move(value));
   }
 
   PropertyValue &operator=(const PropertyValue &other);
@@ -79,22 +87,26 @@ class PropertyValue {
    * @return The value as type T.
    */
   template <typename T>
-  T Value() const;
+  const T &Value() const;
+  template <typename T>
+  T &Value();
 
   friend std::ostream &operator<<(std::ostream &stream,
                                   const PropertyValue &prop);
 
  private:
+  void DestroyValue();
+
   // storage for the value of the property
   union {
     bool bool_v;
     int64_t int_v;
     double double_v;
-    std::unique_ptr<std::string> string_v;
+    std::string string_v;
     // We support lists of values of different types, neo4j supports lists of
     // values of the same type.
-    std::unique_ptr<std::vector<PropertyValue>> list_v;
-    std::unique_ptr<std::map<std::string, PropertyValue>> map_v;
+    std::vector<PropertyValue> list_v;
+    std::map<std::string, PropertyValue> map_v;
   };
 
   /**
