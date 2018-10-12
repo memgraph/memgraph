@@ -90,7 +90,7 @@ const trie::Trie kKeywords = {
     "reduce",   "user",   "password",  "alter",  "drop",       "stream",
     "streams",  "load",   "data",      "kafka",  "transform",  "batch",
     "interval", "show",   "start",     "stop",   "size",       "topic",
-    "test",     "explain"};
+    "test",     "unique", "explain"};
 
 // Unicode codepoints that are allowed at the start of the unescaped name.
 const std::bitset<kBitsetSize> kUnescapedNameAllowedStarts(std::string(

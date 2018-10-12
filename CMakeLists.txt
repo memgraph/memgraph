@@ -176,7 +176,9 @@ add_custom_command(OUTPUT ${antlr_opencypher_generated_src}
   COMMAND
   java -jar ${CMAKE_SOURCE_DIR}/libs/antlr-4.6-complete.jar -Dlanguage=Cpp -visitor -o ${opencypher_generated} -package antlropencypher ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-  DEPENDS ${opencypher_lexer_grammar} ${opencypher_parser_grammar})
+  DEPENDS ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
+          ${opencypher_frontend}/grammar/CypherLexer.g4
+          ${opencypher_frontend}/grammar/Cypher.g4)
 
 # add custom target for generation
 add_custom_target(generate_opencypher_parser

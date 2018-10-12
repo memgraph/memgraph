@@ -402,6 +402,11 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool Visit(query::CreateUniqueIndex &) override {
+    has_aggregation_.emplace_back(false);
+    return true;
+  }
+
   bool Visit(query::AuthQuery &) override {
     has_aggregation_.emplace_back(false);
     return true;

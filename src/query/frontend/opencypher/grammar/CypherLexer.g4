@@ -116,6 +116,7 @@ STARTS         : S T A R T S ;
 THEN           : T H E N ;
 TRUE           : T R U E ;
 UNION          : U N I O N ;
+UNIQUE         : U N I Q U E ;
 UNWIND         : U N W I N D ;
 WHEN           : W H E N ;
 WHERE          : W H E R E ;

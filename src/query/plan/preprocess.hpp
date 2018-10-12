@@ -53,6 +53,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
   bool Visit(query::CreateIndex &) override { return true; }
+  bool Visit(query::CreateUniqueIndex &) override { return true; }
   bool Visit(query::AuthQuery &) override { return true; }
   bool Visit(query::CreateStream &) override { return true; }
   bool Visit(query::DropStream &) override { return true; }

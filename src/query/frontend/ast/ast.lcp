@@ -2152,6 +2152,35 @@ cpp<#
     cpp<#)
   (:serialize :capnp))
 
+(lcp:define-class create-unique-index (clause)
+  ((label "storage::Label" :scope :public)
+   (properties "std::vector<storage::Property>" :scope :public
+               :capnp-save (lcp:capnp-save-vector "storage::capnp::Common" "storage::Property")
+               :capnp-load (lcp:capnp-load-vector "storage::capnp::Common" "storage::Property")))
+  (:public
+    #>cpp
+    CreateUniqueIndex() = default;
+
+    DEFVISITABLE(TreeVisitor<TypedValue>);
+    DEFVISITABLE(HierarchicalTreeVisitor);
+
+    CreateUniqueIndex *Clone(AstStorage &storage) const override {
+      return storage.Create<CreateUniqueIndex>(label_, properties_);
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit CreateUniqueIndex(int uid) : Clause(uid) {}
+    CreateUniqueIndex(int uid, storage::Label label,
+                      const std::vector<storage::Property> &properties)
+        : Clause(uid), label_(label), properties_(properties) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize :capnp))
+
 (lcp:define-class auth-query (clause)
   ((action "Action" :scope :public)
    (user "std::string" :scope :public)

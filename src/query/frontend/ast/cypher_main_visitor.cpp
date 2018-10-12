@@ -60,10 +60,15 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(
     MemgraphCypher::IndexQueryContext *ctx) {
   query_ = storage_.query();
-  DCHECK(ctx->createIndex()) << "Expected CREATE INDEX";
   query_->single_query_ = storage_.Create<SingleQuery>();
-  query_->single_query_->clauses_.emplace_back(
-      ctx->createIndex()->accept(this).as<CreateIndex *>());
+  if (ctx->createIndex()) {
+    query_->single_query_->clauses_.emplace_back(
+        ctx->createIndex()->accept(this).as<CreateIndex *>());
+  } else {
+    DCHECK(ctx->createUniqueIndex()) << "Expected CREATE UNIQUE INDEX";
+    query_->single_query_->clauses_.emplace_back(
+        ctx->createUniqueIndex()->accept(this).as<CreateUniqueIndex *>());
+  }
   return query_;
 }
 
@@ -173,7 +178,8 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
         throw SemanticException("RETURN can't be put before WITH.");
       }
       has_update = has_return = has_optional_match = false;
-    } else if (dynamic_cast<CreateIndex *>(clause)) {
+    } else if (dynamic_cast<CreateIndex *>(clause) ||
+               dynamic_cast<CreateUniqueIndex *>(clause)) {
       // If there is CreateIndex clause then there shouldn't be anything else.
       if (single_query->clauses_.size() != 1U) {
         throw SemanticException(
@@ -269,6 +275,22 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
       ctx->propertyKeyName()->accept(this);
   return storage_.Create<CreateIndex>(
       dba_->Label(ctx->labelName()->accept(this)), key.second);
+}
+
+/**
+ * @return CreateUniqueIndex*
+ */
+antlrcpp::Any CypherMainVisitor::visitCreateUniqueIndex(
+    MemgraphCypher::CreateUniqueIndexContext *ctx) {
+  std::vector<storage::Property> properties;
+  properties.reserve(ctx->propertyKeyName().size());
+  for (const auto &prop_name : ctx->propertyKeyName()) {
+    std::pair<std::string, storage::Property> name_key =
+        prop_name->accept(this);
+    properties.push_back(name_key.second);
+  }
+  return storage_.Create<CreateUniqueIndex>(
+      dba_->Label(ctx->labelName()->accept(this)), properties);
 }
 
 /**

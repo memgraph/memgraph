@@ -363,7 +363,9 @@ class ExpectCreateIndex : public OpChecker<CreateIndex> {
 
   void ExpectOp(CreateIndex &create_index, const SymbolTable &) override {
     EXPECT_EQ(create_index.label_, label_);
-    EXPECT_EQ(create_index.property_, property_);
+    EXPECT_EQ(create_index.properties_,
+              std::vector<storage::Property>{property_});
+    EXPECT_FALSE(create_index.is_unique_);
   }
 
  private:

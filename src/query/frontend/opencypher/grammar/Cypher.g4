@@ -32,7 +32,7 @@ explainQuery : EXPLAIN cypherQuery ;
 
 cypherQuery : singleQuery ( cypherUnion )* ;
 
-indexQuery : createIndex ;
+indexQuery : createIndex | createUniqueIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -274,6 +274,8 @@ integerLiteral : DecimalLiteral
 
 createIndex : CREATE INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
+createUniqueIndex : CREATE UNIQUE INDEX ON ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
+
 doubleLiteral : FloatingLiteral ;
 
 cypherKeyword : ALL
@@ -324,6 +326,7 @@ cypherKeyword : ALL
               | THEN
               | TRUE
               | UNION
+              | UNIQUE
               | UNWIND
               | WHEN
               | WHERE

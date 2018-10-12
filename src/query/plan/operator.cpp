@@ -3016,8 +3016,10 @@ void Distinct::DistinctCursor::Reset() {
   seen_rows_.clear();
 }
 
-CreateIndex::CreateIndex(storage::Label label, storage::Property property)
-    : label_(label), property_(property) {}
+CreateIndex::CreateIndex(storage::Label label,
+                         const std::vector<storage::Property> &properties,
+                         bool is_unique)
+    : label_(label), properties_(properties), is_unique_(is_unique) {}
 
 bool CreateIndex::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.Visit(*this);
@@ -3035,10 +3037,15 @@ class CreateIndexCursor : public Cursor {
     if (ctx.in_explicit_transaction_) {
       throw IndexInMulticommandTxException();
     }
-    try {
-      db_.BuildIndex(self_.label_, self_.property_);
-    } catch (const database::IndexExistsException &) {
-      // Ignore creating an existing index.
+    if (self_.is_unique_) {
+      throw utils::NotYetImplemented("CREATE UNIQUE INDEX");
+    } else {
+      try {
+        CHECK(self_.properties_.size() == 1U);
+        db_.BuildIndex(self_.label_, self_.properties_[0]);
+      } catch (const database::IndexExistsException &) {
+        // Ignore creating an existing index.
+      }
     }
     ctx.is_index_created_ = did_create_ = true;
     return true;

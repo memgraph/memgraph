@@ -1564,6 +1564,42 @@ TYPED_TEST(CypherMainVisitorTest, CreateIndex) {
             ast_generator.db_accessor_->Property("slavko"));
 }
 
+TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndex) {
+  TypeParam ast_generator("Create unIqUe InDeX oN :mirko(slavko, pero)");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *create_index =
+      dynamic_cast<CreateUniqueIndex *>(single_query->clauses_[0]);
+  ASSERT_TRUE(create_index);
+  ASSERT_EQ(create_index->label_, ast_generator.db_accessor_->Label("mirko"));
+  std::vector<storage::Property> expected_properties{
+      ast_generator.db_accessor_->Property("slavko"),
+      ast_generator.db_accessor_->Property("pero")};
+  ASSERT_EQ(create_index->properties_, expected_properties);
+}
+
+TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndexWithoutProperties) {
+  EXPECT_THROW(TypeParam ast_generator("Create unIqUe InDeX oN :mirko()"),
+               SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndexWithSingleProperty) {
+  TypeParam ast_generator("Create unIqUe InDeX oN :mirko(slavko)");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 1U);
+  auto *create_index =
+      dynamic_cast<CreateUniqueIndex *>(single_query->clauses_[0]);
+  ASSERT_TRUE(create_index);
+  ASSERT_EQ(create_index->label_, ast_generator.db_accessor_->Label("mirko"));
+  std::vector<storage::Property> expected_properties{
+      ast_generator.db_accessor_->Property("slavko")};
+  ASSERT_EQ(create_index->properties_, expected_properties);
+}
+
 TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
   { EXPECT_THROW(TypeParam("RETURN all(x in [1,2,3])"), SyntaxException); }
   {

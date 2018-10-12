@@ -181,7 +181,13 @@ class RuleBasedPlanner {
                        dynamic_cast<query::CreateIndex *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before CreateIndex";
           input_op = std::make_unique<plan::CreateIndex>(
-              create_index->label_, create_index->property_);
+              create_index->label_,
+              std::vector<storage::Property>{create_index->property_}, false);
+        } else if (auto *create_index =
+                       dynamic_cast<query::CreateUniqueIndex *>(clause)) {
+          DCHECK(!input_op) << "Unexpected operator before CreateIndex";
+          input_op = std::make_unique<plan::CreateIndex>(
+              create_index->label_, create_index->properties_, true);
         } else if (auto *auth_query =
                        dynamic_cast<query::AuthQuery *>(clause)) {
           DCHECK(!input_op) << "Unexpected operator before AuthQuery";
@@ -189,8 +195,7 @@ class RuleBasedPlanner {
           input_op = std::make_unique<plan::AuthHandler>(
               auth_query->action_, auth_query->user_, auth_query->role_,
               auth_query->user_or_role_, auth_query->password_,
-              auth_query->privileges_,
-              symbol_table.CreateSymbol("user", false),
+              auth_query->privileges_, symbol_table.CreateSymbol("user", false),
               symbol_table.CreateSymbol("role", false),
               symbol_table.CreateSymbol("privilege", false),
               symbol_table.CreateSymbol("effective", false),
@@ -444,14 +449,13 @@ class RuleBasedPlanner {
           // we have to remove them manually because no other filter-extraction
           // will ever bind them again.
           filters.erase(
-              std::remove_if(filters.begin(), filters.end(),
-                             [
-                               e = filter_lambda.inner_edge_symbol,
-                               n = filter_lambda.inner_node_symbol
-                             ](FilterInfo & fi) {
-                               return utils::Contains(fi.used_symbols, e) ||
-                                      utils::Contains(fi.used_symbols, n);
-                             }),
+              std::remove_if(
+                  filters.begin(), filters.end(),
+                  [e = filter_lambda.inner_edge_symbol,
+                   n = filter_lambda.inner_node_symbol](FilterInfo &fi) {
+                    return utils::Contains(fi.used_symbols, e) ||
+                           utils::Contains(fi.used_symbols, n);
+                  }),
               filters.end());
           // Unbind the temporarily bound inner symbols for filtering.
           bound_symbols.erase(filter_lambda.inner_edge_symbol);

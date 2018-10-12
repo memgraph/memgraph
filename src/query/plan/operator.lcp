@@ -266,7 +266,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
                          (format
                           nil
                           "[helper](const auto &reader) {
-                             return static_cast<~A>(Load(&helper->ast_storage, reader, 
+                             return static_cast<~A>(Load(&helper->ast_storage, reader,
                                                          &helper->loaded_ast_uids));
                            }"
                            ast-type)))
@@ -2246,18 +2246,23 @@ This implementation maintains input ordering.")
 
 (lcp:define-class create-index (logical-operator)
   ((label "storage::Label" :scope :public)
-   (property "storage::Property" :scope :public))
+   (properties "std::vector<storage::Property>" :scope :public
+               :capnp-save (lcp:capnp-save-vector "storage::capnp::Common" "storage::Property")
+               :capnp-load (lcp:capnp-load-vector "storage::capnp::Common" "storage::Property"))
+   (is-unique :bool :scope :public))
   (:documentation
    "Creates an index for a combination of label and a property.
 
 This operator takes no input and it shouldn't serve as an input to any
 operator. Pulling from the cursor of this operator will create an index in
 the database for the vertices which have the given label and property. In
-case the index already exists, nothing happens.")
+case the index already exists, nothing happens. When is_unique is set to true,
+then a unique index will be created instead of a regular one.")
   (:public
    #>cpp
    CreateIndex() {}
-   CreateIndex(storage::Label label, storage::Property property);
+   CreateIndex(storage::Label label, const std::vector<storage::Property> &properties,
+               bool is_unique);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;

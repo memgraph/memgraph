@@ -54,6 +54,12 @@ class PrivilegeExtractor : public HierarchicalTreeVisitor {
     AddPrivilege(AuthQuery::Privilege::INDEX);
     return true;
   }
+
+  bool Visit(CreateUniqueIndex &) override {
+    AddPrivilege(AuthQuery::Privilege::INDEX);
+    return true;
+  }
+
   bool Visit(AuthQuery &) override {
     AddPrivilege(AuthQuery::Privilege::AUTH);
     return true;

@@ -220,6 +220,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::CreateIndexContext *ctx) override;
 
   /**
+   * @return CreateUniqueIndex*
+   */
+  antlrcpp::Any visitCreateUniqueIndex(
+      MemgraphCypher::CreateUniqueIndexContext *ctx) override;
+
+  /**
    * @return AuthQuery*
    */
   antlrcpp::Any visitCreateUser(
