@@ -50,6 +50,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
       for (const auto &key : dba.GetIndicesKeys()) {
         index_vec.emplace_back(dba.LabelName(key.label_));
         index_vec.emplace_back(dba.PropertyName(key.property_));
+        index_vec.emplace_back(key.unique_);
       }
       encoder.WriteList(index_vec);
     }

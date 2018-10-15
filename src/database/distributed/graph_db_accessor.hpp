@@ -22,6 +22,11 @@
 
 namespace database {
 
+/** Thrown when inserting in an index with constraint. */
+class IndexConstraintViolationException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 /** Thrown when creating an index which already exists. */
 class IndexExistsException : public utils::BasicException {
   using utils::BasicException::BasicException;
@@ -444,7 +449,8 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  virtual void BuildIndex(storage::Label label, storage::Property property);
+  virtual void BuildIndex(storage::Label label, storage::Property property,
+                          bool);
 
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);

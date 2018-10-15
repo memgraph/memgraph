@@ -1397,10 +1397,17 @@ TEST_F(FunctionTest, IndexInfo) {
     EXPECT_EQ(info[0], ":l1");
   }
   {
-    dba->BuildIndex(dba->Label("l1"), dba->Property("prop"));
+    dba->BuildIndex(dba->Label("l1"), dba->Property("prop"), false);
     auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}));
     EXPECT_EQ(info.size(), 2);
     EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)"));
+  }
+  {
+    dba->BuildIndex(dba->Label("l1"), dba->Property("prop1"), true);
+    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}));
+    EXPECT_EQ(info.size(), 3);
+    EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)",
+                                                    ":l1(prop1) unique"));
   }
 }
 

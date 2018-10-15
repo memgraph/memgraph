@@ -38,9 +38,13 @@ class LabelPropertyIndex {
    public:
     const storage::Label label_;
     const storage::Property property_;
+    bool unique_{false};
 
     Key(storage::Label label, storage::Property property)
         : label_(label), property_(property) {}
+
+    Key(storage::Label label, storage::Property property, bool unique)
+        : label_(label), property_(property), unique_(unique) {}
 
     // Comparison operators - we need them to keep this sorted inside skiplist.
     bool operator<(const Key &other) const {
@@ -83,25 +87,47 @@ class LabelPropertyIndex {
     ready_for_use_.access().insert(key);
   }
 
+  /** NOTE: All update methods aren't supporting the case where two threads
+   * try to update the index with the same value. If both of them conclude that
+   * the insert is valid, one will insert first and that makes the second insert
+   * invalid if the unique constraint set.
+   */
+
   /**
    * @brief - Updates all indexes which should contain this vertex.
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in vlist)
    */
-  void UpdateOnLabelProperty(mvcc::VersionList<Vertex> *const vlist,
+  bool UpdateOnLabelProperty(mvcc::VersionList<Vertex> *const vlist,
                              const Vertex *const vertex) {
     const auto &labels = vertex->labels_;
-    for (auto &index : indices_.access()) {
+    // We need to check if the given vertex can be inserted in all indexes
+    auto access = indices_.access();
+    for (auto &index : access) {
+      if (!index.first.unique_) continue;
       // Vertex has the given label
       if (std::find(labels.begin(), labels.end(), index.first.label_) ==
           labels.end())
         continue;
       auto prop = vertex->properties_.at(index.first.property_);
       if (prop.type() != PropertyValue::Type::Null) {
-        // Property exists and vertex should be added to skiplist.
+        if (!CheckUniqueConstraint(*index.second, prop, vlist, vertex)) {
+          return false;
+        }
+      }
+    }
+
+    for (auto &index : access) {
+      // Vertex has the given label
+      if (std::find(labels.begin(), labels.end(), index.first.label_) ==
+          labels.end())
+        continue;
+      auto prop = vertex->properties_.at(index.first.property_);
+      if (prop.type() != PropertyValue::Type::Null) {
         Insert(*index.second, prop, vlist, vertex);
       }
     }
+    return true;
   }
 
   /**
@@ -112,10 +138,23 @@ class LabelPropertyIndex {
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in vlist)
    */
-  void UpdateOnLabel(storage::Label label,
+  bool UpdateOnLabel(storage::Label label,
                      mvcc::VersionList<Vertex> *const vlist,
                      const Vertex *const vertex) {
-    for (auto &index : indices_.access()) {
+    // We need to check if the given vertex can be inserted in all indexes
+    auto access = indices_.access();
+    for (auto &index : access) {
+      if (!index.first.unique_) continue;
+      if (index.first.label_ != label) continue;
+      auto prop = vertex->properties_.at(index.first.property_);
+      if (prop.type() != PropertyValue::Type::Null) {
+        if (!CheckUniqueConstraint(*index.second, prop, vlist, vertex)) {
+          return false;
+        }
+      }
+    }
+
+    for (auto &index : access) {
       if (index.first.label_ != label) continue;
       auto prop = vertex->properties_.at(index.first.property_);
       if (prop.type() != PropertyValue::Type::Null) {
@@ -123,6 +162,7 @@ class LabelPropertyIndex {
         Insert(*index.second, prop, vlist, vertex);
       }
     }
+    return true;
   }
 
   /**
@@ -133,11 +173,28 @@ class LabelPropertyIndex {
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in vlist)
    */
-  void UpdateOnProperty(storage::Property property,
+  bool UpdateOnProperty(storage::Property property,
                         mvcc::VersionList<Vertex> *const vlist,
                         const Vertex *const vertex) {
     const auto &labels = vertex->labels_;
-    for (auto &index : indices_.access()) {
+
+    // We need to check if the given vertex can be inserted in all indexes
+    auto access = indices_.access();
+    for (auto &index : access) {
+      if (!index.first.unique_) continue;
+      if (index.first.property_ != property) continue;
+      if (std::find(labels.begin(), labels.end(), index.first.label_) !=
+          labels.end()) {
+        // Label exists and vertex should be added to skiplist.
+        if (!CheckUniqueConstraint(*index.second,
+                                   vertex->properties_.at(property), vlist,
+                                   vertex)) {
+          return false;
+        }
+      }
+    }
+
+    for (auto &index : access) {
       if (index.first.property_ != property) continue;
       if (std::find(labels.begin(), labels.end(), index.first.label_) !=
           labels.end()) {
@@ -145,6 +202,7 @@ class LabelPropertyIndex {
         Insert(*index.second, vertex->properties_.at(property), vlist, vertex);
       }
     }
+    return true;
   }
 
   /**
@@ -480,6 +538,28 @@ class LabelPropertyIndex {
   };
 
   /**
+   * @brief - Check if an insert is valid due to the unique constraint
+   * @param index - into which index to add
+   * @param value - value which to add
+   * @param vlist - pointer to vlist entry to add
+   * @param vertex - pointer to vertex record entry to add (contained in
+   * vlist)
+   * @param unique - unique constraint on index
+   * @return bool  - true if valid, false otherwise
+   */
+  bool CheckUniqueConstraint(SkipList<IndexEntry> &index,
+                             const PropertyValue &value,
+                             mvcc::VersionList<Vertex> *const vlist,
+                             const Vertex *const vertex) {
+    auto access = index.access();
+    auto it = access.find_or_larger(IndexEntry{value, nullptr, nullptr});
+    if (it == access.end() || (IndexEntry::Less(it->value_, value) &&
+                               IndexEntry::Less(value, it->value_)))
+      return true;
+    return false;
+  }
+
+  /**
    * @brief - Insert value, vlist, vertex into corresponding index (key) if
    * the index exists.
    * @param index - into which index to add
@@ -487,11 +567,13 @@ class LabelPropertyIndex {
    * @param vlist - pointer to vlist entry to add
    * @param vertex - pointer to vertex record entry to add (contained in
    * vlist)
+   * @param unique - unique constraint on index
    */
   void Insert(SkipList<IndexEntry> &index, const PropertyValue &value,
               mvcc::VersionList<Vertex> *const vlist,
               const Vertex *const vertex) {
-    index.access().insert(IndexEntry(value, vlist, vertex));
+    // Property exists and vertex should be added to skiplist.
+    index.access().insert(IndexEntry{value, vlist, vertex});
   }
 
   /**

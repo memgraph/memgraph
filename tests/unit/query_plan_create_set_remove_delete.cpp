@@ -966,20 +966,17 @@ TEST(QueryPlan, CreateIndex) {
 }
 
 TEST(QueryPlan, CreateUniqueIndex) {
-  // CREATE UNIQUE INDEX ON :Label(prop1, prop2)
+  // CREATE UNIQUE INDEX ON :Label(prop1)
   database::GraphDb db;
   auto dba = db.Access();
   auto label = dba->Label("label");
   auto prop1 = dba->Property("prop1");
-  auto prop2 = dba->Property("prop2");
-  std::vector<storage::Property> properties{prop1, prop2};
+  std::vector<storage::Property> properties{prop1};
   auto create_index =
       std::make_shared<plan::CreateIndex>(label, properties, true);
   SymbolTable symbol_table;
-  EXPECT_THROW(PullAll(create_index, *dba, symbol_table),
-               utils::NotYetImplemented);
-  // TODO: Check unique index created
-  // EXPECT_EQ(PullAll(create_index, *dba, symbol_table), 1);
+  EXPECT_EQ(PullAll(create_index, *dba, symbol_table), 1);
+  EXPECT_TRUE(dba->LabelPropertyIndexExists(label, prop1));
 }
 
 TEST(QueryPlan, DeleteSetProperty) {

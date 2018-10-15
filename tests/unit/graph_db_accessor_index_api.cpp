@@ -103,7 +103,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
   AddVertex(0);
 
   Commit();
-  dba->BuildIndex(label, property);
+  dba->BuildIndex(label, property, false);
   Commit();
 
   EXPECT_EQ(dba->VerticesCount(label, property), 1);
@@ -111,8 +111,8 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
   // confirm there is a differentiation of indexes based on (label, property)
   auto label2 = dba->Label("label2");
   auto property2 = dba->Property("property2");
-  dba->BuildIndex(label2, property);
-  dba->BuildIndex(label, property2);
+  dba->BuildIndex(label2, property, false);
+  dba->BuildIndex(label, property2, false);
   Commit();
 
   EXPECT_EQ(dba->VerticesCount(label, property), 1);
@@ -121,12 +121,12 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuildTwice) {
-  dba->BuildIndex(label, property);
-  EXPECT_THROW(dba->BuildIndex(label, property), utils::BasicException);
+  dba->BuildIndex(label, property, false);
+  EXPECT_THROW(dba->BuildIndex(label, property, false), utils::BasicException);
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
-  dba->BuildIndex(label, property);
+  dba->BuildIndex(label, property, false);
   EXPECT_EQ(dba->VerticesCount(label, property), 0);
   EXPECT_EQ(Count(dba->Vertices(label, property, true)), 0);
   for (int i = 0; i < 14; ++i) AddVertex(0);
@@ -144,7 +144,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
       threads.emplace_back([&db, index]() {
         auto dba = db.Access();
         dba->BuildIndex(dba->Label("l" + std::to_string(index)),
-                        dba->Property("p" + std::to_string(index)));
+                        dba->Property("p" + std::to_string(index)), false);
 
       });
     }
@@ -158,7 +158,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
       x, testing::AllOf(testing::Ge(center - 2), testing::Le(center + 2)));
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
-  dba->BuildIndex(label, property);
+  dba->BuildIndex(label, property, false);
 
   // add some vertices without the property
   for (int i = 0; i < 20; i++) AddVertex();
@@ -204,7 +204,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueCount) {
 #undef EXPECT_WITH_MARGIN
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueIteration) {
-  dba->BuildIndex(label, property);
+  dba->BuildIndex(label, property, false);
   Commit();
 
   // insert 10 verties and and check visibility
@@ -217,7 +217,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueIteration) {
 }
 
 TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
-  dba->BuildIndex(label, property);
+  dba->BuildIndex(label, property, false);
   Commit();
 
   std::vector<PropertyValue> expected_property_value(50, 0);
@@ -345,7 +345,7 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyValueSorting) {
 class GraphDbAccessorIndexRange : public GraphDbAccessorIndex {
  protected:
   void SetUp() override {
-    dba->BuildIndex(label, property);
+    dba->BuildIndex(label, property, false);
     for (int i = 0; i < 100; i++) AddVertex(i / 10);
 
     ASSERT_EQ(Count(dba->Vertices(false)), 0);
@@ -425,4 +425,19 @@ TEST_F(GraphDbAccessorIndexRange, RangeInterationIncompatibleTypes) {
   // we can compare int to double
   EXPECT_EQ(Count(Vertices(nullopt, Inclusive(1000.0))), 100);
   EXPECT_EQ(Count(Vertices(Inclusive(0.0), nullopt)), 100);
+}
+
+TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnInsert) {
+  dba->BuildIndex(label, property, true);
+  Commit();
+  AddVertex(0);
+  EXPECT_THROW(AddVertex(0), database::IndexConstraintViolationException);
+}
+
+TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnBuild) {
+  AddVertex(0);
+  AddVertex(0);
+  Commit();
+  EXPECT_THROW(dba->BuildIndex(label, property, true),
+               database::IndexConstraintViolationException);
 }

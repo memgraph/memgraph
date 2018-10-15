@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <string>
 
+#include "database/graph_db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -74,6 +75,8 @@ void PropsSetChecked(TRecordAccessor *record, const storage::Property &key,
   } catch (const RecordDeletedError &) {
     throw QueryRuntimeException(
         "Trying to set properties on a deleted graph element.");
+  } catch (const database::IndexConstraintViolationException &e) {
+    throw QueryRuntimeException(e.what());
   }
 }
 

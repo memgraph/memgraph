@@ -52,7 +52,7 @@ class DbGenerator {
 
   void BuildIndex(int seq_number) {
     dba_.BuildIndex(Label(seq_number % kLabelCount),
-                    Property(seq_number % kPropertyCount));
+                    Property(seq_number % kPropertyCount), false);
   }
 
   EdgeAccessor RandomEdge(bool remove_from_ids = false) {
@@ -355,7 +355,7 @@ TEST_F(Durability, WalEncoding) {
     auto e0 = dba->InsertEdge(v0, v1, dba->EdgeType("et0"));
     ASSERT_EQ(e0.gid(), gid0);
     e0.PropsSet(dba->Property("p0"), std::vector<PropertyValue>{1, 2, 3});
-    dba->BuildIndex(dba->Label("l1"), dba->Property("p1"));
+    dba->BuildIndex(dba->Label("l1"), dba->Property("p1"), false);
     dba->Commit();
 
     db.wal().Flush();
@@ -438,7 +438,7 @@ TEST_F(Durability, SnapshotEncoding) {
     e0.PropsSet(dba->Property("p0"), std::vector<PropertyValue>{1, 2, 3});
     auto e1 = dba->InsertEdge(v2, v1, dba->EdgeType("et1"));
     ASSERT_EQ(e1.gid(), gid1);
-    dba->BuildIndex(dba->Label("l1"), dba->Property("p1"));
+    dba->BuildIndex(dba->Label("l1"), dba->Property("p1"), false);
     dba->Commit();
     MakeSnapshot(db);
   }
@@ -470,9 +470,10 @@ TEST_F(Durability, SnapshotEncoding) {
   ASSERT_TRUE(dv.IsList());
   // Label property indices.
   decoder.ReadValue(&dv);
-  ASSERT_EQ(dv.ValueList().size(), 2);
+  ASSERT_EQ(dv.ValueList().size(), 3);
   EXPECT_EQ(dv.ValueList()[0].ValueString(), "l1");
   EXPECT_EQ(dv.ValueList()[1].ValueString(), "p1");
+  EXPECT_EQ(dv.ValueList()[2].ValueBool(), false);
 
   std::map<gid::Gid, communication::bolt::Vertex> decoded_vertices;
 
@@ -894,4 +895,10 @@ TEST_F(Durability, MoveToBackupWal) {
   // durability-enabled=true, db-recover-on-startup=false
   database::GraphDb db{DbConfig(true, false)};
   ASSERT_TRUE(durability::ContainsDurabilityFiles(backup_dir_));
+}
+
+int main(int argc, char **argv) {
+  ::testing::InitGoogleTest(&argc, argv);
+  google::InitGoogleLogging(argv[0]);
+  return RUN_ALL_TESTS();
 }

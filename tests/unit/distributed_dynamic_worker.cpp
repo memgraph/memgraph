@@ -87,7 +87,7 @@ TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorker) {
     label = dba->Label("label");
     property = dba->Property("property");
 
-    dba->BuildIndex(label, property);
+    dba->BuildIndex(label, property, false);
     EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
     EXPECT_EQ(CountIterable(dba->Vertices(label, property, false)), 100);
   }
@@ -149,7 +149,7 @@ TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorkerAfterRecovery) {
       label = dba->Label("label");
       property = dba->Property("property");
 
-      dba->BuildIndex(label, property);
+      dba->BuildIndex(label, property, false);
       EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
     }
 

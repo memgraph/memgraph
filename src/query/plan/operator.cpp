@@ -3037,15 +3037,19 @@ class CreateIndexCursor : public Cursor {
     if (ctx.in_explicit_transaction_) {
       throw IndexInMulticommandTxException();
     }
-    if (self_.is_unique_) {
-      throw utils::NotYetImplemented("CREATE UNIQUE INDEX");
-    } else {
-      try {
-        CHECK(self_.properties_.size() == 1U);
-        db_.BuildIndex(self_.label_, self_.properties_[0]);
-      } catch (const database::IndexExistsException &) {
-        // Ignore creating an existing index.
+    if (self_.properties_.size() > 1)
+      throw utils::NotYetImplemented("index on multiple properties");
+
+    try {
+      CHECK(self_.properties_.size() == 1U);
+      db_.BuildIndex(self_.label_, self_.properties_[0], self_.is_unique_);
+    } catch (const database::IndexConstraintViolationException &e) {
+      throw QueryRuntimeException(e.what());
+    } catch (const database::IndexExistsException &e) {
+      if (self_.is_unique_) {
+        throw QueryRuntimeException(e.what());
       }
+      // Otherwise ignore creating an existing index.
     }
     ctx.is_index_created_ = did_create_ = true;
     return true;

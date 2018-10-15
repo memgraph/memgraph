@@ -141,9 +141,11 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     auto label = *it++;
     RETURN_IF_NOT(it != index_value.end());
     auto property = *it++;
-    RETURN_IF_NOT(label.IsString() && property.IsString());
-    recovery_data->indexes.emplace_back(label.ValueString(),
-                                        property.ValueString());
+    RETURN_IF_NOT(it != index_value.end());
+    auto unique = *it++;
+    RETURN_IF_NOT(label.IsString() && property.IsString() && unique.IsBool());
+    recovery_data->indexes.emplace_back(IndexRecoveryData{
+        label.ValueString(), property.ValueString(), unique.ValueBool()});
   }
 
   auto dba = db->Access();
@@ -400,8 +402,8 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
             break;
           case database::StateDelta::Type::BUILD_INDEX:
             // TODO index building might still be problematic in HA
-            recovery_data->indexes.emplace_back(delta.label_name,
-                                                delta.property_name);
+            recovery_data->indexes.emplace_back(IndexRecoveryData{
+                delta.label_name, delta.property_name, delta.unique});
             break;
           default:
             transactions->Apply(delta);
@@ -416,14 +418,13 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
   db->tx_engine().EnsureNextIdGreater(max_observed_tx_id);
 }
 
-void RecoverIndexes(
-    database::GraphDb *db,
-    const std::vector<std::pair<std::string, std::string>> &indexes) {
+void RecoverIndexes(database::GraphDb *db,
+                    const std::vector<IndexRecoveryData> &indexes) {
   auto db_accessor_indices = db->Access();
-  for (const auto &label_prop : indexes) {
+  for (const auto &index : indexes) {
     const database::LabelPropertyIndex::Key key{
-        db_accessor_indices->Label(label_prop.first),
-        db_accessor_indices->Property(label_prop.second)};
+        db_accessor_indices->Label(index.label),
+        db_accessor_indices->Property(index.property), index.unique};
     db_accessor_indices->db().storage().label_property_index().CreateIndex(key);
     db_accessor_indices->PopulateIndex(key);
     db_accessor_indices->EnableIndex(key);

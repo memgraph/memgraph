@@ -42,7 +42,8 @@ cpp<#
    (value "PropertyValue" :initval "PropertyValue::Null")
    (label "storage::Label")
    (label-name "std::string")
-   (check-empty :bool))
+   (check-empty :bool)
+   (unique :bool))
   (:documentation
    "Describes single change to the database state. Used for durability (WAL) and
 state communication over network in HA and for distributed remote storage
@@ -69,7 +70,7 @@ in StateDeltas.")
         remove-label  ;; vertex_id, label, label_name
         remove-vertex ;; vertex_id, check_empty
         remove-edge   ;; edge_id
-        build-index   ;; label, label_name, property, property_name
+        build-index   ;; label, label_name, property, property_name, unique
         )
      (:documentation
       "Defines StateDelta type. For each type the comment indicates which values
@@ -123,7 +124,7 @@ omitted in the comment."))
      static StateDelta BuildIndex(tx::TransactionId tx_id, storage::Label label,
                                   const std::string &label_name,
                                   storage::Property property,
-                                  const std::string &property_name);
+                                  const std::string &property_name, bool unique);
 
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;

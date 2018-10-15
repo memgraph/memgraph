@@ -106,7 +106,7 @@ EdgeAccessor GraphDbAccessor::FindEdge(gid::Gid gid, bool current_state) {
 }
 
 void GraphDbAccessor::BuildIndex(storage::Label label,
-                                 storage::Property property) {
+                                 storage::Property property, bool unique) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
   db_.storage().index_build_tx_in_progress_.access().insert(transaction_.id_);
@@ -120,12 +120,14 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   });
 
   // Create the index
-  const LabelPropertyIndex::Key key(label, property);
+  const LabelPropertyIndex::Key key(label, property, unique);
   if (db_.storage().label_property_index_.CreateIndex(key) == false) {
     throw IndexExistsException(
         "Index is either being created by another transaction or already "
         "exists.");
   }
+
+  // TODO (msantl): If unique constraint, lock the tx engine
 
   // Everything that happens after the line above ended will be added to the
   // index automatically, but we still have to add to index everything that
@@ -164,7 +166,12 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
     DCHECK(removed) << "Index building (read) transaction should be inside set";
   });
 
-  dba->PopulateIndex(key);
+  try {
+    dba->PopulateIndex(key);
+  } catch (const IndexConstraintViolationException &) {
+    db_.storage().label_property_index_.DeleteIndex(key);
+    throw;
+  }
 
   dba->EnableIndex(key);
   dba->Commit();
@@ -178,7 +185,7 @@ void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   auto wal_build_index_tx_id = transaction_id();
   wal().Emplace(database::StateDelta::BuildIndex(
       wal_build_index_tx_id, key.label_, LabelName(key.label_), key.property_,
-      PropertyName(key.property_)));
+      PropertyName(key.property_), key.unique_));
 
   // After these two operations we are certain that everything is contained in
   // the index under the assumption that the original index creation transaction
@@ -190,8 +197,11 @@ void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
   for (auto vertex : Vertices(key.label_, false)) {
     if (vertex.PropsAt(key.property_).type() == PropertyValue::Type::Null)
       continue;
-    db_.storage().label_property_index_.UpdateOnLabelProperty(vertex.address(),
-                                                              vertex.current_);
+    if (!db_.storage().label_property_index_.UpdateOnLabelProperty(
+            vertex.address(), vertex.current_)) {
+      throw IndexConstraintViolationException(
+          "Index couldn't be populated due to constraint violation!");
+    }
   }
 }
 
@@ -200,16 +210,24 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
                                          const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto *vlist_ptr = vertex_accessor.address();
+
+  if (!db_.storage().label_property_index_.UpdateOnLabel(label, vlist_ptr,
+                                                         vertex)) {
+    throw IndexConstraintViolationException(
+        "Index couldn't be updated due to constraint violation!");
+  }
   db_.storage().labels_index_.Update(label, vlist_ptr, vertex);
-  db_.storage().label_property_index_.UpdateOnLabel(label, vlist_ptr, vertex);
 }
 
 void GraphDbAccessor::UpdatePropertyIndex(
     storage::Property property, const RecordAccessor<Vertex> &vertex_accessor,
     const Vertex *const vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
-  db_.storage().label_property_index_.UpdateOnProperty(
-      property, vertex_accessor.address(), vertex);
+  if (!db_.storage().label_property_index_.UpdateOnProperty(
+          property, vertex_accessor.address(), vertex)) {
+    throw IndexConstraintViolationException(
+        "Index couldn't be updated due to constraint violation!");
+  }
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {
@@ -419,8 +437,9 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   }
   for (LabelPropertyIndex::Key key :
        db_.storage().label_property_index_.Keys()) {
-    info.emplace_back(fmt::format(":{}({})", LabelName(key.label_),
-                                  PropertyName(key.property_)));
+    info.emplace_back(fmt::format(":{}({}){}", LabelName(key.label_),
+                                  PropertyName(key.property_),
+                                  key.unique_ ? " unique" : ""));
   }
   return info;
 }

@@ -483,7 +483,7 @@ class WorkerAccessor final : public DistributedAccessor {
                  DistributedEdgeAccessor *edge_accessor)
       : DistributedAccessor(db, tx_id, vertex_accessor, edge_accessor) {}
 
-  void BuildIndex(storage::Label, storage::Property) override {
+  void BuildIndex(storage::Label, storage::Property, bool) override {
     // TODO: Rethink BuildIndex API or inheritance. It's rather strange that a
     // derived type blocks this functionality.
     LOG(FATAL) << "BuildIndex invoked on worker.";

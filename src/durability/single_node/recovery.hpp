@@ -36,6 +36,12 @@ struct RecoveryInfo {
   bool operator!=(const RecoveryInfo &other) const { return !(*this == other); }
 };
 
+struct IndexRecoveryData {
+  std::string label;
+  std::string property;
+  bool unique;
+};
+
 // A data structure for exchanging info between main recovery function and
 // snapshot and WAL recovery functions.
 struct RecoveryData {
@@ -44,7 +50,7 @@ struct RecoveryData {
   std::vector<tx::TransactionId> snapshooter_tx_snapshot;
   // A collection into which the indexes should be added so they
   // can be rebuilt at the end of the recovery transaction.
-  std::vector<std::pair<std::string, std::string>> indexes;
+  std::vector<IndexRecoveryData> indexes;
 
   void Clear() {
     snapshooter_tx_id = 0;
@@ -135,11 +141,10 @@ class RecoveryTransactions {
 };
 
 void RecoverWal(const std::experimental::filesystem::path &durability_dir,
-                    database::GraphDb *db, RecoveryData *recovery_data,
-                    RecoveryTransactions *transactions);
+                database::GraphDb *db, RecoveryData *recovery_data,
+                RecoveryTransactions *transactions);
 
-void RecoverIndexes(
-    database::GraphDb *db,
-    const std::vector<std::pair<std::string, std::string>> &indexes);
+void RecoverIndexes(database::GraphDb *db,
+                    const std::vector<IndexRecoveryData> &indexes);
 
 }  // namespace durability
