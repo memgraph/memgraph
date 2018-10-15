@@ -1,6 +1,7 @@
 #include "communication/bolt/v1/value.hpp"
 
 #include "utils/algorithm.hpp"
+#include "utils/string.hpp"
 
 namespace communication::bolt {
 
@@ -330,7 +331,7 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
     case Value::Type::Double:
       return os << value.ValueDouble();
     case Value::Type::String:
-      return os << value.ValueString();
+      return os << utils::Escape(value.ValueString());
     case Value::Type::List:
       os << "[";
       utils::PrintIterable(os, value.ValueList());

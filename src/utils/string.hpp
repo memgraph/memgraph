@@ -335,4 +335,32 @@ inline std::string RandomString(size_t length) {
     str[i] = charset[rand_dist(pseudo_rand_gen)];
   return str;
 }
+
+/// Escapes all whitespace and quotation characters to produce a string
+/// which can be used as a string literal.
+inline std::string Escape(const std::string &src) {
+  std::string ret;
+  ret.reserve(src.size() + 2);
+  ret.append(1, '"');
+  for (auto c : src) {
+    if (c == '\\' || c == '\'' || c == '"') {
+      ret.append(1, '\\');
+      ret.append(1, c);
+    } else if (c == '\b') {
+      ret.append("\\b");
+    } else if (c == '\f') {
+      ret.append("\\f");
+    } else if (c == '\n') {
+      ret.append("\\n");
+    } else if (c == '\r') {
+      ret.append("\\r");
+    } else if (c == '\t') {
+      ret.append("\\t");
+    } else {
+      ret.append(1, c);
+    }
+  }
+  ret.append(1, '"');
+  return ret;
+}
 }  // namespace utils

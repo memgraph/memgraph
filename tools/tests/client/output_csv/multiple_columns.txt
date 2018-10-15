@@ -1,0 +1,2 @@
+"n","e","m"
+"(:Node)","[Edge]","(:Vertex)"

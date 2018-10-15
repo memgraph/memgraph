@@ -40,10 +40,17 @@ if [ ! -d $client_dir ]; then
     exit 1
 fi
 
-# Find tests input files.
+# Find tests dir.
 tests_dir="$DIR/client"
 if [ ! -d $tests_dir ]; then
-    echo_failure "Directory with tests input not found"
+    echo_failure "Directory with tests not found"
+    exit 1
+fi
+
+# Find tests input files.
+input_dir="$tests_dir/input"
+if [ ! -d $input_dir ]; then
+    echo_failure "Directory with tests input files not found"
     exit 1
 fi
 
@@ -65,26 +72,34 @@ echo  # Blank line
 
 client_flags="--use-ssl=false"
 test_code=0
-for filename in $tests_dir/input_*.txt; do
-    test_name=$(basename $filename)
-    test_name=${test_name#*_}
-    test_name=${test_name%.*}
-    output_name="output_$test_name.txt"
+for output_dir in $tests_dir/output_*; do
+    for filename in $input_dir/*; do
+        test_name=$(basename $filename)
+        test_name=${test_name%.*}
+        output_name="$test_name.txt"
 
-    echo_info "Running test $test_name"
-    $client_dir/mg_client $client_flags < $filename > $tmpdir/$test_name
-    diff -b $tmpdir/$test_name $tests_dir/$output_name
-    test_code=$?
+        output_format=$(basename $output_dir)
+        output_format=${output_format#*_}
+        run_flags="$client_flags --output-format=$output_format"
+
+        echo_info "Running test '$test_name' with $output_format output"
+        $client_dir/mg_client $run_flags < $filename > $tmpdir/$test_name
+        diff -b $tmpdir/$test_name $output_dir/$output_name
+        test_code=$?
+        if [ $test_code -ne 0 ]; then
+            echo_failure "Test '$test_name' with $output_format output failed"
+            break
+        else
+            echo_success "Test '$test_name' with $output_format output passed"
+        fi
+
+        # Clear database for each test.
+        $client_dir/mg_client $client_flags <<< "MATCH (n) DETACH DELETE n;" \
+                                &> /dev/null || exit 1
+    done
     if [ $test_code -ne 0 ]; then
-        echo_failure "Test $test_name failed"
         break
-    else
-        echo_success "Test $test_name passed"
     fi
-
-    # Clear database for each test.
-    $client_dir/mg_client $client_flags <<< "MATCH (n) DETACH DELETE n;" \
-                            &> /dev/null || exit 1
 done
 
 

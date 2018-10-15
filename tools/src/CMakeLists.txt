@@ -6,6 +6,11 @@ target_link_libraries(mg_import_csv mg-single-node kvstore_dummy_lib)
 add_executable(mg_statsd mg_statsd/main.cpp)
 target_link_libraries(mg_statsd mg-communication mg-io mg-utils mg-stats)
 
+# Generate a version.hpp file
+set(VERSION_STRING ${memgraph_VERSION})
+configure_file(../../src/version.hpp.in version.hpp @ONLY)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
 # Memgraph Client Target
 add_executable(mg_client mg_client/main.cpp)
 set(CLIENT_LIBS mg-communication mg-io mg-utils)
@@ -13,6 +18,7 @@ if (READLINE_FOUND)
   list(APPEND CLIENT_LIBS readline)
 endif()
 target_link_libraries(mg_client ${CLIENT_LIBS})
+
 
 # Strip the executable in release build.
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
