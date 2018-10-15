@@ -1,29 +1,9 @@
-(defpackage #:lcp
-  (:use #:cl)
-  (:export #:define-class
-           #:define-struct
-           #:define-enum
-           #:define-rpc
-           #:cpp-list
-           #:in-impl
-           #:namespace
-           #:pop-namespace
-           #:capnp-namespace
-           #:capnp-import
-           #:capnp-type-conversion
-           #:capnp-save-optional
-           #:capnp-load-optional
-           #:capnp-save-vector
-           #:capnp-load-vector
-           #:capnp-save-enum
-           #:capnp-load-enum
-           #:process-file))
-
 (in-package #:lcp)
 
-(defconstant +whitespace-chars+ '(#\Newline #\Space #\Return #\Linefeed #\Tab))
-(defconstant +vim-read-only+ "vim: readonly")
-(defconstant +emacs-read-only+ "-*- buffer-read-only: t; -*-")
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defvar +whitespace-chars+ '(#\Newline #\Space #\Return #\Linefeed #\Tab)))
+(defvar +vim-read-only+ "vim: readonly")
+(defvar +emacs-read-only+ "-*- buffer-read-only: t; -*-")
 
 (defstruct raw-cpp
   (string "" :type string :read-only t))
@@ -96,7 +76,10 @@
               namespace. A single symbol may refer to a `CPP-CLASS' which
               encloses this type.")
    (enclosing-class :type (or null symbol) :initarg :enclosing-class
-                    :initform nil :accessor cpp-type-enclosing-class)
+                    :initform nil :accessor cpp-type-enclosing-class
+                    :documentation "A symbol that is a designator for the type
+                    of the enclosing class of this type, or NIL if the type has
+                    no enclosing class.")
    (name :type (or symbol string) :initarg :name :reader cpp-type-base-name
          :documentation "Base name of this type.")
    (type-params :type list :initarg :type-params :initform nil
@@ -106,9 +89,45 @@
                 <TValue> class vector`, 'TValue' is type parameter.")
    (type-args :type list :initarg :type-args :initform nil
               :reader cpp-type-type-args
-              :documentation "List of already applied template arguments. For
-              example in `std::vector<int>`, 'int' is a type argument."))
+              :documentation "List of CPP-TYPE instances that represent the
+              template type arguments used within the instantiation of the
+              template. For example in `std::vector<int>`, 'int' is a template
+              type argument."))
   (:documentation "Base class for meta information on C++ types."))
+
+(defun make-cpp-type (name &key namespace enclosing-class type-params type-args)
+  "Create an instance of CPP-TYPE given the arguments."
+  (make-instance 'cpp-type
+                 :name name
+                 :namespace namespace
+                 :enclosing-class enclosing-class
+                 :type-params type-params
+                 :type-args (mapcar #'cpp-type type-args)))
+
+(defun cpp-type= (a b)
+  (let ((a (cpp-type a))
+        (b (cpp-type b)))
+    (with-accessors ((args1 cpp-type-type-args)) a
+      (with-accessors ((args2 cpp-type-type-args)) b
+        (and (equalp (cpp-type-namespace a) (cpp-type-namespace b))
+             (equalp (cpp-type-name a) (cpp-type-name b))
+             (and (= (length args1) (length args2))
+                  (every #'cpp-type= args1 args2))
+             (eq (cpp-type-enclosing-class a)
+                 (cpp-type-enclosing-class b)))))))
+
+(defmethod print-object ((cpp-type cpp-type) stream)
+  (print-unreadable-object (cpp-type stream :type t)
+    (with-accessors ((name cpp-type-base-name)
+                     (ns cpp-type-namespace)
+                     (params cpp-type-type-params)
+                     (args cpp-type-type-args))
+        cpp-type
+      (format stream ":name ~S" name)
+      (format stream "~@[ ~{~@?~^ ~}~]"
+              `(,@(when ns `(":namespace ~S" ,ns))
+                ,@(when params `(":type-params ~S" ,params))
+                ,@(when args `(":type-args ~S" ,args)))))))
 
 (defgeneric cpp-type-name (cpp-type)
   (:documentation "Get C++ style type name from `CPP-TYPE' as a string."))
@@ -123,20 +142,30 @@
 
 (deftype cpp-primitive-type-keywords ()
   "List of keywords that specify a primitive type in C++."
-  `(member :bool :int :int16_t :int32_t :int64_t :uint :uint16_t :uint32_t :uint64_t :float :double))
+  `(member :bool :char :int :int16_t :int32_t :int64_t :uint :uint16_t
+           :uint32_t :uint64_t :float :double))
 
-(defconstant +cpp-primitive-type-keywords+
-  '(:bool :int :int16_t :int32_t :int64_t :uint :uint16_t :uint32_t :uint64_t :float :double))
+(defvar +cpp-primitive-type-keywords+
+  '(:bool :char :int :int16_t :int32_t :int64_t :uint :uint16_t
+    :uint32_t :uint64_t :float :double))
 
 (defmethod cpp-type-name ((cpp-type symbol))
   "Return PascalCase of CPP-TYPE symbol or lowercase if it is a primitive type."
   (if (typep cpp-type 'cpp-primitive-type-keywords)
-      (string-downcase (string cpp-type))
-      (remove #\- (string-capitalize (string cpp-type)))))
+      (string-downcase cpp-type)
+      (remove #\- (string-capitalize cpp-type))))
 
 (defclass cpp-primitive-type (cpp-type)
   ((name :type cpp-primitive-type-keywords))
   (:documentation "Represents a primitive type in C++."))
+
+(defun make-cpp-primitive-type (name)
+  "Create an instance of CPP-PRIMITIVE-TYPE given the arguments."
+  (make-instance 'cpp-primitive-type :name name))
+
+(defun cpp-primitive-type-p (type-decl)
+  "Whether the C++ type designated by TYPE-DECL is a primitive type."
+  (typep (cpp-type type-decl) 'cpp-primitive-type))
 
 (defun parse-cpp-type-declaration (type-decl)
   "Parse C++ type from TYPE-DECL string and return CPP-TYPE.
@@ -173,7 +202,8 @@ produces:
                               :test #'string-equal)))
     (when type-keyword
       (return-from parse-cpp-type-declaration
-        (make-instance 'cpp-primitive-type :name (car type-keyword)))))
+        (make-instance 'cpp-primitive-type :name (string-downcase
+                                                  (car type-keyword))))))
   ;; Check if pointer
   (let ((ptr-pos (position #\* type-decl :from-end t)))
     (when (and ptr-pos (not (cl-ppcre:scan "[()<>]" type-decl :start ptr-pos)))
@@ -211,7 +241,7 @@ produces:
                      :name name
                      :type-args (reverse type-args)))))
 
-(defun cpp-type-decl (cpp-type &key (type-args t) (namespace t))
+(defun cpp-type-decl (cpp-type &key (type-params t) (namespace t))
   "Return the fully qualified name of given CPP-TYPE."
   (declare (type cpp-type cpp-type))
   (flet ((enclosing-classes (cpp-type)
@@ -234,9 +264,13 @@ produces:
            (when namespace
              (format s "~{~A::~}" (cpp-type-namespace cpp-type)))
            (format s "~{~A~^::~}" (enclosing-classes cpp-type))
-           (when (and type-args (cpp-type-type-params cpp-type))
-             ;; TODO: What about applied type args?
-             (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name (cpp-type-type-params cpp-type))))))))))
+           (cond
+             ((cpp-type-type-args cpp-type)
+              (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name
+                                               (cpp-type-type-args cpp-type))))
+             ((and type-params (cpp-type-type-params cpp-type))
+              (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name
+                                               (cpp-type-type-params cpp-type)))))))))))
 
 (defclass cpp-enum (cpp-type)
   ((values :type list :initarg :values :initform nil :reader cpp-enum-values)
@@ -297,6 +331,36 @@ produces:
    (inner-types :initarg :inner-types :initform nil :reader cpp-class-inner-types)
    (abstractp :initarg :abstractp :initform nil :reader cpp-class-abstractp))
   (:documentation "Meta information on a C++ class (or struct)."))
+
+;; TODO: use CPP-TYPE, CPP-TYPE= and CPP-PRIMITIVE-TYPE-P in the rest of the
+;; code
+(defun cpp-type (type-designator)
+  "Coerce the CPP-TYPE designator TYPE-DESIGNATOR into a CPP-TYPE instace.
+
+- if TYPE-DESIGNATOR is an instance of CPP-TYPE, CPP-PRIMITIVE-TYPE or
+  CPP-CLASS, just return it
+
+- if TYPE-DESIGNATOR is one of the keywords in +CPP-PRIMITIVE-TYPE-KEYOWRDS+,
+  return an instance of CPP-PRIMITIVE-TYPE with the name being the result
+  of (string-downcase type-designator)
+
+- if TYPE-DESIGNATOR is any other symbol, return an instance of CPP-TYPE with
+  the name being the result of (remove #\- (string-capitalize type-designator))
+
+- if TYPE-DESIGNATOR is a string, return an instance of CPP-TYPE with the name
+  being that string"
+  (etypecase type-designator
+    ((or cpp-type cpp-primitive-type cpp-class)
+     type-designator)
+    (cpp-primitive-type-keywords
+     (make-cpp-primitive-type (string-downcase type-designator)))
+    ((or symbol string)
+     (if (member type-designator +cpp-primitive-type-keywords+ :test #'string-equal)
+         (make-cpp-primitive-type (string-downcase type-designator))
+         (make-cpp-type
+          (if (symbolp type-designator)
+              (remove #\- (string-capitalize type-designator))
+              type-designator))))))
 
 (defvar *cpp-classes* nil "List of defined classes from LCP file")
 (defvar *cpp-enums* nil "List of defined enums from LCP file")
@@ -859,8 +923,8 @@ encoded as union inheritance in Cap'n Proto."
   (let* ((parents (capnp-union-parents-rec cpp-class))
          (top-parent-class
           (if parents
-              (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
-              (cpp-type-decl cpp-class :type-args nil :namespace nil)))
+              (cpp-type-decl (find-cpp-class (car (last parents))) :type-params nil :namespace nil)
+              (cpp-type-decl cpp-class :type-params nil :namespace nil)))
          (self-arg
           (list 'self (format nil "const ~A &"
                               (cpp-type-decl cpp-class :namespace nil))))
@@ -1111,8 +1175,8 @@ Proto schema."
   (declare (type cpp-class cpp-class))
   (let* ((parents (capnp-union-parents-rec cpp-class))
          (top-parent-class (if parents
-                               (cpp-type-decl (find-cpp-class (car (last parents))) :type-args nil :namespace nil)
-                               (cpp-type-decl cpp-class :type-args nil :namespace nil)))
+                               (cpp-type-decl (find-cpp-class (car (last parents))) :type-params nil :namespace nil)
+                               (cpp-type-decl cpp-class :type-params nil :namespace nil)))
          (reader-arg (list (if (or parents (capnp-union-subclasses cpp-class))
                                'base-reader
                                'reader)

@@ -1,0 +1,12 @@
+#!/bin/bash
+
+quicklisp_install_dir="$HOME/quicklisp"
+if [[ -v QUICKLISP_HOME ]]; then
+  quicklisp_install_dir="${QUICKLISP_HOME}"
+fi
+
+echo \
+"
+(load \"${quicklisp_install_dir}/setup.lisp\")
+(ql:quickload :lcp :silent t)
+" | sbcl --script

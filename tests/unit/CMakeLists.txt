@@ -314,3 +314,12 @@ target_link_libraries(${test_prefix}utils_watchdog mg-utils)
 
 add_unit_test(auth.cpp)
 target_link_libraries(${test_prefix}auth mg-auth kvstore_lib)
+
+# Test LCP
+
+add_custom_target(test_lcp ALL
+  BYPRODUCTS test_lcp
+  COMMAND sbcl --script ${CMAKE_CURRENT_SOURCE_DIR}/test_lcp.lisp
+  DEPENDS lcp)
+add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
+add_dependencies(memgraph__unit test_lcp)

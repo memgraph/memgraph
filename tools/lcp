@@ -28,8 +28,7 @@ fi
 echo \
 "
 (load \"${quicklisp_install_dir}/setup.lisp\")
-(ql:quickload :cl-ppcre :silent t)
-(load \"$script_dir/../src/lisp/lcp.lisp\")
+(ql:quickload :lcp :silent t)
 (lcp:process-file \"$lcp_file\" $capnp)
 " | sbcl --script
 

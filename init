@@ -116,16 +116,19 @@ quicklisp_install_dir="$HOME/quicklisp"
 if [[ -v QUICKLISP_HOME ]]; then
   quicklisp_install_dir="${QUICKLISP_HOME}"
 fi
+
+# TODO: move the installation of LCP's dependencies into ./setup.sh
 if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   wget -nv https://beta.quicklisp.org/quicklisp.lisp -O quicklisp.lisp || exit 1
   echo \
   "
   (load \"${DIR}/quicklisp.lisp\")
   (quicklisp-quickstart:install :path \"${quicklisp_install_dir}\")
-  (ql:quickload :cl-ppcre :silent t)
+  (ql:quickload '(:cl-ppcre :prove) :silent t)
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi
+ln -fs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
 
 # setup libs (download)
 cd libs

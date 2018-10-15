@@ -26,6 +26,7 @@ CTEST_DELIMITER = "__"
 for row in ctest_output.split("\n"):
     # Filter rows only containing tests.
     if not re.match("^\s*Test\s+#", row): continue
+    if not row.count("memgraph"): continue
     test_name = row.split(":")[1].strip()
     name = test_name.replace("memgraph" + CTEST_DELIMITER, "")
     path = os.path.join(TESTS_DIR_REL, name.replace(CTEST_DELIMITER, "/", 1))
@@ -65,5 +66,12 @@ for test in tests:
         "infiles": files,
         "outfile_paths": outfile_paths,
     })
+
+runs.append({
+    "name": "test_lcp",
+    "cd": os.path.join(TESTS_DIR_REL, "unit"),
+    "commands": "./test_lcp",
+    "infiles": ["test_lcp"],
+})
 
 print(json.dumps(runs, indent=4, sort_keys=True))

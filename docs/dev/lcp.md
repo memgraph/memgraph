@@ -282,8 +282,8 @@ For example:
 The above should produce expected results.
 
 You can add a base classes after the class name. The name should be a Lisp
-symbol for bases classes defined through `lcp:define-class`, so that LCP
-tracks the inheritance. Otherwise, it should be a string.
+symbol for base classes defined through `lcp:define-class`, so that LCP tracks
+the inheritance. Otherwise, it should be a string.
 
 For example:
 
@@ -412,7 +412,7 @@ code for serialization.
 Primary purpose of LCP was to make serialization of types easier. Our
 serialization library of choice for C++ is Cap'n Proto. LCP provides
 generation and tuning of its serialization code. Previously, LCP supported
-boost serialization, but it was removed.
+Boost.Serialization, but it was removed.
 
 To specify a class or structure for serialization, you may pass a
 `:serialize :capnp` option when defining such type. (Note that
@@ -506,7 +506,7 @@ will not be able to generate correct serialization code.
 
 The cases so far have been only with classes that are pure interface and need
 no serialization code. This is signaled to LCP by passing the option `:base t`
-to `:serialie :capnp`. LCP will treat such classes as actually being the base
+to `:serialize :capnp`. LCP will treat such classes as actually being the base
 class of a hierarchy.
 
 For example:
@@ -589,11 +589,11 @@ Sometimes the default serialization is not adequate and you may wish to
 provide your own serialization code. For those reasons, LCP provides
 `:capnp-save`, `:capnp-load` and `:capnp-init` options on each class member.
 
-The simplest is `:capnp-init` which when set to `nil` will not generate a
-`initMember` call on a builder. Cap'n Proto requires that compound types are
-initialized before beginning to serialize its members. `:capnp-init` allows
-you to delay the initialization to your custom save code. You rarely want to
-set `:capnp-init nil`.
+The simplest is `:capnp-init` which when set to `nil` will not generate an
+`init<member>` call on a builder. Cap'n Proto requires that compound types are
+initialized before beginning to serialize its members. `:capnp-init` allows you
+to delay the initialization to your custom save code. You rarely want to set
+`:capnp-init nil`.
 
 Custom save code is added as a value of `:capnp-save`. It should be a function
 which takes 3 arguments.
@@ -636,7 +636,7 @@ With custom serialization code, you may want to get additional details through
 extra arguments to `Save` and `Load` functions. This is described in the next
 section.
 
-There are also cases where you always need a custom serialization code. LCP
+There are also cases where you always need custom serialization code. LCP
 provides helper functions for abstracting some common details. These functions
 are listed further down in this document.
 
