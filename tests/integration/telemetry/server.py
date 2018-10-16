@@ -133,7 +133,7 @@ def verify_storage(storage, args):
                     expected = args.duration
                 else:
                     expected = uptime
-            assert uptime >= expected - 2 and uptime <= expected + 2
+            assert uptime >= expected - 4 and uptime <= expected + 4
 
 
 if __name__ == "__main__":
