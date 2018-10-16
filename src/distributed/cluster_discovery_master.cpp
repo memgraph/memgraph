@@ -2,24 +2,19 @@
 
 #include <experimental/filesystem>
 
-#include "communication/rpc/client_pool.hpp"
 #include "distributed/coordination_rpc_messages.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/file.hpp"
 #include "utils/string.hpp"
 
 namespace distributed {
-using Server = communication::rpc::Server;
 
 ClusterDiscoveryMaster::ClusterDiscoveryMaster(
-    Server *server, MasterCoordination *coordination,
-    const std::string &durability_directory)
-    : server_(server),
-      coordination_(coordination),
-      durability_directory_(durability_directory) {
-  server_->Register<RegisterWorkerRpc>([this](const auto &endpoint,
-                                              const auto &req_reader,
-                                              auto *res_builder) {
+    MasterCoordination *coordination, const std::string &durability_directory)
+    : coordination_(coordination), durability_directory_(durability_directory) {
+  coordination_->Register<RegisterWorkerRpc>([this](const auto &endpoint,
+                                                    const auto &req_reader,
+                                                    auto *res_builder) {
     bool registration_successful = false;
     bool durability_error = false;
 
@@ -80,12 +75,13 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     Save(res, res_builder);
   });
 
-  server_->Register<NotifyWorkerRecoveredRpc>([this](const auto &req_reader,
-                                                     auto *res_builder) {
-    NotifyWorkerRecoveredReq req;
-    Load(&req, req_reader);
-    coordination_->WorkerRecoveredSnapshot(req.worker_id, req.recovery_info);
-  });
+  coordination_->Register<NotifyWorkerRecoveredRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        NotifyWorkerRecoveredReq req;
+        Load(&req, req_reader);
+        coordination_->WorkerRecoveredSnapshot(req.worker_id,
+                                               req.recovery_info);
+      });
 }
 
 }  // namespace distributed

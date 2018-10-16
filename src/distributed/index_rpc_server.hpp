@@ -1,8 +1,6 @@
 #pragma once
 
-namespace communication::rpc {
-class Server;
-}
+#include "distributed/coordination.hpp"
 
 namespace database {
 class GraphDb;
@@ -12,11 +10,10 @@ namespace distributed {
 
 class IndexRpcServer {
  public:
-  IndexRpcServer(database::GraphDb &db, communication::rpc::Server &server);
+  IndexRpcServer(database::GraphDb *db, distributed::Coordination *coordination);
 
  private:
-  database::GraphDb &db_;
-  communication::rpc::Server &rpc_server_;
+  database::GraphDb *db_;
 };
 
 }  // namespace distributed

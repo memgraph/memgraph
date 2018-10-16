@@ -1,6 +1,6 @@
 #pragma once
 
-#include "communication/rpc/server.hpp"
+#include "distributed/coordination.hpp"
 
 namespace database {
 class Worker;
@@ -10,11 +10,10 @@ namespace distributed {
 
 class DurabilityRpcWorker {
  public:
-  DurabilityRpcWorker(database::Worker *db, communication::rpc::Server *server);
+  DurabilityRpcWorker(database::Worker *db, distributed::Coordination *coordination);
 
  private:
   database::Worker *db_;
-  communication::rpc::Server *rpc_server_;
 };
 
 }  // namespace distributed

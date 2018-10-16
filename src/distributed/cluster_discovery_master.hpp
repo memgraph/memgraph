@@ -1,6 +1,5 @@
 #pragma once
 
-#include "communication/rpc/server.hpp"
 #include "distributed/coordination_master.hpp"
 
 namespace distributed {
@@ -14,11 +13,10 @@ using Server = communication::rpc::Server;
  */
 class ClusterDiscoveryMaster final {
  public:
-  ClusterDiscoveryMaster(Server *server, MasterCoordination *coordination,
+  ClusterDiscoveryMaster(MasterCoordination *coordination,
                          const std::string &durability_directory);
 
  private:
-  Server *server_;
   MasterCoordination *coordination_;
   std::string durability_directory_;
 };

@@ -11,12 +11,12 @@ namespace storage {
   template <>                                                         \
   type WorkerConcurrentIdMapper<type>::RpcValueToId(                  \
       const std::string &value) {                                     \
-    return master_client_pool_.Call<type##IdRpc>(value).member;       \
+    return master_client_pool_->Call<type##IdRpc>(value).member;      \
   }                                                                   \
                                                                       \
   template <>                                                         \
   std::string WorkerConcurrentIdMapper<type>::RpcIdToValue(type id) { \
-    return master_client_pool_.Call<Id##type##Rpc>(id).member;        \
+    return master_client_pool_->Call<Id##type##Rpc>(id).member;       \
   }
 
 using namespace storage;
@@ -28,7 +28,7 @@ ID_VALUE_RPC_CALLS(Property)
 
 template <typename TId>
 WorkerConcurrentIdMapper<TId>::WorkerConcurrentIdMapper(
-    communication::rpc::ClientPool &master_client_pool)
+    communication::rpc::ClientPool *master_client_pool)
     : master_client_pool_(master_client_pool) {}
 
 template <typename TId>

@@ -18,8 +18,10 @@ namespace distributed {
 const int kHeartbeatIntervalSeconds = 1;
 
 MasterCoordination::MasterCoordination(const Endpoint &master_endpoint,
+                                       int server_workers_count,
                                        int client_workers_count)
-    : Coordination(master_endpoint, 0, client_workers_count) {
+    : Coordination(master_endpoint, 0, {}, server_workers_count,
+                   client_workers_count) {
   // TODO (mferencevic): Move this to an explicit `Start` method.
   scheduler_.Run("Heartbeat", std::chrono::seconds(kHeartbeatIntervalSeconds),
                  [this] { IssueHeartbeats(); });
@@ -174,6 +176,10 @@ bool MasterCoordination::AwaitShutdown(
               << " to finish shutting down...";
   }
   LOG(INFO) << "Shutdown of all workers is complete.";
+
+  // Shutdown our RPC server.
+  server_.Shutdown();
+  server_.AwaitShutdown();
 
   // Return `true` if the cluster is alive and the `call_before_shutdown`
   // succeeded.

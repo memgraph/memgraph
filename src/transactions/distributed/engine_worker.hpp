@@ -3,7 +3,6 @@
 #include <atomic>
 
 #include "communication/rpc/client_pool.hpp"
-#include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "durability/distributed/wal.hpp"
 #include "io/network/endpoint.hpp"
@@ -18,8 +17,7 @@ namespace tx {
  * begin/advance/end transactions on the master. */
 class EngineWorker final : public EngineDistributed {
  public:
-  EngineWorker(communication::rpc::Server *server,
-               communication::rpc::ClientPool *master_client_pool,
+  EngineWorker(distributed::Coordination *coordination,
                durability::WriteAheadLog *wal = nullptr);
   ~EngineWorker();
 
@@ -59,8 +57,8 @@ class EngineWorker final : public EngineDistributed {
   // Mutable because just getting info can cause a cache fill.
   mutable CommitLog clog_;
 
-  // Our local RPC server.
-  communication::rpc::Server *server_;
+  // Our local coordination.
+  distributed::Coordination *coordination_;
 
   // Communication to the transactional master.
   communication::rpc::ClientPool *master_client_pool_;

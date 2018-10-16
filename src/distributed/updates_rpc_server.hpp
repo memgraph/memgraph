@@ -7,10 +7,10 @@
 
 #include "glog/logging.h"
 
-#include "communication/rpc/server.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/distributed/distributed_graph_db.hpp"
 #include "database/distributed/graph_db_accessor.hpp"
+#include "distributed/coordination.hpp"
 #include "distributed/updates_rpc_messages.hpp"
 #include "durability/distributed/state_delta.hpp"
 #include "query/typed_value.hpp"
@@ -76,7 +76,7 @@ class UpdatesRpcServer {
 
  public:
   UpdatesRpcServer(database::DistributedGraphDb *db,
-                   communication::rpc::Server *server);
+                   distributed::Coordination *coordination);
 
   /// Applies all existsing updates for the given transaction ID. If there are
   /// no updates for that transaction, nothing happens. Clears the updates

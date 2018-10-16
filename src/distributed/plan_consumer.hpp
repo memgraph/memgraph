@@ -2,7 +2,7 @@
 
 #include <vector>
 
-#include "communication/rpc/server.hpp"
+#include "distributed/coordination.hpp"
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "distributed/plan_rpc_messages.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -26,7 +26,7 @@ class PlanConsumer {
     const query::AstStorage storage;
   };
 
-  explicit PlanConsumer(communication::rpc::Server &server);
+  explicit PlanConsumer(distributed::Coordination *coordination);
 
   /** Return cached plan and symbol table for a given plan id. */
   PlanPack &PlanForId(int64_t plan_id) const;
@@ -35,7 +35,6 @@ class PlanConsumer {
   std::vector<int64_t> CachedPlanIds() const;
 
  private:
-  communication::rpc::Server &server_;
   // TODO remove unique_ptr. This is to get it to work, emplacing into a
   // ConcurrentMap is tricky.
   mutable ConcurrentMap<int64_t, std::unique_ptr<PlanPack>> plan_cache_;

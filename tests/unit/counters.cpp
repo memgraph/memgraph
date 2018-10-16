@@ -4,12 +4,13 @@
 #include "communication/rpc/server.hpp"
 #include "database/distributed/distributed_counters.hpp"
 
-const std::string kLocal = "127.0.0.1";
+#include "test_coordination.hpp"
 
 TEST(CountersDistributed, All) {
-  communication::rpc::Server master_server({kLocal, 0});
-  database::MasterCounters master(&master_server);
-  communication::rpc::ClientPool master_client_pool(master_server.endpoint());
+  TestMasterCoordination coordination;
+  database::MasterCounters master(&coordination);
+  communication::rpc::ClientPool master_client_pool(
+      coordination.GetServerEndpoint());
 
   database::WorkerCounters w1(&master_client_pool);
   database::WorkerCounters w2(&master_client_pool);
@@ -25,6 +26,5 @@ TEST(CountersDistributed, All) {
   w1.Set("b", 42);
   EXPECT_EQ(w2.Get("b"), 42);
 
-  master_server.Shutdown();
-  master_server.AwaitShutdown();
+  coordination.Stop();
 }

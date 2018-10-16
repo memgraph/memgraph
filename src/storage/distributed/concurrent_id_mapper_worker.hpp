@@ -17,7 +17,7 @@ class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId> {
   std::string RpcIdToValue(TId id);
 
  public:
-  WorkerConcurrentIdMapper(communication::rpc::ClientPool &master_client_pool);
+  WorkerConcurrentIdMapper(communication::rpc::ClientPool *master_client_pool);
 
   TId value_to_id(const std::string &value) override;
   const std::string &id_to_value(const TId &id) override;
@@ -29,6 +29,6 @@ class WorkerConcurrentIdMapper : public ConcurrentIdMapper<TId> {
   ConcurrentMap<TId, std::string> id_to_value_cache_;
 
   // Communication to the concurrent ID master.
-  communication::rpc::ClientPool &master_client_pool_;
+  communication::rpc::ClientPool *master_client_pool_;
 };
 }  // namespace storage

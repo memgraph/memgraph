@@ -7,24 +7,19 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/distributed/counters.hpp"
-
-namespace communication::rpc {
-class Server;
-class ClientPool;
-}  // namespace communication::rpc
+#include "distributed/coordination.hpp"
 
 namespace database {
 
 /// Implementation for distributed master
 class MasterCounters : public Counters {
  public:
-  explicit MasterCounters(communication::rpc::Server *server);
+  explicit MasterCounters(distributed::Coordination *coordination);
 
   int64_t Get(const std::string &name) override;
   void Set(const std::string &name, int64_t value) override;
 
  private:
-  communication::rpc::Server *rpc_server_;
   ConcurrentMap<std::string, std::atomic<int64_t>> counters_;
 };
 

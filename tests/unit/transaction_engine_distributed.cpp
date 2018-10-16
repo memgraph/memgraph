@@ -5,12 +5,10 @@
 
 #include "gtest/gtest.h"
 
-#include "communication/rpc/server.hpp"
-#include "distributed/cluster_discovery_master.hpp"
-#include "distributed/coordination_master.hpp"
-#include "io/network/endpoint.hpp"
 #include "transactions/distributed/engine_master.hpp"
 #include "transactions/distributed/engine_worker.hpp"
+
+#include "test_coordination.hpp"
 
 using namespace tx;
 using namespace communication::rpc;
@@ -18,28 +16,18 @@ using namespace distributed;
 
 class WorkerEngineTest : public testing::Test {
  protected:
-  const std::string local{"127.0.0.1"};
-
   void TearDown() override {
-    // First we shutdown the master.
-    master_coordination_.Shutdown();
-    EXPECT_TRUE(master_coordination_.AwaitShutdown());
-
-    // Shutdown the RPC servers.
-    master_server_.Shutdown();
-    master_server_.AwaitShutdown();
-    worker_server_.Shutdown();
-    worker_server_.AwaitShutdown();
+    std::thread thread([this] { worker_coordination_.Stop(); });
+    master_coordination_.Stop();
+    if (thread.joinable()) thread.join();
   }
 
-  Server master_server_{{local, 0}};
-  Server worker_server_{{local, 0}};
+  TestMasterCoordination master_coordination_;
+  EngineMaster master_{&master_coordination_};
 
-  MasterCoordination master_coordination_{master_server_.endpoint()};
-  EngineMaster master_{&master_server_, &master_coordination_};
-
-  ClientPool master_client_pool{master_server_.endpoint()};
-  EngineWorker worker_{&worker_server_, &master_client_pool};
+  TestWorkerCoordination worker_coordination_{
+      master_coordination_.GetServerEndpoint(), 1};
+  EngineWorker worker_{&worker_coordination_};
 };
 
 TEST_F(WorkerEngineTest, BeginOnWorker) {

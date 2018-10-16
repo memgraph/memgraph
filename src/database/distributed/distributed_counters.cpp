@@ -1,19 +1,16 @@
 #include "database/distributed/distributed_counters.hpp"
 
-#include "communication/rpc/client_pool.hpp"
-#include "communication/rpc/server.hpp"
 #include "database/distributed/counters_rpc_messages.hpp"
 
 namespace database {
 
-MasterCounters::MasterCounters(communication::rpc::Server *server)
-    : rpc_server_(server) {
-  rpc_server_->Register<CountersGetRpc>(
+MasterCounters::MasterCounters(distributed::Coordination *coordination) {
+  coordination->Register<CountersGetRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         CountersGetRes res(Get(req_reader.getName()));
         Save(res, res_builder);
       });
-  rpc_server_->Register<CountersSetRpc>(
+  coordination->Register<CountersSetRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         Set(req_reader.getName(), req_reader.getValue());
         return std::make_unique<CountersSetRes>();

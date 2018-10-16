@@ -8,10 +8,11 @@
 
 namespace tx {
 
-EngineWorker::EngineWorker(communication::rpc::Server *server,
-                           communication::rpc::ClientPool *master_client_pool,
+EngineWorker::EngineWorker(distributed::Coordination *coordination,
                            durability::WriteAheadLog *wal)
-    : server_(server), master_client_pool_(master_client_pool), wal_(wal) {
+    : coordination_(coordination),
+      master_client_pool_(coordination->GetClientPool(0)),
+      wal_(wal) {
   // Register our `NotifyCommittedRpc` server. This RPC should only write the
   // `TxCommit` operation into the WAL. It is only used to indicate that the
   // transaction has succeeded on all workers and that it will be committed on
@@ -27,7 +28,7 @@ EngineWorker::EngineWorker(communication::rpc::Server *server,
   // RPC call could fail on other workers which will cause the transaction to be
   // aborted. This mismatch in committed/aborted across workers is resolved by
   // using the master as a single source of truth when doing recovery.
-  server_->Register<NotifyCommittedRpc>(
+  coordination_->Register<NotifyCommittedRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         auto tid = req_reader.getMember();
         if (wal_) {

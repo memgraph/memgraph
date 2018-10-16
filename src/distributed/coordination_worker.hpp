@@ -13,18 +13,22 @@ namespace distributed {
 /// Handles worker registration, getting of other workers' endpoints and
 /// coordinated shutdown in a distributed memgraph. Worker side.
 class WorkerCoordination final : public Coordination {
-  using Endpoint = io::network::Endpoint;
-
  public:
   WorkerCoordination(
-      communication::rpc::Server *server, const Endpoint &master_endpoint,
-      int worker_id,
+      const io::network::Endpoint &worker_endpoint, int worker_id,
+      const io::network::Endpoint &master_endpoint,
+      int server_workers_count = std::thread::hardware_concurrency(),
       int client_workers_count = std::thread::hardware_concurrency());
 
   ~WorkerCoordination();
 
+  WorkerCoordination(const WorkerCoordination &) = delete;
+  WorkerCoordination(WorkerCoordination &&) = delete;
+  WorkerCoordination &operator=(const WorkerCoordination &) = delete;
+  WorkerCoordination &operator=(WorkerCoordination &&) = delete;
+
   /// Registers the worker with the given endpoint.
-  void RegisterWorker(int worker_id, Endpoint endpoint);
+  void RegisterWorker(int worker_id, io::network::Endpoint endpoint);
 
   /// Starts listening for a remote shutdown command (issued by the master) or
   /// for the `Shutdown` method to be called (suitable for use with signal
@@ -45,8 +49,6 @@ class WorkerCoordination final : public Coordination {
   bool IsClusterAlive();
 
  private:
-  communication::rpc::Server *server_;
-
   // Heartbeat variables
   std::mutex heartbeat_lock_;
   std::chrono::time_point<std::chrono::steady_clock> last_heartbeat_time_;

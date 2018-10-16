@@ -4,13 +4,11 @@
 #include "distributed/dynamic_worker_rpc_messages.hpp"
 
 namespace distributed {
-using Server = communication::rpc::Server;
-using ClientPool = communication::rpc::ClientPool;
 
 DynamicWorkerAddition::DynamicWorkerAddition(database::DistributedGraphDb *db,
-                                             Server *server)
-    : db_(db), server_(server) {
-  server_->Register<DynamicWorkerRpc>(
+                                             distributed::Coordination *coordination)
+    : db_(db), coordination_(coordination) {
+  coordination_->Register<DynamicWorkerRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         DynamicWorkerReq req;
         Load(&req, req_reader);
@@ -33,7 +31,7 @@ DynamicWorkerAddition::GetIndicesToCreate() {
 
 void DynamicWorkerAddition::Enable() { enabled_.store(true); }
 
-DynamicWorkerRegistration::DynamicWorkerRegistration(ClientPool *client_pool)
+DynamicWorkerRegistration::DynamicWorkerRegistration(communication::rpc::ClientPool *client_pool)
     : client_pool_(client_pool) {}
 
 std::vector<std::pair<std::string, std::string>>

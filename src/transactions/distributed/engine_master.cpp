@@ -9,36 +9,33 @@
 
 namespace tx {
 
-EngineMaster::EngineMaster(communication::rpc::Server *server,
-                           distributed::Coordination *coordination,
+EngineMaster::EngineMaster(distributed::Coordination *coordination,
                            durability::WriteAheadLog *wal)
-    : engine_single_node_(wal),
-      server_(server),
-      coordination_(coordination) {
-  server_->Register<BeginRpc>(
+    : engine_single_node_(wal), coordination_(coordination) {
+  coordination_->Register<BeginRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         auto tx = this->Begin();
         BeginRes res(TxAndSnapshot{tx->id_, tx->snapshot()});
         Save(res, res_builder);
       });
 
-  server_->Register<AdvanceRpc>(
+  coordination_->Register<AdvanceRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         AdvanceRes res(this->Advance(req_reader.getMember()));
         Save(res, res_builder);
       });
 
-  server_->Register<CommitRpc>(
+  coordination_->Register<CommitRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         this->Commit(*this->RunningTransaction(req_reader.getMember()));
       });
 
-  server_->Register<AbortRpc>(
+  coordination_->Register<AbortRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         this->Abort(*this->RunningTransaction(req_reader.getMember()));
       });
 
-  server_->Register<SnapshotRpc>(
+  coordination_->Register<SnapshotRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         // It is guaranteed that the Worker will not be requesting this for a
         // transaction that's done, and that there are no race conditions here.
@@ -47,7 +44,7 @@ EngineMaster::EngineMaster(communication::rpc::Server *server,
         Save(res, res_builder);
       });
 
-  server_->Register<CommandRpc>(
+  coordination_->Register<CommandRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         // It is guaranteed that the Worker will not be requesting this for a
         // transaction that's done, and that there are no race conditions here.
@@ -55,30 +52,30 @@ EngineMaster::EngineMaster(communication::rpc::Server *server,
         Save(res, res_builder);
       });
 
-  server_->Register<GcSnapshotRpc>(
+  coordination_->Register<GcSnapshotRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         GcSnapshotRes res(this->GlobalGcSnapshot());
         Save(res, res_builder);
       });
 
-  server_->Register<ClogInfoRpc>(
+  coordination_->Register<ClogInfoRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ClogInfoRes res(this->Info(req_reader.getMember()));
         Save(res, res_builder);
       });
 
-  server_->Register<ActiveTransactionsRpc>(
+  coordination_->Register<ActiveTransactionsRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ActiveTransactionsRes res(this->GlobalActiveTransactions());
         Save(res, res_builder);
       });
 
-  server_->Register<EnsureNextIdGreaterRpc>(
+  coordination_->Register<EnsureNextIdGreaterRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         this->EnsureNextIdGreater(req_reader.getMember());
       });
 
-  server_->Register<GlobalLastRpc>(
+  coordination_->Register<GlobalLastRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         GlobalLastRes res(this->GlobalLast());
         Save(res, res_builder);

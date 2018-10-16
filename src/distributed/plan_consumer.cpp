@@ -2,9 +2,8 @@
 
 namespace distributed {
 
-PlanConsumer::PlanConsumer(communication::rpc::Server &server)
-    : server_(server) {
-  server_.Register<DispatchPlanRpc>(
+PlanConsumer::PlanConsumer(distributed::Coordination *coordination) {
+  coordination->Register<DispatchPlanRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         DispatchPlanReq req;
         Load(&req, req_reader);
@@ -15,7 +14,7 @@ PlanConsumer::PlanConsumer(communication::rpc::Server &server)
         Save(res, res_builder);
       });
 
-  server_.Register<RemovePlanRpc>(
+  coordination->Register<RemovePlanRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         plan_cache_.access().remove(req_reader.getMember());
       });

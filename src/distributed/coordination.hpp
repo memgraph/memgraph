@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "communication/rpc/client_pool.hpp"
+#include "communication/rpc/server.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/future.hpp"
 #include "utils/thread.hpp"
@@ -17,13 +18,18 @@ namespace distributed {
 /// Coordination base class. This class is thread safe.
 class Coordination {
  protected:
-  Coordination(const io::network::Endpoint &master_endpoint, int worker_id,
+  Coordination(const io::network::Endpoint &worker_endpoint, int worker_id,
+               const io::network::Endpoint &master_endpoint,
+               int server_workers_count = std::thread::hardware_concurrency(),
                int client_workers_count = std::thread::hardware_concurrency());
   ~Coordination();
 
  public:
   /// Gets the endpoint for the given worker ID from the master.
   io::network::Endpoint GetEndpoint(int worker_id);
+
+  /// Gets the endpoint for this RPC server.
+  io::network::Endpoint GetServerEndpoint();
 
   /// Returns all workers id, this includes master (ID 0).
   std::vector<int> GetWorkerIds();
@@ -66,6 +72,23 @@ class Coordination {
     return futures;
   }
 
+  template <class TRequestResponse>
+  void Register(std::function<
+                void(const typename TRequestResponse::Request::Capnp::Reader &,
+                     typename TRequestResponse::Response::Capnp::Builder *)>
+                    callback) {
+    server_.Register<TRequestResponse>(callback);
+  }
+
+  template <class TRequestResponse>
+  void Register(std::function<
+                void(const io::network::Endpoint &,
+                     const typename TRequestResponse::Request::Capnp::Reader &,
+                     typename TRequestResponse::Response::Capnp::Builder *)>
+                    callback) {
+    server_.Register<TRequestResponse>(callback);
+  }
+
  protected:
   /// Adds a worker to the coordination. This function can be called multiple
   /// times to replace an existing worker.
@@ -73,6 +96,8 @@ class Coordination {
 
   /// Gets a worker name for the given endpoint.
   std::string GetWorkerName(const io::network::Endpoint &endpoint);
+
+  communication::rpc::Server server_;
 
  private:
   std::unordered_map<int, io::network::Endpoint> workers_;

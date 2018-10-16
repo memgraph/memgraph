@@ -8,8 +8,6 @@
 #include "durability/distributed/recovery.hpp"
 
 namespace distributed {
-using Server = communication::rpc::Server;
-using ClientPool = communication::rpc::ClientPool;
 
 /** Handle cluster discovery on worker.
  *
@@ -19,8 +17,7 @@ using ClientPool = communication::rpc::ClientPool;
  */
 class ClusterDiscoveryWorker final {
  public:
-  ClusterDiscoveryWorker(Server &server, WorkerCoordination &coordination,
-                         ClientPool &client_pool);
+  ClusterDiscoveryWorker(WorkerCoordination *coordination);
 
   /**
    * Registers a worker with the master.
@@ -46,9 +43,8 @@ class ClusterDiscoveryWorker final {
 
  private:
   int worker_id_{-1};
-  Server &server_;
-  WorkerCoordination &coordination_;
-  communication::rpc::ClientPool &client_pool_;
+  distributed::WorkerCoordination *coordination_;
+  communication::rpc::ClientPool *client_pool_;
   std::experimental::optional<std::pair<int64_t, tx::TransactionId>> snapshot_to_recover_;
 };
 

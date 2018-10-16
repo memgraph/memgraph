@@ -9,9 +9,9 @@
 namespace distributed {
 
 DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
-                             communication::rpc::Server *server)
-    : db_(db), rpc_server_(server) {
-  rpc_server_->Register<VertexRpc>(
+                             distributed::Coordination *coordination)
+    : db_(db) {
+  coordination->Register<VertexRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         auto dba = db_->Access(req_reader.getMember().getTxId());
         auto vertex = dba->FindVertex(req_reader.getMember().getGid(), false);
@@ -21,8 +21,8 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
         Save(response, res_builder);
       });
 
-  rpc_server_->Register<EdgeRpc>([this](const auto &req_reader,
-                                        auto *res_builder) {
+  coordination->Register<EdgeRpc>([this](const auto &req_reader,
+                                         auto *res_builder) {
     auto dba = db_->Access(req_reader.getMember().getTxId());
     auto edge = dba->FindEdge(req_reader.getMember().getGid(), false);
     CHECK(edge.GetOld()) << "Old record must exist when sending edge by RPC";
@@ -30,7 +30,7 @@ DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
     Save(response, res_builder);
   });
 
-  rpc_server_->Register<VertexCountRpc>(
+  coordination->Register<VertexCountRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         VertexCountReq req;
         Load(&req, req_reader);

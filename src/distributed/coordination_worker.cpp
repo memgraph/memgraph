@@ -22,18 +22,19 @@ const int kHeartbeatCheckSeconds = 2;
 
 using namespace std::chrono_literals;
 
-WorkerCoordination::WorkerCoordination(communication::rpc::Server *server,
-                                       const Endpoint &master_endpoint,
-                                       int worker_id, int client_workers_count)
-    : Coordination(master_endpoint, worker_id, client_workers_count),
-      server_(server) {
-  server_->Register<StopWorkerRpc>(
+WorkerCoordination::WorkerCoordination(
+    const io::network::Endpoint &worker_endpoint, int worker_id,
+    const io::network::Endpoint &master_endpoint, int server_workers_count,
+    int client_workers_count)
+    : Coordination(worker_endpoint, worker_id, master_endpoint,
+                   server_workers_count, client_workers_count) {
+  server_.Register<StopWorkerRpc>(
       [&](const auto &req_reader, auto *res_builder) {
         LOG(INFO) << "The master initiated shutdown of this worker.";
         Shutdown();
       });
 
-  server_->Register<HeartbeatRpc>([&](const auto &req_reader,
+  server_.Register<HeartbeatRpc>([&](const auto &req_reader,
                                       auto *res_builder) {
     std::lock_guard<std::mutex> guard(heartbeat_lock_);
     last_heartbeat_time_ = std::chrono::steady_clock::now();
@@ -64,7 +65,8 @@ WorkerCoordination::~WorkerCoordination() {
                     "distributed::WorkerCoordination!";
 }
 
-void WorkerCoordination::RegisterWorker(int worker_id, Endpoint endpoint) {
+void WorkerCoordination::RegisterWorker(int worker_id,
+                                        io::network::Endpoint endpoint) {
   AddWorker(worker_id, endpoint);
 }
 
@@ -86,6 +88,10 @@ bool WorkerCoordination::AwaitShutdown(
 
   // Call the before shutdown callback.
   bool ret = call_before_shutdown(is_cluster_alive);
+
+  // Shutdown our RPC server.
+  server_.Shutdown();
+  server_.AwaitShutdown();
 
   // All other cleanup must be done here.
 

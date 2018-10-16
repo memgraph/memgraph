@@ -8,8 +8,6 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "communication/rpc/client_pool.hpp"
-#include "communication/rpc/server.hpp"
 #include "distributed/cluster_discovery_master.hpp"
 #include "distributed/cluster_discovery_worker.hpp"
 #include "distributed/coordination_master.hpp"
@@ -17,8 +15,6 @@
 #include "io/network/endpoint.hpp"
 #include "utils/file.hpp"
 
-using communication::rpc::ClientPool;
-using communication::rpc::Server;
 using namespace distributed;
 using namespace std::literals::chrono_literals;
 
@@ -28,14 +24,11 @@ const std::string kLocal = "127.0.0.1";
 class WorkerCoordinationInThread {
   struct Worker {
     Worker(Endpoint master_endpoint, int worker_id)
-        : master_endpoint(master_endpoint),
-          coord(&server, master_endpoint, worker_id),
+        : coord({kLocal, 0}, worker_id, master_endpoint),
+          discovery(&coord),
           worker_id(worker_id) {}
-    Endpoint master_endpoint;
-    Server server{{kLocal, 0}};
     WorkerCoordination coord;
-    ClientPool client_pool{master_endpoint};
-    ClusterDiscoveryWorker discovery{server, coord, client_pool};
+    ClusterDiscoveryWorker discovery;
     std::atomic<int> worker_id;
   };
 
@@ -53,17 +46,14 @@ class WorkerCoordinationInThread {
           // shutdown by the master. We only wait for the shutdown to be
           // finished.
           EXPECT_TRUE(worker->coord.AwaitShutdown());
-          // Shutdown the RPC server.
-          worker->server.Shutdown();
-          worker->server.AwaitShutdown();
           worker = std::experimental::nullopt;
         });
 
     while (!init_done) std::this_thread::sleep_for(10ms);
   }
 
-  int worker_id() const { return worker->worker_id; }
-  auto endpoint() const { return worker->server.endpoint(); }
+  int worker_id() { return worker->worker_id; }
+  auto endpoint() { return worker->coord.GetServerEndpoint(); }
   auto worker_endpoint(int worker_id) {
     return worker->coord.GetEndpoint(worker_id);
   }
@@ -95,17 +85,16 @@ class Distributed : public ::testing::Test {
 };
 
 TEST_F(Distributed, Coordination) {
-  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
-  MasterCoordination master_coord(master_server.endpoint());
+  MasterCoordination master_coord({kLocal, 0});
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_server, &master_coord,
-                                           tmp_dir("master"));
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
   for (int i = 1; i <= kWorkerCount; ++i)
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-        master_server.endpoint(), tmp_dir(fmt::format("worker{}", i)), i));
+        master_coord.GetServerEndpoint(), tmp_dir(fmt::format("worker{}", i)),
+        i));
 
   // Expect that all workers have a different ID.
   std::unordered_set<int> worker_ids;
@@ -123,49 +112,41 @@ TEST_F(Distributed, Coordination) {
   master_coord.Shutdown();
   EXPECT_TRUE(master_coord.AwaitShutdown());
   for (auto &worker : workers) worker->join();
-  master_server.Shutdown();
-  master_server.AwaitShutdown();
 }
 
 TEST_F(Distributed, DesiredAndUniqueId) {
-  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
-  MasterCoordination master_coord(master_server.endpoint());
+  MasterCoordination master_coord({kLocal, 0});
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_server, &master_coord,
-                                           tmp_dir("master"));
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
   workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-      master_server.endpoint(), tmp_dir("worker42"), 42));
+      master_coord.GetServerEndpoint(), tmp_dir("worker42"), 42));
   EXPECT_EQ(workers[0]->worker_id(), 42);
 
   EXPECT_DEATH(
       workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-          master_server.endpoint(), tmp_dir("worker42"), 42)),
+          master_coord.GetServerEndpoint(), tmp_dir("worker42"), 42)),
       "");
 
   // Coordinated shutdown.
   master_coord.Shutdown();
   EXPECT_TRUE(master_coord.AwaitShutdown());
   for (auto &worker : workers) worker->join();
-  master_server.Shutdown();
-  master_server.AwaitShutdown();
 }
 
 TEST_F(Distributed, CoordinationWorkersId) {
-  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
-  MasterCoordination master_coord(master_server.endpoint());
+  MasterCoordination master_coord({kLocal, 0});
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_server, &master_coord,
-                                           tmp_dir("master"));
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
   workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-      master_server.endpoint(), tmp_dir("worker42"), 42));
+      master_coord.GetServerEndpoint(), tmp_dir("worker42"), 42));
   workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-      master_server.endpoint(), tmp_dir("worker43"), 43));
+      master_coord.GetServerEndpoint(), tmp_dir("worker43"), 43));
 
   std::vector<int> ids;
   ids.push_back(0);
@@ -178,25 +159,22 @@ TEST_F(Distributed, CoordinationWorkersId) {
   master_coord.Shutdown();
   EXPECT_TRUE(master_coord.AwaitShutdown());
   for (auto &worker : workers) worker->join();
-  master_server.Shutdown();
-  master_server.AwaitShutdown();
 }
 
 TEST_F(Distributed, ClusterDiscovery) {
-  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
-  MasterCoordination master_coord(master_server.endpoint());
+  MasterCoordination master_coord({kLocal, 0});
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_server, &master_coord,
-                                           tmp_dir("master"));
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   std::vector<int> ids;
   int worker_count = 10;
 
   ids.push_back(0);
   for (int i = 1; i <= worker_count; ++i) {
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-        master_server.endpoint(), tmp_dir(fmt::format("worker", i)), i));
+        master_coord.GetServerEndpoint(), tmp_dir(fmt::format("worker", i)),
+        i));
 
     ids.push_back(i);
   }
@@ -211,22 +189,19 @@ TEST_F(Distributed, ClusterDiscovery) {
   master_coord.Shutdown();
   EXPECT_TRUE(master_coord.AwaitShutdown());
   for (auto &worker : workers) worker->join();
-  master_server.Shutdown();
-  master_server.AwaitShutdown();
 }
 
 TEST_F(Distributed, KeepsTrackOfRecovered) {
-  Server master_server({kLocal, 0});
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
-  MasterCoordination master_coord(master_server.endpoint());
+  MasterCoordination master_coord({kLocal, 0});
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_server, &master_coord,
-                                           tmp_dir("master"));
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   int worker_count = 10;
   for (int i = 1; i <= worker_count; ++i) {
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
-        master_server.endpoint(), tmp_dir(fmt::format("worker{}", i)), i));
+        master_coord.GetServerEndpoint(), tmp_dir(fmt::format("worker{}", i)),
+        i));
     workers.back()->NotifyWorkerRecovered();
     EXPECT_THAT(master_coord.CountRecoveredWorkers(), i);
   }
@@ -235,8 +210,6 @@ TEST_F(Distributed, KeepsTrackOfRecovered) {
   master_coord.Shutdown();
   EXPECT_TRUE(master_coord.AwaitShutdown());
   for (auto &worker : workers) worker->join();
-  master_server.Shutdown();
-  master_server.AwaitShutdown();
 }
 
 int main(int argc, char **argv) {

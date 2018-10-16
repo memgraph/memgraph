@@ -7,12 +7,14 @@
 #include "storage/distributed/concurrent_id_mapper_master.hpp"
 #include "storage/distributed/concurrent_id_mapper_worker.hpp"
 
+#include "test_coordination.hpp"
+
 template <typename TId>
 class DistributedConcurrentIdMapperTest : public ::testing::Test {
   const std::string kLocal{"127.0.0.1"};
 
  protected:
-  communication::rpc::Server master_server_{{kLocal, 0}};
+  TestMasterCoordination coordination_;
   std::experimental::optional<communication::rpc::ClientPool>
       master_client_pool_;
   std::experimental::optional<storage::MasterConcurrentIdMapper<TId>>
@@ -21,16 +23,15 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
       worker_mapper_;
 
   void SetUp() override {
-    master_client_pool_.emplace(master_server_.endpoint());
-    master_mapper_.emplace(master_server_);
-    worker_mapper_.emplace(master_client_pool_.value());
+    master_client_pool_.emplace(coordination_.GetServerEndpoint());
+    master_mapper_.emplace(&coordination_);
+    worker_mapper_.emplace(&master_client_pool_.value());
   }
   void TearDown() override {
-    master_server_.Shutdown();
-    master_server_.AwaitShutdown();
     worker_mapper_ = std::experimental::nullopt;
     master_mapper_ = std::experimental::nullopt;
     master_client_pool_ = std::experimental::nullopt;
+    coordination_.Stop();
   }
 };
 

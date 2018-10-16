@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include "communication/rpc/server.hpp"
 #include "distributed/coordination.hpp"
 #include "transactions/distributed/engine_distributed.hpp"
 #include "transactions/distributed/engine_single_node.hpp"
@@ -17,8 +16,7 @@ class EngineMaster final : public EngineDistributed {
   /// @param coordination - Required. Used for communication with the workers.
   /// @param wal - Optional. If present, the Engine will write tx
   /// Begin/Commit/Abort atomically (while under lock).
-  EngineMaster(communication::rpc::Server *server,
-               distributed::Coordination *coordination,
+  EngineMaster(distributed::Coordination *coordination,
                durability::WriteAheadLog *wal = nullptr);
 
   EngineMaster(const EngineMaster &) = delete;
@@ -46,7 +44,6 @@ class EngineMaster final : public EngineDistributed {
 
  private:
   EngineSingleNode engine_single_node_;
-  communication::rpc::Server *server_;
   distributed::Coordination *coordination_;
 };
 }  // namespace tx

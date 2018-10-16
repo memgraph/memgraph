@@ -100,14 +100,13 @@ ProduceRpcServer::OngoingProduce::PullOneFromCursor() {
 
 ProduceRpcServer::ProduceRpcServer(database::Worker *db,
                                    tx::EngineWorker *tx_engine,
-                                   communication::rpc::Server &server,
+                                   distributed::Coordination *coordination,
                                    const PlanConsumer &plan_consumer,
                                    DataManager *data_manager)
     : db_(db),
-      produce_rpc_server_(server),
       plan_consumer_(plan_consumer),
       tx_engine_(tx_engine) {
-  produce_rpc_server_.Register<PullRpc>(
+  coordination->Register<PullRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         PullReq req;
         Load(&req, req_reader);
@@ -115,7 +114,7 @@ ProduceRpcServer::ProduceRpcServer(database::Worker *db,
         Save(res, res_builder);
       });
 
-  produce_rpc_server_.Register<ResetCursorRpc>(
+  coordination->Register<ResetCursorRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ResetCursorReq req;
         Load(&req, req_reader);
@@ -126,7 +125,7 @@ ProduceRpcServer::ProduceRpcServer(database::Worker *db,
 
   CHECK(data_manager);
 
-  produce_rpc_server_.Register<TransactionCommandAdvancedRpc>(
+  coordination->Register<TransactionCommandAdvancedRpc>(
       [this, data_manager](const auto &req_reader, auto *res_builder) {
         TransactionCommandAdvancedReq req;
         Load(&req, req_reader);

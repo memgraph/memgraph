@@ -8,15 +8,14 @@
 namespace distributed {
 using Server = communication::rpc::Server;
 
-ClusterDiscoveryWorker::ClusterDiscoveryWorker(
-    Server &server, WorkerCoordination &coordination,
-    communication::rpc::ClientPool &client_pool)
-    : server_(server), coordination_(coordination), client_pool_(client_pool) {
-  server_.Register<ClusterDiscoveryRpc>(
+ClusterDiscoveryWorker::ClusterDiscoveryWorker(WorkerCoordination *coordination)
+    : coordination_(coordination),
+      client_pool_(coordination->GetClientPool(0)) {
+  coordination->Register<ClusterDiscoveryRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         ClusterDiscoveryReq req;
         Load(&req, req_reader);
-        this->coordination_.RegisterWorker(req.worker_id, req.endpoint);
+        coordination_->RegisterWorker(req.worker_id, req.endpoint);
       });
 }
 
@@ -31,8 +30,9 @@ void ClusterDiscoveryWorker::RegisterWorker(
 
   // Register to the master.
   try {
-    auto result = client_pool_.Call<RegisterWorkerRpc>(
-        worker_id, server_.endpoint().port(), full_durability_directory);
+    auto result = client_pool_->Call<RegisterWorkerRpc>(
+        worker_id, coordination_->GetServerEndpoint().port(),
+        full_durability_directory);
     CHECK(!result.durability_error)
         << "This worker was started on the same machine and with the same "
            "durability directory as the master! Please change the durability "
@@ -42,7 +42,7 @@ void ClusterDiscoveryWorker::RegisterWorker(
 
     worker_id_ = worker_id;
     for (auto &kv : result.workers) {
-      coordination_.RegisterWorker(kv.first, kv.second);
+      coordination_->RegisterWorker(kv.first, kv.second);
     }
     snapshot_to_recover_ = result.snapshot_to_recover;
   } catch (const communication::rpc::RpcFailedException &e) {
@@ -57,7 +57,7 @@ void ClusterDiscoveryWorker::NotifyWorkerRecovered(
       << "Workers id is not yet assigned, preform registration before "
          "notifying that the recovery finished";
   try {
-    client_pool_.Call<NotifyWorkerRecoveredRpc>(worker_id_, recovery_info);
+    client_pool_->Call<NotifyWorkerRecoveredRpc>(worker_id_, recovery_info);
   } catch (const communication::rpc::RpcFailedException &e) {
     LOG(FATAL) << "Couldn't notify the master that we finished recovering!";
   }

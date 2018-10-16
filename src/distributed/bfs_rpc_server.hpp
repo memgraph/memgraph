@@ -4,10 +4,9 @@
 
 #include <map>
 
-#include "communication/rpc/server.hpp"
-
 #include "distributed/bfs_rpc_messages.hpp"
 #include "distributed/bfs_subcursor.hpp"
+#include "distributed/coordination.hpp"
 
 namespace distributed {
 
@@ -18,10 +17,10 @@ namespace distributed {
 class BfsRpcServer {
  public:
   BfsRpcServer(database::DistributedGraphDb *db,
-               communication::rpc::Server *server,
+               distributed::Coordination *coordination,
                BfsSubcursorStorage *subcursor_storage)
-      : db_(db), server_(server), subcursor_storage_(subcursor_storage) {
-    server_->Register<CreateBfsSubcursorRpc>(
+      : db_(db), subcursor_storage_(subcursor_storage) {
+    coordination->Register<CreateBfsSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           CreateBfsSubcursorReq req;
           auto ast_storage = std::make_unique<query::AstStorage>();
@@ -36,7 +35,7 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<RegisterSubcursorsRpc>(
+    coordination->Register<RegisterSubcursorsRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           RegisterSubcursorsReq req;
           Load(&req, req_reader);
@@ -46,7 +45,7 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<ResetSubcursorRpc>(
+    coordination->Register<ResetSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           ResetSubcursorReq req;
           Load(&req, req_reader);
@@ -55,7 +54,7 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<RemoveBfsSubcursorRpc>(
+    coordination->Register<RemoveBfsSubcursorRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           RemoveBfsSubcursorReq req;
           Load(&req, req_reader);
@@ -65,7 +64,7 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<SetSourceRpc>(
+    coordination->Register<SetSourceRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           SetSourceReq req;
           Load(&req, req_reader);
@@ -74,7 +73,7 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<ExpandLevelRpc>(
+    coordination->Register<ExpandLevelRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           ExpandLevelReq req;
           Load(&req, req_reader);
@@ -90,7 +89,7 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<SubcursorPullRpc>(
+    coordination->Register<SubcursorPullRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           SubcursorPullReq req;
           Load(&req, req_reader);
@@ -99,7 +98,7 @@ class BfsRpcServer {
           Save(res, res_builder, db_->WorkerId());
         });
 
-    server_->Register<ExpandToRemoteVertexRpc>(
+    coordination->Register<ExpandToRemoteVertexRpc>(
         [this](const auto &req_reader, auto *res_builder) {
           ExpandToRemoteVertexReq req;
           Load(&req, req_reader);
@@ -109,8 +108,8 @@ class BfsRpcServer {
           Save(res, res_builder);
         });
 
-    server_->Register<ReconstructPathRpc>([this](const auto &req_reader,
-                                                 auto *res_builder) {
+    coordination->Register<ReconstructPathRpc>([this](const auto &req_reader,
+                                                       auto *res_builder) {
       ReconstructPathReq req;
       Load(&req, req_reader);
       auto subcursor = subcursor_storage_->Get(req.subcursor_id);
@@ -127,8 +126,8 @@ class BfsRpcServer {
       Save(res, res_builder, db_->WorkerId());
     });
 
-    server_->Register<PrepareForExpandRpc>([this](const auto &req_reader,
-                                                  auto *res_builder) {
+    coordination->Register<PrepareForExpandRpc>([this](const auto &req_reader,
+                                                        auto *res_builder) {
       PrepareForExpandReq req;
       auto subcursor_id = req_reader.getSubcursorId();
       auto *subcursor = subcursor_storage_->Get(subcursor_id);
@@ -142,7 +141,6 @@ class BfsRpcServer {
  private:
   database::DistributedGraphDb *db_;
 
-  communication::rpc::Server *server_;
   std::map<int64_t, std::unique_ptr<database::GraphDbAccessor>> db_accessors_;
   BfsSubcursorStorage *subcursor_storage_;
 };

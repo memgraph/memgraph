@@ -21,9 +21,15 @@ class MasterCoordination final : public Coordination {
  public:
   explicit MasterCoordination(
       const Endpoint &master_endpoint,
+      int server_workers_count = std::thread::hardware_concurrency(),
       int client_workers_count = std::thread::hardware_concurrency());
 
   ~MasterCoordination();
+
+  MasterCoordination(const MasterCoordination &) = delete;
+  MasterCoordination(MasterCoordination &&) = delete;
+  MasterCoordination &operator=(const MasterCoordination &) = delete;
+  MasterCoordination &operator=(MasterCoordination &&) = delete;
 
   /** Registers a new worker with this master coordination.
    *

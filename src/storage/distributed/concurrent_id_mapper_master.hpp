@@ -2,8 +2,7 @@
 
 #include <experimental/optional>
 
-#include "communication/rpc/server.hpp"
-#include "data_structures/concurrent/concurrent_map.hpp"
+#include "distributed/coordination.hpp"
 #include "storage/distributed/concurrent_id_mapper_single_node.hpp"
 
 namespace storage {
@@ -12,9 +11,9 @@ namespace storage {
 template <typename TId>
 class MasterConcurrentIdMapper : public SingleNodeConcurrentIdMapper<TId> {
  public:
-  explicit MasterConcurrentIdMapper(communication::rpc::Server &server);
+  explicit MasterConcurrentIdMapper(distributed::Coordination *coordination);
 
  private:
-  communication::rpc::Server &rpc_server_;
+  distributed::Coordination *coordination_;
 };
 }  // namespace storage

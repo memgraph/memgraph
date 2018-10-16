@@ -7,9 +7,9 @@
 #include <utility>
 #include <vector>
 
-#include "communication/rpc/server.hpp"
 #include "database/distributed/graph_db.hpp"
 #include "database/distributed/graph_db_accessor.hpp"
+#include "distributed/coordination.hpp"
 #include "distributed/plan_consumer.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/context.hpp"
@@ -74,7 +74,7 @@ class ProduceRpcServer {
 
  public:
   ProduceRpcServer(database::Worker *db, tx::EngineWorker *tx_engine,
-                   communication::rpc::Server &server,
+                   distributed::Coordination *coordination,
                    const PlanConsumer &plan_consumer,
                    DataManager *data_manager);
 
@@ -92,7 +92,6 @@ class ProduceRpcServer {
            OngoingProduce>
       ongoing_produces_;
   database::Worker *db_;
-  communication::rpc::Server &produce_rpc_server_;
   const distributed::PlanConsumer &plan_consumer_;
   tx::EngineWorker *tx_engine_;
 

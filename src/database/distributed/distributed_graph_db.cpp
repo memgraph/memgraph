@@ -580,7 +580,7 @@ namespace impl {
 template <template <typename TId> class TMapper>
 struct TypemapPack {
   template <typename... TMapperArgs>
-  explicit TypemapPack(TMapperArgs &... args)
+  explicit TypemapPack(TMapperArgs ... args)
       : label(args...), edge_type(args...), property(args...) {}
   // TODO this should also be garbage collected
   TMapper<storage::Label> label;
@@ -614,35 +614,33 @@ class Master {
   // clean the mess. Also, be careful of virtual calls to `self_` in
   // constructors of members.
   database::Master *self_{nullptr};
-  communication::rpc::Server server_{
-      config_.master_endpoint,
-      static_cast<size_t>(config_.rpc_num_server_workers)};
-  tx::EngineMaster tx_engine_{&server_, &coordination_, &wal_};
-  distributed::MasterCoordination coordination_{server_.endpoint(),
+  distributed::MasterCoordination coordination_{config_.master_endpoint,
+                                                config_.rpc_num_server_workers,
                                                 config_.rpc_num_client_workers};
+  tx::EngineMaster tx_engine_{&coordination_, &wal_};
   std::unique_ptr<StorageGcMaster> storage_gc_ =
       std::make_unique<StorageGcMaster>(
-          *storage_, tx_engine_, config_.gc_cycle_sec, server_, coordination_);
-  TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{server_};
-  database::MasterCounters counters_{&server_};
+          *storage_, tx_engine_, config_.gc_cycle_sec, &coordination_);
+  TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{&coordination_};
+  database::MasterCounters counters_{&coordination_};
   distributed::BfsSubcursorStorage subcursor_storage_{&bfs_subcursor_clients_};
-  distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,
+  distributed::BfsRpcServer bfs_subcursor_server_{self_, &coordination_,
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{
       self_, &subcursor_storage_, &coordination_, &data_manager_};
   distributed::DurabilityRpcMaster durability_rpc_{&coordination_};
-  distributed::DataRpcServer data_server_{self_, &server_};
+  distributed::DataRpcServer data_server_{self_, &coordination_};
   distributed::DataRpcClients data_clients_{&coordination_};
   distributed::PlanDispatcher plan_dispatcher_{&coordination_};
   distributed::PullRpcClients pull_clients_{&coordination_, &data_manager_};
-  distributed::UpdatesRpcServer updates_server_{self_, &server_};
+  distributed::UpdatesRpcServer updates_server_{self_, &coordination_};
   distributed::UpdatesRpcClients updates_clients_{&coordination_};
   distributed::DataManager data_manager_{*self_, data_clients_};
   distributed::ClusterDiscoveryMaster cluster_discovery_{
-      &server_, &coordination_, config_.durability_directory};
+      &coordination_, config_.durability_directory};
   distributed::TokenSharingRpcServer token_sharing_server_{
-      self_, config_.worker_id, &coordination_, &server_};
-  distributed::DynamicWorkerAddition dynamic_worker_addition_{self_, &server_};
+      self_, config_.worker_id, &coordination_};
+  distributed::DynamicWorkerAddition dynamic_worker_addition_{self_, &coordination_};
 };
 
 }  // namespace impl
@@ -830,11 +828,11 @@ void Master::ReinitializeStorage() {
       impl_->config_.worker_id, impl_->config_.properties_on_disk);
   impl_->storage_gc_ = std::make_unique<StorageGcMaster>(
       *impl_->storage_, impl_->tx_engine_, impl_->config_.gc_cycle_sec,
-      impl_->server_, impl_->coordination_);
+      &impl_->coordination_);
 }
 
 io::network::Endpoint Master::endpoint() const {
-  return impl_->server_.endpoint();
+  return impl_->coordination_.GetServerEndpoint();
 }
 
 io::network::Endpoint Master::GetEndpoint(int worker_id) {
@@ -894,11 +892,6 @@ bool Master::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
             // The shutdown was completed successfully.
             return true;
           });
-
-  // We stop the RPC server to disable further requests.
-  // TODO (mferencevic): Move the RPC into coordination.
-  impl_->server_.Shutdown();
-  impl_->server_.AwaitShutdown();
 
   // Return the shutdown success status.
   return ret;
@@ -991,41 +984,36 @@ class Worker {
   // clean the mess. Also, be careful of virtual calls to `self_` in
   // constructors of members.
   database::Worker *self_{nullptr};
-  communication::rpc::Server server_{
-      config_.worker_endpoint,
-      static_cast<size_t>(config_.rpc_num_server_workers)};
   distributed::WorkerCoordination coordination_{
-      &server_, config_.master_endpoint, config_.worker_id,
-      config_.rpc_num_client_workers};
-  // TODO (mferencevic): Pass the coordination object directly wherever there is
-  // a `GetClientPool(xyz)` call.
-  tx::EngineWorker tx_engine_{&server_, coordination_.GetClientPool(0), &wal_};
+      config_.worker_endpoint, config_.worker_id, config_.master_endpoint,
+      config_.rpc_num_server_workers, config_.rpc_num_client_workers};
+  tx::EngineWorker tx_engine_{&coordination_, &wal_};
   std::unique_ptr<StorageGcWorker> storage_gc_ =
       std::make_unique<StorageGcWorker>(
           *storage_, tx_engine_, config_.gc_cycle_sec,
           *coordination_.GetClientPool(0), config_.worker_id);
   TypemapPack<storage::WorkerConcurrentIdMapper> typemap_pack_{
-      *coordination_.GetClientPool(0)};
+      coordination_.GetClientPool(0)};
   database::WorkerCounters counters_{coordination_.GetClientPool(0)};
   distributed::BfsSubcursorStorage subcursor_storage_{&bfs_subcursor_clients_};
-  distributed::BfsRpcServer bfs_subcursor_server_{self_, &server_,
+  distributed::BfsRpcServer bfs_subcursor_server_{self_, &coordination_,
                                                   &subcursor_storage_};
   distributed::BfsRpcClients bfs_subcursor_clients_{
       self_, &subcursor_storage_, &coordination_, &data_manager_};
-  distributed::DataRpcServer data_server_{self_, &server_};
+  distributed::DataRpcServer data_server_{self_, &coordination_};
   distributed::DataRpcClients data_clients_{&coordination_};
-  distributed::PlanConsumer plan_consumer_{server_};
-  distributed::ProduceRpcServer produce_server_{self_, &tx_engine_, server_,
+  distributed::PlanConsumer plan_consumer_{&coordination_};
+  distributed::ProduceRpcServer produce_server_{self_, &tx_engine_, &coordination_,
                                                 plan_consumer_, &data_manager_};
-  distributed::IndexRpcServer index_rpc_server_{*self_, server_};
-  distributed::UpdatesRpcServer updates_server_{self_, &server_};
+  distributed::IndexRpcServer index_rpc_server_{self_, &coordination_};
+  distributed::UpdatesRpcServer updates_server_{self_, &coordination_};
   distributed::UpdatesRpcClients updates_clients_{&coordination_};
   distributed::DataManager data_manager_{*self_, data_clients_};
-  distributed::DurabilityRpcWorker durability_rpc_{self_, &server_};
+  distributed::DurabilityRpcWorker durability_rpc_{self_, &coordination_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
-      server_, coordination_, *coordination_.GetClientPool(0)};
+      &coordination_};
   distributed::TokenSharingRpcServer token_sharing_server_{
-      self_, config_.worker_id, &coordination_, &server_};
+      self_, config_.worker_id, &coordination_};
   distributed::DynamicWorkerRegistration dynamic_worker_registration_{
       coordination_.GetClientPool(0)};
 };
@@ -1197,7 +1185,7 @@ void Worker::RecoverWalAndIndexes(durability::RecoveryData *recovery_data) {
 }
 
 io::network::Endpoint Worker::endpoint() const {
-  return impl_->server_.endpoint();
+  return impl_->coordination_.GetServerEndpoint();
 }
 
 io::network::Endpoint Worker::GetEndpoint(int worker_id) {
@@ -1230,10 +1218,6 @@ bool Worker::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
         // The worker shutdown always succeeds.
         return true;
       });
-
-  // Stop the RPC server
-  impl_->server_.Shutdown();
-  impl_->server_.AwaitShutdown();
 
   // Return the shutdown success status.
   return ret;

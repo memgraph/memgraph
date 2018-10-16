@@ -5,10 +5,6 @@
 #include "distributed/coordination.hpp"
 #include "distributed/dgp/partitioner.hpp"
 
-namespace communication::rpc {
-class Server;
-}
-
 namespace database {
 class DistributedGraphDb;
 };
@@ -28,13 +24,9 @@ namespace distributed {
 class TokenSharingRpcServer {
  public:
   TokenSharingRpcServer(database::DistributedGraphDb *db, int worker_id,
-                        distributed::Coordination *coordination,
-                        communication::rpc::Server *server)
-      : worker_id_(worker_id),
-        coordination_(coordination),
-        server_(server),
-        dgp_(db) {
-    server_->Register<distributed::TokenTransferRpc>(
+                        distributed::Coordination *coordination)
+      : worker_id_(worker_id), coordination_(coordination), dgp_(db) {
+    coordination_->Register<distributed::TokenTransferRpc>(
         [this](const auto &req_reader, auto *res_builder) { token_ = true; });
     // TODO (buda): It's not trivial to move this part in the Start method
     // because worker then doesn't run the step. Will resolve that with
@@ -111,7 +103,6 @@ class TokenSharingRpcServer {
  private:
   int worker_id_;
   distributed::Coordination *coordination_;
-  communication::rpc::Server *server_;
 
   std::atomic<bool> started_{false};
   std::atomic<bool> token_{false};
