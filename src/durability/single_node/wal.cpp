@@ -1,4 +1,4 @@
-#include "wal.hpp"
+#include "durability/single_node/wal.hpp"
 
 #include "durability/single_node/paths.hpp"
 #include "durability/single_node/version.hpp"
