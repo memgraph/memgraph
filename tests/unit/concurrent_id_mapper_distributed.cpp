@@ -23,16 +23,16 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
       worker_mapper_;
 
   void SetUp() override {
+    master_mapper_.emplace(&coordination_);
     coordination_.Start();
     master_client_pool_.emplace(coordination_.GetServerEndpoint());
-    master_mapper_.emplace(&coordination_);
     worker_mapper_.emplace(&master_client_pool_.value());
   }
   void TearDown() override {
     worker_mapper_ = std::experimental::nullopt;
-    master_mapper_ = std::experimental::nullopt;
     master_client_pool_ = std::experimental::nullopt;
     coordination_.Stop();
+    master_mapper_ = std::experimental::nullopt;
   }
 };
 

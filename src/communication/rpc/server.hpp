@@ -1,6 +1,7 @@
 #pragma once
 
-#include <unordered_map>
+#include <map>
+#include <mutex>
 #include <vector>
 
 #include "capnp/any.h"
@@ -9,8 +10,6 @@
 #include "communication/rpc/messages.hpp"
 #include "communication/rpc/protocol.hpp"
 #include "communication/server.hpp"
-#include "data_structures/concurrent/concurrent_map.hpp"
-#include "data_structures/queue.hpp"
 #include "io/network/endpoint.hpp"
 #include "utils/demangle.hpp"
 
@@ -36,6 +35,8 @@ class Server {
                 void(const typename TRequestResponse::Request::Capnp::Reader &,
                      typename TRequestResponse::Response::Capnp::Builder *)>
                     callback) {
+    std::lock_guard<std::mutex> guard(lock_);
+    CHECK(!server_.IsRunning()) << "You can't register RPCs when the server is running!";
     RpcCallback rpc;
     rpc.req_type = TRequestResponse::Request::TypeInfo;
     rpc.res_type = TRequestResponse::Response::TypeInfo;
@@ -51,16 +52,12 @@ class Server {
       callback(req_data, &res_builder);
     };
 
-    auto extended_callbacks_accessor = extended_callbacks_.access();
-    if (extended_callbacks_accessor.find(
-            TRequestResponse::Request::TypeInfo.id) !=
-        extended_callbacks_accessor.end()) {
+    if (extended_callbacks_.find(TRequestResponse::Request::TypeInfo.id) !=
+        extended_callbacks_.end()) {
       LOG(FATAL) << "Callback for that message type already registered!";
     }
 
-    auto callbacks_accessor = callbacks_.access();
-    auto got =
-        callbacks_accessor.insert(TRequestResponse::Request::TypeInfo.id, rpc);
+    auto got = callbacks_.insert({TRequestResponse::Request::TypeInfo.id, rpc});
     CHECK(got.second) << "Callback for that message type already registered";
     VLOG(12) << "[RpcServer] register " << rpc.req_type.name << " -> "
              << rpc.res_type.name;
@@ -72,6 +69,8 @@ class Server {
                      const typename TRequestResponse::Request::Capnp::Reader &,
                      typename TRequestResponse::Response::Capnp::Builder *)>
                     callback) {
+    std::lock_guard<std::mutex> guard(lock_);
+    CHECK(!server_.IsRunning()) << "You can't register RPCs when the server is running!";
     RpcExtendedCallback rpc;
     rpc.req_type = TRequestResponse::Request::TypeInfo;
     rpc.res_type = TRequestResponse::Response::TypeInfo;
@@ -88,31 +87,16 @@ class Server {
       callback(endpoint, req_data, &res_builder);
     };
 
-    auto callbacks_accessor = callbacks_.access();
-    if (callbacks_accessor.find(TRequestResponse::Request::TypeInfo.id) !=
-        callbacks_accessor.end()) {
+    if (callbacks_.find(TRequestResponse::Request::TypeInfo.id) !=
+        callbacks_.end()) {
       LOG(FATAL) << "Callback for that message type already registered!";
     }
 
-    auto extended_callbacks_accessor = extended_callbacks_.access();
-    auto got = extended_callbacks_accessor.insert(
-        TRequestResponse::Request::TypeInfo.id, rpc);
+    auto got =
+        extended_callbacks_.insert({TRequestResponse::Request::TypeInfo.id, rpc});
     CHECK(got.second) << "Callback for that message type already registered";
     VLOG(12) << "[RpcServer] register " << rpc.req_type.name << " -> "
              << rpc.res_type.name;
-  }
-
-  template <typename TRequestResponse>
-  void UnRegister() {
-    const MessageType &type = TRequestResponse::Request::TypeInfo;
-    auto callbacks_accessor = callbacks_.access();
-    auto deleted = callbacks_accessor.remove(type.id);
-    if (!deleted) {
-      auto extended_callbacks_accessor = extended_callbacks_.access();
-      auto extended_deleted = extended_callbacks_accessor.remove(type.id);
-      CHECK(extended_deleted)
-          << "Trying to remove unknown message type callback";
-    }
   }
 
  private:
@@ -135,10 +119,10 @@ class Server {
     MessageType res_type;
   };
 
-  ConcurrentMap<uint64_t, RpcCallback> callbacks_;
-  ConcurrentMap<uint64_t, RpcExtendedCallback> extended_callbacks_;
+  std::mutex lock_;
+  std::map<uint64_t, RpcCallback> callbacks_;
+  std::map<uint64_t, RpcExtendedCallback> extended_callbacks_;
 
-  std::mutex mutex_;
   // TODO (mferencevic): currently the RPC server is hardcoded not to use SSL
   communication::ServerContext context_;
   communication::Server<Session, Server> server_;

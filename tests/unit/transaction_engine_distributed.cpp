@@ -19,15 +19,13 @@ class WorkerEngineTest : public testing::Test {
  protected:
   void SetUp() override {
     master_coordination_ = std::make_unique<TestMasterCoordination>();
-    master_coordination_->Start();
-
     master_ = std::make_unique<EngineMaster>(master_coordination_.get());
+    master_coordination_->Start();
 
     worker_coordination_ = std::make_unique<TestWorkerCoordination>(
         master_coordination_->GetServerEndpoint(), 1);
-    worker_coordination_->Start();
-
     worker_ = std::make_unique<EngineWorker>(worker_coordination_.get());
+    worker_coordination_->Start();
   }
 
   void TearDown() override {

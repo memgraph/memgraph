@@ -44,14 +44,16 @@ void Session::Execute() {
   // callback fills the message data
   auto response_builder = response_message.initRoot<capnp::Message>();
 
-  auto callbacks_accessor = server_->callbacks_.access();
-  auto it = callbacks_accessor.find(request.getTypeId());
-  if (it == callbacks_accessor.end()) {
+  // Access to `callbacks_` and `extended_callbacks_` is done here without
+  // acquiring the `mutex_` because we don't allow RPC registration after the
+  // server was started so those two maps will never be updated when we `find`
+  // over them.
+  auto it = server_->callbacks_.find(request.getTypeId());
+  if (it == server_->callbacks_.end()) {
     // We couldn't find a regular callback to call, try to find an extended
     // callback to call.
-    auto extended_callbacks_accessor = server_->extended_callbacks_.access();
-    auto extended_it = extended_callbacks_accessor.find(request.getTypeId());
-    if (extended_it == extended_callbacks_accessor.end()) {
+    auto extended_it = server_->extended_callbacks_.find(request.getTypeId());
+    if (extended_it == server_->extended_callbacks_.end()) {
       // Throw exception to close the socket and cleanup the session.
       throw SessionException(
           "Session trying to execute an unregistered RPC call!");
@@ -74,7 +76,7 @@ void Session::Execute() {
 
   MessageSize input_stream_size = response_bytes.size();
   if (!output_stream_->Write(reinterpret_cast<uint8_t *>(&input_stream_size),
-                            sizeof(MessageSize), true)) {
+                             sizeof(MessageSize), true)) {
     throw SessionException("Couldn't send response size!");
   }
   if (!output_stream_->Write(response_bytes.begin(), response_bytes.size())) {

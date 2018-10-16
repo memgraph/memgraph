@@ -127,6 +127,9 @@ class Server final {
     listener_.AwaitShutdown();
   }
 
+  /// Returns `true` if the server was started
+  bool IsRunning() { return alive_; }
+
  private:
   void AcceptConnection() {
     // Accept a connection from a socket.

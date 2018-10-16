@@ -89,9 +89,9 @@ TEST_F(Distributed, Coordination) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
   for (int i = 1; i <= kWorkerCount; ++i)
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
@@ -120,9 +120,9 @@ TEST_F(Distributed, DesiredAndUniqueId) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
   workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
       master_coord.GetServerEndpoint(), tmp_dir("worker42"), 42));
@@ -143,9 +143,9 @@ TEST_F(Distributed, CoordinationWorkersId) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
   workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
       master_coord.GetServerEndpoint(), tmp_dir("worker42"), 42));
@@ -169,9 +169,9 @@ TEST_F(Distributed, ClusterDiscovery) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   std::vector<int> ids;
   int worker_count = 10;
 
@@ -200,9 +200,9 @@ TEST_F(Distributed, KeepsTrackOfRecovered) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
-  ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   int worker_count = 10;
   for (int i = 1; i <= worker_count; ++i) {
     workers.emplace_back(std::make_unique<WorkerCoordinationInThread>(
