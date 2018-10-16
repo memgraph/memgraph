@@ -50,34 +50,11 @@ class Server final {
          ServerContext *context, int inactivity_timeout_sec,
          const std::string &service_name,
          size_t workers_count = std::thread::hardware_concurrency())
-      : listener_(session_data, context, inactivity_timeout_sec, service_name,
+      : alive_(false),
+        endpoint_(endpoint),
+        listener_(session_data, context, inactivity_timeout_sec, service_name,
                   workers_count),
-        service_name_(service_name) {
-    // Without server we can't continue with application so we can just
-    // terminate here.
-    if (!socket_.Bind(endpoint)) {
-      LOG(FATAL) << "Cannot bind to socket on " << endpoint;
-    }
-    socket_.SetTimeout(1, 0);
-    if (!socket_.Listen(1024)) {
-      LOG(FATAL) << "Cannot listen on socket!";
-    }
-
-    thread_ = std::thread([this, service_name]() {
-      utils::ThreadSetName(fmt::format("{} server", service_name));
-
-      std::cout << service_name << " server is fully armed and operational"
-                << std::endl;
-      std::cout << service_name << " listening on " << socket_.endpoint()
-                << std::endl;
-
-      while (alive_) {
-        AcceptConnection();
-      }
-
-      std::cout << service_name << " shutting down..." << std::endl;
-    });
-  }
+        service_name_(service_name) {}
 
   ~Server() {
     CHECK(!alive_ && !thread_.joinable()) << "You should call Shutdown and "
@@ -90,9 +67,50 @@ class Server final {
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
 
-  const auto &endpoint() const { return socket_.endpoint(); }
+  const auto &endpoint() const {
+    CHECK(alive_) << "You can't get the server endpoint when it's not running!";
+    return socket_.endpoint();
+  }
 
-  /// Stops server manually
+  /// Starts the server
+  bool Start() {
+    CHECK(!alive_) << "The server was already started!";
+    alive_.store(true);
+
+    if (!socket_.Bind(endpoint_)) {
+      LOG(ERROR) << "Cannot bind to socket on " << endpoint_;
+      alive_.store(false);
+      return false;
+    }
+    socket_.SetTimeout(1, 0);
+    if (!socket_.Listen(1024)) {
+      LOG(ERROR) << "Cannot listen on socket!";
+      alive_.store(false);
+      return false;
+    }
+
+    listener_.Start();
+
+    std::string service_name(service_name_);
+    thread_ = std::thread([this, service_name]() {
+      utils::ThreadSetName(fmt::format("{} server", service_name));
+
+      std::cout << service_name_ << " server is fully armed and operational"
+                << std::endl;
+      std::cout << service_name_ << " listening on " << socket_.endpoint()
+                << std::endl;
+
+      while (alive_) {
+        AcceptConnection();
+      }
+
+      std::cout << service_name << " shutting down..." << std::endl;
+    });
+
+    return true;
+  }
+
+  /// Signals the server to start shutting down
   void Shutdown() {
     // This should be as simple as possible, so that it can be called inside a
     // signal handler.
@@ -122,10 +140,11 @@ class Server final {
     listener_.AddConnection(std::move(*s));
   }
 
-  std::atomic<bool> alive_{true};
+  std::atomic<bool> alive_;
   std::thread thread_;
 
   Socket socket_;
+  io::network::Endpoint endpoint_;
   Listener<TSession, TSessionData> listener_;
 
   const std::string service_name_;

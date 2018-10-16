@@ -60,6 +60,9 @@ class MasterCoordination final : public Coordination {
   std::vector<tx::TransactionId> CommonWalTransactions(
       const durability::RecoveryInfo &master_info) const;
 
+  /// Starts the coordination and its servers.
+  bool Start();
+
   /// Waits while the cluster is in a valid state or the `Shutdown` method is
   /// called (suitable for use with signal handlers). Blocks the calling thread
   /// until that has finished.

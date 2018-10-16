@@ -20,8 +20,10 @@ namespace fs = std::experimental::filesystem;
 class WorkerInThread {
  public:
   explicit WorkerInThread(database::Config config) : worker_(config) {
-    thread_ =
-        std::thread([this, config] { EXPECT_TRUE(worker_.AwaitShutdown()); });
+    thread_ = std::thread([this, config] {
+      worker_.Start();
+      EXPECT_TRUE(worker_.AwaitShutdown());
+    });
   }
 
   ~WorkerInThread() {
@@ -59,6 +61,7 @@ class DistributedGraphDbTest : public ::testing::Test {
     // TODO (buda): Fix sometime in the future - not mission critical.
     master_config.recovering_cluster_size = 1;
     master_ = std::make_unique<database::Master>(modify_config(master_config));
+    master_->Start();
 
     std::this_thread::sleep_for(kInitTime);
     auto worker_config = [this](int worker_id) {
@@ -183,9 +186,9 @@ class Cluster {
     // Flag needs to be updated due to props on disk storage.
     FLAGS_durability_directory = GetDurabilityDirectory(0);
 
-    auto master_tmp = std::make_unique<database::Master>(master_config);
-    auto master_endpoint = master_tmp->endpoint();
-    master_ = std::move(master_tmp);
+    master_ = std::make_unique<database::Master>(master_config);
+    master_->Start();
+    auto master_endpoint = master_->endpoint();
 
     const auto kInitTime = 200ms;
     std::this_thread::sleep_for(kInitTime);

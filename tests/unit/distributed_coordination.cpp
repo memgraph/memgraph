@@ -40,6 +40,7 @@ class WorkerCoordinationInThread {
     worker_thread_ = std::thread(
         [this, master_endpoint, durability_directory, desired_id, &init_done] {
           worker.emplace(master_endpoint, desired_id);
+          ASSERT_TRUE(worker->coord.Start());
           worker->discovery.RegisterWorker(desired_id, durability_directory);
           init_done = true;
           // We don't shutdown the worker coordination here because it will be
@@ -88,6 +89,7 @@ TEST_F(Distributed, Coordination) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
@@ -118,6 +120,7 @@ TEST_F(Distributed, DesiredAndUniqueId) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
@@ -140,6 +143,7 @@ TEST_F(Distributed, CoordinationWorkersId) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
 
@@ -165,6 +169,7 @@ TEST_F(Distributed, ClusterDiscovery) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   std::vector<int> ids;
@@ -195,6 +200,7 @@ TEST_F(Distributed, KeepsTrackOfRecovered) {
   std::vector<std::unique_ptr<WorkerCoordinationInThread>> workers;
 
   MasterCoordination master_coord({kLocal, 0});
+  ASSERT_TRUE(master_coord.Start());
   master_coord.SetRecoveredSnapshot(std::experimental::nullopt);
   ClusterDiscoveryMaster master_discovery_(&master_coord, tmp_dir("master"));
   int worker_count = 10;

@@ -93,6 +93,7 @@ TEST(Rpc, Call) {
     SumRes res(req.x + req.y);
     Save(res, res_builder);
   });
+  ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
   Client client(server.endpoint());
@@ -112,6 +113,7 @@ TEST(Rpc, Abort) {
     SumRes res(req.x + req.y);
     Save(res, res_builder);
   });
+  ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
   Client client(server.endpoint());
@@ -142,6 +144,7 @@ TEST(Rpc, ClientPool) {
     SumRes res(req.x + req.y);
     Save(res, res_builder);
   });
+  ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
   Client client(server.endpoint());
@@ -194,6 +197,7 @@ TEST(Rpc, LargeMessage) {
     Load(&res, req_reader);
     Save(res, res_builder);
   });
+  ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
 
   std::string testdata(100000, 'a');

@@ -30,6 +30,9 @@ class WorkerCoordination final : public Coordination {
   /// Registers the worker with the given endpoint.
   void RegisterWorker(int worker_id, io::network::Endpoint endpoint);
 
+  /// Starts the coordination and its servers.
+  bool Start();
+
   /// Starts listening for a remote shutdown command (issued by the master) or
   /// for the `Shutdown` method to be called (suitable for use with signal
   /// handlers). Blocks the calling thread until that has finished.

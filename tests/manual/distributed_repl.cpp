@@ -27,8 +27,10 @@ const std::string kLocal = "127.0.0.1";
 class WorkerInThread {
  public:
   explicit WorkerInThread(database::Config config) : worker_(config) {
-    thread_ =
-        std::thread([this, config] { EXPECT_TRUE(worker_.AwaitShutdown()); });
+    thread_ = std::thread([this, config] {
+      worker_.Start();
+      EXPECT_TRUE(worker_.AwaitShutdown());
+    });
   }
 
   ~WorkerInThread() {
@@ -60,6 +62,7 @@ int main(int argc, char *argv[]) {
   // Flag needs to be updated due to props on disk storage.
   FLAGS_durability_directory = GetDurabilityDirectory(tmp_dir, 0);
   auto master = std::make_unique<database::Master>(master_config);
+  master->Start();
   // Allow the master to get initialized before making workers.
   std::this_thread::sleep_for(std::chrono::milliseconds(250));
 

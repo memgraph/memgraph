@@ -61,6 +61,7 @@ TEST(NetworkTimeouts, InactiveSession) {
   communication::ServerContext context;
   communication::Server<TestSession, TestData> server{
       {"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
+  ASSERT_TRUE(server.Start());
 
   // Create the client and connect to the server.
   io::network::Socket client;
@@ -92,6 +93,7 @@ TEST(NetworkTimeouts, ActiveSession) {
   communication::ServerContext context;
   communication::Server<TestSession, TestData> server{
       {"127.0.0.1", 0}, &test_data, &context, 2, "Test", 1};
+  ASSERT_TRUE(server.Start());
 
   // Create the client and connect to the server.
   io::network::Socket client;

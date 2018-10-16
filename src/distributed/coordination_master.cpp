@@ -21,11 +21,7 @@ MasterCoordination::MasterCoordination(const Endpoint &master_endpoint,
                                        int server_workers_count,
                                        int client_workers_count)
     : Coordination(master_endpoint, 0, {}, server_workers_count,
-                   client_workers_count) {
-  // TODO (mferencevic): Move this to an explicit `Start` method.
-  scheduler_.Run("Heartbeat", std::chrono::seconds(kHeartbeatIntervalSeconds),
-                 [this] { IssueHeartbeats(); });
-}
+                   client_workers_count) {}
 
 MasterCoordination::~MasterCoordination() {
   CHECK(!alive_) << "You must call Shutdown and AwaitShutdown on "
@@ -116,6 +112,14 @@ std::vector<tx::TransactionId> MasterCoordination::CommonWalTransactions(
   }
 
   return tx_intersection;
+}
+
+bool MasterCoordination::Start() {
+  if (!server_.Start()) return false;
+  AddWorker(0, server_.endpoint());
+  scheduler_.Run("Heartbeat", std::chrono::seconds(kHeartbeatIntervalSeconds),
+                 [this] { IssueHeartbeats(); });
+  return true;
 }
 
 bool MasterCoordination::AwaitShutdown(

@@ -23,6 +23,7 @@ TEST(Network, Server) {
   int N = (std::thread::hardware_concurrency() + 1) / 2;
   ContextT context;
   ServerT server(endpoint, &session_data, &context, -1, "Test", N);
+  ASSERT_TRUE(server.Start());
 
   const auto &ep = server.endpoint();
   // start clients

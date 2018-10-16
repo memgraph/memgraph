@@ -70,6 +70,10 @@ void WorkerCoordination::RegisterWorker(int worker_id,
   AddWorker(worker_id, endpoint);
 }
 
+bool WorkerCoordination::Start() {
+  return server_.Start();
+}
+
 bool WorkerCoordination::AwaitShutdown(
     std::function<bool(bool)> call_before_shutdown) {
   // Wait for a shutdown notification.

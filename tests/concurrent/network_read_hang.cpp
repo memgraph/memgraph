@@ -67,6 +67,7 @@ TEST(Network, SocketReadHangOnConcurrentConnections) {
   communication::ServerContext context;
   communication::Server<TestSession, TestData> server(endpoint, &data, &context,
                                                       -1, "Test", N);
+  ASSERT_TRUE(server.Start());
 
   const auto &ep = server.endpoint();
   // start clients

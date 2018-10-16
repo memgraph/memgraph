@@ -9,6 +9,8 @@
 TEST(CountersDistributed, All) {
   TestMasterCoordination coordination;
   database::MasterCounters master(&coordination);
+  coordination.Start();
+
   communication::rpc::ClientPool master_client_pool(
       coordination.GetServerEndpoint());
 

@@ -24,6 +24,7 @@ class DistributedDynamicWorker : public ::testing::Test {
     FLAGS_durability_directory = GetDurabilityDirectory(0);
     auto master =
         std::make_unique<database::Master>(modify_config(master_config));
+    master->Start();
     std::this_thread::sleep_for(200ms);
     return master;
   }

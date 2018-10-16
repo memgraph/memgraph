@@ -1,5 +1,7 @@
 #pragma once
 
+#include <gtest/gtest.h>
+
 #include "distributed/coordination.hpp"
 
 const std::string kLocal = "127.0.0.1";
@@ -12,6 +14,10 @@ class TestMasterCoordination : public distributed::Coordination {
   TestMasterCoordination()
       : distributed::Coordination({kLocal, 0}, 0, {kLocal, 0}) {}
 
+  void Start() {
+    ASSERT_TRUE(server_.Start());
+  }
+
   void Stop() {
     server_.Shutdown();
     server_.AwaitShutdown();
@@ -23,6 +29,10 @@ class TestWorkerCoordination : public distributed::Coordination {
   TestWorkerCoordination(const io::network::Endpoint &master_endpoint,
                          int worker_id)
       : distributed::Coordination({kLocal, 0}, worker_id, master_endpoint) {}
+
+  void Start() {
+    ASSERT_TRUE(server_.Start());
+  }
 
   void Stop() {
     server_.Shutdown();

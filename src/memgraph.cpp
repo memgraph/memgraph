@@ -100,6 +100,7 @@ void SingleNodeMain() {
   };
   InitSignalHandlers(shutdown);
 
+  CHECK(server.Start()) << "Couldn't start the Bolt server!";
   server.AwaitShutdown();
 }
 

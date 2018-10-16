@@ -98,6 +98,12 @@ void MasterMain() {
 
   InitSignalHandlers(shutdown);
 
+  // Start the Bolt server.
+  CHECK(server.Start()) << "Couldn't start the Bolt server!";
+
+  // Start the database.
+  db.Start();
+
   // The return code of `AwaitShutdown` is ignored because we want the database
   // to exit cleanly no matter what.
   db.AwaitShutdown([&server] {
@@ -120,6 +126,9 @@ void WorkerMain() {
   };
 
   InitSignalHandlers(shutdown);
+
+  // Start the database.
+  db.Start();
 
   // The return code of `AwaitShutdown` is ignored because we want the database
   // to exit cleanly no matter what.

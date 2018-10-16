@@ -13,18 +13,16 @@ Coordination::Coordination(const io::network::Endpoint &worker_endpoint,
     : server_(worker_endpoint, server_workers_count),
       worker_id_(worker_id),
       thread_pool_(client_workers_count, "RPC client") {
-  // The master endpoint should be added to workers and not to the master.
   if (worker_id != 0) {
     // The master is always worker 0.
-    // TODO (mferencevic): Strictly speaking, this isn't correct when creating a
-    // `CoordinationMaster` because the supplied `master_endpoint` is supplied
-    // before the server starts listening on the address. Eg. if `0.0.0.0:0` is
-    // supplied that should be first resolved by the server when it binds to
-    // that address and `server_.endpoint()` should be used. Currently,
-    // `workers_[0]` isn't used on the master so all is well.
+    // We only emplace the master endpoint when this instance isn't the
+    // `MasterCoordination`. This is because we don't know the exact master
+    // endpoint until the master server is started. The `MasterCoordination`
+    // will emplace the master endpoint when the server is started. Eg. if
+    // `0.0.0.0:0` is supplied as the master endpoint that should be first
+    // resolved by the server when it binds to that address and
+    // `server_.endpoint()` should be used.
     workers_.emplace(0, master_endpoint);
-  } else {
-    workers_.emplace(0, server_.endpoint());
   }
 }
 

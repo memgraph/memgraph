@@ -44,45 +44,11 @@ class Listener final {
            int inactivity_timeout_sec, const std::string &service_name,
            size_t workers_count)
       : data_(data),
-        alive_(true),
+        alive_(false),
         context_(context),
         inactivity_timeout_sec_(inactivity_timeout_sec),
-        service_name_(service_name) {
-    std::cout << "Starting " << workers_count << " " << service_name_
-              << " workers" << std::endl;
-    for (size_t i = 0; i < workers_count; ++i) {
-      worker_threads_.emplace_back([this, service_name, i]() {
-        utils::ThreadSetName(fmt::format("{} worker {}", service_name, i + 1));
-        while (alive_) {
-          WaitAndProcessEvents();
-        }
-      });
-    }
-
-    if (inactivity_timeout_sec_ > 0) {
-      timeout_thread_ = std::thread([this, service_name]() {
-        utils::ThreadSetName(fmt::format("{} timeout", service_name));
-        while (alive_) {
-          {
-            std::lock_guard<utils::SpinLock> guard(lock_);
-            for (auto &session : sessions_) {
-              if (session->TimedOut()) {
-                LOG(WARNING) << service_name << " session associated with "
-                             << session->socket().endpoint() << " timed out.";
-                // Here we shutdown the socket to terminate any leftover
-                // blocking `Write` calls and to signal an event that the
-                // session is closed. Session cleanup will be done in the event
-                // process function.
-                session->socket().Shutdown();
-              }
-            }
-          }
-          // TODO (mferencevic): Should this be configurable?
-          std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-      });
-    }
-  }
+        service_name_(service_name),
+        workers_count_(workers_count) {}
 
   ~Listener() {
     bool worker_alive = false;
@@ -122,6 +88,51 @@ class Listener final {
     // https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
     epoll_.Add(fd, EPOLLIN | EPOLLET | EPOLLRDHUP | EPOLLONESHOT,
                sessions_.back().get());
+  }
+
+  /**
+   * This function starts the listener
+   */
+  void Start() {
+    CHECK(!alive_) << "The listener is already started!";
+    alive_.store(true);
+
+    std::cout << "Starting " << workers_count_ << " " << service_name_
+              << " workers" << std::endl;
+
+    std::string service_name(service_name_);
+    for (size_t i = 0; i < workers_count_; ++i) {
+      worker_threads_.emplace_back([this, service_name, i]() {
+        utils::ThreadSetName(fmt::format("{} worker {}", service_name, i + 1));
+        while (alive_) {
+          WaitAndProcessEvents();
+        }
+      });
+    }
+
+    if (inactivity_timeout_sec_ > 0) {
+      timeout_thread_ = std::thread([this, service_name]() {
+        utils::ThreadSetName(fmt::format("{} timeout", service_name));
+        while (alive_) {
+          {
+            std::lock_guard<utils::SpinLock> guard(lock_);
+            for (auto &session : sessions_) {
+              if (session->TimedOut()) {
+                LOG(WARNING) << service_name << " session associated with "
+                             << session->socket().endpoint() << " timed out.";
+                // Here we shutdown the socket to terminate any leftover
+                // blocking `Write` calls and to signal an event that the
+                // session is closed. Session cleanup will be done in the event
+                // process function.
+                session->socket().Shutdown();
+              }
+            }
+          }
+          // TODO (mferencevic): Should this be configurable?
+          std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+      });
+    }
   }
 
   /**
@@ -261,5 +272,6 @@ class Listener final {
   ServerContext *context_;
   const int inactivity_timeout_sec_;
   const std::string service_name_;
+  const size_t workers_count_;
 };
 }  // namespace communication

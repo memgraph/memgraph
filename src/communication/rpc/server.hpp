@@ -25,6 +25,7 @@ class Server {
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
 
+  bool Start();
   void Shutdown();
   void AwaitShutdown();
 

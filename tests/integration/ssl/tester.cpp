@@ -55,6 +55,7 @@ int main(int argc, char **argv) {
       FLAGS_server_verify_peer);
   communication::Server<EchoSession, EchoData> server(
       {"127.0.0.1", 0}, &echo_data, &server_context, -1, "SSL", 1);
+  server.Start();
 
   // Initialize the client.
   communication::ClientContext client_context(FLAGS_client_key_file,

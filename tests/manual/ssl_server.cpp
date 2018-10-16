@@ -65,6 +65,7 @@ int main(int argc, char **argv) {
                                        FLAGS_ca_file, FLAGS_verify_peer);
   communication::Server<EchoSession, EchoData> server(endpoint, &echo_data,
                                                       &context, -1, "SSL", 1);
+  server.Start();
 
   while (echo_data.alive) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));

@@ -651,108 +651,6 @@ Master::Master(Config config)
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
       impl_->updates_server_);
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(impl_->data_manager_);
-
-  // Start transactional cache cleanup.
-  impl_->tx_engine_.StartTransactionalCacheCleanup();
-
-  if (impl_->config_.durability_enabled)
-    utils::CheckDir(impl_->config_.durability_directory);
-
-  // Durability recovery.
-  {
-    // What we recover.
-    std::experimental::optional<durability::RecoveryInfo> recovery_info;
-
-    durability::RecoveryData recovery_data;
-    // Recover only if necessary.
-    if (impl_->config_.db_recover_on_startup) {
-      CHECK(durability::VersionConsistency(impl_->config_.durability_directory))
-          << "Contents of durability directory are not compatible with the "
-             "current version of Memgraph binary!";
-      recovery_info = durability::RecoverOnlySnapshot(
-          impl_->config_.durability_directory, this, &recovery_data,
-          std::experimental::nullopt, config.worker_id);
-    }
-
-    // Post-recovery setup and checking.
-    impl_->coordination_.SetRecoveredSnapshot(
-        recovery_info ? std::experimental::make_optional(
-                            std::make_pair(recovery_info->durability_version,
-                                           recovery_info->snapshot_tx_id))
-                      : std::experimental::nullopt);
-
-    // Wait till workers report back their recoverable wal txs
-    if (recovery_info) {
-      CHECK(impl_->config_.recovering_cluster_size > 0)
-          << "Invalid cluster recovery size flag. Recovered cluster size "
-             "should be at least 1";
-      while (impl_->coordination_.CountRecoveredWorkers() !=
-             impl_->config_.recovering_cluster_size - 1) {
-        LOG(INFO) << "Waiting for workers to finish recovering..";
-        std::this_thread::sleep_for(2s);
-      }
-
-      // Get the intersection of recoverable transactions from wal on
-      // workers and on master
-      recovery_data.wal_tx_to_recover =
-          impl_->coordination_.CommonWalTransactions(*recovery_info);
-      MasterRecoveryTransactions recovery_transactions(this);
-      durability::RecoverWal(impl_->config_.durability_directory, this,
-                             &recovery_data, &recovery_transactions);
-      durability::RecoverIndexes(this, recovery_data.indexes);
-      auto workers_recovered_wal =
-          impl_->durability_rpc_.RecoverWalAndIndexes(&recovery_data);
-      workers_recovered_wal.get();
-    }
-
-    impl_->dynamic_worker_addition_.Enable();
-  }
-
-  // Start the dynamic graph partitioner inside token sharing server
-  if (impl_->config_.dynamic_graph_partitioner_enabled) {
-    impl_->token_sharing_server_.Start();
-  }
-
-  if (impl_->config_.durability_enabled) {
-    // move any existing snapshots or wal files to a deprecated folder.
-    if (!impl_->config_.db_recover_on_startup &&
-        durability::ContainsDurabilityFiles(
-            impl_->config_.durability_directory)) {
-      durability::MoveToBackup(impl_->config_.durability_directory);
-      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
-                      "and durability is enabled, your current durability "
-                      "files will likely be overriden. To prevent important "
-                      "data loss, Memgraph has stored those files into a "
-                      ".backup directory inside durability directory";
-    }
-    impl_->wal_.Init();
-    snapshot_creator_ = std::make_unique<utils::Scheduler>();
-    snapshot_creator_->Run(
-        "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
-        [this] {
-          auto dba = this->Access();
-          MakeSnapshot(*dba);
-        });
-  }
-
-  // Start transaction killer.
-  if (impl_->config_.query_execution_time_sec != -1) {
-    transaction_killer_.Run(
-        "TX killer",
-        std::chrono::seconds(std::max(
-            1, std::min(5, impl_->config_.query_execution_time_sec / 4))),
-        [this]() {
-          impl_->tx_engine_.LocalForEachActiveTransaction(
-              [this](tx::Transaction &t) {
-                if (t.creation_time() +
-                        std::chrono::seconds(
-                            impl_->config_.query_execution_time_sec) <
-                    std::chrono::steady_clock::now()) {
-                  t.set_should_abort();
-                };
-              });
-        });
-  }
 }
 
 Master::~Master() {}
@@ -837,6 +735,113 @@ io::network::Endpoint Master::endpoint() const {
 
 io::network::Endpoint Master::GetEndpoint(int worker_id) {
   return impl_->coordination_.GetEndpoint(worker_id);
+}
+
+void Master::Start() {
+  // Start coordination.
+  CHECK(impl_->coordination_.Start()) << "Couldn't start master coordination!";
+
+  // Start transactional cache cleanup.
+  impl_->tx_engine_.StartTransactionalCacheCleanup();
+
+  if (impl_->config_.durability_enabled)
+    utils::CheckDir(impl_->config_.durability_directory);
+
+  // Durability recovery.
+  {
+    // What we recover.
+    std::experimental::optional<durability::RecoveryInfo> recovery_info;
+
+    durability::RecoveryData recovery_data;
+    // Recover only if necessary.
+    if (impl_->config_.db_recover_on_startup) {
+      CHECK(durability::VersionConsistency(impl_->config_.durability_directory))
+          << "Contents of durability directory are not compatible with the "
+             "current version of Memgraph binary!";
+      recovery_info = durability::RecoverOnlySnapshot(
+          impl_->config_.durability_directory, this, &recovery_data,
+          std::experimental::nullopt, impl_->config_.worker_id);
+    }
+
+    // Post-recovery setup and checking.
+    impl_->coordination_.SetRecoveredSnapshot(
+        recovery_info ? std::experimental::make_optional(
+                            std::make_pair(recovery_info->durability_version,
+                                           recovery_info->snapshot_tx_id))
+                      : std::experimental::nullopt);
+
+    // Wait till workers report back their recoverable wal txs
+    if (recovery_info) {
+      CHECK(impl_->config_.recovering_cluster_size > 0)
+          << "Invalid cluster recovery size flag. Recovered cluster size "
+             "should be at least 1";
+      while (impl_->coordination_.CountRecoveredWorkers() !=
+             impl_->config_.recovering_cluster_size - 1) {
+        LOG(INFO) << "Waiting for workers to finish recovering..";
+        std::this_thread::sleep_for(2s);
+      }
+
+      // Get the intersection of recoverable transactions from wal on
+      // workers and on master
+      recovery_data.wal_tx_to_recover =
+          impl_->coordination_.CommonWalTransactions(*recovery_info);
+      MasterRecoveryTransactions recovery_transactions(this);
+      durability::RecoverWal(impl_->config_.durability_directory, this,
+                             &recovery_data, &recovery_transactions);
+      durability::RecoverIndexes(this, recovery_data.indexes);
+      auto workers_recovered_wal =
+          impl_->durability_rpc_.RecoverWalAndIndexes(&recovery_data);
+      workers_recovered_wal.get();
+    }
+
+    impl_->dynamic_worker_addition_.Enable();
+  }
+
+  // Start the dynamic graph partitioner inside token sharing server
+  if (impl_->config_.dynamic_graph_partitioner_enabled) {
+    impl_->token_sharing_server_.Start();
+  }
+
+  if (impl_->config_.durability_enabled) {
+    // move any existing snapshots or wal files to a deprecated folder.
+    if (!impl_->config_.db_recover_on_startup &&
+        durability::ContainsDurabilityFiles(
+            impl_->config_.durability_directory)) {
+      durability::MoveToBackup(impl_->config_.durability_directory);
+      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
+                      "and durability is enabled, your current durability "
+                      "files will likely be overriden. To prevent important "
+                      "data loss, Memgraph has stored those files into a "
+                      ".backup directory inside durability directory";
+    }
+    impl_->wal_.Init();
+    snapshot_creator_ = std::make_unique<utils::Scheduler>();
+    snapshot_creator_->Run(
+        "Snapshot", std::chrono::seconds(impl_->config_.snapshot_cycle_sec),
+        [this] {
+          auto dba = this->Access();
+          MakeSnapshot(*dba);
+        });
+  }
+
+  // Start transaction killer.
+  if (impl_->config_.query_execution_time_sec != -1) {
+    transaction_killer_.Run(
+        "TX killer",
+        std::chrono::seconds(std::max(
+            1, std::min(5, impl_->config_.query_execution_time_sec / 4))),
+        [this]() {
+          impl_->tx_engine_.LocalForEachActiveTransaction(
+              [this](tx::Transaction &t) {
+                if (t.creation_time() +
+                        std::chrono::seconds(
+                            impl_->config_.query_execution_time_sec) <
+                    std::chrono::steady_clock::now()) {
+                  t.set_should_abort();
+                };
+              });
+        });
+  }
 }
 
 bool Master::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
@@ -973,11 +978,8 @@ class Worker {
   DistributedVertexAccessor vertex_accessor_{config_.worker_id, &data_manager_,
                                              &updates_clients_};
 
-  explicit Worker(const Config &config, database::Worker *self)
-      : config_(config), self_(self) {
-    cluster_discovery_.RegisterWorker(config.worker_id,
-                                      config.durability_directory);
-  }
+  Worker(const Config &config, database::Worker *self)
+      : config_(config), self_(self) {}
 
   // TODO: Some things may depend on order of construction/destruction. We also
   // have a lot of circular pointers among members. It would be a good idea to
@@ -1028,88 +1030,6 @@ Worker::Worker(Config config)
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(impl_->data_manager_);
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
       impl_->produce_server_);
-
-  // Start transactional cache cleanup.
-  impl_->tx_engine_.StartTransactionalCacheCleanup();
-
-  if (impl_->config_.durability_enabled)
-    utils::CheckDir(impl_->config_.durability_directory);
-
-  // Durability recovery. We need to check this flag for workers that are added
-  // after the "main" cluster recovery.
-  if (impl_->config_.db_recover_on_startup) {
-    // What we should recover (version, transaction_id) pair.
-    auto snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
-
-    // What we recover.
-    std::experimental::optional<durability::RecoveryInfo> recovery_info;
-
-    durability::RecoveryData recovery_data;
-    // Recover only if necessary.
-    if (snapshot_to_recover) {
-      // check version consistency.
-      if (!durability::DistributedVersionConsistency(
-              snapshot_to_recover->first))
-        LOG(FATAL) << "Memgraph worker failed to recover due to version "
-                      "inconsistency with the master.";
-      if (!durability::VersionConsistency(impl_->config_.durability_directory))
-        LOG(FATAL)
-            << "Contents of durability directory are not compatible with the "
-               "current version of Memgraph binary!";
-      recovery_info = durability::RecoverOnlySnapshot(
-          impl_->config_.durability_directory, this, &recovery_data,
-          snapshot_to_recover->second, config.worker_id);
-    }
-
-    // Post-recovery setup and checking.
-    if (snapshot_to_recover &&
-        (!recovery_info ||
-         snapshot_to_recover->second != recovery_info->snapshot_tx_id))
-      LOG(FATAL) << "Memgraph worker failed to recover the database state "
-                    "recovered on the master";
-    impl_->cluster_discovery_.NotifyWorkerRecovered(recovery_info);
-  } else {
-    // Check with master if we're a dynamically added worker and need to update
-    // our indices.
-    auto indexes = impl_->dynamic_worker_registration_.GetIndicesToCreate();
-    if (!indexes.empty()) {
-      durability::RecoverIndexes(this, indexes);
-    }
-  }
-
-  if (impl_->config_.durability_enabled) {
-    // move any existing snapshots or wal files to a deprecated folder.
-    if (!impl_->config_.db_recover_on_startup &&
-        durability::ContainsDurabilityFiles(
-            impl_->config_.durability_directory)) {
-      durability::MoveToBackup(impl_->config_.durability_directory);
-      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
-                      "and durability is enabled, your current durability "
-                      "files will likely be overriden. To prevent important "
-                      "data loss, Memgraph has stored those files into a "
-                      ".backup directory inside durability directory";
-    }
-    impl_->wal_.Init();
-  }
-
-  // Start transaction killer.
-  if (impl_->config_.query_execution_time_sec != -1) {
-    transaction_killer_.Run(
-        "TX killer",
-        std::chrono::seconds(std::max(
-            1, std::min(5, impl_->config_.query_execution_time_sec / 4))),
-        [this]() {
-          impl_->tx_engine_.LocalForEachActiveTransaction(
-              [this](tx::Transaction &t) {
-                if (t.creation_time() +
-                        std::chrono::seconds(
-                            impl_->config_.query_execution_time_sec) <
-                    std::chrono::steady_clock::now()) {
-                  t.set_should_abort();
-                };
-              });
-        });
-  }
 }
 
 Worker::~Worker() {}
@@ -1190,6 +1110,97 @@ io::network::Endpoint Worker::endpoint() const {
 
 io::network::Endpoint Worker::GetEndpoint(int worker_id) {
   return impl_->coordination_.GetEndpoint(worker_id);
+}
+
+void Worker::Start() {
+  // Start coordination.
+  CHECK(impl_->coordination_.Start()) << "Couldn't start worker coordination!";
+
+  // Register to the master.
+  impl_->cluster_discovery_.RegisterWorker(impl_->config_.worker_id,
+                                           impl_->config_.durability_directory);
+
+  // Start transactional cache cleanup.
+  impl_->tx_engine_.StartTransactionalCacheCleanup();
+
+  if (impl_->config_.durability_enabled)
+    utils::CheckDir(impl_->config_.durability_directory);
+
+  // Durability recovery. We need to check this flag for workers that are added
+  // after the "main" cluster recovery.
+  if (impl_->config_.db_recover_on_startup) {
+    // What we should recover (version, transaction_id) pair.
+    auto snapshot_to_recover = impl_->cluster_discovery_.snapshot_to_recover();
+
+    // What we recover.
+    std::experimental::optional<durability::RecoveryInfo> recovery_info;
+
+    durability::RecoveryData recovery_data;
+    // Recover only if necessary.
+    if (snapshot_to_recover) {
+      // check version consistency.
+      if (!durability::DistributedVersionConsistency(
+              snapshot_to_recover->first))
+        LOG(FATAL) << "Memgraph worker failed to recover due to version "
+                      "inconsistency with the master.";
+      if (!durability::VersionConsistency(impl_->config_.durability_directory))
+        LOG(FATAL)
+            << "Contents of durability directory are not compatible with the "
+               "current version of Memgraph binary!";
+      recovery_info = durability::RecoverOnlySnapshot(
+          impl_->config_.durability_directory, this, &recovery_data,
+          snapshot_to_recover->second, impl_->config_.worker_id);
+    }
+
+    // Post-recovery setup and checking.
+    if (snapshot_to_recover &&
+        (!recovery_info ||
+         snapshot_to_recover->second != recovery_info->snapshot_tx_id))
+      LOG(FATAL) << "Memgraph worker failed to recover the database state "
+                    "recovered on the master";
+    impl_->cluster_discovery_.NotifyWorkerRecovered(recovery_info);
+  } else {
+    // Check with master if we're a dynamically added worker and need to update
+    // our indices.
+    auto indexes = impl_->dynamic_worker_registration_.GetIndicesToCreate();
+    if (!indexes.empty()) {
+      durability::RecoverIndexes(this, indexes);
+    }
+  }
+
+  if (impl_->config_.durability_enabled) {
+    // move any existing snapshots or wal files to a deprecated folder.
+    if (!impl_->config_.db_recover_on_startup &&
+        durability::ContainsDurabilityFiles(
+            impl_->config_.durability_directory)) {
+      durability::MoveToBackup(impl_->config_.durability_directory);
+      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
+                      "and durability is enabled, your current durability "
+                      "files will likely be overriden. To prevent important "
+                      "data loss, Memgraph has stored those files into a "
+                      ".backup directory inside durability directory";
+    }
+    impl_->wal_.Init();
+  }
+
+  // Start transaction killer.
+  if (impl_->config_.query_execution_time_sec != -1) {
+    transaction_killer_.Run(
+        "TX killer",
+        std::chrono::seconds(std::max(
+            1, std::min(5, impl_->config_.query_execution_time_sec / 4))),
+        [this]() {
+          impl_->tx_engine_.LocalForEachActiveTransaction(
+              [this](tx::Transaction &t) {
+                if (t.creation_time() +
+                        std::chrono::seconds(
+                            impl_->config_.query_execution_time_sec) <
+                    std::chrono::steady_clock::now()) {
+                  t.set_should_abort();
+                };
+              });
+        });
+  }
 }
 
 bool Worker::AwaitShutdown(std::function<void(void)> call_before_shutdown) {

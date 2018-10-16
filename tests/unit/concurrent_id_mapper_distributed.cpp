@@ -23,6 +23,7 @@ class DistributedConcurrentIdMapperTest : public ::testing::Test {
       worker_mapper_;
 
   void SetUp() override {
+    coordination_.Start();
     master_client_pool_.emplace(coordination_.GetServerEndpoint());
     master_mapper_.emplace(&coordination_);
     worker_mapper_.emplace(&master_client_pool_.value());

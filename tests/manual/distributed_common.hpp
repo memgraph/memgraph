@@ -22,8 +22,10 @@ namespace fs = std::experimental::filesystem;
 class WorkerInThread {
  public:
   explicit WorkerInThread(database::Config config) : worker_(config) {
-    thread_ =
-        std::thread([this, config] { EXPECT_TRUE(worker_.AwaitShutdown()); });
+    thread_ = std::thread([this, config] {
+      worker_.Start();
+      EXPECT_TRUE(worker_.AwaitShutdown());
+    });
   }
 
   ~WorkerInThread() {
@@ -52,6 +54,7 @@ class Cluster {
     master_ = std::make_unique<database::Master>(master_config);
     interpreter_ =
         std::make_unique<query::DistributedInterpreter>(master_.get());
+    master_->Start();
     std::this_thread::sleep_for(kInitTime);
 
     auto worker_config = [this](int worker_id) {

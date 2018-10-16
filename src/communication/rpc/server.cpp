@@ -6,6 +6,10 @@ Server::Server(const io::network::Endpoint &endpoint,
                size_t workers_count)
     : server_(endpoint, this, &context_, -1, "RPC", workers_count) {}
 
+bool Server::Start() {
+  return server_.Start();
+}
+
 void Server::Shutdown() {
   server_.Shutdown();
 }

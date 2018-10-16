@@ -42,6 +42,7 @@ int main(int argc, char *argv[]) {
              {ShowDistributedCommand, 1,
               "Show the Nth plan as for distributed execution"});
   database::Master db;
+  db.Start();
   auto dba = db.Access();
   RunInteractivePlanning(dba.get());
   db.Shutdown();

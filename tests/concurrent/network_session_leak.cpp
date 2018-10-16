@@ -24,6 +24,7 @@ TEST(Network, SessionLeak) {
   TestData session_data;
   ContextT context;
   ServerT server(endpoint, &session_data, &context, -1, "Test", 2);
+  ASSERT_TRUE(server.Start());
 
   // start clients
   int N = 50;
