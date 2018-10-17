@@ -557,12 +557,8 @@ class SynchronizeCursor : public Cursor {
 
     // Accumulate local results
     while (input_cursor_->Pull(frame, context)) {
-      local_frames_.emplace_back();
-      auto &local_frame = local_frames_.back();
-      local_frame.reserve(frame.elems().size());
-      for (auto &elem : frame.elems()) {
-        local_frame.emplace_back(std::move(elem));
-      }
+      // Copy the frame elements, because Pull may still use them.
+      local_frames_.emplace_back(frame.elems());
     }
 
     // Wait for all workers to finish accumulation (first sync point).
