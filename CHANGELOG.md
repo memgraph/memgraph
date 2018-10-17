@@ -5,12 +5,31 @@
 ### Breaking Changes
 
 * Write-ahead log format changed (not backward compatible).
+* Snapshot format changed (not backward compatible).
 
 ### Major Features and Improvements
 
 * [Enterprise Ed.] Authentication and authorization support.
 * [Enterprise Ed.] Kafka integration.
-* Add `EXPLAIN` clause to openCypher
+* [Enterprise Ed.] Support dynamic worker addition in distributed.
+* Reduce memory usage and improve overall performance.
+* Add `CREATE UNIQUE INDEX` clause to openCypher.
+* Add `EXPLAIN` clause to openCypher.
+* Add `inDegree` and `outDegree` functions to openCypher.
+* Improve BFS performance when both endpoints are known.
+* Add new `node-label`, `relationship-type` and `quote` options to
+  `mg_import_csv` tool.
+* Reduce memory usage of `mg_import_csv`.
+
+### Bug Fixes and Other Changes
+
+* [Enterprise Ed.] Fix an edge case in distributed index creation.
+* [Enterprise Ed.] Fix issues with Cartesian in distributed queries.
+* Correctly handle large messages in Bolt protocol.
+* Fix issues when handling explicitly started transactions in queries.
+* Allow openCypher keywords to be used as variable names.
+* Revise and make user visible error messages consistent.
+* Improve aborting time consuming execution.
 
 ## v0.12.0
 
