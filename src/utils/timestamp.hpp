@@ -58,16 +58,16 @@ class Timestamp : public TotalOrdering<Timestamp> {
 
   long Sec() const { return time.tm_sec; }
 
-  long Subsec() const { return nsec / 10000; }
+  long Usec() const { return nsec / 1000; }
 
   const std::string ToIso8601() const {
     return fmt::format(fiso8601, Year(), Month(), Day(), Hour(), Min(), Sec(),
-                       Subsec());
+                       Usec());
   }
 
   const std::string ToString(const std::string &format = fiso8601) const {
     return fmt::format(format, Year(), Month(), Day(), Hour(), Min(), Sec(),
-                       Subsec());
+                       Usec());
   }
 
   friend std::ostream &operator<<(std::ostream &stream, const Timestamp &ts) {
@@ -93,7 +93,7 @@ class Timestamp : public TotalOrdering<Timestamp> {
   long nsec;
 
   static constexpr auto fiso8601 =
-      "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:05d}Z";
+      "{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:06d}Z";
 };
 
 }  // namespace utils
