@@ -115,6 +115,22 @@ static const std::string kMultilinePrompt = "       -> ";
 
 static void PrintHelp() { std::cout << kInteractiveUsage << std::endl; }
 
+static void PrintValue(std::ostream &os, const std::string &value) {
+  os << value;
+}
+
+static void PrintValue(std::ostream &os,
+                       const communication::bolt::Value &value) {
+  switch (value.type()) {
+    case communication::bolt::Value::Type::String:
+      os << value.ValueString();
+      return;
+    default:
+      os << value;
+      return;
+  }
+}
+
 static void EchoFailure(const std::string &failure_msg,
                         const std::string &explanation) {
   if (isatty(STDIN_FILENO)) {
@@ -367,7 +383,7 @@ static void PrintRowTabular(const std::vector<T> &data, int total_width,
     int idx = i / column_width;
     if (idx < num_columns) {
       std::stringstream field;
-      field << data[idx];  // convert Value to string
+      PrintValue(field, data[idx]);  // convert Value to string
       std::string field_str(field.str());
       if (field_str.size() > column_width - 2 * margin - 1) {
         field_str.erase(column_width - 2 * margin - 1, std::string::npos);
@@ -394,7 +410,7 @@ static uint64_t GetMaxColumnWidth(const std::vector<T> &data, int margin = 1) {
   uint64_t column_width = 0;
   for (auto &elem : data) {
     std::stringstream field;
-    field << elem;
+    PrintValue(field, elem);
     column_width = std::max(column_width, field.str().size() + 2 * margin);
   }
   return column_width + 1;
@@ -625,7 +641,10 @@ int main(int argc, char **argv) {
   int num_retries = 3;
   while (true) {
     auto query = GetQuery();
-    if (!query) break;
+    if (!query) {
+      EchoInfo("Bye");
+      break;
+    }
     if (query->empty()) continue;
     try {
       utils::Timer t;
@@ -641,7 +660,7 @@ int main(int argc, char **argv) {
         } else {
           summary = std::to_string(ret.records.size()) + " rows in set";
         }
-        std::cout << summary << " (" << fmt::format("{:.2f}", elapsed)
+        std::cout << summary << " (" << fmt::format("{:.3f}", elapsed)
                   << " sec)" << std::endl;
 #ifdef HAS_READLINE
         auto history_ret = save_history();
@@ -649,7 +668,13 @@ int main(int argc, char **argv) {
 #endif
       }
     } catch (const communication::bolt::ClientQueryException &e) {
+      if (!isatty(STDIN_FILENO)) {
+        EchoFailure("Failed query", *query);
+      }
       EchoFailure("Client received exception", e.what());
+      if (!isatty(STDIN_FILENO)) {
+        return 1;
+      }
     } catch (const communication::bolt::ClientFatalException &e) {
       EchoFailure("Client received exception", e.what());
       EchoInfo("Trying to reconnect");
