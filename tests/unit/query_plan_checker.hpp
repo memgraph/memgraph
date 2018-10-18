@@ -93,15 +93,6 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
-  VISIT(AuthHandler);
-
-  VISIT(CreateStream);
-  VISIT(DropStream);
-  VISIT(ShowStreams);
-  VISIT(StartStopStream);
-  VISIT(StartStopAllStreams);
-  VISIT(TestStream);
-
   PRE_VISIT(Explain);
 
 #undef PRE_VISIT
@@ -151,7 +142,6 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-using ExpectShowStreams = OpChecker<ShowStreams>;
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {
  public:
@@ -323,39 +313,6 @@ class ExpectScanAllByLabelPropertyRange
   std::experimental::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
 };
 
-class ExpectAuthHandler : public OpChecker<AuthHandler> {
- public:
-  ExpectAuthHandler(query::AuthQuery::Action action, std::string user,
-                    std::string role, std::string user_or_role,
-                    query::Expression *password,
-                    std::vector<query::AuthQuery::Privilege> privileges)
-      : action_(action),
-        user_(user),
-        role_(role),
-        user_or_role_(user_or_role),
-        password_(password),
-        privileges_(privileges) {}
-
-  void ExpectOp(AuthHandler &auth_handler, const SymbolTable &) override {
-    EXPECT_EQ(auth_handler.action_, action_);
-    EXPECT_EQ(auth_handler.user_, user_);
-    EXPECT_EQ(auth_handler.role_, role_);
-    EXPECT_EQ(auth_handler.user_or_role_, user_or_role_);
-    // TODO(mtomic): We need to somehow test the password expression.
-    EXPECT_TRUE(password_);
-    EXPECT_TRUE(auth_handler.password_);
-    EXPECT_EQ(auth_handler.privileges_, privileges_);
-  }
-
- private:
-  query::AuthQuery::Action action_;
-  std::string user_;
-  std::string role_;
-  std::string user_or_role_;
-  query::Expression *password_{nullptr};
-  std::vector<query::AuthQuery::Privilege> privileges_;
-};
-
 class ExpectCreateIndex : public OpChecker<CreateIndex> {
  public:
   ExpectCreateIndex(storage::Label label, storage::Property property)
@@ -391,130 +348,6 @@ class ExpectCartesian : public OpChecker<Cartesian> {
  private:
   const std::list<std::unique_ptr<BaseOpChecker>> &left_;
   const std::list<std::unique_ptr<BaseOpChecker>> &right_;
-};
-
-class ExpectCreateStream : public OpChecker<CreateStream> {
- public:
-  ExpectCreateStream(std::string stream_name, query::Expression *stream_uri,
-                     query::Expression *stream_topic,
-                     query::Expression *transform_uri,
-                     query::Expression *batch_interval_in_ms,
-                     query::Expression *batch_size)
-      : stream_name_(stream_name),
-        stream_uri_(stream_uri),
-        stream_topic_(stream_topic),
-        transform_uri_(transform_uri),
-        batch_interval_in_ms_(batch_interval_in_ms),
-        batch_size_(batch_size) {}
-
-  void ExpectOp(CreateStream &create_stream, const SymbolTable &) override {
-    EXPECT_EQ(create_stream.stream_name_, stream_name_);
-    // TODO: Proper expression equality
-    EXPECT_EQ(typeid(create_stream.stream_uri_).hash_code(),
-              typeid(stream_uri_).hash_code());
-    EXPECT_EQ(typeid(create_stream.stream_topic_).hash_code(),
-              typeid(stream_topic_).hash_code());
-    EXPECT_EQ(typeid(create_stream.transform_uri_).hash_code(),
-              typeid(transform_uri_).hash_code());
-    if (batch_interval_in_ms_ && create_stream.batch_interval_in_ms_) {
-      EXPECT_EQ(typeid(create_stream.batch_interval_in_ms_).hash_code(),
-                typeid(batch_interval_in_ms_).hash_code());
-    } else {
-      EXPECT_TRUE(batch_interval_in_ms_ == nullptr &&
-                  create_stream.batch_interval_in_ms_ == nullptr);
-    }
-    if (batch_size_ && create_stream.batch_size_) {
-      EXPECT_EQ(typeid(create_stream.batch_size_).hash_code(),
-                typeid(batch_size_).hash_code());
-    } else {
-      EXPECT_TRUE(batch_size_ == nullptr &&
-                  create_stream.batch_size_ == nullptr);
-    }
-  }
-
- private:
-  std::string stream_name_;
-  query::Expression *stream_uri_;
-  query::Expression *stream_topic_;
-  query::Expression *transform_uri_;
-  query::Expression *batch_interval_in_ms_;
-  query::Expression *batch_size_;
-};
-
-class ExpectDropStream : public OpChecker<DropStream> {
- public:
-  explicit ExpectDropStream(std::string stream_name)
-      : stream_name_(stream_name) {}
-
-  void ExpectOp(DropStream &drop_stream, const SymbolTable &) override {
-    EXPECT_EQ(drop_stream.stream_name_, stream_name_);
-  }
-
- private:
-  std::string stream_name_;
-};
-
-class ExpectStartStopStream : public OpChecker<StartStopStream> {
- public:
-  ExpectStartStopStream(std::string stream_name, bool is_start,
-                        query::Expression *limit_batches)
-      : stream_name_(stream_name),
-        is_start_(is_start),
-        limit_batches_(limit_batches) {}
-
-  void ExpectOp(StartStopStream &start_stop_stream,
-                const SymbolTable &) override {
-    EXPECT_EQ(start_stop_stream.stream_name_, stream_name_);
-    EXPECT_EQ(start_stop_stream.is_start_, is_start_);
-    // TODO: Proper expression equality
-    if (limit_batches_ && start_stop_stream.limit_batches_) {
-      EXPECT_EQ(typeid(start_stop_stream.limit_batches_).hash_code(),
-                typeid(limit_batches_).hash_code());
-    } else {
-      EXPECT_TRUE(limit_batches_ == nullptr &&
-                  start_stop_stream.limit_batches_ == nullptr);
-    }
-  }
-
- private:
-  std::string stream_name_;
-  bool is_start_;
-  query::Expression *limit_batches_;
-};
-
-class ExpectStartStopAllStreams : public OpChecker<StartStopAllStreams> {
- public:
-  explicit ExpectStartStopAllStreams(bool is_start) : is_start_(is_start) {}
-
-  void ExpectOp(StartStopAllStreams &start_stop_all_streams,
-                const SymbolTable &) override {
-    EXPECT_EQ(start_stop_all_streams.is_start_, is_start_);
-  }
-
- private:
-  bool is_start_;
-};
-
-class ExpectTestStream : public OpChecker<TestStream> {
- public:
-  ExpectTestStream(std::string stream_name, query::Expression *limit_batches)
-      : stream_name_(stream_name), limit_batches_(limit_batches) {}
-
-  void ExpectOp(TestStream &test_stream, const SymbolTable &) override {
-    EXPECT_EQ(test_stream.stream_name_, stream_name_);
-    // TODO: Proper expression equality
-    if (limit_batches_ && test_stream.limit_batches_) {
-      EXPECT_EQ(typeid(test_stream.limit_batches_).hash_code(),
-                typeid(limit_batches_).hash_code());
-    } else {
-      EXPECT_TRUE(limit_batches_ == nullptr &&
-                  test_stream.limit_batches_ == nullptr);
-    }
-  }
-
- private:
-  std::string stream_name_;
-  query::Expression *limit_batches_;
 };
 
 template <class T>

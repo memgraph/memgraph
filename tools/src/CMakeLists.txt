@@ -2,10 +2,6 @@
 add_executable(mg_import_csv mg_import_csv/main.cpp)
 target_link_libraries(mg_import_csv mg-single-node kvstore_dummy_lib)
 
-# StatsD Target
-add_executable(mg_statsd mg_statsd/main.cpp)
-target_link_libraries(mg_statsd mg-communication mg-io mg-utils mg-stats)
-
 # Generate a version.hpp file
 set(VERSION_STRING ${memgraph_VERSION})
 configure_file(../../src/version.hpp.in version.hpp @ONLY)

@@ -222,20 +222,6 @@ bool SymbolGenerator::Visit(CreateIndex &) { return true; }
 
 bool SymbolGenerator::Visit(CreateUniqueIndex &) { return true; }
 
-bool SymbolGenerator::Visit(AuthQuery &) { return true; }
-
-bool SymbolGenerator::Visit(CreateStream &) { return true; }
-
-bool SymbolGenerator::Visit(DropStream &) { return true; }
-
-bool SymbolGenerator::Visit(ShowStreams &) { return true; }
-
-bool SymbolGenerator::Visit(StartStopStream &) { return true; }
-
-bool SymbolGenerator::Visit(StartStopAllStreams &) { return true; }
-
-bool SymbolGenerator::Visit(TestStream &) { return true; }
-
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {

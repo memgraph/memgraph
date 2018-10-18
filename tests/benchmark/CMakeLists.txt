@@ -51,9 +51,6 @@ target_link_libraries(${test_prefix}edge_storage mg-single-node kvstore_dummy_li
 add_benchmark(mvcc.cpp)
 target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
 
-add_benchmark(serialization.cpp)
-target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
-
 add_benchmark(tx_engine.cpp)
 target_link_libraries(${test_prefix}tx_engine mg-single-node kvstore_dummy_lib)
 

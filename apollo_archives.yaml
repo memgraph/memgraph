@@ -1,11 +1,8 @@
 - name: Binaries
   archive:
     - build_debug/memgraph
-    - build_debug/memgraph_distributed
     - build_release/memgraph
-    - build_release/memgraph_distributed
     - build_release/tools/src/mg_import_csv
-    - build_release/tools/src/mg_statsd
     - config
   filename: binaries.tar.gz
 

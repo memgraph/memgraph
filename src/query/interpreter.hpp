@@ -16,14 +16,6 @@
 DECLARE_bool(query_cost_planner);
 DECLARE_int32(query_plan_cache_ttl);
 
-namespace auth {
-class Auth;
-}  // namespace auth
-
-namespace integrations::kafka {
-class Streams;
-}  // namespace integrations::kafka
-
 namespace query {
 
 // TODO: Maybe this should move to query/plan/planner.
@@ -74,8 +66,7 @@ class Interpreter {
     Results(Context ctx, std::shared_ptr<CachedPlan> plan,
             std::unique_ptr<query::plan::Cursor> cursor,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
-            std::map<std::string, TypedValue> summary, PlanCacheT &plan_cache,
-            std::vector<AuthQuery::Privilege> privileges)
+            std::map<std::string, TypedValue> summary, PlanCacheT &plan_cache)
         : ctx_(std::move(ctx)),
           plan_(plan),
           cursor_(std::move(cursor)),
@@ -83,8 +74,7 @@ class Interpreter {
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),
-          plan_cache_(plan_cache),
-          privileges_(std::move(privileges)) {}
+          plan_cache_(plan_cache) {}
 
    public:
     Results(const Results &) = delete;
@@ -140,10 +130,6 @@ class Interpreter {
     const std::vector<std::string> &header() { return header_; }
     const std::map<std::string, TypedValue> &summary() { return summary_; }
 
-    const std::vector<AuthQuery::Privilege> &privileges() {
-      return privileges_;
-    }
-
    private:
     Context ctx_;
     std::shared_ptr<CachedPlan> plan_;
@@ -157,8 +143,6 @@ class Interpreter {
     double execution_time_{0};
     // Gets invalidated after if an index has been built.
     PlanCacheT &plan_cache_;
-
-    std::vector<AuthQuery::Privilege> privileges_;
   };
 
   Interpreter() = default;
@@ -177,9 +161,6 @@ class Interpreter {
                      database::GraphDbAccessor &db_accessor,
                      const std::map<std::string, PropertyValue> &params,
                      bool in_explicit_transaction);
-
-  auth::Auth *auth_ = nullptr;
-  integrations::kafka::Streams *kafka_streams_ = nullptr;
 
  protected:
   // high level tree -> logical plan

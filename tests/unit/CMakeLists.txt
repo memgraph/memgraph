@@ -22,9 +22,6 @@ endfunction(add_unit_test)
 add_unit_test(bolt_encoder.cpp)
 target_link_libraries(${test_prefix}bolt_encoder mg-single-node kvstore_dummy_lib)
 
-add_unit_test(concurrent_id_mapper_distributed.cpp)
-target_link_libraries(${test_prefix}concurrent_id_mapper_distributed mg-distributed kvstore_dummy_lib)
-
 add_unit_test(concurrent_id_mapper_single_node.cpp)
 target_link_libraries(${test_prefix}concurrent_id_mapper_single_node mg-single-node kvstore_dummy_lib)
 
@@ -33,9 +30,6 @@ target_link_libraries(${test_prefix}concurrent_map_access mg-single-node kvstore
 
 add_unit_test(concurrent_map.cpp)
 target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_lib)
-
-add_unit_test(counters.cpp)
-target_link_libraries(${test_prefix}counters mg-distributed kvstore_dummy_lib)
 
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node kvstore_dummy_lib)
@@ -46,9 +40,6 @@ target_link_libraries(${test_prefix}database_key_index mg-single-node kvstore_du
 add_unit_test(database_label_property_index.cpp)
 target_link_libraries(${test_prefix}database_label_property_index mg-single-node kvstore_dummy_lib)
 
-add_unit_test(database_master.cpp)
-target_link_libraries(${test_prefix}database_master mg-distributed kvstore_dummy_lib)
-
 add_unit_test(database_transaction_timeout.cpp)
 target_link_libraries(${test_prefix}database_transaction_timeout mg-single-node kvstore_dummy_lib)
 
@@ -58,63 +49,18 @@ target_link_libraries(${test_prefix}datastructure_union_find mg-single-node kvst
 add_unit_test(deferred_deleter.cpp)
 target_link_libraries(${test_prefix}deferred_deleter mg-single-node kvstore_dummy_lib)
 
-add_unit_test(distributed_coordination.cpp)
-target_link_libraries(${test_prefix}distributed_coordination mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_data_exchange.cpp)
-target_link_libraries(${test_prefix}distributed_data_exchange mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_dgp_vertex_migrator.cpp)
-target_link_libraries(${test_prefix}distributed_dgp_vertex_migrator mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_durability.cpp)
-target_link_libraries(${test_prefix}distributed_durability mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_dynamic_worker.cpp)
-target_link_libraries(${test_prefix}distributed_dynamic_worker mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_gc.cpp)
-target_link_libraries(${test_prefix}distributed_gc mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_graph_db.cpp)
-target_link_libraries(${test_prefix}distributed_graph_db mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_interpretation.cpp)
-target_link_libraries(${test_prefix}distributed_interpretation mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_query_plan.cpp)
-target_link_libraries(${test_prefix}distributed_query_plan mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_reset.cpp)
-target_link_libraries(${test_prefix}distributed_reset mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_serialization.cpp)
-target_link_libraries(${test_prefix}distributed_serialization mg-distributed kvstore_dummy_lib)
-
-add_unit_test(distributed_updates.cpp)
-target_link_libraries(${test_prefix}distributed_updates mg-distributed kvstore_dummy_lib)
-
 # TODO (buda): Replace token sharing with centralized solution and write an appropriate test.
 # add_unit_test(distributed_token_sharing.cpp)
 # target_link_libraries(${test_prefix}distributed_token_sharing memgraph_lib kvstore_dummy_lib)
 
-add_unit_test(bfs_distributed.cpp)
-target_link_libraries(${test_prefix}bfs_distributed mg-distributed kvstore_dummy_lib)
-
 add_unit_test(bfs_single_node.cpp)
 target_link_libraries(${test_prefix}bfs_single_node mg-single-node kvstore_dummy_lib)
-
-add_unit_test(distributed_dgp_partitioner.cpp)
-target_link_libraries(${test_prefix}distributed_dgp_partitioner mg-distributed kvstore_dummy_lib)
 
 add_unit_test(durability.cpp)
 target_link_libraries(${test_prefix}durability mg-single-node kvstore_dummy_lib)
 
 add_unit_test(dynamic_bitset.cpp)
 target_link_libraries(${test_prefix}dynamic_bitset mg-single-node kvstore_dummy_lib)
-
-add_unit_test(gid.cpp)
-target_link_libraries(${test_prefix}gid mg-distributed kvstore_dummy_lib)
 
 add_unit_test(graph_db_accessor.cpp)
 target_link_libraries(${test_prefix}graph_db_accessor mg-single-node kvstore_dummy_lib)
@@ -130,9 +76,6 @@ target_link_libraries(${test_prefix}interpreter mg-single-node kvstore_dummy_lib
 
 add_unit_test(kvstore.cpp)
 target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
-
-add_unit_test(metrics.cpp)
-target_link_libraries(${test_prefix}metrics mg-single-node kvstore_dummy_lib)
 
 add_unit_test(mvcc.cpp)
 target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)
@@ -179,9 +122,6 @@ target_link_libraries(${test_prefix}query_plan_match_filter_return mg-single-nod
 add_unit_test(query_plan.cpp)
 target_link_libraries(${test_prefix}query_plan mg-single-node kvstore_dummy_lib)
 
-add_unit_test(query_required_privileges.cpp)
-target_link_libraries(${test_prefix}query_required_privileges mg-single-node kvstore_dummy_lib)
-
 add_unit_test(query_semantic.cpp)
 target_link_libraries(${test_prefix}query_semantic mg-single-node kvstore_dummy_lib)
 
@@ -193,9 +133,6 @@ target_link_libraries(${test_prefix}queue mg-single-node kvstore_dummy_lib)
 
 add_unit_test(record_edge_vertex_accessor.cpp)
 target_link_libraries(${test_prefix}record_edge_vertex_accessor mg-single-node kvstore_dummy_lib)
-
-add_unit_test(serialization.cpp)
-target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
 
 add_unit_test(skiplist_access.cpp)
 target_link_libraries(${test_prefix}skiplist_access mg-single-node kvstore_dummy_lib)
@@ -218,14 +155,8 @@ target_link_libraries(${test_prefix}state_delta mg-single-node kvstore_dummy_lib
 add_unit_test(static_bitset.cpp)
 target_link_libraries(${test_prefix}static_bitset mg-single-node kvstore_dummy_lib)
 
-add_unit_test(storage_address.cpp)
-target_link_libraries(${test_prefix}storage_address mg-distributed kvstore_dummy_lib)
-
 add_unit_test(stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-single-node kvstore_dummy_lib)
-
-add_unit_test(transaction_engine_distributed.cpp)
-target_link_libraries(${test_prefix}transaction_engine_distributed mg-distributed kvstore_dummy_lib)
 
 add_unit_test(transaction_engine_single_node.cpp)
 target_link_libraries(${test_prefix}transaction_engine_single_node mg-single-node kvstore_dummy_lib)
@@ -252,9 +183,6 @@ target_link_libraries(${test_prefix}communication_buffer mg-communication)
 
 add_unit_test(network_timeouts.cpp)
 target_link_libraries(${test_prefix}network_timeouts mg-communication)
-
-add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-communication)
 
 # Test data structures
 
@@ -310,10 +238,6 @@ target_link_libraries(${test_prefix}utils_timestamp mg-utils)
 add_unit_test(utils_watchdog.cpp)
 target_link_libraries(${test_prefix}utils_watchdog mg-utils)
 
-# Test mg-auth
-
-add_unit_test(auth.cpp)
-target_link_libraries(${test_prefix}auth mg-auth kvstore_lib)
 
 # Test LCP
 

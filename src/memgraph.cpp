@@ -11,8 +11,6 @@
 
 #include "communication/server.hpp"
 #include "database/single_node/graph_db.hpp"
-#include "integrations/kafka/exceptions.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
 #include "telemetry/telemetry.hpp"
@@ -47,25 +45,6 @@ void SingleNodeMain() {
   database::GraphDb db;
   query::Interpreter interpreter;
   SessionData session_data{&db, &interpreter};
-
-  integrations::kafka::Streams kafka_streams{
-      std::experimental::filesystem::path(FLAGS_durability_directory) /
-          "streams",
-      [&session_data](
-          const std::string &query,
-          const std::map<std::string, communication::bolt::Value> &params) {
-        KafkaStreamWriter(session_data, query, params);
-      }};
-
-  try {
-    // Recover possible streams.
-    kafka_streams.Recover();
-  } catch (const integrations::kafka::KafkaStreamException &e) {
-    LOG(ERROR) << e.what();
-  }
-
-  session_data.interpreter->auth_ = &session_data.auth;
-  session_data.interpreter->kafka_streams_ = &kafka_streams;
 
   ServerContext context;
   std::string service_name = "Bolt";

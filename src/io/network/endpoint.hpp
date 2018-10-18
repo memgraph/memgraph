@@ -5,7 +5,6 @@
 #include <iostream>
 #include <string>
 
-#include "io/network/endpoint.capnp.h"
 #include "utils/exceptions.hpp"
 
 namespace io::network {
@@ -32,9 +31,5 @@ class Endpoint {
   uint16_t port_{0};
   unsigned char family_{0};
 };
-
-void Save(const Endpoint &endpoint, capnp::Endpoint::Builder *builder);
-
-void Load(Endpoint *endpoint, const capnp::Endpoint::Reader &reader);
 
 }  // namespace io::network

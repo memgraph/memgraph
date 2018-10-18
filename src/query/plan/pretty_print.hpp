@@ -79,15 +79,6 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool Visit(Once &) override;
   bool Visit(CreateIndex &) override;
 
-  bool Visit(AuthHandler &) override;
-
-  bool Visit(CreateStream &) override;
-  bool Visit(DropStream &) override;
-  bool Visit(ShowStreams &) override;
-  bool Visit(StartStopStream &) override;
-  bool Visit(StartStopAllStreams &) override;
-  bool Visit(TestStream &) override;
-
   /// Call fun with output stream. The stream is prefixed with amount of spaces
   /// corresponding to the current depth_.
   template <class TFun>

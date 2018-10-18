@@ -5,14 +5,6 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
 
-namespace auth {
-class Auth;
-}  // namespace auth
-
-namespace integrations::kafka {
-class Streams;
-}  // namespace integrations::kafka
-
 namespace query {
 
 struct EvaluationContext {
@@ -36,9 +28,6 @@ class Context {
   bool is_index_created_ = false;
   SymbolTable symbol_table_;
   EvaluationContext evaluation_context_;
-
-  auth::Auth *auth_ = nullptr;
-  integrations::kafka::Streams *kafka_streams_ = nullptr;
 };
 
 struct ParsingContext {

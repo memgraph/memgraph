@@ -6,7 +6,6 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -51,8 +50,6 @@ Interpreter::Results Interpreter::operator()(
 
   Context ctx(db_accessor);
   ctx.in_explicit_transaction_ = in_explicit_transaction;
-  ctx.auth_ = auth_;
-  ctx.kafka_streams_ = kafka_streams_;
   ctx.evaluation_context_ = evaluation_context;
 
   ParsingContext parsing_context;
@@ -61,9 +58,6 @@ Interpreter::Results Interpreter::operator()(
   AstStorage ast_storage;
   Query *ast =
       QueryToAst(stripped, parsing_context, &ast_storage, &db_accessor);
-  // TODO: Maybe cache required privileges to improve performance on very simple
-  // queries.
-  auto required_privileges = query::GetRequiredPrivileges(ast);
   auto frontend_time = frontend_timer.Elapsed();
 
   // Try to get a cached plan. Note that this local shared_ptr might be the only
@@ -114,7 +108,7 @@ Interpreter::Results Interpreter::operator()(
   }
 
   return Results(std::move(ctx), plan, std::move(cursor), output_symbols,
-                 header, summary, plan_cache_, required_privileges);
+                 header, summary, plan_cache_);
 }
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::AstToPlan(

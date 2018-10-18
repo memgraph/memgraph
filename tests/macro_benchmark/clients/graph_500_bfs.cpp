@@ -6,8 +6,6 @@
 #include "gflags/gflags.h"
 
 #include "long_running_common.hpp"
-#include "stats/stats.hpp"
-#include "stats/stats_rpc_messages.hpp"
 
 class Graph500BfsClient : public TestClient {
  public:
@@ -54,8 +52,6 @@ int main(int argc, char **argv) {
   }
 
   RunMultithreadedTest(clients);
-
-  stats::StopStatsLogging();
 
   return 0;
 }

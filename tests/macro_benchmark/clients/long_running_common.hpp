@@ -14,8 +14,6 @@
 
 #include "json/json.hpp"
 
-#include "stats/metrics.hpp"
-#include "stats/stats.hpp"
 #include "utils/timer.hpp"
 
 #include "common.hpp"
@@ -35,9 +33,9 @@ DEFINE_int32(duration, 30, "Number of seconds to execute benchmark");
 DEFINE_string(group, "unknown", "Test group name");
 DEFINE_string(scenario, "unknown", "Test scenario name");
 
-auto &executed_queries = stats::GetCounter("executed_queries");
-auto &executed_steps = stats::GetCounter("executed_steps");
-auto &serialization_errors = stats::GetCounter("serialization_errors");
+std::atomic<uint64_t> executed_queries;
+std::atomic<uint64_t> executed_steps;
+std::atomic<uint64_t> serialization_errors;
 
 class TestClient {
  public:
@@ -61,7 +59,7 @@ class TestClient {
     runner_thread_ = std::thread([&] {
       while (keep_running_) {
         Step();
-        executed_steps.Bump();
+        ++executed_steps;
       }
     });
   }
@@ -84,7 +82,7 @@ class TestClient {
       std::tie(result, retries) =
           ExecuteNTimesTillSuccess(client_, query, params, MAX_RETRIES);
     } catch (const utils::BasicException &e) {
-      serialization_errors.Bump(MAX_RETRIES);
+      serialization_errors += MAX_RETRIES;
       return std::experimental::nullopt;
     }
     auto wall_time = timer.Elapsed();
@@ -98,8 +96,8 @@ class TestClient {
         stats_[query].push_back(std::move(metadata));
       }
     }
-    executed_queries.Bump();
-    serialization_errors.Bump(retries);
+    ++executed_queries;
+    serialization_errors += retries;
     return result;
   }
 
@@ -179,16 +177,11 @@ void RunMultithreadedTest(std::vector<std::unique_ptr<TestClient>> &clients) {
         auto it = aggregated_query_stats.insert({stat.first, Value(0.0)}).first;
         it->second = (it->second.ValueDouble() * old_count + stat.second) /
                      (old_count + new_count);
-        stats::LogStat(
-            fmt::format("queries.{}.{}", query_stats.first, stat.first),
-            (stat.second / new_count));
       }
-      stats::LogStat(fmt::format("queries.{}.count", query_stats.first),
-                     new_count);
     }
 
-    out << "{\"num_executed_queries\": " << executed_queries.Value() << ", "
-        << "\"num_executed_steps\": " << executed_steps.Value() << ", "
+    out << "{\"num_executed_queries\": " << executed_queries << ", "
+        << "\"num_executed_steps\": " << executed_steps << ", "
         << "\"elapsed_time\": " << timer.Elapsed().count()
         << ", \"queries\": [";
     utils::PrintIterable(
