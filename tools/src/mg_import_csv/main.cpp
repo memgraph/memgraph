@@ -188,6 +188,12 @@ std::vector<std::string> ReadRow(std::istream &stream) {
       } else if (c == FLAGS_csv_delimiter.front()) {
         row.emplace_back(column.begin(), column.end());
         column.clear();
+        // Handle special case when delimiter is the last
+        // character in line. This means that another
+        // empty column needs to be added.
+        if (i == line_size - 1) {
+          row.emplace_back("");
+        }
       } else {
         column.push_back(c);
       }
