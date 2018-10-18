@@ -1461,6 +1461,23 @@ TYPED_TEST(CypherMainVisitorTest, WithWhere) {
   ASSERT_EQ(identifier2->name_, "n");
 }
 
+TYPED_TEST(CypherMainVisitorTest, WithAnonymousVariableCapture) {
+  TypeParam ast_generator("WITH 5 as anon1 MATCH () return *");
+  auto *query = ast_generator.query_;
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 3U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[1]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  auto *pattern = match->patterns_[0];
+  ASSERT_TRUE(pattern);
+  ASSERT_EQ(pattern->atoms_.size(), 1U);
+  auto *atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+  ASSERT_TRUE(atom);
+  ASSERT_NE("anon1", atom->identifier_->name_);
+}
+
 TYPED_TEST(CypherMainVisitorTest, ClausesOrdering) {
   // Obviously some of the ridiculous combinations don't fail here, but they
   // will fail in semantic analysis or they make perfect sense as a part of

@@ -700,6 +700,7 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(
   if (ctx->variable()) {
     named_expr->name_ =
         std::string(ctx->variable()->accept(this).as<std::string>());
+    users_identifiers.insert(named_expr->name_);
   } else {
     if (in_with_ && !dynamic_cast<Identifier *>(named_expr->expression_)) {
       throw SemanticException("Only variables can be non-aliased in WITH.");
