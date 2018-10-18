@@ -22,8 +22,9 @@ COMMON_FLAGS = ["--durability-enabled=false",
 DISTRIBUTED_FLAGS = ["--num-workers", str(6),
                      "--rpc-num-client-workers", str(6),
                      "--rpc-num-server-workers", str(6)]
+MASTER_PORT  = 10000
 MASTER_FLAGS = ["--master",
-                "--master-port", "10000"]
+                "--master-port", str(MASTER_PORT)]
 MEMGRAPH_PORT = 7687
 
 # Module-scoped variables
@@ -63,7 +64,7 @@ def get_worker_flags(worker_id):
 
 
 def wait_for_server(port, delay=0.01):
-    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", port]
+    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
     count = 0
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
@@ -94,12 +95,14 @@ def start_memgraph(context):
             temporary_directory.name, "master"))
         run_memgraph(context, master_flags + DISTRIBUTED_FLAGS + MASTER_FLAGS,
                      context.config.distributed)
+        wait_for_server(MASTER_PORT, 0.5)
         for i in range(1, int(context.config.num_machines)):
             worker_flags = flags.copy()
             worker_flags.append("--durability-directory=" + os.path.join(
                 temporary_directory.name, "worker" + str(i)))
             run_memgraph(context, worker_flags + DISTRIBUTED_FLAGS +
                          get_worker_flags(i), context.config.distributed)
+            wait_for_server(MASTER_PORT + i, 0.5)
     else:  # Run single machine memgraph
         flags = COMMON_FLAGS.copy()
         if context.config.memgraph_params:
@@ -107,7 +110,7 @@ def start_memgraph(context):
         flags.append("--durability-directory=" + temporary_directory.name)
         run_memgraph(context, flags, context.config.distributed)
     assert is_tested_system_active(context), "Failed to start memgraph"
-    wait_for_server(str(MEMGRAPH_PORT))  # wait for memgraph to start
+    wait_for_server(MEMGRAPH_PORT, 0.5)  # wait for memgraph to start
 
 
 def cleanup(context):
