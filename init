@@ -128,7 +128,7 @@ if [[ ! -f "${quicklisp_install_dir}/setup.lisp" ]]; then
   " | sbcl --script || exit 1
   rm -rf quicklisp.lisp || exit 1
 fi
-ln -fs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
+ln -Tfs "$DIR/src/lisp" "${quicklisp_install_dir}/local-projects/lcp"
 
 # setup libs (download)
 cd libs
