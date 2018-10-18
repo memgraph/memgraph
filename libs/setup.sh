@@ -120,10 +120,3 @@ clone git://deps.memgraph.io/zlib.git zlib $zlib_tag
 
 rocksdb_tag="dbd8fa09b823826dd2a30bc119dad7a6fa9a4c6d" # v5.11.3 Mar 12, 2018
 clone git://deps.memgraph.io/rocksdb.git rocksdb $rocksdb_tag
-
-# Cap'n Proto serialization (and RPC) lib
-wget -nv http://deps.memgraph.io/capnproto-c++-0.6.1.tar.gz -O capnproto.tar.gz
-tar -xzf capnproto.tar.gz
-rm -rf capnproto
-mv capnproto-c++-0.6.1 capnproto
-rm capnproto.tar.gz

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "data_structures/bitset/dynamic_bitset.hpp"
-#include "transactions/common.capnp.h"
 #include "transactions/type.hpp"
 
 namespace tx {
@@ -55,14 +54,6 @@ class CommitLog {
     bool is_aborted() const { return flags_ & ABORTED; }
 
     operator uint8_t() const { return flags_; }
-
-    void Save(capnp::CommitLogInfo::Builder *builder) const {
-      builder->setFlags(flags_);
-    }
-
-    void Load(const capnp::CommitLogInfo::Reader &reader) {
-      flags_ = reader.getFlags();
-    }
 
    private:
     uint8_t flags_{0};

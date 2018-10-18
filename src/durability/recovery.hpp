@@ -5,7 +5,6 @@
 
 #include "database/graph_db.hpp"
 #include "durability/hashed_file_reader.hpp"
-#include "durability/recovery.capnp.h"
 #include "storage/vertex_accessor.hpp"
 #include "transactions/type.hpp"
 
@@ -25,25 +24,6 @@ struct RecoveryInfo {
            max_wal_tx_id == other.max_wal_tx_id;
   }
   bool operator!=(const RecoveryInfo &other) const { return !(*this == other); }
-
-  void Save(capnp::RecoveryInfo::Builder *builder) const {
-    builder->setSnapshotTxId(snapshot_tx_id);
-    builder->setMaxWalTxId(max_wal_tx_id);
-  }
-
-  void Load(const capnp::RecoveryInfo::Reader &reader) {
-    snapshot_tx_id = reader.getSnapshotTxId();
-    max_wal_tx_id = reader.getMaxWalTxId();
-  }
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &snapshot_tx_id;
-    ar &max_wal_tx_id;
-  }
 };
 
 /** Reads snapshot metadata from the end of the file without messing up the

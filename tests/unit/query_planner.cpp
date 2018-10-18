@@ -5,8 +5,6 @@
 #include <typeinfo>
 #include <unordered_set>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -16,9 +14,6 @@
 #include "query/plan/distributed.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
-
-#include "capnp/message.h"
-#include "query/plan/operator.capnp.h"
 
 #include "query_common.hpp"
 
@@ -119,23 +114,10 @@ class PlanChecker : public HierarchicalLogicalOperatorVisitor {
 
   VISIT(CreateIndex);
 
-  PRE_VISIT(PullRemote);
-
-  bool PreVisit(Synchronize &op) override {
-    CheckOp(op);
-    op.input()->Accept(*this);
-    return false;
-  }
-
   bool PreVisit(Cartesian &op) override {
     CheckOp(op);
     return false;
   }
-
-  PRE_VISIT(PullRemoteOrderBy);
-
-  VISIT(ModifyUser);
-  VISIT(DropUser);
 #undef PRE_VISIT
 #undef VISIT
 
@@ -260,12 +242,6 @@ class ExpectAggregate : public OpChecker<Aggregate> {
   std::unordered_set<query::Expression *> group_by_;
 };
 
-auto ExpectMasterAggregate(
-    const std::vector<query::Aggregation *> &aggregations,
-    const std::unordered_set<query::Expression *> &group_by) {
-  return ExpectAggregate(true, aggregations, group_by);
-}
-
 class ExpectMerge : public OpChecker<Merge> {
  public:
   ExpectMerge(const std::list<BaseOpChecker *> &on_match,
@@ -385,45 +361,6 @@ class ExpectCreateIndex : public OpChecker<CreateIndex> {
   storage::Property property_;
 };
 
-class ExpectPullRemote : public OpChecker<PullRemote> {
- public:
-  ExpectPullRemote() {}
-  ExpectPullRemote(const std::vector<Symbol> &symbols) : symbols_(symbols) {}
-
-  void ExpectOp(PullRemote &op, const SymbolTable &) override {
-    EXPECT_THAT(op.symbols(), testing::UnorderedElementsAreArray(symbols_));
-  }
-
- private:
-  std::vector<Symbol> symbols_;
-};
-
-class ExpectSynchronize : public OpChecker<Synchronize> {
- public:
-  explicit ExpectSynchronize(bool advance_command)
-      : has_pull_(false), advance_command_(advance_command) {}
-  ExpectSynchronize(const std::vector<Symbol> &symbols = {},
-                    bool advance_command = false)
-      : expect_pull_(symbols),
-        has_pull_(true),
-        advance_command_(advance_command) {}
-
-  void ExpectOp(Synchronize &op, const SymbolTable &symbol_table) override {
-    if (has_pull_) {
-      ASSERT_TRUE(op.pull_remote());
-      expect_pull_.ExpectOp(*op.pull_remote(), symbol_table);
-    } else {
-      EXPECT_FALSE(op.pull_remote());
-    }
-    EXPECT_EQ(op.advance_command(), advance_command_);
-  }
-
- private:
-  ExpectPullRemote expect_pull_;
-  bool has_pull_ = true;
-  bool advance_command_ = false;
-};
-
 class ExpectCartesian : public OpChecker<Cartesian> {
  public:
   ExpectCartesian(const std::list<std::unique_ptr<BaseOpChecker>> &left,
@@ -457,19 +394,6 @@ class ExpectCreateNode : public OpChecker<CreateNode> {
   bool on_random_worker_ = false;
 };
 
-class ExpectPullRemoteOrderBy : public OpChecker<PullRemoteOrderBy> {
- public:
-  ExpectPullRemoteOrderBy(const std::vector<Symbol> symbols)
-      : symbols_(symbols) {}
-
-  void ExpectOp(PullRemoteOrderBy &op, const SymbolTable &) override {
-    EXPECT_THAT(op.symbols(), testing::UnorderedElementsAreArray(symbols_));
-  }
-
- private:
-  std::vector<Symbol> symbols_;
-};
-
 auto MakeSymbolTable(query::Query &query) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(symbol_table);
@@ -489,98 +413,6 @@ class Planner {
   auto &plan() { return *plan_; }
 
  private:
-  std::unique_ptr<LogicalOperator> plan_;
-};
-
-class ExpectModifyUser : public OpChecker<ModifyUser> {
- public:
-  ExpectModifyUser(std::string username, bool is_create)
-      : username_(username), is_create_(is_create) {}
-
-  void ExpectOp(ModifyUser &modify_user, const SymbolTable &) override {
-    EXPECT_EQ(username_, modify_user.username());
-    // TODO(mtomic): proper password verification
-    EXPECT_NE(dynamic_cast<query::Expression *>(modify_user.password()),
-              nullptr);
-    EXPECT_EQ(is_create_, modify_user.is_create());
-  }
-
- private:
-  std::string username_;
-  bool is_create_;
-};
-
-class ExpectDropUser : public OpChecker<DropUser> {
- public:
-  ExpectDropUser(std::vector<std::string> usernames) : usernames_(usernames) {}
-
-  void ExpectOp(DropUser &drop_user, const SymbolTable &) override {
-    EXPECT_EQ(usernames_, drop_user.usernames());
-  }
-
- private:
-  std::vector<std::string> usernames_;
-};
-
-class SerializedPlanner {
- public:
-  template <class TDbAccessor>
-  SerializedPlanner(std::vector<SingleQueryPart> single_query_parts,
-                    PlanningContext<TDbAccessor> &context) {
-    std::stringstream stream;
-    {
-      auto original_plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
-          single_query_parts, context);
-      boost::archive::binary_oarchive out_archive(stream);
-      out_archive << original_plan;
-    }
-    {
-      boost::archive::binary_iarchive in_archive(stream);
-      std::tie(plan_, ast_storage_) = LoadPlan(in_archive);
-    }
-  }
-
-  auto &plan() { return *plan_; }
-
- private:
-  AstStorage ast_storage_;
-  std::unique_ptr<LogicalOperator> plan_;
-};
-
-void SavePlan(const LogicalOperator &plan, ::capnp::MessageBuilder *message) {
-  auto builder = message->initRoot<query::plan::capnp::LogicalOperator>();
-  LogicalOperator::SaveHelper helper;
-  plan.Save(&builder, &helper);
-}
-
-auto LoadPlan(const ::query::plan::capnp::LogicalOperator::Reader &reader) {
-  auto plan = LogicalOperator::Construct(reader);
-  LogicalOperator::LoadHelper helper;
-  plan->Load(reader, &helper);
-  return std::make_pair(std::move(plan), std::move(helper.ast_storage));
-}
-
-class CapnpPlanner {
- public:
-  template <class TDbAccessor>
-  CapnpPlanner(std::vector<SingleQueryPart> single_query_parts,
-               PlanningContext<TDbAccessor> &context) {
-    ::capnp::MallocMessageBuilder message;
-    {
-      auto original_plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
-          single_query_parts, context);
-      SavePlan(*original_plan, &message);
-    }
-    {
-      auto reader = message.getRoot<query::plan::capnp::LogicalOperator>();
-      std::tie(plan_, ast_storage_) = LoadPlan(reader);
-    }
-  }
-
-  auto &plan() { return *plan_; }
-
- private:
-  AstStorage ast_storage_;
   std::unique_ptr<LogicalOperator> plan_;
 };
 
@@ -690,57 +522,6 @@ auto CheckPlan(AstStorage &storage, TChecker... checker) {
   CheckPlan(planner.plan(), symbol_table, checker...);
 }
 
-struct ExpectedDistributedPlan {
-  std::list<std::unique_ptr<BaseOpChecker>> master_checkers;
-  std::vector<std::list<std::unique_ptr<BaseOpChecker>>> worker_checkers;
-};
-
-template <class TPlanner>
-DistributedPlan MakeDistributedPlan(query::AstStorage &storage) {
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TPlanner>(dba, storage, symbol_table);
-  std::atomic<int64_t> next_plan_id{0};
-  return MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
-}
-
-void CheckDistributedPlan(DistributedPlan &distributed_plan,
-                          ExpectedDistributedPlan &expected) {
-  PlanChecker plan_checker(expected.master_checkers,
-                           distributed_plan.symbol_table);
-  distributed_plan.master_plan->Accept(plan_checker);
-  EXPECT_TRUE(plan_checker.checkers_.empty());
-  if (expected.worker_checkers.empty()) {
-    EXPECT_TRUE(distributed_plan.worker_plans.empty());
-  } else {
-    ASSERT_EQ(distributed_plan.worker_plans.size(),
-              expected.worker_checkers.size());
-    for (size_t i = 0; i < expected.worker_checkers.size(); ++i) {
-      PlanChecker plan_checker(expected.worker_checkers[i],
-                               distributed_plan.symbol_table);
-      auto worker_plan = distributed_plan.worker_plans[i].second;
-      worker_plan->Accept(plan_checker);
-      EXPECT_TRUE(plan_checker.checkers_.empty());
-    }
-  }
-}
-
-void CheckDistributedPlan(const LogicalOperator &plan,
-                          const SymbolTable &symbol_table,
-                          ExpectedDistributedPlan &expected_distributed_plan) {
-  std::atomic<int64_t> next_plan_id{0};
-  auto distributed_plan = MakeDistributedPlan(plan, symbol_table, next_plan_id);
-  EXPECT_EQ(next_plan_id - 1, distributed_plan.worker_plans.size());
-  CheckDistributedPlan(distributed_plan, expected_distributed_plan);
-}
-
-template <class TPlanner>
-void CheckDistributedPlan(AstStorage &storage,
-                          ExpectedDistributedPlan &expected_distributed_plan) {
-  auto distributed_plan = MakeDistributedPlan<TPlanner>(storage);
-  CheckDistributedPlan(distributed_plan, expected_distributed_plan);
-}
-
 template <class T>
 std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg) {
   std::list<std::unique_ptr<BaseOpChecker>> l;
@@ -755,47 +536,10 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&... rest) {
   return std::move(l);
 }
 
-ExpectedDistributedPlan ExpectDistributed(
-    std::list<std::unique_ptr<BaseOpChecker>> master_checker) {
-  return ExpectedDistributedPlan{std::move(master_checker)};
-}
-
-ExpectedDistributedPlan ExpectDistributed(
-    std::list<std::unique_ptr<BaseOpChecker>> master_checker,
-    std::list<std::unique_ptr<BaseOpChecker>> worker_checker) {
-  ExpectedDistributedPlan expected{std::move(master_checker)};
-  expected.worker_checkers.emplace_back(std::move(worker_checker));
-  return expected;
-}
-
-void AddWorkerCheckers(
-    ExpectedDistributedPlan &expected,
-    std::list<std::unique_ptr<BaseOpChecker>> worker_checker) {
-  expected.worker_checkers.emplace_back(std::move(worker_checker));
-}
-
-template <class... Rest>
-void AddWorkerCheckers(ExpectedDistributedPlan &expected,
-                       std::list<std::unique_ptr<BaseOpChecker>> worker_checker,
-                       Rest &&... rest) {
-  expected.worker_checkers.emplace_back(std::move(worker_checker));
-  AddWorkerCheckers(expected, std::forward<Rest>(rest)...);
-}
-
-template <class... Rest>
-ExpectedDistributedPlan ExpectDistributed(
-    std::list<std::unique_ptr<BaseOpChecker>> master_checker,
-    std::list<std::unique_ptr<BaseOpChecker>> worker_checker, Rest &&... rest) {
-  ExpectedDistributedPlan expected{std::move(master_checker)};
-  expected.worker_checkers.emplace_back(std::move(worker_checker));
-  AddWorkerCheckers(expected, std::forward<Rest>(rest)...);
-  return expected;
-}
-
 template <class T>
 class TestPlanner : public ::testing::Test {};
 
-using PlannerTypes = ::testing::Types<Planner, SerializedPlanner, CapnpPlanner>;
+using PlannerTypes = ::testing::Types<Planner>;
 
 TYPED_TEST_CASE(TestPlanner, PlannerTypes);
 
@@ -808,11 +552,6 @@ TYPED_TEST(TestPlanner, MatchNodeReturn) {
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected =
-      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectProduce(), pull),
-                        MakeCheckers(ExpectScanAll(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateNodeReturn) {
@@ -827,14 +566,6 @@ TYPED_TEST(TestPlanner, CreateNodeReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc,
             ExpectProduce());
-  {
-    auto expected = ExpectDistributed(MakeCheckers(
-        ExpectCreateNode(true), ExpectSynchronize(false), ExpectProduce()));
-    std::atomic<int64_t> next_plan_id{0};
-    auto distributed_plan =
-        MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
-    CheckDistributedPlan(distributed_plan, expected);
-  }
 }
 
 TYPED_TEST(TestPlanner, CreateExpand) {
@@ -845,11 +576,6 @@ TYPED_TEST(TestPlanner, CreateExpand) {
   QUERY(SINGLE_QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand());
-  ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectSynchronize(false)),
-      {}};
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateMultipleNode) {
@@ -857,11 +583,6 @@ TYPED_TEST(TestPlanner, CreateMultipleNode) {
   AstStorage storage;
   QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")), PATTERN(NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateNode());
-  ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateNode(true),
-                   ExpectSynchronize(false)),
-      {}};
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
@@ -874,11 +595,6 @@ TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
       PATTERN(NODE("l")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectCreateNode());
-  ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectCreateNode(true), ExpectSynchronize(false)),
-      {}};
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateNamedPattern) {
@@ -890,11 +606,6 @@ TYPED_TEST(TestPlanner, CreateNamedPattern) {
       "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectConstructNamedPath());
-  ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectConstructNamedPath(), ExpectSynchronize(false)),
-      {}};
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchCreateExpand) {
@@ -907,10 +618,6 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
       CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
                      NODE("m")))));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectCreateExpand());
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectCreateExpand(), ExpectSynchronize()),
-      MakeCheckers(ExpectScanAll(), ExpectCreateExpand()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchLabeledNodes) {
@@ -924,11 +631,6 @@ TYPED_TEST(TestPlanner, MatchLabeledNodes) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(),
             ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAllByLabel(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAllByLabel(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchPathReturn) {
@@ -945,11 +647,6 @@ TYPED_TEST(TestPlanner, MatchPathReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
@@ -967,13 +664,6 @@ TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_p)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
@@ -991,13 +681,6 @@ TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectConstructNamedPath(), ExpectFilter(), ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_p)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectFilter(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectConstructNamedPath(),
-                   ExpectFilter(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
@@ -1021,12 +704,6 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table,
             ExpectOptional(optional_symbols, optional), ExpectProduce());
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectOptional(optional_symbols, optional), ExpectProduce(),
-                   ExpectPullRemote({symbol_table.at(*as_p)})),
-      MakeCheckers(ExpectOptional(optional_symbols, optional),
-                   ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
@@ -1042,11 +719,6 @@ TYPED_TEST(TestPlanner, MatchWhereReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
             ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchDelete) {
@@ -1054,10 +726,6 @@ TYPED_TEST(TestPlanner, MatchDelete) {
   AstStorage storage;
   QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectDelete());
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectDelete(), ExpectSynchronize()),
-      MakeCheckers(ExpectScanAll(), ExpectDelete()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchNodeSet) {
@@ -1071,12 +739,6 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
                      SET("n", IDENT("n")), SET("n", {label})));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectSetProperty(),
                        ExpectSetProperties(), ExpectSetLabels());
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(),
-                   ExpectSetLabels(), ExpectSynchronize()),
-      MakeCheckers(ExpectScanAll(), ExpectSetProperty(), ExpectSetProperties(),
-                   ExpectSetLabels()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchRemove) {
@@ -1089,12 +751,6 @@ TYPED_TEST(TestPlanner, MatchRemove) {
                      REMOVE(PROPERTY_LOOKUP("n", prop)), REMOVE("n", {label})));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectRemoveProperty(),
                        ExpectRemoveLabels());
-  auto expected =
-      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectRemoveProperty(),
-                                     ExpectRemoveLabels(), ExpectSynchronize()),
-                        MakeCheckers(ExpectScanAll(), ExpectRemoveProperty(),
-                                     ExpectRemoveLabels()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPattern) {
@@ -1158,25 +814,6 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectScanAll(), ExpectExpand(), ExpectExpand(),
             ExpectExpandUniquenessFilter<EdgeAccessor>(), ExpectProduce());
-  auto get_symbol = [&symbol_table](const auto *atom_node) {
-    return symbol_table.at(*atom_node->identifier_);
-  };
-  ExpectPullRemote left_pull(
-      {get_symbol(node_n), get_symbol(edge_r), get_symbol(node_m)});
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectExpand(), left_pull);
-  ExpectPullRemote right_pull({get_symbol(node_j), get_symbol(edge_e),
-                               get_symbol(node_i), get_symbol(edge_f),
-                               get_symbol(node_h)});
-  auto right_cart =
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-                   ExpectExpandUniquenessFilter<EdgeAccessor>(), right_pull);
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectExpand()),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-                   ExpectExpandUniquenessFilter<EdgeAccessor>()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MultiMatchSameStart) {
@@ -1193,11 +830,6 @@ TYPED_TEST(TestPlanner, MultiMatchSameStart) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectExpand(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWithReturn) {
@@ -1212,11 +844,6 @@ TYPED_TEST(TestPlanner, MatchWithReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
             ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_new)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
@@ -1233,13 +860,6 @@ TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
             ExpectFilter(), ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_new)});
-  auto expected =
-      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectProduce(),
-                                     ExpectFilter(), ExpectProduce(), pull),
-                        MakeCheckers(ExpectScanAll(), ExpectProduce(),
-                                     ExpectFilter(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateMultiExpand) {
@@ -1253,11 +873,6 @@ TYPED_TEST(TestPlanner, CreateMultiExpand) {
              PATTERN(NODE("n"), EDGE("p", Direction::OUT, {p}), NODE("l")))));
   CheckPlan<TypeParam>(storage, ExpectCreateNode(), ExpectCreateExpand(),
                        ExpectCreateExpand());
-  ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectCreateExpand(),
-                   ExpectCreateExpand(), ExpectSynchronize(false)),
-      {}};
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWithSumWhereReturn) {
@@ -1291,20 +906,6 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), aggr,
             ExpectProduce());
-  {
-    std::atomic<int64_t> next_plan_id{0};
-    auto distributed_plan =
-        MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
-    auto merge_sum = SUM(IDENT("worker_sum"));
-    auto master_aggr = ExpectMasterAggregate({merge_sum}, {n_prop2});
-    ExpectPullRemote pull(
-        {symbol_table.at(*sum), symbol_table.at(*n_prop2->expression_)});
-    auto expected =
-        ExpectDistributed(MakeCheckers(ExpectScanAll(), aggr, pull, master_aggr,
-                                       ExpectProduce(), ExpectProduce()),
-                          MakeCheckers(ExpectScanAll(), aggr));
-    CheckDistributedPlan(distributed_plan, expected);
-  }
 }
 
 TYPED_TEST(TestPlanner, CreateWithSum) {
@@ -1337,11 +938,6 @@ TYPED_TEST(TestPlanner, MatchWithCreate) {
           PATTERN(NODE("a"), EDGE("r", Direction::OUT, {r_type}), NODE("b")))));
   CheckPlan<TypeParam>(storage, ExpectScanAll(), ExpectProduce(),
                        ExpectCreateExpand());
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectCreateExpand(),
-                   ExpectSynchronize()),
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectCreateExpand()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
@@ -1355,12 +951,6 @@ TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
             ExpectSkip(), ExpectLimit());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected =
-      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectProduce(), pull,
-                                     ExpectSkip(), ExpectLimit()),
-                        MakeCheckers(ExpectScanAll(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
@@ -1381,12 +971,6 @@ TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   // us here (but who knows if they change it again).
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc,
             ExpectProduce(), ExpectSkip(), ExpectProduce(), ExpectLimit());
-  ExpectedDistributedPlan expected{
-      MakeCheckers(ExpectCreateNode(true), ExpectSynchronize(true),
-                   ExpectProduce(), ExpectSkip(), ExpectProduce(),
-                   ExpectLimit()),
-      {}};
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
@@ -1420,17 +1004,6 @@ TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(),
             ExpectOrderBy());
-  ExpectPullRemoteOrderBy pull_order_by(
-      {symbol_table.at(*as_m), symbol_table.at(*node_n->identifier_)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectOrderBy(),
-                   pull_order_by),
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectOrderBy()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-  // Even though last operator pulls and orders by `m` and `n`, we expect only
-  // `m` as the output of the query execution.
-  EXPECT_THAT(planner.plan().OutputSymbols(symbol_table),
-              testing::UnorderedElementsAre(symbol_table.at(*as_m)));
 }
 
 TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
@@ -1460,10 +1033,6 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(),
             ExpectCreateExpand(), acc, ExpectProduce(), ExpectOrderBy(),
             ExpectFilter());
-  auto expected = ExpectDistributed(MakeCheckers(
-      ExpectCreateNode(true), ExpectCreateExpand(), ExpectSynchronize(true),
-      ExpectProduce(), ExpectOrderBy(), ExpectFilter()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
@@ -1475,9 +1044,6 @@ TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
       RETURN(ADD(sum, count), AS("result"), ORDER_BY(IDENT("result")))));
   auto aggr = ExpectAggregate({sum, count}, {});
   CheckPlan<TypeParam>(storage, aggr, ExpectProduce(), ExpectOrderBy());
-  auto expected =
-      ExpectDistributed(MakeCheckers(aggr, ExpectProduce(), ExpectOrderBy()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, MatchMerge) {
@@ -1539,11 +1105,6 @@ TYPED_TEST(TestPlanner, MatchUnwindReturn) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectUnwind(),
             ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_n), symbol_table.at(*as_x)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectUnwind(), ExpectProduce(), pull),
-      MakeCheckers(ExpectScanAll(), ExpectUnwind(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
@@ -1553,10 +1114,6 @@ TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
                                      SKIP(LITERAL(1)), LIMIT(LITERAL(1)))));
   CheckPlan<TypeParam>(storage, ExpectProduce(), ExpectDistinct(),
                        ExpectOrderBy(), ExpectSkip(), ExpectLimit());
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectProduce(), ExpectDistinct(), ExpectOrderBy(),
-                   ExpectSkip(), ExpectLimit()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, CreateWithDistinctSumWhereReturn) {
@@ -1609,13 +1166,6 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(),
             ExpectExpand(), ExpectProduce());
-  ExpectPullRemote pull({symbol_table.at(*as_n)});
-  auto expected =
-      ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectFilter(),
-                                     ExpectExpand(), ExpectProduce(), pull),
-                        MakeCheckers(ExpectScanAll(), ExpectFilter(),
-                                     ExpectExpand(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
 TYPED_TEST(TestPlanner, MultiMatchWhere) {
@@ -1735,8 +1285,6 @@ TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
       RETURN(FN("sqrt", sum), AS("result"), group_by_literal, AS("group_by"))));
   auto aggr = ExpectAggregate({sum}, {group_by_literal});
   CheckPlan<TypeParam>(storage, aggr, ExpectProduce());
-  auto expected = ExpectDistributed(MakeCheckers(aggr, ExpectProduce()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
@@ -1744,8 +1292,6 @@ TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
   AstStorage storage;
   QUERY(SINGLE_QUERY(RETURN(FN("pi"), AS("pi"))));
   CheckPlan<TypeParam>(storage, ExpectProduce());
-  auto expected = ExpectDistributed(MakeCheckers(ExpectProduce()));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, ListLiteralAggregationReturn) {
@@ -1844,9 +1390,6 @@ TYPED_TEST(TestPlanner, CreateIndex) {
   AstStorage storage;
   QUERY(SINGLE_QUERY(CREATE_INDEX_ON(label, property)));
   CheckPlan<TypeParam>(storage, ExpectCreateIndex(label, property));
-  auto expected =
-      ExpectDistributed(MakeCheckers(ExpectCreateIndex(label, property)));
-  CheckDistributedPlan<TypeParam>(storage, expected);
 }
 
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
@@ -2213,624 +1756,4 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
     EXPECT_TRUE(utils::Contains(outputs, name));
   }
 }
-
-TYPED_TEST(TestPlanner, ModifyUser) {
-  {
-    // Test CREATE USER user WITH PASSWORD 'password'
-    FakeDbAccessor dba;
-    AstStorage storage;
-    QUERY(SINGLE_QUERY(CREATE_USER("user", "password")));
-    CheckPlan<TypeParam>(storage, ExpectModifyUser("user", true));
-    auto expected =
-        ExpectDistributed(MakeCheckers(ExpectModifyUser("user", true)));
-    CheckDistributedPlan<TypeParam>(storage, expected);
-  }
-  {
-    // Test ALTER USER user WITH PASSWORD 'password'
-    FakeDbAccessor dba;
-    AstStorage storage;
-    QUERY(SINGLE_QUERY(ALTER_USER("user", "password")));
-    CheckPlan<TypeParam>(storage, ExpectModifyUser("user", false));
-    auto expected =
-        ExpectDistributed(MakeCheckers(ExpectModifyUser("user", false)));
-    CheckDistributedPlan<TypeParam>(storage, expected);
-  }
-}
-
-TYPED_TEST(TestPlanner, DropUser) {
-  // Test DROP USER user1, user2, user3
-  AstStorage storage;
-  std::vector<std::string> usernames({"user1", "user2", "user3"});
-  QUERY(SINGLE_QUERY(DROP_USER(usernames)));
-  CheckPlan<TypeParam>(storage, ExpectDropUser(usernames));
-  auto expected = ExpectDistributed(MakeCheckers(ExpectDropUser(usernames)));
-  CheckDistributedPlan<TypeParam>(storage, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedAvg) {
-  // Test MATCH (n) RETURN AVG(n.prop) AS res
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto prop = dba.Property("prop");
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                     RETURN(AVG(PROPERTY_LOOKUP("n", prop)), AS("res"))));
-  auto distributed_plan = MakeDistributedPlan<TypeParam>(storage);
-  auto &symbol_table = distributed_plan.symbol_table;
-  auto worker_sum = SUM(PROPERTY_LOOKUP("n", prop));
-  auto worker_count = COUNT(PROPERTY_LOOKUP("n", prop));
-  {
-    ASSERT_EQ(distributed_plan.worker_plans.size(), 1U);
-    auto worker_plan = distributed_plan.worker_plans.back().second;
-    auto worker_aggr_op = std::dynamic_pointer_cast<Aggregate>(worker_plan);
-    ASSERT_TRUE(worker_aggr_op);
-    ASSERT_EQ(worker_aggr_op->aggregations().size(), 2U);
-    symbol_table[*worker_sum] = worker_aggr_op->aggregations()[0].output_sym;
-    symbol_table[*worker_count] = worker_aggr_op->aggregations()[1].output_sym;
-  }
-  auto worker_aggr = ExpectAggregate({worker_sum, worker_count}, {});
-  auto merge_sum = SUM(IDENT("worker_sum"));
-  auto merge_count = SUM(IDENT("worker_count"));
-  auto master_aggr = ExpectMasterAggregate({merge_sum, merge_count}, {});
-  ExpectPullRemote pull(
-      {symbol_table.at(*worker_sum), symbol_table.at(*worker_count)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), worker_aggr, pull, master_aggr,
-                   ExpectProduce(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), worker_aggr));
-  CheckDistributedPlan(distributed_plan, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCollectList) {
-  // Test MATCH (n) RETURN COLLECT(n.prop) AS res
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto prop = dba.Property("prop");
-  auto node_n = NODE("n");
-  auto collect = COLLECT_LIST(PROPERTY_LOOKUP("n", prop));
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN(collect, AS("res"))));
-  auto distributed_plan = MakeDistributedPlan<TypeParam>(storage);
-  auto &symbol_table = distributed_plan.symbol_table;
-  auto aggr = ExpectAggregate({collect}, {});
-  ExpectPullRemote pull({symbol_table.at(*node_n->identifier_)});
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), pull, aggr, ExpectProduce()),
-      MakeCheckers(ExpectScanAll()));
-  CheckDistributedPlan(distributed_plan, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
-  // Test MATCH (n) CREATE (m) RETURN m
-  AstStorage storage;
-  auto *ident_m = IDENT("m");
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("m"))),
-                     RETURN(ident_m, AS("m"))));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto acc = ExpectAccumulate({symbol_table.at(*ident_m)});
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode(),
-                   ExpectSynchronize({symbol_table.at(*ident_m)}),
-                   ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianCreateExpand) {
-  // Test MATCH (a), (b) CREATE (a)-[e:r]->(b) RETURN e
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("r");
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b");
-  QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(node_a), PATTERN(node_b)),
-      CREATE(PATTERN(NODE("a"), EDGE("e", Direction::OUT, {relationship}),
-                     NODE("b"))),
-      RETURN("e")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto left_cart =
-      MakeCheckers(ExpectScanAll(),
-                   ExpectPullRemote({symbol_table.at(*node_a->identifier_)}));
-  auto right_cart =
-      MakeCheckers(ExpectScanAll(),
-                   ExpectPullRemote({symbol_table.at(*node_b->identifier_)}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectCreateExpand(), ExpectSynchronize(false),
-                   ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianExpand) {
-  // Test MATCH (a), (b)-[e]-(c) RETURN c
-  AstStorage storage;
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b");
-  auto *edge_e = EDGE("e");
-  auto *node_c = NODE("c");
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b, edge_e, node_c)),
-                     RETURN("c")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto sym_e = symbol_table.at(*edge_e->identifier_);
-  auto sym_c = symbol_table.at(*node_c->identifier_);
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectExpand(),
-                                 ExpectPullRemote({sym_b, sym_e, sym_c}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectProduce()),
-      MakeCheckers(ExpectScanAll()),
-      MakeCheckers(ExpectScanAll(), ExpectExpand()));
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianExpandToExisting) {
-  // Test MATCH (a), (b)-[e]-(a) RETURN e
-  AstStorage storage;
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b");
-  QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(node_a), PATTERN(node_b, EDGE("e"), NODE("a"))),
-      RETURN("e")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectExpand(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianExpandFromExisting) {
-  // Test MATCH (a), (b), (a)-[e]-(b) RETURN e
-  AstStorage storage;
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b");
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b),
-                           PATTERN(NODE("a"), EDGE("e"), NODE("b"))),
-                     RETURN("e")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectExpand(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
-  // Test MATCH (a), (b), (c) WHERE a = 42 AND b = a AND c = b RETURN c
-  AstStorage storage;
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b");
-  auto *node_c = NODE("c");
-  QUERY(SINGLE_QUERY(
-      MATCH(PATTERN(node_a), PATTERN(node_b), PATTERN(node_c)),
-      WHERE(AND(AND(EQ(IDENT("a"), LITERAL(42)), EQ(IDENT("b"), IDENT("a"))),
-                EQ(IDENT("c"), IDENT("b")))),
-      RETURN("c")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto sym_c = symbol_table.at(*node_c->identifier_);
-  auto left_cart =
-      MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectPullRemote({sym_a}));
-  auto mid_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
-  auto mid_right_cart =
-      MakeCheckers(ExpectCartesian(std::move(mid_cart), std::move(right_cart)),
-                   ExpectFilter());
-  auto expected = ExpectDistributed(
-      MakeCheckers(
-          ExpectCartesian(std::move(left_cart), std::move(mid_right_cart)),
-          ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectFilter()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByProperty) {
-  // Test MATCH (a), (b :label) WHERE b.prop = a RETURN b
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto label = dba.Label("label");
-  auto prop = dba.Property("prop");
-  // Set indexes so that lookup by property is preferred.
-  dba.SetIndexCount(label, 1024);
-  dba.SetIndexCount(label, prop, 0);
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b", label);
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
-                     WHERE(EQ(PROPERTY_LOOKUP("b", prop), IDENT("a"))),
-                     RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  // We still expect only indexed lookup by label because property depends on
-  // Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByLowerBound) {
-  // Test MATCH (a), (b :label) WHERE a < b.prop RETURN b
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto label = dba.Label("label");
-  auto prop = dba.Property("prop");
-  // Set indexes so that lookup by property is preferred.
-  dba.SetIndexCount(label, 1024);
-  dba.SetIndexCount(label, prop, 0);
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b", label);
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
-                     WHERE(LESS(IDENT("a"), PROPERTY_LOOKUP("b", prop))),
-                     RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  // We still expect only indexed lookup by label because lower bound depends on
-  // Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByUpperBound) {
-  // Test MATCH (a), (b :label) WHERE a > b.prop RETURN b
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto label = dba.Label("label");
-  auto prop = dba.Property("prop");
-  // Set indexes so that lookup by property is preferred.
-  dba.SetIndexCount(label, 1024);
-  dba.SetIndexCount(label, prop, 0);
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b", label);
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
-                     WHERE(GREATER(IDENT("a"), PROPERTY_LOOKUP("b", prop))),
-                     RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  // We still expect only indexed lookup by label because upper bound depends on
-  // Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
-  // Test MATCH (a), (b :label) WHERE a > b.prop > a RETURN b
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto label = dba.Label("label");
-  auto prop = dba.Property("prop");
-  // Set indexes so that lookup by property is preferred.
-  dba.SetIndexCount(label, 1024);
-  dba.SetIndexCount(label, prop, 0);
-  SymbolTable symbol_table;
-  auto sym_a = symbol_table.CreateSymbol("a", true);
-  auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
-  auto sym_b = symbol_table.CreateSymbol("b", true);
-  query::Expression *lower_expr = IDENT("a");
-  symbol_table[*lower_expr] = sym_a;
-  auto lower_bound = utils::MakeBoundExclusive(lower_expr);
-  query::Expression *upper_expr = IDENT("a");
-  symbol_table[*upper_expr] = sym_a;
-  auto upper_bound = utils::MakeBoundExclusive(upper_expr);
-  auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
-      scan_a, sym_b, label, prop, lower_bound, upper_bound);
-  auto ident_b = IDENT("b");
-  symbol_table[*ident_b] = sym_b;
-  auto as_b = NEXPR("b", ident_b);
-  auto produce = std::make_shared<Produce>(
-      scan_b, std::vector<query::NamedExpression *>{as_b});
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  // We still expect only indexed lookup by label because both bounds depend on
-  // Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabel(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  CheckDistributedPlan(*produce, symbol_table, expected);
-}
-
-TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
-  // Test MATCH (a), (b :label) WHERE a > b.prop > 42 RETURN b
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto label = dba.Label("label");
-  auto prop = dba.Property("prop");
-  // Set indexes so that lookup by property is preferred.
-  dba.SetIndexCount(label, 1024);
-  dba.SetIndexCount(label, prop, 0);
-  SymbolTable symbol_table;
-  auto sym_a = symbol_table.CreateSymbol("a", true);
-  auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
-  auto sym_b = symbol_table.CreateSymbol("b", true);
-  query::Expression *lower_expr = LITERAL(42);
-  auto lower_bound = utils::MakeBoundExclusive(lower_expr);
-  query::Expression *upper_expr = IDENT("a");
-  symbol_table[*upper_expr] = sym_a;
-  auto upper_bound = utils::MakeBoundExclusive(upper_expr);
-  auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
-      scan_a, sym_b, label, prop, lower_bound, upper_bound);
-  auto ident_b = IDENT("b");
-  symbol_table[*ident_b] = sym_b;
-  auto as_b = NEXPR("b", ident_b);
-  auto produce = std::make_shared<Produce>(
-      scan_b, std::vector<query::NamedExpression *>{as_b});
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  // We still expect indexed lookup by label property range above lower bound,
-  // because upper bound depends on Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-                       label, prop, lower_bound, std::experimental::nullopt),
-                   ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()),
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-          label, prop, lower_bound, std::experimental::nullopt)));
-  CheckDistributedPlan(*produce, symbol_table, expected);
-}
-
-TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
-  // Test MATCH (a), (b :label) WHERE 42 > b.prop > a RETURN b
-  AstStorage storage;
-  FakeDbAccessor dba;
-  auto label = dba.Label("label");
-  auto prop = dba.Property("prop");
-  // Set indexes so that lookup by property is preferred.
-  dba.SetIndexCount(label, 1024);
-  dba.SetIndexCount(label, prop, 0);
-  SymbolTable symbol_table;
-  auto sym_a = symbol_table.CreateSymbol("a", true);
-  auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
-  auto sym_b = symbol_table.CreateSymbol("b", true);
-  query::Expression *lower_expr = IDENT("a");
-  symbol_table[*lower_expr] = sym_a;
-  auto lower_bound = utils::MakeBoundExclusive(lower_expr);
-  query::Expression *upper_expr = LITERAL(42);
-  auto upper_bound = utils::MakeBoundExclusive(upper_expr);
-  auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
-      scan_a, sym_b, label, prop, lower_bound, upper_bound);
-  auto ident_b = IDENT("b");
-  symbol_table[*ident_b] = sym_b;
-  auto as_b = NEXPR("b", ident_b);
-  auto produce = std::make_shared<Produce>(
-      scan_b, std::vector<query::NamedExpression *>{as_b});
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  // We still expect indexed lookup by label property range below upper bound,
-  // because lower bound depends on Cartesian branch.
-  auto right_cart =
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-                       label, prop, std::experimental::nullopt, upper_bound),
-                   ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()),
-      MakeCheckers(ExpectScanAllByLabelPropertyRange(
-          label, prop, std::experimental::nullopt, upper_bound)));
-  CheckDistributedPlan(*produce, symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianProduce) {
-  // Test MATCH (a) WITH a MATCH (b) WHERE b = a RETURN b;
-  AstStorage storage;
-  auto *with_a = WITH("a");
-  auto *node_b = NODE("b");
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), with_a, MATCH(PATTERN(node_b)),
-                     WHERE(EQ(IDENT("b"), IDENT("a"))), RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*with_a->body_.named_expressions[0]);
-  auto left_cart =
-      MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectPullRemote({sym_a}));
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectFilter(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()));
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianUnwind) {
-  // Test MATCH (a), (b) UNWIND a AS x RETURN x
-  AstStorage storage;
-  auto *node_a = NODE("a");
-  auto *node_b = NODE("b");
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
-                     UNWIND(IDENT("a"), AS("x")), RETURN("x")));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_a = symbol_table.at(*node_a->identifier_);
-  auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_b}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectUnwind(), ExpectProduce()),
-      MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
-  // Test MATCH (a) CREATE (b) WITH b MATCH (c) CREATE (d)
-  AstStorage storage;
-  auto *node_b = NODE("b");
-  auto *node_c = NODE("c");
-  QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), CREATE(PATTERN(node_b)),
-                     WITH("b"), MATCH(PATTERN(node_c)),
-                     CREATE(PATTERN(NODE("d")))));
-  auto symbol_table = MakeSymbolTable(*storage.query());
-  auto sym_b = symbol_table.at(*node_b->identifier_);
-  auto left_cart =
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode(),
-                   ExpectSynchronize({sym_b}, true), ExpectProduce());
-  auto sym_c = symbol_table.at(*node_c->identifier_);
-  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_c}));
-  auto expected = ExpectDistributed(
-      MakeCheckers(ExpectCartesian(std::move(left_cart), std::move(right_cart)),
-                   ExpectCreateNode(true), ExpectSynchronize(false)),
-      MakeCheckers(ExpectScanAll(), ExpectCreateNode()),
-      MakeCheckers(ExpectScanAll()));
-  FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
-}
-
-TEST(CapnpSerial, Union) {
-  std::vector<Symbol> left_symbols{
-      Symbol("symbol", 1, true, Symbol::Type::Edge)};
-  std::vector<Symbol> right_symbols{
-      Symbol("symbol", 3, true, Symbol::Type::Any)};
-  auto union_symbols = right_symbols;
-  auto union_op = std::make_unique<Union>(nullptr, nullptr, union_symbols,
-                                          left_symbols, right_symbols);
-  std::unique_ptr<LogicalOperator> loaded_plan;
-  ::capnp::MallocMessageBuilder message;
-  SavePlan(*union_op, &message);
-  AstStorage new_storage;
-  std::tie(loaded_plan, new_storage) =
-      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
-  ASSERT_TRUE(loaded_plan);
-  auto *loaded_op = dynamic_cast<Union *>(loaded_plan.get());
-  ASSERT_TRUE(loaded_op);
-  EXPECT_FALSE(loaded_op->left_op());
-  EXPECT_FALSE(loaded_op->right_op());
-  EXPECT_EQ(loaded_op->left_symbols(), left_symbols);
-  EXPECT_EQ(loaded_op->right_symbols(), right_symbols);
-  EXPECT_EQ(loaded_op->union_symbols(), union_symbols);
-}
-
-TEST(CapnpSerial, Cartesian) {
-  std::vector<Symbol> left_symbols{
-      Symbol("left_symbol", 1, true, Symbol::Type::Edge)};
-  std::vector<Symbol> right_symbols{
-      Symbol("right_symbol", 3, true, Symbol::Type::Any)};
-  auto cartesian = std::make_unique<Cartesian>(nullptr, left_symbols, nullptr,
-                                               right_symbols);
-  std::unique_ptr<LogicalOperator> loaded_plan;
-  ::capnp::MallocMessageBuilder message;
-  SavePlan(*cartesian, &message);
-  AstStorage new_storage;
-  std::tie(loaded_plan, new_storage) =
-      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
-  ASSERT_TRUE(loaded_plan);
-  auto *loaded_op = dynamic_cast<Cartesian *>(loaded_plan.get());
-  ASSERT_TRUE(loaded_op);
-  EXPECT_FALSE(loaded_op->left_op());
-  EXPECT_FALSE(loaded_op->right_op());
-  EXPECT_EQ(loaded_op->left_symbols(), left_symbols);
-  EXPECT_EQ(loaded_op->right_symbols(), right_symbols);
-}
-
-TEST(CapnpSerial, Synchronize) {
-  auto synchronize = std::make_unique<Synchronize>(nullptr, nullptr, true);
-  std::unique_ptr<LogicalOperator> loaded_plan;
-  ::capnp::MallocMessageBuilder message;
-  SavePlan(*synchronize, &message);
-  AstStorage new_storage;
-  std::tie(loaded_plan, new_storage) =
-      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
-  ASSERT_TRUE(loaded_plan);
-  auto *loaded_op = dynamic_cast<Synchronize *>(loaded_plan.get());
-  ASSERT_TRUE(loaded_op);
-  EXPECT_FALSE(loaded_op->input());
-  EXPECT_FALSE(loaded_op->pull_remote());
-  EXPECT_TRUE(loaded_op->advance_command());
-}
-
-TEST(CapnpSerial, PullRemote) {
-  std::vector<Symbol> symbols{Symbol("symbol", 1, true, Symbol::Type::Edge)};
-  auto pull_remote = std::make_unique<PullRemote>(nullptr, 42, symbols);
-  std::unique_ptr<LogicalOperator> loaded_plan;
-  ::capnp::MallocMessageBuilder message;
-  SavePlan(*pull_remote, &message);
-  AstStorage new_storage;
-  std::tie(loaded_plan, new_storage) =
-      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
-  ASSERT_TRUE(loaded_plan);
-  auto *loaded_op = dynamic_cast<PullRemote *>(loaded_plan.get());
-  ASSERT_TRUE(loaded_op);
-  EXPECT_FALSE(loaded_op->input());
-  EXPECT_EQ(loaded_op->plan_id(), 42);
-  EXPECT_EQ(loaded_op->symbols(), symbols);
-}
-
-TEST(CapnpSerial, PullRemoteOrderBy) {
-  auto once = std::make_shared<Once>();
-  AstStorage storage;
-  std::vector<Symbol> symbols{
-      Symbol("my_symbol", 2, true, Symbol::Type::Vertex, 3)};
-  std::vector<std::pair<query::Ordering, query::Expression *>> order_by{
-      {query::Ordering::ASC, IDENT("my_symbol")}};
-  auto pull_remote_order_by =
-      std::make_unique<PullRemoteOrderBy>(once, 42, order_by, symbols);
-  std::unique_ptr<LogicalOperator> loaded_plan;
-  ::capnp::MallocMessageBuilder message;
-  SavePlan(*pull_remote_order_by, &message);
-  AstStorage new_storage;
-  std::tie(loaded_plan, new_storage) =
-      LoadPlan(message.getRoot<query::plan::capnp::LogicalOperator>());
-  ASSERT_TRUE(loaded_plan);
-  auto *loaded_op = dynamic_cast<PullRemoteOrderBy *>(loaded_plan.get());
-  ASSERT_TRUE(loaded_op);
-  ASSERT_TRUE(std::dynamic_pointer_cast<Once>(loaded_op->input()));
-  EXPECT_EQ(loaded_op->plan_id(), 42);
-  EXPECT_EQ(loaded_op->symbols(), symbols);
-  ASSERT_EQ(loaded_op->order_by().size(), 1);
-  EXPECT_TRUE(dynamic_cast<query::Identifier *>(loaded_op->order_by()[0]));
-  ASSERT_EQ(loaded_op->compare().ordering().size(), 1);
-  EXPECT_EQ(loaded_op->compare().ordering()[0], query::Ordering::ASC);
-}
-
 }  // namespace

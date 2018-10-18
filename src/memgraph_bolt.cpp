@@ -12,9 +12,9 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/session.hpp"
+#include "communication/server.hpp"
 #include "config.hpp"
 #include "database/graph_db.hpp"
-#include "stats/stats.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/signals.hpp"
@@ -103,8 +103,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 /// Run the Memgraph server.
 ///
 /// Sets up all the required state before running `memgraph_main` and does any
-/// required cleanup afterwards.  `get_stats_prefix` is used to obtain the
-/// prefix when logging Memgraph's statistics.
+/// required cleanup afterwards.
 ///
 /// Command line arguments and configuration files are read before calling any
 /// of the supplied functions. Therefore, you should use flags only from those
@@ -116,8 +115,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 ///
 /// @code
 /// int main(int argc, char *argv[]) {
-///   auto get_stats_prefix = []() -> std::string { return "memgraph"; };
-///   return WithInit(argc, argv, get_stats_prefix, SingleNodeMain);
+///   return WithInit(argc, argv, SingleNodeMain);
 /// }
 /// @endcode
 ///
@@ -126,8 +124,8 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 /// `InitSignalHandlers` with appropriate function to shutdown the server you
 /// started.
 int WithInit(int argc, char **argv,
-             const std::function<std::string()> &get_stats_prefix,
              const std::function<void()> &memgraph_main) {
+  google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
   // Load config before parsing arguments, so that flags from the command line
@@ -141,9 +139,6 @@ int WithInit(int argc, char **argv,
 
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
-
-  stats::InitStatsLogging(get_stats_prefix());
-  utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
 
   // Initialize the communication library.
   communication::Init();
@@ -163,7 +158,6 @@ int WithInit(int argc, char **argv,
 }
 
 void SingleNodeMain() {
-  google::SetUsageMessage("Memgraph single-node database server");
   database::SingleNode db;
   SessionData session_data{db};
 
@@ -206,79 +200,6 @@ void SingleNodeMain() {
 
 // End common stuff for enterprise and community editions
 
-#ifdef MG_COMMUNITY
-
 int main(int argc, char **argv) {
-  return WithInit(argc, argv, []() { return "memgraph"; }, SingleNodeMain);
+  return WithInit(argc, argv, SingleNodeMain);
 }
-
-#else  // enterprise edition
-
-// Distributed flags.
-DEFINE_HIDDEN_bool(
-    master, false,
-    "If this Memgraph server is the master in a distributed deployment.");
-DEFINE_HIDDEN_bool(
-    worker, false,
-    "If this Memgraph server is a worker in a distributed deployment.");
-DECLARE_int32(worker_id);
-
-void MasterMain() {
-  google::SetUsageMessage("Memgraph distributed master");
-
-  database::Master db;
-  SessionData session_data{db};
-
-  ServerContext context;
-  std::string service_name = "Bolt";
-  if (FLAGS_key_file != "" && FLAGS_cert_file != "") {
-    context = ServerContext(FLAGS_key_file, FLAGS_cert_file);
-    service_name = "BoltS";
-  }
-
-  ServerT server({FLAGS_interface, static_cast<uint16_t>(FLAGS_port)},
-                 session_data, &context, FLAGS_session_inactivity_timeout,
-                 service_name, FLAGS_num_workers);
-
-  // Handler for regular termination signals
-  auto shutdown = [&server] {
-    // Server needs to be shutdown first and then the database. This prevents a
-    // race condition when a transaction is accepted during server shutdown.
-    server.Shutdown();
-  };
-
-  InitSignalHandlers(shutdown);
-  server.AwaitShutdown();
-}
-
-void WorkerMain() {
-  google::SetUsageMessage("Memgraph distributed worker");
-  database::Worker db;
-  db.WaitForShutdown();
-}
-
-int main(int argc, char **argv) {
-  auto get_stats_prefix = [&]() -> std::string {
-    if (FLAGS_master) {
-      return "master";
-    } else if (FLAGS_worker) {
-      return fmt::format("worker-{}", FLAGS_worker_id);
-    }
-    return "memgraph";
-  };
-
-  auto memgraph_main = [&]() {
-    CHECK(!(FLAGS_master && FLAGS_worker))
-        << "Can't run Memgraph as worker and master at the same time";
-    if (FLAGS_master)
-      MasterMain();
-    else if (FLAGS_worker)
-      WorkerMain();
-    else
-      SingleNodeMain();
-  };
-
-  return WithInit(argc, argv, get_stats_prefix, memgraph_main);
-}
-
-#endif  // enterprise edition

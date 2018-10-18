@@ -23,8 +23,6 @@ void VertexAccessor::add_label(storage::Label label) {
       dba.UpdateLabelIndices(label, *this, &vertex);
     }
   }
-
-  if (!is_local()) SendDelta(delta);
 }
 
 void VertexAccessor::remove_label(storage::Label label) {
@@ -41,8 +39,6 @@ void VertexAccessor::remove_label(storage::Label label) {
       dba.wal().Emplace(delta);
     }
   }
-
-  if (!is_local()) SendDelta(delta);
 }
 
 bool VertexAccessor::has_label(storage::Label label) const {

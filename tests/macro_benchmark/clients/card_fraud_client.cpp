@@ -5,8 +5,6 @@
 
 #include "gflags/gflags.h"
 
-#include "stats/stats.hpp"
-#include "stats/stats_rpc_messages.hpp"
 #include "utils/thread/sync.hpp"
 
 #include "long_running_common.hpp"
@@ -22,12 +20,12 @@ DEFINE_string(config, "", "test config");
 
 enum class Role { WORKER, ANALYTIC, CLEANUP };
 
-stats::Gauge &num_vertices = stats::GetGauge("vertices");
-stats::Gauge &num_edges = stats::GetGauge("edges");
+std::atomic<int64_t> num_vertices{0};
+std::atomic<int64_t> num_edges{0};
 
 void UpdateStats() {
-  num_vertices.Set(num_pos + num_cards + num_transactions);
-  num_edges.Set(2 * num_transactions);
+  num_vertices = num_pos + num_cards + num_transactions;
+  num_edges = 2 * num_transactions;
 }
 
 int64_t NumNodesWithLabel(Client &client, std::string label) {
@@ -333,9 +331,6 @@ int main(int argc, char **argv) {
 
   communication::Init();
 
-  stats::InitStatsLogging(
-      fmt::format("client.long_running.{}.{}", FLAGS_group, FLAGS_scenario));
-
   Endpoint endpoint(FLAGS_address, FLAGS_port);
   ClientContext context(FLAGS_use_ssl);
   Client client(&context);
@@ -382,8 +377,6 @@ int main(int argc, char **argv) {
   }
 
   RunMultithreadedTest(clients);
-
-  stats::StopStatsLogging();
 
   return 0;
 }

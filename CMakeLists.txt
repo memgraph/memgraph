@@ -137,9 +137,6 @@ if (USE_READLINE)
   endif()
 endif()
 
-set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.62 REQUIRED COMPONENTS iostreams serialization)
-
 # OpenSSL
 find_package(OpenSSL REQUIRED)
 
@@ -193,7 +190,6 @@ option(EXPERIMENTAL "Build experimental binaries" OFF)
 option(CUSTOMERS "Build customer binaries" OFF)
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
 option(TOOLS "Build tools binaries" ON)
-option(MG_COMMUNITY "Build Memgraph Community Edition" OFF)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
@@ -206,10 +202,6 @@ if (TEST_COVERAGE)
   endif()
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
-endif()
-
-if (MG_COMMUNITY)
-  add_definitions(-DMG_COMMUNITY)
 endif()
 
 if (ASAN)

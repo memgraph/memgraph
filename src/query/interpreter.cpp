@@ -3,7 +3,6 @@
 #include <glog/logging.h>
 #include <limits>
 
-#include "distributed/plan_dispatcher.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -20,35 +19,13 @@ DEFINE_VALIDATED_int32(query_plan_cache_ttl, 60,
 
 namespace query {
 
-Interpreter::CachedPlan::CachedPlan(
-    plan::DistributedPlan distributed_plan, double cost,
-    distributed::PlanDispatcher *plan_dispatcher)
-    : distributed_plan_(std::move(distributed_plan)),
-      cost_(cost),
-      plan_dispatcher_(plan_dispatcher) {
-  if (plan_dispatcher_) {
-    for (const auto &plan_pair : distributed_plan_.worker_plans) {
-      const auto &plan_id = plan_pair.first;
-      const auto &worker_plan = plan_pair.second;
-      plan_dispatcher_->DispatchPlan(plan_id, worker_plan,
-                                     distributed_plan_.symbol_table);
-    }
-  }
-}
+Interpreter::CachedPlan::CachedPlan(plan::DistributedPlan distributed_plan,
+                                    double cost)
+    : distributed_plan_(std::move(distributed_plan)), cost_(cost) {}
 
-Interpreter::CachedPlan::~CachedPlan() {
-  if (plan_dispatcher_) {
-    for (const auto &plan_pair : distributed_plan_.worker_plans) {
-      const auto &plan_id = plan_pair.first;
-      plan_dispatcher_->RemovePlan(plan_id);
-    }
-  }
-}
+Interpreter::CachedPlan::~CachedPlan() {}
 
-Interpreter::Interpreter(database::GraphDb &db)
-    : plan_dispatcher_(db.type() == database::GraphDb::Type::DISTRIBUTED_MASTER
-                           ? &db.plan_dispatcher()
-                           : nullptr) {}
+Interpreter::Interpreter(database::GraphDb &db) {}
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query, database::GraphDbAccessor &db_accessor,
@@ -137,26 +114,13 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::QueryToPlan(
   std::tie(tmp_logical_plan, query_plan_cost_estimation) =
       MakeLogicalPlan(ast_storage, ctx);
 
-  DCHECK(ctx.db_accessor_.db().type() !=
-         database::GraphDb::Type::DISTRIBUTED_WORKER);
-  if (ctx.db_accessor_.db().type() ==
-      database::GraphDb::Type::DISTRIBUTED_MASTER) {
-    auto distributed_plan = MakeDistributedPlan(
-        *tmp_logical_plan, ctx.symbol_table_, next_plan_id_);
-    VLOG(10) << "[Interpreter] Created plan for distributed execution "
-             << next_plan_id_ - 1;
-    return std::make_shared<CachedPlan>(std::move(distributed_plan),
-                                        query_plan_cost_estimation,
-                                        plan_dispatcher_);
-  } else {
-    return std::make_shared<CachedPlan>(
-        plan::DistributedPlan{0,
-                              std::move(tmp_logical_plan),
-                              {},
-                              std::move(ast_storage),
-                              ctx.symbol_table_},
-        query_plan_cost_estimation, plan_dispatcher_);
-  }
+  return std::make_shared<CachedPlan>(
+      plan::DistributedPlan{0,
+                            std::move(tmp_logical_plan),
+                            {},
+                            std::move(ast_storage),
+                            ctx.symbol_table_},
+      query_plan_cost_estimation);
 }
 
 AstStorage Interpreter::QueryToAst(const StrippedQuery &stripped,

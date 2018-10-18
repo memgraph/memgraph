@@ -5,7 +5,6 @@
 #include <vector>
 
 #include "glog/logging.h"
-#include "transactions/common.capnp.h"
 #include "transactions/type.hpp"
 #include "utils/algorithm.hpp"
 
@@ -83,9 +82,6 @@ class Snapshot {
     stream << ")";
     return stream;
   }
-
-  void Save(capnp::Snapshot::Builder *builder) const;
-  void Load(const capnp::Snapshot::Reader &reader);
 
  private:
   std::vector<TransactionId> transaction_ids_;

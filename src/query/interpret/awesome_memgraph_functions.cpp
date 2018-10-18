@@ -587,22 +587,6 @@ TypedValue IndexInfo(const std::vector<TypedValue> &args, Context *ctx) {
   return std::vector<TypedValue>(info.begin(), info.end());
 }
 
-TypedValue WorkerId(const std::vector<TypedValue> &args, Context *) {
-  if (args.size() != 1U) {
-    throw QueryRuntimeException("workerId requires one argument");
-  }
-  auto &arg = args[0];
-  switch (arg.type()) {
-    case TypedValue::Type::Vertex:
-      return arg.ValueVertex().GlobalAddress().worker_id();
-    case TypedValue::Type::Edge:
-      return arg.ValueEdge().GlobalAddress().worker_id();
-    default:
-      throw QueryRuntimeException(
-          "workerId argument must be a vertex or an edge");
-  }
-}
-
 TypedValue Id(const std::vector<TypedValue> &args, Context *ctx) {
   if (args.size() != 1U) {
     throw QueryRuntimeException("id requires one argument");
@@ -864,7 +848,6 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "COUNTER") return Counter;
   if (function_name == "COUNTERSET") return CounterSet;
   if (function_name == "INDEXINFO") return IndexInfo;
-  if (function_name == "WORKERID") return WorkerId;
 
   return nullptr;
 }

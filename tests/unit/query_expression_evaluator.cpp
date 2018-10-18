@@ -1488,25 +1488,6 @@ TEST(ExpressionEvaluator, FunctionId) {
                QueryRuntimeException);
 }
 
-TEST(ExpressionEvaluator, FunctionWorkerIdException) {
-  database::SingleNode db;
-  NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
-  auto va = dba.InsertVertex();
-  EXPECT_THROW(EvaluateFunction("WORKERID", {}, &eval.ctx),
-               QueryRuntimeException);
-  EXPECT_THROW(EvaluateFunction("WORKERID", {va, va}, &eval.ctx),
-               QueryRuntimeException);
-}
-
-TEST(ExpressionEvaluator, FunctionWorkerIdSingleNode) {
-  NoContextExpressionEvaluator eval;
-  auto &dba = eval.dba;
-  auto va = dba.InsertVertex();
-  EXPECT_EQ(EvaluateFunction("WORKERID", {va}, &eval.ctx).Value<int64_t>(),
-            eval.db.WorkerId());
-}
-
 TEST(ExpressionEvaluator, FunctionToStringNull) {
   EXPECT_TRUE(EvaluateFunction("TOSTRING", {TypedValue::Null}).IsNull());
 }

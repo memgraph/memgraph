@@ -174,19 +174,6 @@ class CypherMainVisitor : public antlropencypher::CypherBaseVisitor {
       CypherParser::CreateIndexContext *ctx) override;
 
   /**
-   * @return ModifyUser*
-   */
-  antlrcpp::Any visitModifyUser(CypherParser::ModifyUserContext *ctx) override;
-
-  antlrcpp::Any visitPasswordOption(
-      CypherParser::PasswordOptionContext *ctx) override;
-
-  /**
-   * @return DropUser*
-   */
-  antlrcpp::Any visitDropUser(CypherParser::DropUserContext *ctx) override;
-
-  /**
    * @return Return*
    */
   antlrcpp::Any visitCypherReturn(

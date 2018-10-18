@@ -13,13 +13,10 @@
 
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db.hpp"
-#include "distributed/data_manager.hpp"
-#include "distributed/updates_rpc_server.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
 
-#include "distributed_common.hpp"
 #include "query_plan_common.hpp"
 
 using namespace query;
@@ -829,10 +826,9 @@ struct hash<std::pair<int, int>> {
 }  // namespace std
 
 /** A test fixture for breadth first expansion */
-class QueryPlanExpandBfs
-    : public testing::TestWithParam<std::pair<TestType, int>> {
+class QueryPlanExpandBfs : public testing::Test {
  protected:
-  QueryPlanExpandBfs() : cluster(GetParam().first, GetParam().second) {}
+  QueryPlanExpandBfs() {}
 
   // Worker IDs where vertices are located.
   const std::vector<int> vertices = {0, 1, 1, 0, 1, 2};
@@ -842,8 +838,7 @@ class QueryPlanExpandBfs
 
   // Style-guide non-conformant name due to PROPERTY_PAIR and PROPERTY_LOOKUP
   // macro requirements.
-  Cluster cluster;
-  database::GraphDb &db{*cluster.master()};
+  database::SingleNode db;
   database::GraphDbAccessor dba{db};
   std::pair<std::string, storage::Property> prop = PROPERTY_PAIR("property");
   storage::EdgeType edge_type = dba.EdgeType("edge_type");
@@ -859,19 +854,18 @@ class QueryPlanExpandBfs
   Symbol inner_edge = symbol_table.CreateSymbol("inner_edge", true);
   Symbol inner_node = symbol_table.CreateSymbol("inner_node", true);
 
+  void AdvanceCommand(tx::TransactionId tx_id) {
+    database::GraphDbAccessor dba{db, tx_id};
+    dba.AdvanceCommand();
+  }
+
   void SetUp() {
     for (auto p : iter::enumerate(vertices)) {
       int id, worker;
       std::tie(id, worker) = p;
-      if (GetParam().first == TestType::SINGLE_NODE || worker == 0) {
-        auto vertex = dba.InsertVertex();
-        vertex.PropsSet(prop.second, id);
-        v.push_back(vertex.GlobalAddress());
-      } else {
-        auto vertex =
-            dba.InsertVertexIntoRemote(worker, {}, {{prop.second, id}});
-        v.push_back(vertex.GlobalAddress());
-      }
+      auto vertex = dba.InsertVertex();
+      vertex.PropsSet(prop.second, id);
+      v.push_back(vertex.GlobalAddress());
     }
 
     for (auto p : edges) {
@@ -882,7 +876,7 @@ class QueryPlanExpandBfs
       e.emplace(p, edge.GlobalAddress());
     }
 
-    cluster.AdvanceCommand(dba.transaction_id());
+    AdvanceCommand(dba.transaction_id());
   }
 
   // Defines and performs a breadth-first expansion with the given parameters.
@@ -950,7 +944,7 @@ class QueryPlanExpandBfs
   }
 };
 
-TEST_P(QueryPlanExpandBfs, Basic) {
+TEST_F(QueryPlanExpandBfs, Basic) {
   auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
                           GraphView::OLD, {VertexAccessor(v[0], dba)});
 
@@ -980,7 +974,7 @@ TEST_P(QueryPlanExpandBfs, Basic) {
               EdgesEqual(results[4].first, {1, 12, 25, 53}));
 }
 
-TEST_P(QueryPlanExpandBfs, EdgeDirection) {
+TEST_F(QueryPlanExpandBfs, EdgeDirection) {
   {
     auto results = ExpandBF(EdgeAtom::Direction::OUT, 1, 1000, nullptr,
                             GraphView::OLD, {VertexAccessor(v[4], dba)});
@@ -1030,12 +1024,7 @@ TEST_P(QueryPlanExpandBfs, EdgeDirection) {
   }
 }
 
-TEST_P(QueryPlanExpandBfs, Where) {
-  // TODO(mtomic): lambda filtering in distributed
-  if (GetParam().first == TestType::DISTRIBUTED) {
-    return;
-  }
-
+TEST_F(QueryPlanExpandBfs, Where) {
   auto ident = IDENT("inner_element");
   {
     symbol_table[*ident] = inner_node;
@@ -1065,7 +1054,7 @@ TEST_P(QueryPlanExpandBfs, Where) {
   }
 }
 
-TEST_P(QueryPlanExpandBfs, GraphState) {
+TEST_F(QueryPlanExpandBfs, GraphState) {
   auto ExpandSize = [this](GraphView graph_view) {
     return ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, graph_view,
                     {VertexAccessor(v[0], dba)})
@@ -1081,38 +1070,36 @@ TEST_P(QueryPlanExpandBfs, GraphState) {
     v.push_back(to.GlobalAddress());
 
     dba.InsertEdge(from, to, edge_type);
-    cluster.ApplyUpdates(dba.transaction_id());
   }
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 5);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 6);
 
-  cluster.AdvanceCommand(dba.transaction_id());
+  AdvanceCommand(dba.transaction_id());
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 6);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 6);
 
   {
     v.push_back(dba.InsertVertex().GlobalAddress());
-    cluster.AdvanceCommand(dba.transaction_id());
+    AdvanceCommand(dba.transaction_id());
 
     auto from = VertexAccessor(v[4], dba);
     auto to = VertexAccessor(v[7], dba);
 
     dba.InsertEdge(from, to, edge_type);
-    cluster.ApplyUpdates(dba.transaction_id());
   }
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 6);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 7);
 
-  cluster.AdvanceCommand(dba.transaction_id());
+  AdvanceCommand(dba.transaction_id());
 
   EXPECT_EQ(ExpandSize(GraphView::OLD), 7);
   EXPECT_EQ(ExpandSize(GraphView::NEW), 7);
 }
 
-TEST_P(QueryPlanExpandBfs, MultipleInputs) {
+TEST_F(QueryPlanExpandBfs, MultipleInputs) {
   auto results =
       ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr, GraphView::OLD,
                {VertexAccessor(v[0], dba), VertexAccessor(v[3], dba)});
@@ -1123,7 +1110,7 @@ TEST_P(QueryPlanExpandBfs, MultipleInputs) {
   EXPECT_EQ(found, (std::vector<int>{1, 2, 2, 1, 2}));
 }
 
-TEST_P(QueryPlanExpandBfs, ExistingNode) {
+TEST_F(QueryPlanExpandBfs, ExistingNode) {
   using testing::ElementsAre;
   using testing::WhenSorted;
 
@@ -1163,7 +1150,7 @@ TEST_P(QueryPlanExpandBfs, ExistingNode) {
   }
 }
 
-TEST_P(QueryPlanExpandBfs, OptionalMatch) {
+TEST_F(QueryPlanExpandBfs, OptionalMatch) {
   {
     auto results = ExpandBF(EdgeAtom::Direction::BOTH, 1, 1000, nullptr,
                             GraphView::OLD, {TypedValue::Null});
@@ -1177,7 +1164,7 @@ TEST_P(QueryPlanExpandBfs, OptionalMatch) {
   }
 }
 
-TEST_P(QueryPlanExpandBfs, ExpansionDepth) {
+TEST_F(QueryPlanExpandBfs, ExpansionDepth) {
   {
     auto results = ExpandBF(EdgeAtom::Direction::BOTH, 2, 3, nullptr,
                             GraphView::OLD, {VertexAccessor(v[0], dba)});
@@ -1191,14 +1178,6 @@ TEST_P(QueryPlanExpandBfs, ExpansionDepth) {
     EXPECT_EQ(GetProp(results[2].second), 5);
   }
 }
-
-INSTANTIATE_TEST_CASE_P(SingleNode, QueryPlanExpandBfs,
-                        ::testing::Values(std::make_pair(TestType::SINGLE_NODE,
-                                                         0)));
-
-INSTANTIATE_TEST_CASE_P(Distributed, QueryPlanExpandBfs,
-                        ::testing::Values(std::make_pair(TestType::DISTRIBUTED,
-                                                         2)));
 
 /** A test fixture for weighted shortest path expansion */
 class QueryPlanExpandWeightedShortestPath : public testing::Test {

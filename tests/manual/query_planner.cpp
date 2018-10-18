@@ -514,41 +514,6 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool Visit(query::plan::ModifyUser &op) override {
-    WithPrintLn([](auto &out) { out << "* ModifyUser "; });
-    return true;
-  }
-
-  bool Visit(query::plan::DropUser &op) override {
-    WithPrintLn([](auto &out) { out << "* DropUser"; });
-    return true;
-  }
-
-  bool PreVisit(query::plan::PullRemote &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* PullRemote [" << op.plan_id() << "] {";
-      utils::PrintIterable(
-          out, op.symbols(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << "}";
-    });
-    WithPrintLn([](auto &out) { out << "|\\"; });
-    ++depth_;
-    WithPrintLn([](auto &out) { out << "* workers"; });
-    --depth_;
-    return true;
-  }
-
-  bool PreVisit(query::plan::Synchronize &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* Synchronize";
-      if (op.advance_command()) out << " (ADV CMD)";
-    });
-    if (op.pull_remote()) Branch(*op.pull_remote());
-    op.input()->Accept(*this);
-    return false;
-  }
-
   bool PreVisit(query::plan::Cartesian &op) override {
     WithPrintLn([&op](auto &out) {
       out << "* Cartesian {";
@@ -564,22 +529,6 @@ class PlanPrinter : public query::plan::HierarchicalLogicalOperatorVisitor {
     Branch(*op.right_op());
     op.left_op()->Accept(*this);
     return false;
-  }
-
-  bool PreVisit(query::plan::PullRemoteOrderBy &op) override {
-    WithPrintLn([&op](auto &out) {
-      out << "* PullRemoteOrderBy {";
-      utils::PrintIterable(
-          out, op.symbols(), ", ",
-          [](auto &out, const auto &sym) { out << sym.name(); });
-      out << "}";
-    });
-
-    WithPrintLn([](auto &out) { out << "|\\"; });
-    ++depth_;
-    WithPrintLn([](auto &out) { out << "* workers"; });
-    --depth_;
-    return true;
   }
 #undef PRE_VISIT
 
@@ -669,39 +618,11 @@ DEFCOMMAND(Show) {
   plan->Accept(printer);
 }
 
-DEFCOMMAND(ShowDistributed) {
-  int64_t plan_ix = 0;
-  std::stringstream ss(args[0]);
-  ss >> plan_ix;
-  if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
-  const auto &plan = plans[plan_ix].first;
-  std::atomic<int64_t> plan_id{0};
-  auto distributed_plan = MakeDistributedPlan(*plan, symbol_table, plan_id);
-  {
-    std::cout << "---- Master Plan ---- " << std::endl;
-    PlanPrinter printer(dba);
-    distributed_plan.master_plan->Accept(printer);
-    std::cout << std::endl;
-  }
-  for (size_t i = 0; i < distributed_plan.worker_plans.size(); ++i) {
-    int64_t id;
-    std::shared_ptr<query::plan::LogicalOperator> worker_plan;
-    std::tie(id, worker_plan) = distributed_plan.worker_plans[i];
-    std::cout << "---- Worker Plan #" << id << " ---- " << std::endl;
-    PlanPrinter printer(dba);
-    worker_plan->Accept(printer);
-    std::cout << std::endl;
-  }
-}
-
 DEFCOMMAND(Help);
 
 std::map<std::string, Command> commands = {
     {"top", {TopCommand, 1, "Show top N plans"}},
     {"show", {ShowCommand, 1, "Show the Nth plan"}},
-    {"show-distributed",
-     {ShowDistributedCommand, 1,
-      "Show the Nth plan as for distributed execution"}},
     {"help", {HelpCommand, 0, "Show available commands"}},
 };
 

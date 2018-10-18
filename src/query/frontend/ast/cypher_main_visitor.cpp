@@ -81,7 +81,6 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_return = false;
   bool has_optional_match = false;
   bool has_create_index = false;
-  bool has_modify_user = false;
   for (Clause *clause : single_query->clauses_) {
     if (dynamic_cast<Unwind *>(clause)) {
       if (has_update || has_return) {
@@ -126,21 +125,11 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
             "CreateIndex must be only clause in the query.");
       }
       has_create_index = true;
-    } else if (dynamic_cast<ModifyUser *>(clause)) {
-      has_modify_user = true;
-      if (single_query->clauses_.size() != 1U) {
-        throw SemanticException("ModifyUser must be only clause in the query.");
-      }
-    } else if (dynamic_cast<DropUser *>(clause)) {
-      has_modify_user = true;
-      if (single_query->clauses_.size() != 1U) {
-        throw SemanticException("DropUser must be only clause in the query.");
-      }
     } else {
       DLOG(FATAL) << "Can't happen";
     }
   }
-  if (!has_update && !has_return && !has_create_index && !has_modify_user) {
+  if (!has_update && !has_return && !has_create_index) {
     throw SemanticException(
         "Query should either update something, return results or create an "
         "index");
@@ -197,14 +186,6 @@ antlrcpp::Any CypherMainVisitor::visitClause(CypherParser::ClauseContext *ctx) {
     return static_cast<Clause *>(
         ctx->createIndex()->accept(this).as<CreateIndex *>());
   }
-  if (ctx->modifyUser()) {
-    return static_cast<Clause *>(
-        ctx->modifyUser()->accept(this).as<ModifyUser *>());
-  }
-  if (ctx->dropUser()) {
-    return static_cast<Clause *>(
-        ctx->dropUser()->accept(this).as<DropUser *>());
-  }
   // TODO: implement other clauses.
   throw utils::NotYetImplemented("clause '{}'", ctx->getText());
   return 0;
@@ -236,49 +217,6 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
       ctx->propertyKeyName()->accept(this);
   return storage_.Create<CreateIndex>(
       ctx_.db_accessor_.Label(ctx->labelName()->accept(this)), key.second);
-}
-
-/**
- * @return ModifyUser*
- */
-antlrcpp::Any CypherMainVisitor::visitModifyUser(
-    CypherParser::ModifyUserContext *ctx) {
-  std::string username(ctx->userName()->getText());
-  Expression *password = nullptr;
-  bool is_create = static_cast<bool>(ctx->createUser());
-  for (auto option : ctx->modifyUserOption()) {
-    if (option->passwordOption()) {
-      if (password) {
-        throw QueryException("password should be set at most once");
-      }
-      password = option->passwordOption()->accept(this);
-      continue;
-    }
-    LOG(FATAL) << "Expected to handle all cases above.";
-  }
-  return storage_.Create<ModifyUser>(username, password, is_create);
-}
-
-/**
- * @return Expression*
- */
-antlrcpp::Any CypherMainVisitor::visitPasswordOption(
-    CypherParser::PasswordOptionContext *ctx) {
-  if (!ctx->literal()->StringLiteral() && !ctx->literal()->CYPHERNULL()) {
-    throw SyntaxException("password should be a string literal or NULL");
-  }
-  return ctx->literal()->accept(this);
-}
-
-/**
- * @return DropUser*
- */
-antlrcpp::Any CypherMainVisitor::visitDropUser(
-    CypherParser::DropUserContext *ctx) {
-  std::vector<std::string> usernames;
-  for (auto username_ptr : ctx->userName())
-    usernames.emplace_back(username_ptr->getText());
-  return storage_.Create<DropUser>(usernames);
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
