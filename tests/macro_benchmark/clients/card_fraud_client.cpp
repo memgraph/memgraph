@@ -5,20 +5,9 @@
 
 #include "gflags/gflags.h"
 
-#include "stats/stats.hpp"
-#include "stats/stats_rpc_messages.hpp"
 #include "threading/sync/rwlock.hpp"
 
 #include "long_running_common.hpp"
-
-// TODO(mtomic): this sucks but I don't know a different way to make it work
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-#include "boost/serialization/export.hpp"
-BOOST_CLASS_EXPORT(stats::StatsReq);
-BOOST_CLASS_EXPORT(stats::StatsRes);
-BOOST_CLASS_EXPORT(stats::BatchStatsReq);
-BOOST_CLASS_EXPORT(stats::BatchStatsRes);
 
 std::atomic<int64_t> num_pos;
 std::atomic<int64_t> num_cards;
@@ -31,12 +20,12 @@ DEFINE_string(config, "", "test config");
 
 enum class Role { WORKER, ANALYTIC, CLEANUP };
 
-stats::Gauge &num_vertices = stats::GetGauge("vertices");
-stats::Gauge &num_edges = stats::GetGauge("edges");
+std::atomic<int64_t> num_vertices{0};
+std::atomic<int64_t> num_edges{0};
 
 void UpdateStats() {
-  num_vertices.Set(num_pos + num_cards + num_transactions);
-  num_edges.Set(2 * num_transactions);
+  num_vertices = num_pos + num_cards + num_transactions;
+  num_edges = 2 * num_transactions;
 }
 
 int64_t NumNodesWithLabel(Client &client, std::string label) {
@@ -340,9 +329,6 @@ int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  stats::InitStatsLogging(
-      fmt::format("client.long_running.{}.{}", FLAGS_group, FLAGS_scenario));
-
   Endpoint endpoint(FLAGS_address, FLAGS_port);
   Client client;
   if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
@@ -388,8 +374,6 @@ int main(int argc, char **argv) {
   }
 
   RunMultithreadedTest(clients);
-
-  stats::StopStatsLogging();
 
   return 0;
 }

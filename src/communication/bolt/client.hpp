@@ -7,6 +7,8 @@
 #include "communication/bolt/v1/encoder/chunked_encoder_buffer.hpp"
 #include "communication/bolt/v1/encoder/client_encoder.hpp"
 
+#include "communication/client.hpp"
+
 #include "query/typed_value.hpp"
 #include "utils/exceptions.hpp"
 

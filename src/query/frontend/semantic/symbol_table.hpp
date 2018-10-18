@@ -3,9 +3,6 @@
 #include <map>
 #include <string>
 
-#include "boost/serialization/map.hpp"
-#include "boost/serialization/serialization.hpp"
-
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 
@@ -33,14 +30,6 @@ class SymbolTable final {
  private:
   int position_{0};
   std::map<int, Symbol> table_;
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &position_;
-    ar &table_;
-  }
 };
 
 }  // namespace query

@@ -94,7 +94,7 @@ will load the new dataset.
 Use the following command:
 
 ```
-mg_import_csv --nodes=comment_nodes.csv --nodes=forum_nodes.csv --relationships=relationships.csv
+mg_import_csv --overwrite --nodes=comment_nodes.csv --nodes=forum_nodes.csv --relationships=relationships.csv
 ```
 
 If using Docker, things are a bit more complicated. First you need to move the
@@ -110,6 +110,7 @@ Then, run the importer with the following:
 ```
 docker run -v mg_lib:/var/lib/memgraph -v mg_etc:/etc/memgraph -v mg_import:/import-data \
   --entrypoint=mg_import_csv memgraph \
+  --overwrite \
   --nodes=/import-data/comment_nodes.csv --nodes=/import-data/forum_nodes.csv \
   --relationships=/import-data/relationships.csv
 ```

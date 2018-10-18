@@ -1,8 +1,6 @@
 #include <memory>
 #include <sstream>
 
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
 #include "gtest/gtest.h"
 
 #include "query/frontend/ast/ast.hpp"
@@ -1086,26 +1084,4 @@ TEST_F(TestSymbolGenerator, MatchUnion) {
                                RETURN("Y", "X"))));
   query->Accept(symbol_generator);
   EXPECT_EQ(symbol_table.max_position(), 8);
-}
-
-TEST(TestSymbolTable, Serialization) {
-  SymbolTable original_table;
-  SymbolGenerator symbol_generator{original_table};
-  AstTreeStorage storage;
-  auto ident_a = IDENT("a");
-  auto sym_a = original_table.CreateSymbol("a", true, Symbol::Type::Vertex, 0);
-  original_table[*ident_a] = sym_a;
-  auto ident_b = IDENT("b");
-  auto sym_b = original_table.CreateSymbol("b", false, Symbol::Type::Edge, 1);
-  original_table[*ident_b] = sym_b;
-  std::stringstream stream;
-  {
-    boost::archive::binary_oarchive out_archive(stream);
-    out_archive << original_table;
-  }
-  SymbolTable serialized_table;
-  boost::archive::binary_iarchive in_archive(stream);
-  in_archive >> serialized_table;
-  EXPECT_EQ(serialized_table.max_position(), original_table.max_position());
-  EXPECT_EQ(serialized_table.table(), original_table.table());
 }

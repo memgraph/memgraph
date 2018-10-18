@@ -4,33 +4,12 @@
 set(memgraph_src_files
     communication/buffer.cpp
     communication/bolt/v1/decoder/decoded_value.cpp
-    communication/rpc/client.cpp
-    communication/rpc/protocol.cpp
-    communication/rpc/server.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/config.cpp
     database/counters.cpp
     database/graph_db.cpp
     database/graph_db_accessor.cpp
     database/state_delta.cpp
-    distributed/cluster_discovery_master.cpp
-    distributed/cluster_discovery_worker.cpp
-    distributed/coordination.cpp
-    distributed/coordination_master.cpp
-    distributed/coordination_worker.cpp
-    distributed/durability_rpc_clients.cpp
-    distributed/durability_rpc_server.cpp
-    distributed/index_rpc_server.cpp
-    distributed/plan_consumer.cpp
-    distributed/plan_dispatcher.cpp
-    distributed/cache.cpp
-    distributed/data_manager.cpp
-    distributed/data_rpc_clients.cpp
-    distributed/data_rpc_server.cpp
-    distributed/produce_rpc_server.cpp
-    distributed/pull_rpc_clients.cpp
-    distributed/updates_rpc_clients.cpp
-    distributed/updates_rpc_server.cpp
     durability/paths.cpp
     durability/recovery.cpp
     durability/snapshooter.cpp
@@ -46,16 +25,11 @@ set(memgraph_src_files
     query/frontend/stripped.cpp
     query/interpret/awesome_memgraph_functions.cpp
     query/interpreter.cpp
-    query/plan/distributed.cpp
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/typed_value.cpp
-    stats/metrics.cpp
-    stats/stats.cpp
-    storage/concurrent_id_mapper_master.cpp
-    storage/concurrent_id_mapper_worker.cpp
     storage/edge_accessor.cpp
     storage/locking/record_lock.cpp
     storage/property_value.cpp
@@ -63,9 +37,7 @@ set(memgraph_src_files
     storage/vertex_accessor.cpp
     threading/sync/rwlock.cpp
     threading/thread.cpp
-    transactions/engine_master.cpp
     transactions/engine_single_node.cpp
-    transactions/engine_worker.cpp
     utils/demangle.cpp
     utils/file.cpp
     utils/network.cpp
@@ -78,9 +50,7 @@ string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # memgraph_lib depend on these libraries
 set(MEMGRAPH_ALL_LIBS stdc++fs Threads::Threads fmt cppitertools
-    antlr_opencypher_parser_lib dl glog gflags
-    ${Boost_IOSTREAMS_LIBRARY_RELEASE}
-    ${Boost_SERIALIZATION_LIBRARY_RELEASE})
+    antlr_opencypher_parser_lib dl glog gflags)
 
 if (USE_LTALLOC)
     list(APPEND MEMGRAPH_ALL_LIBS ltalloc)

@@ -148,11 +148,6 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
 
  protected:
   /**
-   * Sends delta for remote processing.
-   */
-  void SendDelta(const database::StateDelta &delta) const;
-
-  /**
    * Processes delta by either adding it to WAL, or by sending it remotely.
    */
   void ProcessDelta(const database::StateDelta &delta) const;

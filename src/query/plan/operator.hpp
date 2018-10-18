@@ -9,14 +9,6 @@
 #include <utility>
 #include <vector>
 
-#include <boost/serialization/shared_ptr_helper.hpp>
-#include "boost/serialization/base_object.hpp"
-#include "boost/serialization/export.hpp"
-#include "boost/serialization/serialization.hpp"
-#include "boost/serialization/shared_ptr.hpp"
-#include "boost/serialization/unique_ptr.hpp"
-
-#include "distributed/pull_produce_rpc_messages.hpp"
 #include "query/common.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
@@ -98,10 +90,7 @@ class Unwind;
 class Distinct;
 class CreateIndex;
 class Union;
-class PullRemote;
-class Synchronize;
 class Cartesian;
-class PullRemoteOrderBy;
 
 using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel,
@@ -110,8 +99,7 @@ using LogicalOperatorCompositeVisitor = ::utils::CompositeVisitor<
     SetProperties, SetLabels, RemoveProperty, RemoveLabels,
     ExpandUniquenessFilter<VertexAccessor>,
     ExpandUniquenessFilter<EdgeAccessor>, Accumulate, Aggregate, Skip, Limit,
-    OrderBy, Merge, Optional, Unwind, Distinct, Union, PullRemote, Synchronize,
-    Cartesian, PullRemoteOrderBy>;
+    OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian>;
 
 using LogicalOperatorLeafVisitor = ::utils::LeafVisitor<Once, CreateIndex>;
 
@@ -196,12 +184,6 @@ class LogicalOperator
    * NOTE: This should only be called if `HasSingleInput() == true`.
    */
   virtual void set_input(std::shared_ptr<LogicalOperator>) = 0;
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &, const unsigned int) {}
 };
 
 template <class TArchive>
@@ -240,12 +222,6 @@ class Once : public LogicalOperator {
    private:
     bool did_pull_{false};
   };
-
-  friend class boost::serialization::access;
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-  }
 };
 
 /** @brief Operator for creating a node.
@@ -298,29 +274,8 @@ class CreateNode : public LogicalOperator {
 
    private:
     const CreateNode &self_;
-    database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointer(ar, node_atom_);
-    ar &on_random_worker_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointer(ar, node_atom_);
-    ar &on_random_worker_;
-  }
 };
 
 /** @brief Operator for creating edges and destination nodes.
@@ -407,30 +362,6 @@ class CreateExpand : public LogicalOperator {
                     const SymbolTable &symbol_table,
                     ExpressionEvaluator &evaluator);
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    SavePointer(ar, node_atom_);
-    SavePointer(ar, edge_atom_);
-    ar &input_;
-    ar &input_symbol_;
-    ar &existing_node_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    LoadPointer(ar, node_atom_);
-    LoadPointer(ar, edge_atom_);
-    ar &input_;
-    ar &input_symbol_;
-    ar &existing_node_;
-  }
 };
 
 /**
@@ -481,17 +412,6 @@ class ScanAll : public LogicalOperator {
   GraphView graph_view_;
 
   ScanAll() {}
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &output_symbol_;
-    ar &graph_view_;
-  }
 };
 
 /**
@@ -517,14 +437,6 @@ class ScanAllByLabel : public ScanAll {
   storage::Label label_;
 
   ScanAllByLabel() {}
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<ScanAll>(*this);
-    ar &label_;
-  }
 };
 
 /**
@@ -576,51 +488,6 @@ class ScanAllByLabelPropertyRange : public ScanAll {
   std::experimental::optional<Bound> upper_bound_;
 
   ScanAllByLabelPropertyRange() {}
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<ScanAll>(*this);
-    ar &label_;
-    ar &property_;
-    auto save_bound = [&ar](auto &maybe_bound) {
-      if (!maybe_bound) {
-        ar & false;
-        return;
-      }
-      ar & true;
-      auto &bound = *maybe_bound;
-      ar &bound.type();
-      SavePointer(ar, bound.value());
-    };
-    save_bound(lower_bound_);
-    save_bound(upper_bound_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<ScanAll>(*this);
-    ar &label_;
-    ar &property_;
-    auto load_bound = [&ar](auto &maybe_bound) {
-      bool has_bound = false;
-      ar &has_bound;
-      if (!has_bound) {
-        maybe_bound = std::experimental::nullopt;
-        return;
-      }
-      utils::BoundType type;
-      ar &type;
-      Expression *value;
-      LoadPointer(ar, value);
-      maybe_bound = std::experimental::make_optional(Bound(value, type));
-    };
-    load_bound(lower_bound_);
-    load_bound(upper_bound_);
-  }
 };
 
 /**
@@ -663,26 +530,6 @@ class ScanAllByLabelPropertyValue : public ScanAll {
   Expression *expression_;
 
   ScanAllByLabelPropertyValue() {}
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<ScanAll>(*this);
-    ar &label_;
-    ar &property_;
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<ScanAll>(*this);
-    ar &label_;
-    ar &property_;
-    LoadPointer(ar, expression_);
-  }
 };
 
 /**
@@ -770,21 +617,6 @@ class ExpandCommon {
   bool HandleExistingNode(const VertexAccessor &new_node, Frame &frame) const;
 
   ExpandCommon() {}
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &node_symbol_;
-    ar &edge_symbol_;
-    ar &direction_;
-    ar &edge_types_;
-    ar &input_;
-    ar &input_symbol_;
-    ar &existing_node_;
-    ar &graph_view_;
-  }
 };
 
 /**
@@ -853,15 +685,6 @@ class Expand : public LogicalOperator, public ExpandCommon {
 
     bool InitEdges(Frame &, Context &);
   };
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &boost::serialization::base_object<ExpandCommon>(*this);
-  }
 };
 
 /**
@@ -897,22 +720,6 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
     Symbol inner_node_symbol;
     // Expression used in lambda during expansion.
     Expression *expression;
-
-    BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-    template <class TArchive>
-    void save(TArchive &ar, const unsigned int) const {
-      ar &inner_edge_symbol;
-      ar &inner_node_symbol;
-      SavePointer(ar, expression);
-    }
-
-    template <class TArchive>
-    void load(TArchive &ar, const unsigned int) {
-      ar &inner_edge_symbol;
-      ar &inner_node_symbol;
-      LoadPointer(ar, expression);
-    }
   };
 
   /**
@@ -977,36 +784,6 @@ class ExpandVariable : public LogicalOperator, public ExpandCommon {
   std::experimental::optional<Symbol> total_weight_;
 
   ExpandVariable() {}
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &boost::serialization::base_object<ExpandCommon>(*this);
-    ar &type_;
-    ar &is_reverse_;
-    SavePointer(ar, lower_bound_);
-    SavePointer(ar, upper_bound_);
-    ar &filter_lambda_;
-    ar &weight_lambda_;
-    ar &total_weight_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &boost::serialization::base_object<ExpandCommon>(*this);
-    ar &type_;
-    ar &is_reverse_;
-    LoadPointer(ar, lower_bound_);
-    LoadPointer(ar, upper_bound_);
-    ar &filter_lambda_;
-    ar &weight_lambda_;
-    ar &total_weight_;
-  }
 };
 
 /**
@@ -1040,16 +817,6 @@ class ConstructNamedPath : public LogicalOperator {
   std::vector<Symbol> path_elements_;
 
   ConstructNamedPath() {}
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &path_symbol_;
-    ar &path_elements_;
-  }
 };
 
 /**
@@ -1092,24 +859,6 @@ class Filter : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointer(ar, expression_);
-  }
 };
 
 /**
@@ -1158,23 +907,6 @@ class Produce : public LogicalOperator {
   };
 
   Produce() {}
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointers(ar, named_expressions_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointers(ar, named_expressions_);
-  }
 };
 
 /**
@@ -1219,26 +951,6 @@ class Delete : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointers(ar, expressions_);
-    ar &detach_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointers(ar, expressions_);
-    ar &detach_;
-  }
 };
 
 /**
@@ -1280,26 +992,6 @@ class SetProperty : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointer(ar, lhs_);
-    SavePointer(ar, rhs_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointer(ar, lhs_);
-    LoadPointer(ar, rhs_);
-  }
 };
 
 /**
@@ -1367,28 +1059,6 @@ class SetProperties : public LogicalOperator {
     template <typename TRecordAccessor>
     void Set(TRecordAccessor &record, const TypedValue &rhs) const;
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &input_symbol_;
-    SavePointer(ar, rhs_);
-    ar &op_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &input_symbol_;
-    LoadPointer(ar, rhs_);
-    ar &op_;
-  }
 };
 
 /**
@@ -1429,16 +1099,6 @@ class SetLabels : public LogicalOperator {
     const SetLabels &self_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &input_symbol_;
-    ar &labels_;
-  }
 };
 
 /**
@@ -1478,24 +1138,6 @@ class RemoveProperty : public LogicalOperator {
     database::GraphDbAccessor &db_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointer(ar, lhs_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointer(ar, lhs_);
-  }
 };
 
 /**
@@ -1536,16 +1178,6 @@ class RemoveLabels : public LogicalOperator {
     const RemoveLabels &self_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &input_symbol_;
-    ar &labels_;
-  }
 };
 
 /**
@@ -1606,16 +1238,6 @@ class ExpandUniquenessFilter : public LogicalOperator {
     const ExpandUniquenessFilter &self_;
     const std::unique_ptr<Cursor> input_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &expand_symbol_;
-    ar &previous_symbols_;
-  }
 };
 
 /** @brief Pulls everything from the input before passing it through.
@@ -1684,16 +1306,6 @@ class Accumulate : public LogicalOperator {
     decltype(cache_.begin()) cache_it_ = cache_.begin();
     bool pulled_all_input_{false};
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &symbols_;
-    ar &advance_command_;
-  }
 };
 
 /**
@@ -1730,27 +1342,6 @@ class Aggregate : public LogicalOperator {
     Expression *key;
     Aggregation::Op op;
     Symbol output_sym;
-
-   private:
-    friend class boost::serialization::access;
-
-    BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-    template <class TArchive>
-    void save(TArchive &ar, const unsigned int) const {
-      SavePointer(ar, value);
-      SavePointer(ar, key);
-      ar &op;
-      ar &output_sym;
-    }
-
-    template <class TArchive>
-    void load(TArchive &ar, const unsigned int) {
-      LoadPointer(ar, value);
-      LoadPointer(ar, key);
-      ar &op;
-      ar &output_sym;
-    }
   };
 
   Aggregate(const std::shared_ptr<LogicalOperator> &input,
@@ -1859,28 +1450,6 @@ class Aggregate : public LogicalOperator {
      * an appropriate exception is thrown. */
     void EnsureOkForAvgSum(const TypedValue &value) const;
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &aggregations_;
-    SavePointers(ar, group_by_);
-    ar &remember_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &aggregations_;
-    LoadPointers(ar, group_by_);
-    ar &remember_;
-  }
 };
 
 /** @brief Skips a number of Pulls from the input op.
@@ -1931,24 +1500,6 @@ class Skip : public LogicalOperator {
     int to_skip_{-1};
     int skipped_{0};
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointer(ar, expression_);
-  }
 };
 
 /** @brief Limits the number of Pulls from the input op.
@@ -2002,24 +1553,6 @@ class Limit : public LogicalOperator {
     int limit_{-1};
     int pulled_{0};
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointer(ar, expression_);
-  }
 };
 
 /** @brief Logical operator for ordering (sorting) results.
@@ -2082,28 +1615,6 @@ class OrderBy : public LogicalOperator {
     // iterator over the cache_, maintains state between Pulls
     decltype(cache_.begin()) cache_it_ = cache_.begin();
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &compare_;
-    SavePointers(ar, order_by_);
-    ar &output_symbols_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &compare_;
-    LoadPointers(ar, order_by_);
-    ar &output_symbols_;
-  }
 };
 
 /**
@@ -2166,16 +1677,6 @@ class Merge : public LogicalOperator {
     //  - previous Pull from this cursor exhausted the merge_match_cursor
     bool pull_input_{true};
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &merge_match_;
-    ar &merge_create_;
-  }
 };
 
 /**
@@ -2230,16 +1731,6 @@ class Optional : public LogicalOperator {
     //  - previous Pull from this cursor exhausted the optional_cursor_
     bool pull_input_{true};
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &optional_;
-    ar &optional_symbols_;
-  }
 };
 
 /**
@@ -2287,26 +1778,6 @@ class Unwind : public LogicalOperator {
     // current position in input_value_
     std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
   };
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    SavePointer(ar, input_expression_);
-    ar &output_symbol_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    LoadPointer(ar, input_expression_);
-    ar &output_symbol_;
-  }
 };
 
 /**
@@ -2358,15 +1829,6 @@ class Distinct : public LogicalOperator {
         TypedValueVectorEqual>
         seen_rows_;
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &value_symbols_;
-  }
 };
 
 /**
@@ -2399,15 +1861,6 @@ class CreateIndex : public LogicalOperator {
   storage::Property property_;
 
   CreateIndex() {}
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &label_;
-    ar &property_;
-  }
 };
 
 /**
@@ -2450,126 +1903,6 @@ class Union : public LogicalOperator {
     const Union &self_;
     const std::unique_ptr<Cursor> left_cursor_, right_cursor_;
   };
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &left_op_;
-    ar &right_op_;
-    ar &union_symbols_;
-    ar &left_symbols_;
-    ar &right_symbols_;
-  }
-};
-
-/**
- * An operator in distributed Memgraph that yields both local and remote (from
- * other workers) frames. Obtaining remote frames is done through RPC calls to
- * `distributed::ProduceRpcServer`s running on all the workers.
- *
- * This operator aims to yield results as fast as possible and lose minimal
- * time on data transfer. It gives no guarantees on result order.
- */
-class PullRemote : public LogicalOperator {
- public:
-  PullRemote(const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-             const std::vector<Symbol> &symbols)
-      : input_(input), plan_id_(plan_id), symbols_(symbols) {}
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(
-      database::GraphDbAccessor &db) const override;
-  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
-  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-
-  bool HasSingleInput() const override { return true; }
-  std::shared_ptr<LogicalOperator> input() const override { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) override {
-    input_ = input;
-  }
-
-  const auto &symbols() const { return symbols_; }
-  auto plan_id() const { return plan_id_; }
-
- private:
-  std::shared_ptr<LogicalOperator> input_;
-  int64_t plan_id_ = 0;
-  std::vector<Symbol> symbols_;
-
-  PullRemote() {}
-
-  friend class boost::serialization::access;
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &plan_id_;
-    ar &symbols_;
-  }
-};
-
-/**
- * Operator used to synchronize stages of plan execution between the master and
- * all the workers. Synchronization is necessary in queries that update that
- * graph state because updates (as well as creations and deletions) are deferred
- * to avoid multithreaded modification of graph element data (as it's not
- * thread-safe).
- *
- * Logic of the synchronize operator is:
- *
- * 1. If there is a Pull, tell all the workers to pull on that plan and
- *    accumulate results without sending them to the master. This is async.
- * 2. Accumulate local results, in parallel with 1. getting executed on workers.
- * 3. Wait till the master and all the workers are done accumulating.
- * 4. Advance the command, if necessary.
- * 5. Tell all the workers to apply their updates. This is async.
- * 6. Apply local updates, in parallel with 5. on the workers.
- * 7. Notify workers that the command has advanced, if necessary.
- * 8. Yield all the results, first local, then from Pull if available.
- */
-class Synchronize : public LogicalOperator {
- public:
-  Synchronize(const std::shared_ptr<LogicalOperator> &input,
-              const std::shared_ptr<PullRemote> &pull_remote,
-              bool advance_command)
-      : input_(input),
-        pull_remote_(pull_remote),
-        advance_command_(advance_command) {}
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(
-      database::GraphDbAccessor &db) const override;
-  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-
-  std::vector<Symbol> OutputSymbols(
-      const SymbolTable &symbol_table) const override {
-    return input_->OutputSymbols(symbol_table);
-  }
-
-  bool HasSingleInput() const override { return true; }
-  std::shared_ptr<LogicalOperator> input() const override { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) override {
-    input_ = input;
-  }
-
-  auto pull_remote() const { return pull_remote_; }
-  auto advance_command() const { return advance_command_; }
-
- private:
-  std::shared_ptr<LogicalOperator> input_;
-  std::shared_ptr<PullRemote> pull_remote_;
-  bool advance_command_ = false;
-
-  Synchronize() {}
-
-  friend class boost::serialization::access;
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &pull_remote_;
-    ar &advance_command_;
-  }
 };
 
 /** Operator for producing a Cartesian product from 2 input branches */
@@ -2606,119 +1939,7 @@ class Cartesian : public LogicalOperator {
   std::vector<Symbol> right_symbols_;
 
   Cartesian() {}
-
-  friend class boost::serialization::access;
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &left_op_;
-    ar &left_symbols_;
-    ar &right_op_;
-    ar &right_symbols_;
-  }
-};
-
-/**
- * Operator that merges distributed OrderBy operators.
- *
- * Instead of using a regular OrderBy on master (which would collect all remote
- * results and order them), we can have each worker do an OrderBy locally and
- * have the master rely on the fact that the results are ordered and merge them
- * by having only one result from each worker.
- */
-class PullRemoteOrderBy : public LogicalOperator {
- public:
-  PullRemoteOrderBy(
-      const std::shared_ptr<LogicalOperator> &input, int64_t plan_id,
-      const std::vector<std::pair<Ordering, Expression *>> &order_by,
-      const std::vector<Symbol> &symbols);
-  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
-  std::unique_ptr<Cursor> MakeCursor(
-      database::GraphDbAccessor &db) const override;
-
-  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
-  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
-
-  bool HasSingleInput() const override { return true; }
-  std::shared_ptr<LogicalOperator> input() const override { return input_; }
-  void set_input(std::shared_ptr<LogicalOperator> input) override {
-    input_ = input;
-  }
-
-  auto plan_id() const { return plan_id_; }
-  const auto &symbols() const { return symbols_; }
-  auto order_by() const { return order_by_; }
-  const auto &compare() const { return compare_; }
-
- private:
-  std::shared_ptr<LogicalOperator> input_;
-  int64_t plan_id_ = 0;
-  std::vector<Symbol> symbols_;
-  std::vector<Expression *> order_by_;
-  TypedValueVectorCompare compare_;
-
-  PullRemoteOrderBy() {}
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &plan_id_;
-    ar &symbols_;
-    SavePointers(ar, order_by_);
-    ar &compare_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<LogicalOperator>(*this);
-    ar &input_;
-    ar &plan_id_;
-    ar &symbols_;
-    LoadPointers(ar, order_by_);
-    ar &compare_;
-  }
 };
 
 }  // namespace plan
 }  // namespace query
-
-BOOST_CLASS_EXPORT_KEY(query::plan::Once);
-BOOST_CLASS_EXPORT_KEY(query::plan::CreateNode);
-BOOST_CLASS_EXPORT_KEY(query::plan::CreateExpand);
-BOOST_CLASS_EXPORT_KEY(query::plan::ScanAll);
-BOOST_CLASS_EXPORT_KEY(query::plan::ScanAllByLabel);
-BOOST_CLASS_EXPORT_KEY(query::plan::ScanAllByLabelPropertyRange);
-BOOST_CLASS_EXPORT_KEY(query::plan::ScanAllByLabelPropertyValue);
-BOOST_CLASS_EXPORT_KEY(query::plan::Expand);
-BOOST_CLASS_EXPORT_KEY(query::plan::ExpandVariable);
-BOOST_CLASS_EXPORT_KEY(query::plan::Filter);
-BOOST_CLASS_EXPORT_KEY(query::plan::Produce);
-BOOST_CLASS_EXPORT_KEY(query::plan::ConstructNamedPath);
-BOOST_CLASS_EXPORT_KEY(query::plan::Delete);
-BOOST_CLASS_EXPORT_KEY(query::plan::SetProperty);
-BOOST_CLASS_EXPORT_KEY(query::plan::SetProperties);
-BOOST_CLASS_EXPORT_KEY(query::plan::SetLabels);
-BOOST_CLASS_EXPORT_KEY(query::plan::RemoveProperty);
-BOOST_CLASS_EXPORT_KEY(query::plan::RemoveLabels);
-BOOST_CLASS_EXPORT_KEY(query::plan::ExpandUniquenessFilter<EdgeAccessor>);
-BOOST_CLASS_EXPORT_KEY(query::plan::ExpandUniquenessFilter<VertexAccessor>);
-BOOST_CLASS_EXPORT_KEY(query::plan::Accumulate);
-BOOST_CLASS_EXPORT_KEY(query::plan::Aggregate);
-BOOST_CLASS_EXPORT_KEY(query::plan::Skip);
-BOOST_CLASS_EXPORT_KEY(query::plan::Limit);
-BOOST_CLASS_EXPORT_KEY(query::plan::OrderBy);
-BOOST_CLASS_EXPORT_KEY(query::plan::Merge);
-BOOST_CLASS_EXPORT_KEY(query::plan::Optional);
-BOOST_CLASS_EXPORT_KEY(query::plan::Unwind);
-BOOST_CLASS_EXPORT_KEY(query::plan::Distinct);
-BOOST_CLASS_EXPORT_KEY(query::plan::CreateIndex);
-BOOST_CLASS_EXPORT_KEY(query::plan::Union);
-BOOST_CLASS_EXPORT_KEY(query::plan::PullRemote);
-BOOST_CLASS_EXPORT_KEY(query::plan::Synchronize);
-BOOST_CLASS_EXPORT_KEY(query::plan::Cartesian);
-BOOST_CLASS_EXPORT_KEY(query::plan::PullRemoteOrderBy);

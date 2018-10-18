@@ -27,6 +27,8 @@ DECLARE_int32(wal_rotate_deltas_count);
 
 namespace fs = std::experimental::filesystem;
 
+using namespace std::literals::chrono_literals;
+
 // Helper class for performing random CRUD ops on a database.
 class DbGenerator {
   static constexpr int kLabelCount = 3;

@@ -33,13 +33,8 @@
     cmake -DCMAKE_BUILD_TYPE=release ..
     TIMEOUT=1000 make -j$THREADS memgraph tools memgraph__macro_benchmark memgraph__stress memgraph__manual__card_fraud_generate_snapshot
 
-    # Generate distributed card fraud dataset.
-    cd ../tests/distributed/card_fraud
-    ./generate_dataset.sh
-    cd ../../..
-
     # Checkout to parent commit and initialize.
-    cd ../parent
+    cd ../../parent
     git checkout HEAD~1
     TIMEOUT=600 ./init
 
@@ -88,7 +83,3 @@
     cd ../../docs/user_technical
     # TODO (mferencevic): uncomment this once couscous is replaced with pandoc
     #./bundle_community
-
-    # Generate distributed card fraud dataset.
-    cd ../../tests/distributed/card_fraud
-    ./generate_dataset.sh

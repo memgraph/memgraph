@@ -14,19 +14,6 @@
 #include "transactions/engine.hpp"
 #include "utils/scheduler.hpp"
 
-namespace distributed {
-class DataRpcServer;
-class DataRpcClients;
-class PlanDispatcher;
-class PlanConsumer;
-class PullRpcClients;
-class ProduceRpcServer;
-class UpdatesRpcServer;
-class UpdatesRpcClients;
-class DataManager;
-class IndexRpcClients;
-}  // namespace distributed
-
 namespace database {
 
 /// Database configuration. Initialized from flags, but modifiable.
@@ -76,12 +63,9 @@ struct Config {
  */
 class GraphDb {
  public:
-  enum class Type { SINGLE_NODE, DISTRIBUTED_MASTER, DISTRIBUTED_WORKER };
-
   GraphDb() {}
   virtual ~GraphDb() {}
 
-  virtual Type type() const = 0;
   virtual Storage &storage() = 0;
   virtual durability::WriteAheadLog &wal() = 0;
   virtual tx::Engine &tx_engine() = 0;
@@ -93,23 +77,6 @@ class GraphDb {
   virtual void CollectGarbage() = 0;
   virtual int WorkerId() const = 0;
   virtual std::vector<int> GetWorkerIds() const = 0;
-
-  // Supported only in distributed master and worker, not in single-node.
-  virtual distributed::DataRpcServer &data_server() = 0;
-  virtual distributed::DataRpcClients &data_clients() = 0;
-  virtual distributed::UpdatesRpcServer &updates_server() = 0;
-  virtual distributed::UpdatesRpcClients &updates_clients() = 0;
-  virtual distributed::DataManager &data_manager() = 0;
-
-  // Supported only in distributed master.
-  virtual distributed::PullRpcClients &pull_clients() = 0;
-  virtual distributed::PlanDispatcher &plan_dispatcher() = 0;
-  virtual distributed::IndexRpcClients &index_rpc_clients() = 0;
-
-  // Supported only in distributed worker.
-  // TODO remove once end2end testing is possible.
-  virtual distributed::ProduceRpcServer &produce_server() = 0;
-  virtual distributed::PlanConsumer &plan_consumer() = 0;
 
   // Makes a snapshot from the visibility of the given accessor
   virtual bool MakeSnapshot(GraphDbAccessor &accessor) = 0;
@@ -136,7 +103,6 @@ class PrivateBase;
 // initialization and cleanup.
 class PublicBase : public GraphDb {
  public:
-  Type type() const override;
   Storage &storage() override;
   durability::WriteAheadLog &wal() override;
   tx::Engine &tx_engine() override;
@@ -147,16 +113,6 @@ class PublicBase : public GraphDb {
   void CollectGarbage() override;
   int WorkerId() const override;
   std::vector<int> GetWorkerIds() const override;
-  distributed::DataRpcServer &data_server() override;
-  distributed::DataRpcClients &data_clients() override;
-  distributed::PlanDispatcher &plan_dispatcher() override;
-  distributed::IndexRpcClients &index_rpc_clients() override;
-  distributed::PlanConsumer &plan_consumer() override;
-  distributed::PullRpcClients &pull_clients() override;
-  distributed::ProduceRpcServer &produce_server() override;
-  distributed::UpdatesRpcServer &updates_server() override;
-  distributed::UpdatesRpcClients &updates_clients() override;
-  distributed::DataManager &data_manager() override;
 
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
   bool MakeSnapshot(GraphDbAccessor &accessor) override;
@@ -187,26 +143,5 @@ class MasterBase : public impl::PublicBase {
 class SingleNode : public MasterBase {
  public:
   explicit SingleNode(Config config = Config());
-};
-
-class Master : public MasterBase {
- public:
-  explicit Master(Config config = Config());
-  /** Gets this master's endpoint. */
-  io::network::Endpoint endpoint() const;
-  /** Gets the endpoint of the worker with the given id. */
-  // TODO make const once Coordination::GetEndpoint is const.
-  io::network::Endpoint GetEndpoint(int worker_id);
-};
-
-class Worker : public impl::PublicBase {
- public:
-  explicit Worker(Config config = Config());
-  /** Gets this worker's endpoint. */
-  io::network::Endpoint endpoint() const;
-  /** Gets the endpoint of the worker with the given id. */
-  // TODO make const once Coordination::GetEndpoint is const.
-  io::network::Endpoint GetEndpoint(int worker_id);
-  void WaitForShutdown();
 };
 }  // namespace database

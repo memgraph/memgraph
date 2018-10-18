@@ -9,7 +9,6 @@
 #include "glog/logging.h"
 
 #include "database/graph_db.hpp"
-#include "distributed/cache.hpp"
 #include "query/typed_value.hpp"
 #include "storage/address_types.hpp"
 #include "storage/edge_accessor.hpp"
@@ -77,13 +76,6 @@ class GraphDbAccessor {
    */
   VertexAccessor InsertVertex(std::experimental::optional<gid::Gid>
                                   requested_gid = std::experimental::nullopt);
-
-  /** Creates a new Vertex on the given worker. It is NOT allowed to call this
-   * function with this worker's id. */
-  VertexAccessor InsertVertexIntoRemote(
-      int worker_id, const std::vector<storage::Label> &labels,
-      const std::unordered_map<storage::Property, query::TypedValue>
-          &properties);
 
   /**
    * Removes the vertex of the given accessor. If the vertex has any outgoing or

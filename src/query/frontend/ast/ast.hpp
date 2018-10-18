@@ -4,18 +4,11 @@
 #include <unordered_map>
 #include <vector>
 
-#include "boost/serialization/base_object.hpp"
-#include "boost/serialization/export.hpp"
-#include "boost/serialization/split_member.hpp"
-#include "boost/serialization/string.hpp"
-#include "boost/serialization/vector.hpp"
-
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
 #include "storage/types.hpp"
-#include "utils/serialization.hpp"
 
 // Hash function for the key in pattern atom property maps.
 namespace std {
@@ -51,12 +44,6 @@ namespace query {
     return storage.Create<                                                   \
         std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
         expression_->Clone(storage));                                        \
-  }
-
-#define SERIALIZE_USING_BASE(BaseClass)                      \
-  template <class TArchive>                                  \
-  void serialize(TArchive &ar, const unsigned int) {         \
-    ar &boost::serialization::base_object<BaseClass>(*this); \
   }
 
 class Tree;
@@ -171,13 +158,6 @@ class Tree : public ::utils::Visitable<HierarchicalTreeVisitor>,
 
  private:
   int uid_;
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &uid_;
-  }
 };
 
 // Expressions
@@ -190,10 +170,6 @@ class Expression : public Tree {
 
  protected:
   explicit Expression(int uid) : Tree(uid) {}
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(Tree);
 };
 
 class Where : public Tree {
@@ -217,27 +193,6 @@ class Where : public Tree {
  protected:
   explicit Where(int uid) : Tree(uid) {}
   Where(int uid, Expression *expression) : Tree(uid), expression_(expression) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Tree>(*this);
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Tree>(*this);
-    LoadPointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Where *,
-                                                        const unsigned int);
 };
 
 class BinaryOperator : public Expression {
@@ -253,25 +208,6 @@ class BinaryOperator : public Expression {
   explicit BinaryOperator(int uid) : Expression(uid) {}
   BinaryOperator(int uid, Expression *expression1, Expression *expression2)
       : Expression(uid), expression1_(expression1), expression2_(expression2) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, expression1_);
-    SavePointer(ar, expression2_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, expression1_);
-    LoadPointer(ar, expression2_);
-  }
 };
 
 class UnaryOperator : public Expression {
@@ -286,23 +222,6 @@ class UnaryOperator : public Expression {
   explicit UnaryOperator(int uid) : Expression(uid) {}
   UnaryOperator(int uid, Expression *expression)
       : Expression(uid), expression_(expression) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, expression_);
-  }
 };
 
 class OrOperator : public BinaryOperator {
@@ -320,14 +239,6 @@ class OrOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        OrOperator *,
-                                                        const unsigned int);
 };
 
 class XorOperator : public BinaryOperator {
@@ -345,14 +256,6 @@ class XorOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        XorOperator *,
-                                                        const unsigned int);
 };
 
 class AndOperator : public BinaryOperator {
@@ -370,14 +273,6 @@ class AndOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        AndOperator *,
-                                                        const unsigned int);
 };
 
 class AdditionOperator : public BinaryOperator {
@@ -395,14 +290,6 @@ class AdditionOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        AdditionOperator *,
-                                                        const unsigned int);
 };
 
 class SubtractionOperator : public BinaryOperator {
@@ -420,14 +307,6 @@ class SubtractionOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        SubtractionOperator *,
-                                                        const unsigned int);
 };
 
 class MultiplicationOperator : public BinaryOperator {
@@ -445,13 +324,6 @@ class MultiplicationOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(
-      TArchive &, MultiplicationOperator *, const unsigned int);
 };
 
 class DivisionOperator : public BinaryOperator {
@@ -469,14 +341,6 @@ class DivisionOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        DivisionOperator *,
-                                                        const unsigned int);
 };
 
 class ModOperator : public BinaryOperator {
@@ -494,14 +358,6 @@ class ModOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        ModOperator *,
-                                                        const unsigned int);
 };
 
 class NotEqualOperator : public BinaryOperator {
@@ -519,14 +375,6 @@ class NotEqualOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        NotEqualOperator *,
-                                                        const unsigned int);
 };
 
 class EqualOperator : public BinaryOperator {
@@ -544,14 +392,6 @@ class EqualOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        EqualOperator *,
-                                                        const unsigned int);
 };
 
 class LessOperator : public BinaryOperator {
@@ -569,14 +409,6 @@ class LessOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        LessOperator *,
-                                                        const unsigned int);
 };
 
 class GreaterOperator : public BinaryOperator {
@@ -594,14 +426,6 @@ class GreaterOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        GreaterOperator *,
-                                                        const unsigned int);
 };
 
 class LessEqualOperator : public BinaryOperator {
@@ -619,14 +443,6 @@ class LessEqualOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        LessEqualOperator *,
-                                                        const unsigned int);
 };
 
 class GreaterEqualOperator : public BinaryOperator {
@@ -644,14 +460,6 @@ class GreaterEqualOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        GreaterEqualOperator *,
-                                                        const unsigned int);
 };
 
 class InListOperator : public BinaryOperator {
@@ -669,14 +477,6 @@ class InListOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        InListOperator *,
-                                                        const unsigned int);
 };
 
 class ListMapIndexingOperator : public BinaryOperator {
@@ -694,13 +494,6 @@ class ListMapIndexingOperator : public BinaryOperator {
 
  protected:
   using BinaryOperator::BinaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(BinaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(
-      TArchive &, ListMapIndexingOperator *, const unsigned int);
 };
 
 class ListSlicingOperator : public Expression {
@@ -739,32 +532,6 @@ class ListSlicingOperator : public Expression {
         list_(list),
         lower_bound_(lower_bound),
         upper_bound_(upper_bound) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, list_);
-    SavePointer(ar, lower_bound_);
-    SavePointer(ar, upper_bound_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, list_);
-    LoadPointer(ar, lower_bound_);
-    LoadPointer(ar, upper_bound_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        ListSlicingOperator *,
-                                                        const unsigned int);
 };
 
 class IfOperator : public Expression {
@@ -799,32 +566,6 @@ class IfOperator : public Expression {
         condition_(condition),
         then_expression_(then_expression),
         else_expression_(else_expression) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, condition_);
-    SavePointer(ar, then_expression_);
-    SavePointer(ar, else_expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, condition_);
-    LoadPointer(ar, then_expression_);
-    LoadPointer(ar, else_expression_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        IfOperator *,
-                                                        const unsigned int);
 };
 
 class NotOperator : public UnaryOperator {
@@ -842,14 +583,6 @@ class NotOperator : public UnaryOperator {
 
  protected:
   using UnaryOperator::UnaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(UnaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        NotOperator *,
-                                                        const unsigned int);
 };
 
 class UnaryPlusOperator : public UnaryOperator {
@@ -867,14 +600,6 @@ class UnaryPlusOperator : public UnaryOperator {
 
  protected:
   using UnaryOperator::UnaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(UnaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        UnaryPlusOperator *,
-                                                        const unsigned int);
 };
 
 class UnaryMinusOperator : public UnaryOperator {
@@ -892,14 +617,6 @@ class UnaryMinusOperator : public UnaryOperator {
 
  protected:
   using UnaryOperator::UnaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(UnaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        UnaryMinusOperator *,
-                                                        const unsigned int);
 };
 
 class IsNullOperator : public UnaryOperator {
@@ -917,14 +634,6 @@ class IsNullOperator : public UnaryOperator {
 
  protected:
   using UnaryOperator::UnaryOperator;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(UnaryOperator);
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        IsNullOperator *,
-                                                        const unsigned int);
 };
 
 class BaseLiteral : public Expression {
@@ -935,10 +644,6 @@ class BaseLiteral : public Expression {
 
  protected:
   explicit BaseLiteral(int uid) : Expression(uid) {}
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(Expression);
 };
 
 class PrimitiveLiteral : public BaseLiteral {
@@ -965,30 +670,6 @@ class PrimitiveLiteral : public BaseLiteral {
   template <typename T>
   PrimitiveLiteral(int uid, T value, int token_position)
       : BaseLiteral(uid), value_(value), token_position_(token_position) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<BaseLiteral>(*this);
-    ar << token_position_;
-    utils::SaveTypedValue(ar, value_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<BaseLiteral>(*this);
-    ar >> token_position_;
-    utils::LoadTypedValue(ar, value_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        PrimitiveLiteral *,
-                                                        const unsigned int);
 };
 
 class ListLiteral : public BaseLiteral {
@@ -1018,28 +699,6 @@ class ListLiteral : public BaseLiteral {
   explicit ListLiteral(int uid) : BaseLiteral(uid) {}
   ListLiteral(int uid, const std::vector<Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<BaseLiteral>(*this);
-    SavePointers(ar, elements_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<BaseLiteral>(*this);
-    LoadPointers(ar, elements_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        ListLiteral *,
-                                                        const unsigned int);
 };
 
 class MapLiteral : public BaseLiteral {
@@ -1072,44 +731,6 @@ class MapLiteral : public BaseLiteral {
              const std::unordered_map<std::pair<std::string, storage::Property>,
                                       Expression *> &elements)
       : BaseLiteral(uid), elements_(elements) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<BaseLiteral>(*this);
-    ar << elements_.size();
-    for (const auto &element : elements_) {
-      const auto &property = element.first;
-      ar << property.first;
-      ar << property.second;
-      SavePointer(ar, element.second);
-    }
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<BaseLiteral>(*this);
-    size_t size = 0;
-    ar >> size;
-    for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, storage::Property> property;
-      ar >> property.first;
-      ar >> property.second;
-      Expression *expression = nullptr;
-      LoadPointer(ar, expression);
-      DCHECK(expression) << "Unexpected nullptr expression serialized";
-      elements_.emplace(property, expression);
-    }
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        MapLiteral *,
-                                                        const unsigned int);
 };
 
 class Identifier : public Expression {
@@ -1130,21 +751,6 @@ class Identifier : public Expression {
   Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
   Identifier(int uid, const std::string &name, bool user_declared)
       : Expression(uid), name_(name), user_declared_(user_declared) {}
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<Expression>(*this);
-    ar &name_;
-    ar &user_declared_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        Identifier *,
-                                                        const unsigned int);
 };
 
 class PropertyLookup : public Expression {
@@ -1181,32 +787,6 @@ class PropertyLookup : public Expression {
         expression_(expression),
         property_name_(property.first),
         property_(property.second) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, expression_);
-    ar << property_name_;
-    ar << property_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, expression_);
-    ar >> property_name_;
-    ar >> property_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        PropertyLookup *,
-                                                        const unsigned int);
 };
 
 class LabelsTest : public Expression {
@@ -1232,30 +812,6 @@ class LabelsTest : public Expression {
   LabelsTest(int uid, Expression *expression,
              const std::vector<storage::Label> &labels)
       : Expression(uid), expression_(expression), labels_(labels) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, expression_);
-    ar << labels_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, expression_);
-    ar >> labels_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        LabelsTest *,
-                                                        const unsigned int);
 };
 
 class Function : public Expression {
@@ -1301,30 +857,6 @@ class Function : public Expression {
   std::function<TypedValue(const std::vector<TypedValue> &,
                            database::GraphDbAccessor &)>
       function_;
-
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    ar << function_name_;
-    SavePointers(ar, arguments_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    ar >> function_name_;
-    function_ = NameToFunction(function_name_);
-    DCHECK(function_) << "Unexpected missing function: " << function_name_;
-    LoadPointers(ar, arguments_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Function *,
-                                                        const unsigned int);
 };
 
 class Aggregation : public BinaryOperator {
@@ -1374,20 +906,6 @@ class Aggregation : public BinaryOperator {
         << "The second expression is obligatory in COLLECT_MAP and "
            "invalid otherwise";
   }
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<BinaryOperator>(*this);
-    ar &op_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        Aggregation *,
-                                                        const unsigned int);
 };
 
 class Reduce : public Expression {
@@ -1433,35 +951,6 @@ class Reduce : public Expression {
         identifier_(identifier),
         list_(list),
         expression_(expression) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, accumulator_);
-    SavePointer(ar, initializer_);
-    SavePointer(ar, identifier_);
-    SavePointer(ar, list_);
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, accumulator_);
-    LoadPointer(ar, initializer_);
-    LoadPointer(ar, identifier_);
-    LoadPointer(ar, list_);
-    LoadPointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Reduce *,
-                                                        const unsigned int);
 };
 
 // TODO: Think about representing All and Any as Reduce.
@@ -1496,31 +985,6 @@ class All : public Expression {
         identifier_(identifier),
         list_expression_(list_expression),
         where_(where) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, identifier_);
-    SavePointer(ar, list_expression_);
-    SavePointer(ar, where_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, identifier_);
-    LoadPointer(ar, list_expression_);
-    LoadPointer(ar, where_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, All *,
-                                                        const unsigned int);
 };
 
 // TODO: This is pretty much copy pasted from All. Consider merging Reduce, All,
@@ -1557,31 +1021,6 @@ class Single : public Expression {
         identifier_(identifier),
         list_expression_(list_expression),
         where_(where) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Expression>(*this);
-    SavePointer(ar, identifier_);
-    SavePointer(ar, list_expression_);
-    SavePointer(ar, where_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Expression>(*this);
-    LoadPointer(ar, identifier_);
-    LoadPointer(ar, list_expression_);
-    LoadPointer(ar, where_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Single *,
-                                                        const unsigned int);
 };
 
 class ParameterLookup : public Expression {
@@ -1604,19 +1043,6 @@ class ParameterLookup : public Expression {
   explicit ParameterLookup(int uid) : Expression(uid) {}
   ParameterLookup(int uid, int token_position)
       : Expression(uid), token_position_(token_position) {}
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<Expression>(*this);
-    ar &token_position_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        ParameterLookup *,
-                                                        const unsigned int);
 };
 
 class NamedExpression : public Tree {
@@ -1654,32 +1080,6 @@ class NamedExpression : public Tree {
         name_(name),
         expression_(expression),
         token_position_(token_position) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Tree>(*this);
-    ar << name_;
-    SavePointer(ar, expression_);
-    ar << token_position_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Tree>(*this);
-    ar >> name_;
-    LoadPointer(ar, expression_);
-    ar >> token_position_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        NamedExpression *,
-                                                        const unsigned int);
 };
 
 // Pattern atoms
@@ -1696,23 +1096,6 @@ class PatternAtom : public Tree {
   explicit PatternAtom(int uid) : Tree(uid) {}
   PatternAtom(int uid, Identifier *identifier)
       : Tree(uid), identifier_(identifier) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Tree>(*this);
-    SavePointer(ar, identifier_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Tree>(*this);
-    LoadPointer(ar, identifier_);
-  }
 };
 
 class NodeAtom : public PatternAtom {
@@ -1748,45 +1131,6 @@ class NodeAtom : public PatternAtom {
 
  protected:
   using PatternAtom::PatternAtom;
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<PatternAtom>(*this);
-    ar << labels_;
-    ar << properties_.size();
-    for (const auto &property : properties_) {
-      const auto &key = property.first;
-      ar << key.first;
-      ar << key.second;
-      SavePointer(ar, property.second);
-    }
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<PatternAtom>(*this);
-    ar >> labels_;
-    size_t size = 0;
-    ar >> size;
-    for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, storage::Property> property;
-      ar >> property.first;
-      ar >> property.second;
-      Expression *expression = nullptr;
-      LoadPointer(ar, expression);
-      DCHECK(expression) << "Unexpected nullptr expression serialized";
-      properties_.emplace(property, expression);
-    }
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, NodeAtom *,
-                                                        const unsigned int);
 };
 
 class EdgeAtom : public PatternAtom {
@@ -1905,69 +1249,6 @@ class EdgeAtom : public PatternAtom {
         type_(type),
         direction_(direction),
         edge_types_(edge_types) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<PatternAtom>(*this);
-    ar << type_;
-    ar << direction_;
-    ar << edge_types_;
-    ar << properties_.size();
-    for (const auto &property : properties_) {
-      const auto &key = property.first;
-      ar << key.first;
-      ar << key.second;
-      SavePointer(ar, property.second);
-    }
-    SavePointer(ar, lower_bound_);
-    SavePointer(ar, upper_bound_);
-    auto save_lambda = [&ar](const auto &lambda) {
-      SavePointer(ar, lambda.inner_edge);
-      SavePointer(ar, lambda.inner_node);
-      SavePointer(ar, lambda.expression);
-    };
-    save_lambda(filter_lambda_);
-    save_lambda(weight_lambda_);
-    SavePointer(ar, total_weight_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<PatternAtom>(*this);
-    ar >> type_;
-    ar >> direction_;
-    ar >> edge_types_;
-    size_t size = 0;
-    ar >> size;
-    for (size_t i = 0; i < size; ++i) {
-      std::pair<std::string, storage::Property> property;
-      ar >> property.first;
-      ar >> property.second;
-      Expression *expression = nullptr;
-      LoadPointer(ar, expression);
-      DCHECK(expression) << "Unexpected nullptr expression serialized";
-      properties_.emplace(property, expression);
-    }
-    LoadPointer(ar, lower_bound_);
-    LoadPointer(ar, upper_bound_);
-    auto load_lambda = [&ar](auto &lambda) {
-      LoadPointer(ar, lambda.inner_edge);
-      LoadPointer(ar, lambda.inner_node);
-      LoadPointer(ar, lambda.expression);
-    };
-    load_lambda(filter_lambda_);
-    load_lambda(weight_lambda_);
-    LoadPointer(ar, total_weight_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, EdgeAtom *,
-                                                        const unsigned int);
 };
 
 class Pattern : public Tree {
@@ -2001,29 +1282,6 @@ class Pattern : public Tree {
 
  protected:
   explicit Pattern(int uid) : Tree(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Tree>(*this);
-    SavePointer(ar, identifier_);
-    SavePointers(ar, atoms_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Tree>(*this);
-    LoadPointer(ar, identifier_);
-    LoadPointers(ar, atoms_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Pattern *,
-                                                        const unsigned int);
 };
 
 // Clause
@@ -2035,10 +1293,6 @@ class Clause : public Tree {
   explicit Clause(int uid) : Tree(uid) {}
 
   Clause *Clone(AstTreeStorage &storage) const override = 0;
-
- private:
-  friend class boost::serialization::access;
-  SERIALIZE_USING_BASE(Tree);
 };
 
 // SingleQuery
@@ -2069,28 +1323,6 @@ class SingleQuery : public Tree {
 
  protected:
   explicit SingleQuery(int uid) : Tree(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Tree>(*this);
-    SavePointers(ar, clauses_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Tree>(*this);
-    LoadPointers(ar, clauses_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        SingleQuery *,
-                                                        const unsigned int);
 };
 
 // CypherUnion
@@ -2123,32 +1355,6 @@ class CypherUnion : public Tree {
  protected:
   explicit CypherUnion(int uid) : Tree(uid) {}
   CypherUnion(int uid, bool distinct) : Tree(uid), distinct_(distinct) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Tree>(*this);
-    SavePointer(ar, single_query_);
-    ar << distinct_;
-    ar << union_symbols_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Tree>(*this);
-    LoadPointer(ar, single_query_);
-    ar >> distinct_;
-    ar >> union_symbols_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        CypherUnion *,
-                                                        const unsigned int);
 };
 
 // Queries
@@ -2185,29 +1391,6 @@ class Query : public Tree {
 
  protected:
   explicit Query(int uid) : Tree(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Tree>(*this);
-    SavePointer(ar, single_query_);
-    SavePointers(ar, cypher_unions_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Tree>(*this);
-    LoadPointer(ar, single_query_);
-    LoadPointers(ar, cypher_unions_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Query *,
-                                                        const unsigned int);
 };
 
 // Clauses
@@ -2238,27 +1421,6 @@ class Create : public Clause {
 
  protected:
   explicit Create(int uid) : Clause(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointers(ar, patterns_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointers(ar, patterns_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Create *,
-                                                        const unsigned int);
 };
 
 class Match : public Clause {
@@ -2298,31 +1460,6 @@ class Match : public Clause {
  protected:
   explicit Match(int uid) : Clause(uid) {}
   Match(int uid, bool optional) : Clause(uid), optional_(optional) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointers(ar, patterns_);
-    SavePointer(ar, where_);
-    ar << optional_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointers(ar, patterns_);
-    LoadPointer(ar, where_);
-    ar >> optional_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Match *,
-                                                        const unsigned int);
 };
 
 /// Defines the order for sorting values (ascending or descending).
@@ -2348,44 +1485,6 @@ struct ReturnBody {
 // TODO: Think about turning ReturnBody to class and making this
 // function class member.
 ReturnBody CloneReturnBody(AstTreeStorage &storage, const ReturnBody &body);
-
-template <class TArchive>
-void serialize(TArchive &ar, ReturnBody &body,
-               const unsigned int file_version) {
-  boost::serialization::split_free(ar, body, file_version);
-}
-
-template <class TArchive>
-void save(TArchive &ar, const ReturnBody &body, const unsigned int) {
-  ar << body.distinct;
-  ar << body.all_identifiers;
-  SavePointers(ar, body.named_expressions);
-  ar << body.order_by.size();
-  for (const auto &order_by : body.order_by) {
-    ar << order_by.first;
-    SavePointer(ar, order_by.second);
-  }
-  SavePointer(ar, body.skip);
-  SavePointer(ar, body.limit);
-}
-
-template <class TArchive>
-void load(TArchive &ar, ReturnBody &body, const unsigned int) {
-  ar >> body.distinct;
-  ar >> body.all_identifiers;
-  LoadPointers(ar, body.named_expressions);
-  size_t size = 0;
-  ar >> size;
-  for (size_t i = 0; i < size; ++i) {
-    std::pair<Ordering, Expression *> order_by;
-    ar >> order_by.first;
-    LoadPointer(ar, order_by.second);
-    DCHECK(order_by.second) << "Unexpected nullptr serialized";
-    body.order_by.emplace_back(order_by);
-  }
-  LoadPointer(ar, body.skip);
-  LoadPointer(ar, body.limit);
-}
 
 class Return : public Clause {
   friend class AstTreeStorage;
@@ -2425,19 +1524,6 @@ class Return : public Clause {
 
  protected:
   explicit Return(int uid) : Clause(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<Clause>(*this);
-    ar &body_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Return *,
-                                                        const unsigned int);
 };
 
 class With : public Clause {
@@ -2481,29 +1567,6 @@ class With : public Clause {
 
  protected:
   explicit With(int uid) : Clause(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    ar << body_;
-    SavePointer(ar, where_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    ar >> body_;
-    LoadPointer(ar, where_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, With *,
-                                                        const unsigned int);
 };
 
 class Delete : public Clause {
@@ -2534,29 +1597,6 @@ class Delete : public Clause {
 
  protected:
   explicit Delete(int uid) : Clause(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointers(ar, expressions_);
-    ar << detach_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointers(ar, expressions_);
-    ar >> detach_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Delete *,
-                                                        const unsigned int);
 };
 
 class SetProperty : public Clause {
@@ -2585,30 +1625,6 @@ class SetProperty : public Clause {
       : Clause(uid),
         property_lookup_(property_lookup),
         expression_(expression) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointer(ar, property_lookup_);
-    SavePointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointer(ar, property_lookup_);
-    LoadPointer(ar, expression_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        SetProperty *,
-                                                        const unsigned int);
 };
 
 class SetProperties : public Clause {
@@ -2640,32 +1656,6 @@ class SetProperties : public Clause {
         identifier_(identifier),
         expression_(expression),
         update_(update) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointer(ar, identifier_);
-    SavePointer(ar, expression_);
-    ar << update_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointer(ar, identifier_);
-    LoadPointer(ar, expression_);
-    ar >> update_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        SetProperties *,
-                                                        const unsigned int);
 };
 
 class SetLabels : public Clause {
@@ -2692,29 +1682,6 @@ class SetLabels : public Clause {
   SetLabels(int uid, Identifier *identifier,
             const std::vector<storage::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointer(ar, identifier_);
-    ar << labels_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointer(ar, identifier_);
-    ar >> labels_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, SetLabels *,
-                                                        const unsigned int);
 };
 
 class RemoveProperty : public Clause {
@@ -2739,28 +1706,6 @@ class RemoveProperty : public Clause {
   explicit RemoveProperty(int uid) : Clause(uid) {}
   RemoveProperty(int uid, PropertyLookup *property_lookup)
       : Clause(uid), property_lookup_(property_lookup) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointer(ar, property_lookup_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointer(ar, property_lookup_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        RemoveProperty *,
-                                                        const unsigned int);
 };
 
 class RemoveLabels : public Clause {
@@ -2787,30 +1732,6 @@ class RemoveLabels : public Clause {
   RemoveLabels(int uid, Identifier *identifier,
                const std::vector<storage::Label> &labels)
       : Clause(uid), identifier_(identifier), labels_(labels) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointer(ar, identifier_);
-    ar << labels_;
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointer(ar, identifier_);
-    ar >> labels_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        RemoveLabels *,
-                                                        const unsigned int);
 };
 
 class Merge : public Clause {
@@ -2859,31 +1780,6 @@ class Merge : public Clause {
 
  protected:
   explicit Merge(int uid) : Clause(uid) {}
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointer(ar, pattern_);
-    SavePointers(ar, on_match_);
-    SavePointers(ar, on_create_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointer(ar, pattern_);
-    LoadPointers(ar, on_match_);
-    LoadPointers(ar, on_create_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Merge *,
-                                                        const unsigned int);
 };
 
 class Unwind : public Clause {
@@ -2912,27 +1808,6 @@ class Unwind : public Clause {
     DCHECK(named_expression)
         << "Unwind cannot take nullptr for named_expression";
   }
-
- private:
-  friend class boost::serialization::access;
-
-  BOOST_SERIALIZATION_SPLIT_MEMBER();
-
-  template <class TArchive>
-  void save(TArchive &ar, const unsigned int) const {
-    ar << boost::serialization::base_object<Clause>(*this);
-    SavePointer(ar, named_expression_);
-  }
-
-  template <class TArchive>
-  void load(TArchive &ar, const unsigned int) {
-    ar >> boost::serialization::base_object<Clause>(*this);
-    LoadPointer(ar, named_expression_);
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &, Unwind *,
-                                                        const unsigned int);
 };
 
 class CreateIndex : public Clause {
@@ -2953,155 +1828,9 @@ class CreateIndex : public Clause {
   explicit CreateIndex(int uid) : Clause(uid) {}
   CreateIndex(int uid, storage::Label label, storage::Property property)
       : Clause(uid), label_(label), property_(property) {}
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<Clause>(*this);
-    ar &label_;
-    ar &property_;
-  }
-
-  template <class TArchive>
-  friend void boost::serialization::load_construct_data(TArchive &,
-                                                        CreateIndex *,
-                                                        const unsigned int);
 };
 
 #undef CLONE_BINARY_EXPRESSION
 #undef CLONE_UNARY_EXPRESSION
-#undef SERIALIZE_USING_BASE
 
 }  // namespace query
-
-// All of the serialization cruft follows
-
-#define LOAD_AND_CONSTRUCT(DerivedClass, ...)             \
-  template <class TArchive>                               \
-  void load_construct_data(TArchive &, DerivedClass *cls, \
-                           const unsigned int) {          \
-    ::new (cls) DerivedClass(__VA_ARGS__);                \
-  }
-
-namespace boost::serialization {
-
-LOAD_AND_CONSTRUCT(query::Where, 0);
-LOAD_AND_CONSTRUCT(query::OrOperator, 0);
-LOAD_AND_CONSTRUCT(query::XorOperator, 0);
-LOAD_AND_CONSTRUCT(query::AndOperator, 0);
-LOAD_AND_CONSTRUCT(query::AdditionOperator, 0);
-LOAD_AND_CONSTRUCT(query::SubtractionOperator, 0);
-LOAD_AND_CONSTRUCT(query::MultiplicationOperator, 0);
-LOAD_AND_CONSTRUCT(query::DivisionOperator, 0);
-LOAD_AND_CONSTRUCT(query::ModOperator, 0);
-LOAD_AND_CONSTRUCT(query::NotEqualOperator, 0);
-LOAD_AND_CONSTRUCT(query::EqualOperator, 0);
-LOAD_AND_CONSTRUCT(query::LessOperator, 0);
-LOAD_AND_CONSTRUCT(query::GreaterOperator, 0);
-LOAD_AND_CONSTRUCT(query::LessEqualOperator, 0);
-LOAD_AND_CONSTRUCT(query::GreaterEqualOperator, 0);
-LOAD_AND_CONSTRUCT(query::InListOperator, 0);
-LOAD_AND_CONSTRUCT(query::ListMapIndexingOperator, 0);
-LOAD_AND_CONSTRUCT(query::ListSlicingOperator, 0, nullptr, nullptr, nullptr);
-LOAD_AND_CONSTRUCT(query::IfOperator, 0, nullptr, nullptr, nullptr);
-LOAD_AND_CONSTRUCT(query::NotOperator, 0);
-LOAD_AND_CONSTRUCT(query::UnaryPlusOperator, 0);
-LOAD_AND_CONSTRUCT(query::UnaryMinusOperator, 0);
-LOAD_AND_CONSTRUCT(query::IsNullOperator, 0);
-LOAD_AND_CONSTRUCT(query::PrimitiveLiteral, 0);
-LOAD_AND_CONSTRUCT(query::ListLiteral, 0);
-LOAD_AND_CONSTRUCT(query::MapLiteral, 0);
-LOAD_AND_CONSTRUCT(query::Identifier, 0, "");
-LOAD_AND_CONSTRUCT(query::PropertyLookup, 0, nullptr, "", storage::Property());
-LOAD_AND_CONSTRUCT(query::LabelsTest, 0, nullptr,
-                   std::vector<storage::Label>());
-LOAD_AND_CONSTRUCT(query::Function, 0);
-LOAD_AND_CONSTRUCT(query::Aggregation, 0, nullptr, nullptr,
-                   query::Aggregation::Op::COUNT);
-LOAD_AND_CONSTRUCT(query::Reduce, 0, nullptr, nullptr, nullptr, nullptr,
-                   nullptr);
-LOAD_AND_CONSTRUCT(query::All, 0, nullptr, nullptr, nullptr);
-LOAD_AND_CONSTRUCT(query::Single, 0, nullptr, nullptr, nullptr);
-LOAD_AND_CONSTRUCT(query::ParameterLookup, 0);
-LOAD_AND_CONSTRUCT(query::NamedExpression, 0);
-LOAD_AND_CONSTRUCT(query::NodeAtom, 0);
-LOAD_AND_CONSTRUCT(query::EdgeAtom, 0);
-LOAD_AND_CONSTRUCT(query::Pattern, 0);
-LOAD_AND_CONSTRUCT(query::SingleQuery, 0);
-LOAD_AND_CONSTRUCT(query::CypherUnion, 0);
-LOAD_AND_CONSTRUCT(query::Query, 0);
-LOAD_AND_CONSTRUCT(query::Create, 0);
-LOAD_AND_CONSTRUCT(query::Match, 0);
-LOAD_AND_CONSTRUCT(query::Return, 0);
-LOAD_AND_CONSTRUCT(query::With, 0);
-LOAD_AND_CONSTRUCT(query::Delete, 0);
-LOAD_AND_CONSTRUCT(query::SetProperty, 0);
-LOAD_AND_CONSTRUCT(query::SetProperties, 0);
-LOAD_AND_CONSTRUCT(query::SetLabels, 0);
-LOAD_AND_CONSTRUCT(query::RemoveProperty, 0);
-LOAD_AND_CONSTRUCT(query::RemoveLabels, 0);
-LOAD_AND_CONSTRUCT(query::Merge, 0);
-LOAD_AND_CONSTRUCT(query::Unwind, 0);
-LOAD_AND_CONSTRUCT(query::CreateIndex, 0);
-
-}  // namespace boost::serialization
-
-#undef LOAD_AND_CONSTRUCT
-
-BOOST_CLASS_EXPORT_KEY(query::Query);
-BOOST_CLASS_EXPORT_KEY(query::SingleQuery);
-BOOST_CLASS_EXPORT_KEY(query::CypherUnion);
-BOOST_CLASS_EXPORT_KEY(query::NamedExpression);
-BOOST_CLASS_EXPORT_KEY(query::OrOperator);
-BOOST_CLASS_EXPORT_KEY(query::XorOperator);
-BOOST_CLASS_EXPORT_KEY(query::AndOperator);
-BOOST_CLASS_EXPORT_KEY(query::NotOperator);
-BOOST_CLASS_EXPORT_KEY(query::AdditionOperator);
-BOOST_CLASS_EXPORT_KEY(query::SubtractionOperator);
-BOOST_CLASS_EXPORT_KEY(query::MultiplicationOperator);
-BOOST_CLASS_EXPORT_KEY(query::DivisionOperator);
-BOOST_CLASS_EXPORT_KEY(query::ModOperator);
-BOOST_CLASS_EXPORT_KEY(query::NotEqualOperator);
-BOOST_CLASS_EXPORT_KEY(query::EqualOperator);
-BOOST_CLASS_EXPORT_KEY(query::LessOperator);
-BOOST_CLASS_EXPORT_KEY(query::GreaterOperator);
-BOOST_CLASS_EXPORT_KEY(query::LessEqualOperator);
-BOOST_CLASS_EXPORT_KEY(query::GreaterEqualOperator);
-BOOST_CLASS_EXPORT_KEY(query::InListOperator);
-BOOST_CLASS_EXPORT_KEY(query::ListMapIndexingOperator);
-BOOST_CLASS_EXPORT_KEY(query::ListSlicingOperator);
-BOOST_CLASS_EXPORT_KEY(query::IfOperator);
-BOOST_CLASS_EXPORT_KEY(query::UnaryPlusOperator);
-BOOST_CLASS_EXPORT_KEY(query::UnaryMinusOperator);
-BOOST_CLASS_EXPORT_KEY(query::IsNullOperator);
-BOOST_CLASS_EXPORT_KEY(query::ListLiteral);
-BOOST_CLASS_EXPORT_KEY(query::MapLiteral);
-BOOST_CLASS_EXPORT_KEY(query::PropertyLookup);
-BOOST_CLASS_EXPORT_KEY(query::LabelsTest);
-BOOST_CLASS_EXPORT_KEY(query::Aggregation);
-BOOST_CLASS_EXPORT_KEY(query::Function);
-BOOST_CLASS_EXPORT_KEY(query::Reduce);
-BOOST_CLASS_EXPORT_KEY(query::All);
-BOOST_CLASS_EXPORT_KEY(query::Single);
-BOOST_CLASS_EXPORT_KEY(query::ParameterLookup);
-BOOST_CLASS_EXPORT_KEY(query::Create);
-BOOST_CLASS_EXPORT_KEY(query::Match);
-BOOST_CLASS_EXPORT_KEY(query::Return);
-BOOST_CLASS_EXPORT_KEY(query::With);
-BOOST_CLASS_EXPORT_KEY(query::Pattern);
-BOOST_CLASS_EXPORT_KEY(query::NodeAtom);
-BOOST_CLASS_EXPORT_KEY(query::EdgeAtom);
-BOOST_CLASS_EXPORT_KEY(query::Delete);
-BOOST_CLASS_EXPORT_KEY(query::Where);
-BOOST_CLASS_EXPORT_KEY(query::SetProperty);
-BOOST_CLASS_EXPORT_KEY(query::SetProperties);
-BOOST_CLASS_EXPORT_KEY(query::SetLabels);
-BOOST_CLASS_EXPORT_KEY(query::RemoveProperty);
-BOOST_CLASS_EXPORT_KEY(query::RemoveLabels);
-BOOST_CLASS_EXPORT_KEY(query::Merge);
-BOOST_CLASS_EXPORT_KEY(query::Unwind);
-BOOST_CLASS_EXPORT_KEY(query::Identifier);
-BOOST_CLASS_EXPORT_KEY(query::PrimitiveLiteral);
-BOOST_CLASS_EXPORT_KEY(query::CreateIndex);

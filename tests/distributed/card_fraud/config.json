@@ -1,8 +1,0 @@
-{
-  "cards_per_worker" : 10000,
-  "pos_per_worker" : 1000,
-  "transactions_per_worker" : 50000,
-  "compromised_pos_probability" : 0.2,
-  "fraud_reported_probability" : 0.1,
-  "hop_probability" : 0.1
-}

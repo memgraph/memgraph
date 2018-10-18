@@ -2,9 +2,6 @@
 
 #include <string>
 
-#include "boost/serialization/serialization.hpp"
-#include "boost/serialization/string.hpp"
-
 namespace query {
 
 class Symbol {
@@ -46,17 +43,6 @@ class Symbol {
   bool user_declared_ = true;
   Type type_ = Type::Any;
   int token_position_ = -1;
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar & name_;
-    ar & position_;
-    ar & user_declared_;
-    ar & type_;
-    ar & token_position_;
-  }
 };
 
 }  // namespace query

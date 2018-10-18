@@ -18,13 +18,9 @@ void VertexAccessor::add_label(storage::Label label) {
   // not a duplicate label, add it
   if (!utils::Contains(vertex.labels_, label)) {
     vertex.labels_.emplace_back(label);
-    if (is_local()) {
-      dba.wal().Emplace(delta);
-      dba.UpdateLabelIndices(label, *this, &vertex);
-    }
+    dba.wal().Emplace(delta);
+    dba.UpdateLabelIndices(label, *this, &vertex);
   }
-
-  if (!is_local()) SendDelta(delta);
 }
 
 void VertexAccessor::remove_label(storage::Label label) {
@@ -37,12 +33,8 @@ void VertexAccessor::remove_label(storage::Label label) {
     auto found = std::find(labels.begin(), labels.end(), delta.label);
     std::swap(*found, labels.back());
     labels.pop_back();
-    if (is_local()) {
-      dba.wal().Emplace(delta);
-    }
+    dba.wal().Emplace(delta);
   }
-
-  if (!is_local()) SendDelta(delta);
 }
 
 bool VertexAccessor::has_label(storage::Label label) const {

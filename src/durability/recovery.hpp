@@ -27,15 +27,6 @@ struct RecoveryInfo {
            max_wal_tx_id == other.max_wal_tx_id;
   }
   bool operator!=(const RecoveryInfo &other) const { return !(*this == other); }
-
- private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &snapshot_tx_id;
-    ar &max_wal_tx_id;
-  }
 };
 
 /** Reads snapshot metadata from the end of the file without messing up the

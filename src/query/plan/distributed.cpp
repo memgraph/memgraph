@@ -2,12 +2,6 @@
 
 #include <memory>
 
-// TODO: Remove these includes for hacked cloning of logical operators via boost
-// serialization when proper cloning is added.
-#include <sstream>
-#include "boost/archive/binary_iarchive.hpp"
-#include "boost/archive/binary_oarchive.hpp"
-
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/exceptions.hpp"
@@ -15,22 +9,6 @@
 namespace query::plan {
 
 namespace {
-
-std::pair<std::unique_ptr<LogicalOperator>, AstTreeStorage> Clone(
-    const LogicalOperator &original_plan) {
-  // TODO: Add a proper Clone method to LogicalOperator
-  std::stringstream stream;
-  {
-    boost::archive::binary_oarchive out_archive(stream);
-    out_archive << &original_plan;
-  }
-  boost::archive::binary_iarchive in_archive(stream);
-  LogicalOperator *plan_copy = nullptr;
-  in_archive >> plan_copy;
-  return {std::unique_ptr<LogicalOperator>(plan_copy),
-          std::move(in_archive.template get_helper<AstTreeStorage>(
-              AstTreeStorage::kHelperId))};
-}
 
 int64_t AddWorkerPlan(DistributedPlan &distributed_plan,
                       std::atomic<int64_t> &next_plan_id,
@@ -748,44 +726,5 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 };
 
 }  // namespace
-
-DistributedPlan MakeDistributedPlan(const LogicalOperator &original_plan,
-                                    const SymbolTable &symbol_table,
-                                    std::atomic<int64_t> &next_plan_id) {
-  DistributedPlan distributed_plan;
-  // If we will generate multiple worker plans, we will need to increment the
-  // next_plan_id for each one.
-  distributed_plan.master_plan_id = next_plan_id++;
-  distributed_plan.symbol_table = symbol_table;
-  std::tie(distributed_plan.master_plan, distributed_plan.ast_storage) =
-      Clone(original_plan);
-  DistributedPlanner planner(distributed_plan, next_plan_id);
-  distributed_plan.master_plan->Accept(planner);
-  if (planner.ShouldSplit()) {
-    // We haven't split the plan, this means that it should be the same on
-    // master and worker. We only need to prepend PullRemote to master plan.
-    std::shared_ptr<LogicalOperator> worker_plan(
-        std::move(distributed_plan.master_plan));
-    auto pull_id = AddWorkerPlan(distributed_plan, next_plan_id, worker_plan);
-    // If the plan performs writes, we need to finish with Synchronize.
-    if (planner.NeedsSynchronize()) {
-      auto pull_remote = std::make_shared<PullRemote>(
-          nullptr, pull_id,
-          worker_plan->OutputSymbols(distributed_plan.symbol_table));
-      distributed_plan.master_plan =
-          std::make_unique<Synchronize>(worker_plan, pull_remote, false);
-    } else {
-      distributed_plan.master_plan = std::make_unique<PullRemote>(
-          worker_plan, pull_id,
-          worker_plan->OutputSymbols(distributed_plan.symbol_table));
-    }
-  } else if (planner.NeedsSynchronize()) {
-    // If the plan performs writes on master, we still need to Synchronize, even
-    // though we don't split the plan.
-    distributed_plan.master_plan = std::make_unique<Synchronize>(
-        std::move(distributed_plan.master_plan), nullptr, false);
-  }
-  return distributed_plan;
-}
 
 }  // namespace query::plan

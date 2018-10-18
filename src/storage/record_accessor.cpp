@@ -2,8 +2,6 @@
 
 #include "database/graph_db_accessor.hpp"
 #include "database/state_delta.hpp"
-#include "distributed/data_manager.hpp"
-#include "distributed/updates_rpc_clients.hpp"
 #include "query/exceptions.hpp"
 #include "storage/edge.hpp"
 #include "storage/record_accessor.hpp"
@@ -20,8 +18,7 @@ RecordAccessor<TRecord>::RecordAccessor(AddressT address,
 }
 
 template <typename TRecord>
-PropertyValue RecordAccessor<TRecord>::PropsAt(
-    storage::Property key) const {
+PropertyValue RecordAccessor<TRecord>::PropsAt(storage::Property key) const {
   return current().properties_.at(key);
 }
 
@@ -32,9 +29,7 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                           dba.PropertyName(key), value);
   update().properties_.set(key, value);
-  if (is_local()) {
-    dba.UpdatePropertyIndex(key, *this, &update());
-  }
+  dba.UpdatePropertyIndex(key, *this, &update());
   ProcessDelta(delta);
 }
 
@@ -96,7 +91,7 @@ database::GraphDbAccessor &RecordAccessor<TRecord>::db_accessor() const {
 
 template <typename TRecord>
 gid::Gid RecordAccessor<TRecord>::gid() const {
-  return is_local() ? address_.local()->gid_ : address_.gid();
+  return address_.local()->gid_;
 }
 
 template <typename TRecord>
@@ -108,26 +103,20 @@ typename RecordAccessor<TRecord>::AddressT RecordAccessor<TRecord>::address()
 template <typename TRecord>
 typename RecordAccessor<TRecord>::AddressT
 RecordAccessor<TRecord>::GlobalAddress() const {
-  return is_local() ? storage::Address<mvcc::VersionList<TRecord>>(
-                          gid(), db_accessor_->db_.WorkerId())
-                    : address_;
+  return storage::Address<mvcc::VersionList<TRecord>>(
+      gid(), db_accessor_->db_.WorkerId());
 }
 
 template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
-  if (is_local()) {
-    if (!new_) {
-      // if new_ is not set yet, look for it
-      // we can just Reconstruct the pointers, old_ will get initialized
-      // to the same value as it has now, and the amount of work is the
-      // same as just looking for a new_ record
-      if (!Reconstruct())
-        DLOG(FATAL)
-            << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
-    }
-  } else {
-    // A remote record only sees local updates, until the command is advanced.
-    // So this does nothing, as the old/new switch happens below.
+  if (!new_) {
+    // if new_ is not set yet, look for it
+    // we can just Reconstruct the pointers, old_ will get initialized
+    // to the same value as it has now, and the amount of work is the
+    // same as just looking for a new_ record
+    if (!Reconstruct())
+      DLOG(FATAL)
+          << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
   }
   current_ = new_ ? new_ : old_;
   return *this;
@@ -142,19 +131,7 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
   auto &dba = db_accessor();
-  if (is_local()) {
-    address_.local()->find_set_old_new(dba.transaction(), old_, new_);
-  } else {
-    // It's not possible that we have a global address for a graph element
-    // that's local, because that is resolved in the constructor.
-    // TODO in write queries it's possible the command has been advanced and
-    // we need to invalidate the Cache and really get the latest stuff.
-    // But only do that after the command has been advanced.
-    auto &cache = dba.db().data_manager().template Elements<TRecord>(
-        dba.transaction_id());
-    cache.FindSetOldNew(dba.transaction().id_, address_.worker_id(),
-                        address_.gid(), old_, new_);
-  }
+  address_.local()->find_set_old_new(dba.transaction(), old_, new_);
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
 }
@@ -176,13 +153,8 @@ TRecord &RecordAccessor<TRecord>::update() const {
 
   if (new_) return *new_;
 
-  if (is_local()) {
-    new_ = address_.local()->update(t);
-  } else {
-    auto &cache = dba.db().data_manager().template Elements<TRecord>(
-        dba.transaction_id());
-    new_ = cache.FindNew(address_.gid());
-  }
+  new_ = address_.local()->update(t);
+
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
 }
@@ -197,35 +169,9 @@ const TRecord &RecordAccessor<TRecord>::current() const {
 }
 
 template <typename TRecord>
-void RecordAccessor<TRecord>::SendDelta(
-    const database::StateDelta &delta) const {
-  DCHECK(!is_local())
-      << "Only a delta created on a remote accessor should be sent";
-
-  auto result =
-      db_accessor().db().updates_clients().Update(address().worker_id(), delta);
-  switch (result) {
-    case distributed::UpdateResult::DONE:
-      break;
-    case distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
-      throw query::RemoveAttachedVertexException();
-    case distributed::UpdateResult::SERIALIZATION_ERROR:
-      throw mvcc::SerializationError();
-    case distributed::UpdateResult::UPDATE_DELETED_ERROR:
-      throw RecordDeletedError();
-    case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
-      throw LockTimeoutException("Lock timeout on remote worker");
-  }
-}
-
-template <typename TRecord>
 void RecordAccessor<TRecord>::ProcessDelta(
     const database::StateDelta &delta) const {
-  if (is_local()) {
-    db_accessor().wal().Emplace(delta);
-  } else {
-    SendDelta(delta);
-  }
+  db_accessor().wal().Emplace(delta);
 }
 
 template class RecordAccessor<Vertex>;

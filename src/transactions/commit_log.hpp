@@ -1,7 +1,5 @@
 #pragma once
 
-#include "boost/serialization/access.hpp"
-
 #include "data_structures/bitset/dynamic_bitset.hpp"
 #include "type.hpp"
 
@@ -58,13 +56,6 @@ class CommitLog {
     operator uint8_t() const { return flags_; }
 
    private:
-    friend class boost::serialization::access;
-
-    template <class TArchive>
-    void serialize(TArchive &ar, unsigned int) {
-      ar &flags_;
-    }
-
     uint8_t flags_{0};
   };
 

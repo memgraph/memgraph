@@ -5,8 +5,6 @@
 #include <iostream>
 #include <string>
 
-#include "boost/serialization/access.hpp"
-
 #include "utils/exceptions.hpp"
 
 namespace io::network {
@@ -29,15 +27,6 @@ class Endpoint {
   friend std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint);
 
  private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &address_;
-    ar &port_;
-    ar &family_;
-  }
-
   std::string address_;
   uint16_t port_{0};
   unsigned char family_{0};

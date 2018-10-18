@@ -3,8 +3,6 @@
 #include <cstdint>
 #include <functional>
 
-#include "boost/serialization/base_object.hpp"
-
 #include "utils/total_ordering.hpp"
 
 namespace storage {
@@ -33,47 +31,19 @@ class Common : public utils::TotalOrdering<TSpecificType> {
   };
 
  private:
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &storage_;
-  }
-
   StorageT storage_{0};
 };
 
 class Label : public Common<Label> {
   using Common::Common;
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<Common<Label>>(*this);
-  }
 };
 
 class EdgeType : public Common<EdgeType> {
   using Common::Common;
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<Common<EdgeType>>(*this);
-  }
 };
 
 class Property : public Common<Property> {
   using Common::Common;
-
-  friend class boost::serialization::access;
-
-  template <class TArchive>
-  void serialize(TArchive &ar, const unsigned int) {
-    ar &boost::serialization::base_object<Common<Property>>(*this);
-  }
 };
 };  // namespace storage
 

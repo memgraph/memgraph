@@ -2,7 +2,6 @@
 
 #include <cstdint>
 
-#include "boost/serialization/access.hpp"
 #include "glog/logging.h"
 
 #include "storage/gid.hpp"
@@ -91,11 +90,5 @@ class Address {
 
  private:
   StorageT storage_{0};
-
-  friend class boost::serialization::access;
-  template <class TArchive>
-  void serialize(TArchive &ar, unsigned int) {
-    ar &storage_;
-  }
 };
 }  // namespace storage
