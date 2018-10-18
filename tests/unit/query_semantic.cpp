@@ -723,7 +723,8 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {
 TEST_F(TestSymbolGenerator, CreateVariablePath) {
   // Test CREATE (n) -[r *]-> (m) raises a SemanticException, since variable
   // paths cannot be created.
-  auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
+  auto edge =
+      EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
@@ -731,7 +732,8 @@ TEST_F(TestSymbolGenerator, CreateVariablePath) {
 TEST_F(TestSymbolGenerator, MergeVariablePath) {
   // Test MERGE (n) -[r *]-> (m) raises a SemanticException, since variable
   // paths cannot be created.
-  auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
+  auto edge =
+      EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("n"), edge, NODE("m")))));
   EXPECT_THROW(query->Accept(symbol_generator), SemanticException);
 }
@@ -741,7 +743,8 @@ TEST_F(TestSymbolGenerator, RedeclareVariablePath) {
   // This is just a temporary solution, before we add the support for using
   // variable paths with already declared symbols. In the future, this test
   // should be changed to check for type errors.
-  auto edge = EDGE_VARIABLE("n", EdgeAtom::Direction::OUT);
+  auto edge =
+      EDGE_VARIABLE("n", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   auto query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("n")));
   EXPECT_THROW(query->Accept(symbol_generator), RedeclareVariableError);
@@ -752,7 +755,8 @@ TEST_F(TestSymbolGenerator, VariablePathSameIdentifier) {
   // `r` cannot be used inside the range expression, since it is bound by the
   // variable expansion itself.
   auto prop = dba.Property("prop");
-  auto edge = EDGE_VARIABLE("r", EdgeAtom::Direction::OUT);
+  auto edge =
+      EDGE_VARIABLE("r", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
   edge->lower_bound_ = PROPERTY_LOOKUP("r", prop);
   auto query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));

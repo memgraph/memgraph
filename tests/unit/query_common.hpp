@@ -148,19 +148,41 @@ auto GetEdge(AstStorage &storage, const std::string &name,
 ///
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdgeVariable(AstStorage &storage, const std::string &name,
+                     EdgeAtom::Type type = EdgeAtom::Type::DEPTH_FIRST,
                      EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
                      const std::vector<storage::EdgeType> &edge_types = {},
-                     Identifier *inner_edge = nullptr,
-                     Identifier *inner_node = nullptr) {
-  auto r_val =
-      storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
-                               EdgeAtom::Type::DEPTH_FIRST, dir, edge_types);
+                     Identifier *flambda_inner_edge = nullptr,
+                     Identifier *flambda_inner_node = nullptr,
+                     Identifier *wlambda_inner_edge = nullptr,
+                     Identifier *wlambda_inner_node = nullptr,
+                     Expression *wlambda_expression = nullptr,
+                     Identifier *total_weight = nullptr) {
+  auto r_val = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), type,
+                                        dir, edge_types);
+
   r_val->filter_lambda_.inner_edge =
-      inner_edge ? inner_edge
-                 : storage.Create<Identifier>(utils::RandomString(20));
+      flambda_inner_edge ? flambda_inner_edge
+                         : storage.Create<Identifier>(utils::RandomString(20));
   r_val->filter_lambda_.inner_node =
-      inner_node ? inner_node
-                 : storage.Create<Identifier>(utils::RandomString(20));
+      flambda_inner_node ? flambda_inner_node
+                         : storage.Create<Identifier>(utils::RandomString(20));
+
+  if (type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
+    r_val->weight_lambda_.inner_edge =
+        wlambda_inner_edge
+            ? wlambda_inner_edge
+            : storage.Create<Identifier>(utils::RandomString(20));
+    r_val->weight_lambda_.inner_node =
+        wlambda_inner_node
+            ? wlambda_inner_node
+            : storage.Create<Identifier>(utils::RandomString(20));
+    r_val->weight_lambda_.expression =
+        wlambda_expression ? wlambda_expression
+                           : storage.Create<query::PrimitiveLiteral>(1);
+
+    r_val->total_weight_ = total_weight;
+  }
+
   return r_val;
 }
 
@@ -268,9 +290,13 @@ void FillReturnBody(AstStorage &, ReturnBody &body,
 }
 void FillReturnBody(AstStorage &storage, ReturnBody &body,
                     const std::string &name) {
-  auto *ident = storage.Create<query::Identifier>(name);
-  auto *named_expr = storage.Create<query::NamedExpression>(name, ident);
-  body.named_expressions.emplace_back(named_expr);
+  if (name == "*") {
+    body.all_identifiers = true;
+  } else {
+    auto *ident = storage.Create<query::Identifier>(name);
+    auto *named_expr = storage.Create<query::NamedExpression>(name, ident);
+    body.named_expressions.emplace_back(named_expr);
+  }
 }
 void FillReturnBody(AstStorage &, ReturnBody &body, Limit limit) {
   body.limit = limit.expression;

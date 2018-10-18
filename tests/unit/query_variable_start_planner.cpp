@@ -11,6 +11,7 @@
 
 using namespace query::plan;
 using query::AstStorage;
+using Type = query::EdgeAtom::Type;
 using Direction = query::EdgeAtom::Direction;
 
 namespace std {
@@ -225,7 +226,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpand) {
   dba->AdvanceCommand();
   // Test MATCH (n) -[r*]-> (m) RETURN r
   AstStorage storage;
-  auto edge = EDGE_VARIABLE("r", Direction::OUT);
+  auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::OUT);
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
@@ -254,7 +255,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   dba.AdvanceCommand();
   // Test MATCH (n) -[r*..n.id]-> (m) RETURN r
   AstStorage storage;
-  auto edge = EDGE_VARIABLE("r", Direction::OUT);
+  auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::OUT);
   edge->upper_bound_ = PROPERTY_LOOKUP("n", id);
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -280,7 +281,7 @@ TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   dba->AdvanceCommand();
   // Test MATCH (n {id:1}) -[r*]- (m) RETURN r
   AstStorage storage;
-  auto edge = EDGE_VARIABLE("r", Direction::BOTH);
+  auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH);
   auto node_n = NODE("n");
   node_n->properties_[std::make_pair("id", id)] = LITERAL(1);
   auto *query =

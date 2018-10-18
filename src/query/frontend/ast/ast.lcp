@@ -1623,8 +1623,7 @@ cpp<#
 
 (lcp:define-struct return-body ()
   ((distinct :bool :initval "false"
-             :documentation "True if distinct results should be produced."
-            )
+             :documentation "True if distinct results should be produced.")
    (all-identifiers :bool :initval "false"
                     :documentation "True if asterisk was found in the return body.")
    (named-expressions "std::vector<NamedExpression *>"

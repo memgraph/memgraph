@@ -33,6 +33,7 @@ using query::SingleQuery;
 using query::Symbol;
 using query::SymbolGenerator;
 using query::SymbolTable;
+using Type = query::EdgeAtom::Type;
 using Direction = query::EdgeAtom::Direction;
 using Bound = ScanAllByLabelPropertyRange::Bound;
 
@@ -1183,7 +1184,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableInlinedFilter) {
   auto type = dba.EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
-  auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
+  auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
   edge->properties_[prop] = LITERAL(42);
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -1199,7 +1200,7 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
   auto type = dba.EdgeType("type");
   auto prop = PROPERTY_PAIR("prop");
   AstStorage storage;
-  auto edge = EDGE_VARIABLE("r", Direction::BOTH, {type});
+  auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH, {type});
   edge->properties_[prop] = EQ(PROPERTY_LOOKUP("m", prop), LITERAL(42));
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("r")));
@@ -1207,10 +1208,41 @@ TYPED_TEST(TestPlanner, MatchExpandVariableNotInlinedFilter) {
                        ExpectFilter(), ExpectProduce());
 }
 
+TYPED_TEST(TestPlanner, MatchExpandVariableTotalWeightSymbol) {
+  // Test MATCH p = (a {id: 0})-[r* wShortest (e, v | 1) total_weight]->(b)
+  // RETURN *
+  FakeDbAccessor dba;
+  AstStorage storage;
+
+  auto edge = EDGE_VARIABLE("r", Type::WEIGHTED_SHORTEST_PATH, Direction::BOTH,
+                            {}, nullptr, nullptr, nullptr, nullptr, nullptr,
+                            IDENT("total_weight"));
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"), edge, NODE("m"))), RETURN("*")));
+  auto symbol_table = MakeSymbolTable(*query);
+  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto *root = dynamic_cast<Produce *>(&planner.plan());
+
+  ASSERT_TRUE(root);
+
+  const auto &nes = root->named_expressions_;
+  EXPECT_TRUE(nes.size() == 4);
+
+  std::vector<std::string> names(nes.size());
+  std::transform(nes.begin(), nes.end(), names.begin(),
+                 [](const auto *ne) { return ne->name_; });
+
+  EXPECT_TRUE(root->named_expressions_.size() == 4);
+  EXPECT_TRUE(utils::Contains(names, "m"));
+  EXPECT_TRUE(utils::Contains(names, "n"));
+  EXPECT_TRUE(utils::Contains(names, "r"));
+  EXPECT_TRUE(utils::Contains(names, "total_weight"));
+}
+
 TYPED_TEST(TestPlanner, UnwindMatchVariable) {
   // Test UNWIND [1,2,3] AS depth MATCH (n) -[r*d]-> (m) RETURN r
   AstStorage storage;
-  auto edge = EDGE_VARIABLE("r", Direction::OUT);
+  auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::OUT);
   edge->lower_bound_ = IDENT("d");
   edge->upper_bound_ = IDENT("d");
   auto *query = QUERY(
@@ -1295,7 +1327,7 @@ TYPED_TEST(TestPlanner, MatchWhereAndSplit) {
 TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   // Test MATCH (n) -[r* (ie, in | true)]- (m) RETURN *
   AstStorage storage;
-  auto edge = EDGE_VARIABLE("r", Direction::BOTH);
+  auto edge = EDGE_VARIABLE("r", Type::DEPTH_FIRST, Direction::BOTH);
   edge->filter_lambda_.inner_edge = IDENT("ie");
   edge->filter_lambda_.inner_node = IDENT("in");
   edge->filter_lambda_.expression = LITERAL(true);

@@ -68,7 +68,6 @@ class VisitorBase<R, T> {
   virtual ReturnType Visit(T &) = 0;
 };
 
-
 template <class... T>
 class CompositeVisitorBase;
 
@@ -192,7 +191,7 @@ using LeafVisitor = Visitor<bool, TVisitable...>;
 ///     // Custom implementation for *composite* AddOp expression.
 ///   }
 ///
-///   void Visit(Identifier &identifier) override {
+///   bool Visit(Identifier &identifier) override {
 ///     // Custom implementation for *leaf* Identifier expression.
 ///   }
 /// };
@@ -220,7 +219,7 @@ class CompositeVisitor : public detail::CompositeVisitorBase<TVisitable...> {
 /// @code
 /// class Expression : public Visitable<ExpressionVisitor> { ... };
 ///
-/// class Identifier : public ExpressionVisitor {
+/// class Identifier : public Expression {
 ///  public:
 ///   // Use default Accept implementation, since this is a *leaf* type.
 ///   DEFVISITABLE(ExpressionVisitor)

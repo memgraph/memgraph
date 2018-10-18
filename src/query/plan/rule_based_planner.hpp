@@ -462,6 +462,10 @@ class RuleBasedPlanner {
           bound_symbols.erase(filter_lambda.inner_edge_symbol);
           bound_symbols.erase(filter_lambda.inner_node_symbol);
 
+          if (total_weight) {
+            bound_symbols.insert(*total_weight);
+          }
+
           // TODO: Pass weight lambda.
           last_op = std::make_unique<ExpandVariable>(
               node_symbol, edge_symbol, edge->type_, expansion.direction,
