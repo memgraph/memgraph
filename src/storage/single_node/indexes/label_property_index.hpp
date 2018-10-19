@@ -553,10 +553,17 @@ class LabelPropertyIndex {
                              const Vertex *const vertex) {
     auto access = index.access();
     auto it = access.find_or_larger(IndexEntry{value, nullptr, nullptr});
-    if (it == access.end() || (IndexEntry::Less(it->value_, value) &&
-                               IndexEntry::Less(value, it->value_)))
+
+    // If not found.
+    if (it == access.end()) {
       return true;
-    return false;
+    }
+    // If not equal.
+    if (IndexEntry::Less(it->value_, value) ||
+        IndexEntry::Less(value, it->value_)) {
+      return true;
+    }
+    return vlist->cypher_id() == it->vlist_->cypher_id();
   }
 
   /**

@@ -441,3 +441,14 @@ TEST_F(GraphDbAccessorIndex, UniqueConstraintViolationOnBuild) {
   EXPECT_THROW(dba->BuildIndex(label, property, true),
                database::IndexConstraintViolationException);
 }
+
+TEST_F(GraphDbAccessorIndex, UniqueConstraintUpdateProperty) {
+  dba->BuildIndex(label, property, true);
+  AddVertex(0);
+  auto vertex_accessor = dba->InsertVertex();
+  vertex_accessor.add_label(label);
+  vertex_accessor.PropsSet(property, 10);
+
+  EXPECT_THROW(vertex_accessor.PropsSet(property, 0),
+               database::IndexConstraintViolationException);
+}
