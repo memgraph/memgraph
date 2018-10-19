@@ -173,6 +173,20 @@ class Session final {
           // again.
           socket_.WaitForReadyWrite();
           return false;
+        } else if (err == SSL_ERROR_SYSCALL) {
+          // OpenSSL returns this error when you open a connection to the server
+          // but you don't send any data. We do this often when we check whether
+          // the server is alive by trying to open a connection to it using
+          // `nc -z -w 1 127.0.0.1 7687`.
+          // When this error occurs we need to check the `errno` to find out
+          // what really happened.
+          // See: https://www.openssl.org/docs/man1.1.0/ssl/SSL_get_error.html
+          if (errno == 0) {
+            // The client closed the connection.
+            throw SessionClosedException("Session was closed by the client.");
+          }
+          // If `errno` isn't 0 then something bad happened.
+          throw utils::BasicException(SslGetLastError());
         } else {
           // This is a fatal error.
           throw utils::BasicException(SslGetLastError());
