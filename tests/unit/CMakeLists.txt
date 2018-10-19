@@ -317,9 +317,10 @@ target_link_libraries(${test_prefix}auth mg-auth kvstore_lib)
 
 # Test LCP
 
-add_custom_target(test_lcp ALL
-  BYPRODUCTS test_lcp
-  COMMAND sbcl --script ${CMAKE_CURRENT_SOURCE_DIR}/test_lcp.lisp
-  DEPENDS lcp)
+add_custom_command(
+  OUTPUT test_lcp
+  DEPENDS lcp test_lcp.lisp
+  COMMAND sbcl --script ${CMAKE_CURRENT_SOURCE_DIR}/test_lcp.lisp)
+add_custom_target(test_lcp ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_test(test_lcp ${CMAKE_CURRENT_BINARY_DIR}/test_lcp)
 add_dependencies(memgraph__unit test_lcp)
