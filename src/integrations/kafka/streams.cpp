@@ -134,11 +134,6 @@ void Streams::Create(const StreamInfo &info, bool download_transform_script) {
   if (consumers_.find(info.stream_name) != consumers_.end())
     throw StreamExistsException(info.stream_name);
 
-  // Store stream_info in metadata_store_.
-  if (!metadata_store_.Put(info.stream_name, Serialize(info).dump())) {
-    throw StreamMetadataCouldNotBeStored(info.stream_name);
-  }
-
   // Make sure transform directory exists or we can create it.
   if (!utils::EnsureDir(GetTransformScriptDir())) {
     throw TransformScriptCouldNotBeCreatedException(info.stream_name);
@@ -150,6 +145,11 @@ void Streams::Create(const StreamInfo &info, bool download_transform_script) {
       !requests::CreateAndDownloadFile(info.transform_uri,
                                        transform_script_path)) {
     throw TransformScriptDownloadException(info.transform_uri);
+  }
+
+  // Store stream_info in metadata_store_.
+  if (!metadata_store_.Put(info.stream_name, Serialize(info).dump())) {
+    throw StreamMetadataCouldNotBeStored(info.stream_name);
   }
 
   try {
