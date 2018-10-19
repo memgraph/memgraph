@@ -5,7 +5,7 @@
 namespace query {
 
 // Forward declares for Tree visitors.
-class Query;
+class CypherQuery;
 class SingleQuery;
 class CypherUnion;
 class NamedExpression;
@@ -60,22 +60,17 @@ class RemoveProperty;
 class RemoveLabels;
 class Merge;
 class Unwind;
-class CreateIndex;
-class CreateUniqueIndex;
 class AuthQuery;
-class CreateStream;
-class DropStream;
-class ShowStreams;
-class StartStopStream;
-class StartStopAllStreams;
-class TestStream;
+class ExplainQuery;
+class IndexQuery;
+class StreamQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
-    Query, SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
-    AndOperator, NotOperator, AdditionOperator, SubtractionOperator,
-    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
-    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
-    GreaterEqualOperator, InListOperator, SubscriptOperator,
+    CypherQuery, ExplainQuery, SingleQuery, CypherUnion, NamedExpression,
+    OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
+    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator,
+    NotEqualOperator, EqualOperator, LessOperator, GreaterOperator,
+    LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
     Aggregation, Function, Reduce, Extract, All, Single, Create, Match, Return,
@@ -84,9 +79,7 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup,
-                         CreateIndex, CreateUniqueIndex, AuthQuery,
-                         CreateStream, DropStream, ShowStreams, StartStopStream,
-                         StartStopAllStreams, TestStream>;
+                         IndexQuery, AuthQuery, StreamQuery>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {
@@ -99,18 +92,17 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor,
 
 template <typename TResult>
 using TreeVisitor = ::utils::Visitor<
-    TResult, Query, SingleQuery, CypherUnion, NamedExpression, OrOperator,
-    XorOperator, AndOperator, NotOperator, AdditionOperator,
-    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator,
-    NotEqualOperator, EqualOperator, LessOperator, GreaterOperator,
-    LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
-    ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
-    IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    Aggregation, Function, Reduce, Extract, All, Single, ParameterLookup,
-    Create, Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
-    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind, Identifier, PrimitiveLiteral, CreateIndex, CreateUniqueIndex,
-    AuthQuery, CreateStream, DropStream, ShowStreams, StartStopStream,
-    StartStopAllStreams, TestStream>;
+    TResult, CypherQuery, ExplainQuery, SingleQuery, CypherUnion,
+    NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
+    AdditionOperator, SubtractionOperator, MultiplicationOperator,
+    DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
+    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
+    InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator,
+    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
+    MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, Reduce,
+    Extract, All, Single, ParameterLookup, Create, Match, Return, With, Pattern,
+    NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
+    RemoveProperty, RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral,
+    IndexQuery, AuthQuery, StreamQuery>;
 
 }  // namespace query

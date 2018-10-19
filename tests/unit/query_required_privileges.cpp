@@ -97,15 +97,14 @@ TEST_F(TestPrivilegeExtractor, MatchNodeRemoveProperty) {
 }
 
 TEST_F(TestPrivilegeExtractor, CreateIndex) {
-  auto *query = QUERY(SINGLE_QUERY(CREATE_INDEX_ON(LABEL_0, PROP_0)));
+  auto *query = CREATE_INDEX_ON(LABEL_0, PROP_0);
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::INDEX));
 }
 
 TEST_F(TestPrivilegeExtractor, AuthQuery) {
-  auto *query = QUERY(
-      SINGLE_QUERY(AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "",
-                              nullptr, std::vector<AuthQuery::Privilege>{})));
+  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "",
+                           nullptr, std::vector<AuthQuery::Privilege>{});
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::AUTH));
 }
@@ -116,7 +115,7 @@ TEST_F(TestPrivilegeExtractor, StreamQuery) {
   std::string stream_topic("tropik");
   std::string transform_uri("localhost:1234/file.py");
 
-  std::vector<Clause *> stream_clauses = {
+  std::vector<StreamQuery *> stream_queries = {
       CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri,
                     nullptr, nullptr),
       DROP_STREAM(stream_name),
@@ -126,8 +125,7 @@ TEST_F(TestPrivilegeExtractor, StreamQuery) {
       START_ALL_STREAMS,
       STOP_ALL_STREAMS};
 
-  for (auto *stream_clause : stream_clauses) {
-    auto *query = QUERY(SINGLE_QUERY(stream_clause));
+  for (auto *query : stream_queries) {
     EXPECT_THAT(GetRequiredPrivileges(query),
                 UnorderedElementsAre(AuthQuery::Privilege::STREAM));
   }

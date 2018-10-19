@@ -5,14 +5,6 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
 
-namespace auth {
-class Auth;
-}  // namespace auth
-
-namespace integrations::kafka {
-class Streams;
-}  // namespace integrations::kafka
-
 namespace query {
 
 struct EvaluationContext {
@@ -22,8 +14,6 @@ struct EvaluationContext {
 
 class Context {
  public:
-  // Since we also return some information from context (is_index_created_) we
-  // need to be sure that we have only one Context instance per query.
   Context(const Context &) = delete;
   Context &operator=(const Context &) = delete;
   Context(Context &&) = default;
@@ -32,13 +22,8 @@ class Context {
   explicit Context(database::GraphDbAccessor &db_accessor)
       : db_accessor_(db_accessor) {}
   database::GraphDbAccessor &db_accessor_;
-  bool in_explicit_transaction_ = false;
-  bool is_index_created_ = false;
   SymbolTable symbol_table_;
   EvaluationContext evaluation_context_;
-
-  auth::Auth *auth_ = nullptr;
-  integrations::kafka::Streams *kafka_streams_ = nullptr;
 };
 
 struct ParsingContext {

@@ -74,7 +74,7 @@ class Interpreter {
     Results(Context ctx, std::shared_ptr<CachedPlan> plan,
             std::unique_ptr<query::plan::Cursor> cursor,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
-            std::map<std::string, TypedValue> summary, PlanCacheT &plan_cache,
+            std::map<std::string, TypedValue> summary,
             std::vector<AuthQuery::Privilege> privileges)
         : ctx_(std::move(ctx)),
           plan_(plan),
@@ -83,7 +83,6 @@ class Interpreter {
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),
-          plan_cache_(plan_cache),
           privileges_(std::move(privileges)) {}
 
    public:
@@ -118,13 +117,6 @@ class Interpreter {
 
       if (!return_value) {
         summary_["plan_execution_time"] = execution_time_;
-
-        if (ctx_.is_index_created_) {
-          auto access = plan_cache_.access();
-          for (auto &kv : access) {
-            access.remove(kv.first);
-          }
-        }
         cursor_->Shutdown();
       }
 
@@ -155,8 +147,6 @@ class Interpreter {
     std::map<std::string, TypedValue> summary_;
 
     double execution_time_{0};
-    // Gets invalidated after if an index has been built.
-    PlanCacheT &plan_cache_;
 
     std::vector<AuthQuery::Privilege> privileges_;
   };
@@ -185,8 +175,12 @@ class Interpreter {
   // high level tree -> logical plan
   // AstStorage and SymbolTable may be modified during planning. The created
   // LogicalPlan must take ownership of AstStorage and SymbolTable.
-  virtual std::unique_ptr<LogicalPlan> MakeLogicalPlan(Query *, AstStorage,
-                                                       Context *);
+  virtual std::unique_ptr<LogicalPlan> MakeLogicalPlan(
+      CypherQuery *, AstStorage, const Parameters &,
+      database::GraphDbAccessor *);
+
+  virtual void PrettyPrintPlan(const database::GraphDbAccessor &,
+                               const plan::LogicalOperator *, std::ostream *);
 
  private:
   ConcurrentMap<HashType, CachedQuery> ast_cache_;
@@ -200,10 +194,13 @@ class Interpreter {
   utils::SpinLock antlr_lock_;
 
   // high level tree -> CachedPlan
-  std::shared_ptr<CachedPlan> AstToPlan(Query *query, AstStorage ast_storage,
-                                        Context *ctx);
+  std::shared_ptr<CachedPlan> CypherQueryToPlan(
+      HashType query_hash, CypherQuery *query, AstStorage ast_storage,
+      const Parameters &parameters, database::GraphDbAccessor *db_accessor);
+
   // stripped query -> high level tree
-  Query *QueryToAst(const StrippedQuery &stripped,
+  Query *ParseQuery(const std::string &stripped_query,
+                    const std::string &original_query,
                     const ParsingContext &context, AstStorage *ast_storage,
                     database::GraphDbAccessor *db_accessor);
 };

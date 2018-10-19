@@ -50,12 +50,7 @@ class PrivilegeExtractor : public HierarchicalTreeVisitor {
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
 
-  bool Visit(CreateIndex &) override {
-    AddPrivilege(AuthQuery::Privilege::INDEX);
-    return true;
-  }
-
-  bool Visit(CreateUniqueIndex &) override {
+  bool Visit(IndexQuery &) override {
     AddPrivilege(AuthQuery::Privilege::INDEX);
     return true;
   }
@@ -64,27 +59,7 @@ class PrivilegeExtractor : public HierarchicalTreeVisitor {
     AddPrivilege(AuthQuery::Privilege::AUTH);
     return true;
   }
-  bool Visit(CreateStream &) override {
-    AddPrivilege(AuthQuery::Privilege::STREAM);
-    return true;
-  }
-  bool Visit(DropStream &) override {
-    AddPrivilege(AuthQuery::Privilege::STREAM);
-    return true;
-  }
-  bool Visit(ShowStreams &) override {
-    AddPrivilege(AuthQuery::Privilege::STREAM);
-    return true;
-  }
-  bool Visit(StartStopStream &) override {
-    AddPrivilege(AuthQuery::Privilege::STREAM);
-    return true;
-  }
-  bool Visit(StartStopAllStreams &) override {
-    AddPrivilege(AuthQuery::Privilege::STREAM);
-    return true;
-  }
-  bool Visit(TestStream &) override {
+  bool Visit(StreamQuery &) override {
     AddPrivilege(AuthQuery::Privilege::STREAM);
     return true;
   }

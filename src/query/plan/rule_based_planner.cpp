@@ -397,12 +397,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(query::CreateIndex &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool Visit(query::CreateUniqueIndex &) override {
+  bool Visit(query::IndexQuery &) override {
     has_aggregation_.emplace_back(false);
     return true;
   }
@@ -412,32 +407,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(query::CreateStream &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool Visit(query::DropStream &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool Visit(query::ShowStreams &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool Visit(query::StartStopStream &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool Visit(query::StartStopAllStreams &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool Visit(query::TestStream &) override {
+  bool Visit(query::StreamQuery &) override {
     has_aggregation_.emplace_back(false);
     return true;
   }

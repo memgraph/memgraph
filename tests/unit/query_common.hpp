@@ -269,7 +269,7 @@ auto GetCypherUnion(CypherUnion *cypher_union, SingleQuery *single_query) {
 }
 
 auto GetQuery(AstStorage &storage, SingleQuery *single_query) {
-  auto *query = storage.Create<Query>();
+  auto *query = storage.Create<CypherQuery>();
   query->single_query_ = single_query;
   return query;
 }
@@ -277,7 +277,7 @@ auto GetQuery(AstStorage &storage, SingleQuery *single_query) {
 template <class... T>
 auto GetQuery(AstStorage &storage, SingleQuery *single_query,
               T *... cypher_unions) {
-  auto *query = storage.Create<Query>();
+  auto *query = storage.Create<CypherQuery>();
   query->single_query_ = single_query;
   query->cypher_unions_ = std::vector<CypherUnion *>{cypher_unions...};
   return query;
@@ -539,8 +539,10 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   query::test_common::OnCreate {                 \
     std::vector<query::Clause *> { __VA_ARGS__ } \
   }
-#define CREATE_INDEX_ON(label, property) \
-  storage.Create<query::CreateIndex>((label), (property))
+#define CREATE_INDEX_ON(label, property)          \
+  storage.Create<query::IndexQuery>(              \
+      query::IndexQuery::Action::CREATE, (label), \
+      std::vector<storage::Property>{(property)})
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
   query::test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)
@@ -609,17 +611,35 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define DROP_USER(usernames) storage.Create<query::DropUser>((usernames))
 #define CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri, \
                       batch_interval, batch_size)                           \
-  storage.Create<query::CreateStream>(                                      \
-      (stream_name), LITERAL(stream_uri), LITERAL(stream_topic),            \
-      LITERAL(transform_uri), (batch_interval), (batch_size))
-#define DROP_STREAM(stream_name) \
-  storage.Create<query::DropStream>((stream_name))
-#define SHOW_STREAMS storage.Create<query::ShowStreams>()
-#define START_STREAM(stream_name, limit_batches) \
-  storage.Create<query::StartStopStream>((stream_name), true, (limit_batches))
-#define STOP_STREAM(stream_name) \
-  storage.Create<query::StartStopStream>((stream_name), false, nullptr)
-#define START_ALL_STREAMS storage.Create<query::StartStopAllStreams>(true)
-#define STOP_ALL_STREAMS storage.Create<query::StartStopAllStreams>(false)
-#define TEST_STREAM(stream_name, limit_batches) \
-  storage.Create<query::TestStream>((stream_name), (limit_batches))
+  storage.Create<query::StreamQuery>(                                       \
+      query::StreamQuery::Action::CREATE_STREAM, (stream_name),             \
+      LITERAL(stream_uri), LITERAL(stream_topic), LITERAL(transform_uri),   \
+      (batch_interval), (batch_size), nullptr)
+#define DROP_STREAM(stream_name)                                               \
+  storage.Create<query::StreamQuery>(query::StreamQuery::Action::DROP_STREAM,  \
+                                     (stream_name), nullptr, nullptr, nullptr, \
+                                     nullptr, nullptr, nullptr)
+#define SHOW_STREAMS                                                           \
+  storage.Create<query::StreamQuery>(query::StreamQuery::Action::SHOW_STREAMS, \
+                                     "", nullptr, nullptr, nullptr, nullptr,   \
+                                     nullptr, nullptr)
+#define START_STREAM(stream_name, limit_batches)                               \
+  storage.Create<query::StreamQuery>(query::StreamQuery::Action::START_STREAM, \
+                                     (stream_name), nullptr, nullptr, nullptr, \
+                                     nullptr, nullptr, (limit_batches))
+#define STOP_STREAM(stream_name)                                               \
+  storage.Create<query::StreamQuery>(query::StreamQuery::Action::STOP_STREAM,  \
+                                     (stream_name), nullptr, nullptr, nullptr, \
+                                     nullptr, nullptr, nullptr)
+#define START_ALL_STREAMS                                                  \
+  storage.Create<query::StreamQuery>(                                      \
+      query::StreamQuery::Action::START_ALL_STREAMS, "", nullptr, nullptr, \
+      nullptr, nullptr, nullptr, nullptr)
+#define STOP_ALL_STREAMS                                                  \
+  storage.Create<query::StreamQuery>(                                     \
+      query::StreamQuery::Action::STOP_ALL_STREAMS, "", nullptr, nullptr, \
+      nullptr, nullptr, nullptr, nullptr)
+#define TEST_STREAM(stream_name, limit_batches)                               \
+  storage.Create<query::TestStream>(query::StreamQuery::Action::TEST_STREAM,  \
+                                    (stream_name), nullptr, nullptr, nullptr, \
+                                    nullptr, nullptr, (limit_batches))

@@ -88,24 +88,6 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
 
   // These don't use any symbols
   bool Visit(Once &) override { return true; }
-  bool Visit(CreateIndex &) override { return true; }
-  bool Visit(AuthHandler &) override { return true; }
-  bool Visit(CreateStream &) override { return true; }
-  bool Visit(DropStream &) override { return true; }
-  bool Visit(ShowStreams &) override { return true; }
-  bool Visit(StartStopStream &) override { return true; }
-  bool Visit(StartStopAllStreams &) override { return true; }
-  bool Visit(TestStream &) override { return true; }
-
-  // Treat Explain as if the query is planned without it
-  bool PreVisit(Explain &explain) override {
-    prev_ops_.push_back(&explain);
-    return true;
-  }
-  bool PostVisit(Explain &explain) override {
-    prev_ops_.pop_back();
-    return true;
-  }
 
   bool PreVisit(ScanAll &scan) override {
     prev_ops_.push_back(&scan);
@@ -1119,30 +1101,6 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // Change the pretty printer for Explain, but otherwise treat it as if the
-  // query is planned without it
-  bool PreVisit(Explain &explain) override {
-    CHECK(prev_ops_.empty());
-    prev_ops_.push_back(&explain);
-    explain.pretty_print_ = [](const auto &dba, auto *root, auto *out) {
-      return DistributedPrettyPrint(dba, root, out);
-    };
-    return true;
-  }
-
-  bool PostVisit(Explain &explain) override {
-    // Set Explain as the final operator on master.
-    if (ShouldSplit()) {
-      auto input = explain.input();
-      auto pull_id = AddWorkerPlan(input);
-      Split(explain, std::make_shared<PullRemote>(
-                         input, pull_id,
-                         input->OutputSymbols(distributed_plan_.symbol_table)));
-    }
-    prev_ops_.pop_back();
-    return false;
-  }
-
   // Skip needs to skip only the first N results from *all* of the results.
   // Therefore, the earliest (deepest in the plan tree) encountered Skip will
   // break the plan in 2 parts.
@@ -1443,22 +1401,6 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool Visit(Once &) override { return true; }
-
-  bool Visit(CreateIndex &) override { return true; }
-
-  bool Visit(AuthHandler &) override { return true; }
-
-  bool Visit(CreateStream &) override { return true; }
-
-  bool Visit(DropStream &) override { return true; }
-
-  bool Visit(ShowStreams &) override { return true; }
-
-  bool Visit(StartStopStream &) override { return true; }
-
-  bool Visit(StartStopAllStreams &) override { return true; }
-
-  bool Visit(TestStream &) override { return true; }
 
   // Accumulate is used only if the query performs any writes. In such a case,
   // we need to synchronize the work done on master and all workers.

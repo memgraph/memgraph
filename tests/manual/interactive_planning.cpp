@@ -453,7 +453,7 @@ query::SymbolTable MakeSymbolTable(query::Query *query) {
 
 // Returns a list of pairs (plan, estimated cost), sorted in the ascending
 // order by cost.
-auto MakeLogicalPlans(query::Query *query, query::AstStorage &ast,
+auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
                       query::SymbolTable &symbol_table,
                       InteractiveDbAccessor &dba) {
   auto query_parts = query::plan::CollectQueryParts(symbol_table, ast, query);
@@ -501,7 +501,13 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
     if (line->empty()) continue;
     try {
       query::AstStorage ast;
-      auto *query = MakeAst(*line, &ast, *dba);
+      auto *query =
+          dynamic_cast<query::CypherQuery *>(MakeAst(*line, &ast, *dba));
+      if (!query) {
+        throw utils::BasicException(
+            "Interactive planning is only avaialable for regular openCypher "
+            "queries.");
+      }
       auto symbol_table = MakeSymbolTable(query);
       planning_timer.Start();
       auto plans = MakeLogicalPlans(query, ast, symbol_table, interactive_db);

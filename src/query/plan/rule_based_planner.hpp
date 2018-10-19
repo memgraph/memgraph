@@ -23,8 +23,8 @@ struct PlanningContext {
   SymbolTable &symbol_table;
   /// @brief The storage is used to create new AST nodes for use in operators.
   AstStorage &ast_storage;
-  /// @brief Query to be planned
-  Query *query;
+  /// @brief Cypher query to be planned
+  CypherQuery *query;
   /// @brief TDbAccessor, which may be used to get some information from the
   /// database to generate better plans. The accessor is required only to live
   /// long enough for the plan generation to finish.
@@ -40,7 +40,7 @@ struct PlanningContext {
 
 template <class TDbAccessor>
 auto MakePlanningContext(AstStorage &ast_storage, SymbolTable &symbol_table,
-                         Query *query, const TDbAccessor &db) {
+                         CypherQuery *query, const TDbAccessor &db) {
   return PlanningContext<TDbAccessor>{symbol_table, ast_storage, query, db};
 }
 
@@ -178,70 +178,6 @@ class RuleBasedPlanner {
           input_op = std::make_unique<plan::Unwind>(
               std::move(input_op), unwind->named_expression_->expression_,
               symbol);
-        } else if (auto *create_index =
-                       dynamic_cast<query::CreateIndex *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before CreateIndex";
-          input_op = std::make_unique<plan::CreateIndex>(
-              create_index->label_,
-              std::vector<storage::Property>{create_index->property_}, false);
-        } else if (auto *create_index =
-                       dynamic_cast<query::CreateUniqueIndex *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before CreateIndex";
-          input_op = std::make_unique<plan::CreateIndex>(
-              create_index->label_, create_index->properties_, true);
-        } else if (auto *auth_query =
-                       dynamic_cast<query::AuthQuery *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before AuthQuery";
-          auto &symbol_table = context.symbol_table;
-          input_op = std::make_unique<plan::AuthHandler>(
-              auth_query->action_, auth_query->user_, auth_query->role_,
-              auth_query->user_or_role_, auth_query->password_,
-              auth_query->privileges_, symbol_table.CreateSymbol("user", false),
-              symbol_table.CreateSymbol("role", false),
-              symbol_table.CreateSymbol("privilege", false),
-              symbol_table.CreateSymbol("effective", false),
-              symbol_table.CreateSymbol("details", false));
-        } else if (auto *create_stream =
-                       dynamic_cast<query::CreateStream *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before CreateStream";
-          input_op = std::make_unique<plan::CreateStream>(
-              create_stream->stream_name_, create_stream->stream_uri_,
-              create_stream->stream_topic_, create_stream->transform_uri_,
-              create_stream->batch_interval_in_ms_, create_stream->batch_size_);
-        } else if (auto *drop_stream =
-                       dynamic_cast<query::DropStream *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before DropStream";
-          input_op =
-              std::make_unique<plan::DropStream>(drop_stream->stream_name_);
-        } else if (dynamic_cast<query::ShowStreams *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before ShowStreams";
-          // Create symbols for ShowStreams results
-          auto &symbol_table = context.symbol_table;
-          input_op = std::make_unique<plan::ShowStreams>(
-              symbol_table.CreateSymbol("name", false),
-              symbol_table.CreateSymbol("uri", false),
-              symbol_table.CreateSymbol("topic", false),
-              symbol_table.CreateSymbol("transform", false),
-              symbol_table.CreateSymbol("status", false));
-        } else if (auto *start_stop_stream =
-                       dynamic_cast<query::StartStopStream *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before StartStopStream";
-          input_op = std::make_unique<plan::StartStopStream>(
-              start_stop_stream->stream_name_, start_stop_stream->is_start_,
-              start_stop_stream->limit_batches_);
-        } else if (auto *start_stop_all_streams =
-                       dynamic_cast<query::StartStopAllStreams *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before StartStopAllStreams";
-          input_op = std::make_unique<plan::StartStopAllStreams>(
-              start_stop_all_streams->is_start_);
-        } else if (auto *test_stream =
-                       dynamic_cast<query::TestStream *>(clause)) {
-          DCHECK(!input_op) << "Unexpected operator before TestStream";
-          auto &symbol_table = context.symbol_table;
-          input_op = std::make_unique<plan::TestStream>(
-              test_stream->stream_name_, test_stream->limit_batches_,
-              symbol_table.CreateSymbol("query", false),
-              symbol_table.CreateSymbol("params", false));
         } else {
           throw utils::NotYetImplemented("clause conversion to operator(s)");
         }

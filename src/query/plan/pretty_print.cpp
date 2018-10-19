@@ -143,53 +143,6 @@ bool PlanPrinter::Visit(query::plan::Once &op) {
   return true;
 }
 
-bool PlanPrinter::Visit(query::plan::CreateIndex &op) {
-  WithPrintLn([](auto &out) { out << "* CreateIndex"; });
-  return true;
-}
-
-bool PlanPrinter::Visit(query::plan::AuthHandler &op) {
-  WithPrintLn([](auto &out) { out << "* AuthHandler"; });
-  return true;
-}
-
-bool PlanPrinter::Visit(query::plan::CreateStream &op) {
-  WithPrintLn([](auto &out) { out << "* CreateStream"; });
-  return true;
-}
-
-bool PlanPrinter::Visit(query::plan::DropStream &op) {
-  WithPrintLn([](auto &out) { out << "* DropStream"; });
-  return true;
-}
-
-bool PlanPrinter::Visit(query::plan::ShowStreams &op) {
-  WithPrintLn([](auto &out) { out << "* ShowStreams"; });
-  return true;
-}
-
-bool PlanPrinter::Visit(query::plan::StartStopStream &op) {
-  WithPrintLn([](auto &out) { out << "* StartStopStream"; });
-  return true;
-}
-
-bool PlanPrinter::Visit(query::plan::StartStopAllStreams &op) {
-  WithPrintLn([](auto &out) { out << "* StartStopAllStreams"; });
-  return true;
-}
-
-bool PlanPrinter::Visit(query::plan::TestStream &op) {
-  WithPrintLn([](auto &out) { out << "* TestStream"; });
-  return true;
-}
-
-bool PlanPrinter::PreVisit(query::plan::Explain &explain) {
-  WithPrintLn([&explain](auto &out) {
-    out << "* Explain {" << explain.output_symbol_.name() << "}";
-  });
-  return true;
-}
-
 bool PlanPrinter::PreVisit(query::plan::Cartesian &op) {
   WithPrintLn([&op](auto &out) {
     out << "* Cartesian {";
@@ -229,9 +182,10 @@ void PlanPrinter::PrintExpand(const query::plan::ExpandCommon &op) {
 }
 
 void PrettyPrint(const database::GraphDbAccessor &dba,
-                 LogicalOperator *plan_root, std::ostream *out) {
+                 const LogicalOperator *plan_root, std::ostream *out) {
   PlanPrinter printer(&dba, out);
-  plan_root->Accept(printer);
+  // FIXME(mtomic): We should make visitors that take const arguments.
+  const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
 }  // namespace query::plan

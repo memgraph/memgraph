@@ -27,17 +27,21 @@ const std::string CypherMainVisitor::kAnonPrefix = "anon";
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(
     MemgraphCypher::ExplainQueryContext *ctx) {
-  visitChildren(ctx);
-  CHECK(query_);
-  query_->explain_ = true;
-  return query_;
+  CHECK(ctx->children.size() == 2)
+      << "ExplainQuery should have exactly two children!";
+  auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
+  auto *explain_query = storage_->Create<ExplainQuery>();
+  explain_query->cypher_query_ = cypher_query;
+  query_ = explain_query;
+  return explain_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(
     MemgraphCypher::CypherQueryContext *ctx) {
-  query_ = storage_->Create<Query>();
-  DCHECK(ctx->singleQuery()) << "Expected single query.";
-  query_->single_query_ = ctx->singleQuery()->accept(this).as<SingleQuery *>();
+  auto *cypher_query = storage_->Create<CypherQuery>();
+  CHECK(ctx->singleQuery()) << "Expected single query.";
+  cypher_query->single_query_ =
+      ctx->singleQuery()->accept(this).as<SingleQuery *>();
 
   // Check that union and union all dont mix
   bool has_union = false;
@@ -51,59 +55,64 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(
     if (has_union && has_union_all) {
       throw SemanticException("Invalid combination of UNION and UNION ALL.");
     }
-    query_->cypher_unions_.push_back(child->accept(this).as<CypherUnion *>());
+    cypher_query->cypher_unions_.push_back(
+        child->accept(this).as<CypherUnion *>());
   }
 
-  return query_;
+  query_ = cypher_query;
+  return cypher_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitIndexQuery(
     MemgraphCypher::IndexQueryContext *ctx) {
-  query_ = storage_->Create<Query>();
-  query_->single_query_ = storage_->Create<SingleQuery>();
-  if (ctx->createIndex()) {
-    query_->single_query_->clauses_.emplace_back(
-        ctx->createIndex()->accept(this).as<CreateIndex *>());
-  } else {
-    DCHECK(ctx->createUniqueIndex()) << "Expected CREATE UNIQUE INDEX";
-    query_->single_query_->clauses_.emplace_back(
-        ctx->createUniqueIndex()->accept(this).as<CreateUniqueIndex *>());
+  CHECK(ctx->children.size() == 1)
+      << "IndexQuery should have exactly one child!";
+  auto *index_query = ctx->children[0]->accept(this).as<IndexQuery *>();
+  query_ = index_query;
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateIndex(
+    MemgraphCypher::CreateIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::CREATE;
+  index_query->label_ = dba_->Label(ctx->labelName()->accept(this));
+  std::pair<std::string, storage::Property> name_key =
+      ctx->propertyKeyName()->accept(this);
+  index_query->properties_ = {name_key.second};
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateUniqueIndex(
+    MemgraphCypher::CreateUniqueIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::CREATE_UNIQUE;
+  index_query->label_ = dba_->Label(ctx->labelName()->accept(this));
+  index_query->properties_.reserve(ctx->propertyKeyName().size());
+  for (const auto &prop_name : ctx->propertyKeyName()) {
+    std::pair<std::string, storage::Property> name_key =
+        prop_name->accept(this);
+    index_query->properties_.push_back(name_key.second);
   }
-  return query_;
+  return index_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitAuthQuery(
     MemgraphCypher::AuthQueryContext *ctx) {
-  query_ = storage_->Create<Query>();
-  query_->single_query_ = storage_->Create<SingleQuery>();
   CHECK(ctx->children.size() == 1)
       << "AuthQuery should have exactly one child!";
-  query_->single_query_->clauses_.push_back(
-      ctx->children[0]->accept(this).as<AuthQuery *>());
-  return query_;
+  auto *auth_query = ctx->children[0]->accept(this).as<AuthQuery *>();
+  query_ = auth_query;
+  return auth_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitStreamQuery(
     MemgraphCypher::StreamQueryContext *ctx) {
-  query_ = storage_->Create<Query>();
-  query_->single_query_ = storage_->Create<SingleQuery>();
-  Clause *clause = nullptr;
-  if (ctx->createStream()) {
-    clause = ctx->createStream()->accept(this).as<CreateStream *>();
-  } else if (ctx->dropStream()) {
-    clause = ctx->dropStream()->accept(this).as<DropStream *>();
-  } else if (ctx->showStreams()) {
-    clause = ctx->showStreams()->accept(this).as<ShowStreams *>();
-  } else if (ctx->startStopStream()) {
-    clause = ctx->startStopStream()->accept(this).as<StartStopStream *>();
-  } else if (ctx->startStopAllStreams()) {
-    clause =
-        ctx->startStopAllStreams()->accept(this).as<StartStopAllStreams *>();
-  } else if (ctx->testStream()) {
-    clause = ctx->testStream()->accept(this).as<TestStream *>();
-  }
-  query_->single_query_->clauses_ = {clause};
-  return query_;
+  CHECK(ctx->children.size() == 1)
+      << "StreamQuery should have exactly one child!";
+  auto *stream_query = ctx->children[0]->accept(this).as<StreamQuery *>();
+  query_ = stream_query;
+  return stream_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherUnion(
@@ -138,7 +147,6 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_update = false;
   bool has_return = false;
   bool has_optional_match = false;
-  bool has_create_index = false;
 
   for (Clause *clause : single_query->clauses_) {
     if (dynamic_cast<Unwind *>(clause)) {
@@ -178,19 +186,11 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
         throw SemanticException("RETURN can't be put before WITH.");
       }
       has_update = has_return = has_optional_match = false;
-    } else if (dynamic_cast<CreateIndex *>(clause) ||
-               dynamic_cast<CreateUniqueIndex *>(clause)) {
-      // If there is CreateIndex clause then there shouldn't be anything else.
-      if (single_query->clauses_.size() != 1U) {
-        throw SemanticException(
-            "CREATE INDEX must be the only clause in a query.");
-      }
-      has_create_index = true;
     } else {
       DLOG(FATAL) << "Can't happen";
     }
   }
-  if (!has_update && !has_return && !has_create_index) {
+  if (!has_update && !has_return) {
     throw SemanticException(
         "Query should either create or update something, or return results!");
   }
@@ -264,33 +264,6 @@ antlrcpp::Any CypherMainVisitor::visitCreate(
   auto *create = storage_->Create<Create>();
   create->patterns_ = ctx->pattern()->accept(this).as<std::vector<Pattern *>>();
   return create;
-}
-
-/**
- * @return CreateIndex*
- */
-antlrcpp::Any CypherMainVisitor::visitCreateIndex(
-    MemgraphCypher::CreateIndexContext *ctx) {
-  std::pair<std::string, storage::Property> key =
-      ctx->propertyKeyName()->accept(this);
-  return storage_->Create<CreateIndex>(
-      dba_->Label(ctx->labelName()->accept(this)), key.second);
-}
-
-/**
- * @return CreateUniqueIndex*
- */
-antlrcpp::Any CypherMainVisitor::visitCreateUniqueIndex(
-    MemgraphCypher::CreateUniqueIndexContext *ctx) {
-  std::vector<storage::Property> properties;
-  properties.reserve(ctx->propertyKeyName().size());
-  for (const auto &prop_name : ctx->propertyKeyName()) {
-    std::pair<std::string, storage::Property> name_key =
-        prop_name->accept(this);
-    properties.push_back(name_key.second);
-  }
-  return storage_->Create<CreateUniqueIndex>(
-      dba_->Label(ctx->labelName()->accept(this)), properties);
 }
 
 /**
@@ -522,39 +495,33 @@ antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(
 }
 
 /**
- * @return CreateStream*
+ * @return StreamQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitCreateStream(
     MemgraphCypher::CreateStreamContext *ctx) {
-  std::string stream_name(ctx->streamName()->getText());
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::CREATE_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->getText();
   if (!ctx->streamUri->StringLiteral()) {
     throw SyntaxException("Stream URI should be a string literal.");
   }
-  Expression *stream_uri = ctx->streamUri->accept(this);
-
+  stream_query->stream_uri_ = ctx->streamUri->accept(this);
   if (!ctx->streamTopic->StringLiteral()) {
     throw SyntaxException("Topic should be a string literal.");
   }
-  Expression *stream_topic = ctx->streamTopic->accept(this);
-
+  stream_query->stream_topic_ = ctx->streamTopic->accept(this);
   if (!ctx->transformUri->StringLiteral()) {
     throw SyntaxException("Transform URI should be a string literal.");
   }
-  Expression *transform_uri = ctx->transformUri->accept(this);
-
-  Expression *batch_interval_in_ms = nullptr;
+  stream_query->transform_uri_ = ctx->transformUri->accept(this);
   if (ctx->batchIntervalOption()) {
-    batch_interval_in_ms = ctx->batchIntervalOption()->accept(this);
+    stream_query->batch_interval_in_ms_ =
+        ctx->batchIntervalOption()->accept(this);
   }
-
-  Expression *batch_size = nullptr;
   if (ctx->batchSizeOption()) {
-    batch_size = ctx->batchSizeOption()->accept(this);
+    stream_query->batch_size_ = ctx->batchSizeOption()->accept(this);
   }
-
-  return storage_->Create<CreateStream>(stream_name, stream_uri, stream_topic,
-                                        transform_uri, batch_interval_in_ms,
-                                        batch_size);
+  return stream_query;
 }
 
 /**
@@ -582,40 +549,49 @@ antlrcpp::Any CypherMainVisitor::visitBatchSizeOption(
 }
 
 /**
- * @return DropStream*
+ * @return StreamQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitDropStream(
     MemgraphCypher::DropStreamContext *ctx) {
-  return storage_->Create<DropStream>(
-      std::string(ctx->streamName()->getText()));
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::DROP_STREAM;
+  stream_query->stream_name_ = ctx->streamName()->getText();
+  return stream_query;
 }
 
 /**
- * @return ShowStreams*
+ * @return StreamQuery*
  */
 antlrcpp::Any CypherMainVisitor::visitShowStreams(
     MemgraphCypher::ShowStreamsContext *ctx) {
-  return storage_->Create<ShowStreams>();
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::SHOW_STREAMS;
+  return stream_query;
 }
 
 /**
- * @return StartStopStream*
+ * @return StreamQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitStartStopStream(
-    MemgraphCypher::StartStopStreamContext *ctx) {
-  std::string stream_name(std::string(ctx->streamName()->getText()));
-  bool is_start = static_cast<bool>(ctx->START());
-  Expression *limit_batches = nullptr;
-
+antlrcpp::Any CypherMainVisitor::visitStartStream(
+    MemgraphCypher::StartStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_STREAM;
+  stream_query->stream_name_ = std::string(ctx->streamName()->getText());
   if (ctx->limitBatchesOption()) {
-    if (!is_start) {
-      throw SyntaxException("STOP STREAM can't set batch limit.");
-    }
-    limit_batches = ctx->limitBatchesOption()->accept(this);
+    stream_query->limit_batches_ = ctx->limitBatchesOption()->accept(this);
   }
+  return stream_query;
+}
 
-  return storage_->Create<StartStopStream>(stream_name, is_start,
-                                           limit_batches);
+/**
+ * @return StreamQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitStopStream(
+    MemgraphCypher::StopStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::STOP_STREAM;
+  stream_query->stream_name_ = std::string(ctx->streamName()->getText());
+  return stream_query;
 }
 
 /**
@@ -631,12 +607,37 @@ antlrcpp::Any CypherMainVisitor::visitLimitBatchesOption(
 }
 
 /*
- * @return StartStopAllStreams*
+ * @return StreamQuery*
  */
-antlrcpp::Any CypherMainVisitor::visitStartStopAllStreams(
-    MemgraphCypher::StartStopAllStreamsContext *ctx) {
-  bool is_start = static_cast<bool>(ctx->START());
-  return storage_->Create<StartStopAllStreams>(is_start);
+antlrcpp::Any CypherMainVisitor::visitStartAllStreams(
+    MemgraphCypher::StartAllStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::START_ALL_STREAMS;
+  return stream_query;
+}
+
+/*
+ * @return StreamQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitStopAllStreams(
+    MemgraphCypher::StopAllStreamsContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::STOP_ALL_STREAMS;
+  return stream_query;
+}
+
+/**
+ * @return StreamQuery*
+ */
+antlrcpp::Any CypherMainVisitor::visitTestStream(
+    MemgraphCypher::TestStreamContext *ctx) {
+  auto *stream_query = storage_->Create<StreamQuery>();
+  stream_query->action_ = StreamQuery::Action::TEST_STREAM;
+  stream_query->stream_name_ = std::string(ctx->streamName()->getText());
+  if (ctx->limitBatchesOption()) {
+    stream_query->limit_batches_ = ctx->limitBatchesOption()->accept(this);
+  }
+  return stream_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(
@@ -647,21 +648,6 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(
     return_clause->body_.distinct = true;
   }
   return return_clause;
-}
-
-/**
- * @return TestStream*
- */
-antlrcpp::Any CypherMainVisitor::visitTestStream(
-    MemgraphCypher::TestStreamContext *ctx) {
-  std::string stream_name(std::string(ctx->streamName()->getText()));
-  Expression *limit_batches = nullptr;
-
-  if (ctx->limitBatchesOption()) {
-    limit_batches = ctx->limitBatchesOption()->accept(this);
-  }
-
-  return storage_->Create<TestStream>(stream_name, limit_batches);
 }
 
 antlrcpp::Any CypherMainVisitor::visitReturnBody(

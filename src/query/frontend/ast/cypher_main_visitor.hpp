@@ -135,30 +135,30 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   }
 
   /**
-   * @return Query*
+   * @return CypherQuery*
    */
   antlrcpp::Any visitCypherQuery(
       MemgraphCypher::CypherQueryContext *ctx) override;
 
   /**
-   * @return Query*
+   * @return IndexQuery*
    */
   antlrcpp::Any visitIndexQuery(
       MemgraphCypher::IndexQueryContext *ctx) override;
 
   /**
-   * @return Query*
+   * @return ExplainQuery*
    */
   antlrcpp::Any visitExplainQuery(
       MemgraphCypher::ExplainQueryContext *ctx) override;
 
   /**
-   * @return Query*
+   * @return AuthQuery*
    */
   antlrcpp::Any visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) override;
 
   /**
-   * @return Query*
+   * @return StreamQuery*
    */
   antlrcpp::Any visitStreamQuery(
       MemgraphCypher::StreamQueryContext *ctx) override;
@@ -214,7 +214,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowRoles(MemgraphCypher::ShowRolesContext *ctx) override;
 
   /**
-   * @return CreateIndex*
+   * @return IndexQuery*
    */
   antlrcpp::Any visitCreateIndex(
       MemgraphCypher::CreateIndexContext *ctx) override;
@@ -299,7 +299,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::ShowUsersForRoleContext *ctx) override;
 
   /**
-   * @return CreateStream*
+   * @return StreamQuery*
    */
   antlrcpp::Any visitCreateStream(
       MemgraphCypher::CreateStreamContext *ctx) override;
@@ -311,34 +311,46 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::BatchSizeOptionContext *ctx) override;
 
   /**
-   * @return DropStream*
+   * @return StreamQuery*
    */
   antlrcpp::Any visitDropStream(
       MemgraphCypher::DropStreamContext *ctx) override;
 
   /**
-   * @return ShowStreams*
+   * @return StreamQuery*
    */
   antlrcpp::Any visitShowStreams(
       MemgraphCypher::ShowStreamsContext *ctx) override;
 
   /**
-   * @return StartStopStream*
+   * @return StreamQuery*
    */
-  antlrcpp::Any visitStartStopStream(
-      MemgraphCypher::StartStopStreamContext *ctx) override;
+  antlrcpp::Any visitStartStream(
+      MemgraphCypher::StartStreamContext *ctx) override;
 
   /**
-   * @return StartStopAllStreams*
+   * @return StreamQuery*
    */
-  antlrcpp::Any visitStartStopAllStreams(
-      MemgraphCypher::StartStopAllStreamsContext *ctx) override;
+  antlrcpp::Any visitStopStream(
+      MemgraphCypher::StopStreamContext *ctx) override;
 
   antlrcpp::Any visitLimitBatchesOption(
       MemgraphCypher::LimitBatchesOptionContext *ctx) override;
 
   /**
-   * @return TestStream*
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStartAllStreams(
+      MemgraphCypher::StartAllStreamsContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
+   */
+  antlrcpp::Any visitStopAllStreams(
+      MemgraphCypher::StopAllStreamsContext *ctx) override;
+
+  /**
+   * @return StreamQuery*
    */
   antlrcpp::Any visitTestStream(
       MemgraphCypher::TestStreamContext *ctx) override;

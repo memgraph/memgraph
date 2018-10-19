@@ -110,8 +110,10 @@ showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 streamQuery : createStream
             | dropStream
             | showStreams
-            | startStopStream
-            | startStopAllStreams
+            | startStream
+            | stopStream
+            | startAllStreams
+            | stopAllStreams
             | testStream
             ;
 
@@ -129,10 +131,14 @@ dropStream : DROP STREAM streamName ;
 
 showStreams : SHOW STREAMS ;
 
-startStopStream : ( START | STOP ) STREAM streamName ( limitBatchesOption )? ;
+startStream : START STREAM streamName ( limitBatchesOption )? ;
+
+stopStream : STOP STREAM streamName ;
 
 limitBatchesOption : LIMIT limitBatches=literal BATCHES ;
 
-startStopAllStreams : ( START | STOP ) ALL STREAMS ;
+startAllStreams : START ALL STREAMS ;
+
+stopAllStreams : STOP ALL STREAMS ;
 
 testStream : K_TEST STREAM streamName ( limitBatchesOption )? ;

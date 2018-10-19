@@ -36,7 +36,8 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
     LOG(FATAL) << "ExpressionEvaluator should not visit " #TREE_TYPE; \
   }
 
-  BLOCK_VISIT(Query);
+  BLOCK_VISIT(CypherQuery);
+  BLOCK_VISIT(ExplainQuery);
   BLOCK_VISIT(CypherUnion);
   BLOCK_VISIT(SingleQuery);
   BLOCK_VISIT(Create);
@@ -55,15 +56,10 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
   BLOCK_VISIT(RemoveLabels);
   BLOCK_VISIT(Merge);
   BLOCK_VISIT(Unwind);
-  BLOCK_VISIT(CreateIndex);
-  BLOCK_VISIT(CreateUniqueIndex);
+  BLOCK_VISIT(IndexQuery);
   BLOCK_VISIT(AuthQuery);
-  BLOCK_VISIT(CreateStream);
-  BLOCK_VISIT(DropStream);
-  BLOCK_VISIT(ShowStreams);
-  BLOCK_VISIT(StartStopStream);
-  BLOCK_VISIT(StartStopAllStreams);
-  BLOCK_VISIT(TestStream);
+  BLOCK_VISIT(StreamQuery);
+
 
 #undef BLOCK_VISIT
 

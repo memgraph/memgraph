@@ -52,15 +52,9 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
-  bool Visit(query::CreateIndex &) override { return true; }
-  bool Visit(query::CreateUniqueIndex &) override { return true; }
+  bool Visit(query::IndexQuery &) override { return true; }
   bool Visit(query::AuthQuery &) override { return true; }
-  bool Visit(query::CreateStream &) override { return true; }
-  bool Visit(query::DropStream &) override { return true; }
-  bool Visit(query::ShowStreams &) override { return true; }
-  bool Visit(query::StartStopStream &) override { return true; }
-  bool Visit(query::StartStopAllStreams &) override { return true; }
-  bool Visit(query::TestStream &) override { return true; }
+  bool Visit(query::StreamQuery &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
@@ -290,6 +284,6 @@ struct QueryParts {
 /// and do some other preprocessing in order to generate multiple @c QueryPart
 /// structures. @c AstStorage and @c SymbolTable may be used to create new
 /// AST nodes.
-QueryParts CollectQueryParts(SymbolTable &, AstStorage &, Query *);
+QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *);
 
 }  // namespace query::plan

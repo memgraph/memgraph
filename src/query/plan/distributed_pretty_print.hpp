@@ -7,10 +7,11 @@
 namespace query::plan {
 
 void DistributedPrettyPrint(const database::GraphDbAccessor &dba,
-                            LogicalOperator *plan_root, std::ostream *out);
+                            const LogicalOperator *plan_root,
+                            std::ostream *out);
 
 inline void DistributedPrettyPrint(const database::GraphDbAccessor &dba,
-                                   LogicalOperator *plan_root) {
+                                   const LogicalOperator *plan_root) {
   DistributedPrettyPrint(dba, plan_root, &std::cout);
 }
 

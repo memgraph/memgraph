@@ -1460,9 +1460,26 @@ cpp<#
   (:serialize :capnp))
 
 (lcp:define-class query (tree)
-  ((explain :bool :initval "false" :scope :public
-            :documentation "True if this is an EXPLAIN query.")
-   (single-query "SingleQuery *" :initval "nullptr" :scope :public
+  ()
+  (:abstractp t)
+  (:public
+    #>cpp
+    Query() = default;
+
+    virtual Query *Clone(AstStorage &storage) const = 0;
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit Query(int uid) : Tree(uid) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize :capnp))
+  
+(lcp:define-class cypher-query (query)
+  ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
                  :capnp-load (load-ast-pointer "SingleQuery *")
@@ -1475,7 +1492,7 @@ cpp<#
                   :documentation "Contains remaining queries that should form and union with `single_query_`."))
   (:public
     #>cpp
-    Query() = default;
+    CypherQuery() = default;
 
     DEFVISITABLE(TreeVisitor<TypedValue>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1490,26 +1507,98 @@ cpp<#
       return visitor.PostVisit(*this);
     }
 
-    // Creates deep copy of whole ast.
-    Query *Clone(AstStorage &storage) const override {
-      auto *query = storage.Create<Query>();
-      query->single_query_ = single_query_->Clone(storage);
+    CypherQuery *Clone(AstStorage &storage) const override {
+      auto *cypher_query = storage.Create<CypherQuery>();
+      cypher_query->single_query_ = single_query_->Clone(storage);
       for (auto *cypher_union : cypher_unions_) {
-        query->cypher_unions_.push_back(cypher_union->Clone(storage));
+        cypher_query->cypher_unions_.push_back(cypher_union->Clone(storage));
       }
-      query->explain_ = explain_;
-      return query;
+      return cypher_query;
     }
     cpp<#)
   (:protected
     #>cpp
-    explicit Query(int uid) : Tree(uid) {}
+    explicit CypherQuery(int uid) : Query(uid) {}
     cpp<#)
   (:private
     #>cpp
     friend class AstStorage;
     cpp<#)
   (:serialize :capnp))
+
+(lcp:define-class explain-query (query)
+  ((cypher-query "CypherQuery *" :initval "nullptr" :scope :public
+                 :capnp-type "Tree" :capnp-init nil
+                 :capnp-save #'save-ast-pointer
+                 :capnp-load (load-ast-pointer "CypherQuery *")
+                 :documentation "CypherQuery to be explained."))
+  (:public
+    #>cpp
+    ExplainQuery() = default;
+
+    DEFVISITABLE(TreeVisitor<TypedValue>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        cypher_query_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+
+    ExplainQuery *Clone(AstStorage &storage) const override {
+      auto *explain_query = storage.Create<ExplainQuery>();
+      explain_query->cypher_query_ = cypher_query_->Clone(storage);
+      return explain_query;
+    }
+    cpp<#)
+  (:protected
+    #>cpp
+    explicit ExplainQuery(int uid) : Query(uid) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize :capnp))
+
+(lcp:define-class index-query (query)
+  ((action "Action" :scope :public
+           :capnp-save (lcp:capnp-save-enum "capnp::IndexQuery::Action"
+                                            "IndexQuery::Action"
+                                            '(create create-unique))
+           :capnp-load (lcp:capnp-load-enum "capnp::IndexQuery::Action"
+                                            "IndexQuery::Action"
+                                            '(create create-unique)))
+   (label "storage::Label" :scope :public)
+   (properties "std::vector<storage::Property>" :scope :public
+               :capnp-save (lcp:capnp-save-vector "storage::capnp::Common" "storage::Property")
+               :capnp-load (lcp:capnp-load-vector "storage::capnp::Common" "storage::Property")))
+  (:public
+    (lcp:define-enum action (create create-unique)
+                     (:serialize :capnp))
+
+    #>cpp
+    IndexQuery() = default;
+    
+    DEFVISITABLE(TreeVisitor<TypedValue>);
+    DEFVISITABLE(HierarchicalTreeVisitor);
+
+    IndexQuery *Clone(AstStorage &storage) const override {
+      return storage.Create<IndexQuery>(action_, label_, properties_);
+    }
+  cpp<#)
+  (:protected
+    #>cpp
+    explicit IndexQuery(int uid) : Query(uid) {}
+    IndexQuery(int uid, Action action, storage::Label label,
+               std::vector<storage::Property> properties)
+        : Query(uid), action_(action), label_(label), properties_(properties) {}
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    cpp<#)
+  (:serialize :capnp))
+   
 
 (lcp:define-class create (clause)
   ((patterns "std::vector<Pattern *>"
@@ -2119,63 +2208,22 @@ cpp<#
     cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class create-index (clause)
-  ((label "storage::Label" :scope :public)
-   (property "storage::Property" :scope :public))
-  (:public
-    #>cpp
-    CreateIndex() = default;
-
-    DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
-
-    CreateIndex *Clone(AstStorage &storage) const override {
-      return storage.Create<CreateIndex>(label_, property_);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit CreateIndex(int uid) : Clause(uid) {}
-    CreateIndex(int uid, storage::Label label, storage::Property property)
-        : Clause(uid), label_(label), property_(property) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class create-unique-index (clause)
-  ((label "storage::Label" :scope :public)
-   (properties "std::vector<storage::Property>" :scope :public
-               :capnp-save (lcp:capnp-save-vector "storage::capnp::Common" "storage::Property")
-               :capnp-load (lcp:capnp-load-vector "storage::capnp::Common" "storage::Property")))
-  (:public
-    #>cpp
-    CreateUniqueIndex() = default;
-
-    DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
-
-    CreateUniqueIndex *Clone(AstStorage &storage) const override {
-      return storage.Create<CreateUniqueIndex>(label_, properties_);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit CreateUniqueIndex(int uid) : Clause(uid) {}
-    CreateUniqueIndex(int uid, storage::Label label,
-                      const std::vector<storage::Property> &properties)
-        : Clause(uid), label_(label), properties_(properties) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class auth-query (clause)
-  ((action "Action" :scope :public)
+(lcp:define-class auth-query (query)
+  ((action "Action" :scope :public
+           :capnp-save (lcp:capnp-save-enum "capnp::AuthQuery::Action"
+                                            "AuthQuery::Action"
+                                            '(create-role drop-role show-roles create-user
+                                              set-password drop-user show-users set-role
+                                              clear-role grant-privilege deny-privilege
+                                              revoke-privilege show-privileges
+                                              show-role-for-user show-users-for-role))
+           :capnp-load (lcp:capnp-load-enum "capnp::AuthQuery::Action"
+                                            "AuthQuery::Action"
+                                            '(create-role drop-role show-roles create-user
+                                              set-password drop-user show-users set-role
+                                              clear-role grant-privilege deny-privilege
+                                              revoke-privilege show-privileges
+                                              show-role-for-user show-users-for-role)))
    (user "std::string" :scope :public)
    (role "std::string" :scope :public)
    (user-or-role "std::string" :scope :public)
@@ -2280,12 +2328,12 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit AuthQuery(int uid) : Clause(uid) {}
+    explicit AuthQuery(int uid) : Query(uid) {}
 
     explicit AuthQuery(int uid, Action action, std::string user, std::string role,
                        std::string user_or_role, Expression *password,
                        std::vector<Privilege> privileges)
-        : Clause(uid),
+        : Query(uid),
           action_(action),
           user_(user),
           role_(role),
@@ -2309,201 +2357,85 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::STREAM};
 cpp<#
 
-(lcp:define-class create-stream (clause)
-  ((stream-name "std::string" :scope :public)
-   (stream-uri "Expression *" :scope :public
+(lcp:define-class stream-query (query)
+  ((action "Action" :scope :public
+           :capnp-save (lcp:capnp-save-enum "capnp::StreamQuery::Action"
+                                            "StreamQuery::Action"
+                                            '(create-stream drop-stream show-streams
+                                              start-stream stop-stream test-stream
+                                              start-all-streams stop-all-streams))
+           :capnp-load (lcp:capnp-load-enum "capnp::StreamQuery::Action"
+                                            "StreamQuery::Action"
+                                            '(create-stream drop-stream show-streams
+                                              start-stream stop-stream test-stream
+                                              start-all-streams stop-all-streams)))
+   (stream-name "std::string" :scope :public)
+   (stream-uri "Expression *" :scope :public :initval "nullptr"
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Expression *"))
-   (stream-topic "Expression *" :scope :public
+   (stream-topic "Expression *" :scope :public :initval "nullptr"
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
                  :capnp-load (load-ast-pointer "Expression *"))
-   (transform-uri "Expression *" :scope :public
+   (transform-uri "Expression *" :scope :public :initval "nullptr"
                   :capnp-type "Tree" :capnp-init nil
                   :capnp-save #'save-ast-pointer
                   :capnp-load (load-ast-pointer "Expression *"))
-   (batch-interval-in-ms "Expression *" :scope :public
+   (batch-interval-in-ms "Expression *" :scope :public :initval "nullptr"
                          :capnp-type "Tree" :capnp-init nil
                          :capnp-save #'save-ast-pointer
                          :capnp-load (load-ast-pointer "Expression *"))
-   (batch-size "Expression *" :scope :public
+   (batch-size "Expression *" :scope :public :initval "nullptr"
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
-               :capnp-load (load-ast-pointer "Expression *")))
+               :capnp-load (load-ast-pointer "Expression *"))
+   (limit-batches "Expression *" :scope :public :initval "nullptr"
+                  :capnp-type "Tree" :capnp-init nil
+                  :capnp-save #'save-ast-pointer
+                  :capnp-load (load-ast-pointer "Expression *")))
   (:public
+    (lcp:define-enum action (create-stream drop-stream show-streams start-stream
+                             stop-stream start-all-streams stop-all-streams test-stream)
+                     (:serialize :capnp))
+
     #>cpp
-    CreateStream() = default;
+    StreamQuery() = default;
 
     DEFVISITABLE(TreeVisitor<TypedValue>);
     DEFVISITABLE(HierarchicalTreeVisitor);
 
-    CreateStream *Clone(AstStorage &storage) const override {
-      return storage.Create<CreateStream>(
-          stream_name_, stream_uri_->Clone(storage),
-          stream_topic_->Clone(storage), transform_uri_->Clone(storage),
-          batch_interval_in_ms_ ? batch_interval_in_ms_->Clone(storage) : nullptr,
-          batch_size_ ? batch_size_->Clone(storage) : nullptr);
+    StreamQuery *Clone(AstStorage &storage) const override {
+      auto *stream_uri = stream_uri_ ? stream_uri_->Clone(storage) : nullptr;
+      auto *stream_topic = stream_topic_ ? stream_topic_->Clone(storage) : nullptr;
+      auto *transform_uri =
+          transform_uri_ ? transform_uri_->Clone(storage) : nullptr;
+      auto *batch_interval_in_ms =
+          batch_interval_in_ms_ ? batch_interval_in_ms_->Clone(storage) : nullptr;
+      auto *batch_size = batch_size_ ? batch_size_->Clone(storage) : nullptr;
+      auto *limit_batches =
+          limit_batches_ ? limit_batches_->Clone(storage) : nullptr;
+      return storage.Create<StreamQuery>(
+          action_, stream_name_, stream_uri, stream_topic, transform_uri,
+          batch_interval_in_ms, batch_size, limit_batches);
     }
     cpp<#)
   (:protected
     #>cpp
-    explicit CreateStream(int uid) : Clause(uid) {}
-    CreateStream(int uid, std::string stream_name, Expression *stream_uri,
-                 Expression *stream_topic, Expression *transform_uri,
-                 Expression *batch_interval_in_ms, Expression *batch_size)
-        : Clause(uid),
+    StreamQuery(int uid) : Query(uid) {}
+    StreamQuery(int uid, Action action, std::string stream_name,
+                Expression *stream_uri, Expression *stream_topic,
+                Expression *transform_uri, Expression *batch_interval_in_ms,
+                Expression *batch_size, Expression *limit_batches)
+        : Query(uid),
+          action_(action),
           stream_name_(std::move(stream_name)),
           stream_uri_(stream_uri),
           stream_topic_(stream_topic),
           transform_uri_(transform_uri),
           batch_interval_in_ms_(batch_interval_in_ms),
-          batch_size_(batch_size) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class drop-stream (clause)
-  ((stream-name "std::string" :scope :public))
-  (:public
-    #>cpp
-    DropStream() = default;
-
-    DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
-
-    DropStream *Clone(AstStorage &storage) const override {
-      return storage.Create<DropStream>(stream_name_);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit DropStream(int uid) : Clause(uid) {}
-    DropStream(int uid, std::string stream_name)
-        : Clause(uid), stream_name_(std::move(stream_name)) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class show-streams (clause)
-  ()
-  (:public
-    #>cpp
-    ShowStreams() = default;
-
-    DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
-
-    ShowStreams *Clone(AstStorage &storage) const override {
-      return storage.Create<ShowStreams>();
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit ShowStreams(int uid) : Clause(uid) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class start-stop-stream (clause)
-  ((stream-name "std::string" :scope :public)
-   (is-start :bool :scope :public)
-   (limit-batches "Expression *" :scope :public
-                  :capnp-type "Tree" :capnp-init nil
-                  :capnp-save #'save-ast-pointer
-                  :capnp-load (load-ast-pointer "Expression *")))
-  (:public
-    #>cpp
-    StartStopStream() = default;
-
-    DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
-
-    StartStopStream *Clone(AstStorage &storage) const override {
-      return storage.Create<StartStopStream>(
-          stream_name_, is_start_,
-          limit_batches_ ? limit_batches_->Clone(storage) : nullptr);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit StartStopStream(int uid) : Clause(uid) {}
-    StartStopStream(int uid, std::string stream_name, bool is_start,
-                    Expression *limit_batches)
-        : Clause(uid),
-          stream_name_(std::move(stream_name)),
-          is_start_(is_start),
+          batch_size_(batch_size),
           limit_batches_(limit_batches) {}
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class start-stop-all-streams (clause)
-  ((is-start :bool :scope :public))
-  (:public
-    #>cpp
-    StartStopAllStreams() = default;
-
-    DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
-
-    StartStopAllStreams *Clone(AstStorage &storage) const override {
-      return storage.Create<StartStopAllStreams>(is_start_);
-    }
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit StartStopAllStreams(int uid) : Clause(uid) {}
-    StartStopAllStreams(int uid, bool is_start)
-        : Clause(uid), is_start_(is_start) {}
-
-    cpp<#)
-  (:private
-    #>cpp
-    friend class AstStorage;
-    cpp<#)
-  (:serialize :capnp))
-
-(lcp:define-class test-stream (clause)
-  ((stream-name "std::string" :scope :public)
-   (limit-batches "Expression *" :scope :public
-                  :capnp-type "Tree" :capnp-init nil
-                  :capnp-save #'save-ast-pointer
-                  :capnp-load (load-ast-pointer "Expression *")))
-  (:public
-    #>cpp
-    TestStream() = default;
-
-    DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
-
-    TestStream *Clone(AstStorage &storage) const override {
-      return storage.Create<TestStream>(
-          stream_name_,
-          limit_batches_ ? limit_batches_->Clone(storage) : nullptr);
-    }
-
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit TestStream(int uid) : Clause(uid) {}
-    TestStream(int uid, std::string stream_name, Expression *limit_batches)
-        : Clause(uid),
-          stream_name_(std::move(stream_name)),
-          limit_batches_(limit_batches) {}
-
     cpp<#)
   (:private
     #>cpp

@@ -477,7 +477,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
 }
 
 QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage,
-                             Query *query) {
+                             CypherQuery *query) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;

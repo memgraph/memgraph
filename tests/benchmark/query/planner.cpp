@@ -10,9 +10,9 @@
 #include "query/plan/vertex_count_cache.hpp"
 
 // Add chained MATCH (node1) -- (node2), MATCH (node2) -- (node3) ... clauses.
-static query::Query *AddChainedMatches(int num_matches,
-                                       query::AstStorage &storage) {
-  auto *query = storage.Create<query::Query>();
+static query::CypherQuery *AddChainedMatches(int num_matches,
+                                             query::AstStorage &storage) {
+  auto *query = storage.Create<query::CypherQuery>();
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
     auto *pattern = storage.Create<query::Pattern>();
@@ -67,11 +67,11 @@ BENCHMARK(BM_PlanChainedMatches)
     ->Range(50, 400)
     ->Unit(benchmark::kMillisecond);
 
-static query::Query *AddIndexedMatches(
+static query::CypherQuery *AddIndexedMatches(
     int num_matches, storage::Label label,
     const std::pair<std::string, storage::Property> &property,
     query::AstStorage &storage) {
-  auto *query = storage.Create<query::Query>();
+  auto *query = storage.Create<query::CypherQuery>();
   for (int i = 0; i < num_matches; ++i) {
     auto *match = storage.Create<query::Match>();
     auto *pattern = storage.Create<query::Pattern>();

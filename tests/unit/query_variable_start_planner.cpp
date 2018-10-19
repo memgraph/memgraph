@@ -64,7 +64,7 @@ void AssertRows(const std::vector<std::vector<TypedValue>> &datum,
 };
 
 void CheckPlansProduce(
-    size_t expected_plan_count, query::Query *query, AstStorage &storage,
+    size_t expected_plan_count, query::CypherQuery *query, AstStorage &storage,
     database::GraphDbAccessor &dba,
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = MakeSymbolTable(*query);

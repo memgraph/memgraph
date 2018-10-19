@@ -17,8 +17,12 @@ class DistributedInterpreter final : public Interpreter {
   DistributedInterpreter(database::Master *db);
 
  private:
-  std::unique_ptr<LogicalPlan> MakeLogicalPlan(Query *, AstStorage,
-                                               Context *) override;
+  std::unique_ptr<LogicalPlan> MakeLogicalPlan(
+      CypherQuery *, AstStorage, const Parameters &,
+      database::GraphDbAccessor *) override;
+
+  void PrettyPrintPlan(const database::GraphDbAccessor &,
+                       const plan::LogicalOperator *, std::ostream *) override;
 
   std::atomic<int64_t> next_plan_id_{0};
   distributed::PlanDispatcher *plan_dispatcher_{nullptr};

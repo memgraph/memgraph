@@ -218,23 +218,11 @@ bool SymbolGenerator::PostVisit(Match &) {
   return true;
 }
 
-bool SymbolGenerator::Visit(CreateIndex &) { return true; }
-
-bool SymbolGenerator::Visit(CreateUniqueIndex &) { return true; }
+bool SymbolGenerator::Visit(IndexQuery &) { return true; }
 
 bool SymbolGenerator::Visit(AuthQuery &) { return true; }
 
-bool SymbolGenerator::Visit(CreateStream &) { return true; }
-
-bool SymbolGenerator::Visit(DropStream &) { return true; }
-
-bool SymbolGenerator::Visit(ShowStreams &) { return true; }
-
-bool SymbolGenerator::Visit(StartStopStream &) { return true; }
-
-bool SymbolGenerator::Visit(StartStopAllStreams &) { return true; }
-
-bool SymbolGenerator::Visit(TestStream &) { return true; }
+bool SymbolGenerator::Visit(StreamQuery &) { return true; }
 
 // Expressions
 

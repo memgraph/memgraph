@@ -18,11 +18,11 @@ class LogicalOperator;
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
 void PrettyPrint(const database::GraphDbAccessor &dba,
-                 LogicalOperator *plan_root, std::ostream *out);
+                 const LogicalOperator *plan_root, std::ostream *out);
 
 /// Overload of `PrettyPrint` which defaults the `std::ostream` to `std::cout`.
 inline void PrettyPrint(const database::GraphDbAccessor &dba,
-                        LogicalOperator *plan_root) {
+                        const LogicalOperator *plan_root) {
   PrettyPrint(dba, plan_root, &std::cout);
 }
 
@@ -74,19 +74,8 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Distinct &) override;
 
   bool PreVisit(Unwind &) override;
-  bool PreVisit(Explain &) override;
 
   bool Visit(Once &) override;
-  bool Visit(CreateIndex &) override;
-
-  bool Visit(AuthHandler &) override;
-
-  bool Visit(CreateStream &) override;
-  bool Visit(DropStream &) override;
-  bool Visit(ShowStreams &) override;
-  bool Visit(StartStopStream &) override;
-  bool Visit(StartStopAllStreams &) override;
-  bool Visit(TestStream &) override;
 
   /// Call fun with output stream. The stream is prefixed with amount of spaces
   /// corresponding to the current depth_.

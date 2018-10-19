@@ -951,34 +951,6 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   EXPECT_EQ(1, PullAll(remove_op, *dba, symbol_table));
 }
 
-TEST(QueryPlan, CreateIndex) {
-  // CREATE INDEX ON :Label(property)
-  database::GraphDb db;
-  auto dba = db.Access();
-  auto label = dba->Label("label");
-  auto property = dba->Property("property");
-  EXPECT_FALSE(dba->LabelPropertyIndexExists(label, property));
-  auto create_index = std::make_shared<plan::CreateIndex>(
-      label, std::vector<storage::Property>{property}, false);
-  SymbolTable symbol_table;
-  EXPECT_EQ(PullAll(create_index, *dba, symbol_table), 1);
-  EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
-}
-
-TEST(QueryPlan, CreateUniqueIndex) {
-  // CREATE UNIQUE INDEX ON :Label(prop1)
-  database::GraphDb db;
-  auto dba = db.Access();
-  auto label = dba->Label("label");
-  auto prop1 = dba->Property("prop1");
-  std::vector<storage::Property> properties{prop1};
-  auto create_index =
-      std::make_shared<plan::CreateIndex>(label, properties, true);
-  SymbolTable symbol_table;
-  EXPECT_EQ(PullAll(create_index, *dba, symbol_table), 1);
-  EXPECT_TRUE(dba->LabelPropertyIndexExists(label, prop1));
-}
-
 TEST(QueryPlan, DeleteSetProperty) {
   database::GraphDb db;
   auto dba_ptr = db.Access();

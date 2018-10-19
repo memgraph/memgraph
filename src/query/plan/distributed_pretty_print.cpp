@@ -69,9 +69,11 @@ bool DistributedPlanPrinter::PreVisit(query::plan::Synchronize &op) {
 }
 
 void DistributedPrettyPrint(const database::GraphDbAccessor &dba,
-                            LogicalOperator *plan_root, std::ostream *out) {
+                            const LogicalOperator *plan_root,
+                            std::ostream *out) {
   DistributedPlanPrinter printer(&dba, out);
-  plan_root->Accept(printer);
+  // FIXME(mtomic): We should make visitors that take const argument.
+  const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
 }  // namespace query::plan

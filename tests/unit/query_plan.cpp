@@ -64,7 +64,8 @@ auto CheckPlan(LogicalOperator &plan, const SymbolTable &symbol_table,
 }
 
 template <class TPlanner, class... TChecker>
-auto CheckPlan(query::Query *query, AstStorage &storage, TChecker... checker) {
+auto CheckPlan(query::CypherQuery *query, AstStorage &storage,
+               TChecker... checker) {
   auto symbol_table = MakeSymbolTable(*query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TPlanner>(dba, storage, symbol_table, query);
@@ -934,16 +935,6 @@ TYPED_TEST(TestPlanner, MapWithAggregationAndGroupBy) {
   CheckPlan<TypeParam>(query, storage, aggr, ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, CreateIndex) {
-  // Test CREATE INDEX ON :Label(property)
-  FakeDbAccessor dba;
-  auto label = dba.Label("label");
-  auto property = dba.Property("property");
-  AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(CREATE_INDEX_ON(label, property)));
-  CheckPlan<TypeParam>(query, storage, ExpectCreateIndex(label, property));
-}
-
 TYPED_TEST(TestPlanner, AtomIndexedLabelProperty) {
   // Test MATCH (n :label {property: 42, not_indexed: 0}) RETURN n
   AstStorage storage;
@@ -1348,155 +1339,6 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   EXPECT_EQ(outputs.size(), 3);
   for (const auto &name : {"n", "r", "m"}) {
     EXPECT_TRUE(utils::Contains(outputs, name));
-  }
-}
-
-TYPED_TEST(TestPlanner, AuthQuery) {
-  // Check if everything is properly forwarded from ast node to the operator
-  FakeDbAccessor dba;
-  AstStorage storage;
-  auto *query =
-      QUERY(SINGLE_QUERY(AUTH_QUERY(query::AuthQuery::Action::DROP_ROLE, "user",
-                                    "role", "user_or_role", LITERAL("password"),
-                                    std::vector<query::AuthQuery::Privilege>(
-                                        {query::AuthQuery::Privilege::MATCH,
-                                         query::AuthQuery::Privilege::AUTH}))));
-  CheckPlan<TypeParam>(
-      query, storage,
-      ExpectAuthHandler(query::AuthQuery::Action::DROP_ROLE, "user", "role",
-                        "user_or_role", LITERAL("password"),
-                        {query::AuthQuery::Privilege::MATCH,
-                         query::AuthQuery::Privilege::AUTH}));
-}
-
-TYPED_TEST(TestPlanner, CreateStream) {
-  std::string stream_name("kafka"), stream_uri("localhost:1234"),
-      stream_topic("tropik"), transform_uri("localhost:1234/file.py");
-  int64_t batch_interval_in_ms = 100;
-  int64_t batch_size = 10;
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query =
-        QUERY(SINGLE_QUERY(CREATE_STREAM(stream_name, stream_uri, stream_topic,
-                                         transform_uri, nullptr, nullptr)));
-    auto expected = ExpectCreateStream(
-        stream_name, LITERAL(stream_uri), LITERAL(stream_topic),
-        LITERAL(transform_uri), nullptr, nullptr);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(
-        CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri,
-                      LITERAL(batch_interval_in_ms), nullptr)));
-    auto expected = ExpectCreateStream(
-        stream_name, LITERAL(stream_uri), LITERAL(stream_topic),
-        LITERAL(transform_uri), LITERAL(batch_interval_in_ms), nullptr);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(
-        CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri,
-                      nullptr, LITERAL(batch_size))));
-    auto expected = ExpectCreateStream(
-        stream_name, LITERAL(stream_uri), LITERAL(stream_topic),
-        LITERAL(transform_uri), nullptr, LITERAL(batch_size));
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(
-        CREATE_STREAM(stream_name, stream_uri, stream_topic, transform_uri,
-                      LITERAL(batch_interval_in_ms), LITERAL(batch_size))));
-    auto expected =
-        ExpectCreateStream(stream_name, LITERAL(stream_uri),
-                           LITERAL(stream_topic), LITERAL(transform_uri),
-                           LITERAL(batch_interval_in_ms), LITERAL(batch_size));
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-}
-
-TYPED_TEST(TestPlanner, DropStream) {
-  std::string stream_name("kafka");
-  FakeDbAccessor dba;
-  AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(DROP_STREAM(stream_name)));
-  auto expected = ExpectDropStream(stream_name);
-  CheckPlan<TypeParam>(query, storage, expected);
-}
-
-TYPED_TEST(TestPlanner, ShowStreams) {
-  FakeDbAccessor dba;
-  AstStorage storage;
-  auto *query = QUERY(SINGLE_QUERY(SHOW_STREAMS));
-  auto expected = ExpectShowStreams();
-  CheckPlan<TypeParam>(query, storage, expected);
-}
-
-TYPED_TEST(TestPlanner, StartStopStream) {
-  std::string stream_name("kafka");
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(START_STREAM(stream_name, nullptr)));
-    auto expected = ExpectStartStopStream(stream_name, true, nullptr);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto limit_batches = LITERAL(10);
-    auto *query = QUERY(SINGLE_QUERY(START_STREAM(stream_name, limit_batches)));
-    auto expected = ExpectStartStopStream(stream_name, true, limit_batches);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(STOP_STREAM(stream_name)));
-    auto expected = ExpectStartStopStream(stream_name, false, nullptr);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-}
-
-TYPED_TEST(TestPlanner, StartStopAllStreams) {
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(START_ALL_STREAMS));
-    auto expected = ExpectStartStopAllStreams(true);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(STOP_ALL_STREAMS));
-    auto expected = ExpectStartStopAllStreams(false);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-}
-
-TYPED_TEST(TestPlanner, TestStream) {
-  std::string stream_name("kafka");
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto *query = QUERY(SINGLE_QUERY(TEST_STREAM(stream_name, nullptr)));
-    auto expected = ExpectTestStream(stream_name, nullptr);
-    CheckPlan<TypeParam>(query, storage, expected);
-  }
-  {
-    FakeDbAccessor dba;
-    AstStorage storage;
-    auto limit_batches = LITERAL(10);
-    auto *query = QUERY(SINGLE_QUERY(TEST_STREAM(stream_name, limit_batches)));
-    auto expected = ExpectTestStream(stream_name, limit_batches);
-    CheckPlan<TypeParam>(query, storage, expected);
   }
 }
 
