@@ -28,10 +28,7 @@ int main(int argc, char **argv) {
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);
 
-  if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
-    LOG(FATAL) << "Couldn't connect to server " << FLAGS_address << ":"
-               << FLAGS_port;
-  }
+  client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
   client.Execute("UNWIND range(0, 10000) AS x CREATE ()", {});
 

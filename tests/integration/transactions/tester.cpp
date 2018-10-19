@@ -20,9 +20,7 @@ using namespace communication::bolt;
 class BoltClient : public ::testing::Test {
  protected:
   virtual void SetUp() {
-    if (!client_.Connect(endpoint_, FLAGS_username, FLAGS_password)) {
-      throw utils::BasicException("Couldn't connect to database!");
-    }
+    client_.Connect(endpoint_, FLAGS_username, FLAGS_password);
   }
 
   virtual void TearDown() {}

@@ -13,26 +13,49 @@
 
 namespace communication::bolt {
 
-class ClientFatalException : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-  ClientFatalException()
-      : utils::BasicException(
-            "Something went wrong while communicating with the server!") {}
-};
-
+/// This exception is thrown whenever an error occurs during query execution
+/// that isn't fatal (eg. mistyped query or some transient error occurred).
+/// It should be handled by everyone who uses the client.
 class ClientQueryException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
   ClientQueryException() : utils::BasicException("Couldn't execute query!") {}
 };
 
+/// This exception is thrown whenever a fatal error occurs during query
+/// execution and/or connecting to the server.
+/// It should be handled by everyone who uses the client.
+class ClientFatalException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
+
+// Internal exception used whenever a communication error occurs. You should
+// only handle the `ClientFatalException`.
+class ServerCommunicationException : public ClientFatalException {
+ public:
+  ServerCommunicationException()
+      : ClientFatalException("Couldn't communicate with the server!") {}
+};
+
+// Internal exception used whenever a malformed data error occurs. You should
+// only handle the `ClientFatalException`.
+class ServerMalformedDataException : public ClientFatalException {
+ public:
+  ServerMalformedDataException()
+      : ClientFatalException("The server sent malformed data!") {}
+};
+
+/// Structure that is used to return results from an executed query.
 struct QueryData {
   std::vector<std::string> fields;
   std::vector<std::vector<Value>> records;
   std::map<std::string, Value> metadata;
 };
 
+/// Bolt client.
+/// It has methods used to connect to the server and execute queries against the
+/// server. It supports both SSL and plaintext connections.
 class Client final {
  public:
   explicit Client(communication::ClientContext *context) : client_(context) {}
@@ -42,60 +65,74 @@ class Client final {
   Client &operator=(const Client &) = delete;
   Client &operator=(Client &&) = delete;
 
-  bool Connect(const io::network::Endpoint &endpoint,
+  /// Method used to connect to the server. Before executing queries this method
+  /// should be called to set-up the connection to the server. After the
+  /// connection is set-up, multiple queries may be executed through a single
+  /// established connection.
+  /// @throws ClientFatalException when we couldn't connect to the server
+  void Connect(const io::network::Endpoint &endpoint,
                const std::string &username, const std::string &password,
-               const std::string &client_name = "memgraph-bolt/0.0.1") {
+               const std::string &client_name = "memgraph-bolt") {
     if (!client_.Connect(endpoint)) {
-      LOG(ERROR) << "Couldn't connect to " << endpoint;
-      return false;
+      throw ClientFatalException("Couldn't connect to {}!", endpoint);
     }
 
     if (!client_.Write(kPreamble, sizeof(kPreamble), true)) {
-      LOG(ERROR) << "Couldn't send preamble!";
-      return false;
+      DLOG(ERROR) << "Couldn't send preamble!";
+      throw ServerCommunicationException();
     }
     for (int i = 0; i < 4; ++i) {
       if (!client_.Write(kProtocol, sizeof(kProtocol), i != 3)) {
-        LOG(ERROR) << "Couldn't send protocol version!";
-        return false;
+        DLOG(ERROR) << "Couldn't send protocol version!";
+        throw ServerCommunicationException();
       }
     }
 
     if (!client_.Read(sizeof(kProtocol))) {
-      LOG(ERROR) << "Couldn't get negotiated protocol version!";
-      return false;
+      DLOG(ERROR) << "Couldn't get negotiated protocol version!";
+      throw ServerCommunicationException();
     }
     if (memcmp(kProtocol, client_.GetData(), sizeof(kProtocol)) != 0) {
-      LOG(ERROR) << "Server negotiated unsupported protocol version!";
-      return false;
+      DLOG(ERROR) << "Server negotiated unsupported protocol version!";
+      throw ClientFatalException(
+          "The server negotiated an usupported protocol version!");
     }
     client_.ShiftData(sizeof(kProtocol));
 
     if (!encoder_.MessageInit(client_name, {{"scheme", "basic"},
                                             {"principal", username},
                                             {"credentials", password}})) {
-      LOG(ERROR) << "Couldn't send init message!";
-      return false;
+      DLOG(ERROR) << "Couldn't send init message!";
+      throw ServerCommunicationException();
     }
 
     Signature signature;
     Value metadata;
     if (!ReadMessage(&signature, &metadata)) {
-      LOG(ERROR) << "Couldn't read init message response!";
-      return false;
+      DLOG(ERROR) << "Couldn't read init message response!";
+      throw ServerCommunicationException();
     }
     if (signature != Signature::Success) {
-      LOG(ERROR) << "Handshake failed!";
-      return false;
+      DLOG(ERROR) << "Handshake failed!";
+      throw ClientFatalException("Handshake with the server failed!");
     }
 
     DLOG(INFO) << "Metadata of init message response: " << metadata;
-
-    return true;
   }
 
+  /// Function used to execute queries against the server. Before you can
+  /// execute queries you must connect the client to the server.
+  /// @throws ClientQueryException when there is some transient error while
+  ///                              executing the query (eg. mistyped query,
+  ///                              etc.)
+  /// @throws ClientFatalException when we couldn't communicate with the server
   QueryData Execute(const std::string &query,
                     const std::map<std::string, Value> &parameters) {
+    if (!client_.IsConnected()) {
+      throw ClientFatalException(
+          "You must first connect to the server before using the client!");
+    }
+
     DLOG(INFO) << "Sending run message with statement: '" << query
                << "'; parameters: " << parameters;
 
@@ -106,10 +143,10 @@ class Client final {
     Signature signature;
     Value fields;
     if (!ReadMessage(&signature, &fields)) {
-      throw ClientFatalException();
+      throw ServerCommunicationException();
     }
     if (fields.type() != Value::Type::Map) {
-      throw ClientFatalException();
+      throw ServerMalformedDataException();
     }
 
     if (signature == Signature::Failure) {
@@ -121,7 +158,7 @@ class Client final {
       }
       throw ClientQueryException();
     } else if (signature != Signature::Success) {
-      throw ClientFatalException();
+      throw ServerMalformedDataException();
     }
 
     DLOG(INFO) << "Reading pull_all message response";
@@ -130,26 +167,26 @@ class Client final {
     std::vector<std::vector<Value>> records;
     while (true) {
       if (!GetMessage()) {
-        throw ClientFatalException();
+        throw ServerCommunicationException();
       }
       if (!decoder_.ReadMessageHeader(&signature, &marker)) {
-        throw ClientFatalException();
+        throw ServerCommunicationException();
       }
       if (signature == Signature::Record) {
         Value record;
         if (!decoder_.ReadValue(&record, Value::Type::List)) {
-          throw ClientFatalException();
+          throw ServerCommunicationException();
         }
         records.emplace_back(std::move(record.ValueList()));
       } else if (signature == Signature::Success) {
         if (!decoder_.ReadValue(&metadata)) {
-          throw ClientFatalException();
+          throw ServerCommunicationException();
         }
         break;
       } else if (signature == Signature::Failure) {
         Value data;
         if (!decoder_.ReadValue(&data)) {
-          throw ClientFatalException();
+          throw ServerCommunicationException();
         }
         HandleFailure();
         auto &tmp = data.ValueMap();
@@ -159,28 +196,28 @@ class Client final {
         }
         throw ClientQueryException();
       } else {
-        throw ClientFatalException();
+        throw ServerMalformedDataException();
       }
     }
 
     if (metadata.type() != Value::Type::Map) {
-      throw ClientFatalException();
+      throw ServerMalformedDataException();
     }
 
     QueryData ret{{}, std::move(records), std::move(metadata.ValueMap())};
 
     auto &header = fields.ValueMap();
     if (header.find("fields") == header.end()) {
-      throw ClientFatalException();
+      throw ServerMalformedDataException();
     }
     if (header["fields"].type() != Value::Type::List) {
-      throw ClientFatalException();
+      throw ServerMalformedDataException();
     }
     auto &field_vector = header["fields"].ValueList();
 
     for (auto &field_item : field_vector) {
       if (field_item.type() != Value::Type::String) {
-        throw ClientFatalException();
+        throw ServerMalformedDataException();
       }
       ret.fields.emplace_back(std::move(field_item.ValueString()));
     }
@@ -188,6 +225,7 @@ class Client final {
     return ret;
   }
 
+  /// Close the active client connection.
   void Close() { client_.Close(); };
 
  private:
@@ -227,18 +265,18 @@ class Client final {
 
   void HandleFailure() {
     if (!encoder_.MessageAckFailure()) {
-      throw ClientFatalException();
+      throw ServerCommunicationException();
     }
     while (true) {
       Signature signature;
       Value data;
       if (!ReadMessage(&signature, &data)) {
-        throw ClientFatalException();
+        throw ServerCommunicationException();
       }
       if (signature == Signature::Success) {
         break;
       } else if (signature != Signature::Ignored) {
-        throw ClientFatalException();
+        throw ServerMalformedDataException();
       }
     }
   }

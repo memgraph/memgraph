@@ -59,10 +59,7 @@ class GraphSession {
 
     EndpointT endpoint(FLAGS_address, FLAGS_port);
     client_ = std::make_unique<ClientT>(&context_);
-
-    if (!client_->Connect(endpoint, FLAGS_username, FLAGS_password)) {
-      throw utils::BasicException("Couldn't connect to server!");
-    }
+    client_->Connect(endpoint, FLAGS_username, FLAGS_password);
   }
 
  private:
@@ -381,9 +378,7 @@ int main(int argc, char **argv) {
   EndpointT endpoint(FLAGS_address, FLAGS_port);
   ClientContextT context(FLAGS_use_ssl);
   ClientT client(&context);
-  if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
-    throw utils::BasicException("Couldn't connect to server!");
-  }
+  client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
   // cleanup and create indexes
   client.Execute("MATCH (n) DETACH DELETE n", {});

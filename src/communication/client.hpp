@@ -43,6 +43,11 @@ class Client final {
   bool ErrorStatus();
 
   /**
+   * This function returns `true` if the socket is connected to a remote host.
+   */
+  bool IsConnected();
+
+  /**
    * This function shuts down the socket.
    */
   void Shutdown();

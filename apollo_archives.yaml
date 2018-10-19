@@ -4,6 +4,7 @@
     - build_debug/memgraph_distributed
     - build_release/memgraph
     - build_release/memgraph_distributed
+    - build_release/tools/src/mg_client
     - build_release/tools/src/mg_import_csv
     - build_release/tools/src/mg_statsd
     - config

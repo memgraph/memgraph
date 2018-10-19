@@ -281,9 +281,7 @@ int main(int argc, char **argv) {
     Endpoint endpoint(io::network::ResolveHostname(FLAGS_address), FLAGS_port);
     ClientContext context(FLAGS_use_ssl);
     Client client(&context);
-    if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
-      LOG(FATAL) << "Couldn't connect to " << endpoint;
-    }
+    client.Connect(endpoint, FLAGS_username, FLAGS_password);
     return IndependentSet(client, INDEPENDENT_LABEL);
   }();
 

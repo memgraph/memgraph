@@ -340,9 +340,7 @@ int main(int argc, char **argv) {
   Endpoint endpoint(FLAGS_address, FLAGS_port);
   ClientContext context(FLAGS_use_ssl);
   Client client(&context);
-  if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
-    LOG(FATAL) << "Couldn't connect to " << endpoint;
-  }
+  client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
   num_pos.store(NumNodesWithLabel(client, "Pos"));
   num_cards.store(NumNodesWithLabel(client, "Card"));

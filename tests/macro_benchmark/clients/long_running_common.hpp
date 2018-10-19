@@ -43,9 +43,7 @@ class TestClient {
  public:
   TestClient() {
     Endpoint endpoint(FLAGS_address, FLAGS_port);
-    if (!client_.Connect(endpoint, FLAGS_username, FLAGS_password)) {
-      LOG(FATAL) << "Couldn't connect to " << endpoint;
-    }
+    client_.Connect(endpoint, FLAGS_username, FLAGS_password);
   }
 
   virtual ~TestClient() {}

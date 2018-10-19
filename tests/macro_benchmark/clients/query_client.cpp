@@ -61,9 +61,7 @@ void ExecuteQueries(const std::vector<std::string> &queries,
       Endpoint endpoint(FLAGS_address, FLAGS_port);
       ClientContext context(FLAGS_use_ssl);
       Client client(&context);
-      if (!client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
-        LOG(FATAL) << "Couldn't connect to " << endpoint;
-      }
+      client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
       std::string str;
       while (true) {

@@ -629,12 +629,16 @@ int main(int argc, char **argv) {
   communication::ClientContext context(FLAGS_use_ssl);
   communication::bolt::Client client(&context);
 
-  if (!client.Connect(endpoint, FLAGS_username, password)) {
-    // Error message is logged in client.Connect method
+  std::string bolt_client_version =
+      fmt::format("mg_client/{}", gflags::VersionString());
+  try {
+    client.Connect(endpoint, FLAGS_username, password, bolt_client_version);
+  } catch (const communication::bolt::ClientFatalException &e) {
+    EchoFailure("Connection failure", e.what());
     return 1;
   }
 
-  EchoInfo("mg-client");
+  EchoInfo(fmt::format("mg_client {}", gflags::VersionString()));
   EchoInfo("Type :help for shell usage");
   EchoInfo("Quit the shell by typing Ctrl-D(eof) or :quit");
   EchoInfo(fmt::format("Connected to 'memgraph://{}'", endpoint));
@@ -682,9 +686,13 @@ int main(int argc, char **argv) {
       client.Close();
       while (num_retries > 0) {
         --num_retries;
-        if (client.Connect(endpoint, FLAGS_username, FLAGS_password)) {
+        try {
+          client.Connect(endpoint, FLAGS_username, FLAGS_password,
+                         bolt_client_version);
           is_connected = true;
           break;
+        } catch (const communication::bolt::ClientFatalException &e) {
+          EchoFailure("Connection failure", e.what());
         }
         std::this_thread::sleep_for(std::chrono::seconds(1));
       }
