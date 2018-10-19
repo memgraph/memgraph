@@ -54,12 +54,25 @@ if [ ! -d $input_dir ]; then
     exit 1
 fi
 
+# Check and generate SSL certificates
+use_ssl=false
+key_file=""
+cert_file=""
+if [ "$1" == "--use-ssl" ]; then
+    use_ssl=true
+    key_file=".key.pem"
+    cert_file=".cert.pem"
+    openssl req -new -newkey rsa:4096 -days 365 -nodes -x509 \
+        -subj "/C=HR/ST=Zagreb/L=Zagreb/O=Memgraph/CN=db.memgraph.com" \
+        -keyout $key_file -out $cert_file || exit 1
+fi
+
 
 ## Startup
 
 # Start the memgraph process and wait for it to start.
 echo_info "Starting memgraph"
-$memgraph_dir/memgraph &> /dev/null &
+$memgraph_dir/memgraph --cert-file=$cert_file --key-file=$key_file &
 pid=$!
 wait_for_server 7687
 echo_success "Started memgraph"
@@ -70,7 +83,7 @@ echo_success "Started memgraph"
 echo_info "Running tests"
 echo  # Blank line
 
-client_flags="--use-ssl=false"
+client_flags="--use-ssl=$use_ssl"
 test_code=0
 for output_dir in $tests_dir/output_*; do
     for filename in $input_dir/*; do

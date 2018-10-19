@@ -1,0 +1,9 @@
+- name: tools__test_mg_client
+  commands: |
+    ./test_mg_client
+    ./test_mg_client --use-ssl
+  infiles:
+    - test_mg_client # test_mg_client script
+    - client # test files
+    - ../../build_release/memgraph # memgraph binary
+    - ../../build_release/tools/src/mg_client # mg_client binary
