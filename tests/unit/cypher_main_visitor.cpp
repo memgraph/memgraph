@@ -1677,6 +1677,27 @@ TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndexWithSingleProperty) {
   ASSERT_EQ(index_query->properties_, expected_properties);
 }
 
+TYPED_TEST(CypherMainVisitorTest, DropIndex) {
+  TypeParam ast_generator("dRoP InDeX oN :mirko(slavko)");
+  auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.query_);
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
+  EXPECT_EQ(index_query->label_, ast_generator.db_accessor_->Label("mirko"));
+  std::vector<storage::Property> expected_properties{
+      ast_generator.db_accessor_->Property("slavko")};
+  EXPECT_EQ(index_query->properties_, expected_properties);
+}
+
+TYPED_TEST(CypherMainVisitorTest, DropIndexWithoutProperties) {
+  EXPECT_THROW(TypeParam ast_generator("dRoP InDeX oN :mirko()"),
+               SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
+  EXPECT_THROW(TypeParam ast_generator("dRoP InDeX oN :mirko(slavko, pero)"),
+               SyntaxException);
+}
+
 TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
   { EXPECT_THROW(TypeParam("RETURN all(x in [1,2,3])"), SyntaxException); }
   {

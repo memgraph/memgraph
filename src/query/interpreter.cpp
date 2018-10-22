@@ -541,8 +541,10 @@ Callback HandleIndexQuery(IndexQuery *index_query,
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
+    case IndexQuery::Action::DROP:
+      throw utils::NotYetImplemented("DROP INDEX");
   }
-}  // namespace query
+}
 
 Interpreter::Results Interpreter::operator()(
     const std::string &query_string, database::GraphDbAccessor &db_accessor,

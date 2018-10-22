@@ -45,7 +45,7 @@ symbolicName : UnescapedSymbolicName
              | memgraphCypherKeyword
              ;
 
-query : cypherQuery 
+query : cypherQuery
       | indexQuery
       | explainQuery
       | authQuery

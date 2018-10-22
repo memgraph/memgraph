@@ -1477,7 +1477,7 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize :capnp))
-  
+
 (lcp:define-class cypher-query (query)
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :capnp-type "Tree" :capnp-init nil
@@ -1561,24 +1561,19 @@ cpp<#
   (:serialize :capnp))
 
 (lcp:define-class index-query (query)
-  ((action "Action" :scope :public
-           :capnp-save (lcp:capnp-save-enum "capnp::IndexQuery::Action"
-                                            "IndexQuery::Action"
-                                            '(create create-unique))
-           :capnp-load (lcp:capnp-load-enum "capnp::IndexQuery::Action"
-                                            "IndexQuery::Action"
-                                            '(create create-unique)))
+  ((action "Action" :scope :public)
    (label "storage::Label" :scope :public)
    (properties "std::vector<storage::Property>" :scope :public
                :capnp-save (lcp:capnp-save-vector "storage::capnp::Common" "storage::Property")
                :capnp-load (lcp:capnp-load-vector "storage::capnp::Common" "storage::Property")))
   (:public
-    (lcp:define-enum action (create create-unique)
-                     (:serialize :capnp))
+   (lcp:define-enum action
+       (create create-unique drop)
+     (:serialize :capnp))
 
     #>cpp
     IndexQuery() = default;
-    
+
     DEFVISITABLE(TreeVisitor<TypedValue>);
     DEFVISITABLE(HierarchicalTreeVisitor);
 
@@ -1598,7 +1593,6 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize :capnp))
-   
 
 (lcp:define-class create (clause)
   ((patterns "std::vector<Pattern *>"
@@ -2209,21 +2203,7 @@ cpp<#
   (:serialize :capnp))
 
 (lcp:define-class auth-query (query)
-  ((action "Action" :scope :public
-           :capnp-save (lcp:capnp-save-enum "capnp::AuthQuery::Action"
-                                            "AuthQuery::Action"
-                                            '(create-role drop-role show-roles create-user
-                                              set-password drop-user show-users set-role
-                                              clear-role grant-privilege deny-privilege
-                                              revoke-privilege show-privileges
-                                              show-role-for-user show-users-for-role))
-           :capnp-load (lcp:capnp-load-enum "capnp::AuthQuery::Action"
-                                            "AuthQuery::Action"
-                                            '(create-role drop-role show-roles create-user
-                                              set-password drop-user show-users set-role
-                                              clear-role grant-privilege deny-privilege
-                                              revoke-privilege show-privileges
-                                              show-role-for-user show-users-for-role)))
+  ((action "Action" :scope :public)
    (user "std::string" :scope :public)
    (role "std::string" :scope :public)
    (user-or-role "std::string" :scope :public)
@@ -2358,17 +2338,7 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
 cpp<#
 
 (lcp:define-class stream-query (query)
-  ((action "Action" :scope :public
-           :capnp-save (lcp:capnp-save-enum "capnp::StreamQuery::Action"
-                                            "StreamQuery::Action"
-                                            '(create-stream drop-stream show-streams
-                                              start-stream stop-stream test-stream
-                                              start-all-streams stop-all-streams))
-           :capnp-load (lcp:capnp-load-enum "capnp::StreamQuery::Action"
-                                            "StreamQuery::Action"
-                                            '(create-stream drop-stream show-streams
-                                              start-stream stop-stream test-stream
-                                              start-all-streams stop-all-streams)))
+  ((action "Action" :scope :public)
    (stream-name "std::string" :scope :public)
    (stream-uri "Expression *" :scope :public :initval "nullptr"
                :capnp-type "Tree" :capnp-init nil

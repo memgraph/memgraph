@@ -32,7 +32,7 @@ explainQuery : EXPLAIN cypherQuery ;
 
 cypherQuery : singleQuery ( cypherUnion )* ;
 
-indexQuery : createIndex | createUniqueIndex;
+indexQuery : createIndex | createUniqueIndex | dropIndex;
 
 singleQuery : clause ( clause )* ;
 
@@ -275,6 +275,8 @@ integerLiteral : DecimalLiteral
 createIndex : CREATE INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 createUniqueIndex : CREATE UNIQUE INDEX ON ':' labelName '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
+
+dropIndex : DROP INDEX ON ':' labelName '(' propertyKeyName ')' ;
 
 doubleLiteral : FloatingLiteral ;
 

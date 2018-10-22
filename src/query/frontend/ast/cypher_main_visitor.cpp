@@ -97,6 +97,17 @@ antlrcpp::Any CypherMainVisitor::visitCreateUniqueIndex(
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitDropIndex(
+    MemgraphCypher::DropIndexContext *ctx) {
+  auto *index_query = storage_->Create<IndexQuery>();
+  index_query->action_ = IndexQuery::Action::DROP;
+  std::pair<std::string, storage::Property> key =
+      ctx->propertyKeyName()->accept(this);
+  index_query->properties_ = {key.second};
+  index_query->label_ = dba_->Label(ctx->labelName()->accept(this));
+  return index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitAuthQuery(
     MemgraphCypher::AuthQueryContext *ctx) {
   CHECK(ctx->children.size() == 1)
