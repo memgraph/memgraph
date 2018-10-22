@@ -200,7 +200,7 @@ void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
     if (!db_.storage().label_property_index_.UpdateOnLabelProperty(
             vertex.address(), vertex.current_)) {
       throw IndexConstraintViolationException(
-          "Index couldn't be populated due to constraint violation!");
+          "Index couldn't be created due to constraint violation!");
     }
   }
 }
@@ -214,7 +214,7 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
   if (!db_.storage().label_property_index_.UpdateOnLabel(label, vlist_ptr,
                                                          vertex)) {
     throw IndexConstraintViolationException(
-        "Index couldn't be updated due to constraint violation!");
+        "Node couldn't be updated due to index constraint violation!");
   }
   db_.storage().labels_index_.Update(label, vlist_ptr, vertex);
 }
@@ -226,7 +226,7 @@ void GraphDbAccessor::UpdatePropertyIndex(
   if (!db_.storage().label_property_index_.UpdateOnProperty(
           property, vertex_accessor.address(), vertex)) {
     throw IndexConstraintViolationException(
-        "Index couldn't be updated due to constraint violation!");
+        "Node couldn't be updated due to index constraint violation!");
   }
 }
 
