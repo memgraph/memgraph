@@ -786,6 +786,10 @@ encoded as union inheritance in Cap'n Proto."
                     (string-downcase (cpp-type-name val) :end 1)
                     field-number)))))
 
+(defun cpp-class-members-for-capnp-save (cpp-class)
+  (remove-if (lambda (m) (eq :dont-save (cpp-member-capnp-save m)))
+             (cpp-class-members cpp-class)))
+
 (defun capnp-schema (cpp-class)
   "Generate Cap'n Proto serialiation schema for CPP-CLASS"
   (declare (type (or cpp-class cpp-enum symbol) cpp-class))
@@ -794,7 +798,8 @@ encoded as union inheritance in Cap'n Proto."
   (when (typep cpp-class 'cpp-enum)
     (return-from capnp-schema (capnp-schema-for-enum cpp-class)))
   (let ((class-name (if (symbolp cpp-class) cpp-class (cpp-type-base-name cpp-class)))
-        (members (when (typep cpp-class 'cpp-class) (cpp-class-members cpp-class)))
+        (members (when (typep cpp-class 'cpp-class)
+                   (cpp-class-members-for-capnp-save cpp-class)))
         (inner-types (when (typep cpp-class 'cpp-class) (cpp-class-inner-types cpp-class)))
         (union-subclasses (capnp-union-subclasses cpp-class))
         (type-params (when (typep cpp-class 'cpp-class) (cpp-type-type-params cpp-class)))
@@ -827,22 +832,21 @@ encoded as union inheritance in Cap'n Proto."
                   (format s "  ~A @~A :Void;~%" (field-name<-symbol type-arg) field-number)
                   (incf field-number))))
             (dolist (member members)
-              (unless (eq :dont-save (cpp-member-capnp-save member))
-                (let ((capnp-type (capnp-type-of-member member))
-                      (field-name (field-name<-symbol (cpp-member-symbol member))))
-                  (if (stringp capnp-type)
-                      (progn
-                        (format s "  ~A @~A :~A;~%"
-                                field-name field-number capnp-type)
-                        (incf field-number))
-                      ;; capnp-type is a list specifying a union type
-                      (progn
-                        (with-cpp-block-output (s :name (format nil "  ~A :union" field-name))
-                          (dolist (union-member capnp-type)
-                            (format s "    ~A @~A :~A;~%"
-                                    (field-name<-symbol (first union-member))
-                                    field-number (second union-member))
-                            (incf field-number))))))))
+              (let ((capnp-type (capnp-type-of-member member))
+                    (field-name (field-name<-symbol (cpp-member-symbol member))))
+                (if (stringp capnp-type)
+                    (progn
+                      (format s "  ~A @~A :~A;~%"
+                              field-name field-number capnp-type)
+                      (incf field-number))
+                    ;; capnp-type is a list specifying a union type
+                    (progn
+                      (with-cpp-block-output (s :name (format nil "  ~A :union" field-name))
+                        (dolist (union-member capnp-type)
+                          (format s "    ~A @~A :~A;~%"
+                                  (field-name<-symbol (first union-member))
+                                  field-number (second union-member))
+                          (incf field-number)))))))
             (dolist (inner inner-types)
               (when (or (and (typep inner 'cpp-class) (cpp-class-capnp-opts inner))
                         (and (typep inner 'cpp-enum) (cpp-enum-capnp-schema inner)))
@@ -1036,40 +1040,39 @@ Proto schema."
   (declare (type cpp-class cpp-class))
   (declare (type string instance-access))
   (with-output-to-string (s)
-    (dolist (member (cpp-class-members cpp-class))
-      (unless (eq :dont-save (cpp-member-capnp-save member))
-        (let ((member-access
-               (concatenate 'string instance-access
-                            (if (eq :public (cpp-member-scope member))
-                                (cpp-member-name member :struct (cpp-class-structp cpp-class))
-                                (format nil "~A()" (cpp-member-name member :struct t)))))
-              (member-builder (format nil "~A_builder" (cpp-member-name member :struct t)))
-              (capnp-name (cpp-type-name (cpp-member-symbol member))))
-          (cond
-            ((and (not (cpp-member-capnp-save member))
-                  (capnp-primitive-type-p (capnp-type-of-member member)))
-             (format s "  ~A->set~A(~A);~%" builder capnp-name member-access))
-            (t
-             ;; Enclose larger save code in new scope
-             (with-cpp-block-output (s)
-               (let ((size (if (string= "vector" (cpp-type-base-name
-                                                  (parse-cpp-type-declaration
-                                                   (cpp-member-type member))))
-                               (format nil "~A.size()" member-access)
-                               "")))
-                 (if (and (cpp-member-capnp-init member)
-                          (not (find-cpp-enum (cpp-member-type member))))
-                     (format s "  auto ~A = ~A->init~A(~A);~%"
-                             member-builder builder capnp-name size)
-                     (setf member-builder builder)))
-               (if (cpp-member-capnp-save member)
-                   (format s "  ~A~%"
-                           (cpp-code (funcall (cpp-member-capnp-save member)
-                                              member-builder member-access capnp-name)))
-                   (write-line (capnp-save-default member-access (cpp-member-type member)
-                                                   member-builder capnp-name
-                                                   :cpp-class cpp-class)
-                               s))))))))))
+    (dolist (member (cpp-class-members-for-capnp-save cpp-class))
+      (let ((member-access
+             (concatenate 'string instance-access
+                          (if (eq :public (cpp-member-scope member))
+                              (cpp-member-name member :struct (cpp-class-structp cpp-class))
+                              (format nil "~A()" (cpp-member-name member :struct t)))))
+            (member-builder (format nil "~A_builder" (cpp-member-name member :struct t)))
+            (capnp-name (cpp-type-name (cpp-member-symbol member))))
+        (cond
+          ((and (not (cpp-member-capnp-save member))
+                (capnp-primitive-type-p (capnp-type-of-member member)))
+           (format s "  ~A->set~A(~A);~%" builder capnp-name member-access))
+          (t
+           ;; Enclose larger save code in new scope
+           (with-cpp-block-output (s)
+             (let ((size (if (string= "vector" (cpp-type-base-name
+                                                (parse-cpp-type-declaration
+                                                 (cpp-member-type member))))
+                             (format nil "~A.size()" member-access)
+                             "")))
+               (if (and (cpp-member-capnp-init member)
+                        (not (find-cpp-enum (cpp-member-type member))))
+                   (format s "  auto ~A = ~A->init~A(~A);~%"
+                           member-builder builder capnp-name size)
+                   (setf member-builder builder)))
+             (if (cpp-member-capnp-save member)
+                 (format s "  ~A~%"
+                         (cpp-code (funcall (cpp-member-capnp-save member)
+                                            member-builder member-access capnp-name)))
+                 (write-line (capnp-save-default member-access (cpp-member-type member)
+                                                 member-builder capnp-name
+                                                 :cpp-class cpp-class)
+                             s)))))))))
 
 (defun capnp-save-function-code (cpp-class)
   "Generate Cap'n Proto save code for CPP-CLASS."
@@ -1085,7 +1088,8 @@ Proto schema."
                    (save-class first-parent builder cpp-out)))
                ;; Initialize CPP-CLASS builder
                (when parents
-                 (if (or force-builder compose-parents (cpp-class-members cpp-class))
+                 (if (or force-builder compose-parents
+                         (cpp-class-members-for-capnp-save cpp-class))
                      (progn
                        (format cpp-out "auto ~A_builder = ~A->~{get~A().~}init~A();~%"
                                (cpp-variable-name (cpp-type-base-name cpp-class))
@@ -1197,6 +1201,11 @@ Proto schema."
 ;;; The user can now only provide a pointer to unique_ptr which should take
 ;;; the ownership of the concrete type.
 
+(defun cpp-class-members-for-capnp-load (cpp-class)
+  (remove-if (lambda (m) (and (eq :dont-save (cpp-member-capnp-save m))
+                              (not (cpp-member-capnp-load m))))
+             (cpp-class-members cpp-class)))
+
 (defun capnp-load-function-declaration (cpp-class)
   "Generate Cap'n Proto load function declaration for CPP-CLASS."
   (declare (type cpp-class cpp-class))
@@ -1274,33 +1283,31 @@ example, INSTANCE-ACCESS could be `my_struct->`"
   (declare (type cpp-class cpp-class))
   (declare (type string instance-access))
   (with-output-to-string (s)
-    (dolist (member (cpp-class-members cpp-class))
-      (unless (and (eq :dont-save (cpp-member-capnp-save member))
-                   (not (cpp-member-capnp-load member)))
-        (let ((member-access
-               (concatenate 'string instance-access
-                            (cpp-member-name member :struct (cpp-class-structp cpp-class))))
-              (member-reader (format nil "~A_reader" (cpp-member-name member :struct t)))
-              (capnp-name (cpp-type-name (cpp-member-symbol member))))
-          (cond
-            ((and (not (cpp-member-capnp-load member))
-                  (capnp-primitive-type-p (capnp-type-of-member member)))
-             (format s "  ~A = ~A.get~A();~%" member-access reader capnp-name))
-            (t
-             ;; Enclose larger load code in new scope
-             (with-cpp-block-output (s)
-               (if (and (cpp-member-capnp-init member)
-                        (not (find-cpp-enum (cpp-member-type member))))
-                   (format s "  auto ~A = ~A.get~A();~%" member-reader reader capnp-name)
-                   (setf member-reader reader))
-               (if (cpp-member-capnp-load member)
-                   (format s "  ~A~%"
-                           (cpp-code (funcall (cpp-member-capnp-load member)
-                                              member-reader member-access capnp-name)))
-                   (write-line (capnp-load-default member-access
-                                                   (cpp-member-type member)
-                                                   member-reader capnp-name :cpp-class cpp-class)
-                               s))))))))))
+    (dolist (member (cpp-class-members-for-capnp-load cpp-class))
+      (let ((member-access
+             (concatenate 'string instance-access
+                          (cpp-member-name member :struct (cpp-class-structp cpp-class))))
+            (member-reader (format nil "~A_reader" (cpp-member-name member :struct t)))
+            (capnp-name (cpp-type-name (cpp-member-symbol member))))
+        (cond
+          ((and (not (cpp-member-capnp-load member))
+                (capnp-primitive-type-p (capnp-type-of-member member)))
+           (format s "  ~A = ~A.get~A();~%" member-access reader capnp-name))
+          (t
+           ;; Enclose larger load code in new scope
+           (with-cpp-block-output (s)
+             (if (and (cpp-member-capnp-init member)
+                      (not (find-cpp-enum (cpp-member-type member))))
+                 (format s "  auto ~A = ~A.get~A();~%" member-reader reader capnp-name)
+                 (setf member-reader reader))
+             (if (cpp-member-capnp-load member)
+                 (format s "  ~A~%"
+                         (cpp-code (funcall (cpp-member-capnp-load member)
+                                            member-reader member-access capnp-name)))
+                 (write-line (capnp-load-default member-access
+                                                 (cpp-member-type member)
+                                                 member-reader capnp-name :cpp-class cpp-class)
+                             s)))))))))
 
 (defun capnp-load-function-code (cpp-class)
   "Generate Cap'n Proto load code for CPP-CLASS."
@@ -1318,7 +1325,8 @@ example, INSTANCE-ACCESS could be `my_struct->`"
                      (format cpp-out "// Load parent class ~A~%" (cpp-type-name first-parent))
                      (load-class first-parent reader cpp-out)))
                  ;; Initialize CPP-CLASS reader
-                 (when (and parents (or compose-parents (cpp-class-members cpp-class)))
+                 (when (and parents (or compose-parents
+                                        (cpp-class-members-for-capnp-load cpp-class)))
                        (progn
                          (format cpp-out "auto reader = ~A.~{get~A().~}get~A();"
                                  reader
