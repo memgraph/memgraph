@@ -75,7 +75,7 @@
               :documentation "A list of symbols or strings defining the full
               namespace. A single symbol may refer to a `CPP-CLASS' which
               encloses this type.")
-   (enclosing-class :type (or null symbol) :initarg :enclosing-class
+   (enclosing-class :type (or null symbol string) :initarg :enclosing-class
                     :initform nil :accessor cpp-type-enclosing-class
                     :documentation "A symbol that is a designator for the type
                     of the enclosing class of this type, or NIL if the type has
@@ -97,12 +97,20 @@
 
 (defun make-cpp-type (name &key namespace enclosing-class type-params type-args)
   "Create an instance of CPP-TYPE given the arguments."
-  (make-instance 'cpp-type
-                 :name name
-                 :namespace namespace
-                 :enclosing-class enclosing-class
-                 :type-params type-params
-                 :type-args (mapcar #'cpp-type type-args)))
+  (let ((namespace (if (and namespace
+                            (string= (string-trim +whitespace-chars+ (car namespace)) ""))
+                       (cdr namespace)
+                       namespace)))
+    (loop for ns in namespace
+       when (or (find-if (lambda (c) (member c +whitespace-chars+ :test #'char=)) ns)
+                (string= ns ""))
+       do (error "Invalid namespace name ~S in ~S" ns namespace))
+    (make-instance 'cpp-type
+                   :name name
+                   :namespace namespace
+                   :enclosing-class enclosing-class
+                   :type-params type-params
+                   :type-args (mapcar #'cpp-type type-args))))
 
 (defun cpp-type= (a b)
   (let ((a (cpp-type a))
@@ -113,8 +121,9 @@
              (equalp (cpp-type-name a) (cpp-type-name b))
              (and (= (length args1) (length args2))
                   (every #'cpp-type= args1 args2))
-             (eq (cpp-type-enclosing-class a)
-                 (cpp-type-enclosing-class b)))))))
+             (string=
+              (cpp-type-name (cpp-type-enclosing-class a))
+              (cpp-type-name (cpp-type-enclosing-class b))))))))
 
 (defmethod print-object ((cpp-type cpp-type) stream)
   (print-unreadable-object (cpp-type stream :type t)
@@ -208,8 +217,7 @@ produces:
   (let ((ptr-pos (position #\* type-decl :from-end t)))
     (when (and ptr-pos (not (cl-ppcre:scan "[()<>]" type-decl :start ptr-pos)))
       (return-from parse-cpp-type-declaration
-        (make-instance 'cpp-type
-                       :name (subseq type-decl ptr-pos)
+        (make-cpp-type (subseq type-decl ptr-pos)
                        :type-args (list (parse-cpp-type-declaration
                                          (subseq type-decl 0 ptr-pos)))))))
   ;; Other cases
@@ -235,11 +243,24 @@ produces:
                        (subseq template arg-start (1- match-end)))
                       type-args)
                 (setf arg-start (1+ match-end)))))))
-      (make-instance 'cpp-type
-                     :ns (when (cdr namespace-split)
-                           (butlast namespace-split))
-                     :name name
-                     :type-args (reverse type-args)))))
+      (let (namespace enclosing-class namespace-done-p)
+        (when (cdr namespace-split)
+          (dolist (ns (butlast namespace-split))
+            ;; Treat capitalized namespace as designating an enclosing class.
+            ;; Only the final enclosing class is taken, because we assume that
+            ;; we can get enclosing classes recursively via `FIND-CPP-CLASS'.
+            ;; This won't work if the classes are not defined in LCP.
+            (cond
+              ((and (string/= "" ns) (upper-case-p (aref ns 0)))
+               (setf namespace-done-p t)
+               (setf enclosing-class ns))
+              ((not namespace-done-p)
+               (push ns namespace))))
+          (setf namespace (reverse namespace)))
+        (make-cpp-type name
+                       :namespace namespace
+                       :enclosing-class enclosing-class
+                       :type-args (reverse type-args))))))
 
 (defun cpp-type-decl (cpp-type &key (type-params t) (namespace t))
   "Return the fully qualified name of given CPP-TYPE."
@@ -335,20 +356,20 @@ produces:
 ;; TODO: use CPP-TYPE, CPP-TYPE= and CPP-PRIMITIVE-TYPE-P in the rest of the
 ;; code
 (defun cpp-type (type-designator)
-  "Coerce the CPP-TYPE designator TYPE-DESIGNATOR into a CPP-TYPE instace.
+  "Coerce the CPP-TYPE designator TYPE-DESIGNATOR into a CPP-TYPE instance.
 
-- if TYPE-DESIGNATOR is an instance of CPP-TYPE, CPP-PRIMITIVE-TYPE or
-  CPP-CLASS, just return it
+- If TYPE-DESIGNATOR is an instance of CPP-TYPE, CPP-PRIMITIVE-TYPE or
+  CPP-CLASS, just return it.
 
-- if TYPE-DESIGNATOR is one of the keywords in +CPP-PRIMITIVE-TYPE-KEYOWRDS+,
+- If TYPE-DESIGNATOR is one of the keywords in +CPP-PRIMITIVE-TYPE-KEYWORDS+,
   return an instance of CPP-PRIMITIVE-TYPE with the name being the result
-  of (string-downcase type-designator)
+  of (string-downcase type-designator).
 
-- if TYPE-DESIGNATOR is any other symbol, return an instance of CPP-TYPE with
-  the name being the result of (remove #\- (string-capitalize type-designator))
+- If TYPE-DESIGNATOR is any other symbol, return an instance of CPP-TYPE with
+  the name being the result of (remove #\- (string-capitalize type-designator)).
 
-- if TYPE-DESIGNATOR is a string, return an instance of CPP-TYPE with the name
-  being that string"
+- If TYPE-DESIGNATOR is a string, return an instance of CPP-TYPE with the name
+  being that string."
   (etypecase type-designator
     ((or cpp-type cpp-primitive-type cpp-class)
      type-designator)
@@ -377,7 +398,8 @@ produces:
   "Find CPP-ENUM in *CPP-ENUMS* by CPP-ENUM-NAME"
   (declare (type (or symbol string) cpp-enum-name))
   (if (stringp cpp-enum-name)
-      (find cpp-enum-name *cpp-enums* :key #'cpp-type-name :test #'string=)
+      (or (find (parse-cpp-type-declaration cpp-enum-name) *cpp-enums* :test #'cpp-type=)
+          (find cpp-enum-name *cpp-enums* :key #'cpp-type-name :test #'string=))
       (find cpp-enum-name *cpp-enums* :key #'cpp-type-base-name)))
 
 (defun direct-subclasses-of (cpp-class)
@@ -953,19 +975,23 @@ encoded as union inheritance in Cap'n Proto."
              namespace '("capnp")))
       (t ;; Just append capnp as final namespace
        (setf namespace (append namespace '("capnp")))))
-    (make-instance 'cpp-type
-                   :name name :namespace namespace
+    (make-cpp-type name :namespace namespace
                    :enclosing-class (cpp-type-enclosing-class cpp-type))))
 
-(defun capnp-save-default (member-name member-type member-builder capnp-name)
+(defun capnp-save-default (member-name member-type member-builder capnp-name &key cpp-class)
   "Generate the default call to save for member.  MEMBER-NAME and MEMBER-TYPE
 are strings describing the member being serialized.  MEMBER-BUILDER is the
 name of the builder variable.  CAPNP-NAME is the name of the member in Cap'n
 Proto schema."
   (declare (type string member-name member-type member-builder capnp-name))
+  (declare (type cpp-class cpp-class))
   (let* ((type (parse-cpp-type-declaration member-type))
          (type-name (cpp-type-base-name type))
-         (cpp-enum (find-cpp-enum member-type)))
+         (cpp-enum (or
+                    ;; Look for potentially nested enum first
+                    (find-cpp-enum
+                        (concatenate 'string (cpp-type-decl cpp-class) "::" member-type))
+                    (find-cpp-enum member-type))))
     (cond
       (cpp-enum
        (funcall
@@ -1041,7 +1067,8 @@ Proto schema."
                            (cpp-code (funcall (cpp-member-capnp-save member)
                                               member-builder member-access capnp-name)))
                    (write-line (capnp-save-default member-access (cpp-member-type member)
-                                                   member-builder capnp-name)
+                                                   member-builder capnp-name
+                                                   :cpp-class cpp-class)
                                s))))))))))
 
 (defun capnp-save-function-code (cpp-class)
@@ -1191,14 +1218,18 @@ Proto schema."
      :returns "void"
      :type-params (cpp-type-type-params cpp-class))))
 
-(defun capnp-load-default (member-name member-type member-reader capnp-name)
+(defun capnp-load-default (member-name member-type member-reader capnp-name &key cpp-class)
   "Generate default load call for member.  MEMBER-NAME and MEMBER-TYPE are
 strings describing the member being loaded.  MEMBER-READER is the name of the
 reader variable.  CAPNP-NAME is the name of the member in Cap'n Proto schema."
   (declare (type string member-name member-type member-reader))
   (let* ((type (parse-cpp-type-declaration member-type))
          (type-name (cpp-type-base-name type))
-         (cpp-enum (find-cpp-enum member-type)))
+         (cpp-enum (or
+                    ;; Look for potentially nested enum first
+                    (find-cpp-enum
+                     (concatenate 'string (cpp-type-decl cpp-class) "::" member-type))
+                    (find-cpp-enum member-type))))
     (cond
       (cpp-enum
        (funcall
@@ -1268,7 +1299,8 @@ example, INSTANCE-ACCESS could be `my_struct->`"
                                               member-reader member-access capnp-name)))
                    (write-line (capnp-load-default member-access
                                                    (cpp-member-type member)
-                                                   member-reader capnp-name) s))))))))))
+                                                   member-reader capnp-name :cpp-class cpp-class)
+                               s))))))))))
 
 (defun capnp-load-function-code (cpp-class)
   "Generate Cap'n Proto load code for CPP-CLASS."

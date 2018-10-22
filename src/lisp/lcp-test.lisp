@@ -69,7 +69,12 @@
                          :namespace '("std")
                          :type-args '("void(int, bool)"))
                        :double))
-                   :char))))
+                    :char)))
+
+    (parse-test "::my_namespace::EnclosingClass::Thing"
+                (lcp::make-cpp-type "Thing"
+                                    :namespace '("" "my_namespace")
+                                    :enclosing-class "EnclosingClass")))
 
   (subtest "printing"
     (decl-test "pair<T1, T2>"
@@ -90,7 +95,37 @@
     (decl-test "pair"
                (lcp::make-cpp-type
                 "pair" :type-params '("TIntegral1 TIntegral2"))
-               :type-params nil)))
+               :type-params nil))
+
+  (subtest "finding defined enums"
+    (let ((lcp::*cpp-classes* nil)
+          (lcp::*cpp-enums* nil))
+      (lcp:define-enum action (val1 val2))
+      (lcp:define-class enclosing-class ()
+        ()
+        (:public
+         (lcp:define-enum action (other-val1 other-val2))
+         (lcp:define-class another-enclosing ()
+           ()
+           (:public
+            (lcp:define-enum action (deep-val1 deep-val2))))))
+      (lcp:namespace my-namespace)
+      (lcp:define-enum action (third-val1 third-val2))
+      (lcp:pop-namespace)
+
+      (decl-test "Action" (lcp::find-cpp-enum "::Action"))
+      (decl-test "EnclosingClass::Action" (lcp::find-cpp-enum "EnclosingClass::Action"))
+      (decl-test "EnclosingClass::Action" (lcp::find-cpp-enum "::EnclosingClass::Action"))
+      (decl-test "EnclosingClass::AnotherEnclosing::Action"
+                 (lcp::find-cpp-enum "EnclosingClass::AnotherEnclosing::Action"))
+      (decl-test "my_namespace::Action" (lcp::find-cpp-enum "my_namespace::Action"))
+      (decl-test "my_namespace::Action" (lcp::find-cpp-enum "::my_namespace::Action"))
+      (ok (lcp::find-cpp-enum "Action"))
+      (ok (lcp::find-cpp-enum 'action))
+      (ok (not (lcp::find-cpp-enum "NonExistent")))
+      (ok (not (lcp::find-cpp-enum "")))
+      (ok (not (lcp::find-cpp-enum "my_namespace::NonExistent")))
+      (ok (not (lcp::find-cpp-enum "::NonExistent"))))))
 
 (deftest "unsupported"
   (subtest "cv-qualifiers"
