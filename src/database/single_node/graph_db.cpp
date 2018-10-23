@@ -106,6 +106,12 @@ std::unique_ptr<GraphDbAccessor> GraphDb::Access(tx::TransactionId tx_id) {
   return std::unique_ptr<GraphDbAccessor>(new GraphDbAccessor(*this, tx_id));
 }
 
+std::unique_ptr<GraphDbAccessor> GraphDb::AccessBlocking(
+    std::experimental::optional<tx::TransactionId> parent_tx) {
+  return std::unique_ptr<GraphDbAccessor>(
+      new GraphDbAccessor(*this, parent_tx));
+}
+
 Storage &GraphDb::storage() { return *storage_; }
 
 durability::WriteAheadLog &GraphDb::wal() { return wal_; }

@@ -4,7 +4,6 @@
 #include <experimental/optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "data_structures/concurrent/skiplist.hpp"
 #include "mvcc/single_node/version_list.hpp"
 #include "storage/common/types.hpp"
 #include "storage/kvstore/kvstore.hpp"
@@ -75,9 +74,6 @@ class Storage {
   LabelPropertyIndex label_property_index_;
 
   std::vector<std::string> properties_on_disk_;
-
-  // Set of transactions ids which are building indexes currently
-  SkipList<tx::TransactionId> index_build_tx_in_progress_;
 
   /// Gets the Vertex/Edge main storage map.
   template <typename TRecord>

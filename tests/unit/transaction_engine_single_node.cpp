@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 
+#include <experimental/optional>
 #include <thread>
 #include <vector>
 
@@ -80,4 +81,73 @@ TEST(Engine, EnsureTxIdGreater) {
   ASSERT_LE(engine.Begin()->id_, 40);
   engine.EnsureNextIdGreater(42);
   EXPECT_EQ(engine.Begin()->id_, 43);
+}
+
+TEST(Engine, BlockingTransaction) {
+  Engine engine;
+  std::vector<std::thread> threads;
+  std::atomic<bool> finished{false};
+  std::atomic<bool> blocking_started{false};
+  std::atomic<bool> blocking_finished{false};
+  std::atomic<int> tx_counter{0};
+  for (int i = 0; i < 10; ++i) {
+    threads.emplace_back([&engine, &tx_counter, &finished]() mutable {
+      auto t = engine.Begin();
+      tx_counter++;
+      while (!finished.load()) {
+        std::this_thread::sleep_for(std::chrono::microseconds(100));
+      }
+      engine.Commit(*t);
+    });
+  }
+
+  // Wait for all transactions to start.
+  do {
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  } while (tx_counter.load() < 10);
+
+  threads.emplace_back([&engine, &blocking_started, &blocking_finished]() {
+    // This should block until other transactions end.
+    blocking_started.store(true);
+    auto t = engine.BeginBlocking(std::experimental::nullopt);
+    engine.Commit(*t);
+    blocking_finished.store(true);
+  });
+
+  EXPECT_FALSE(finished.load());
+  EXPECT_FALSE(blocking_finished.load());
+  EXPECT_EQ(tx_counter.load(), 10);
+
+  // Make sure the blocking transaction thread kicked off.
+  do {
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  } while (!blocking_started.load());
+
+  // Make sure we can't start any new transaction
+  EXPECT_THROW(engine.Begin(), TransactionEngineError);
+  EXPECT_THROW(engine.BeginBlocking(std::experimental::nullopt), TransactionEngineError);
+
+  // Release regular transactions. This will cause the blocking transaction to
+  // end also.
+  finished.store(true);
+
+  for (auto &t : threads) {
+    if (t.joinable()) {
+      t.join();
+    }
+  }
+
+  EXPECT_TRUE(blocking_finished.load());
+
+  // Make sure we can start transactions now.
+  {
+    auto t = engine.Begin();
+    EXPECT_NE(t, nullptr);
+    engine.Commit(*t);
+  }
+  {
+    auto t = engine.BeginBlocking(std::experimental::nullopt);
+    EXPECT_NE(t, nullptr);
+    engine.Commit(*t);
+  }
 }

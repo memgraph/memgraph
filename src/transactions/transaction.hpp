@@ -37,8 +37,12 @@ class Transaction final {
   friend class Engine;
 
   // The constructor is private, only the Engine ever uses it.
-  Transaction(TransactionId id, const Snapshot &snapshot, Engine &engine)
-      : id_(id), engine_(engine), snapshot_(snapshot) {}
+  Transaction(TransactionId id, const Snapshot &snapshot, Engine &engine,
+              bool blocking)
+      : id_(id),
+        engine_(engine),
+        snapshot_(snapshot),
+        blocking_(blocking) {}
 
   // A transaction can't be moved nor copied. it's owned by the transaction
   // engine, and it's lifetime is managed by it.
@@ -74,6 +78,8 @@ class Transaction final {
 
   auto creation_time() const { return creation_time_; }
 
+  auto blocking() const { return blocking_; }
+
  private:
   // Function used to advance the command.
   CommandId AdvanceCommand() {
@@ -104,5 +110,7 @@ class Transaction final {
   // Creation time.
   const std::chrono::time_point<std::chrono::steady_clock> creation_time_{
       std::chrono::steady_clock::now()};
+
+  bool blocking_{false};
 };
 }  // namespace tx

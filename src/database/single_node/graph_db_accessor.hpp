@@ -36,6 +36,12 @@ class IndexCreationOnWorkerException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+/// Thrown on concurrent index creation when the transaction engine fails to
+/// start a new transaction.
+class IndexCreationException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 /**
  * Base accessor for the database object: exposes functions for operating on the
  * database. All the functions in this class should be self-sufficient: for
@@ -59,6 +65,9 @@ class GraphDbAccessor {
   explicit GraphDbAccessor(GraphDb &db);
   /// Creates an accessor for a running transaction.
   GraphDbAccessor(GraphDb &db, tx::TransactionId tx_id);
+
+  GraphDbAccessor(GraphDb &db,
+                  std::experimental::optional<tx::TransactionId> parent_tx);
 
  public:
   ~GraphDbAccessor();
@@ -425,7 +434,8 @@ class GraphDbAccessor {
    * @param label - label to build for
    * @param property - property to build for
    */
-  void BuildIndex(storage::Label label, storage::Property property, bool unique);
+  void BuildIndex(storage::Label label, storage::Property property,
+                  bool unique);
 
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);

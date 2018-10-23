@@ -37,6 +37,12 @@ class IndexCreationOnWorkerException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
+/// Thrown on concurrent index creation when the transaction engine fails to
+/// start a new transaction.
+class IndexCreationException : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 /**
  * Base accessor for the database object: exposes functions for operating on the
  * database. All the functions in this class should be self-sufficient: for

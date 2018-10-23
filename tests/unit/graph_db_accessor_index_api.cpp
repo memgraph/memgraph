@@ -1,3 +1,4 @@
+#include <atomic>
 #include <experimental/optional>
 #include <memory>
 #include <thread>
@@ -135,22 +136,38 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexCount) {
 }
 
 TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
-  const int ITER_COUNT = 10;
-  for (int iter = 0; iter < ITER_COUNT; ++iter) {
-    database::GraphDb db;
-    const int THREAD_COUNT = 10;
-    std::vector<std::thread> threads;
-    for (int index = 0; index < THREAD_COUNT; ++index) {
-      threads.emplace_back([&db, index]() {
+  const int THREAD_COUNT = 10;
+  std::vector<std::thread> threads;
+  database::GraphDb db;
+  std::atomic<bool> failed{false};
+  for (int index = 0; index < THREAD_COUNT; ++index) {
+    threads.emplace_back([&db, &failed, index]() {
+      // If we fail to create a new transaction, don't bother.
+      try {
         auto dba = db.Access();
-        dba->BuildIndex(dba->Label("l" + std::to_string(index)),
-                        dba->Property("p" + std::to_string(index)), false);
-
-      });
-    }
-    // All threads should end and there shouldn't be any deadlock
-    for (auto &thread : threads) thread.join();
+        try {
+          // This could either pass or throw.
+          dba->BuildIndex(dba->Label("l" + std::to_string(index)),
+                          dba->Property("p" + std::to_string(index)), false);
+          // If it throws, make sure the exception is right.
+        } catch (const database::IndexCreationException &e) {
+          // Nothing to see here, move along.
+        } catch (...) {
+          failed.store(true);
+        }
+      } catch (...) {
+        // Ignore this one also.
+      }
+    });
   }
+
+  for (auto &thread : threads) {
+    if (thread.joinable()) {
+      thread.join();
+    }
+  }
+
+  EXPECT_FALSE(failed.load());
 }
 
 #define EXPECT_WITH_MARGIN(x, center) \

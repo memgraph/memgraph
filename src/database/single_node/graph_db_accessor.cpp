@@ -25,6 +25,12 @@ GraphDbAccessor::GraphDbAccessor(GraphDb &db, tx::TransactionId tx_id)
       transaction_(*db.tx_engine().RunningTransaction(tx_id)),
       transaction_starter_{false} {}
 
+GraphDbAccessor::GraphDbAccessor(
+    GraphDb &db, std::experimental::optional<tx::TransactionId> parent_tx)
+    : db_(db),
+      transaction_(*db.tx_engine().BeginBlocking(parent_tx)),
+      transaction_starter_{true} {}
+
 GraphDbAccessor::~GraphDbAccessor() {
   if (transaction_starter_ && !commited_ && !aborted_) {
     this->Abort();
@@ -109,16 +115,6 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
                                  storage::Property property, bool unique) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
 
-  db_.storage().index_build_tx_in_progress_.access().insert(transaction_.id_);
-
-  // on function exit remove the create index transaction from
-  // build_tx_in_progress
-  utils::OnScopeExit on_exit_1([this] {
-    auto removed = db_.storage().index_build_tx_in_progress_.access().remove(
-        transaction_.id_);
-    DCHECK(removed) << "Index creation transaction should be inside set";
-  });
-
   // Create the index
   const LabelPropertyIndex::Key key(label, property, unique);
   if (db_.storage().label_property_index_.CreateIndex(key) == false) {
@@ -127,54 +123,20 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
         "exists.");
   }
 
-  // TODO (msantl): If unique constraint, lock the tx engine
-
-  // Everything that happens after the line above ended will be added to the
-  // index automatically, but we still have to add to index everything that
-  // happened earlier. We have to first wait for every transaction that
-  // happend before, or a bit later than CreateIndex to end.
-  {
-    auto wait_transactions = transaction_.engine_.GlobalActiveTransactions();
-    auto active_index_creation_transactions =
-        db_.storage().index_build_tx_in_progress_.access();
-    for (auto id : wait_transactions) {
-      if (active_index_creation_transactions.contains(id)) continue;
-      while (transaction_.engine_.Info(id).is_active()) {
-        // Active index creation set could only now start containing that id,
-        // since that thread could have not written to the set set and to avoid
-        // dead-lock we need to make sure we keep track of that
-        if (active_index_creation_transactions.contains(id)) continue;
-        // TODO reconsider this constant, currently rule-of-thumb chosen
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
-      }
-    }
-  }
-
-  // This accessor's transaction surely sees everything that happened before
-  // CreateIndex.
-  auto dba = db_.Access();
-
-  // Add transaction to the build_tx_in_progress as this transaction doesn't
-  // change data and shouldn't block other parallel index creations
-  auto read_transaction_id = dba->transaction().id_;
-  db_.storage().index_build_tx_in_progress_.access().insert(
-      read_transaction_id);
-  // on function exit remove the read transaction from build_tx_in_progress
-  utils::OnScopeExit on_exit_2([read_transaction_id, this] {
-    auto removed = db_.storage().index_build_tx_in_progress_.access().remove(
-        read_transaction_id);
-    DCHECK(removed) << "Index building (read) transaction should be inside set";
-  });
-
   try {
+    auto dba =
+        db_.AccessBlocking(std::experimental::make_optional(transaction_.id_));
+
     dba->PopulateIndex(key);
+    dba->EnableIndex(key);
+    dba->Commit();
   } catch (const IndexConstraintViolationException &) {
     db_.storage().label_property_index_.DeleteIndex(key);
     throw;
+  } catch (const tx::TransactionEngineError &e) {
+    db_.storage().label_property_index_.DeleteIndex(key);
+    throw IndexCreationException(e.what());
   }
-
-  dba->EnableIndex(key);
-  dba->Commit();
 }
 
 void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {

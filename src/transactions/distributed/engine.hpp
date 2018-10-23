@@ -95,7 +95,7 @@ class Engine {
 
  protected:
   Transaction *CreateTransaction(TransactionId id, const Snapshot &snapshot) {
-    return new Transaction(id, snapshot, *this);
+    return new Transaction(id, snapshot, *this, false);
   }
 
   CommandId AdvanceCommand(Transaction *t) { return t->AdvanceCommand(); }

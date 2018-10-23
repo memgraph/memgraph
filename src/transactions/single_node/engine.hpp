@@ -13,6 +13,10 @@
 
 namespace tx {
 
+class TransactionEngineError : public utils::BasicException {
+  using utils::BasicException::BasicException;
+};
+
 /// Single-node deployment transaction engine. Has complete functionality.
 class Engine final {
  public:
@@ -26,6 +30,12 @@ class Engine final {
   Engine &operator=(Engine &&) = delete;
 
   Transaction *Begin();
+  /// Blocking transactions are used when we can't allow any other transaction to
+  /// run (besides this one). This is the reason why this transactions blocks the
+  /// engine from creating new transactions and waits for the existing ones to
+  /// finish.
+  Transaction *BeginBlocking(
+      std::experimental::optional<TransactionId> parent_tx);
   CommandId Advance(TransactionId id);
   CommandId UpdateCommand(TransactionId id);
   void Commit(const Transaction &t);
@@ -44,15 +54,6 @@ class Engine final {
   auto &local_lock_graph() { return local_lock_graph_; }
   const auto &local_lock_graph() const { return local_lock_graph_; }
 
- protected:
-  Transaction *CreateTransaction(TransactionId id, const Snapshot &snapshot) {
-    return new Transaction(id, snapshot, *this);
-  }
-
-  CommandId AdvanceCommand(Transaction *t) { return t->AdvanceCommand(); }
-
-  void SetCommand(Transaction *t, CommandId cid) { t->SetCommand(cid); }
-
  private:
   // Map lock dependencies. Each entry maps (tx_that_wants_lock,
   // tx_that_holds_lock). Used for local deadlock resolution.
@@ -67,5 +68,9 @@ class Engine final {
   // Optional. If present, the Engine will write tx Begin/Commit/Abort
   // atomically (while under lock).
   durability::WriteAheadLog *wal_{nullptr};
+  std::atomic<bool> accepting_transactions_{true};
+
+  // Helper method for transaction begin.
+  Transaction *BeginTransaction(bool blocking);
 };
 }  // namespace tx

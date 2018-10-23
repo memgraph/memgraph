@@ -14,15 +14,45 @@ Engine::Engine(durability::WriteAheadLog *wal) : wal_(wal) {}
 Transaction *Engine::Begin() {
   VLOG(11) << "[Tx] Starting transaction " << counter_ + 1;
   std::lock_guard<utils::SpinLock> guard(lock_);
+  if (!accepting_transactions_.load())
+    throw TransactionEngineError(
+        "The transaction engine currently isn't accepting new transactions.");
 
-  TransactionId id{++counter_};
-  auto t = CreateTransaction(id, active_);
-  active_.insert(id);
-  store_.emplace(id, t);
-  if (wal_) {
-    wal_->Emplace(database::StateDelta::TxBegin(id));
+  return BeginTransaction(false);
+}
+
+Transaction *Engine::BeginBlocking(
+    std::experimental::optional<TransactionId> parent_tx) {
+  Snapshot wait_for_txs;
+  {
+    std::lock_guard<utils::SpinLock> guard(lock_);
+    if (!accepting_transactions_.load())
+      throw TransactionEngineError("Engine is not accepting new transactions");
+
+    // Block the engine from acceping new transactions.
+    accepting_transactions_.store(false);
+
+    // Set active transactions to abort ASAP.
+    for (auto transaction : active_) {
+      store_.find(transaction)->second->set_should_abort();
+    }
+
+    wait_for_txs = active_;
   }
-  return t;
+
+  // Wait for all active transactions except the parent (optional) and ourselves
+  // to end.
+  for (auto id : wait_for_txs) {
+    if (parent_tx && *parent_tx == id) continue;
+    while (Info(id).is_active()) {
+      // TODO reconsider this constant, currently rule-of-thumb chosen
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+  }
+
+  // Only after all transactions have finished, start the blocking transaction.
+  std::lock_guard<utils::SpinLock> guard(lock_);
+  return BeginTransaction(true);
 }
 
 CommandId Engine::Advance(TransactionId id) {
@@ -32,8 +62,7 @@ CommandId Engine::Advance(TransactionId id) {
   DCHECK(it != store_.end())
       << "Transaction::advance on non-existing transaction";
 
-  Transaction *t = it->second.get();
-  return AdvanceCommand(t);
+  return it->second.get()->AdvanceCommand();
 }
 
 CommandId Engine::UpdateCommand(TransactionId id) {
@@ -53,6 +82,9 @@ void Engine::Commit(const Transaction &t) {
     wal_->Emplace(database::StateDelta::TxCommit(t.id_));
   }
   store_.erase(store_.find(t.id_));
+  if (t.blocking()) {
+    accepting_transactions_.store(true);
+  }
 }
 
 void Engine::Abort(const Transaction &t) {
@@ -64,6 +96,9 @@ void Engine::Abort(const Transaction &t) {
     wal_->Emplace(database::StateDelta::TxAbort(t.id_));
   }
   store_.erase(store_.find(t.id_));
+  if (t.blocking()) {
+    accepting_transactions_.store(true);
+  }
 }
 
 CommitLog::Info Engine::Info(TransactionId tx) const {
@@ -127,6 +162,17 @@ Transaction *Engine::RunningTransaction(TransactionId tx_id) {
 void Engine::EnsureNextIdGreater(TransactionId tx_id) {
   std::lock_guard<utils::SpinLock> guard(lock_);
   counter_ = std::max(tx_id, counter_);
+}
+
+Transaction *Engine::BeginTransaction(bool blocking) {
+  TransactionId id{++counter_};
+  Transaction *t = new Transaction(id, active_, *this, blocking);
+  active_.insert(id);
+  store_.emplace(id, t);
+  if (wal_) {
+    wal_->Emplace(database::StateDelta::TxBegin(id));
+  }
+  return t;
 }
 
 }  // namespace tx

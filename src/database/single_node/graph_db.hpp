@@ -2,6 +2,7 @@
 #pragma once
 
 #include <atomic>
+#include <experimental/optional>
 #include <memory>
 #include <vector>
 
@@ -74,6 +75,8 @@ class GraphDb {
 
   /// Create a new accessor by starting a new transaction.
   std::unique_ptr<GraphDbAccessor> Access();
+  std::unique_ptr<GraphDbAccessor> AccessBlocking(
+      std::experimental::optional<tx::TransactionId> parent_tx);
   /// Create an accessor for a running transaction.
   std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId);
 

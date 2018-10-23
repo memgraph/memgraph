@@ -537,6 +537,8 @@ Callback HandleIndexQuery(IndexQuery *index_query,
             throw QueryRuntimeException(e.what());
           }
           // Otherwise ignore creating an existing index.
+        } catch (const database::IndexCreationException &e) {
+          throw QueryRuntimeException(e.what());
         }
         return std::vector<std::vector<TypedValue>>();
       };
