@@ -60,6 +60,12 @@ class Interpreter {
   struct CachedQuery {
     AstStorage ast_storage;
     Query *query;
+    std::vector<AuthQuery::Privilege> required_privileges;
+  };
+
+  struct ParsedQuery {
+    Query *query;
+    std::vector<AuthQuery::Privilege> required_privileges;
   };
 
   using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
@@ -199,10 +205,10 @@ class Interpreter {
       const Parameters &parameters, database::GraphDbAccessor *db_accessor);
 
   // stripped query -> high level tree
-  Query *ParseQuery(const std::string &stripped_query,
-                    const std::string &original_query,
-                    const ParsingContext &context, AstStorage *ast_storage,
-                    database::GraphDbAccessor *db_accessor);
+  ParsedQuery ParseQuery(const std::string &stripped_query,
+                         const std::string &original_query,
+                         const ParsingContext &context, AstStorage *ast_storage,
+                         database::GraphDbAccessor *db_accessor);
 };
 
 }  // namespace query

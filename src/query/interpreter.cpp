@@ -577,12 +577,9 @@ Interpreter::Results Interpreter::operator()(
   ParsingContext parsing_context;
   parsing_context.is_query_cached = true;
   AstStorage ast_storage;
-  Query *ast_root = ParseQuery(stripped_query.query(), query_string,
-                               parsing_context, &ast_storage, &db_accessor);
 
-  // TODO: Maybe cache required privileges to improve performance on very
-  // simple queries.
-  auto required_privileges = query::GetRequiredPrivileges(ast_root);
+  auto parsed_query = ParseQuery(stripped_query.query(), query_string,
+                                 parsing_context, &ast_storage, &db_accessor);
   auto frontend_time = frontend_timer.Elapsed();
 
   // Build summary.
@@ -601,7 +598,7 @@ Interpreter::Results Interpreter::operator()(
   // we must ensure it lives during the whole interpretation.
   std::shared_ptr<CachedPlan> plan{nullptr};
 
-  if (auto *cypher_query = dynamic_cast<CypherQuery *>(ast_root)) {
+  if (auto *cypher_query = dynamic_cast<CypherQuery *>(parsed_query.query)) {
     plan = CypherQueryToPlan(stripped_query.hash(), cypher_query,
                              std::move(ast_storage),
                              evaluation_context.parameters, &db_accessor);
@@ -626,10 +623,11 @@ Interpreter::Results Interpreter::operator()(
     auto cursor = plan->plan().MakeCursor(db_accessor);
 
     return Results(std::move(execution_context), plan, std::move(cursor),
-                   output_symbols, header, summary, required_privileges);
+                   output_symbols, header, summary,
+                   parsed_query.required_privileges);
   }
 
-  if (auto *explain_query = dynamic_cast<ExplainQuery *>(ast_root)) {
+  if (auto *explain_query = dynamic_cast<ExplainQuery *>(parsed_query.query)) {
     const std::string kExplainQueryStart = "explain ";
     CHECK(utils::StartsWith(stripped_query.query(), kExplainQueryStart))
         << "Expected stripped query to start with '" << kExplainQueryStart
@@ -670,11 +668,12 @@ Interpreter::Results Interpreter::operator()(
     auto cursor = plan->plan().MakeCursor(db_accessor);
 
     return Results(std::move(execution_context), plan, std::move(cursor),
-                   output_symbols, header, summary, required_privileges);
+                   output_symbols, header, summary,
+                   parsed_query.required_privileges);
   }
 
   Callback callback;
-  if (auto *index_query = dynamic_cast<IndexQuery *>(ast_root)) {
+  if (auto *index_query = dynamic_cast<IndexQuery *>(parsed_query.query)) {
     if (in_explicit_transaction) {
       throw IndexInMulticommandTxException();
     }
@@ -687,13 +686,14 @@ Interpreter::Results Interpreter::operator()(
     };
     callback =
         HandleIndexQuery(index_query, invalidate_plan_cache, &db_accessor);
-  } else if (auto *auth_query = dynamic_cast<AuthQuery *>(ast_root)) {
+  } else if (auto *auth_query = dynamic_cast<AuthQuery *>(parsed_query.query)) {
     if (in_explicit_transaction) {
       throw UserModificationInMulticommandTxException();
     }
     callback =
         HandleAuthQuery(auth_query, auth_, evaluation_context, &db_accessor);
-  } else if (auto *stream_query = dynamic_cast<StreamQuery *>(ast_root)) {
+  } else if (auto *stream_query =
+                 dynamic_cast<StreamQuery *>(parsed_query.query)) {
     if (in_explicit_transaction) {
       throw StreamClauseInMulticommandTxException();
     }
@@ -720,7 +720,8 @@ Interpreter::Results Interpreter::operator()(
   auto cursor = plan->plan().MakeCursor(db_accessor);
 
   return Results(std::move(execution_context), plan, std::move(cursor),
-                 output_symbols, callback.header, summary, required_privileges);
+                 output_symbols, callback.header, summary,
+                 parsed_query.required_privileges);
 }
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
@@ -742,11 +743,10 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
       .first->second;
 }
 
-Query *Interpreter::ParseQuery(const std::string &stripped_query,
-                               const std::string &original_query,
-                               const ParsingContext &context,
-                               AstStorage *ast_storage,
-                               database::GraphDbAccessor *db_accessor) {
+Interpreter::ParsedQuery Interpreter::ParseQuery(
+    const std::string &stripped_query, const std::string &original_query,
+    const ParsingContext &context, AstStorage *ast_storage,
+    database::GraphDbAccessor *db_accessor) {
   if (!context.is_query_cached) {
     // Parse original query into antlr4 AST.
     auto parser = [&] {
@@ -757,7 +757,8 @@ Query *Interpreter::ParseQuery(const std::string &stripped_query,
     // Convert antlr4 AST into Memgraph AST.
     frontend::CypherMainVisitor visitor(context, ast_storage, db_accessor);
     visitor.visit(parser->tree());
-    return visitor.query();
+    return ParsedQuery{visitor.query(),
+                       query::GetRequiredPrivileges(visitor.query())};
   }
 
   auto stripped_query_hash = fnv(stripped_query);
@@ -783,17 +784,19 @@ Query *Interpreter::ParseQuery(const std::string &stripped_query,
       }
     }();
     // Convert antlr4 AST into Memgraph AST.
-    CachedQuery cached_query;
-    frontend::CypherMainVisitor visitor(context, &cached_query.ast_storage,
+    AstStorage cached_ast_storage;
+    frontend::CypherMainVisitor visitor(context, &cached_ast_storage,
                                         db_accessor);
     visitor.visit(parser->tree());
-    cached_query.query = visitor.query();
+    CachedQuery cached_query{std::move(cached_ast_storage), visitor.query(),
+                             query::GetRequiredPrivileges(visitor.query())};
     // Cache it.
     ast_it =
         ast_cache_accessor.insert(stripped_query_hash, std::move(cached_query))
             .first;
   }
-  return ast_it->second.query->Clone(*ast_storage);
+  return ParsedQuery{ast_it->second.query->Clone(*ast_storage),
+                     ast_it->second.required_privileges};
 }
 
 std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(
