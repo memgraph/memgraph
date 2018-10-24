@@ -629,7 +629,8 @@ Interpreter::Results Interpreter::operator()(
 
   if (auto *explain_query = dynamic_cast<ExplainQuery *>(parsed_query.query)) {
     const std::string kExplainQueryStart = "explain ";
-    CHECK(utils::StartsWith(stripped_query.query(), kExplainQueryStart))
+    CHECK(utils::StartsWith(utils::ToLowerCase(stripped_query.query()),
+                            kExplainQueryStart))
         << "Expected stripped query to start with '" << kExplainQueryStart
         << "'";
 
