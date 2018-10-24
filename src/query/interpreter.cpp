@@ -490,7 +490,6 @@ Callback HandleStreamQuery(StreamQuery *stream_query,
               limit_batches.IsInt()
                   ? std::experimental::make_optional(limit_batches.ValueInt())
                   : std::experimental::nullopt);
-          LOG(INFO) << results.size();
           for (const auto &result : results) {
             std::map<std::string, TypedValue> params;
             for (const auto &param : result.second) {
