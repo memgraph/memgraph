@@ -10,10 +10,8 @@
 TEST(DeferredDeleter, AddObjects) {
   DeferredDeleter<Vertex> deleter;
   for (int i = 0; i < 10; ++i) {
-    std::vector<DeferredDeleter<Vertex>::DeletedObject> v;
-    v.emplace_back(new Vertex, 5);
-    v.emplace_back(new Vertex, 5);
-    deleter.AddObjects(v);
+    deleter.AddObject(new Vertex, 5);
+    deleter.AddObject(new Vertex, 5);
     EXPECT_EQ(deleter.Count(), (i + 1) * 2);
   }
   deleter.FreeExpiredObjects(tx::Transaction::MaxId());
@@ -24,10 +22,8 @@ TEST(DeferredDeleter, Destructor) {
   std::atomic<int> count{0};
   DeferredDeleter<DestrCountRec> *deleter = new DeferredDeleter<DestrCountRec>;
   for (int i = 0; i < 10; ++i) {
-    std::vector<DeferredDeleter<DestrCountRec>::DeletedObject> v;
-    v.emplace_back(new DestrCountRec(count), 5);
-    v.emplace_back(new DestrCountRec(count), 5);
-    deleter->AddObjects(v);
+    deleter->AddObject(new DestrCountRec(count), 5);
+    deleter->AddObject(new DestrCountRec(count), 5);
     EXPECT_EQ(deleter->Count(), (i + 1) * 2);
   }
   EXPECT_EQ(0, count);
@@ -40,11 +36,9 @@ TEST(DeferredDeleter, Destructor) {
 // Check if deleter frees objects.
 TEST(DeferredDeleter, FreeExpiredObjects) {
   DeferredDeleter<DestrCountRec> deleter;
-  std::vector<DeferredDeleter<DestrCountRec>::DeletedObject> v;
   std::atomic<int> count{0};
-  v.emplace_back(new DestrCountRec(count), 5);
-  v.emplace_back(new DestrCountRec(count), 5);
-  deleter.AddObjects(v);
+  deleter.AddObject(new DestrCountRec(count), 5);
+  deleter.AddObject(new DestrCountRec(count), 5);
 
   deleter.FreeExpiredObjects(5);
   EXPECT_EQ(deleter.Count(), 2);

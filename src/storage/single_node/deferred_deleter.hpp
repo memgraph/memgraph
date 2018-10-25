@@ -16,17 +16,13 @@
  */
 template <typename T>
 class DeferredDeleter {
- public:
-  /**
-   * @brief - keep track of what object was deleted at which time.
-   */
+ private:
   struct DeletedObject {
-    const T *object;
-    const tx::TransactionId deleted_at;
-    DeletedObject(const T *object, tx::TransactionId deleted_at)
-        : object(object), deleted_at(deleted_at) {}
+    T *object;
+    tx::TransactionId deleted_at;
   };
 
+ public:
   /**
    * @brief - check if everything is freed
    */
@@ -36,22 +32,15 @@ class DeferredDeleter {
   }
 
   /**
-   * @brief - Add objects to this deleter. This method assumes that it will
+   * @brief - Add object to this deleter. This method assumes that it will
    * always be called with a non-decreasing sequence of `deleted_at`.
-   * @param objects - vector of objects to add
-   * @param last_transaction - nothing newer or equal to it can see these
-   * objects
+   * @param object - object to add
+   * @param deleted_at - when was the object deleted
    */
-  void AddObjects(const std::vector<DeletedObject> &objects) {
-    auto previous_tx_id = objects_.empty()
-                              ? std::numeric_limits<tx::TransactionId>::min()
-                              : objects_.back().deleted_at;
-    for (auto object : objects) {
-      CHECK(previous_tx_id <= object.deleted_at)
-          << "deleted_at must be non-decreasing";
-      previous_tx_id = object.deleted_at;
-      objects_.push_back(object);
-    }
+  void AddObject(T *object, tx::TransactionId deleted_at) {
+    CHECK(previous_tx_id_ <= deleted_at) << "deleted_at must be non-decreasing";
+    previous_tx_id_ = deleted_at;
+    objects_.push_back(DeletedObject{object, deleted_at});
   }
 
   /**
@@ -75,4 +64,6 @@ class DeferredDeleter {
  private:
   // Ascendingly sorted list of deleted objects by `deleted_at`.
   std::list<DeletedObject> objects_;
+  // Last transaction ID that had deleted objects
+  tx::TransactionId previous_tx_id_{0};
 };
