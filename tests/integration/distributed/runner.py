@@ -83,7 +83,10 @@ def execute_test(memgraph_binary, tester_binary, cluster_size, disaster,
     # Execute the query if required.
     if execute_query:
         time.sleep(1)
-        client = subprocess.Popen([tester_binary])
+        # Run the `create` step first.
+        subprocess.run([tester_binary, "--step", "create"], check=True)
+        # Now execute the query.
+        client = subprocess.Popen([tester_binary, "--step", "execute"])
 
     # Perform the disaster.
     time.sleep(2)
