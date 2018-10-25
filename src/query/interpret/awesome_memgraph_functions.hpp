@@ -13,7 +13,6 @@ namespace {
 const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
-const char kCoalesce[] = "COALESCE";
 }  // namespace
 
 /// Return the function implementation with the given name.

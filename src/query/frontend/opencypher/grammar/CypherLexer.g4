@@ -77,6 +77,7 @@ ASCENDING      : A S C E N D I N G ;
 BFS            : B F S ;
 BY             : B Y ;
 CASE           : C A S E ;
+COALESCE       : C O A L E S C E ;
 CONTAINS       : C O N T A I N S ;
 COUNT          : C O U N T ;
 CREATE         : C R E A T E ;

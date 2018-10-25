@@ -882,6 +882,46 @@ cpp<#
     cpp<#)
   (:serialize :capnp))
 
+(lcp:define-class coalesce (expression)
+  ((expressions "std::vector<Expression *>"
+                :scope :public
+                :capnp-type "List(Tree)"
+                :capnp-save (save-ast-vector "Expression *")
+                :capnp-load (load-ast-vector "Expression *")
+                :documentation "A list of expressions to evaluate. None of the expressions should be nullptr."))
+  (:public
+   #>cpp
+   Coalesce() = default;
+
+   DEFVISITABLE(TreeVisitor<TypedValue>);
+   bool Accept(HierarchicalTreeVisitor &visitor) override {
+     if (visitor.PreVisit(*this)) {
+       for (auto *expr : expressions_) {
+         if (!expr->Accept(visitor)) break;
+       }
+     }
+     return visitor.PostVisit(*this);
+   }
+
+   Coalesce *Clone(AstStorage &storage) const override {
+     std::vector<Expression *> expressions;
+     expressions.reserve(expressions_.size());
+     for (const auto &expr : expressions_) {
+       expressions.emplace_back(expr->Clone(storage));
+     }
+     return storage.Create<Coalesce>(std::move(expressions));
+   }
+   cpp<#
+   )
+  (:private
+   #>cpp
+   Coalesce(int uid, const std::vector<Expression *> &expressions)
+       : Expression(uid), expressions_(expressions) {}
+
+   friend class AstStorage;
+   cpp<#)
+  (:serialize :capnp))
+
 (lcp:define-class extract (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil

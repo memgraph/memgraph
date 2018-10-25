@@ -15,6 +15,7 @@ class LabelsTest;
 class Aggregation;
 class Function;
 class Reduce;
+class Coalesce;
 class Extract;
 class All;
 class Single;
@@ -73,9 +74,10 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
-    Aggregation, Function, Reduce, Extract, All, Single, Create, Match, Return,
-    With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind>;
+    Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Create,
+    Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
+    SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
+    Unwind>;
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup,
@@ -100,9 +102,9 @@ using TreeVisitor = ::utils::Visitor<
     InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator,
     UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
     MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, Reduce,
-    Extract, All, Single, ParameterLookup, Create, Match, Return, With, Pattern,
-    NodeAtom, EdgeAtom, Delete, Where, SetProperty, SetProperties, SetLabels,
-    RemoveProperty, RemoveLabels, Merge, Unwind, Identifier, PrimitiveLiteral,
-    IndexQuery, AuthQuery, StreamQuery>;
+    Coalesce, Extract, All, Single, ParameterLookup, Create, Match, Return,
+    With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty,
+    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind,
+    Identifier, PrimitiveLiteral, IndexQuery, AuthQuery, StreamQuery>;
 
 }  // namespace query

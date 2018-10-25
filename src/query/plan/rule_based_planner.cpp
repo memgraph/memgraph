@@ -182,7 +182,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
  public:
   bool PostVisit(ListLiteral &list_literal) override {
     DCHECK(list_literal.elements_.size() <= has_aggregation_.size())
-        << "Expected has_aggregation_ flags as much as there are list "
+        << "Expected as many has_aggregation_ flags as there are list"
            "elements.";
     PostVisitCollectionLiteral(list_literal, [](auto it) { return *it; });
     return true;
@@ -234,6 +234,19 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
         << "Expected 5 has_aggregation_ flags for REDUCE arguments";
     bool has_aggr = false;
     for (int i = 0; i < 5; ++i) {
+      has_aggr = has_aggr || has_aggregation_.back();
+      has_aggregation_.pop_back();
+    }
+    has_aggregation_.emplace_back(has_aggr);
+    return true;
+  }
+
+  bool PostVisit(Coalesce &coalesce) override {
+    CHECK(has_aggregation_.size() >= coalesce.expressions_.size())
+        << "Expected >= " << has_aggregation_.size()
+        << "has_aggregation_ flags for COALESCE arguments";
+    bool has_aggr = false;
+    for (int i = 0; i < coalesce.expressions_.size(); ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
       has_aggregation_.pop_back();
     }
@@ -310,7 +323,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   bool PostVisit(Function &function) override {
     DCHECK(function.arguments_.size() <= has_aggregation_.size())
-        << "Expected has_aggregation_ flags as much as there are "
+        << "Expected as many has_aggregation_ flags as there are"
            "function arguments.";
     bool has_aggr = false;
     auto it = has_aggregation_.end();

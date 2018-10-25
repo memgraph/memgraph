@@ -32,21 +32,6 @@ namespace {
 // TODO: Implement degrees, haversin, radians
 // TODO: Implement spatial functions
 
-TypedValue Coalesce(TypedValue *args, int64_t nargs, const EvaluationContext &,
-                    database::GraphDbAccessor *) {
-  // TODO: Perhaps this function should be done by the evaluator itself, so as
-  // to avoid evaluating all the arguments.
-  if (nargs == 0) {
-    throw QueryRuntimeException("'coalesce' requires at least one argument.");
-  }
-  for (int64_t i = 0; i < nargs; ++i) {
-    if (args[i].type() != TypedValue::Type::Null) {
-      return args[i];
-    }
-  }
-  return TypedValue::Null;
-}
-
 TypedValue EndNode(TypedValue *args, int64_t nargs, const EvaluationContext &,
                    database::GraphDbAccessor *) {
   if (nargs != 1) {
@@ -887,7 +872,6 @@ std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &,
                          database::GraphDbAccessor *)>
 NameToFunction(const std::string &function_name) {
   // Scalar functions
-  if (function_name == "COALESCE") return Coalesce;
   if (function_name == "DEGREE") return Degree;
   if (function_name == "INDEGREE") return InDegree;
   if (function_name == "OUTDEGREE") return OutDegree;

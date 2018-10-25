@@ -602,6 +602,8 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   storage.Create<query::Reduce>(                                   \
       storage.Create<query::Identifier>(accumulator), initializer, \
       storage.Create<query::Identifier>(variable), list, expr)
+#define COALESCE(...) \
+  storage.Create<query::Coalesce>(std::vector<query::Expression *>{__VA_ARGS__})
 #define EXTRACT(variable, list, expr)                                         \
   storage.Create<query::Extract>(storage.Create<query::Identifier>(variable), \
                                  list, expr)

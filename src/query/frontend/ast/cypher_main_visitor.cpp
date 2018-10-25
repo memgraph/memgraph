@@ -1318,6 +1318,13 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->functionInvocation()) {
     return static_cast<Expression *>(ctx->functionInvocation()->accept(this));
+  } else if (ctx->COALESCE()) {
+    std::vector<Expression *> exprs;
+    for (auto *expr_context : ctx->expression()) {
+      exprs.emplace_back(expr_context->accept(this).as<Expression *>());
+    }
+    return static_cast<Expression *>(
+        storage_->Create<Coalesce>(std::move(exprs)));
   } else if (ctx->COUNT()) {
     // Here we handle COUNT(*). COUNT(expression) is handled in
     // visitFunctionInvocation with other aggregations. This is visible in

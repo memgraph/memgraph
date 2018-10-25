@@ -194,6 +194,7 @@ atom : literal
      | ( FILTER '(' filterExpression ')' )
      | ( EXTRACT '(' extractExpression ')' )
      | ( REDUCE '(' reduceExpression ')' )
+     | ( COALESCE '(' expression ( ',' expression )* ')' )
      | ( ALL '(' filterExpression ')' )
      | ( ANY '(' filterExpression ')' )
      | ( NONE '(' filterExpression ')' )

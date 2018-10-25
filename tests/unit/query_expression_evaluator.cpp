@@ -812,6 +812,40 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtractExceptions) {
   EXPECT_THROW(extract->Accept(eval), QueryRuntimeException);
 }
 
+TEST_F(ExpressionEvaluatorTest, Coalesce) {
+  // coalesce()
+  EXPECT_THROW(COALESCE()->Accept(eval), QueryRuntimeException);
+
+  // coalesce(null, null)
+  EXPECT_TRUE(COALESCE(LITERAL(TypedValue::Null), LITERAL(TypedValue::Null))
+                  ->Accept(eval)
+                  .IsNull());
+
+  // coalesce(null, 2, 3)
+  EXPECT_EQ(COALESCE(LITERAL(TypedValue::Null), LITERAL(2), LITERAL(3))
+                ->Accept(eval)
+                .ValueInt(),
+            2);
+
+  // coalesce(null, 2, assert(false), 3)
+  EXPECT_EQ(COALESCE(LITERAL(TypedValue::Null), LITERAL(2),
+                     FN("ASSERT", LITERAL(false)), LITERAL(3))
+                ->Accept(eval)
+                .ValueInt(),
+            2);
+
+  // (null, assert(false))
+  EXPECT_THROW(COALESCE(LITERAL(TypedValue::Null), FN("ASSERT", LITERAL(false)))
+                   ->Accept(eval),
+               QueryRuntimeException);
+
+  // coalesce([null, null])
+  EXPECT_FALSE(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{
+                            TypedValue::Null, TypedValue::Null})))
+                   ->Accept(eval)
+                   .IsNull());
+}
+
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
   std::pair<std::string, storage::Property> prop_age =
@@ -890,28 +924,6 @@ class FunctionTest : public ExpressionEvaluatorTest {
                                      ExpressionsFromTypedValues(args));
   }
 };
-
-TEST_F(FunctionTest, Coalesce) {
-  ASSERT_THROW(EvaluateFunction("COALESCE", {}), QueryRuntimeException);
-  ASSERT_TRUE(EvaluateFunction("COALESCE", {TypedValue::Null, TypedValue::Null})
-                  .IsNull());
-  ASSERT_EQ(EvaluateFunction("COALESCE", {TypedValue::Null, 2, 3}).ValueInt(),
-            2);
-
-  // (null, 2, assert(false), 3)
-  auto expressions1 = ExpressionsFromTypedValues({TypedValue::Null, 2, 3});
-  expressions1.insert(
-      expressions1.begin() + 2,
-      storage.Create<Function>("ASSERT", ExpressionsFromTypedValues({false})));
-  ASSERT_EQ(EvaluateFunctionWithExprs("COALESCE", expressions1).ValueInt(), 2);
-
-  // (null, assert(false))
-  auto expressions2 = ExpressionsFromTypedValues({TypedValue::Null});
-  expressions2.push_back(
-      storage.Create<Function>("ASSERT", ExpressionsFromTypedValues({false})));
-  ASSERT_THROW(EvaluateFunctionWithExprs("COALESCE", expressions2),
-               QueryRuntimeException);
-}
 
 TEST_F(FunctionTest, EndNode) {
   ASSERT_THROW(EvaluateFunction("ENDNODE", {}), QueryRuntimeException);
