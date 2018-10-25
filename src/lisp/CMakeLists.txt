@@ -1,12 +1,13 @@
 # Lisp C++ Preprocessing
 
-set(lcp_exe ${CMAKE_SOURCE_DIR}/tools/lcp)
+# Don't forget to repeat this list below in `define_add_lcp`.
 set(lcp_src_files
-  ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
-  ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
-  ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
-  ${CMAKE_SOURCE_DIR}/src/lisp/lcp-test.lisp
-  ${lcp_exe})
+    ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
+    ${CMAKE_SOURCE_DIR}/src/lisp/lcp-compile
+    ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
+    ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
+    ${CMAKE_SOURCE_DIR}/src/lisp/lcp-test.lisp
+    ${CMAKE_SOURCE_DIR}/tools/lcp)
 
 add_custom_target(lcp
   DEPENDS ${lcp_src_files}
@@ -46,10 +47,19 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
       # Update *global* main_src_files
       set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
     endif()
+    # Repeat the `lcp_src_files` because this is a macro and the variable is
+    # not visible when invoked in another file.
+    set(lcp_src_files
+        ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
+        ${CMAKE_SOURCE_DIR}/src/lisp/lcp-compile
+        ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
+        ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
+        ${CMAKE_SOURCE_DIR}/src/lisp/lcp-test.lisp
+        ${CMAKE_SOURCE_DIR}/tools/lcp)
     add_custom_command(OUTPUT ${h_file} ${cpp_file} ${capnp_file}
       COMMAND ${CMAKE_SOURCE_DIR}/tools/lcp ${lcp_file} ${capnp_id}
       VERBATIM
-      DEPENDS ${lcp_file} lcp ${capnp_depend} ${KW_DEPENDS}
+      DEPENDS ${lcp_src_files} lcp ${lcp_file} ${capnp_depend} ${KW_DEPENDS}
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
     # Update *global* generated_lcp_files
     set(${generated_lcp_files} ${${generated_lcp_files}} ${h_file} ${cpp_file} ${capnp_file} PARENT_SCOPE)
