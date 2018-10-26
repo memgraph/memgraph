@@ -262,6 +262,11 @@ produces:
                        :enclosing-class enclosing-class
                        :type-args (reverse type-args))))))
 
+(defun cpp-type-namespace-string (cpp-type)
+  "Return the namespace part of CPP-TYPE as a string ending with '::'.  When
+CPP-TYPE has no namespace, return an empty string."
+  (format nil "~{~A::~}" (cpp-type-namespace cpp-type)))
+
 (defun cpp-type-decl (cpp-type &key (type-params t) (namespace t))
   "Return the fully qualified name of given CPP-TYPE."
   (declare (type cpp-type cpp-type))
@@ -283,7 +288,7 @@ produces:
            (format s " ~A" (cpp-type-name cpp-type)))
           (t
            (when namespace
-             (format s "~{~A::~}" (cpp-type-namespace cpp-type)))
+             (write-string (cpp-type-namespace-string cpp-type) s))
            (format s "~{~A~^::~}" (enclosing-classes cpp-type))
            (cond
              ((cpp-type-type-args cpp-type)
@@ -982,6 +987,89 @@ encoded as union inheritance in Cap'n Proto."
     (make-cpp-type name :namespace namespace
                    :enclosing-class (cpp-type-enclosing-class cpp-type))))
 
+(defun cpp-enum-to-capnp-function-name (cpp-enum &key namespace)
+  "Generate the name of the C++ function for converting a C++ enum to
+equivalent Cap'n Proto schema enum.  If NAMESPACE is T, prepend the name with
+namespace of CPP-ENUM."
+  (concatenate
+   'string
+   (if namespace (cpp-type-namespace-string cpp-enum) "")
+   ;; Remove namespace demarkations of any potential enclosing classses.
+   (remove #\: (cpp-type-decl cpp-enum :namespace nil))
+   "ToCapnp"))
+
+(defun cpp-enum-to-capnp-function-declaration (cpp-enum)
+  "Generate C++ function declaration for converting a C++ enum to equivalent
+Cap'n Proto schema enum."
+  (let ((name (cpp-enum-to-capnp-function-name cpp-enum))
+        (capnp-type (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))))
+    (cpp-function-declaration
+     name :args `((value ,(cpp-type-decl cpp-enum)))
+     :returns capnp-type)))
+
+(defun cpp-enum-to-capnp-function-definition (cpp-enum)
+  "Generate C++ function for converting a C++ enum to equivalent Cap'n Proto
+schema enum."
+  (with-output-to-string (out)
+    (with-cpp-block-output (out :name (cpp-enum-to-capnp-function-declaration cpp-enum))
+      (let* ((cpp-type (cpp-type-decl cpp-enum))
+             (capnp-type (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum)))
+             (cases (mapcar (lambda (value-symbol)
+                             (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                               #>cpp
+                               case ${cpp-type}::${value}:
+                                 return ${capnp-type}::${value};
+                               cpp<#))
+                            (cpp-enum-values cpp-enum))))
+        (format out "switch (value) {~%~{~A~%~}}" (mapcar #'raw-cpp-string cases))))))
+
+(defun cpp-enum-from-capnp-function-name (cpp-enum &key namespace)
+  "Generate the name of the C++ function for converting a C++ enum from
+equivalent Cap'n Proto schema enum.  If NAMESPACE is T, prepend the name with
+namespace of CPP-ENUM."
+  (concatenate
+   'string
+   (if namespace (cpp-type-namespace-string cpp-enum) "")
+   ;; Remove namespace demarkations of any potential enclosing classses.
+   (remove #\: (cpp-type-decl cpp-enum :namespace nil))
+   "FromCapnp"))
+
+(defun cpp-enum-from-capnp-function-declaration (cpp-enum)
+  "Generate C++ function declaration for converting a C++ enum from equivalent
+Cap'n Proto schema enum."
+  (let ((name (cpp-enum-from-capnp-function-name cpp-enum))
+        (capnp-type (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))))
+    (cpp-function-declaration
+     name :args `((value ,capnp-type))
+     :returns (cpp-type-decl cpp-enum))))
+
+(defun cpp-enum-from-capnp-function-definition (cpp-enum)
+  "Generate C++ function for converting a C++ enum from equivalent Cap'n Proto
+schema enum."
+  (with-output-to-string (out)
+    (with-cpp-block-output (out :name (cpp-enum-from-capnp-function-declaration cpp-enum))
+      (let* ((cpp-type (cpp-type-decl cpp-enum))
+             (capnp-type (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum)))
+             (cases (mapcar (lambda (value-symbol)
+                             (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                               #>cpp
+                               case ${capnp-type}::${value}:
+                                 return ${cpp-type}::${value};
+                               cpp<#))
+                            (cpp-enum-values cpp-enum))))
+        (format out "switch (value) {~%~{~A~%~}}" (mapcar #'raw-cpp-string cases))))))
+
+(defun capnp-save-enum-vector (builder-name member-name cpp-enum)
+  (let ((enum-to-capnp (cpp-enum-to-capnp-function-name cpp-enum :namespace t)))
+    (raw-cpp-string
+     #>cpp
+     for (size_t i = 0;
+          i < ${member-name}.size();
+          ++i) {
+       ${builder-name}.set(i, ${enum-to-capnp}(${member-name}[i]));
+     }
+     cpp<#)))
+
 (defun capnp-save-default (member-name member-type member-builder capnp-name &key cpp-class)
   "Generate the default call to save for member.  MEMBER-NAME and MEMBER-TYPE
 are strings describing the member being serialized.  MEMBER-BUILDER is the
@@ -994,25 +1082,33 @@ Proto schema."
          (cpp-enum (or
                     ;; Look for potentially nested enum first
                     (find-cpp-enum
-                        (concatenate 'string (cpp-type-decl cpp-class) "::" member-type))
+                     (concatenate 'string (cpp-type-decl cpp-class) "::" member-type))
                     (find-cpp-enum member-type))))
     (cond
       (cpp-enum
-       (funcall
-        (capnp-save-enum (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))
-                         (cpp-type-decl cpp-enum) (cpp-enum-values cpp-enum))
-        member-builder member-name capnp-name))
+       (let ((enum-to-capnp (cpp-enum-to-capnp-function-name cpp-enum :namespace t)))
+         (raw-cpp-string
+          #>cpp
+          ${member-builder}->set${capnp-name}(${enum-to-capnp}(${member-name}));
+          cpp<#)))
       ((string= "vector" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
-              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
-         (if (capnp-primitive-type-p (capnp-type<-cpp-type (cpp-type-base-name elem-type)))
-             (raw-cpp-string
-              #>cpp
-              utils::SaveVector(${member-name}, &${member-builder});
-              cpp<#)
-             (raw-cpp-string
-              (funcall (capnp-save-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
-                       member-builder member-name capnp-name)))))
+              (elem-type-enum (or (find-cpp-enum (concatenate 'string (cpp-type-decl cpp-class)
+                                                              "::" (cpp-type-decl elem-type)))
+                                  (find-cpp-enum (cpp-type-decl elem-type))))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type (or elem-type-enum elem-type))))
+         (cond
+           ((capnp-primitive-type-p (capnp-type<-cpp-type (cpp-type-base-name elem-type)))
+            (raw-cpp-string
+             #>cpp
+             utils::SaveVector(${member-name}, &${member-builder});
+             cpp<#))
+           (elem-type-enum
+            (capnp-save-enum-vector member-builder member-name elem-type-enum))
+           (t
+            (raw-cpp-string
+             (funcall (capnp-save-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+                      member-builder member-name capnp-name))))))
       ((string= "optional" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t))
@@ -1227,6 +1323,18 @@ Proto schema."
      :returns "void"
      :type-params (cpp-type-type-params cpp-class))))
 
+(defun capnp-load-enum-vector (reader-name member-name cpp-enum)
+  (let ((enum-from-capnp (cpp-enum-from-capnp-function-name cpp-enum :namespace t)))
+    (raw-cpp-string
+     #>cpp
+     ${member-name}.resize(${reader-name}.size());
+     for (size_t i = 0;
+          i < ${reader-name}.size();
+          ++i) {
+       ${member-name}[i] = ${enum-from-capnp}(${reader-name}[i]);
+     }
+     cpp<#)))
+
 (defun capnp-load-default (member-name member-type member-reader capnp-name &key cpp-class)
   "Generate default load call for member.  MEMBER-NAME and MEMBER-TYPE are
 strings describing the member being loaded.  MEMBER-READER is the name of the
@@ -1241,21 +1349,29 @@ reader variable.  CAPNP-NAME is the name of the member in Cap'n Proto schema."
                     (find-cpp-enum member-type))))
     (cond
       (cpp-enum
-       (funcall
-        (capnp-load-enum (cpp-type-decl (capnp-cpp-type<-cpp-type cpp-enum))
-                         (cpp-type-decl cpp-enum) (cpp-enum-values cpp-enum))
-        member-reader member-name capnp-name))
+       (let ((enum-from-capnp (cpp-enum-from-capnp-function-name cpp-enum :namespace t)))
+         (raw-cpp-string
+          #>cpp
+          ${member-name} = ${enum-from-capnp}(${member-reader}.get${capnp-name}());
+          cpp<#)))
       ((string= "vector" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
-              (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type)))
-         (if (capnp-primitive-type-p (capnp-type<-cpp-type (cpp-type-base-name elem-type)))
-             (raw-cpp-string
-              #>cpp
-              utils::LoadVector(&${member-name}, ${member-reader});
-              cpp<#)
-             (raw-cpp-string
-              (funcall (capnp-load-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
-                       member-reader member-name capnp-name)))))
+              (elem-type-enum (or (find-cpp-enum (concatenate 'string (cpp-type-decl cpp-class)
+                                                              "::" (cpp-type-decl elem-type)))
+                                  (find-cpp-enum (cpp-type-decl elem-type))))
+              (capnp-cpp-type (capnp-cpp-type<-cpp-type (or elem-type-enum elem-type))))
+         (cond
+           ((capnp-primitive-type-p (capnp-type<-cpp-type (cpp-type-base-name elem-type)))
+            (raw-cpp-string
+             #>cpp
+             utils::LoadVector(&${member-name}, ${member-reader});
+             cpp<#))
+           (elem-type-enum
+            (capnp-load-enum-vector member-reader member-name elem-type-enum))
+           (t
+            (raw-cpp-string
+             (funcall (capnp-load-vector (cpp-type-decl capnp-cpp-type) (cpp-type-decl elem-type))
+                      member-reader member-name capnp-name))))))
       ((string= "optional" type-name)
        (let* ((elem-type (car (cpp-type-type-args type)))
               (capnp-cpp-type (capnp-cpp-type<-cpp-type elem-type :boxp t))
@@ -1441,8 +1557,7 @@ save the value inside the std::optional."
   (declare (type string capnp-type cpp-type)
            (type (or null string) lambda-code))
   ;; TODO: Try using `capnp-save-default'
-  (let* ((namespace (format nil "~{~A::~}"
-                            (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+  (let* ((namespace (cpp-type-namespace-string (parse-cpp-type-declaration cpp-type)))
          (lambda-code (if lambda-code
                          lambda-code
                          (format nil
@@ -1460,8 +1575,7 @@ are passed as template parameters, while the optional LAMBDA-CODE is used to
 load the value of std::optional."
   (declare (type string capnp-type cpp-type)
            (type (or null string) lambda-code))
-  (let* ((namespace (format nil "~{~A::~}"
-                            (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+  (let* ((namespace (cpp-type-namespace-string (parse-cpp-type-declaration cpp-type)))
          (lambda-code (if lambda-code
                          lambda-code
                          (format nil
@@ -1481,8 +1595,7 @@ element."
            (type (or null string) lambda-code))
   ;; TODO: Why not use our `capnp-save-default' for this?
   ;; TODO: namespace doesn't work for enums nested in classes
-  (let* ((namespace (format nil "~{~A::~}"
-                           (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+  (let* ((namespace (cpp-type-namespace-string (parse-cpp-type-declaration cpp-type)))
         (lambda-code (if lambda-code
                          lambda-code
                          (format nil
@@ -1500,8 +1613,7 @@ are passed as template parameters, while LAMBDA-CODE is used to load each
 element."
   (declare (type string capnp-type cpp-type)
            (type (or null string) lambda-code))
-  (let* ((namespace (format nil "~{~A::~}"
-                            (cpp-type-namespace (parse-cpp-type-declaration cpp-type))))
+  (let* ((namespace (cpp-type-namespace-string (parse-cpp-type-declaration cpp-type)))
          (lambda-code (if lambda-code
                          lambda-code
                          (format nil
@@ -1513,44 +1625,40 @@ element."
       utils::LoadVector<${capnp-type}, ${cpp-type}>(&${member-name}, ${reader}, ${lambda-code});
       cpp<#)))
 
-(defun capnp-save-enum (capnp-type cpp-type &optional enum-values)
+(defun capnp-save-enum (capnp-type cpp-type enum-values)
   "Generate C++ code for saving the enum specified by CPP-TYPE by converting
-the values to CAPNP-TYPE. If ENUM-VALUES are not specified, tries to find the
-CPP-TYPE among defined enums."
-  (declare (type string capnp-type)
-           (type (or symbol string) cpp-type))
+ENUM-VALUES to CAPNP-TYPE.  This function should only be used for saving enums
+which aren't defined in LCP."
+  (check-type capnp-type string)
+  (check-type cpp-type (or symbol string))
+  (check-type enum-values list)
   (lambda (builder member capnp-name)
-    (let* ((enum-values (if enum-values
-                            enum-values
-                            (cpp-enum-values (find-cpp-enum cpp-type))))
-           (cases (mapcar (lambda (value-symbol)
-                            (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
-                              #>cpp
-                              case ${cpp-type}::${value}:
-                                ${builder}->set${capnp-name}(${capnp-type}::${value});
-                                break;
-                              cpp<#))
-                          enum-values)))
+    (let ((cases (mapcar (lambda (value-symbol)
+                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                             #>cpp
+                             case ${cpp-type}::${value}:
+                               ${builder}->set${capnp-name}(${capnp-type}::${value});
+                               break;
+                             cpp<#))
+                         enum-values)))
       (format nil "switch (~A) {~%~{~A~%~}}" member (mapcar #'raw-cpp-string cases)))))
 
-(defun capnp-load-enum (capnp-type cpp-type &optional enum-values)
+(defun capnp-load-enum (capnp-type cpp-type enum-values)
   "Generate C++ code for loading the enum specified by CPP-TYPE by converting
-the values from CAPNP-TYPE. If ENUM-VALUES are not specified, tries to find the
-CPP-TYPE among defined enums."
-  (declare (type string capnp-type)
-           (type (or symbol string) cpp-type))
+ENUM-VALUES from CAPNP-TYPE.  This function should only be used for saving
+enums which aren't defined in LCP."
+  (check-type capnp-type string)
+  (check-type cpp-type (or symbol string))
+  (check-type enum-values list)
   (lambda (reader member capnp-name)
-    (let* ((enum-values (if enum-values
-                            enum-values
-                            (cpp-enum-values (find-cpp-enum cpp-type))))
-           (cases (mapcar (lambda (value-symbol)
-                            (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
-                              #>cpp
-                              case ${capnp-type}::${value}:
-                                ${member} = ${cpp-type}::${value};
-                                break;
-                              cpp<#))
-                          enum-values)))
+    (let ((cases (mapcar (lambda (value-symbol)
+                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                             #>cpp
+                             case ${capnp-type}::${value}:
+                               ${member} = ${cpp-type}::${value};
+                               break;
+                             cpp<#))
+                         enum-values)))
       (format nil "switch (~A.get~A()) {~%~{~A~%~}}"
               reader capnp-name (mapcar #'raw-cpp-string cases)))))
 
@@ -1877,12 +1985,17 @@ code generation."
   (write-line "// Autogenerated Cap'n Proto serialization code" cpp-out)
   (write-line "#include \"utils/serialization.hpp\"" cpp-out)
   (with-namespaced-output (cpp-out open-namespace)
-    (dolist (cpp-class (remove-if (lambda (cpp-type) (not (typep cpp-type 'cpp-class))) cpp-types))
-      (open-namespace (cpp-type-namespace cpp-class))
-      (format cpp-out "// Serialize code for ~A~2%" (cpp-type-name cpp-class))
-      ;; Top level functions
-      (write-line (capnp-save-function-definition cpp-class) cpp-out)
-      (write-line (capnp-load-function-definition cpp-class) cpp-out))))
+    (dolist (cpp-type cpp-types)
+      (open-namespace (cpp-type-namespace cpp-type))
+      (ctypecase cpp-type
+        (cpp-class
+         (format cpp-out "// Serialize code for ~A~2%" (cpp-type-name cpp-type))
+         ;; Top level functions
+         (write-line (capnp-save-function-definition cpp-type) cpp-out)
+         (write-line (capnp-load-function-definition cpp-type) cpp-out))
+        (cpp-enum
+         (write-line (cpp-enum-to-capnp-function-definition cpp-type) cpp-out)
+         (write-line (cpp-enum-from-capnp-function-definition cpp-type) cpp-out))))))
 
 (defun process-file (lcp-file &key capnp-id)
   "Process a LCP-FILE and write the output to .hpp file in the same directory.
@@ -1930,10 +2043,14 @@ file."
           (write-line "// Cap'n Proto serialization declarations" out)
           (with-namespaced-output (out open-namespace)
             (dolist (type-for-capnp types-for-capnp)
-              (when (typep type-for-capnp 'cpp-class)
-                (open-namespace (cpp-type-namespace type-for-capnp))
-                (format out "~A;~%" (capnp-save-function-declaration type-for-capnp))
-                (format out "~A;~%" (capnp-load-function-declaration type-for-capnp))))))
+              (open-namespace (cpp-type-namespace type-for-capnp))
+              (ctypecase type-for-capnp
+                (cpp-class
+                 (format out "~A;~%" (capnp-save-function-declaration type-for-capnp))
+                 (format out "~A;~%" (capnp-load-function-declaration type-for-capnp)))
+                (cpp-enum
+                 (format out "~A;~%" (cpp-enum-to-capnp-function-declaration type-for-capnp))
+                 (format out "~A;~%" (cpp-enum-from-capnp-function-declaration type-for-capnp)))))))
         ;; When we have either capnp or C++ code for the .cpp file, generate the .cpp file
         (when (or *cpp-impl* types-for-capnp)
           (with-open-file (out cpp-file :direction :output :if-exists :supersede)

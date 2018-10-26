@@ -2211,78 +2211,7 @@ cpp<#
              :capnp-type "Tree" :capnp-init nil
              :capnp-save #'save-ast-pointer
              :capnp-load (load-ast-pointer "Expression *"))
-   (privileges "std::vector<Privilege>" :scope :public
-               :capnp-save (lambda (builder member capnp-name)
-                             #>cpp
-                             for (size_t i = 0; i < ${member}.size(); ++i) {
-                              switch (${member}[i]) {
-                                case AuthQuery::Privilege::CREATE:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::CREATE);
-                                  break;
-                                case AuthQuery::Privilege::DELETE:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::DELETE);
-                                  break;
-                                case AuthQuery::Privilege::MATCH:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::MATCH);
-                                  break;
-                                case AuthQuery::Privilege::MERGE:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::MERGE);
-                                  break;
-                                case AuthQuery::Privilege::SET:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::SET);
-                                  break;
-                                case AuthQuery::Privilege::REMOVE:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::REMOVE);
-                                  break;
-                                case AuthQuery::Privilege::INDEX:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::INDEX);
-                                  break;
-                                case AuthQuery::Privilege::AUTH:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::AUTH);
-                                  break;
-                                case AuthQuery::Privilege::STREAM:
-                                  ${builder}.set(i, capnp::AuthQuery::Privilege::STREAM);
-                                  break;
-                              }
-                            }
-                            cpp<#)
-               :capnp-load (lambda (reader member capnp-name)
-                             #>cpp
-                             ${member}.resize(${reader}.size());
-                             size_t i = 0;
-                             for (const auto &val : ${reader}) {
-                              switch (val) {
-                                case capnp::AuthQuery::Privilege::CREATE:
-                                  ${member}[i] = AuthQuery::Privilege::CREATE;
-                                  break;
-                                case capnp::AuthQuery::Privilege::DELETE:
-                                  ${member}[i] = AuthQuery::Privilege::DELETE;
-                                  break;
-                                case capnp::AuthQuery::Privilege::MATCH:
-                                  ${member}[i] = AuthQuery::Privilege::MATCH;
-                                  break;
-                                case capnp::AuthQuery::Privilege::MERGE:
-                                  ${member}[i] = AuthQuery::Privilege::MERGE;
-                                  break;
-                                case capnp::AuthQuery::Privilege::SET:
-                                  ${member}[i] = AuthQuery::Privilege::SET;
-                                  break;
-                                case capnp::AuthQuery::Privilege::REMOVE:
-                                  ${member}[i] = AuthQuery::Privilege::REMOVE;
-                                  break;
-                                case capnp::AuthQuery::Privilege::INDEX:
-                                  ${member}[i] = AuthQuery::Privilege::INDEX;
-                                  break;
-                                case capnp::AuthQuery::Privilege::AUTH:
-                                  ${member}[i] = AuthQuery::Privilege::AUTH;
-                                  break;
-                                case capnp::AuthQuery::Privilege::STREAM:
-                                  ${member}[i] = AuthQuery::Privilege::STREAM;
-                                  break;
-                              }
-                              ++i;
-                            }
-                            cpp<#)))
+   (privileges "std::vector<Privilege>" :scope :public))
   (:public
     (lcp:define-enum action
                      (create-role drop-role show-roles create-user
