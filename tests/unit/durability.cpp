@@ -356,6 +356,7 @@ TEST_F(Durability, WalEncoding) {
     ASSERT_EQ(e0.gid(), gid0);
     e0.PropsSet(dba->Property("p0"), std::vector<PropertyValue>{1, 2, 3});
     dba->BuildIndex(dba->Label("l1"), dba->Property("p1"), false);
+    dba->DeleteIndex(dba->Label("l1"), dba->Property("p1"));
     dba->Commit();
 
     db.wal().Flush();
@@ -386,7 +387,7 @@ TEST_F(Durability, WalEncoding) {
     }
   }
   reader.Close();
-  ASSERT_EQ(deltas.size(), 11);
+  ASSERT_EQ(deltas.size(), 14);
 
   using Type = enum database::StateDelta::Type;
   EXPECT_EQ(deltas[0].type, Type::TRANSACTION_BEGIN);
@@ -408,9 +409,18 @@ TEST_F(Durability, WalEncoding) {
   EXPECT_EQ(deltas[8].type, Type::BUILD_INDEX);
   EXPECT_EQ(deltas[8].label_name, "l1");
   EXPECT_EQ(deltas[8].property_name, "p1");
+  EXPECT_EQ(deltas[8].unique, false);
   EXPECT_EQ(deltas[9].type, Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(deltas[10].type, Type::TRANSACTION_COMMIT);
-  EXPECT_EQ(deltas[10].transaction_id, 1);
+
+  // The next two deltas are the DeleteIndex internal transactions.
+  EXPECT_EQ(deltas[10].type, Type::TRANSACTION_BEGIN);
+  EXPECT_EQ(deltas[11].type, Type::DROP_INDEX);
+  EXPECT_EQ(deltas[11].label_name, "l1");
+  EXPECT_EQ(deltas[11].property_name, "p1");
+  EXPECT_EQ(deltas[12].type, Type::TRANSACTION_COMMIT);
+
+  EXPECT_EQ(deltas[13].type, Type::TRANSACTION_COMMIT);
+  EXPECT_EQ(deltas[13].transaction_id, 1);
 }
 
 TEST_F(Durability, SnapshotEncoding) {

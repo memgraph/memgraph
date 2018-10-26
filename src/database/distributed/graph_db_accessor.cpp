@@ -178,6 +178,10 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
   dba->Commit();
 }
 
+void GraphDbAccessor::DeleteIndex(storage::Label, storage::Property) {
+  throw utils::NotYetImplemented("Distributed drop index");
+}
+
 void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   // Commit transaction as we finished applying method on newest visible
   // records. Write that transaction's ID to the WAL as the index has been

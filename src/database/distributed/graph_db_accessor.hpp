@@ -39,7 +39,7 @@ class IndexCreationOnWorkerException : public utils::BasicException {
 
 /// Thrown on concurrent index creation when the transaction engine fails to
 /// start a new transaction.
-class IndexCreationException : public utils::BasicException {
+class IndexTransactionException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
@@ -457,6 +457,12 @@ class GraphDbAccessor {
    */
   virtual void BuildIndex(storage::Label label, storage::Property property,
                           bool);
+
+  /// Deletes the index responisble for (label, property).
+  /// At the moment this isn't implemented in distributed.
+  ///
+  /// @throws NotYetImplemented
+  void DeleteIndex(storage::Label, storage::Property);
 
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);

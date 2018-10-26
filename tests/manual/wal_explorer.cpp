@@ -43,6 +43,8 @@ std::string StateDeltaTypeToString(database::StateDelta::Type type) {
       return "REMOVE_EDGE";
     case database::StateDelta::Type::BUILD_INDEX:
       return "BUILD_INDEX";
+    case database::StateDelta::Type::DROP_INDEX:
+      return "DROP_INDEX";
   }
 }
 

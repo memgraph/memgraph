@@ -1,6 +1,7 @@
 #include "durability/single_node/recovery.hpp"
 
 #include <experimental/filesystem>
+#include <experimental/optional>
 #include <limits>
 #include <unordered_map>
 
@@ -144,8 +145,9 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
     RETURN_IF_NOT(it != index_value.end());
     auto unique = *it++;
     RETURN_IF_NOT(label.IsString() && property.IsString() && unique.IsBool());
-    recovery_data->indexes.emplace_back(IndexRecoveryData{
-        label.ValueString(), property.ValueString(), unique.ValueBool()});
+    recovery_data->indexes.emplace_back(
+        IndexRecoveryData{label.ValueString(), property.ValueString(),
+                          /*create = */ true, unique.ValueBool()});
   }
 
   auto dba = db->Access();
@@ -402,8 +404,14 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
             break;
           case database::StateDelta::Type::BUILD_INDEX:
             // TODO index building might still be problematic in HA
-            recovery_data->indexes.emplace_back(IndexRecoveryData{
-                delta.label_name, delta.property_name, delta.unique});
+            recovery_data->indexes.emplace_back(
+                IndexRecoveryData{delta.label_name, delta.property_name,
+                                  /*create = */ true, delta.unique});
+            break;
+          case database::StateDelta::Type::DROP_INDEX:
+            recovery_data->indexes.emplace_back(
+                IndexRecoveryData{delta.label_name, delta.property_name,
+                                  /*create = */ false});
             break;
           default:
             transactions->Apply(delta);
@@ -420,16 +428,17 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
 
 void RecoverIndexes(database::GraphDb *db,
                     const std::vector<IndexRecoveryData> &indexes) {
-  auto db_accessor_indices = db->Access();
+  auto dba = db->Access();
   for (const auto &index : indexes) {
-    const database::LabelPropertyIndex::Key key{
-        db_accessor_indices->Label(index.label),
-        db_accessor_indices->Property(index.property), index.unique};
-    db_accessor_indices->db().storage().label_property_index().CreateIndex(key);
-    db_accessor_indices->PopulateIndex(key);
-    db_accessor_indices->EnableIndex(key);
+    auto label = dba->Label(index.label);
+    auto property = dba->Property(index.property);
+    if (index.create) {
+      dba->BuildIndex(label, property, index.unique);
+    } else {
+      dba->DeleteIndex(label, property);
+    }
   }
-  db_accessor_indices->Commit();
+  dba->Commit();
 }
 
 }  // namespace durability

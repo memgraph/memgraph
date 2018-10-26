@@ -73,18 +73,10 @@ class LabelPropertyIndex {
   }
 
   /**
-   * Returns if it succeded in deleting the index and freeing the index memory
+   * Returns if it succeeded in deleting the index and freeing the index memory
    */
-  void DeleteIndex(const Key &key) { indices_.access().remove(key); }
-
-  /**
-   * @brief - Notify that the index has been populated with everything it should
-   * be populated with, and can be used from this moment forward without missing
-   * any records.
-   * @param key - index which finished being populated.
-   */
-  void IndexFinishedBuilding(const Key &key) {
-    ready_for_use_.access().insert(key);
+  void DeleteIndex(const Key &key) {
+    indices_.access().remove(key);
   }
 
   /** NOTE: All update methods aren't supporting the case where two threads
@@ -218,7 +210,7 @@ class LabelPropertyIndex {
    * key sorted ascendingly by the property value.
    */
   auto GetVlists(const Key &key, const tx::Transaction &t, bool current_state) {
-    DCHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
+    DCHECK(IndexExists(key)) << "Index not yet ready.";
     auto access = GetKeyStorage(key)->access();
     auto begin = access.begin();
     return index::GetVlists<typename SkipList<IndexEntry>::Iterator, IndexEntry,
@@ -246,7 +238,7 @@ class LabelPropertyIndex {
    */
   auto GetVlists(const Key &key, const PropertyValue &value,
                  const tx::Transaction &t, bool current_state) {
-    DCHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
+    DCHECK(IndexExists(key)) << "Index not yet ready.";
     auto access = GetKeyStorage(key)->access();
     auto min_ptr = std::numeric_limits<std::uintptr_t>::min();
     auto start_iter = access.find_or_larger(IndexEntry(
@@ -294,7 +286,7 @@ class LabelPropertyIndex {
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
       const std::experimental::optional<utils::Bound<PropertyValue>> upper,
       const tx::Transaction &transaction, bool current_state) {
-    DCHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
+    DCHECK(IndexExists(key)) << "Index not yet ready.";
 
     auto type = [](const auto &bound) { return bound.value().value().type(); };
     CHECK(lower || upper) << "At least one bound must be provided";
@@ -361,7 +353,8 @@ class LabelPropertyIndex {
    * @return true if the index with that key exists
    */
   bool IndexExists(const Key &key) {
-    return ready_for_use_.access().contains(key);
+    auto access = indices_.access();
+    return access.find(key) != access.end();
   }
 
   /**
@@ -378,7 +371,6 @@ class LabelPropertyIndex {
   int64_t Count(const Key &key) {
     auto index = GetKeyStorage(key);
     CHECK(index != nullptr) << "Index doesn't exist.";
-    CHECK(ready_for_use_.access().contains(key)) << "Index not yet ready.";
     return index->access().size();
   }
 
@@ -620,6 +612,5 @@ class LabelPropertyIndex {
   }
 
   ConcurrentMap<Key, std::unique_ptr<SkipList<IndexEntry>>> indices_;
-  SkipList<Key> ready_for_use_;
 };
 }  // namespace database

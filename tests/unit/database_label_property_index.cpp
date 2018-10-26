@@ -22,7 +22,6 @@ class LabelPropertyIndexComplexTest : public ::testing::Test {
 
     key = new LabelPropertyIndex::Key(label, property);
     EXPECT_EQ(index.CreateIndex(*key), true);
-    index.IndexFinishedBuilding(*key);
 
     t = engine.Begin();
     vlist = new mvcc::VersionList<Vertex>(*t, 0);
@@ -88,8 +87,6 @@ TEST(LabelPropertyIndex, IndexExistance) {
   LabelPropertyIndex index;
   EXPECT_EQ(index.CreateIndex(key), true);
   // Index doesn't exist - and can't be used untill it's been notified as built.
-  EXPECT_EQ(index.IndexExists(key), false);
-  index.IndexFinishedBuilding(key);
   EXPECT_EQ(index.IndexExists(key), true);
 }
 
@@ -100,13 +97,7 @@ TEST(LabelPropertyIndex, Count) {
   auto property = accessor->Property("property");
   LabelPropertyIndex::Key key(label, property);
   LabelPropertyIndex index;
-  ::testing::FLAGS_gtest_death_test_style = "threadsafe";
-
-  EXPECT_DEATH(index.Count(key), "Index doesn't exist.");
   EXPECT_EQ(index.CreateIndex(key), true);
-  EXPECT_DEATH(index.Count(key), "Index not yet ready.");
-
-  index.IndexFinishedBuilding(key);
   EXPECT_EQ(index.Count(key), 0);
 }
 

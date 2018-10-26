@@ -121,6 +121,17 @@ TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuild) {
   EXPECT_EQ(dba->VerticesCount(label, property2), 0);
 }
 
+TEST_F(GraphDbAccessorIndex, LabelPropertyIndexDelete) {
+  dba->BuildIndex(label, property, false);
+  Commit();
+  EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
+
+  dba->DeleteIndex(label, property);
+  Commit();
+
+  EXPECT_FALSE(dba->LabelPropertyIndexExists(label, property));
+}
+
 TEST_F(GraphDbAccessorIndex, LabelPropertyIndexBuildTwice) {
   dba->BuildIndex(label, property, false);
   EXPECT_THROW(dba->BuildIndex(label, property, false), utils::BasicException);
@@ -150,7 +161,7 @@ TEST(GraphDbAccessorIndexApi, LabelPropertyBuildIndexConcurrent) {
           dba->BuildIndex(dba->Label("l" + std::to_string(index)),
                           dba->Property("p" + std::to_string(index)), false);
           // If it throws, make sure the exception is right.
-        } catch (const database::IndexCreationException &e) {
+        } catch (const database::IndexTransactionException &e) {
           // Nothing to see here, move along.
         } catch (...) {
           failed.store(true);

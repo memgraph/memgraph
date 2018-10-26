@@ -38,7 +38,7 @@ class IndexCreationOnWorkerException : public utils::BasicException {
 
 /// Thrown on concurrent index creation when the transaction engine fails to
 /// start a new transaction.
-class IndexCreationException : public utils::BasicException {
+class IndexTransactionException : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
@@ -436,6 +436,12 @@ class GraphDbAccessor {
    */
   void BuildIndex(storage::Label label, storage::Property property,
                   bool unique);
+
+  /// Deletes the index responisble for (label, property).
+  ///
+  /// @throws IndexTransactionException if it can't obtain a blocking
+  ///         transaction.
+  void DeleteIndex(storage::Label label, storage::Property property);
 
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);

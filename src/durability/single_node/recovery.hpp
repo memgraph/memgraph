@@ -39,7 +39,8 @@ struct RecoveryInfo {
 struct IndexRecoveryData {
   std::string label;
   std::string property;
-  bool unique;
+  bool create; // distinguish between creating and dropping index
+  bool unique; // used only when creating an index
 };
 
 // A data structure for exchanging info between main recovery function and

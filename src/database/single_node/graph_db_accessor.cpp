@@ -135,7 +135,7 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
     throw;
   } catch (const tx::TransactionEngineError &e) {
     db_.storage().label_property_index_.DeleteIndex(key);
-    throw IndexCreationException(e.what());
+    throw IndexTransactionException(e.what());
   }
 }
 
@@ -144,15 +144,9 @@ void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   // records. Write that transaction's ID to the WAL as the index has been
   // built at this point even if this DBA's transaction aborts for some
   // reason.
-  auto wal_build_index_tx_id = transaction_id();
   wal().Emplace(database::StateDelta::BuildIndex(
-      wal_build_index_tx_id, key.label_, LabelName(key.label_), key.property_,
+      transaction_id(), key.label_, LabelName(key.label_), key.property_,
       PropertyName(key.property_), key.unique_));
-
-  // After these two operations we are certain that everything is contained in
-  // the index under the assumption that the original index creation transaction
-  // contained no vertex/edge insert/update before this method was invoked.
-  db_.storage().label_property_index_.IndexFinishedBuilding(key);
 }
 
 void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
@@ -164,6 +158,26 @@ void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
       throw IndexConstraintViolationException(
           "Index couldn't be created due to constraint violation!");
     }
+  }
+}
+
+void GraphDbAccessor::DeleteIndex(storage::Label label,
+                                  storage::Property property) {
+  DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+
+  LabelPropertyIndex::Key key(label, property);
+  try {
+    auto dba =
+        db_.AccessBlocking(std::experimental::make_optional(transaction_.id_));
+
+    db_.storage().label_property_index_.DeleteIndex(key);
+    dba->wal().Emplace(database::StateDelta::DropIndex(
+        dba->transaction_id(), key.label_, LabelName(key.label_), key.property_,
+        PropertyName(key.property_)));
+
+    dba->Commit();
+  } catch (const tx::TransactionEngineError &e) {
+    throw IndexTransactionException(e.what());
   }
 }
 

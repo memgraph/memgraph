@@ -146,6 +146,7 @@ bool WriteAheadLog::IsStateDeltaTransactionEnd(
     case database::StateDelta::Type::REMOVE_VERTEX:
     case database::StateDelta::Type::REMOVE_EDGE:
     case database::StateDelta::Type::BUILD_INDEX:
+    case database::StateDelta::Type::DROP_INDEX:
       return false;
   }
 }

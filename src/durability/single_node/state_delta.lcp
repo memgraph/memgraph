@@ -71,6 +71,7 @@ in StateDeltas.")
         remove-vertex ;; vertex_id, check_empty
         remove-edge   ;; edge_id
         build-index   ;; label, label_name, property, property_name, unique
+        drop-index   ;; label, label_name, property, property_name
         )
      (:documentation
       "Defines StateDelta type. For each type the comment indicates which values
@@ -125,6 +126,10 @@ omitted in the comment."))
                                   const std::string &label_name,
                                   storage::Property property,
                                   const std::string &property_name, bool unique);
+     static StateDelta DropIndex(tx::TransactionId tx_id, storage::Label label,
+                                  const std::string &label_name,
+                                  storage::Property property,
+                                  const std::string &property_name);
 
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;

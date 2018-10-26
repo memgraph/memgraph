@@ -536,14 +536,24 @@ Callback HandleIndexQuery(IndexQuery *index_query,
             throw QueryRuntimeException(e.what());
           }
           // Otherwise ignore creating an existing index.
-        } catch (const database::IndexCreationException &e) {
+        } catch (const database::IndexTransactionException &e) {
           throw QueryRuntimeException(e.what());
         }
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case IndexQuery::Action::DROP:
-      throw utils::NotYetImplemented("DROP INDEX");
+      callback.fn = [label, properties, db_accessor, invalidate_plan_cache] {
+        try {
+          CHECK(properties.size() == 1);
+          db_accessor->DeleteIndex(label, properties[0]);
+          invalidate_plan_cache();
+        } catch (const database::IndexTransactionException &e) {
+          throw QueryRuntimeException(e.what());
+        }
+        return std::vector<std::vector<TypedValue>>();
+      };
+      return callback;
   }
 }
 
