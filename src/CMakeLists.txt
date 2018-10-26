@@ -238,6 +238,78 @@ target_compile_definitions(mg-distributed PUBLIC MG_DISTRIBUTED)
 # END Memgraph Distributed
 # ----------------------------------------------------------------------------
 
+# ----------------------------------------------------------------------------
+# Memgraph Single Node High Availability
+# ----------------------------------------------------------------------------
+set(mg_single_node_ha_sources
+    data_structures/concurrent/skiplist_gc.cpp
+    database/single_node_ha/config.cpp
+    database/single_node_ha/graph_db.cpp
+    database/single_node_ha/graph_db_accessor.cpp
+    durability/single_node_ha/state_delta.cpp
+    durability/single_node_ha/paths.cpp
+    durability/single_node_ha/recovery.cpp
+    durability/single_node_ha/snapshooter.cpp
+    durability/single_node_ha/wal.cpp
+    glue/auth.cpp
+    glue/communication.cpp
+    query/common.cpp
+    query/frontend/ast/ast.cpp
+    query/frontend/ast/cypher_main_visitor.cpp
+    query/frontend/semantic/required_privileges.cpp
+    query/frontend/semantic/symbol_generator.cpp
+    query/frontend/stripped.cpp
+    query/interpret/awesome_memgraph_functions.cpp
+    query/interpreter.cpp
+    query/plan/operator.cpp
+    query/plan/preprocess.cpp
+    query/plan/pretty_print.cpp
+    query/plan/rule_based_planner.cpp
+    query/plan/variable_start_planner.cpp
+    query/repl.cpp
+    query/typed_value.cpp
+    storage/common/property_value.cpp
+    storage/common/property_value_store.cpp
+    storage/locking/record_lock.cpp
+    storage/single_node_ha/edge_accessor.cpp
+    storage/single_node_ha/record_accessor.cpp
+    storage/single_node_ha/vertex_accessor.cpp
+    transactions/single_node_ha/engine.cpp
+    memgraph_init.cpp
+)
+
+define_add_lcp(add_lcp_single_node_ha mg_single_node_ha_sources generated_lcp_single_node_ha_files)
+
+add_lcp_single_node_ha(durability/single_node_ha/state_delta.lcp)
+add_lcp_single_node_ha(query/frontend/ast/ast.lcp)
+add_lcp_single_node_ha(query/plan/operator.lcp)
+
+add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_single_node_ha_files})
+
+set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
+    antlr_opencypher_parser_lib dl glog gflags capnp kj
+    mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-auth mg-stats)
+
+if (USE_LTALLOC)
+  list(APPEND MG_SINGLE_NODE_HA_LIBS ltalloc)
+  # TODO(mferencevic): Enable this when clang is updated on apollo.
+  # set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -flto")
+endif()
+
+if (READLINE_FOUND)
+  list(APPEND MG_SINGLE_NODE_HA_LIBS readline)
+endif()
+
+add_library(mg-single-node-ha STATIC ${mg_single_node_ha_sources})
+target_link_libraries(mg-single-node-ha ${MG_SINGLE_NODE_HA_LIBS})
+add_dependencies(mg-single-node-ha generate_opencypher_parser)
+add_dependencies(mg-single-node-ha generate_lcp_single_node_ha)
+target_compile_definitions(mg-single-node-ha PUBLIC MG_SINGLE_NODE_HA)
+
+# ----------------------------------------------------------------------------
+# END Memgraph Single Node High Availability
+# ----------------------------------------------------------------------------
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # STATIC library used to store key-value pairs
@@ -326,3 +398,17 @@ add_custom_command(TARGET memgraph_distributed POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph_distributed> ${CMAKE_BINARY_DIR}/memgraph_distributed
                    BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph_distributed
                    COMMENT Creating symlink to memgraph distributed executable)
+
+# memgraph single node high availability executable
+add_executable(memgraph_ha memgraph_ha.cpp)
+target_link_libraries(memgraph_ha mg-single-node-ha kvstore_lib telemetry_lib)
+set_target_properties(memgraph_ha PROPERTIES
+                      # Set the executable output name to include version information.
+                      OUTPUT_NAME "memgraph_ha-${memgraph_VERSION}-${COMMIT_HASH}_${CMAKE_BUILD_TYPE}"
+                      # Output the executable in main binary dir.
+                      RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+# Create symlink to the built executable.
+add_custom_command(TARGET memgraph_ha POST_BUILD
+                   COMMAND ${CMAKE_COMMAND} -E create_symlink $<TARGET_FILE:memgraph_ha> ${CMAKE_BINARY_DIR}/memgraph_ha
+                   BYPRODUCTS ${CMAKE_BINARY_DIR}/memgraph_ha
+                   COMMENT Creating symlink to memgraph single node high availability executable)

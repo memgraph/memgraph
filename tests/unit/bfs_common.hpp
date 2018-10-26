@@ -28,6 +28,10 @@ void PrintTo(const query::EdgeAtom::Direction &dir, std::ostream *os) {
 using VertexAddress = mvcc::VersionList<Vertex> *;
 using EdgeAddress = mvcc::VersionList<Edge> *;
 #endif
+#ifdef MG_SINGLE_NODE_HA
+using VertexAddress = mvcc::VersionList<Vertex> *;
+using EdgeAddress = mvcc::VersionList<Edge> *;
+#endif
 #ifdef MG_DISTRIBUTED
 using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
 using EdgeAddress = storage::Address<mvcc::VersionList<Edge>>;
