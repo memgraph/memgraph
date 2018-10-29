@@ -220,9 +220,9 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::Visit(IndexQuery &) { return true; }
 
-bool SymbolGenerator::Visit(AuthQuery &) { return true; }
+bool SymbolGenerator::PreVisit(AuthQuery &) { return false; }
 
-bool SymbolGenerator::Visit(StreamQuery &) { return true; }
+bool SymbolGenerator::PreVisit(StreamQuery &) { return false; }
 
 // Expressions
 

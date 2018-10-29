@@ -47,8 +47,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Match &) override;
   bool PostVisit(Match &) override;
   bool Visit(IndexQuery &) override;
-  bool Visit(AuthQuery &) override;
-  bool Visit(StreamQuery &) override;
+  bool PreVisit(AuthQuery &) override;
+  bool PreVisit(StreamQuery &) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;

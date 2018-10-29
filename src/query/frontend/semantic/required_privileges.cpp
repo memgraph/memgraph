@@ -46,6 +46,7 @@ class PrivilegeExtractor : public HierarchicalTreeVisitor {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
     return false;
   }
+
   bool Visit(Identifier &) override { return true; }
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
@@ -55,13 +56,14 @@ class PrivilegeExtractor : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(AuthQuery &) override {
+  bool PreVisit(AuthQuery &) override {
     AddPrivilege(AuthQuery::Privilege::AUTH);
-    return true;
+    return false;
   }
-  bool Visit(StreamQuery &) override {
+
+  bool PreVisit(StreamQuery &) override {
     AddPrivilege(AuthQuery::Privilege::STREAM);
-    return true;
+    return false;
   }
 
  private:

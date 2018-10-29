@@ -77,11 +77,11 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Create,
     Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind>;
+    Unwind, AuthQuery, StreamQuery>;
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup,
-                         IndexQuery, AuthQuery, StreamQuery>;
+                         IndexQuery>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {

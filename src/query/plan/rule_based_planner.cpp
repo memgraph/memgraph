@@ -415,14 +415,14 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(query::AuthQuery &) override {
+  bool PreVisit(query::AuthQuery &) override {
     has_aggregation_.emplace_back(false);
-    return true;
+    return false;
   }
 
-  bool Visit(query::StreamQuery &) override {
+  bool PreVisit(query::StreamQuery &) override {
     has_aggregation_.emplace_back(false);
-    return true;
+    return false;
   }
 
   // Creates NamedExpression with an Identifier for each user declared symbol.

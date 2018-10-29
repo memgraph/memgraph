@@ -2267,7 +2267,12 @@ cpp<#
     AuthQuery() = default;
 
     DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        if (password_) password_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
 
     AuthQuery *Clone(AstStorage &storage) const override {
       return storage.Create<AuthQuery>(
@@ -2342,7 +2347,24 @@ cpp<#
     StreamQuery() = default;
 
     DEFVISITABLE(TreeVisitor<TypedValue>);
-    DEFVISITABLE(HierarchicalTreeVisitor);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        bool cont = true;
+        if (cont && stream_uri_)
+          cont = stream_uri_->Accept(visitor);
+        if (cont && stream_topic_)
+          cont = stream_topic_->Accept(visitor);
+        if (cont && transform_uri_)
+          cont = transform_uri_->Accept(visitor);
+        if (cont && batch_interval_in_ms_)
+          cont = batch_interval_in_ms_->Accept(visitor);
+        if (cont && batch_size_)
+          cont = batch_size_->Accept(visitor);
+        if (cont && limit_batches_)
+          cont = limit_batches_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
 
     StreamQuery *Clone(AstStorage &storage) const override {
       auto *stream_uri = stream_uri_ ? stream_uri_->Clone(storage) : nullptr;
