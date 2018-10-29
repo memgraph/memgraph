@@ -6,12 +6,12 @@
 
 #include <fmt/format.h>
 
+#include <gmock/gmock.h>
+#include <gtest/gtest.h>
 #include <cppitertools/enumerate.hpp>
 #include <cppitertools/product.hpp>
 #include <cppitertools/range.hpp>
 #include <cppitertools/repeat.hpp>
-#include <gmock/gmock.h>
-#include <gtest/gtest.h>
 
 #include "communication/result_stream_faker.hpp"
 #include "database/single_node/graph_db.hpp"
@@ -561,16 +561,16 @@ class QueryPlanExpandVariable : public testing::Test {
       };
 
       return std::make_shared<ExpandVariable>(
-          n_to_sym, edge_sym, EdgeAtom::Type::DEPTH_FIRST, direction,
-          edge_types, is_reverse, convert(lower), convert(upper), filter_op,
-          n_from.sym_, false,
+          filter_op, n_from.sym_, n_to_sym, edge_sym,
+          EdgeAtom::Type::DEPTH_FIRST, direction, edge_types, is_reverse,
+          convert(lower), convert(upper), false,
           ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
                           symbol_table.CreateSymbol("inner_node", false),
                           nullptr},
           std::experimental::nullopt, std::experimental::nullopt, graph_view);
     } else
-      return std::make_shared<Expand>(n_to_sym, edge_sym, direction, edge_types,
-                                      filter_op, n_from.sym_, false,
+      return std::make_shared<Expand>(filter_op, n_from.sym_, n_to_sym,
+                                      edge_sym, direction, edge_types, false,
                                       graph_view);
   }
 
@@ -916,9 +916,10 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
                         : symbol_table.CreateSymbol("node", true);
     auto edge_list_sym = symbol_table.CreateSymbol("edgelist_", true);
     auto filter_lambda = last_op = std::make_shared<ExpandVariable>(
-        node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
-        direction, std::vector<storage::EdgeType>{}, false, nullptr,
-        max_depth ? LITERAL(max_depth.value()) : nullptr, last_op, n.sym_,
+        last_op, n.sym_, node_sym, edge_list_sym,
+        EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
+        std::vector<storage::EdgeType>{}, false, nullptr,
+        max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr,
         ExpansionLambda{filter_edge, filter_node, where},
         ExpansionLambda{weight_edge, weight_node,
@@ -1339,8 +1340,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto node = NODE("n");
   symbol_table[*node->identifier_] = with_n_sym;
   auto expand = std::make_shared<plan::Expand>(
-      with_n_sym, edge_sym, edge_direction, std::vector<storage::EdgeType>{},
-      m.op_, m.sym_, true, GraphView::OLD);
+      m.op_, m.sym_, with_n_sym, edge_sym, edge_direction,
+      std::vector<storage::EdgeType>{}, true, GraphView::OLD);
   // RETURN m
   auto m_ne = NEXPR("m", IDENT("m"));
   symbol_table[*m_ne->expression_] = m.sym_;
@@ -1372,10 +1373,9 @@ TEST(QueryPlan, ExpandExistingNode) {
                           EdgeAtom::Direction::OUT, {}, "n", with_existing,
                           GraphView::OLD);
     if (with_existing)
-      r_n.op_ =
-          std::make_shared<Expand>(n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
-                                   std::vector<storage::EdgeType>{}, n.op_,
-                                   n.sym_, with_existing, GraphView::OLD);
+      r_n.op_ = std::make_shared<Expand>(
+          n.op_, n.sym_, n.sym_, r_n.edge_sym_, r_n.edge_->direction_,
+          std::vector<storage::EdgeType>{}, with_existing, GraphView::OLD);
 
     // make a named expression and a produce
     auto output = NEXPR("n", IDENT("n"));

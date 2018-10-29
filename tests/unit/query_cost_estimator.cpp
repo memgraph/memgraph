@@ -163,17 +163,17 @@ TEST_F(QueryCostEstimator, ScanAllByLabelPropertyRangeConstExpr) {
 }
 
 TEST_F(QueryCostEstimator, Expand) {
-  MakeOp<Expand>(NextSymbol(), NextSymbol(), EdgeAtom::Direction::IN,
-                 std::vector<storage::EdgeType>{}, last_op_, NextSymbol(),
+  MakeOp<Expand>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
+                 EdgeAtom::Direction::IN, std::vector<storage::EdgeType>{},
                  false, GraphView::OLD);
   EXPECT_COST(CardParam::kExpand * CostParam::kExpand);
 }
 
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(
-      NextSymbol(), NextSymbol(), EdgeAtom::Type::DEPTH_FIRST,
-      EdgeAtom::Direction::IN, std::vector<storage::EdgeType>{}, false, nullptr,
-      nullptr, last_op_, NextSymbol(), false,
+      last_op_, NextSymbol(), NextSymbol(), NextSymbol(),
+      EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
+      std::vector<storage::EdgeType>{}, false, nullptr, nullptr, false,
       ExpansionLambda{NextSymbol(), NextSymbol(), nullptr},
       std::experimental::nullopt, std::experimental::nullopt, GraphView::OLD);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);

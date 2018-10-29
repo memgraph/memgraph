@@ -414,34 +414,25 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyValue::MakeCursor(
       output_symbol_, input_->MakeCursor(db), std::move(vertices), db);
 }
 
-ExpandCommon::ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
-                           EdgeAtom::Direction direction,
-                           const std::vector<storage::EdgeType> &edge_types,
-                           const std::shared_ptr<LogicalOperator> &input,
-                           Symbol input_symbol, bool existing_node,
-                           GraphView graph_view)
-    : node_symbol_(node_symbol),
-      edge_symbol_(edge_symbol),
-      direction_(direction),
-      edge_types_(edge_types),
-      input_(input ? input : std::make_shared<Once>()),
-      input_symbol_(input_symbol),
-      existing_node_(existing_node),
-      graph_view_(graph_view) {}
-
-bool ExpandCommon::HandleExistingNode(const VertexAccessor &new_node,
-                                      Frame &frame) const {
-  if (existing_node_) {
-    TypedValue &old_node_value = frame[node_symbol_];
-    // old_node_value may be Null when using optional matching
-    if (old_node_value.IsNull()) return false;
-    ExpectType(node_symbol_, old_node_value, TypedValue::Type::Vertex);
-    return old_node_value.Value<VertexAccessor>() == new_node;
-  } else {
-    frame[node_symbol_] = new_node;
-    return true;
-  }
+namespace {
+bool CheckExistingNode(const VertexAccessor &new_node,
+                       const Symbol &existing_node_sym, Frame &frame) {
+  const TypedValue &existing_node = frame[existing_node_sym];
+  if (existing_node.IsNull()) return false;
+  ExpectType(existing_node_sym, existing_node, TypedValue::Type::Vertex);
+  return existing_node.ValueVertex() != new_node;
 }
+}  // namespace
+
+Expand::Expand(const std::shared_ptr<LogicalOperator> &input,
+               Symbol input_symbol, Symbol node_symbol, Symbol edge_symbol,
+               EdgeAtom::Direction direction,
+               const std::vector<storage::EdgeType> &edge_types,
+               bool existing_node, GraphView graph_view)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      common_{node_symbol, edge_symbol,   direction,
+              edge_types,  existing_node, graph_view} {}
 
 ACCEPT_WITH_INPUT(Expand)
 
@@ -452,8 +443,8 @@ std::unique_ptr<Cursor> Expand::MakeCursor(
 
 std::vector<Symbol> Expand::ModifiedSymbols(const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol_);
-  symbols.emplace_back(edge_symbol_);
+  symbols.emplace_back(common_.node_symbol);
+  symbols.emplace_back(common_.edge_symbol);
   return symbols;
 }
 
@@ -465,13 +456,13 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
   // A helper function for expanding a node from an edge.
   auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
                                   EdgeAtom::Direction direction) {
-    if (self_.existing_node_) return;
+    if (self_.common_.existing_node) return;
     switch (direction) {
       case EdgeAtom::Direction::IN:
-        frame[self_.node_symbol_] = new_edge.from();
+        frame[self_.common_.node_symbol] = new_edge.from();
         break;
       case EdgeAtom::Direction::OUT:
-        frame[self_.node_symbol_] = new_edge.to();
+        frame[self_.common_.node_symbol] = new_edge.to();
         break;
       case EdgeAtom::Direction::BOTH:
         LOG(FATAL) << "Must indicate exact expansion direction here";
@@ -483,7 +474,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
     // attempt to get a value from the incoming edges
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
-      frame[self_.edge_symbol_] = edge;
+      frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::IN);
       return true;
     }
@@ -494,9 +485,10 @@ bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
       // when expanding in EdgeAtom::Direction::BOTH directions
       // we should do only one expansion for cycles, and it was
       // already done in the block above
-      if (self_.direction_ == EdgeAtom::Direction::BOTH && edge.is_cycle())
+      if (self_.common_.direction == EdgeAtom::Direction::BOTH &&
+          edge.is_cycle())
         continue;
-      frame[self_.edge_symbol_] = edge;
+      frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, EdgeAtom::Direction::OUT);
       return true;
     }
@@ -531,22 +523,22 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &vertex = vertex_value.Value<VertexAccessor>();
-    SwitchAccessor(vertex, self_.graph_view_);
+    SwitchAccessor(vertex, self_.common_.graph_view);
 
-    auto direction = self_.direction_;
+    auto direction = self_.common_.direction;
     if (direction == EdgeAtom::Direction::IN ||
         direction == EdgeAtom::Direction::BOTH) {
-      if (self_.existing_node_) {
-        TypedValue &existing_node = frame[self_.node_symbol_];
+      if (self_.common_.existing_node) {
+        TypedValue &existing_node = frame[self_.common_.node_symbol];
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
-          ExpectType(self_.node_symbol_, existing_node,
+          ExpectType(self_.common_.node_symbol, existing_node,
                      TypedValue::Type::Vertex);
-          in_edges_.emplace(
-              vertex.in(existing_node.ValueVertex(), &self_.edge_types_));
+          in_edges_.emplace(vertex.in(existing_node.ValueVertex(),
+                                      &self_.common_.edge_types));
         }
       } else {
-        in_edges_.emplace(vertex.in(&self_.edge_types_));
+        in_edges_.emplace(vertex.in(&self_.common_.edge_types));
       }
       if (in_edges_) {
         in_edges_it_.emplace(in_edges_->begin());
@@ -555,17 +547,17 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
 
     if (direction == EdgeAtom::Direction::OUT ||
         direction == EdgeAtom::Direction::BOTH) {
-      if (self_.existing_node_) {
-        TypedValue &existing_node = frame[self_.node_symbol_];
+      if (self_.common_.existing_node) {
+        TypedValue &existing_node = frame[self_.common_.node_symbol];
         // old_node_value may be Null when using optional matching
         if (!existing_node.IsNull()) {
-          ExpectType(self_.node_symbol_, existing_node,
+          ExpectType(self_.common_.node_symbol, existing_node,
                      TypedValue::Type::Vertex);
-          out_edges_.emplace(
-              vertex.out(existing_node.ValueVertex(), &self_.edge_types_));
+          out_edges_.emplace(vertex.out(existing_node.ValueVertex(),
+                                        &self_.common_.edge_types));
         }
       } else {
-        out_edges_.emplace(vertex.out(&self_.edge_types_));
+        out_edges_.emplace(vertex.out(&self_.common_.edge_types));
       }
       if (out_edges_) {
         out_edges_it_.emplace(out_edges_->begin());
@@ -577,16 +569,18 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, Context &context) {
 }
 
 ExpandVariable::ExpandVariable(
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
     Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
     EdgeAtom::Direction direction,
     const std::vector<storage::EdgeType> &edge_types, bool is_reverse,
-    Expression *lower_bound, Expression *upper_bound,
-    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, ExpansionLambda filter_lambda,
+    Expression *lower_bound, Expression *upper_bound, bool existing_node,
+    ExpansionLambda filter_lambda,
     std::experimental::optional<ExpansionLambda> weight_lambda,
     std::experimental::optional<Symbol> total_weight, GraphView graph_view)
-    : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
-                   input_symbol, existing_node, graph_view),
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      common_{node_symbol, edge_symbol,   direction,
+              edge_types,  existing_node, graph_view},
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
@@ -608,8 +602,8 @@ ACCEPT_WITH_INPUT(ExpandVariable)
 std::vector<Symbol> ExpandVariable::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol_);
-  symbols.emplace_back(edge_symbol_);
+  symbols.emplace_back(common_.node_symbol);
+  symbols.emplace_back(common_.edge_symbol);
   return symbols;
 }
 
@@ -666,9 +660,9 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
-    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                  context.evaluation_context_,
-                                  &context.db_accessor_, self_.graph_view_);
+    ExpressionEvaluator evaluator(
+        &frame, context.symbol_table_, context.evaluation_context_,
+        &context.db_accessor_, self_.common_.graph_view);
     while (true) {
       if (Expand(frame, context)) return true;
 
@@ -677,7 +671,10 @@ class ExpandVariableCursor : public Cursor {
         if (lower_bound_ == 0) {
           auto &start_vertex =
               frame[self_.input_symbol_].Value<VertexAccessor>();
-          if (self_.HandleExistingNode(start_vertex, frame)) {
+          if (!self_.common_.existing_node ||
+              CheckExistingNode(start_vertex, self_.common_.node_symbol,
+                                frame)) {
+            frame[self_.common_.node_symbol] = start_vertex;
             return true;
           }
         }
@@ -712,7 +709,7 @@ class ExpandVariableCursor : public Cursor {
   // the expansion currently being Pulled
   std::vector<decltype(ExpandFromVertex(std::declval<VertexAccessor>(),
                                         EdgeAtom::Direction::IN,
-                                        self_.edge_types_))>
+                                        self_.common_.edge_types))>
       edges_;
 
   // an iterator indicating the possition in the corresponding edges_
@@ -740,13 +737,14 @@ class ExpandVariableCursor : public Cursor {
 
       ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.Value<VertexAccessor>();
-      SwitchAccessor(vertex, self_.graph_view_);
+      SwitchAccessor(vertex, self_.common_.graph_view);
 
       // Evaluate the upper and lower bounds.
       ExpressionEvaluator evaluator(&frame, context.symbol_table_,
 
                                     context.evaluation_context_,
-                                    &context.db_accessor_, self_.graph_view_);
+                                    &context.db_accessor_,
+                                    self_.common_.graph_view);
       auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(&evaluator, bound, "Variable expansion bound");
         if (value < 0)
@@ -760,14 +758,14 @@ class ExpandVariableCursor : public Cursor {
                                         : std::numeric_limits<int64_t>::max();
 
       if (upper_bound_ > 0) {
-        SwitchAccessor(vertex, self_.graph_view_);
-        edges_.emplace_back(
-            ExpandFromVertex(vertex, self_.direction_, self_.edge_types_));
+        SwitchAccessor(vertex, self_.common_.graph_view);
+        edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction,
+                                             self_.common_.edge_types));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
       // reset the frame value to an empty edge list
-      frame[self_.edge_symbol_] = std::vector<TypedValue>();
+      frame[self_.common_.edge_symbol] = std::vector<TypedValue>();
 
       return true;
     }
@@ -805,9 +803,9 @@ class ExpandVariableCursor : public Cursor {
    * vertex and another Pull from the input cursor should be performed.
    */
   bool Expand(Frame &frame, Context &context) {
-    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                  context.evaluation_context_,
-                                  &context.db_accessor_, self_.graph_view_);
+    ExpressionEvaluator evaluator(
+        &frame, context.symbol_table_, context.evaluation_context_,
+        &context.db_accessor_, self_.common_.graph_view);
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
@@ -825,7 +823,7 @@ class ExpandVariableCursor : public Cursor {
 
       // we use this a lot
       std::vector<TypedValue> &edges_on_frame =
-          frame[self_.edge_symbol_].Value<std::vector<TypedValue>>();
+          frame[self_.common_.edge_symbol].Value<std::vector<TypedValue>>();
 
       // it is possible that edges_on_frame does not contain as many
       // elements as edges_ due to edge-uniqueness (when a whole layer
@@ -861,7 +859,11 @@ class ExpandVariableCursor : public Cursor {
               ? current_edge.first.from()
               : current_edge.first.to();
 
-      if (!self_.HandleExistingNode(current_vertex, frame)) continue;
+      if (self_.common_.existing_node &&
+          !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame))
+        continue;
+
+      frame[self_.common_.node_symbol] = current_vertex;
 
       // Skip expanding out of filtered expansion.
       frame[self_.filter_lambda_.inner_edge_symbol] = current_edge.first;
@@ -873,9 +875,9 @@ class ExpandVariableCursor : public Cursor {
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
-        SwitchAccessor(current_vertex, self_.graph_view_);
-        edges_.emplace_back(ExpandFromVertex(current_vertex, self_.direction_,
-                                             self_.edge_types_));
+        SwitchAccessor(current_vertex, self_.common_.graph_view);
+        edges_.emplace_back(ExpandFromVertex(
+            current_vertex, self_.common_.direction, self_.common_.edge_types));
         edges_it_.emplace_back(edges_.back().begin());
       }
 
@@ -893,11 +895,12 @@ class STShortestPathCursor : public query::plan::Cursor {
   STShortestPathCursor(const ExpandVariable &self,
                        database::GraphDbAccessor &dba)
       : self_(self), input_cursor_(self_.input()->MakeCursor(dba)) {
-    CHECK(self_.graph_view_ == GraphView::OLD)
+    CHECK(self_.common_.graph_view == GraphView::OLD)
         << "ExpandVariable should only be planned with GraphView::OLD";
-    CHECK(self_.existing_node_) << "s-t shortest path algorithm should only "
-                                   "be used when `existing_node` flag is "
-                                   "set!";
+    CHECK(self_.common_.existing_node)
+        << "s-t shortest path algorithm should only "
+           "be used when `existing_node` flag is "
+           "set!";
   }
 
   bool Pull(Frame &frame, Context &context) override {
@@ -906,7 +909,7 @@ class STShortestPathCursor : public query::plan::Cursor {
                                   &context.db_accessor_, GraphView::OLD);
     while (input_cursor_->Pull(frame, context)) {
       auto source_tv = frame[self_.input_symbol_];
-      auto sink_tv = frame[self_.node_symbol_];
+      auto sink_tv = frame[self_.common_.node_symbol];
 
       // It is possible that source or sink vertex is Null due to optional
       // matching.
@@ -969,7 +972,7 @@ class STShortestPathCursor : public query::plan::Cursor {
           last_edge->from_is(last_vertex) ? last_edge->to() : last_edge->from();
       result.emplace_back(*last_edge);
     }
-    frame->at(self_.edge_symbol_) = std::move(result);
+    frame->at(self_.common_.edge_symbol) = std::move(result);
   }
 
   bool ShouldExpand(const VertexAccessor &vertex, const EdgeAccessor &edge,
@@ -1029,8 +1032,8 @@ class STShortestPathCursor : public query::plan::Cursor {
       if (current_length > upper_bound) return false;
 
       for (const auto &vertex : source_frontier) {
-        if (self_.direction_ != EdgeAtom::Direction::IN) {
-          for (const auto &edge : vertex.out(&self_.edge_types_)) {
+        if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          for (const auto &edge : vertex.out(&self_.common_.edge_types)) {
             if (ShouldExpand(edge.to(), edge, frame, evaluator) &&
                 !Contains(in_edge, edge.to())) {
               in_edge.emplace(edge.to(), edge);
@@ -1046,8 +1049,8 @@ class STShortestPathCursor : public query::plan::Cursor {
             }
           }
         }
-        if (self_.direction_ != EdgeAtom::Direction::OUT) {
-          for (const auto &edge : vertex.in(&self_.edge_types_)) {
+        if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          for (const auto &edge : vertex.in(&self_.common_.edge_types)) {
             if (ShouldExpand(edge.from(), edge, frame, evaluator) &&
                 !Contains(in_edge, edge.from())) {
               in_edge.emplace(edge.from(), edge);
@@ -1077,8 +1080,8 @@ class STShortestPathCursor : public query::plan::Cursor {
       // endpoint we pass to `should_expand`, because everything is
       // reversed.
       for (const auto &vertex : sink_frontier) {
-        if (self_.direction_ != EdgeAtom::Direction::OUT) {
-          for (const auto &edge : vertex.out(&self_.edge_types_)) {
+        if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          for (const auto &edge : vertex.out(&self_.common_.edge_types)) {
             if (ShouldExpand(vertex, edge, frame, evaluator) &&
                 !Contains(out_edge, edge.to())) {
               out_edge.emplace(edge.to(), edge);
@@ -1094,8 +1097,8 @@ class STShortestPathCursor : public query::plan::Cursor {
             }
           }
         }
-        if (self_.direction_ != EdgeAtom::Direction::IN) {
-          for (const auto &edge : vertex.in(&self_.edge_types_)) {
+        if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          for (const auto &edge : vertex.in(&self_.common_.edge_types)) {
             if (ShouldExpand(vertex, edge, frame, evaluator) &&
                 !Contains(out_edge, edge.from())) {
               out_edge.emplace(edge.from(), edge);
@@ -1125,12 +1128,13 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   SingleSourceShortestPathCursor(const ExpandVariable &self,
                                  database::GraphDbAccessor &db)
       : self_(self), input_cursor_(self_.input()->MakeCursor(db)) {
-    CHECK(self_.graph_view_ == GraphView::OLD)
+    CHECK(self_.common_.graph_view == GraphView::OLD)
         << "ExpandVariable should only be planned with GraphView::OLD";
-    CHECK(!self_.existing_node_) << "Single source shortest path algorithm "
-                                    "should not be used when `existing_node` "
-                                    "flag is set, s-t shortest path algorithm "
-                                    "should be used instead!";
+    CHECK(!self_.common_.existing_node)
+        << "Single source shortest path algorithm "
+           "should not be used when `existing_node` "
+           "flag is set, s-t shortest path algorithm "
+           "should be used instead!";
   }
 
   bool Pull(Frame &frame, Context &context) override {
@@ -1169,12 +1173,12 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // from the given vertex. skips expansions that don't satisfy
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex) {
-      if (self_.direction_ != EdgeAtom::Direction::IN) {
-        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_))
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        for (const EdgeAccessor &edge : vertex.out(&self_.common_.edge_types))
           expand_pair(edge, edge.to());
       }
-      if (self_.direction_ != EdgeAtom::Direction::OUT) {
-        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_))
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        for (const EdgeAccessor &edge : vertex.in(&self_.common_.edge_types))
           expand_pair(edge, edge.from());
       }
     };
@@ -1241,11 +1245,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
-      frame[self_.node_symbol_] = expansion.second;
+      frame[self_.common_.node_symbol] = expansion.second;
 
       // place edges on the frame in the correct order
       std::reverse(edge_list.begin(), edge_list.end());
-      frame[self_.edge_symbol_] = std::move(edge_list);
+      frame[self_.common_.edge_symbol] = std::move(edge_list);
 
       return true;
     }
@@ -1286,9 +1290,9 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
-    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                  context.evaluation_context_,
-                                  &context.db_accessor_, self_.graph_view_);
+    ExpressionEvaluator evaluator(
+        &frame, context.symbol_table_, context.evaluation_context_,
+        &context.db_accessor_, self_.common_.graph_view);
     auto create_state = [this](VertexAccessor vertex, int depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -1299,8 +1303,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     auto expand_pair = [this, &evaluator, &frame, &create_state](
                            EdgeAccessor edge, VertexAccessor vertex,
                            double weight, int depth) {
-      SwitchAccessor(edge, self_.graph_view_);
-      SwitchAccessor(vertex, self_.graph_view_);
+      SwitchAccessor(edge, self_.common_.graph_view);
+      SwitchAccessor(vertex, self_.common_.graph_view);
 
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1338,13 +1342,13 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // the "where" condition.
     auto expand_from_vertex = [this, &expand_pair](VertexAccessor &vertex,
                                                    double weight, int depth) {
-      if (self_.direction_ != EdgeAtom::Direction::IN) {
-        for (const EdgeAccessor &edge : vertex.out(&self_.edge_types_)) {
+      if (self_.common_.direction != EdgeAtom::Direction::IN) {
+        for (const EdgeAccessor &edge : vertex.out(&self_.common_.edge_types)) {
           expand_pair(edge, edge.to(), weight, depth);
         }
       }
-      if (self_.direction_ != EdgeAtom::Direction::OUT) {
-        for (const EdgeAccessor &edge : vertex.in(&self_.edge_types_)) {
+      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+        for (const EdgeAccessor &edge : vertex.in(&self_.common_.edge_types)) {
           expand_pair(edge, edge.from(), weight, depth);
         }
       }
@@ -1357,13 +1361,13 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         auto vertex_value = frame[self_.input_symbol_];
         if (vertex_value.IsNull()) continue;
         auto vertex = vertex_value.Value<VertexAccessor>();
-        if (self_.existing_node_) {
-          TypedValue &node = frame[self_.node_symbol_];
+        if (self_.common_.existing_node) {
+          TypedValue &node = frame[self_.common_.node_symbol];
           // Due to optional matching the existing node could be null.
           // Skip expansion for such nodes.
           if (node.IsNull()) continue;
         }
-        SwitchAccessor(vertex, self_.graph_view_);
+        SwitchAccessor(vertex, self_.common_.graph_view);
         if (self_.upper_bound_) {
           upper_bound_ =
               EvaluateInt(&evaluator, self_.upper_bound_,
@@ -1435,8 +1439,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         }
 
         // Place destination node on the frame, handle existence flag.
-        if (self_.existing_node_) {
-          TypedValue &node = frame[self_.node_symbol_];
+        if (self_.common_.existing_node) {
+          TypedValue &node = frame[self_.common_.node_symbol];
           if ((node != current_vertex).Value<bool>())
             continue;
           else
@@ -1444,14 +1448,14 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
             // shortest to existing node.
             ClearQueue();
         } else {
-          frame[self_.node_symbol_] = current_vertex;
+          frame[self_.common_.node_symbol] = current_vertex;
         }
 
         if (!self_.is_reverse_) {
           // Place edges on the frame in the correct order.
           std::reverse(edge_list.begin(), edge_list.end());
         }
-        frame[self_.edge_symbol_] = std::move(edge_list);
+        frame[self_.common_.edge_symbol] = std::move(edge_list);
         frame[self_.total_weight_.value()] = current_weight;
         yielded_vertices_.insert(current_vertex);
         return true;
@@ -1524,7 +1528,7 @@ std::unique_ptr<Cursor> ExpandVariable::MakeCursor(
     database::GraphDbAccessor &db) const {
   switch (type_) {
     case EdgeAtom::Type::BREADTH_FIRST:
-      if (existing_node_) {
+      if (common_.existing_node) {
         return std::make_unique<STShortestPathCursor>(*this, db);
       } else {
         return std::make_unique<SingleSourceShortestPathCursor>(*this, db);

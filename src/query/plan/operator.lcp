@@ -649,106 +649,55 @@ property value.
    cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class expand-common ()
+(lcp:define-struct expand-common ()
   (
    ;; info on what's getting expanded
-   (node-symbol "Symbol" :scope :public)
-   (edge-symbol "Symbol" :scope :public)
-   (direction "EdgeAtom::Direction" :scope :public
+   (node-symbol "Symbol"
+                :documentation "Symbol pointing to the node to be expanded. 
+This is where the new node will be stored.")
+   (edge-symbol "Symbol"
+                :documentation "Symbol for the edges to be expanded. 
+This is where a TypedValue containing a list of expanded edges will be stored.")
+   (direction "EdgeAtom::Direction"
+              :documentation "EdgeAtom::Direction determining the direction of edge
+expansion. The direction is relative to the starting vertex for each expansion."
               :capnp-type "Ast.EdgeAtom.Direction" :capnp-init nil
-              :capnp-save (lcp:capnp-save-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
+              :capnp-save (lcp:capnp-save-enum "::query::capnp::EdgeAtom::Direction"
+                                               "EdgeAtom::Direction"
                                                '(in out both))
-              :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Direction" "EdgeAtom::Direction"
+              :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Direction"
+                                               "EdgeAtom::Direction"
                                                '(in out both)))
-   (edge-types "std::vector<storage::EdgeType>" :scope :public
-               :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::EdgeType")
-               :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::EdgeType"))
-   ;; the input op and the symbol under which the op's result
-   ;; can be found in the frame
-   (input "std::shared_ptr<LogicalOperator>" :scope :public
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
-   (input-symbol "Symbol" :scope :public)
-   (existing-node :bool :scope :public :documentation
-                  "If the given node atom refer to a symbol that has already
-                  been expanded and should be just validated in the frame.")
+   (edge-types "std::vector<storage::EdgeType>"
+               :documentation "storage::EdgeType specifying which edges we want 
+to expand. If empty, all edges are valid. If not empty, only edges with one of 
+the given types are valid."
+               :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common"
+                                                  "storage::EdgeType")
+               :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common"
+                                                  "storage::EdgeType"))
+   (existing-node :bool :documentation "If the given node atom refer to a symbol
+that has already been expanded and should be just validated in the frame.")
    (graph-view "GraphView" :scope :public
                :capnp-init nil
-               :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView" "GraphView"
+               :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView"
+                                                "GraphView"
                                                 '(old new))
-               :capnp-load (lcp:capnp-load-enum "::query::capnp::GraphView" "GraphView"
+               :capnp-load (lcp:capnp-load-enum "::query::capnp::GraphView"
+                                                "GraphView"
                                                 '(old new))
                :documentation
-               "from which state the input node should get expanded"))
-  (:documentation
-   "Common functionality and data members of single-edge and variable-length
-expansion")
-  (:public
-   #>cpp
-   /**
-    * Initializes common expansion parameters.
-    *
-    * Edge/Node existence are controlled with booleans. 'true'
-    * denotes that this expansion references an already
-    * Pulled node/edge, and should only be checked for equality
-    * during expansion.
-    *
-    * Expansion can be done from old or new state of the vertex
-    * the expansion originates from. This is controlled with a
-    * constructor argument.
-    *
-    * @param node_symbol Symbol pointing to the node to be expanded. This is
-    *    where the new node will be stored.
-    * @param edge_symbol Symbol for the edges to be expanded. This is where
-    *    a TypedValue containing a list of expanded edges will be stored.
-    * @param direction EdgeAtom::Direction determining the direction of edge
-    *    expansion. The direction is relative to the starting vertex for each
-    *    expansion.
-    * @param edge_types storage::EdgeType specifying which edges we
-    *    want to expand. If empty, all edges are valid. If not empty, only edges
-    * with one of the given types are valid.
-    * @param input Optional LogicalOperator that preceeds this one.
-    * @param input_symbol Symbol that points to a VertexAccessor in the Frame
-    *    that expansion should emanate from.
-    * @param existing_node If or not the node to be expanded is already present
-    *    in the Frame and should just be checked for equality.
-    */
-   ExpandCommon(Symbol node_symbol, Symbol edge_symbol,
-                EdgeAtom::Direction direction,
-                const std::vector<storage::EdgeType> &edge_types,
-                const std::shared_ptr<LogicalOperator> &input,
-                Symbol input_symbol, bool existing_node,
-                GraphView graph_view);
-
-   // types that we'll use for members in subclasses
-   using InEdgeT = decltype(std::declval<VertexAccessor>().in());
-   using InEdgeIteratorT = decltype(std::declval<VertexAccessor>().in().begin());
-   using OutEdgeT = decltype(std::declval<VertexAccessor>().out());
-   using OutEdgeIteratorT =
-       decltype(std::declval<VertexAccessor>().out().begin());
-   cpp<#)
-  (:protected
-   #>cpp
-   virtual ~ExpandCommon() {}
-
-   /**
-    * For a newly expanded node handles existence checking and
-    * frame placement.
-    *
-    * @return If or not the given new_node is a valid expansion. It is not
-    * valid only when matching and existing node and new_node does not match
-    * the old.
-    */
-   bool HandleExistingNode(const VertexAccessor &new_node, Frame &frame) const;
-
-   ExpandCommon() {}
-   cpp<#)
+               "State from which the input node should get expanded."))
   (:serialize :capnp
               :save-args '((helper "LogicalOperator::SaveHelper *"))
               :load-args '((helper "LogicalOperator::LoadHelper *"))))
 
-(lcp:define-class expand (logical-operator expand-common)
-  ()
+(lcp:define-class expand (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (input-symbol "Symbol" :scope :public)
+   (common "ExpandCommon" :scope :public))
   (:documentation
    "Expansion operator. For a node existing in the frame it
 expands one edge and one node and places them on the frame.
@@ -765,10 +714,19 @@ pulled.")
   (:public
    #>cpp
    /**
-    * Creates an expansion. All parameters are forwarded to @c ExpandCommon and
-    * are documented there.
+    * Creates an expansion. All parameters except input and input_symbol are
+    * forwarded to @c ExpandCommon and are documented there. 
+    *
+    * @param input Optional logical operator that preceeds this one.
+    * @param input_symbol Symbol that points to a VertexAccessor in the frame
+    *    that expansion should emanate from.
     */
-   using ExpandCommon::ExpandCommon;
+   Expand(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+          Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+          const std::vector<storage::EdgeType> &edge_types, bool existing_node,
+          GraphView graph_view);
+
+   Expand() {}
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
@@ -789,6 +747,12 @@ pulled.")
      void Reset() override;
 
     private:
+     using InEdgeT = decltype(std::declval<VertexAccessor>().in());
+     using InEdgeIteratorT = decltype(std::declval<VertexAccessor>().in().begin());
+     using OutEdgeT = decltype(std::declval<VertexAccessor>().out());
+     using OutEdgeIteratorT =
+         decltype(std::declval<VertexAccessor>().out().begin());
+
      const Expand &self_;
      const std::unique_ptr<Cursor> input_cursor_;
      database::GraphDbAccessor &db_;
@@ -804,7 +768,7 @@ pulled.")
      bool InitEdges(Frame &, Context &);
    };
    cpp<#)
-  (:serialize :capnp :inherit-compose '(expand-common)))
+  (:serialize :capnp))
 
 (lcp:define-struct expansion-lambda ()
   ((inner-edge-symbol "Symbol" :documentation "Currently expanded edge symbol.")
@@ -832,8 +796,13 @@ pulled.")
               :load-args '((ast-storage "AstStorage *")
                            (loaded-ast-uids "std::vector<int> *"))))
 
-(lcp:define-class expand-variable (logical-operator expand-common)
-  ((type "EdgeAtom::Type" :scope :public :capnp-type "Ast.EdgeAtom.Type"
+(lcp:define-class expand-variable (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (input-symbol "Symbol" :scope :public)
+   (common "ExpandCommon" :scope :public)
+   (type "EdgeAtom::Type" :scope :public :capnp-type "Ast.EdgeAtom.Type"
          :capnp-init nil
          :capnp-save (lcp:capnp-save-enum "::query::capnp::EdgeAtom::Type" "EdgeAtom::Type"
                                           '(single depth-first breadth-first weighted-shortest-path))
@@ -903,6 +872,9 @@ pulled.")
     * Expansion length bounds are both inclusive (as in Neo's Cypher
     * implementation).
     *
+    * @param input Optional logical operator that preceeds this one.
+    * @param input_symbol Symbol that points to a VertexAccessor in the frame
+    *    that expansion should emanate from.
     * @param type - Either Type::DEPTH_FIRST (default variable-length expansion),
     * or Type::BREADTH_FIRST.
     * @param is_reverse Set to `true` if the edges written on frame should expand
@@ -919,17 +891,16 @@ pulled.")
     * @param filter_ The filter that must be satisfied for an expansion to
     * succeed. Can use inner(node/edge) symbols. If nullptr, it is ignored.
     */
-   ExpandVariable(Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Type type,
-                  EdgeAtom::Direction direction,
-                  const std::vector<storage::EdgeType> &edge_types,
-                  bool is_reverse, Expression *lower_bound,
-                  Expression *upper_bound,
-                  const std::shared_ptr<LogicalOperator> &input,
-                  Symbol input_symbol, bool existing_node,
-                  ExpansionLambda filter_lambda,
-                  std::experimental::optional<ExpansionLambda> weight_lambda,
-                  std::experimental::optional<Symbol> total_weight,
-                  GraphView graph_view);
+    ExpandVariable(const std::shared_ptr<LogicalOperator> &input,
+                   Symbol input_symbol, Symbol node_symbol, Symbol edge_symbol,
+                   EdgeAtom::Type type, EdgeAtom::Direction direction,
+                   const std::vector<storage::EdgeType> &edge_types,
+                   bool is_reverse, Expression *lower_bound,
+                   Expression *upper_bound, bool existing_node,
+                   ExpansionLambda filter_lambda,
+                   std::experimental::optional<ExpansionLambda> weight_lambda,
+                   std::experimental::optional<Symbol> total_weight,
+                   GraphView graph_view);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
@@ -950,7 +921,7 @@ pulled.")
    friend class ExpandVariableCursor;
    friend class ExpandWeightedShortestPathCursor;
    cpp<#)
-  (:serialize :capnp :inherit-compose '(expand-common)))
+  (:serialize :capnp))
 
 (lcp:define-class construct-named-path (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public

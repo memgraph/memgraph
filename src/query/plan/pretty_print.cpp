@@ -57,16 +57,26 @@ bool PlanPrinter::PreVisit(query::plan::ScanAllByLabelPropertyRange &op) {
 
 bool PlanPrinter::PreVisit(query::plan::Expand &op) {
   WithPrintLn([&](auto &out) {
-    out << "* Expand";
-    PrintExpand(op);
+    *out_ << "* Expand (" << op.input_symbol_.name() << ")"
+          << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-"
+                                                                     : "-")
+          << "[" << op.common_.edge_symbol.name() << "]"
+          << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
+                                                                      : "-")
+          << "(" << op.common_.node_symbol.name() << ")";
   });
   return true;
 }
 
 bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
   WithPrintLn([&](auto &out) {
-    out << "* ExpandVariable";
-    PrintExpand(op);
+    *out_ << "* ExpandVariable (" << op.input_symbol_.name() << ")"
+          << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-"
+                                                                     : "-")
+          << "[" << op.common_.edge_symbol.name() << "]"
+          << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
+                                                                      : "-")
+          << "(" << op.common_.node_symbol.name() << ")";
   });
   return true;
 }
@@ -171,14 +181,6 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op,
   ++depth_;
   op.Accept(*this);
   --depth_;
-}
-
-void PlanPrinter::PrintExpand(const query::plan::ExpandCommon &op) {
-  *out_ << " (" << op.input_symbol_.name() << ")"
-        << (op.direction_ == query::EdgeAtom::Direction::IN ? "<-" : "-") << "["
-        << op.edge_symbol_.name() << "]"
-        << (op.direction_ == query::EdgeAtom::Direction::OUT ? "->" : "-")
-        << "(" << op.node_symbol_.name() << ")";
 }
 
 void PrettyPrint(const database::GraphDbAccessor &dba,

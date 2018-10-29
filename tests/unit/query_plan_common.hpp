@@ -168,9 +168,9 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
   symbol_table[*node->identifier_] = node_sym;
 
-  auto op =
-      std::make_shared<Expand>(node_sym, edge_sym, direction, edge_types, input,
-                               input_symbol, existing_node, graph_view);
+  auto op = std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym,
+                                     direction, edge_types, existing_node,
+                                     graph_view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};
 }

@@ -404,9 +404,9 @@ class RuleBasedPlanner {
 
           // TODO: Pass weight lambda.
           last_op = std::make_unique<ExpandVariable>(
-              node_symbol, edge_symbol, edge->type_, expansion.direction,
-              edge->edge_types_, expansion.is_flipped, edge->lower_bound_,
-              edge->upper_bound_, std::move(last_op), node1_symbol,
+              std::move(last_op), node1_symbol, node_symbol, edge_symbol,
+              edge->type_, expansion.direction, edge->edge_types_,
+              expansion.is_flipped, edge->lower_bound_, edge->upper_bound_,
               existing_node, filter_lambda, weight_lambda, total_weight,
               match_context.graph_view);
         } else {
@@ -427,8 +427,8 @@ class RuleBasedPlanner {
             }
           }
           last_op = std::make_unique<Expand>(
-              node_symbol, edge_symbol, expansion.direction, edge->edge_types_,
-              std::move(last_op), node1_symbol, existing_node,
+              std::move(last_op), node1_symbol, node_symbol, edge_symbol,
+              expansion.direction, edge->edge_types_, existing_node,
               match_context.graph_view);
         }
 

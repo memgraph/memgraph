@@ -4,16 +4,24 @@ namespace query::plan {
 
 bool DistributedPlanPrinter::PreVisit(query::plan::DistributedExpand &op) {
   WithPrintLn([&](auto &out) {
-    out << "* DistributedExpand";
-    PrintExpand(op);
+    out << "* DistributedExpand (" << op.input_symbol_.name() << ")"
+        << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-")
+        << "[" << op.common_.edge_symbol.name() << "]"
+        << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
+                                                                    : "-")
+        << "(" << op.common_.node_symbol.name() << ")";
   });
   return true;
 }
 
 bool DistributedPlanPrinter::PreVisit(query::plan::DistributedExpandBfs &op) {
   WithPrintLn([&](auto &out) {
-    out << "* DistributedExpandBfs";
-    PrintExpand(op);
+    out << "* DistributedExpandBfs (" << op.input_symbol_.name() << ")"
+        << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-")
+        << "[" << op.common_.edge_symbol.name() << "]"
+        << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
+                                                                    : "-")
+        << "(" << op.common_.node_symbol.name() << ")";
   });
   return true;
 }

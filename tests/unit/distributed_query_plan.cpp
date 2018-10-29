@@ -51,8 +51,8 @@ ExpandTuple MakeDistributedExpand(
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
   symbol_table[*node->identifier_] = node_sym;
 
-  auto op = std::make_shared<DistributedExpand>(node_sym, edge_sym, direction,
-                                                edge_types, input, input_symbol,
+  auto op = std::make_shared<DistributedExpand>(input, input_symbol, node_sym,
+                                                edge_sym, direction, edge_types,
                                                 existing_node, graph_view);
 
   return ExpandTuple{edge, edge_sym, node, node_sym, op};

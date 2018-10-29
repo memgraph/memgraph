@@ -93,8 +93,6 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   /// and printing the branch name.
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
-  void PrintExpand(const query::plan::ExpandCommon &op);
-
   int64_t depth_{0};
 
  private:

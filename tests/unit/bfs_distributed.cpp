@@ -29,7 +29,7 @@ class DistributedDb : public Database {
       Expression *lower_bound, Expression *upper_bound,
       const ExpansionLambda &filter_lambda) override {
     return std::make_unique<DistributedExpandBfs>(
-        sink_sym, edge_sym, direction, edge_types, input, source_sym,
+        input, source_sym, sink_sym, edge_sym, direction, edge_types,
         existing_node, GraphView::OLD, lower_bound, upper_bound, filter_lambda);
   }
 

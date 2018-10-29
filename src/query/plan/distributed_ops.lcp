@@ -190,12 +190,23 @@ by having only one result from each worker.")
    cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class distributed-expand (logical-operator expand-common)
-  ()
+(lcp:define-class distributed-expand (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (input-symbol "Symbol" :scope :public)
+   (common "ExpandCommon" :scope :public))
   (:documentation "Distributed version of Expand operator")
   (:public
    #>cpp
-   using ExpandCommon::ExpandCommon;
+   DistributedExpand() {}
+   DistributedExpand(const std::shared_ptr<LogicalOperator> &input,
+                     Symbol input_symbol, Symbol node_symbol, Symbol edge_symbol,
+                     EdgeAtom::Direction direction,
+                     const std::vector<storage::EdgeType> &edge_types,
+                     bool existing_node, GraphView graph_view);
+   DistributedExpand(const std::shared_ptr<LogicalOperator> &input,
+                     Symbol input_symbol, const ExpandCommon &common);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
@@ -208,10 +219,15 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp :inherit-compose '(expand-common)))
+  (:serialize :capnp))
 
-(lcp:define-class distributed-expand-bfs (logical-operator expand-common)
-  ((lower-bound "Expression *" :scope :public
+(lcp:define-class distributed-expand-bfs (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (input-symbol "Symbol" :scope :public)
+   (common "ExpandCommon" :scope :public)
+   (lower-bound "Expression *" :scope :public
                 :documentation "Optional lower bound, default is 1"
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
@@ -236,13 +252,16 @@ by having only one result from each worker.")
   (:public
    #>cpp
    DistributedExpandBfs() {}
-   DistributedExpandBfs(Symbol node_symbol, Symbol edge_symbol,
-                        EdgeAtom::Direction direction,
+   DistributedExpandBfs(const std::shared_ptr<LogicalOperator> &input,
+                        Symbol input_symbol, Symbol node_symbol,
+                        Symbol edge_symbol, EdgeAtom::Direction direction,
                         const std::vector<storage::EdgeType> &edge_types,
-                        const std::shared_ptr<LogicalOperator> &input,
-                        Symbol input_symbol, bool existing_node,
-                        GraphView graph_view, Expression *lower_bound,
-                        Expression *upper_bound,
+                        bool existing_node, GraphView graph_view,
+                        Expression *lower_bound, Expression *upper_bound,
+                        const ExpansionLambda &filter_lambda);
+   DistributedExpandBfs(const std::shared_ptr<LogicalOperator> &input,
+                        Symbol input_symbol, const ExpandCommon &common,
+                        Expression *lower_bound, Expression *upper_bound,
                         const ExpansionLambda &filter_lambda);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
@@ -256,7 +275,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp :inherit-compose '(expand-common)))
+  (:serialize :capnp))
 
 (lcp:define-class distributed-create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public

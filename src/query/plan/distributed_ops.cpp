@@ -107,24 +107,54 @@ std::vector<Symbol> PullRemoteOrderBy::ModifiedSymbols(
   return input_->ModifiedSymbols(table);
 }
 
+DistributedExpand::DistributedExpand(
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+    const std::vector<storage::EdgeType> &edge_types, bool existing_node,
+    GraphView graph_view)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      common_{node_symbol, edge_symbol,   direction,
+              edge_types,  existing_node, graph_view} {}
+
+DistributedExpand::DistributedExpand(
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    const ExpandCommon &common)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      common_(common) {}
+
 ACCEPT_WITH_INPUT(DistributedExpand);
 
 std::vector<Symbol> DistributedExpand::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol_);
-  symbols.emplace_back(edge_symbol_);
+  symbols.emplace_back(common_.node_symbol);
+  symbols.emplace_back(common_.edge_symbol);
   return symbols;
 }
 
 DistributedExpandBfs::DistributedExpandBfs(
-    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
-    const std::vector<storage::EdgeType> &edge_types,
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
-    bool existing_node, GraphView graph_view, Expression *lower_bound,
+    Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
+    const std::vector<storage::EdgeType> &edge_types, bool existing_node,
+    GraphView graph_view, Expression *lower_bound, Expression *upper_bound,
+    const ExpansionLambda &filter_lambda)
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      common_{node_symbol, edge_symbol,   direction,
+              edge_types,  existing_node, graph_view},
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound),
+      filter_lambda_(filter_lambda) {}
+
+DistributedExpandBfs::DistributedExpandBfs(
+    const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
+    const ExpandCommon &common, Expression *lower_bound,
     Expression *upper_bound, const ExpansionLambda &filter_lambda)
-    : ExpandCommon(node_symbol, edge_symbol, direction, edge_types, input,
-                   input_symbol, existing_node, graph_view),
+    : input_(input ? input : std::make_shared<Once>()),
+      input_symbol_(input_symbol),
+      common_(common),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
       filter_lambda_(filter_lambda) {}
@@ -134,8 +164,8 @@ ACCEPT_WITH_INPUT(DistributedExpandBfs);
 std::vector<Symbol> DistributedExpandBfs::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(node_symbol_);
-  symbols.emplace_back(edge_symbol_);
+  symbols.emplace_back(common_.node_symbol);
+  symbols.emplace_back(common_.edge_symbol);
   return symbols;
 }
 
@@ -794,13 +824,13 @@ class DistributedExpandCursor : public query::plan::Cursor {
     // A helper function for expanding a node from an edge.
     auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
                                     EdgeAtom::Direction direction) {
-      if (self_->existing_node_) return;
+      if (self_->common_.existing_node) return;
       switch (direction) {
         case EdgeAtom::Direction::IN:
-          frame[self_->node_symbol_] = new_edge.from();
+          frame[self_->common_.node_symbol] = new_edge.from();
           break;
         case EdgeAtom::Direction::OUT:
-          frame[self_->node_symbol_] = new_edge.to();
+          frame[self_->common_.node_symbol] = new_edge.to();
           break;
         case EdgeAtom::Direction::BOTH:
           LOG(FATAL) << "Must indicate exact expansion direction here";
@@ -828,8 +858,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
     auto put_future_edge_on_frame = [this, &frame](auto &future) {
       auto edge_to = future.edge_to.get();
       frame.elems() = future.frame_elems;
-      frame[self_->edge_symbol_] = edge_to.first;
-      frame[self_->node_symbol_] = edge_to.second;
+      frame[self_->common_.edge_symbol] = edge_to.first;
+      frame[self_->common_.node_symbol] = edge_to.second;
     };
 
     while (true) {
@@ -858,8 +888,8 @@ class DistributedExpandCursor : public query::plan::Cursor {
       // attempt to get a value from the incoming edges
       if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
         auto edge = *(*in_edges_it_)++;
-        if (edge.address().is_local() || self_->existing_node_) {
-          frame[self_->edge_symbol_] = edge;
+        if (edge.address().is_local() || self_->common_.existing_node) {
+          frame[self_->common_.edge_symbol] = edge;
           pull_node(edge, EdgeAtom::Direction::IN);
           return true;
         } else {
@@ -874,10 +904,11 @@ class DistributedExpandCursor : public query::plan::Cursor {
         // when expanding in EdgeAtom::Direction::BOTH directions
         // we should do only one expansion for cycles, and it was
         // already done in the block above
-        if (self_->direction_ == EdgeAtom::Direction::BOTH && edge.is_cycle())
+        if (self_->common_.direction == EdgeAtom::Direction::BOTH &&
+            edge.is_cycle())
           continue;
-        if (edge.address().is_local() || self_->existing_node_) {
-          frame[self_->edge_symbol_] = edge;
+        if (edge.address().is_local() || self_->common_.existing_node) {
+          frame[self_->common_.edge_symbol] = edge;
           pull_node(edge, EdgeAtom::Direction::OUT);
           return true;
         } else {
@@ -947,22 +978,22 @@ class DistributedExpandCursor : public query::plan::Cursor {
 
       ExpectType(self_->input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.Value<VertexAccessor>();
-      SwitchAccessor(vertex, self_->graph_view_);
+      SwitchAccessor(vertex, self_->common_.graph_view);
 
-      auto direction = self_->direction_;
+      auto direction = self_->common_.direction;
       if (direction == EdgeAtom::Direction::IN ||
           direction == EdgeAtom::Direction::BOTH) {
-        if (self_->existing_node_) {
-          TypedValue &existing_node = frame[self_->node_symbol_];
+        if (self_->common_.existing_node) {
+          TypedValue &existing_node = frame[self_->common_.node_symbol];
           // old_node_value may be Null when using optional matching
           if (!existing_node.IsNull()) {
-            ExpectType(self_->node_symbol_, existing_node,
+            ExpectType(self_->common_.node_symbol, existing_node,
                        TypedValue::Type::Vertex);
-            in_edges_.emplace(
-                vertex.in(existing_node.ValueVertex(), &self_->edge_types_));
+            in_edges_.emplace(vertex.in(existing_node.ValueVertex(),
+                                        &self_->common_.edge_types));
           }
         } else {
-          in_edges_.emplace(vertex.in(&self_->edge_types_));
+          in_edges_.emplace(vertex.in(&self_->common_.edge_types));
         }
         if (in_edges_) {
           in_edges_it_.emplace(in_edges_->begin());
@@ -971,17 +1002,17 @@ class DistributedExpandCursor : public query::plan::Cursor {
 
       if (direction == EdgeAtom::Direction::OUT ||
           direction == EdgeAtom::Direction::BOTH) {
-        if (self_->existing_node_) {
-          TypedValue &existing_node = frame[self_->node_symbol_];
+        if (self_->common_.existing_node) {
+          TypedValue &existing_node = frame[self_->common_.node_symbol];
           // old_node_value may be Null when using optional matching
           if (!existing_node.IsNull()) {
-            ExpectType(self_->node_symbol_, existing_node,
+            ExpectType(self_->common_.node_symbol, existing_node,
                        TypedValue::Type::Vertex);
-            out_edges_.emplace(
-                vertex.out(existing_node.ValueVertex(), &self_->edge_types_));
+            out_edges_.emplace(vertex.out(existing_node.ValueVertex(),
+                                          &self_->common_.edge_types));
           }
         } else {
-          out_edges_.emplace(vertex.out(&self_->edge_types_));
+          out_edges_.emplace(vertex.out(&self_->common_.edge_types));
         }
         if (out_edges_) {
           out_edges_it_.emplace(out_edges_->begin());
@@ -993,6 +1024,12 @@ class DistributedExpandCursor : public query::plan::Cursor {
   }
 
  private:
+  using InEdgeT = decltype(std::declval<VertexAccessor>().in());
+  using InEdgeIteratorT = decltype(std::declval<VertexAccessor>().in().begin());
+  using OutEdgeT = decltype(std::declval<VertexAccessor>().out());
+  using OutEdgeIteratorT =
+      decltype(std::declval<VertexAccessor>().out().begin());
+
   struct FutureExpand {
     utils::Future<std::pair<EdgeAccessor, VertexAccessor>> edge_to;
     std::vector<TypedValue> frame_elems;
@@ -1003,11 +1040,10 @@ class DistributedExpandCursor : public query::plan::Cursor {
   // The iterable over edges and the current edge iterator are referenced via
   // optional because they can not be initialized in the constructor of
   // this class. They are initialized once for each pull from the input.
-  std::experimental::optional<DistributedExpand::InEdgeT> in_edges_;
-  std::experimental::optional<DistributedExpand::InEdgeIteratorT> in_edges_it_;
-  std::experimental::optional<DistributedExpand::OutEdgeT> out_edges_;
-  std::experimental::optional<DistributedExpand::OutEdgeIteratorT>
-      out_edges_it_;
+  std::experimental::optional<InEdgeT> in_edges_;
+  std::experimental::optional<InEdgeIteratorT> in_edges_it_;
+  std::experimental::optional<OutEdgeT> out_edges_;
+  std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
   // Stores the last frame before we yield the frame for future edge. It needs
   // to be restored afterward.
   std::vector<TypedValue> last_frame_;
@@ -1022,7 +1058,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   DistributedExpandBfsCursor(const DistributedExpandBfs &self,
                              database::GraphDbAccessor &db)
       : self_(self), db_(db), input_cursor_(self_.input()->MakeCursor(db)) {
-    CHECK(self_.graph_view_ == GraphView::OLD)
+    CHECK(self_.common_.graph_view == GraphView::OLD)
         << "ExpandVariable should only be planned with GraphView::OLD";
   }
 
@@ -1041,8 +1077,8 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     }
     CHECK(bfs_subcursor_clients_);
     subcursor_ids_ = bfs_subcursor_clients_->CreateBfsSubcursors(
-        dba, self_.direction_, self_.edge_types_, self_.filter_lambda_,
-        symbol_table, evaluation_context);
+        dba, self_.common_.direction, self_.common_.edge_types,
+        self_.filter_lambda_, symbol_table, evaluation_context);
     bfs_subcursor_clients_->RegisterSubcursors(subcursor_ids_);
     VLOG(10) << "BFS subcursors initialized";
     pull_pos_ = subcursor_ids_.end();
@@ -1056,9 +1092,9 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     }
 
     // Evaluator for the filtering condition and expansion depth.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                  context.evaluation_context_,
-                                  &context.db_accessor_, self_.graph_view_);
+    ExpressionEvaluator evaluator(
+        &frame, context.symbol_table_, context.evaluation_context_,
+        &context.db_accessor_, self_.common_.graph_view);
 
     while (true) {
       if (context.db_accessor_.should_abort()) throw HintedAbortError();
@@ -1079,14 +1115,14 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
         if (last_vertex.IsVertex()) {
           // Handle existence flag
-          if (self_.existing_node_) {
-            TypedValue &node = frame[self_.node_symbol_];
+          if (self_.common_.existing_node) {
+            TypedValue &node = frame[self_.common_.node_symbol];
             if ((node != last_vertex).ValueBool()) continue;
             // There is no point in traversing the rest of the graph because BFS
             // can find only one path to a certain node.
             skip_rest_ = true;
           } else {
-            frame[self_.node_symbol_] = last_vertex;
+            frame[self_.common_.node_symbol] = last_vertex;
           }
 
           VLOG(10) << "Expanded to vertex: " << last_vertex;
@@ -1120,7 +1156,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
             if (!current_vertex_addr && !current_edge_addr) break;
           }
           std::reverse(edges.begin(), edges.end());
-          frame[self_.edge_symbol_] = std::move(edges);
+          frame[self_.common_.edge_symbol] = std::move(edges);
           return true;
         }
 
@@ -1146,7 +1182,9 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 
       // Source or sink node could be null due to optional matching.
       if (vertex_value.IsNull()) continue;
-      if (self_.existing_node_ && frame[self_.node_symbol_].IsNull()) continue;
+      if (self_.common_.existing_node &&
+          frame[self_.common_.node_symbol].IsNull())
+        continue;
 
       auto vertex = vertex_value.ValueVertex();
       lower_bound_ = self_.lower_bound_

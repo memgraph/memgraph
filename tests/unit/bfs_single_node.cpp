@@ -24,15 +24,13 @@ class SingleNodeDb : public Database {
       Expression *lower_bound, Expression *upper_bound,
       const ExpansionLambda &filter_lambda) override {
     return std::make_unique<ExpandVariable>(
-        sink_sym, edge_sym, EdgeAtom::Type::BREADTH_FIRST, direction,
-        edge_types, false, lower_bound, upper_bound, input, source_sym,
-        existing_node, filter_lambda, std::experimental::nullopt,
-        std::experimental::nullopt, GraphView::OLD);
+        input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::BREADTH_FIRST,
+        direction, edge_types, false, lower_bound, upper_bound, existing_node,
+        filter_lambda, std::experimental::nullopt, std::experimental::nullopt,
+        GraphView::OLD);
   }
 
-  std::pair<std::vector<VertexAddress>,
-            std::vector<EdgeAddress>>
-  BuildGraph(
+  std::pair<std::vector<VertexAddress>, std::vector<EdgeAddress>> BuildGraph(
       database::GraphDbAccessor *dba, const std::vector<int> &vertex_locations,
       const std::vector<std::tuple<int, int, std::string>> &edges) override {
     std::vector<VertexAddress> vertex_addr;
@@ -84,7 +82,7 @@ TEST_P(SingleNodeBfsTest, All) {
   FilterLambdaType filter_lambda_type;
   std::tie(lower_bound, upper_bound, direction, edge_types, known_sink,
            filter_lambda_type) = GetParam();
-  BfsTest(db_.get(), lower_bound, upper_bound, direction,edge_types,
+  BfsTest(db_.get(), lower_bound, upper_bound, direction, edge_types,
           known_sink, filter_lambda_type);
 }
 

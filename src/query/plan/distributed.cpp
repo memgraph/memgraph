@@ -157,9 +157,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
       branch_.depends_on = lower_depends;
       if (upper_depends || !scan.upper_bound_) {
         // Cases 2) and 1.b)
-        new_scan =
-            std::make_shared<ScanAllByLabel>(scan.input(), scan.output_symbol_,
-                                             scan.label_, scan.graph_view_);
+        new_scan = std::make_shared<ScanAllByLabel>(
+            scan.input(), scan.output_symbol_, scan.label_, scan.graph_view_);
       } else {
         // Case 1.a)
         new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
@@ -193,13 +192,11 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
           // Case 1.a)
           new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
               scan.input(), scan.output_symbol_, scan.label_, scan.property_,
-              scan.lower_bound_, std::experimental::nullopt,
-              scan.graph_view_);
+              scan.lower_bound_, std::experimental::nullopt, scan.graph_view_);
         } else {
           // Case 1.b)
           new_scan = std::make_shared<ScanAllByLabel>(
-              scan.input(), scan.output_symbol_, scan.label_,
-              scan.graph_view_);
+              scan.input(), scan.output_symbol_, scan.label_, scan.graph_view_);
         }
       }
     }
@@ -259,12 +256,12 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     if (auto found = FindForbidden(exp.input_symbol_)) {
       SetBranch(exp.input(), &exp, *found);
     }
-    if (exp.existing_node_) {
-      if (auto found = FindForbidden(exp.node_symbol_)) {
+    if (exp.common_.existing_node) {
+      if (auto found = FindForbidden(exp.common_.node_symbol)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    CHECK(!FindForbidden(exp.edge_symbol_))
+    CHECK(!FindForbidden(exp.common_.edge_symbol))
         << "Expand uses an already used edge symbol.";
     return true;
   }
@@ -279,12 +276,12 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     if (auto found = FindForbidden(exp.input_symbol_)) {
       SetBranch(exp.input(), &exp, *found);
     }
-    if (exp.existing_node_) {
-      if (auto found = FindForbidden(exp.node_symbol_)) {
+    if (exp.common_.existing_node) {
+      if (auto found = FindForbidden(exp.common_.node_symbol)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    CHECK(!FindForbidden(exp.edge_symbol_))
+    CHECK(!FindForbidden(exp.common_.edge_symbol))
         << "Expand uses an already used edge symbol.";
     // Check for bounding expressions.
     if (exp.lower_bound_) {
@@ -331,12 +328,12 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     if (auto found = FindForbidden(exp.input_symbol_)) {
       SetBranch(exp.input(), &exp, *found);
     }
-    if (exp.existing_node_) {
-      if (auto found = FindForbidden(exp.node_symbol_)) {
+    if (exp.common_.existing_node) {
+      if (auto found = FindForbidden(exp.common_.node_symbol)) {
         SetBranch(exp.input(), &exp, *found);
       }
     }
-    CHECK(!FindForbidden(exp.edge_symbol_))
+    CHECK(!FindForbidden(exp.common_.edge_symbol))
         << "Expand uses an already used edge symbol.";
     // Check for bounding expressions.
     if (exp.lower_bound_) {
@@ -959,8 +956,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Expand &exp) override {
     prev_ops_.pop_back();
     auto distributed_expand = std::make_unique<DistributedExpand>(
-        exp.node_symbol_, exp.edge_symbol_, exp.direction_, exp.edge_types_,
-        exp.input(), exp.input_symbol_, exp.existing_node_, exp.graph_view_);
+        exp.input(), exp.input_symbol_, exp.common_);
     SetOnPrevious(std::move(distributed_expand));
     return true;
   }
@@ -973,9 +969,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.pop_back();
     if (exp.type_ == EdgeAtom::Type::BREADTH_FIRST) {
       auto distributed_bfs = std::make_unique<DistributedExpandBfs>(
-          exp.node_symbol_, exp.edge_symbol_, exp.direction_,
-          exp.edge_types_, exp.input(), exp.input_symbol_,
-          exp.existing_node_, exp.graph_view_, exp.lower_bound_,
+          exp.input(), exp.input_symbol_, exp.common_, exp.lower_bound_,
           exp.upper_bound_, exp.filter_lambda_);
       SetOnPrevious(std::move(distributed_bfs));
     }
