@@ -1,5 +1,24 @@
 # Change Log
 
+## v0.14.0
+
+### Breaking Changes
+
+* Write-ahead log format changed (not backward compatible).
+
+### Major Features and Improvements
+
+* [Enterprise Ed.] Reduce memory usage in distributed usage.
+* Add `DROP INDEX` feature.
+* Improve SSL error messages.
+
+### Bug Fixes and Other Changes
+
+* [Enterprise Ed.] Fix issues with reading and writing in a distributed query.
+* Correctly handle an edge case with unique constraint checks.
+* Fix a minor issue with `mg_import_csv`.
+* Fix an issue with `EXPLAIN`.
+
 ## v0.13.0
 
 ### Breaking Changes
