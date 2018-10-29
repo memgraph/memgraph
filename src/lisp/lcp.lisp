@@ -339,7 +339,9 @@ CPP-TYPE has no namespace, return an empty string."
   (type-args nil :read-only t)
   ;; In case of multiple inheritance, list of classes which should be handled
   ;; as a composition.
-  (inherit-compose nil :read-only t))
+  (inherit-compose nil :read-only t)
+  ;; In case of multiple inheritance, pretend we only inherit the 1st base class.
+  (ignore-other-base-classes nil :type boolean :read-only t))
 
 (defclass cpp-class (cpp-type)
   ((structp :type boolean :initarg :structp :initform nil
@@ -658,8 +660,16 @@ Cap'n Proto schema."
   (declare (type (or symbol cpp-class) cpp-class))
   (let ((class-name (if (symbolp cpp-class) cpp-class (cpp-type-base-name cpp-class))))
     (remove-if (lambda (subclass)
-                 (member class-name
-                         (capnp-opts-inherit-compose (cpp-class-capnp-opts subclass))))
+                 (let ((capnp-opts (cpp-class-capnp-opts subclass)))
+                   (or
+                    ;; Remove if we are a parent that should be ignored (not
+                    ;; the 1st in the list).
+                    (and (capnp-opts-ignore-other-base-classes capnp-opts)
+                         (not (eq class-name (car (cpp-class-super-classes subclass)))))
+                    ;; Remove if we are a parent that should be treated as
+                    ;; composition.
+                    (member class-name
+                            (capnp-opts-inherit-compose (cpp-class-capnp-opts subclass))))))
                (direct-subclasses-of cpp-class))))
 
 (defun capnp-union-and-compose-parents (cpp-class)
@@ -668,17 +678,23 @@ secondary value contains parents which are modeled as being composed inside
 CPP-CLASS."
   (declare (type (or symbol cpp-class) cpp-class))
   (let* ((class (if (symbolp cpp-class) (find-cpp-class cpp-class) cpp-class))
-         (capnp-opts (cpp-class-capnp-opts class))
-         union compose)
+         (capnp-opts (cpp-class-capnp-opts class)))
     (when (not capnp-opts)
       (error "Class ~A should be marked for capnp serialization,
 or its derived classes set as :CAPNP :BASE T" (cpp-type-base-name class)))
     (when (not (capnp-opts-base capnp-opts))
-      (dolist (parent (cpp-class-super-classes class))
-        (if (member parent (capnp-opts-inherit-compose capnp-opts))
-            (push parent compose)
-            (push parent union))))
-    (values union compose)))
+      (if (capnp-opts-ignore-other-base-classes capnp-opts)
+          ;; Since we are ignoring multiple inheritance, return the 1st class
+          ;; (as union parent).
+          (list (car (cpp-class-super-classes class)))
+          ;; We aren't ignoring multiple inheritance, collect union and
+          ;; compose parents.
+          (let (union compose)
+            (dolist (parent (cpp-class-super-classes class))
+              (if (member parent (capnp-opts-inherit-compose capnp-opts))
+                  (push parent compose)
+                  (push parent union)))
+            (values union compose))))))
 
 (defun capnp-union-parents-rec (cpp-class)
   "Return a list of all parent clases recursively for CPP-CLASS that should be

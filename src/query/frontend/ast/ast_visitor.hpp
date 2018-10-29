@@ -92,19 +92,18 @@ class HierarchicalTreeVisitor : public TreeCompositeVisitor,
   using typename TreeLeafVisitor::ReturnType;
 };
 
-template <typename TResult>
-using TreeVisitor = ::utils::Visitor<
-    TResult, CypherQuery, ExplainQuery, SingleQuery, CypherUnion,
-    NamedExpression, OrOperator, XorOperator, AndOperator, NotOperator,
-    AdditionOperator, SubtractionOperator, MultiplicationOperator,
-    DivisionOperator, ModOperator, NotEqualOperator, EqualOperator,
-    LessOperator, GreaterOperator, LessEqualOperator, GreaterEqualOperator,
-    InListOperator, SubscriptOperator, ListSlicingOperator, IfOperator,
-    UnaryPlusOperator, UnaryMinusOperator, IsNullOperator, ListLiteral,
-    MapLiteral, PropertyLookup, LabelsTest, Aggregation, Function, Reduce,
-    Coalesce, Extract, All, Single, ParameterLookup, Create, Match, Return,
-    With, Pattern, NodeAtom, EdgeAtom, Delete, Where, SetProperty,
-    SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge, Unwind,
-    Identifier, PrimitiveLiteral, IndexQuery, AuthQuery, StreamQuery>;
+template <class TResult>
+class ExpressionVisitor
+    : public ::utils::Visitor<
+          TResult, NamedExpression, OrOperator, XorOperator, AndOperator,
+          NotOperator, AdditionOperator, SubtractionOperator,
+          MultiplicationOperator, DivisionOperator, ModOperator,
+          NotEqualOperator, EqualOperator, LessOperator, GreaterOperator,
+          LessEqualOperator, GreaterEqualOperator, InListOperator,
+          SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
+          UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
+          PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce,
+          Extract, All, Single, ParameterLookup, Identifier, PrimitiveLiteral> {
+};
 
 }  // namespace query

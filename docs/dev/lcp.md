@@ -481,8 +481,24 @@ Proto, we simply enumerate all derived types inside the union of a base type.
 Multiple inheritance is a different beast and as such is not directly
 supported.
 
-Most form of inheritance should actually be a simple composition, and we can
-treat parent classes as being composed inside our derived type.
+One way to use multiple inheritance is only to implement the interface of pure
+virtual classes without any members (i.e. interface classes). In such a case,
+you do not want to serialize any other base class except the primary one. To
+let LCP know that is the case, use `:ignore-other-base-classes t`. LCP will
+only try to serialize the base class that is the first (leftmost) in the list
+of super classes.
+
+```lisp
+(lcp:define-class derived (primary-base some-interface other-interface)
+  ...
+  (:serialize :capnp :ignore-other-base-classes t))
+```
+
+Another form of multiple inheritance is reusing some common code. In
+actuality, this is a very bad code practice and should be replaced with
+composition. If it would take too long to fix such code to use composition
+proper, we can tell LCP to treat such inheritance as if they are indeed
+composed. This is done via `:inherit-compose` option.
 
 For example:
 

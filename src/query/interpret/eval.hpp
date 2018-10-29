@@ -18,7 +18,7 @@
 
 namespace query {
 
-class ExpressionEvaluator : public TreeVisitor<TypedValue> {
+class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table,
                       const EvaluationContext &ctx,
@@ -29,39 +29,7 @@ class ExpressionEvaluator : public TreeVisitor<TypedValue> {
         dba_(dba),
         graph_view_(graph_view) {}
 
-  using TreeVisitor<TypedValue>::Visit;
-
-#define BLOCK_VISIT(TREE_TYPE)                                        \
-  TypedValue Visit(TREE_TYPE &) override {                            \
-    LOG(FATAL) << "ExpressionEvaluator should not visit " #TREE_TYPE; \
-  }
-
-  BLOCK_VISIT(CypherQuery);
-  BLOCK_VISIT(ExplainQuery);
-  BLOCK_VISIT(CypherUnion);
-  BLOCK_VISIT(SingleQuery);
-  BLOCK_VISIT(Create);
-  BLOCK_VISIT(Match);
-  BLOCK_VISIT(Return);
-  BLOCK_VISIT(With);
-  BLOCK_VISIT(Pattern);
-  BLOCK_VISIT(NodeAtom);
-  BLOCK_VISIT(EdgeAtom);
-  BLOCK_VISIT(Delete);
-  BLOCK_VISIT(Where);
-  BLOCK_VISIT(SetProperty);
-  BLOCK_VISIT(SetProperties);
-  BLOCK_VISIT(SetLabels);
-  BLOCK_VISIT(RemoveProperty);
-  BLOCK_VISIT(RemoveLabels);
-  BLOCK_VISIT(Merge);
-  BLOCK_VISIT(Unwind);
-  BLOCK_VISIT(IndexQuery);
-  BLOCK_VISIT(AuthQuery);
-  BLOCK_VISIT(StreamQuery);
-
-
-#undef BLOCK_VISIT
+  using ExpressionVisitor<TypedValue>::Visit;
 
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
