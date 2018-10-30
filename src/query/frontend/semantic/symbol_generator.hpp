@@ -10,7 +10,6 @@
 
 namespace query {
 
-///
 /// Visits the AST and generates symbols for variables.
 ///
 /// During the process of symbol generation, simple semantic checks are
@@ -46,9 +45,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Unwind &) override;
   bool PreVisit(Match &) override;
   bool PostVisit(Match &) override;
-  bool Visit(IndexQuery &) override;
-  bool PreVisit(AuthQuery &) override;
-  bool PreVisit(StreamQuery &) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;
@@ -128,12 +124,22 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
-  void VisitWithIdentifiers(Tree &, const std::vector<Identifier *> &);
+  void VisitWithIdentifiers(Expression *, const std::vector<Identifier *> &);
 
   SymbolTable &symbol_table_;
   Scope scope_;
   std::unordered_set<std::string> prev_return_names_;
   std::unordered_set<std::string> curr_return_names_;
 };
+
+inline SymbolTable MakeSymbolTable(CypherQuery *query) {
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator(symbol_table);
+  query->single_query_->Accept(symbol_generator);
+  for (auto *cypher_union : query->cypher_unions_) {
+    cypher_union->Accept(symbol_generator);
+  }
+  return symbol_table;
+}
 
 }  // namespace query

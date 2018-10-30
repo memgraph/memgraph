@@ -150,14 +150,13 @@ class AstStorage {
 };
 cpp<#
 
-(lcp:define-class tree ("::utils::Visitable<HierarchicalTreeVisitor>")
+(lcp:define-class tree ()
   ((uid :int32_t :scope :public))
   (:abstractp t)
   (:public
     #>cpp
     Tree() = default;
-
-    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+    virtual ~Tree() {}
 
     virtual Tree *Clone(AstStorage &storage) const = 0;
     cpp<#)
@@ -189,15 +188,16 @@ cpp<#
 ;;; Expressions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(lcp:define-class expression (tree "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+(lcp:define-class expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
+                                   "::utils::Visitable<ExpressionVisitor<TypedValue>>"
                                    "::utils::Visitable<ExpressionVisitor<void>>")
   ()
   (:abstractp t)
   (:public
     #>cpp
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
     using ::utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
     using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
-    using Tree::Accept;
 
     Expression() = default;
 
@@ -213,13 +213,15 @@ cpp<#
     cpp<#)
   (:serialize :capnp :ignore-other-base-classes t))
 
-(lcp:define-class where (tree)
+(lcp:define-class where (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Expression *")))
   (:public
     #>cpp
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
     Where() = default;
 
     bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -242,7 +244,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize :capnp :ignore-other-base-classes t))
 
 (lcp:define-class binary-operator (expression)
   ((expression1 "Expression *" :initval "nullptr" :scope :public
@@ -1119,7 +1121,8 @@ cpp<#
     cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class named-expression (tree "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+(lcp:define-class named-expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
+                                         "::utils::Visitable<ExpressionVisitor<TypedValue>>"
                                          "::utils::Visitable<ExpressionVisitor<void>>")
   ((name "std::string" :scope :public)
    (expression "Expression *" :initval "nullptr" :scope :public
@@ -1132,6 +1135,7 @@ cpp<#
     #>cpp
     using ::utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
     using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     NamedExpression() = default;
 
@@ -1172,7 +1176,7 @@ cpp<#
 ;;; END Expressions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(lcp:define-class pattern-atom (tree)
+(lcp:define-class pattern-atom (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
@@ -1180,6 +1184,8 @@ cpp<#
   (:abstractp t)
   (:public
     #>cpp
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
     PatternAtom() = default;
 
     PatternAtom *Clone(AstStorage &storage) const override = 0;
@@ -1194,7 +1200,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize :capnp :ignore-other-base-classes t))
 
 (lcp:define-class node-atom (pattern-atom)
   ((labels "std::vector<storage::Label>" :scope :public
@@ -1383,7 +1389,7 @@ cpp<#
     cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class pattern (tree)
+(lcp:define-class pattern (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
@@ -1395,6 +1401,8 @@ cpp<#
           :capnp-load (load-ast-vector "PatternAtom *")))
   (:public
     #>cpp
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
     Pattern() = default;
 
     bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1426,13 +1434,15 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize :capnp :ignore-other-base-classes t))
 
-(lcp:define-class clause (tree)
+(lcp:define-class clause (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ()
   (:abstractp t)
   (:public
     #>cpp
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
     Clause() = default;
 
     Clause *Clone(AstStorage &storage) const override = 0;
@@ -1445,9 +1455,9 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize :capnp :ignore-other-base-classes t))
 
-(lcp:define-class single-query (tree)
+(lcp:define-class single-query (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((clauses "std::vector<Clause *>"
             :scope :public
             :capnp-type "List(Tree)"
@@ -1455,6 +1465,8 @@ cpp<#
             :capnp-load (load-ast-vector "Clause *")))
   (:public
     #>cpp
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
     SingleQuery() = default;
 
     bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1482,9 +1494,9 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize :capnp :ignore-other-base-classes t))
 
-(lcp:define-class cypher-union (tree)
+(lcp:define-class cypher-union (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
@@ -1494,6 +1506,8 @@ cpp<#
                   :documentation "Holds symbols that are created during symbol generation phase. These symbols are used when UNION/UNION ALL combines single query results."))
   (:public
     #>cpp
+    using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
+
     CypherUnion() = default;
 
     bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1525,13 +1539,15 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize :capnp :ignore-other-base-classes t))
 
-(lcp:define-class query (tree)
+(lcp:define-class query (tree "::utils::Visitable<QueryVisitor<void>>")
   ()
   (:abstractp t)
   (:public
     #>cpp
+    using ::utils::Visitable<QueryVisitor<void>>::Accept;
+
     Query() = default;
 
     virtual Query *Clone(AstStorage &storage) const = 0;
@@ -1544,7 +1560,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize :capnp :ignore-other-base-classes t))
 
 (lcp:define-class cypher-query (query)
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
@@ -1562,17 +1578,7 @@ cpp<#
     #>cpp
     CypherQuery() = default;
 
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      if (visitor.PreVisit(*this)) {
-        bool should_continue = single_query_->Accept(visitor);
-        for (auto *cypher_union : cypher_unions_) {
-          if (should_continue) {
-            should_continue = cypher_union->Accept(visitor);
-          }
-        }
-      }
-      return visitor.PostVisit(*this);
-    }
+    DEFVISITABLE(QueryVisitor<void>);
 
     CypherQuery *Clone(AstStorage &storage) const override {
       auto *cypher_query = storage.Create<CypherQuery>();
@@ -1603,12 +1609,7 @@ cpp<#
     #>cpp
     ExplainQuery() = default;
 
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      if (visitor.PreVisit(*this)) {
-        cypher_query_->Accept(visitor);
-      }
-      return visitor.PostVisit(*this);
-    }
+    DEFVISITABLE(QueryVisitor<void>);
 
     ExplainQuery *Clone(AstStorage &storage) const override {
       auto *explain_query = storage.Create<ExplainQuery>();
@@ -1640,7 +1641,7 @@ cpp<#
     #>cpp
     IndexQuery() = default;
 
-    DEFVISITABLE(HierarchicalTreeVisitor);
+    DEFVISITABLE(QueryVisitor<void>);
 
     IndexQuery *Clone(AstStorage &storage) const override {
       return storage.Create<IndexQuery>(action_, label_, properties_);
@@ -2279,12 +2280,7 @@ cpp<#
     #>cpp
     AuthQuery() = default;
 
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      if (visitor.PreVisit(*this)) {
-        if (password_) password_->Accept(visitor);
-      }
-      return visitor.PostVisit(*this);
-    }
+    DEFVISITABLE(QueryVisitor<void>);
 
     AuthQuery *Clone(AstStorage &storage) const override {
       return storage.Create<AuthQuery>(
@@ -2358,24 +2354,7 @@ cpp<#
     #>cpp
     StreamQuery() = default;
 
-    bool Accept(HierarchicalTreeVisitor &visitor) override {
-      if (visitor.PreVisit(*this)) {
-        bool cont = true;
-        if (cont && stream_uri_)
-          cont = stream_uri_->Accept(visitor);
-        if (cont && stream_topic_)
-          cont = stream_topic_->Accept(visitor);
-        if (cont && transform_uri_)
-          cont = transform_uri_->Accept(visitor);
-        if (cont && batch_interval_in_ms_)
-          cont = batch_interval_in_ms_->Accept(visitor);
-        if (cont && batch_size_)
-          cont = batch_size_->Accept(visitor);
-        if (cont && limit_batches_)
-          cont = limit_batches_->Accept(visitor);
-      }
-      return visitor.PostVisit(*this);
-    }
+    DEFVISITABLE(QueryVisitor<void>);
 
     StreamQuery *Clone(AstStorage &storage) const override {
       auto *stream_uri = stream_uri_ ? stream_uri_->Clone(storage) : nullptr;

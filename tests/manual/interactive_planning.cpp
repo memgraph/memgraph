@@ -444,13 +444,6 @@ query::Query *MakeAst(const std::string &query, query::AstStorage *storage,
   return visitor.query();
 }
 
-query::SymbolTable MakeSymbolTable(query::Query *query) {
-  query::SymbolTable symbol_table;
-  query::SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
-  return symbol_table;
-}
-
 // Returns a list of pairs (plan, estimated cost), sorted in the ascending
 // order by cost.
 auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
@@ -508,7 +501,7 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
             "Interactive planning is only avaialable for regular openCypher "
             "queries.");
       }
-      auto symbol_table = MakeSymbolTable(query);
+      auto symbol_table = query::MakeSymbolTable(query);
       planning_timer.Start();
       auto plans = MakeLogicalPlans(query, ast, symbol_table, interactive_db);
       auto planning_time = planning_timer.Elapsed();

@@ -624,7 +624,7 @@ struct ExpectedDistributedPlan {
 template <class TPlanner>
 DistributedPlan MakeDistributedPlan(query::CypherQuery *query,
                                     query::AstStorage &storage) {
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TPlanner>(dba, storage, symbol_table, query);
   std::atomic<int64_t> next_plan_id{0};
@@ -732,7 +732,7 @@ TYPED_TEST(TestPlanner, MatchNodeReturn) {
   AstStorage storage;
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
@@ -748,7 +748,7 @@ TYPED_TEST(TestPlanner, CreateNodeReturn) {
   auto ident_n = IDENT("n");
   auto query =
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(ident_n, AS("n"))));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
@@ -842,7 +842,7 @@ TYPED_TEST(TestPlanner, MatchLabeledNodes) {
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(as_n)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected = ExpectDistributed(
@@ -861,7 +861,7 @@ TYPED_TEST(TestPlanner, MatchPathReturn) {
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}),
                     NODE("m"))),
       RETURN(as_n)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected =
@@ -883,7 +883,7 @@ TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
                           EDGE("r", Direction::BOTH, {relationship}),
                           NODE("m"))),
       RETURN(as_p)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_p)});
   auto expected = ExpectDistributed(
@@ -905,7 +905,7 @@ TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
                           EDGE("r", Direction::BOTH, {relationship}),
                           NODE("m"))),
       WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN(as_p)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_p)});
   auto expected =
@@ -927,7 +927,7 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   auto pattern = NAMED_PATTERN("p", node_n, edge, node_m);
   auto as_p = AS("p");
   auto *query = QUERY(SINGLE_QUERY(OPTIONAL_MATCH(pattern), RETURN("p", as_p)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto get_symbol = [&symbol_table](const auto *ast_node) {
     return symbol_table.at(*ast_node->identifier_);
   };
@@ -955,7 +955,7 @@ TYPED_TEST(TestPlanner, MatchWhereReturn) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN(as_n)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected = ExpectDistributed(
@@ -1023,7 +1023,7 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_n, edge_r, node_m)),
       MATCH(PATTERN(node_j, edge_e, node_i, edge_f, node_h)), RETURN("n")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   auto get_symbol = [&symbol_table](const auto *atom_node) {
@@ -1058,7 +1058,7 @@ TYPED_TEST(TestPlanner, MultiMatchSameStart) {
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), RETURN(as_n)));
   // Similar to MatchMultiPatternSameStart, we expect only Expand from second
   // MATCH clause.
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
@@ -1077,7 +1077,7 @@ TYPED_TEST(TestPlanner, MatchWithReturn) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
                                    WITH("old", AS("new")), RETURN(as_new)));
   // No accumulation since we only do reads.
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_new)});
@@ -1097,7 +1097,7 @@ TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
       MATCH(PATTERN(NODE("old"))), WITH("old", AS("new")),
       WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN(as_new)));
   // No accumulation since we only do reads.
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_new)});
   auto expected =
@@ -1136,7 +1136,7 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
   auto aggr = ExpectAggregate({sum}, {n_prop2});
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   std::atomic<int64_t> next_plan_id{0};
   auto distributed_plan =
@@ -1176,7 +1176,7 @@ TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          RETURN(as_n, SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
@@ -1194,7 +1194,7 @@ TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))),
                                   WITH(ident_n, AS("m"), SKIP(LITERAL(2))),
                                   RETURN("m", LIMIT(LITERAL(1)))));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
@@ -1215,7 +1215,7 @@ TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   auto *node_n = NODE("n");
   auto ret = RETURN(as_m, ORDER_BY(PROPERTY_LOOKUP("n", prop)));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemoteOrderBy pull_order_by(
       {symbol_table.at(*as_m), symbol_table.at(*node_n->identifier_)});
@@ -1246,7 +1246,7 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
           PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}), NODE("m"))),
       WITH(ident_n, AS("new"), ORDER_BY(new_prop, r_prop)),
       WHERE(LESS(m_prop, LITERAL(42)))));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   // Since this is a write query, we expect to accumulate to old used symbols.
   auto acc = ExpectAccumulate({
       symbol_table.at(*ident_n),              // `n` in WITH
@@ -1283,7 +1283,7 @@ TYPED_TEST(TestPlanner, MatchUnwindReturn) {
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                    UNWIND(LIST(LITERAL(1), LITERAL(2), LITERAL(3)), AS("x")),
                    RETURN(as_n, as_x)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n), symbol_table.at(*as_x)});
@@ -1315,7 +1315,7 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
       WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN(as_n)));
   // We expect Filter to come immediately after ScanAll, since it only uses `n`.
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected = ExpectDistributed(
@@ -1361,7 +1361,7 @@ TYPED_TEST(TestPlanner, MatchBfs) {
   auto *as_r = NEXPR("r", IDENT("r"));
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN(as_r)));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   ExpectPullRemote pull({symbol_table.at(*as_r)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpandBfs(),
@@ -1431,7 +1431,7 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CREATE(PATTERN(NODE("m"))),
                          RETURN(ident_m, AS("m"))));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_m)});
   FakeDbAccessor dba;
   auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
@@ -1455,7 +1455,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateExpand) {
       CREATE(PATTERN(NODE("a"), EDGE("e", Direction::OUT, {relationship}),
                      NODE("b"))),
       RETURN("e")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto left_cart =
       MakeCheckers(ExpectScanAll(),
                    ExpectPullRemote({symbol_table.at(*node_a->identifier_)}));
@@ -1480,7 +1480,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpand) {
   auto *node_c = NODE("c");
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b, edge_e, node_c)), RETURN("c")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
   auto sym_b = symbol_table.at(*node_b->identifier_);
@@ -1506,7 +1506,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandToExisting) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b, EDGE("e"), NODE("a"))),
       RETURN("e")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
   auto sym_b = symbol_table.at(*node_b->identifier_);
@@ -1529,7 +1529,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandFromExisting) {
       QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b),
                                PATTERN(NODE("a"), EDGE("e"), NODE("b"))),
                          RETURN("e")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
   auto sym_b = symbol_table.at(*node_b->identifier_);
@@ -1554,7 +1554,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
       WHERE(AND(AND(EQ(IDENT("a"), LITERAL(42)), EQ(IDENT("b"), IDENT("a"))),
                 EQ(IDENT("c"), IDENT("b")))),
       RETURN("c")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto sym_c = symbol_table.at(*node_c->identifier_);
@@ -1588,7 +1588,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByProperty) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b)),
       WHERE(EQ(PROPERTY_LOOKUP("b", prop), IDENT("a"))), RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
@@ -1618,7 +1618,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByLowerBound) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b)),
       WHERE(LESS(IDENT("a"), PROPERTY_LOOKUP("b", prop))), RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
@@ -1648,7 +1648,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByUpperBound) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b)),
       WHERE(GREATER(IDENT("a"), PROPERTY_LOOKUP("b", prop))), RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
@@ -1792,7 +1792,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianProduce) {
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), with_a, MATCH(PATTERN(node_b)),
                    WHERE(EQ(IDENT("b"), IDENT("a"))), RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*with_a->body_.named_expressions[0]);
   auto left_cart =
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectPullRemote({sym_a}));
@@ -1815,7 +1815,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianUnwind) {
   auto *node_b = NODE("b");
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a), PATTERN(node_b)),
                                    UNWIND(IDENT("a"), AS("x")), RETURN("x")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto left_cart = MakeCheckers(ExpectScanAll(), ExpectPullRemote({sym_a}));
   auto sym_b = symbol_table.at(*node_b->identifier_);
@@ -1837,7 +1837,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianMatchCreateNode) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("a"))), CREATE(PATTERN(node_b)), WITH("b"),
       MATCH(PATTERN(node_c)), CREATE(PATTERN(NODE("d")))));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto left_cart =
       MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode(),
@@ -1861,7 +1861,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
   auto *node_b = NODE("b");
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(node_a)), WITH("a"),
                                    MATCH(PATTERN(node_b)), RETURN("b")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto left_cart = MakeCheckers(ExpectDistributedCreateNode(true),
                                 ExpectSynchronize(true), ExpectProduce());
@@ -1886,7 +1886,7 @@ TYPED_TEST(TestPlanner, DistributedOptionalExpand) {
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(node_n)),
                    OPTIONAL_MATCH(PATTERN(node_n, edge_e, node_m)), ret_e));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_e = symbol_table.at(*ret_e->body_.named_expressions[0]);
   std::list<BaseOpChecker *> optional{new ExpectDistributedExpand()};
   auto expected = ExpectDistributed(
@@ -1908,7 +1908,7 @@ TYPED_TEST(TestPlanner, DistributedOptionalCartesian) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a)), OPTIONAL_MATCH(PATTERN(node_b), PATTERN(node_c)),
       WHERE(GREATER(node_b->identifier_, node_a->identifier_)), RETURN("c")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto sym_b = symbol_table.at(*node_b->identifier_);
   auto sym_c = symbol_table.at(*node_c->identifier_);
@@ -1941,7 +1941,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianTransitiveDependency) {
   auto *edge_b = EDGE("b");
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_n, edge_a, node_m, edge_b, node_l)), RETURN("l")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*edge_a->identifier_);
   auto sym_b = symbol_table.at(*edge_b->identifier_);
   auto sym_n = symbol_table.at(*node_n->identifier_);
@@ -1979,7 +1979,7 @@ TYPED_TEST(TestPlanner, DistributedOptionalScanExpandExisting) {
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a)),
       OPTIONAL_MATCH(PATTERN(node_b, EDGE("e"), NODE("a"))), RETURN("e")));
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto sym_a = symbol_table.at(*node_a->identifier_);
   auto sym_b = symbol_table.at(*node_b->identifier_);
   std::list<BaseOpChecker *> optional{new ExpectScanAll(),

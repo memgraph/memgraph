@@ -218,12 +218,6 @@ bool SymbolGenerator::PostVisit(Match &) {
   return true;
 }
 
-bool SymbolGenerator::Visit(IndexQuery &) { return true; }
-
-bool SymbolGenerator::PreVisit(AuthQuery &) { return false; }
-
-bool SymbolGenerator::PreVisit(StreamQuery &) { return false; }
-
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
@@ -333,27 +327,27 @@ bool SymbolGenerator::PostVisit(IfOperator &) {
 
 bool SymbolGenerator::PreVisit(All &all) {
   all.list_expression_->Accept(*this);
-  VisitWithIdentifiers(*all.where_, {all.identifier_});
+  VisitWithIdentifiers(all.where_->expression_, {all.identifier_});
   return false;
 }
 
 bool SymbolGenerator::PreVisit(Single &single) {
   single.list_expression_->Accept(*this);
-  VisitWithIdentifiers(*single.where_, {single.identifier_});
+  VisitWithIdentifiers(single.where_->expression_, {single.identifier_});
   return false;
 }
 
 bool SymbolGenerator::PreVisit(Reduce &reduce) {
   reduce.initializer_->Accept(*this);
   reduce.list_->Accept(*this);
-  VisitWithIdentifiers(*reduce.expression_,
+  VisitWithIdentifiers(reduce.expression_,
                        {reduce.accumulator_, reduce.identifier_});
   return false;
 }
 
 bool SymbolGenerator::PreVisit(Extract &extract) {
   extract.list_->Accept(*this);
-  VisitWithIdentifiers(*extract.expression_, {extract.identifier_});
+  VisitWithIdentifiers(extract.expression_, {extract.identifier_});
   return false;
 }
 
@@ -435,7 +429,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     scope_.in_edge_range = false;
     scope_.in_pattern = false;
     if (edge_atom.filter_lambda_.expression) {
-      VisitWithIdentifiers(*edge_atom.filter_lambda_.expression,
+      VisitWithIdentifiers(edge_atom.filter_lambda_.expression,
                            {edge_atom.filter_lambda_.inner_edge,
                             edge_atom.filter_lambda_.inner_node});
     } else {
@@ -449,7 +443,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
           inner_node->name_, inner_node->user_declared_, Symbol::Type::Vertex);
     }
     if (edge_atom.weight_lambda_.expression) {
-      VisitWithIdentifiers(*edge_atom.weight_lambda_.expression,
+      VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
                            {edge_atom.weight_lambda_.inner_edge,
                             edge_atom.weight_lambda_.inner_node});
     }
@@ -476,7 +470,7 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 void SymbolGenerator::VisitWithIdentifiers(
-    Tree &tree, const std::vector<Identifier *> &identifiers) {
+    Expression *expr, const std::vector<Identifier *> &identifiers) {
   std::vector<std::pair<std::experimental::optional<Symbol>, Identifier *>>
       prev_symbols;
   // Collect previous symbols if they exist.
@@ -490,8 +484,8 @@ void SymbolGenerator::VisitWithIdentifiers(
         CreateSymbol(identifier->name_, identifier->user_declared_);
     prev_symbols.emplace_back(prev_symbol, identifier);
   }
-  // Visit the tree with the new symbols bound.
-  tree.Accept(*this);
+  // Visit the expression with the new symbols bound.
+  expr->Accept(*this);
   // Restore back to previous symbols.
   for (const auto &prev : prev_symbols) {
     const auto &prev_symbol = prev.first;

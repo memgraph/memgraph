@@ -63,9 +63,7 @@ std::unique_ptr<LogicalPlan> DistributedInterpreter::MakeLogicalPlan(
     database::GraphDbAccessor *db_accessor) {
   auto vertex_counts = plan::MakeVertexCountCache(*db_accessor);
 
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query->Accept(symbol_generator);
+  auto symbol_table = MakeSymbolTable(query);
 
   auto planning_context = plan::MakePlanningContext(ast_storage, symbol_table,
                                                     query, vertex_counts);

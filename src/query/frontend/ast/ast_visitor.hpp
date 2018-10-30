@@ -67,21 +67,20 @@ class IndexQuery;
 class StreamQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
-    CypherQuery, ExplainQuery, SingleQuery, CypherUnion, NamedExpression,
-    OrOperator, XorOperator, AndOperator, NotOperator, AdditionOperator,
-    SubtractionOperator, MultiplicationOperator, DivisionOperator, ModOperator,
-    NotEqualOperator, EqualOperator, LessOperator, GreaterOperator,
-    LessEqualOperator, GreaterEqualOperator, InListOperator, SubscriptOperator,
+    SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
+    AndOperator, NotOperator, AdditionOperator, SubtractionOperator,
+    MultiplicationOperator, DivisionOperator, ModOperator, NotEqualOperator,
+    EqualOperator, LessOperator, GreaterOperator, LessEqualOperator,
+    GreaterEqualOperator, InListOperator, SubscriptOperator,
     ListSlicingOperator, IfOperator, UnaryPlusOperator, UnaryMinusOperator,
     IsNullOperator, ListLiteral, MapLiteral, PropertyLookup, LabelsTest,
     Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Create,
     Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind, AuthQuery, StreamQuery>;
+    Unwind>;
 
 using TreeLeafVisitor =
-    ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup,
-                         IndexQuery>;
+    ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
 
 class HierarchicalTreeVisitor : public TreeCompositeVisitor,
                                 public TreeLeafVisitor {
@@ -105,5 +104,10 @@ class ExpressionVisitor
           PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce,
           Extract, All, Single, ParameterLookup, Identifier, PrimitiveLiteral> {
 };
+
+template <class TResult>
+class QueryVisitor
+    : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, IndexQuery,
+                              AuthQuery, StreamQuery> {};
 
 }  // namespace query

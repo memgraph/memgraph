@@ -41,9 +41,7 @@ static void BM_PlanChainedMatches(benchmark::State &state) {
     query::AstStorage storage;
     int num_matches = state.range(0);
     auto *query = AddChainedMatches(num_matches, storage);
-    query::SymbolTable symbol_table;
-    query::SymbolGenerator symbol_generator(symbol_table);
-    query->Accept(symbol_generator);
+    auto symbol_table = query::MakeSymbolTable(query);
     auto ctx =
         query::plan::MakePlanningContext(storage, symbol_table, query, *dba);
     state.ResumeTiming();
@@ -121,9 +119,7 @@ static void BM_PlanAndEstimateIndexedMatching(benchmark::State &state) {
     query::AstStorage storage;
     auto *query = AddIndexedMatches(index_count, label,
                                     std::make_pair("prop", prop), storage);
-    query::SymbolTable symbol_table;
-    query::SymbolGenerator symbol_generator(symbol_table);
-    query->Accept(symbol_generator);
+    auto symbol_table = query::MakeSymbolTable(query);
     state.ResumeTiming();
     auto ctx =
         query::plan::MakePlanningContext(storage, symbol_table, query, *dba);
@@ -157,9 +153,7 @@ static void BM_PlanAndEstimateIndexedMatchingWithCachedCounts(
     query::AstStorage storage;
     auto *query = AddIndexedMatches(index_count, label,
                                     std::make_pair("prop", prop), storage);
-    query::SymbolTable symbol_table;
-    query::SymbolGenerator symbol_generator(symbol_table);
-    query->Accept(symbol_generator);
+    auto symbol_table = query::MakeSymbolTable(query);
     state.ResumeTiming();
     auto ctx = query::plan::MakePlanningContext(storage, symbol_table, query,
                                                 vertex_counts);

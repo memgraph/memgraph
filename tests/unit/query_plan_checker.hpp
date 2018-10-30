@@ -343,13 +343,6 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&... rest) {
   return std::move(l);
 }
 
-auto MakeSymbolTable(query::Query &query) {
-  SymbolTable symbol_table;
-  SymbolGenerator symbol_generator(symbol_table);
-  query.Accept(symbol_generator);
-  return symbol_table;
-}
-
 template <class TPlanner, class TDbAccessor>
 TPlanner MakePlanner(const TDbAccessor &dba, AstStorage &storage,
                      SymbolTable &symbol_table, CypherQuery *query) {

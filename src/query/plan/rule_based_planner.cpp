@@ -410,21 +410,6 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool Visit(query::IndexQuery &) override {
-    has_aggregation_.emplace_back(false);
-    return true;
-  }
-
-  bool PreVisit(query::AuthQuery &) override {
-    has_aggregation_.emplace_back(false);
-    return false;
-  }
-
-  bool PreVisit(query::StreamQuery &) override {
-    has_aggregation_.emplace_back(false);
-    return false;
-  }
-
   // Creates NamedExpression with an Identifier for each user declared symbol.
   // This should be used when body.all_identifiers is true, to generate
   // expressions for Produce operator.

@@ -2,13 +2,38 @@
 
 namespace query {
 
-class PrivilegeExtractor : public HierarchicalTreeVisitor {
+class PrivilegeExtractor : public QueryVisitor<void>,
+                           public HierarchicalTreeVisitor {
  public:
   using HierarchicalTreeVisitor::PostVisit;
   using HierarchicalTreeVisitor::PreVisit;
   using HierarchicalTreeVisitor::Visit;
+  using QueryVisitor<void>::Visit;
 
   std::vector<AuthQuery::Privilege> privileges() { return privileges_; }
+
+  void Visit(IndexQuery &) override {
+    AddPrivilege(AuthQuery::Privilege::INDEX);
+  }
+
+  void Visit(AuthQuery &) override {
+    AddPrivilege(AuthQuery::Privilege::AUTH);
+  }
+
+  void Visit(StreamQuery &) override {
+    AddPrivilege(AuthQuery::Privilege::STREAM);
+  }
+
+  void Visit(ExplainQuery &query) override {
+    query.cypher_query_->Accept(*this);
+  }
+
+  void Visit(CypherQuery &query) override {
+    query.single_query_->Accept(*this);
+    for (auto *cypher_union : query.cypher_unions_) {
+      cypher_union->Accept(*this);
+    }
+  }
 
   bool PreVisit(Create &) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
@@ -50,21 +75,6 @@ class PrivilegeExtractor : public HierarchicalTreeVisitor {
   bool Visit(Identifier &) override { return true; }
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
-
-  bool Visit(IndexQuery &) override {
-    AddPrivilege(AuthQuery::Privilege::INDEX);
-    return true;
-  }
-
-  bool PreVisit(AuthQuery &) override {
-    AddPrivilege(AuthQuery::Privilege::AUTH);
-    return false;
-  }
-
-  bool PreVisit(StreamQuery &) override {
-    AddPrivilege(AuthQuery::Privilege::STREAM);
-    return false;
-  }
 
  private:
   void AddPrivilege(AuthQuery::Privilege privilege) {

@@ -32,13 +32,6 @@ std::ostream &operator<<(std::ostream &stream,
 
 namespace {
 
-auto MakeSymbolTable(query::Query &query) {
-  query::SymbolTable symbol_table;
-  query::SymbolGenerator symbol_generator(symbol_table);
-  query.Accept(symbol_generator);
-  return symbol_table;
-}
-
 void AssertRows(const std::vector<std::vector<TypedValue>> &datum,
                 std::vector<std::vector<TypedValue>> expected) {
   auto row_equal = [](const auto &row1, const auto &row2) {
@@ -67,7 +60,7 @@ void CheckPlansProduce(
     size_t expected_plan_count, query::CypherQuery *query, AstStorage &storage,
     database::GraphDbAccessor &dba,
     std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
-  auto symbol_table = MakeSymbolTable(*query);
+  auto symbol_table = query::MakeSymbolTable(query);
   auto planning_context =
       MakePlanningContext(storage, symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
