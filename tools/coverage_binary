@@ -1,0 +1,91 @@
+#!/bin/bash
+
+## README
+# In order to use this script to make a coverage profile of any memgraph binary
+# (main binaries, tests or tools) you should create a new build directory in
+# the project root (eg.  build_coverage) and in that directory you should
+# execute `../tools/coverage_binary <BUILD_TARGET_NAME>`.
+#
+# This script will run `cmake`, `make` and then start the target process.  When
+# you wish to stop recording coverage data you should terminate the process
+# using C-c. Then the coverage will be processed and opened in a browser.
+#
+# All other parameters after the first parameter to this script will be
+# forwarded to the target process.
+#
+# This script will recompile the target every time when you run it to speed up
+# the debugging flow.
+
+# Find system paths
+CWD="$( pwd )"
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+PROJECT_DIR="$( realpath --relative-to="$CWD" "$DIR/../" )"
+CPUS=$( cat /proc/cpuinfo | grep processor | wc -l )
+NOW=$( date '+%Y%m%d%H%M%S' )
+
+# Determine paths from target name
+target_name="$1"
+shift
+if [ "$target_name" == "" ]; then
+    echo "You must specify a build target that you wish to generate coverage for!"
+    exit 1
+fi
+target_path=""
+case $target_name in
+    memgraph__*)
+        target_path="./$( echo "$target_name" | sed 's@__@/@g' | sed 's/memgraph/tests/' )"
+        ;;
+    memgraph*)
+        target_path="./$target_name"
+        ;;
+    mg_*)
+        target_path="./tools/src/$target_name"
+        ;;
+    *)
+        echo "Unsupported target name '$target_name'!"
+        exit 1
+        ;;
+esac
+
+# Run `cmake` if it hasn't been run
+if [ ! -f Makefile ]; then
+    cmake -DTEST_COVERAGE=ON "$PROJECT_DIR"
+fi
+
+# Run `make` every time
+make -j$CPUS $target_name
+
+# Make the output directory
+output_dir="coverage-$NOW"
+coverage_raw_file="$output_dir/coverage.profraw"
+coverage_data_file="$output_dir/coverage.profdata"
+mkdir "$output_dir"
+
+# Run the target binary
+if [ -L "$target_path" ]; then
+    target_path="$( readlink "$target_path" )"
+fi
+LLVM_PROFILE_FILE="$coverage_raw_file" $target_path $@
+code=$?
+if [ $code -ne 0 ]; then
+    printf "\033[1;31mThe binary exited with a non-zero exit code ($code)!\033[0m\n"
+fi
+
+# Find all source files
+src_files=$( find "$PROJECT_DIR/src" \( -name '*.cpp' -o -name '*.hpp' \) -print | sort | tr '\n' ' ' )
+
+# Process the coverage
+llvm-profdata-5.0 merge -sparse "$coverage_raw_file" -o "$coverage_data_file"
+
+# Generate the html output
+llvm-cov-5.0 show "$target_path" \
+    -format html \
+    -instr-profile "$coverage_data_file" \
+    -o "$output_dir" \
+    -show-line-counts-or-regions \
+    -Xdemangler c++filt -Xdemangler -n \
+    $src_files
+
+# Print where the coverage is and display it.
+echo "Coverage files stored in: $output_dir"
+chromium "$output_dir/index.html" >/dev/null 2>/dev/null &
