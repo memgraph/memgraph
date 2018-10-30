@@ -36,9 +36,6 @@ target_link_libraries(${test_prefix}map_concurrent mg-single-node kvstore_dummy_
 add_benchmark(data_structures/ring_buffer.cpp)
 target_link_libraries(${test_prefix}ring_buffer mg-single-node kvstore_dummy_lib)
 
-add_benchmark(query/eval.cpp)
-target_link_libraries(${test_prefix}eval mg-single-node kvstore_dummy_lib)
-
 add_benchmark(query/planner.cpp)
 target_link_libraries(${test_prefix}planner mg-single-node kvstore_dummy_lib)
 
