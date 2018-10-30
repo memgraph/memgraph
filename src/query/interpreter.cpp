@@ -3,15 +3,10 @@
 #include <glog/logging.h>
 #include <limits>
 
-#include "auth/auth.hpp"
-#include "glue/auth.hpp"
 #include "glue/communication.hpp"
-#include "integrations/kafka/exceptions.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/plan/planner.hpp"
@@ -65,446 +60,6 @@ struct Callback {
 TypedValue EvaluateOptionalExpression(Expression *expression,
                                       ExpressionEvaluator *eval) {
   return expression ? expression->Accept(*eval) : TypedValue::Null;
-}
-
-Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
-                         const EvaluationContext &evaluation_context,
-                         database::GraphDbAccessor *db_accessor) {
-  // Empty frame for evaluation of password expression. This is OK since
-  // password should be either null or string literal and it's evaluation
-  // should not depend on frame.
-  Frame frame(0);
-  SymbolTable symbol_table;
-  ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
-                                db_accessor, GraphView::OLD);
-
-  AuthQuery::Action action = auth_query->action_;
-  std::string username = auth_query->user_;
-  std::string rolename = auth_query->role_;
-  std::string user_or_role = auth_query->user_or_role_;
-  std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
-  auto password = EvaluateOptionalExpression(auth_query->password_, &evaluator);
-
-  Callback callback;
-
-  switch (auth_query->action_) {
-    case AuthQuery::Action::CREATE_USER:
-      callback.fn = [auth, username, password] {
-        CHECK(password.IsString() || password.IsNull());
-
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->AddUser(
-            username, password.IsString() ? std::experimental::make_optional(
-                                                password.ValueString())
-                                          : std::experimental::nullopt);
-        if (!user) {
-          throw QueryRuntimeException("User or role '{}' already exists.",
-                                      username);
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case AuthQuery::Action::DROP_USER:
-      callback.fn = [auth, username] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", username);
-        }
-        if (!auth->RemoveUser(username)) {
-          throw QueryRuntimeException("Couldn't remove user '{}'.", username);
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case AuthQuery::Action::SET_PASSWORD:
-      callback.fn = [auth, username, password] {
-        CHECK(password.IsString() || password.IsNull());
-
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist.", username);
-        }
-        user->UpdatePassword(
-            password.IsString()
-                ? std::experimental::make_optional(password.ValueString())
-                : std::experimental::nullopt);
-        auth->SaveUser(*user);
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case AuthQuery::Action::CREATE_ROLE:
-      callback.fn = [auth, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto role = auth->AddRole(rolename);
-        if (!role) {
-          throw QueryRuntimeException("User or role '{}' already exists.",
-                                      rolename);
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case AuthQuery::Action::DROP_ROLE:
-      callback.fn = [auth, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto role = auth->GetRole(rolename);
-        if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
-        }
-        if (!auth->RemoveRole(rolename)) {
-          throw QueryRuntimeException("Couldn't remove role '{}'.", rolename);
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case AuthQuery::Action::SHOW_USERS:
-      callback.header = {"user"};
-      callback.fn = [auth] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<std::vector<TypedValue>> users;
-        for (const auto &user : auth->AllUsers()) {
-          users.push_back({user.username()});
-        }
-        return users;
-      };
-      return callback;
-    case AuthQuery::Action::SHOW_ROLES:
-      callback.header = {"role"};
-      callback.fn = [auth] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<std::vector<TypedValue>> roles;
-        for (const auto &role : auth->AllRoles()) {
-          roles.push_back({role.rolename()});
-        }
-        return roles;
-      };
-      return callback;
-    case AuthQuery::Action::SET_ROLE:
-      callback.fn = [auth, username, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist .", username);
-        }
-        auto role = auth->GetRole(rolename);
-        if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist .", rolename);
-        }
-        if (user->role()) {
-          throw QueryRuntimeException(
-              "User '{}' is already a member of role '{}'.", username,
-              user->role()->rolename());
-        }
-        user->SetRole(*role);
-        auth->SaveUser(*user);
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case AuthQuery::Action::CLEAR_ROLE:
-      callback.fn = [auth, username] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist .", username);
-        }
-        user->ClearRole();
-        auth->SaveUser(*user);
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case AuthQuery::Action::GRANT_PRIVILEGE:
-    case AuthQuery::Action::DENY_PRIVILEGE:
-    case AuthQuery::Action::REVOKE_PRIVILEGE: {
-      callback.fn = [auth, user_or_role, action, privileges] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<auth::Permission> permissions;
-        for (const auto &privilege : privileges) {
-          permissions.push_back(glue::PrivilegeToPermission(privilege));
-        }
-        auto user = auth->GetUser(user_or_role);
-        auto role = auth->GetRole(user_or_role);
-        if (!user && !role) {
-          throw QueryRuntimeException("User or role '{}' doesn't exist.",
-                                      user_or_role);
-        }
-        if (user) {
-          for (const auto &permission : permissions) {
-            // TODO (mferencevic): should we first check that the privilege
-            // is granted/denied/revoked before unconditionally
-            // granting/denying/revoking it?
-            if (action == AuthQuery::Action::GRANT_PRIVILEGE) {
-              user->permissions().Grant(permission);
-            } else if (action == AuthQuery::Action::DENY_PRIVILEGE) {
-              user->permissions().Deny(permission);
-            } else {
-              user->permissions().Revoke(permission);
-            }
-          }
-          auth->SaveUser(*user);
-        } else {
-          for (const auto &permission : permissions) {
-            // TODO (mferencevic): should we first check that the privilege
-            // is granted/denied/revoked before unconditionally
-            // granting/denying/revoking it?
-            if (action == AuthQuery::Action::GRANT_PRIVILEGE) {
-              role->permissions().Grant(permission);
-            } else if (action == AuthQuery::Action::DENY_PRIVILEGE) {
-              role->permissions().Deny(permission);
-            } else {
-              role->permissions().Revoke(permission);
-            }
-          }
-          auth->SaveRole(*role);
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    }
-    case AuthQuery::Action::SHOW_PRIVILEGES:
-      callback.header = {"privilege", "effective", "description"};
-      callback.fn = [auth, user_or_role] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        std::vector<std::vector<TypedValue>> grants;
-        auto user = auth->GetUser(user_or_role);
-        auto role = auth->GetRole(user_or_role);
-        if (!user && !role) {
-          throw QueryRuntimeException("User or role '{}' doesn't exist.",
-                                      user_or_role);
-        }
-        if (user) {
-          const auto &permissions = user->GetPermissions();
-          for (const auto &privilege : kPrivilegesAll) {
-            auto permission = glue::PrivilegeToPermission(privilege);
-            auto effective = permissions.Has(permission);
-            if (permissions.Has(permission) != auth::PermissionLevel::NEUTRAL) {
-              std::vector<std::string> description;
-              auto user_level = user->permissions().Has(permission);
-              if (user_level == auth::PermissionLevel::GRANT) {
-                description.push_back("GRANTED TO USER");
-              } else if (user_level == auth::PermissionLevel::DENY) {
-                description.push_back("DENIED TO USER");
-              }
-              if (user->role()) {
-                auto role_level = user->role()->permissions().Has(permission);
-                if (role_level == auth::PermissionLevel::GRANT) {
-                  description.push_back("GRANTED TO ROLE");
-                } else if (role_level == auth::PermissionLevel::DENY) {
-                  description.push_back("DENIED TO ROLE");
-                }
-              }
-              grants.push_back({auth::PermissionToString(permission),
-                                auth::PermissionLevelToString(effective),
-                                utils::Join(description, ", ")});
-            }
-          }
-        } else {
-          const auto &permissions = role->permissions();
-          for (const auto &privilege : kPrivilegesAll) {
-            auto permission = glue::PrivilegeToPermission(privilege);
-            auto effective = permissions.Has(permission);
-            if (effective != auth::PermissionLevel::NEUTRAL) {
-              std::string description;
-              if (effective == auth::PermissionLevel::GRANT) {
-                description = "GRANTED TO ROLE";
-              } else if (effective == auth::PermissionLevel::DENY) {
-                description = "DENIED TO ROLE";
-              }
-              grants.push_back({auth::PermissionToString(permission),
-                                auth::PermissionLevelToString(effective),
-                                description});
-            }
-          }
-        }
-        return grants;
-      };
-      return callback;
-    case AuthQuery::Action::SHOW_ROLE_FOR_USER:
-      callback.header = {"role"};
-      callback.fn = [auth, username] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto user = auth->GetUser(username);
-        if (!user) {
-          throw QueryRuntimeException("User '{}' doesn't exist .", username);
-        }
-        return std::vector<std::vector<TypedValue>>{std::vector<TypedValue>{
-            user->role() ? user->role()->rolename() : "null"}};
-      };
-      return callback;
-    case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
-      callback.header = {"users"};
-      callback.fn = [auth, rolename] {
-        std::lock_guard<std::mutex> lock(auth->WithLock());
-        auto role = auth->GetRole(rolename);
-        if (!role) {
-          throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
-        }
-        std::vector<std::vector<TypedValue>> users;
-        for (const auto &user : auth->AllUsersForRole(rolename)) {
-          users.emplace_back(std::vector<TypedValue>{user.username()});
-        }
-        return users;
-      };
-      return callback;
-    default:
-      break;
-  }
-}
-
-Callback HandleStreamQuery(StreamQuery *stream_query,
-                           integrations::kafka::Streams *streams,
-                           const EvaluationContext &evaluation_context,
-                           database::GraphDbAccessor *db_accessor) {
-  // Empty frame and symbol table for evaluation of expressions. This is OK
-  // since all expressions should be literals or parameter lookups.
-  Frame frame(0);
-  SymbolTable symbol_table;
-  ExpressionEvaluator eval(&frame, symbol_table, evaluation_context,
-                           db_accessor, GraphView::OLD);
-
-  std::string stream_name = stream_query->stream_name_;
-  auto stream_uri =
-      EvaluateOptionalExpression(stream_query->stream_uri_, &eval);
-  auto stream_topic =
-      EvaluateOptionalExpression(stream_query->stream_topic_, &eval);
-  auto transform_uri =
-      EvaluateOptionalExpression(stream_query->transform_uri_, &eval);
-  auto batch_interval_in_ms =
-      EvaluateOptionalExpression(stream_query->batch_interval_in_ms_, &eval);
-  auto batch_size =
-      EvaluateOptionalExpression(stream_query->batch_size_, &eval);
-  auto limit_batches =
-      EvaluateOptionalExpression(stream_query->limit_batches_, &eval);
-
-  Callback callback;
-
-  switch (stream_query->action_) {
-    case StreamQuery::Action::CREATE_STREAM:
-      callback.fn = [streams, stream_name, stream_uri, stream_topic,
-                     transform_uri, batch_interval_in_ms, batch_size] {
-        CHECK(stream_uri.IsString());
-        CHECK(stream_topic.IsString());
-        CHECK(transform_uri.IsString());
-        CHECK(batch_interval_in_ms.IsInt() || batch_interval_in_ms.IsNull());
-        CHECK(batch_size.IsInt() || batch_size.IsNull());
-
-        integrations::kafka::StreamInfo info;
-        info.stream_name = stream_name;
-
-        info.stream_uri = stream_uri.ValueString();
-        info.stream_topic = stream_topic.ValueString();
-        info.transform_uri = transform_uri.ValueString();
-        info.batch_interval_in_ms = batch_interval_in_ms.IsInt()
-                                        ? std::experimental::make_optional(
-                                              batch_interval_in_ms.ValueInt())
-                                        : std::experimental::nullopt;
-        info.batch_size =
-            batch_size.IsInt()
-                ? std::experimental::make_optional(batch_size.ValueInt())
-                : std::experimental::nullopt;
-
-        try {
-          streams->Create(info);
-        } catch (const integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::DROP_STREAM:
-      callback.fn = [streams, stream_name] {
-        try {
-          streams->Drop(stream_name);
-        } catch (const integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::SHOW_STREAMS:
-      callback.header = {"name", "uri", "topic", "transform", "status"};
-      callback.fn = [streams] {
-        std::vector<std::vector<TypedValue>> status;
-        for (const auto &stream : streams->Show()) {
-          status.push_back(std::vector<TypedValue>{
-              stream.stream_name, stream.stream_uri, stream.stream_topic,
-              stream.transform_uri, stream.stream_status});
-        }
-        return status;
-      };
-      return callback;
-    case StreamQuery::Action::START_STREAM:
-      callback.fn = [streams, stream_name, limit_batches] {
-        CHECK(limit_batches.IsInt() || limit_batches.IsNull());
-
-        try {
-          streams->Start(stream_name, limit_batches.IsInt()
-                                          ? std::experimental::make_optional(
-                                                limit_batches.ValueInt())
-                                          : std::experimental::nullopt);
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::STOP_STREAM:
-      callback.fn = [streams, stream_name] {
-        try {
-          streams->Stop(stream_name);
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::START_ALL_STREAMS:
-      callback.fn = [streams] {
-        try {
-          streams->StartAll();
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::STOP_ALL_STREAMS:
-      callback.fn = [streams] {
-        try {
-          streams->StopAll();
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return std::vector<std::vector<TypedValue>>();
-      };
-      return callback;
-    case StreamQuery::Action::TEST_STREAM:
-      callback.header = {"query", "params"};
-      callback.fn = [streams, stream_name, limit_batches] {
-        CHECK(limit_batches.IsInt() || limit_batches.IsNull());
-
-        std::vector<std::vector<TypedValue>> rows;
-        try {
-          auto results = streams->Test(
-              stream_name,
-              limit_batches.IsInt()
-                  ? std::experimental::make_optional(limit_batches.ValueInt())
-                  : std::experimental::nullopt);
-          for (const auto &result : results) {
-            std::map<std::string, TypedValue> params;
-            for (const auto &param : result.second) {
-              params.emplace(param.first, glue::ToTypedValue(param.second));
-            }
-
-            rows.emplace_back(std::vector<TypedValue>{result.first, params});
-          }
-        } catch (integrations::kafka::KafkaStreamException &e) {
-          throw QueryRuntimeException(e.what());
-        }
-        return rows;
-      };
-      return callback;
-  }
 }
 
 Callback HandleIndexQuery(IndexQuery *index_query,
@@ -633,8 +188,7 @@ Interpreter::Results Interpreter::operator()(
     auto cursor = plan->plan().MakeCursor(db_accessor);
 
     return Results(std::move(execution_context), plan, std::move(cursor),
-                   output_symbols, header, summary,
-                   parsed_query.required_privileges);
+                   output_symbols, header, summary);
   }
 
   if (auto *explain_query = dynamic_cast<ExplainQuery *>(parsed_query.query)) {
@@ -679,8 +233,7 @@ Interpreter::Results Interpreter::operator()(
     auto cursor = plan->plan().MakeCursor(db_accessor);
 
     return Results(std::move(execution_context), plan, std::move(cursor),
-                   output_symbols, header, summary,
-                   parsed_query.required_privileges);
+                   output_symbols, header, summary);
   }
 
   Callback callback;
@@ -697,19 +250,6 @@ Interpreter::Results Interpreter::operator()(
     };
     callback =
         HandleIndexQuery(index_query, invalidate_plan_cache, &db_accessor);
-  } else if (auto *auth_query = dynamic_cast<AuthQuery *>(parsed_query.query)) {
-    if (in_explicit_transaction) {
-      throw UserModificationInMulticommandTxException();
-    }
-    callback =
-        HandleAuthQuery(auth_query, auth_, evaluation_context, &db_accessor);
-  } else if (auto *stream_query =
-                 dynamic_cast<StreamQuery *>(parsed_query.query)) {
-    if (in_explicit_transaction) {
-      throw StreamClauseInMulticommandTxException();
-    }
-    callback = HandleStreamQuery(stream_query, kafka_streams_,
-                                 evaluation_context, &db_accessor);
   } else {
     LOG(FATAL) << "Should not get here -- unknown query type!";
   }
@@ -731,8 +271,7 @@ Interpreter::Results Interpreter::operator()(
   auto cursor = plan->plan().MakeCursor(db_accessor);
 
   return Results(std::move(execution_context), plan, std::move(cursor),
-                 output_symbols, callback.header, summary,
-                 parsed_query.required_privileges);
+                 output_symbols, callback.header, summary);
 }
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
@@ -768,8 +307,7 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
     // Convert antlr4 AST into Memgraph AST.
     frontend::CypherMainVisitor visitor(context, ast_storage, db_accessor);
     visitor.visit(parser->tree());
-    return ParsedQuery{visitor.query(),
-                       query::GetRequiredPrivileges(visitor.query())};
+    return ParsedQuery{visitor.query()};
   }
 
   auto stripped_query_hash = fnv(stripped_query);
@@ -799,15 +337,13 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
     frontend::CypherMainVisitor visitor(context, &cached_ast_storage,
                                         db_accessor);
     visitor.visit(parser->tree());
-    CachedQuery cached_query{std::move(cached_ast_storage), visitor.query(),
-                             query::GetRequiredPrivileges(visitor.query())};
+    CachedQuery cached_query{std::move(cached_ast_storage), visitor.query()};
     // Cache it.
     ast_it =
         ast_cache_accessor.insert(stripped_query_hash, std::move(cached_query))
             .first;
   }
-  return ParsedQuery{ast_it->second.query->Clone(*ast_storage),
-                     ast_it->second.required_privileges};
+  return ParsedQuery{ast_it->second.query->Clone(*ast_storage)};
 }
 
 std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(

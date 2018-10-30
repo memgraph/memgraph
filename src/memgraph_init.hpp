@@ -9,7 +9,6 @@
 
 #include <gflags/gflags.h>
 
-#include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/init.hpp"
 #include "communication/session.hpp"
@@ -23,8 +22,6 @@ DECLARE_string(durability_directory);
 struct SessionData {
   database::GraphDb *db{nullptr};
   query::Interpreter *interpreter{nullptr};
-  auth::Auth auth{
-      std::experimental::filesystem::path(FLAGS_durability_directory) / "auth"};
 };
 
 class BoltSession final
@@ -47,9 +44,6 @@ class BoltSession final
 
   void Abort() override;
 
-  bool Authenticate(const std::string &username,
-                    const std::string &password) override;
-
  private:
   /// Wrapper around TEncoder which converts TypedValue to Value
   /// before forwarding the calls to original TEncoder.
@@ -64,17 +58,6 @@ class BoltSession final
   };
 
   query::TransactionEngine transaction_engine_;
-  auth::Auth *auth_;
-  std::experimental::optional<auth::User> user_;
-};
-
-/// Class that implements ResultStream API for Kafka.
-///
-/// Kafka doesn't need to stream the import results back to the client so we
-/// don't need any functionality here.
-class KafkaResultStream {
- public:
-  void Result(const std::vector<query::TypedValue> &) {}
 };
 
 /// Writes data streamed from kafka to memgraph.

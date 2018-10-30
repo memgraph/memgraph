@@ -66,10 +66,6 @@ bool VersionConsistency(const fs::path &durability_dir) {
   return true;
 }
 
-bool DistributedVersionConsistency(const int64_t master_version) {
-  return durability::kVersion == master_version;
-}
-
 bool ContainsDurabilityFiles(const fs::path &durability_dir) {
   for (const auto &durability_type : {kSnapshotDir, kWalDir}) {
     auto recovery_dir = durability_dir / durability_type;

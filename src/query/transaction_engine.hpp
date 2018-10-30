@@ -16,8 +16,7 @@ class TransactionEngine final {
 
   ~TransactionEngine() { Abort(); }
 
-  std::pair<std::vector<std::string>, std::vector<query::AuthQuery::Privilege>>
-  Interpret(const std::string &query,
+  std::vector<std::string> Interpret(const std::string &query,
             const std::map<std::string, PropertyValue> &params) {
     // Clear pending results.
     results_ = std::experimental::nullopt;
@@ -64,7 +63,7 @@ class TransactionEngine final {
     try {
       results_.emplace((*interpreter_)(query, *db_accessor_, params,
                                        in_explicit_transaction_));
-      return {results_->header(), results_->privileges()};
+      return results_->header();
     } catch (const utils::BasicException &) {
       AbortCommand();
       throw;

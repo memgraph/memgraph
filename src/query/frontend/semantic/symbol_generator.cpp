@@ -220,10 +220,6 @@ bool SymbolGenerator::PostVisit(Match &) {
 
 bool SymbolGenerator::Visit(IndexQuery &) { return true; }
 
-bool SymbolGenerator::Visit(AuthQuery &) { return true; }
-
-bool SymbolGenerator::Visit(StreamQuery &) { return true; }
-
 // Expressions
 
 SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {

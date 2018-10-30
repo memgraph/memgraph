@@ -3,11 +3,9 @@
 #include <glog/logging.h>
 
 #include "config.hpp"
-#include "glue/auth.hpp"
 #include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "requests/requests.hpp"
-#include "stats/stats.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
@@ -28,8 +26,7 @@ BoltSession::BoltSession(SessionData *data, const io::network::Endpoint &,
     : communication::bolt::Session<communication::InputStream,
                                    communication::OutputStream>(input_stream,
                                                                 output_stream),
-      transaction_engine_(data->db, data->interpreter),
-      auth_(&data->auth) {}
+      transaction_engine_(data->db, data->interpreter) {}
 
 using TEncoder =
     communication::bolt::Session<communication::InputStream,
@@ -42,21 +39,7 @@ std::vector<std::string> BoltSession::Interpret(
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
   try {
-    auto result = transaction_engine_.Interpret(query, params_pv);
-    if (user_) {
-      const auto &permissions = user_->GetPermissions();
-      for (const auto &privilege : result.second) {
-        if (permissions.Has(glue::PrivilegeToPermission(privilege)) !=
-            auth::PermissionLevel::GRANT) {
-          transaction_engine_.Abort();
-          throw communication::bolt::ClientError(
-              "You are not authorized to execute this query! Please contact "
-              "your database administrator.");
-        }
-      }
-    }
-    return result.first;
-
+    return transaction_engine_.Interpret(query, params_pv);
   } catch (const query::QueryException &e) {
     // Wrap QueryException into ClientError, because we want to allow the
     // client to fix their query.
@@ -83,13 +66,6 @@ std::map<std::string, communication::bolt::Value> BoltSession::PullAll(
 
 void BoltSession::Abort() { transaction_engine_.Abort(); }
 
-bool BoltSession::Authenticate(const std::string &username,
-                               const std::string &password) {
-  if (!auth_->HasUsers()) return true;
-  user_ = auth_->Authenticate(username, password);
-  return !!user_;
-}
-
 BoltSession::TypedValueResultStream::TypedValueResultStream(TEncoder *encoder)
     : encoder_(encoder) {}
 
@@ -102,24 +78,6 @@ void BoltSession::TypedValueResultStream::Result(
   }
   encoder_->MessageRecord(decoded_values);
 }
-
-void KafkaStreamWriter(
-    SessionData &session_data, const std::string &query,
-    const std::map<std::string, communication::bolt::Value> &params) {
-  auto dba = session_data.db->Access();
-  KafkaResultStream stream;
-  std::map<std::string, PropertyValue> params_pv;
-  for (const auto &kv : params)
-    params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
-  try {
-    (*session_data.interpreter)(query, *dba, params_pv, false).PullAll(stream);
-    dba->Commit();
-  } catch (const utils::BasicException &e) {
-    LOG(WARNING) << "[Kafka] query execution failed with an exception: "
-                 << e.what();
-    dba->Abort();
-  }
-};
 
 // Needed to correctly handle memgraph destruction from a signal handler.
 // Without having some sort of a flag, it is possible that a signal is handled
@@ -174,9 +132,6 @@ int WithInit(int argc, char **argv,
 
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
-
-  stats::InitStatsLogging(get_stats_prefix());
-  utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
 
   // Initialize the communication library.
   communication::Init();

@@ -13,13 +13,9 @@
 
 #include "glog/logging.h"
 
-#include "auth/auth.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db_accessor.hpp"
-#include "glue/auth.hpp"
 #include "glue/communication.hpp"
-#include "integrations/kafka/exceptions.hpp"
-#include "integrations/kafka/streams.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"

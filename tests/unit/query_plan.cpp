@@ -16,8 +16,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 
-#include <capnp/message.h>
-
 #include "query_common.hpp"
 
 namespace query {

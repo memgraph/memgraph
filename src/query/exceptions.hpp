@@ -115,19 +115,4 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
             "connections. Consider using DETACH DELETE.") {}
 };
 
-class UserModificationInMulticommandTxException : public QueryException {
- public:
-  UserModificationInMulticommandTxException()
-      : QueryException(
-            "Authentication clause not allowed in multicommand transactions.") {
-  }
-};
-
-class StreamClauseInMulticommandTxException : public QueryException {
- public:
-  StreamClauseInMulticommandTxException()
-      : QueryException(
-            "Stream clause not allowed in multicommand transactions.") {}
-};
-
 }  // namespace query
