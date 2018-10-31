@@ -227,6 +227,18 @@ TEST(CustomSerialization, OptionalStringFull) {
   ASSERT_EQ(*original, *decoded);
 }
 
+TEST(CustomSerialization, Pair) {
+  std::pair<std::string, int> original{"nandare!", 5};
+  slk::Builder builder;
+  slk::Save(original, &builder);
+  ASSERT_EQ(builder.size(),
+            sizeof(uint64_t) + original.first.size() + sizeof(int));
+  std::pair<std::string, int> decoded;
+  slk::Reader reader(builder.data(), builder.size());
+  slk::Load(&decoded, &reader);
+  ASSERT_EQ(original, decoded);
+}
+
 TEST(CustomSerialization, SharedPtrEmpty) {
   std::shared_ptr<std::string> original;
   std::vector<std::string *> saved;
@@ -434,7 +446,8 @@ TEST(CustomSerialization, VectorSharedPtr) {
 }
 
 TEST(CustomSerialization, OptionalSharedPtr) {
-  std::experimental::optional<std::shared_ptr<std::string>> original = std::make_shared<std::string>("nandare!");
+  std::experimental::optional<std::shared_ptr<std::string>> original =
+      std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
 
   slk::Builder builder;

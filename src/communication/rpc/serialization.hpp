@@ -12,6 +12,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "communication/rpc/streams.hpp"
@@ -260,6 +261,21 @@ inline void Load(std::experimental::optional<T> *obj, Reader *reader) {
   } else {
     *obj = std::experimental::nullopt;
   }
+}
+
+template <typename A, typename B>
+inline void Save(const std::pair<A, B> &obj, Builder *builder) {
+  Save(obj.first, builder);
+  Save(obj.second, builder);
+}
+
+template <typename A, typename B>
+inline void Load(std::pair<A, B> *obj, Reader *reader) {
+  A first;
+  B second;
+  Load(&first, reader);
+  Load(&second, reader);
+  *obj = std::pair<A, B>(std::move(first), std::move(second));
 }
 
 // Implementation of three argument serialization for complex types.
