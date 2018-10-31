@@ -29,7 +29,7 @@
 (deftest "supported"
   (subtest "designators"
     (mapc (lambda (sym)
-            (let ((type (lcp::make-cpp-primitive-type (string-downcase sym))))
+            (let ((type (lcp::make-cpp-primitive-type sym)))
               (same-type-test sym type)
               (same-type-test (string-downcase sym) type)
               (same-type-test (string-upcase sym) type)
@@ -38,8 +38,7 @@
               (same-type-test (intern (string-downcase sym)) type)
               (same-type-test (intern (string-upcase sym)) type)
               (same-type-test (intern (string-capitalize sym)) type)
-              (same-type-test (lcp::make-cpp-primitive-type
-                               (string-downcase sym))
+              (same-type-test (lcp::make-cpp-primitive-type sym)
                               type)))
           lcp::+cpp-primitive-type-keywords+)
     (mapc (lambda (sym)

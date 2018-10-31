@@ -5,6 +5,7 @@
   :depends-on ("cl-ppcre")
   :serial t
   :components ((:file "package")
+               (:file "types")
                (:file "lcp"))
   :in-order-to ((test-op (test-op "lcp/test"))))
 
