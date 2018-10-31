@@ -402,17 +402,47 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
           case database::StateDelta::Type::TRANSACTION_COMMIT:
             transactions->Commit(delta.transaction_id);
             break;
-          case database::StateDelta::Type::BUILD_INDEX:
+          case database::StateDelta::Type::BUILD_INDEX: {
             // TODO index building might still be problematic in HA
-            recovery_data->indexes.emplace_back(
-                IndexRecoveryData{delta.label_name, delta.property_name,
-                                  /*create = */ true, delta.unique});
+            auto drop_it = std::find_if(
+                recovery_data->indexes.begin(), recovery_data->indexes.end(),
+                [label = delta.label_name, property = delta.property_name](
+                    const IndexRecoveryData &other) {
+                  return other.label == label && other.property == property &&
+                         other.create == false;
+                });
+
+            // If we already have a drop index in the recovery data, just erase
+            // the drop index action. Otherwise add the build index action.
+            if (drop_it != recovery_data->indexes.end()) {
+              recovery_data->indexes.erase(drop_it);
+            } else {
+              recovery_data->indexes.emplace_back(
+                  IndexRecoveryData{delta.label_name, delta.property_name,
+                                    /*create = */ true, delta.unique});
+            }
             break;
-          case database::StateDelta::Type::DROP_INDEX:
-            recovery_data->indexes.emplace_back(
-                IndexRecoveryData{delta.label_name, delta.property_name,
-                                  /*create = */ false});
+          }
+          case database::StateDelta::Type::DROP_INDEX: {
+            auto build_it = std::find_if(
+                recovery_data->indexes.begin(), recovery_data->indexes.end(),
+                [label = delta.label_name, property = delta.property_name](
+                    const IndexRecoveryData &other) {
+                  return other.label == label && other.property == property &&
+                         other.create == true;
+                });
+
+            // If we already have a build index in the recovery data, just erase
+            // the build index action. Otherwise add the drop index action.
+            if (build_it != recovery_data->indexes.end()) {
+              recovery_data->indexes.erase(build_it);
+            } else {
+              recovery_data->indexes.emplace_back(
+                  IndexRecoveryData{delta.label_name, delta.property_name,
+                                    /*create = */ false});
+            }
             break;
+          }
           default:
             transactions->Apply(delta);
         }

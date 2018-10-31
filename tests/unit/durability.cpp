@@ -811,8 +811,9 @@ TEST_F(Durability, SequentialRecovery) {
     return threads;
   };
 
-  auto make_updates = [&run_updates, this](
-      database::GraphDb &db, bool snapshot_during, bool snapshot_after) {
+  auto make_updates = [&run_updates, this](database::GraphDb &db,
+                                           bool snapshot_during,
+                                           bool snapshot_after) {
     std::atomic<bool> keep_running{true};
     auto update_theads = run_updates(db, keep_running);
     std::this_thread::sleep_for(25ms);
@@ -905,6 +906,82 @@ TEST_F(Durability, MoveToBackupWal) {
   // durability-enabled=true, db-recover-on-startup=false
   database::GraphDb db{DbConfig(true, false)};
   ASSERT_TRUE(durability::ContainsDurabilityFiles(backup_dir_));
+}
+
+TEST_F(Durability, UniqueConstraintRecoverySnapshotAndWal) {
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  database::GraphDb db{config};
+  {
+    auto dba = db.Access();
+    auto label = dba->Label("A");
+    auto property = dba->Property("x");
+
+    dba->BuildIndex(label, property, true);
+
+    auto v0 = dba->InsertVertex();
+    v0.add_label(label);
+    v0.PropsSet(property, 5);
+
+    dba->Commit();
+  }
+  // create snapshot with build index and vertex
+  MakeSnapshot(db);
+
+  {
+    auto dba = db.Access();
+    auto label = dba->Label("A");
+    auto property = dba->Property("x");
+
+    dba->DeleteIndex(label, property);
+
+    auto v0 = dba->InsertVertex();
+    v0.add_label(label);
+    v0.PropsSet(property, 5);
+
+    dba->Commit();
+  }
+  // create wal with drop index and vertex
+  db.wal().Flush();
+
+  {
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    database::GraphDb recovered{recovered_config};
+    CompareDbs(db, recovered);
+  }
+}
+
+TEST_F(Durability, UniqueConstraintRecoveryWal) {
+  auto config = DbConfig();
+  config.durability_enabled = true;
+  database::GraphDb db{config};
+  {
+    auto dba = db.Access();
+    auto label = dba->Label("A");
+    auto property = dba->Property("x");
+
+    dba->BuildIndex(label, property, true);
+
+    auto v0 = dba->InsertVertex();
+    v0.add_label(label);
+    v0.PropsSet(property, 5);
+
+    dba->DeleteIndex(label, property);
+
+    auto v1 = dba->InsertVertex();
+    v1.add_label(label);
+    v1.PropsSet(property, 5);
+
+    dba->Commit();
+  }
+  db.wal().Flush();
+  {
+    auto recovered_config = DbConfig();
+    recovered_config.db_recover_on_startup = true;
+    database::GraphDb recovered{recovered_config};
+    CompareDbs(db, recovered);
+  }
 }
 
 int main(int argc, char **argv) {
