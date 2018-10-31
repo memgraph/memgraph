@@ -8,6 +8,7 @@ import os
 import socket
 import subprocess
 import struct
+import sys
 import tabulate
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -56,6 +57,7 @@ class Connection:
     SIZE_LEN = struct.calcsize(SIZE_FORMAT)
 
     def __init__(self):
+        self._previous = bytes()
         self._data = bytes()
         self._message = bytes()
         self._ts = []
@@ -72,17 +74,39 @@ class Connection:
         if len(self._data) < self.SIZE_LEN + msg_len:
             return False
         self._message = self._data[self.SIZE_LEN:]
+        self._previous = self._data
         self._data = bytes()
         return True
 
     def add_data(self, data, direction, ts):
+        if self._previous[-len(data):] == data \
+                or self._data[-len(data):] == data:
+            print("Retransmission detected!", file=sys.stderr)
+            return
+
         self._data += data
         self._ts.append(ts)
 
         if not self._extract_message():
             return
 
-        message_id = struct.unpack("<Q", self._message[16:24])[0]
+        found = False
+        for i in range(2, 6):
+            if len(self._message) < (i + 1) * 8:
+                continue
+            message_id = struct.unpack("<Q",
+                                       self._message[i * 8:(i + 1) * 8])[0]
+            if message_id in MESSAGES:
+                found = True
+                break
+
+        if not found:
+            print("Got a message that I can't identify as any known "
+                  "RPC request/response!", file=sys.stderr)
+            self._last = None
+            self._ts = []
+            return
+
         message_type = MESSAGES[message_id]
 
         if direction == "to":
@@ -93,13 +117,13 @@ class Connection:
                                    len(self._message)))
 
         if self._last is None:
-            self._last = (message_type, self._ts[0])
+            self._last = (message_type, self._ts[0], len(self._message))
         else:
-            req_type, req_ts = self._last
+            req_type, req_ts, req_size = self._last
             duration = self._ts[-1] - req_ts
             self._stats[(req_type, message_type)]["duration"].append(duration)
             self._stats[(req_type, message_type)]["size"].append(
-                    len(self._message))
+                    req_size + len(self._message))
             self._last = None
 
         self._ts = []
