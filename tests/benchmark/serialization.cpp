@@ -9,6 +9,8 @@
 #include "query/frontend/semantic/symbol.capnp.h"
 #include "query/frontend/semantic/symbol.hpp"
 
+#include "communication/rpc/serialization.hpp"
+
 class SymbolVectorFixture : public benchmark::Fixture {
  protected:
   std::vector<query::Symbol> symbols_;
@@ -89,6 +91,114 @@ BENCHMARK_REGISTER_F(SymbolVectorFixture, CapnpSerial)
     ->Unit(benchmark::kNanosecond);
 
 BENCHMARK_REGISTER_F(SymbolVectorFixture, CapnpDeserial)
+    ->RangeMultiplier(4)
+    ->Range(4, 1 << 12)
+    ->Unit(benchmark::kNanosecond);
+
+uint8_t Type2Int(query::Symbol::Type type) {
+  switch (type) {
+    case query::Symbol::Type::Any:
+      return 1;
+    case query::Symbol::Type::Vertex:
+      return 2;
+    case query::Symbol::Type::Edge:
+      return 3;
+    case query::Symbol::Type::Path:
+      return 4;
+    case query::Symbol::Type::Number:
+      return 5;
+    case query::Symbol::Type::EdgeList:
+      return 6;
+  }
+}
+
+query::Symbol::Type Int2Type(uint8_t value) {
+  switch (value) {
+    case 1:
+      return query::Symbol::Type::Any;
+    case 2:
+      return query::Symbol::Type::Vertex;
+    case 3:
+      return query::Symbol::Type::Edge;
+    case 4:
+      return query::Symbol::Type::Path;
+    case 5:
+      return query::Symbol::Type::Number;
+    case 6:
+      return query::Symbol::Type::EdgeList;
+  }
+  CHECK(false);
+}
+
+namespace slk {
+void Save(const query::Symbol &obj, slk::Builder *builder) {
+  Save(obj.name(), builder);
+  Save(obj.position(), builder);
+  Save(Type2Int(obj.type()), builder);
+  Save(obj.user_declared(), builder);
+  Save(obj.token_position(), builder);
+}
+
+void Load(query::Symbol *obj, slk::Reader *reader) {
+  std::string name;
+  Load(&name, reader);
+  int position = 0;
+  Load(&position, reader);
+  uint8_t type = 0;
+  Load(&type, reader);
+  bool user_declared = false;
+  Load(&user_declared, reader);
+  int token_position = 0;
+  Load(&token_position, reader);
+  *obj = query::Symbol(std::move(name), position, user_declared, Int2Type(type),
+                       token_position);
+}
+}  // namespace slk
+
+void SymbolVectorToCustom(const std::vector<query::Symbol> &symbols,
+                          slk::Builder *builder) {
+  slk::Save(symbols.size(), builder);
+  for (int i = 0; i < symbols.size(); ++i) {
+    slk::Save(symbols[i], builder);
+  }
+}
+
+void CustomToSymbolVector(std::vector<query::Symbol> *symbols,
+                          slk::Reader *reader) {
+  uint64_t size = 0;
+  slk::Load(&size, reader);
+  symbols->resize(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    slk::Load(&(*symbols)[i], reader);
+  }
+}
+
+BENCHMARK_DEFINE_F(SymbolVectorFixture, CustomSerial)(benchmark::State &state) {
+  while (state.KeepRunning()) {
+    slk::Builder builder;
+    SymbolVectorToCustom(symbols_, &builder);
+  }
+}
+
+BENCHMARK_DEFINE_F(SymbolVectorFixture, CustomDeserial)
+(benchmark::State &state) {
+  while (state.KeepRunning()) {
+    state.PauseTiming();
+    slk::Builder builder;
+    SymbolVectorToCustom(symbols_, &builder);
+    state.ResumeTiming();
+    slk::Reader reader(builder.data(), builder.size());
+    std::vector<query::Symbol> symbols;
+    CustomToSymbolVector(&symbols, &reader);
+  }
+}
+
+BENCHMARK_REGISTER_F(SymbolVectorFixture, CustomSerial)
+    ->RangeMultiplier(4)
+    ->Range(4, 1 << 12)
+    ->Unit(benchmark::kNanosecond);
+
+BENCHMARK_REGISTER_F(SymbolVectorFixture, CustomDeserial)
     ->RangeMultiplier(4)
     ->Range(4, 1 << 12)
     ->Unit(benchmark::kNanosecond);

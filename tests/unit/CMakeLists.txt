@@ -11,7 +11,7 @@ function(add_unit_test test_cpp)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} gtest gmock gtest_main)
+  target_link_libraries(${target_name} gtest gmock gtest_main Threads::Threads)
   # register test
   set(output_path ${CMAKE_BINARY_DIR}/test_results/unit/${target_name}.xml)
   add_test(${target_name} ${exec_name} --gtest_output=xml:${output_path})
@@ -36,6 +36,10 @@ target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_
 
 add_unit_test(counters.cpp)
 target_link_libraries(${test_prefix}counters mg-distributed kvstore_dummy_lib)
+
+# TODO (mferencevic): remove glog and gflags
+add_unit_test(custom_serialization.cpp)
+target_link_libraries(${test_prefix}custom_serialization glog gflags)
 
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node kvstore_dummy_lib)
