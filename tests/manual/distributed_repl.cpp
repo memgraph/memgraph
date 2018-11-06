@@ -78,6 +78,18 @@ int main(int argc, char *argv[]) {
     workers.emplace_back(std::make_unique<WorkerInThread>(config));
   }
 
+  // Wait for the whole cluster to be up and running.
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  while (master->GetWorkerIds().size() < FLAGS_worker_count + 1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  for (int i = 0; i < FLAGS_worker_count; ++i) {
+    while (workers[i]->worker_.GetWorkerIds().size() < FLAGS_worker_count + 1) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+
   // Start the REPL
   {
     query::DistributedInterpreter interpreter(master.get());

@@ -92,7 +92,17 @@ TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorker) {
     EXPECT_EQ(CountIterable(dba->Vertices(label, property, false)), 100);
   }
 
+  auto num_workers = master->GetWorkerIds().size();
+
   auto worker1 = CreateWorker(master->endpoint(), 1, modify_config);
+
+  while (master->GetWorkerIds().size() < num_workers + 1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  while (worker1->worker_.GetWorkerIds().size() < num_workers + 1) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
   // Check that the new worker has that index
   {
@@ -171,7 +181,17 @@ TEST_F(DistributedDynamicWorker, IndexExistsOnNewWorkerAfterRecovery) {
       EXPECT_TRUE(dba->LabelPropertyIndexExists(label, property));
     }
 
+    auto num_workers = master->GetWorkerIds().size();
+
     auto worker1 = CreateWorker(master->endpoint(), 1, modify_config);
+
+    while (master->GetWorkerIds().size() < num_workers + 1) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    while (worker1->worker_.GetWorkerIds().size() < num_workers + 1) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
     // Check that the new worker has that index.
     {

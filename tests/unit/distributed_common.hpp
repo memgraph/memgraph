@@ -81,6 +81,18 @@ class DistributedGraphDbTest : public ::testing::Test {
           modify_config(worker_config(i + 1))));
       std::this_thread::sleep_for(kInitTime);
     }
+
+    // Wait for the whole cluster to be up and running.
+    std::this_thread::sleep_for(kInitTime);
+    while (master_->GetWorkerIds().size() < kWorkerCount + 1) {
+      std::this_thread::sleep_for(kInitTime);
+    }
+    for (int i = 0; i < kWorkerCount; ++i) {
+      while (workers_[i]->worker_.GetWorkerIds().size() < kWorkerCount + 1) {
+        std::this_thread::sleep_for(kInitTime);
+      }
+    }
+    std::this_thread::sleep_for(kInitTime);
   }
 
   void SetUp() override {
@@ -207,6 +219,18 @@ class Cluster {
       FLAGS_durability_directory = GetDurabilityDirectory(i + 1);
       workers_.emplace_back(
           std::make_unique<WorkerInThread>(worker_config(i + 1)));
+      std::this_thread::sleep_for(kInitTime);
+    }
+
+    // Wait for the whole cluster to be up and running.
+    std::this_thread::sleep_for(kInitTime);
+    while (master_->GetWorkerIds().size() < num_workers + 1) {
+      std::this_thread::sleep_for(kInitTime);
+    }
+    for (int i = 0; i < num_workers; ++i) {
+      while (workers_[i]->worker_.GetWorkerIds().size() < num_workers + 1) {
+        std::this_thread::sleep_for(kInitTime);
+      }
     }
     std::this_thread::sleep_for(kInitTime);
   }

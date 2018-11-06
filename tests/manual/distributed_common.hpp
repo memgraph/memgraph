@@ -73,6 +73,18 @@ class Cluster {
           std::make_unique<WorkerInThread>(worker_config(i + 1)));
       std::this_thread::sleep_for(kInitTime);
     }
+
+    // Wait for the whole cluster to be up and running.
+    std::this_thread::sleep_for(kInitTime);
+    while (master_->GetWorkerIds().size() < worker_count + 1) {
+      std::this_thread::sleep_for(kInitTime);
+    }
+    for (int i = 0; i < worker_count; ++i) {
+      while (workers_[i]->worker_.GetWorkerIds().size() < worker_count + 1) {
+        std::this_thread::sleep_for(kInitTime);
+      }
+    }
+    std::this_thread::sleep_for(kInitTime);
   }
 
   void Stop() {
