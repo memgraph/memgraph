@@ -42,6 +42,7 @@ class JailService:
         self.processes = {}
         self._generated_filenames = []
         self.tempdir = tempfile.TemporaryDirectory()
+        self.process_died = False
 
     def _get_proc(self, tid):
         if tid not in self.processes:
@@ -74,6 +75,8 @@ class JailService:
         proc = self._get_proc(tid)
         status = proc.get_status()
         if status is None: return True
+        if status != 0:
+            self.process_died = True
         assert status == 0, "The binary exited with a non-zero status!"
         return False
 
@@ -120,7 +123,16 @@ class JailService:
 
     def shutdown(self):
         self.log.info("Stopping Jail Service")
-        os._exit(0)
+        for tid in self.processes:
+            process = self.processes[tid]
+            if process.get_status() is None:
+                process.send_signal(jail.SIGTERM)
+            status = process.wait(check=False)
+            if status != 0:
+                self.process_died = True
+        if self.process_died:
+            print("A process died!", file=sys.stderr)
+        os._exit(int(self.process_died))
 
 
 def main():
