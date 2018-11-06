@@ -72,6 +72,7 @@ src/query/frontend/ast/ast_serialization.hpp
 src/durability/distributed/state_delta.capnp
 src/durability/distributed/state_delta.hpp
 src/durability/single_node/state_delta.hpp
+src/durability/single_node_ha/state_delta.hpp
 src/query/plan/distributed_ops.capnp
 src/query/plan/distributed_ops.hpp
 src/query/plan/operator.hpp
