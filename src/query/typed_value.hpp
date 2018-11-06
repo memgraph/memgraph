@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "query/path.hpp"
-#include "storage/common/property_value.hpp"
+#include "storage/common/types/property_value.hpp"
 #include "storage/edge_accessor.hpp"
 #include "storage/vertex_accessor.hpp"
 #include "utils/exceptions.hpp"

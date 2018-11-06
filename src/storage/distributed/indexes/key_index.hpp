@@ -3,9 +3,9 @@
 #include "glog/logging.h"
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "mvcc/distributed/version_list.hpp"
+#include "storage/distributed/mvcc/version_list.hpp"
 #include "storage/common/index.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/vertex.hpp"
 #include "transactions/transaction.hpp"

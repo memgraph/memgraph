@@ -5,8 +5,8 @@
 #include <vector>
 
 #include "glog/logging.h"
-#include "storage/locking/lock_status.hpp"
-#include "storage/locking/record_lock.hpp"
+#include "storage/common/locking/lock_status.hpp"
+#include "storage/common/locking/record_lock.hpp"
 #include "transactions/type.hpp"
 #include "utils/thread/sync.hpp"
 

@@ -5,9 +5,9 @@
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
-#include "mvcc/single_node/version_list.hpp"
-#include "storage/common/property_value.hpp"
-#include "storage/common/types.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
+#include "storage/common/types/property_value.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node/gid.hpp"
 
 class Vertex;

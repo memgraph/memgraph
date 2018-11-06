@@ -9,7 +9,7 @@
 #include <vector>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "storage/locking/record_lock.hpp"
+#include "storage/common/locking/record_lock.hpp"
 #include "transactions/lock_store.hpp"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"

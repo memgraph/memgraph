@@ -9,7 +9,7 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/typed_value.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 
 namespace query {
 

@@ -5,8 +5,8 @@
 
 #include "database/single_node/graph_db.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
-#include "mvcc/single_node/version_list.hpp"
-#include "storage/common/property_value.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
+#include "storage/common/types/property_value.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex.hpp"
 #include "storage/single_node/vertex_accessor.hpp"

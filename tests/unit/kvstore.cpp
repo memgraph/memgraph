@@ -3,7 +3,7 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
-#include "storage/kvstore/kvstore.hpp"
+#include "storage/common/kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
 namespace fs = std::experimental::filesystem;

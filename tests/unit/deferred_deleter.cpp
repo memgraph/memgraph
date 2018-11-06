@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "mvcc/single_node/record.hpp"
+#include "storage/single_node/mvcc/record.hpp"
 #include "storage/single_node/deferred_deleter.hpp"
 #include "storage/single_node/vertex.hpp"
 

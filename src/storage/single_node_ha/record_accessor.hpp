@@ -3,10 +3,10 @@
 
 #include <glog/logging.h>
 
-#include "mvcc/single_node_ha/version_list.hpp"
-#include "storage/common/property_value.hpp"
-#include "storage/common/property_value_store.hpp"
-#include "storage/common/types.hpp"
+#include "storage/single_node_ha/mvcc/version_list.hpp"
+#include "storage/common/types/property_value.hpp"
+#include "storage/common/types/property_value_store.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/gid.hpp"
 #include "utils/total_ordering.hpp"
 

@@ -7,7 +7,7 @@
 #include "distributed/updates_rpc_clients.hpp"
 #include "distributed/updates_rpc_server.hpp"
 #include "query/typed_value.hpp"
-#include "storage/common/property_value.hpp"
+#include "storage/common/types/property_value.hpp"
 
 #include "distributed_common.hpp"
 

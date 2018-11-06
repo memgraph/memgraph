@@ -7,7 +7,7 @@
 #include "distributed/updates_rpc_messages.hpp"
 #include "durability/distributed/state_delta.hpp"
 #include "query/typed_value.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "storage/distributed/gid.hpp"
 #include "transactions/type.hpp"

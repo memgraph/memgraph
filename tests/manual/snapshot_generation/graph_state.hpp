@@ -7,7 +7,7 @@
 #include "cppitertools/itertools.hpp"
 #include "json/json.hpp"
 
-#include "storage/common/property_value.hpp"
+#include "storage/common/types/property_value.hpp"
 #include "storage/distributed/gid.hpp"
 #include "utils/string.hpp"
 

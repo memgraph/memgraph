@@ -5,9 +5,9 @@
 #include <string>
 #include <vector>
 
-#include "storage/common/property_value.hpp"
-#include "storage/common/types.hpp"
-#include "storage/kvstore/kvstore.hpp"
+#include "storage/common/types/property_value.hpp"
+#include "storage/common/types/types.hpp"
+#include "storage/common/kvstore/kvstore.hpp"
 
 /**
  * A collection of properties accessed in a map-like way using a key of type

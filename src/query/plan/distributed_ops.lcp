@@ -7,7 +7,7 @@
 #include "query/plan/distributed_ops.capnp.h"
 #include "query/plan/operator.hpp"
 #include "query/serialization.hpp"
-#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 cpp<#
 
 (load "query/plan/operator.lcp")

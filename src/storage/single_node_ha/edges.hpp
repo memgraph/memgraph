@@ -6,8 +6,8 @@
 
 #include "glog/logging.h"
 
-#include "mvcc/single_node_ha/version_list.hpp"
-#include "storage/common/types.hpp"
+#include "storage/single_node_ha/mvcc/version_list.hpp"
+#include "storage/common/types/types.hpp"
 #include "utils/algorithm.hpp"
 
 /**

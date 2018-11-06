@@ -29,7 +29,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
 (lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")

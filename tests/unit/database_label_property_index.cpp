@@ -2,7 +2,7 @@
 
 #include "database/single_node/graph_db.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"
 #include "transactions/single_node/engine.hpp"
 

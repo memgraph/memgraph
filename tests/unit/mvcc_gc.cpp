@@ -7,8 +7,8 @@
 #include <gtest/gtest.h>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "mvcc/single_node/record.hpp"
-#include "mvcc/single_node/version_list.hpp"
+#include "storage/single_node/mvcc/record.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
 #include "storage/single_node/garbage_collector.hpp"
 #include "storage/single_node/vertex.hpp"
 #include "transactions/single_node/engine.hpp"

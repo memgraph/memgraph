@@ -4,9 +4,9 @@
 #include <experimental/optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "mvcc/single_node/version_list.hpp"
-#include "storage/common/types.hpp"
-#include "storage/kvstore/kvstore.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
+#include "storage/common/types/types.hpp"
+#include "storage/common/kvstore/kvstore.hpp"
 #include "storage/single_node/edge.hpp"
 #include "storage/single_node/indexes/key_index.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"

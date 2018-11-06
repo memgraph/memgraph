@@ -7,7 +7,7 @@
 #include <glog/logging.h>
 #include <json/json.hpp>
 
-#include "storage/common/property_value.hpp"
+#include "storage/common/types/property_value.hpp"
 
 namespace snapshot_generation {
 

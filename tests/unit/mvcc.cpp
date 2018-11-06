@@ -2,9 +2,9 @@
 
 #include <gtest/gtest.h>
 
-#include "mvcc/common/version.hpp"
-#include "mvcc/single_node/record.hpp"
-#include "mvcc/single_node/version_list.hpp"
+#include "storage/common/mvcc/version.hpp"
+#include "storage/single_node/mvcc/record.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
 #include "transactions/single_node/engine.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/thread/sync.hpp"

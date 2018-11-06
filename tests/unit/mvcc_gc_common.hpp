@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mvcc/single_node/record.hpp"
+#include "storage/single_node/mvcc/record.hpp"
 #include "transactions/single_node/engine.hpp"
 
 /**

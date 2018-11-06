@@ -4,7 +4,7 @@
 #include <chrono>
 #include <unordered_set>
 
-#include "storage/locking/lock_status.hpp"
+#include "storage/common/locking/lock_status.hpp"
 #include "transactions/type.hpp"
 
 namespace tx {

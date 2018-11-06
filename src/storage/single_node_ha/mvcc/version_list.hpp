@@ -1,8 +1,9 @@
 #pragma once
 
-#include "storage/distributed/gid.hpp"
-#include "storage/locking/record_lock.hpp"
+#include "storage/single_node_ha/gid.hpp"
+#include "storage/common/locking/record_lock.hpp"
 #include "transactions/transaction.hpp"
+#include "utils/cast.hpp"
 #include "utils/exceptions.hpp"
 
 namespace mvcc {
@@ -25,14 +26,12 @@ class VersionList {
    * @param t - transaction
    * @param gid - Version list identifier. Uniqueness guaranteed by the code
    * creating this version list.
-   * @param cypher_id - Number returned from the id function.
    * @param args - args forwarded to constructor of item T (for
    * creating the first Record (Version) in this VersionList.
    */
   template <typename... Args>
-  VersionList(const tx::Transaction &t, gid::Gid gid, int64_t cypher_id,
-              Args &&... args)
-      : gid_(gid), cypher_id_(cypher_id) {
+  VersionList(const tx::Transaction &t, gid::Gid gid, Args &&... args)
+      : gid_(gid) {
     // TODO replace 'new' with something better
     auto *v1 = new T(std::forward<Args>(args)...);
     v1->mark_created(t);
@@ -226,7 +225,7 @@ class VersionList {
 
   const gid::Gid gid_;
 
-  auto cypher_id() { return cypher_id_; }
+  int64_t cypher_id() { return utils::MemcpyCast<int64_t>(gid_); }
 
  private:
   void lock_and_validate(T *record, const tx::Transaction &t) {
@@ -265,18 +264,6 @@ class VersionList {
     return updated;
   }
 
-  /**
-   * The following member is here because Memgraph supports ID function from
-   * the Cypher query language. If you have plans to change this you have to
-   * consider the following:
-   *   * If the id has to be durable. -> Snapshot and WAL have to be updated.
-   *   * Impact on query execution.         |
-   *   * Impact on the communication stack. |-> The id has to be returned
-   *                                            to the client.
-   *   * Import tools bacause of the dependencies on the durability stack.
-   *   * Implications on the distributed system.
-   */
-  int64_t cypher_id_{0};
   std::atomic<T *> head_{nullptr};
   RecordLock lock_;
 };

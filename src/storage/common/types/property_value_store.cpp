@@ -1,4 +1,4 @@
-#include "storage/common/property_value_store.hpp"
+#include "storage/common/types/property_value_store.hpp"
 
 #include <experimental/filesystem>
 

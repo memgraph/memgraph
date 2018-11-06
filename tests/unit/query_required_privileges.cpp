@@ -2,7 +2,7 @@
 #include <gtest/gtest.h>
 
 #include "query/frontend/semantic/required_privileges.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 
 #include "query_common.hpp"
 

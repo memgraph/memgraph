@@ -9,7 +9,7 @@
 #include "durability/distributed/state_delta.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "storage/distributed/gid.hpp"
-#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 #include "transactions/type.hpp"
 #include "utils/serialization.hpp"
 cpp<#
@@ -19,7 +19,7 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'db "/database/distributed/serialization.capnp")
-(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")

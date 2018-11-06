@@ -9,9 +9,9 @@
 
 #include "data_structures/concurrent/skiplist.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
-#include "mvcc/single_node/version_list.hpp"
-#include "storage/common/property_value.hpp"
-#include "storage/common/types.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
+#include "storage/common/types/property_value.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node/vertex_accessor.hpp"
 
 // TODO: Why is this file here? It is used only in a test...

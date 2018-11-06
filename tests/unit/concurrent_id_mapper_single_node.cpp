@@ -5,7 +5,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node/concurrent_id_mapper.hpp"
 
 using IdLabel = storage::Label;

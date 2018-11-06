@@ -3,7 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "communication/rpc/server.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/concurrent_id_mapper_master.hpp"
 #include "storage/distributed/concurrent_id_mapper_worker.hpp"
 

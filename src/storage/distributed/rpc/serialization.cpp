@@ -1,4 +1,4 @@
-#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 
 #include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/data_manager.hpp"

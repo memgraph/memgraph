@@ -4,7 +4,7 @@
 #include <queue>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "mvcc/single_node/version_list.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
 #include "stats/metrics.hpp"
 #include "storage/single_node/deferred_deleter.hpp"
 #include "storage/single_node/edge.hpp"

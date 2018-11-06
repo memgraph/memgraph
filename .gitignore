@@ -40,6 +40,13 @@ TAGS
 
 # LCP generated C++ & Cap'n Proto files
 *.lcp.cpp
+
+# TODO delete later
+src/storage/distributed/concurrent_id_mapper_rpc_messages.capnp
+src/storage/distributed/concurrent_id_mapper_rpc_messages.hpp
+#####
+
+
 src/database/distributed/counters_rpc_messages.capnp
 src/database/distributed/counters_rpc_messages.hpp
 src/database/distributed/serialization.capnp
@@ -78,7 +85,7 @@ src/query/plan/distributed_ops.hpp
 src/query/plan/operator.hpp
 src/stats/stats_rpc_messages.capnp
 src/stats/stats_rpc_messages.hpp
-src/storage/distributed/concurrent_id_mapper_rpc_messages.capnp
-src/storage/distributed/concurrent_id_mapper_rpc_messages.hpp
+src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp
+src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.hpp
 src/transactions/distributed/engine_rpc_messages.capnp
 src/transactions/distributed/engine_rpc_messages.hpp

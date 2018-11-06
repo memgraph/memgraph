@@ -1,6 +1,6 @@
 #pragma once
 
-#include "mvcc/distributed/version_list.hpp"
+#include "storage/distributed/mvcc/version_list.hpp"
 #include "storage/distributed/address.hpp"
 
 class Edge;

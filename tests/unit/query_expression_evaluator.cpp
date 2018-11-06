@@ -15,7 +15,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "utils/string.hpp"
 
 #include "query_common.hpp"

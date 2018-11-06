@@ -10,7 +10,7 @@
 #include "durability/single_node_ha/recovery.hpp"
 #include "durability/single_node_ha/wal.hpp"
 #include "io/network/endpoint.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/concurrent_id_mapper.hpp"
 #include "storage/single_node_ha/storage.hpp"
 #include "storage/single_node_ha/storage_gc.hpp"

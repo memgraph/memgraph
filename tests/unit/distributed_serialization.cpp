@@ -3,12 +3,12 @@
 
 #include <capnp/message.h>
 
-#include "mvcc/distributed/version_list.hpp"
+#include "storage/distributed/mvcc/version_list.hpp"
 #include "query/typed_value.hpp"
-#include "storage/common/property_value_store.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/property_value_store.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/edge.hpp"
-#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 #include "storage/distributed/vertex.hpp"
 #include "transactions/distributed/engine_single_node.hpp"
 

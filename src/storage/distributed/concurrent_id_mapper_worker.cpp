@@ -2,8 +2,8 @@
 
 #include <glog/logging.h>
 
-#include "storage/common/types.hpp"
-#include "storage/distributed/concurrent_id_mapper_rpc_messages.hpp"
+#include "storage/common/types/types.hpp"
+#include "storage/distributed/rpc/concurrent_id_mapper_rpc_messages.hpp"
 
 namespace storage {
 

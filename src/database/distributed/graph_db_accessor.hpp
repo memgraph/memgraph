@@ -11,7 +11,7 @@
 #include <cppitertools/imap.hpp>
 
 #include "database/distributed/graph_db.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "storage/distributed/edge_accessor.hpp"
 #include "storage/distributed/vertex_accessor.hpp"

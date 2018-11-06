@@ -1,10 +1,10 @@
 #pragma once
 
-#include "storage/common/property_value.hpp"
-#include "storage/common/property_value_store.hpp"
+#include "storage/common/types/property_value.hpp"
+#include "storage/common/types/property_value_store.hpp"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/edge_accessor.hpp"
-#include "storage/distributed/serialization.capnp.h"
+#include "storage/distributed/rpc/serialization.capnp.h"
 #include "storage/distributed/vertex.hpp"
 #include "storage/distributed/vertex_accessor.hpp"
 

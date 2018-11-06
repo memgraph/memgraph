@@ -1,4 +1,4 @@
-#include "storage/locking/record_lock.hpp"
+#include "storage/common/locking/record_lock.hpp"
 
 #include <fmt/format.h>
 #include <glog/logging.h>

@@ -42,9 +42,9 @@ set(mg_single_node_sources
     query/repl.cpp
     query/typed_value.cpp
     storage/single_node/edge_accessor.cpp
-    storage/locking/record_lock.cpp
-    storage/common/property_value.cpp
-    storage/common/property_value_store.cpp
+    storage/common/locking/record_lock.cpp
+    storage/common/types/property_value.cpp
+    storage/common/types/property_value_store.cpp
     storage/single_node/record_accessor.cpp
     storage/single_node/vertex_accessor.cpp
     transactions/single_node/engine.cpp
@@ -146,13 +146,13 @@ set(mg_distributed_sources
     query/repl.cpp
     query/serialization.cpp
     query/typed_value.cpp
-    storage/common/property_value.cpp
-    storage/common/property_value_store.cpp
+    storage/common/locking/record_lock.cpp
+    storage/common/types/property_value.cpp
+    storage/common/types/property_value_store.cpp
     storage/distributed/edge_accessor.cpp
     storage/distributed/record_accessor.cpp
-    storage/distributed/serialization.cpp
+    storage/distributed/rpc/serialization.cpp
     storage/distributed/vertex_accessor.cpp
-    storage/locking/record_lock.cpp
     memgraph_init.cpp
     transactions/distributed/engine_single_node.cpp
 )
@@ -204,8 +204,8 @@ add_lcp_distributed(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30
         DEPENDS query/plan/operator.lcp)
 add_capnp(query/plan/distributed_ops.capnp)
 
-add_lcp_distributed(storage/distributed/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
-add_capnp(storage/distributed/concurrent_id_mapper_rpc_messages.capnp)
+add_lcp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
+add_capnp(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp)
 add_lcp_distributed(transactions/distributed/engine_rpc_messages.lcp CAPNP_SCHEMA @0xde02b7c49180cad5
         DEPENDS transactions/distributed/serialization.lcp)
 add_capnp(transactions/distributed/engine_rpc_messages.capnp)
@@ -218,7 +218,7 @@ add_capnp(communication/rpc/messages.capnp)
 add_capnp(durability/distributed/serialization.capnp)
 add_capnp(query/frontend/semantic/symbol.capnp)
 add_capnp(query/serialization.capnp)
-add_capnp(storage/distributed/serialization.capnp)
+add_capnp(storage/distributed/rpc/serialization.capnp)
 
 add_custom_target(generate_capnp DEPENDS generate_lcp_distributed ${generated_capnp_files})
 
@@ -268,9 +268,9 @@ set(mg_single_node_ha_sources
     query/plan/variable_start_planner.cpp
     query/repl.cpp
     query/typed_value.cpp
-    storage/common/property_value.cpp
-    storage/common/property_value_store.cpp
-    storage/locking/record_lock.cpp
+    storage/common/types/property_value.cpp
+    storage/common/types/property_value_store.cpp
+    storage/common/locking/record_lock.cpp
     storage/single_node_ha/edge_accessor.cpp
     storage/single_node_ha/record_accessor.cpp
     storage/single_node_ha/vertex_accessor.cpp
@@ -313,11 +313,11 @@ target_compile_definitions(mg-single-node-ha PUBLIC MG_SINGLE_NODE_HA)
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
 # STATIC library used to store key-value pairs
-add_library(kvstore_lib STATIC storage/kvstore/kvstore.cpp)
+add_library(kvstore_lib STATIC storage/common/kvstore/kvstore.cpp)
 target_link_libraries(kvstore_lib stdc++fs mg-utils rocksdb bzip2 zlib glog gflags)
 
 # STATIC library for dummy key-value storage
-add_library(kvstore_dummy_lib STATIC storage/kvstore/kvstore_dummy.cpp)
+add_library(kvstore_dummy_lib STATIC storage/common/kvstore/kvstore_dummy.cpp)
 target_link_libraries(kvstore_dummy_lib mg-utils)
 
 # Generate a version.hpp file

@@ -9,7 +9,7 @@
 #include "durability/distributed/recovery.hpp"
 #include "durability/distributed/wal.hpp"
 #include "io/network/endpoint.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/concurrent_id_mapper.hpp"
 #include "storage/distributed/storage.hpp"
 #include "storage/distributed/storage_gc.hpp"

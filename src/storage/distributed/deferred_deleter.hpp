@@ -6,7 +6,7 @@
 #include <list>
 
 #include "glog/logging.h"
-#include "mvcc/distributed/record.hpp"
+#include "storage/distributed/mvcc/record.hpp"
 #include "transactions/transaction.hpp"
 
 /**

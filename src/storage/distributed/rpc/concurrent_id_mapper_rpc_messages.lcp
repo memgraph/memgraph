@@ -4,9 +4,9 @@
 #include <chrono>
 
 #include "communication/rpc/messages.hpp"
-#include "storage/common/types.hpp"
-#include "storage/distributed/concurrent_id_mapper_rpc_messages.capnp.h"
-#include "storage/distributed/serialization.hpp"
+#include "storage/common/types/types.hpp"
+#include "storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp.h"
+#include "storage/distributed/rpc/serialization.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/snapshot.hpp"
 #include "transactions/type.hpp"
@@ -16,7 +16,7 @@ cpp<#
 
 (lcp:capnp-namespace "storage")
 
-(lcp:capnp-import 's "/storage/distributed/serialization.capnp")
+(lcp:capnp-import 's "/storage/distributed/rpc/serialization.capnp")
 
 (lcp:define-rpc label-id
     (:request ((member "std::string")))

@@ -3,7 +3,7 @@
 #include <glog/logging.h>
 
 #include "data_structures/concurrent/skiplist.hpp"
-#include "mvcc/single_node_ha/version_list.hpp"
+#include "storage/single_node_ha/mvcc/version_list.hpp"
 #include "storage/single_node_ha/deferred_deleter.hpp"
 #include "transactions/single_node_ha/engine.hpp"
 

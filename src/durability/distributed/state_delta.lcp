@@ -5,8 +5,8 @@
 #include "communication/bolt/v1/encoder/base_encoder.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "durability/hashed_file_writer.hpp"
-#include "storage/common/property_value.hpp"
-#include "storage/common/types.hpp"
+#include "storage/common/types/property_value.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "storage/distributed/gid.hpp"
 cpp<#
@@ -19,7 +19,7 @@ cpp<#
 
 (lcp:capnp-namespace "database")
 
-(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 (lcp:capnp-type-conversion "gid::Gid" "UInt64")

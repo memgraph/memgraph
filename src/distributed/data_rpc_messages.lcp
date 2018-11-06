@@ -8,7 +8,7 @@
 #include "distributed/data_rpc_messages.capnp.h"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/gid.hpp"
-#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 #include "storage/distributed/vertex.hpp"
 #include "transactions/type.hpp"
 cpp<#
@@ -18,7 +18,7 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
-(lcp:capnp-import 'storage "/storage/distributed/serialization.capnp")
+(lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 
 (lcp:define-struct tx-gid-pair ()
   ((tx-id "tx::TransactionId" :capnp-type "UInt64")

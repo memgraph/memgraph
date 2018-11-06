@@ -1,9 +1,9 @@
 #pragma once
 
-#include "mvcc/distributed/record.hpp"
-#include "mvcc/distributed/version_list.hpp"
-#include "storage/common/property_value_store.hpp"
-#include "storage/common/types.hpp"
+#include "storage/distributed/mvcc/record.hpp"
+#include "storage/distributed/mvcc/version_list.hpp"
+#include "storage/common/types/property_value_store.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/distributed/address.hpp"
 
 class Vertex;

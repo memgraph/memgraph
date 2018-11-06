@@ -1,4 +1,4 @@
-#include "storage/common/property_value.hpp"
+#include "storage/common/types/property_value.hpp"
 
 // const value extraction template instantiations
 template <>

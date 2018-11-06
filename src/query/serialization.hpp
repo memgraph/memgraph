@@ -7,7 +7,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/serialization.capnp.h"
 #include "query/typed_value.hpp"
-#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 
 namespace distributed {
 class DataManager;

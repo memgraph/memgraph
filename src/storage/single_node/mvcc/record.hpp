@@ -5,11 +5,11 @@
 #include <iostream>
 
 #include "transactions/commit_log.hpp"
-#include "transactions/distributed/engine.hpp"
+#include "transactions/single_node/engine.hpp"
 #include "transactions/transaction.hpp"
 
-#include "mvcc/common/version.hpp"
-#include "storage/locking/record_lock.hpp"
+#include "storage/common/mvcc/version.hpp"
+#include "storage/common/locking/record_lock.hpp"
 
 // the mvcc implementation used here is very much like postgresql's
 // more info: https://momjian.us/main/writings/pgsql/mvcc.pdf

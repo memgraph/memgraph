@@ -3,7 +3,7 @@
 
 #include "database/distributed/serialization.capnp.h"
 #include "durability/distributed/state_delta.hpp"
-#include "storage/distributed/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 cpp<#
 
 ;; Generate serialization of state-delta

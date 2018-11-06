@@ -1,4 +1,4 @@
-#include "storage/kvstore/kvstore.hpp"
+#include "storage/common/kvstore/kvstore.hpp"
 
 #include <glog/logging.h>
 

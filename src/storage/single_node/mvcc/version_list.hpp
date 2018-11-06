@@ -1,7 +1,7 @@
 #pragma once
 
 #include "storage/single_node/gid.hpp"
-#include "storage/locking/record_lock.hpp"
+#include "storage/common/locking/record_lock.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/cast.hpp"
 #include "utils/exceptions.hpp"

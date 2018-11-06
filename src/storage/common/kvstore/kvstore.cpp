@@ -1,7 +1,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/options.h>
 
-#include "storage/kvstore/kvstore.hpp"
+#include "storage/common/kvstore/kvstore.hpp"
 #include "utils/file.hpp"
 
 namespace storage {

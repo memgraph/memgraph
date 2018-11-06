@@ -1,9 +1,9 @@
 #pragma once
 
-#include "mvcc/single_node_ha/record.hpp"
-#include "mvcc/single_node_ha/version_list.hpp"
-#include "storage/common/property_value_store.hpp"
-#include "storage/common/types.hpp"
+#include "storage/single_node_ha/mvcc/record.hpp"
+#include "storage/single_node_ha/mvcc/version_list.hpp"
+#include "storage/common/types/property_value_store.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/edges.hpp"
 
 class Vertex : public mvcc::Record<Vertex> {

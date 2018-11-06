@@ -6,7 +6,7 @@
 #include <unordered_map>
 
 #include "integrations/kafka/consumer.hpp"
-#include "storage/kvstore/kvstore.hpp"
+#include "storage/common/kvstore/kvstore.hpp"
 
 namespace integrations::kafka {
 
