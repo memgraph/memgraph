@@ -6,7 +6,9 @@ random.seed(0)
 for i in range(common.VERTEX_COUNT):
     print("CREATE (n: Node {id: %d});" % i)
 
+print(";")
 print("CREATE INDEX ON :Node(id);")
+print(";")
 
 # create a tree to be sure there is a path between each two nodes
 for i in range(1, common.VERTEX_COUNT):
