@@ -7,7 +7,7 @@ set(utils_src_files
     uuid.cpp
     watchdog.cpp)
 
-define_add_capnp(utils_src_files utils_capnp_files)
+define_add_capnp(add_capnp utils_src_files utils_capnp_files)
 
 add_capnp(serialization.capnp)
 

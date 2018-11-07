@@ -4,7 +4,7 @@ set(io_src_files
     network/socket.cpp
     network/utils.cpp)
 
-define_add_capnp(io_src_files io_capnp_files)
+define_add_capnp(add_capnp io_src_files io_capnp_files)
 
 add_capnp(network/endpoint.capnp)
 

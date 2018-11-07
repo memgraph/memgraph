@@ -45,9 +45,7 @@ cpp<#
    (check-empty :bool)
    (unique :bool))
   (:documentation
-   "Describes single change to the database state. Used for durability (WAL) and
-state communication over network in HA and for distributed remote storage
-changes.
+   "Describes single change to the database state. Used for durability (WAL).
 
 Labels, Properties and EdgeTypes are stored both as values (integers) and
 strings (their names). The values are used when applying deltas in a running

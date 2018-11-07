@@ -88,14 +88,15 @@ endfunction()
 
 # Define `add_capnp` function for registering a capnp file for generation.
 #
-# The `define_add_capnp` expects 2 arguments:
+# The `define_add_capnp` expects 3 arguments:
+#   * name -- name for the function, you usually want `add_capnp`
 #   * main_src_files -- variable to be updated with generated cpp files
 #   * generated_capnp_files -- variable to be updated with generated hpp and cpp files
 #
 # The `add_capnp` function expects a single argument, path to capnp file.
 # Each added file is standalone and we avoid recompiling everything.
-macro(define_add_capnp main_src_files generated_capnp_files)
-  function(add_capnp capnp_src_file)
+macro(define_add_capnp name main_src_files generated_capnp_files)
+  function(${name} capnp_src_file)
     set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.c++)
     set(h_file ${CMAKE_CURRENT_SOURCE_DIR}/${capnp_src_file}.h)
     add_custom_command(OUTPUT ${cpp_file} ${h_file}
@@ -106,5 +107,5 @@ macro(define_add_capnp main_src_files generated_capnp_files)
     set(${generated_capnp_files} ${${generated_capnp_files}} ${cpp_file} ${h_file} PARENT_SCOPE)
     # Update *global* main_src_files
     set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
-  endfunction(add_capnp)
+  endfunction(${name})
 endmacro(define_add_capnp)

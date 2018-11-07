@@ -51,6 +51,8 @@ src/database/distributed/counters_rpc_messages.capnp
 src/database/distributed/counters_rpc_messages.hpp
 src/database/distributed/serialization.capnp
 src/database/distributed/serialization.hpp
+src/database/single_node_ha/serialization.capnp
+src/database/single_node_ha/serialization.hpp
 src/distributed/bfs_rpc_messages.capnp
 src/distributed/bfs_rpc_messages.hpp
 src/distributed/coordination_rpc_messages.capnp

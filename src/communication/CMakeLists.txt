@@ -9,7 +9,7 @@ set(communication_src_files
     rpc/protocol.cpp
     rpc/server.cpp)
 
-define_add_capnp(communication_src_files communication_capnp_files)
+define_add_capnp(add_capnp communication_src_files communication_capnp_files)
 
 add_capnp(rpc/messages.capnp)
 
