@@ -24,12 +24,15 @@
 #pragma once
 
 #include <map>
+#include <sstream>
+#include <sstream>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/pretty_print.hpp"
 #include "storage/common/types/types.hpp"
 #include "utils/string.hpp"
 
@@ -53,6 +56,18 @@ auto ToMap(const TypedValue &t) {
     map.emplace(kv.first, kv.second.Value<TElement>());
   return map;
 };
+
+std::string ToString(Expression *expr) {
+  std::ostringstream ss;
+  PrintExpression(expr, &ss);
+  return ss.str();
+}
+
+std::string ToString(NamedExpression *expr) {
+  std::ostringstream ss;
+  PrintExpression(expr, &ss);
+  return ss.str();
+}
 
 // Custom types for ORDER BY, SKIP, LIMIT, ON MATCH and ON CREATE expressions,
 // so that they can be used to resolve function calls.
@@ -553,6 +568,10 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
   query::test_common::GetCypherUnion(storage.Create<CypherUnion>(false), \
                                      __VA_ARGS__)
 // Various operators
+#define NOT(expr) storage.Create<query::NotOperator>((expr))
+#define UPLUS(expr) storage.Create<query::UnaryPlusOperator>((expr))
+#define UMINUS(expr) storage.Create<query::UnaryMinusOperator>((expr))
+#define IS_NULL(expr) storage.Create<query::IsNullOperator>((expr))
 #define ADD(expr1, expr2) \
   storage.Create<query::AdditionOperator>((expr1), (expr2))
 #define LESS(expr1, expr2) storage.Create<query::LessOperator>((expr1), (expr2))

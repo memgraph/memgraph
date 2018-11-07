@@ -28,6 +28,7 @@ set(mg_single_node_sources
     glue/communication.cpp
     query/common.cpp
     query/frontend/ast/ast.cpp
+    query/frontend/ast/pretty_print.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp
@@ -132,6 +133,7 @@ set(mg_distributed_sources
     glue/communication.cpp
     query/common.cpp
     query/frontend/ast/ast.cpp
+    query/frontend/ast/pretty_print.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp

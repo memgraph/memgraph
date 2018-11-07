@@ -189,12 +189,14 @@ cpp<#
 ;;; Expressions
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(lcp:define-class expression (tree "::utils::Visitable<ExpressionVisitor<TypedValue>>")
+(lcp:define-class expression (tree "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+                                   "::utils::Visitable<ExpressionVisitor<void>>")
   ()
   (:abstractp t)
   (:public
     #>cpp
     using ::utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
+    using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
     using Tree::Accept;
 
     Expression() = default;
@@ -309,6 +311,7 @@ cpp<#
                             (let ((cpp-name (lcp::cpp-type-name ',op)))
                               #>cpp
                               DEFVISITABLE(ExpressionVisitor<TypedValue>);
+                              DEFVISITABLE(ExpressionVisitor<void>);
                               bool Accept(HierarchicalTreeVisitor &visitor) override {
                                 if (visitor.PreVisit(*this)) {
                                   expression1_->Accept(visitor) && expression2_->Accept(visitor);
@@ -340,6 +343,7 @@ cpp<#
                             (let ((cpp-name (lcp::cpp-type-name ',op)))
                               #>cpp
                               DEFVISITABLE(ExpressionVisitor<TypedValue>);
+                              DEFVISITABLE(ExpressionVisitor<void>);
                               bool Accept(HierarchicalTreeVisitor &visitor) override {
                                 if (visitor.PreVisit(*this)) {
                                   expression_->Accept(visitor);
@@ -382,6 +386,7 @@ cpp<#
     }
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         if (expression1_) expression1_->Accept(visitor);
@@ -437,6 +442,7 @@ cpp<#
     ListSlicingOperator() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         bool cont = list_->Accept(visitor);
@@ -491,6 +497,7 @@ cpp<#
     IfOperator() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         condition_->Accept(visitor) && then_expression_->Accept(visitor) &&
@@ -556,6 +563,7 @@ cpp<#
     PrimitiveLiteral() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     DEFVISITABLE(HierarchicalTreeVisitor);
 
     PrimitiveLiteral *Clone(AstStorage &storage) const override {
@@ -588,6 +596,7 @@ cpp<#
     ListLiteral() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         for (auto expr_ptr : elements_)
@@ -627,6 +636,7 @@ cpp<#
     MapLiteral() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         for (auto pair : elements_)
@@ -664,6 +674,7 @@ cpp<#
     Identifier() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     DEFVISITABLE(HierarchicalTreeVisitor);
 
     Identifier *Clone(AstStorage &storage) const override {
@@ -694,6 +705,7 @@ cpp<#
     PropertyLookup() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         expression_->Accept(visitor);
@@ -744,6 +756,7 @@ cpp<#
     LabelsTest() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         expression_->Accept(visitor);
@@ -786,6 +799,7 @@ cpp<#
     Function() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         for (auto *argument : arguments_) {
@@ -853,6 +867,7 @@ cpp<#
     Reduce() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         accumulator_->Accept(visitor) && initializer_->Accept(visitor) &&
@@ -898,6 +913,7 @@ cpp<#
    Coalesce() = default;
 
    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+   DEFVISITABLE(ExpressionVisitor<void>);
    bool Accept(HierarchicalTreeVisitor &visitor) override {
      if (visitor.PreVisit(*this)) {
        for (auto *expr : expressions_) {
@@ -947,6 +963,7 @@ cpp<#
     Extract() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         identifier_->Accept(visitor) && list_->Accept(visitor) &&
@@ -994,6 +1011,7 @@ cpp<#
     All() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
@@ -1044,6 +1062,7 @@ cpp<#
     Single() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         identifier_->Accept(visitor) && list_expression_->Accept(visitor) &&
@@ -1081,6 +1100,7 @@ cpp<#
     ParameterLookup() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     DEFVISITABLE(HierarchicalTreeVisitor);
 
     ParameterLookup *Clone(AstStorage &storage) const override {
@@ -1099,7 +1119,8 @@ cpp<#
     cpp<#)
   (:serialize :capnp))
 
-(lcp:define-class named-expression (tree "::utils::Visitable<ExpressionVisitor<TypedValue>>")
+(lcp:define-class named-expression (tree "::utils::Visitable<ExpressionVisitor<TypedValue>>"
+                                         "::utils::Visitable<ExpressionVisitor<void>>")
   ((name "std::string" :scope :public)
    (expression "Expression *" :initval "nullptr" :scope :public
                :capnp-type "Tree" :capnp-init nil
@@ -1110,10 +1131,12 @@ cpp<#
   (:public
     #>cpp
     using ::utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
+    using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
 
     NamedExpression() = default;
 
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
         expression_->Accept(visitor);
