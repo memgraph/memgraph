@@ -20,7 +20,6 @@ def parameters_step(context):
 def having_executed_step(context):
     context.results = database.query(
         context.text, context, context.test_parameters.get_parameters())
-    context.graph_properties.set_beginning_parameters()
 
 
 @when('executing query')
@@ -295,54 +294,11 @@ def empty_result_step(context):
     check_exception(context)
 
 
-def side_effects_number(prop, table):
-    """
-    Function returns an expected list of side effects for property prop
-    from a table given in a cucumber test.
-
-    @param prop:
-        String, roperty from description, can be nodes, relationships,
-        labels or properties.
-    @param table:
-        behave.model.Table, context table with side effects.
-    @return
-        Description.
-    """
-    ret = []
-    for row in table:
-        sign = -1
-        if row[0][0] == '+':
-            sign = 1
-        if row[0][1:] == prop:
-            ret.append(int(row[1]) * sign)
-    sign = -1
-    row = table.headings
-    if row[0][0] == '+':
-        sign = 1
-    if row[0][1:] == prop:
-        ret.append(int(row[1]) * sign)
-    ret.sort()
-    return ret
-
-
 @then('the side effects should be')
 def side_effects_step(context):
-    if not context.config.side_effects:
-        return
-    table = context.table
-    # get side effects from db queries
-    nodes_dif = side_effects_number("nodes", table)
-    relationships_dif = side_effects_number("relationships", table)
-    labels_dif = side_effects_number("labels", table)
-    properties_dif = side_effects_number("properties", table)
-    # compare side effects
-    assert(context.graph_properties.compare(nodes_dif,
-           relationships_dif, labels_dif, properties_dif))
+    return
 
 
 @then('no side effects')
 def side_effects_step(context):
-    if not context.config.side_effects:
-        return
-    # check if side effects are non existing
-    assert(context.graph_properties.compare([], [], [], []))
+    return

@@ -59,6 +59,20 @@ Feature: Aggregations
             | 3 | 0   |
             | 2 | 1   |
 
+    Scenario: Count test 06:
+        Given an empty graph
+        And having executed
+            """
+            CREATE (), (), (), (), ()
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN COUNT(*) AS n
+            """
+        Then the result should be:
+            | n |
+            | 5 |
+
     Scenario: Sum test 01:
         Given an empty graph
         And having executed

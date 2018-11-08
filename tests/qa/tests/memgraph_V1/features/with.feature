@@ -1,5 +1,19 @@
 Feature: With
 
+    Scenario: With test 01:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:A), (b:B), (c:C), (d:D), (e:E), (a)-[:R]->(b), (b)-[:R]->(c), (b)-[:R]->(d), (c)-[:R]->(a), (c)-[:R]->(e), (d)-[:R]->(e)
+            """
+        When executing query:
+            """
+            MATCH (:A)--(a)-->() WITH a, COUNT(*) AS n WHERE n > 1 RETURN a
+            """
+        Then the result should be:
+            | a    |
+            | (:B) |
+
     Scenario: With test 02:
         Given an empty graph
         And having executed

@@ -1,53 +1,57 @@
 # Memgraph quality assurance
 
-In order to test dressipi's queries agains memgraph the following commands have
-to be executed:
-    1. ./init [Dxyz] # downloads query implementations + memgraph
-                     # (the auth is manually for now) + optionally user can
-                     # define arcanist diff which will be applied on the
-                     # memgraph source code
-    2. ./run         # compiles and runs database instance, also runs the
-                     # test queries
+Python script used to run quality assurance tests against Memgraph.
+To run the script execute:
 
-TODO: automate further
+```
+source ve3/bin/activate
+./qa.py --help
+./qa.py memgraph_V1
+```
 
-## TCK Engine
+The script requires one positional parameter that specifies which test suite
+should be executed. All available test suites can be found in the `tests/`
+directory.
 
-Python script used to run tck tests against memgraph. To run script execute:
+## openCypher TCK tests
 
-    1. python3 tck_engine/test_executor.py
+The script uses Behave to run Cucumber tests.
 
-Script uses Behave to run Cucumber tests.
+Some gotchas exist when adding openCypher TCK tests to our QA engine:
 
-The following tck tests have been changed:
+ - In some tests example injection did not work. Behave stores the first row in
+   Cucumber tables as headings and the example injection failed to work.  To
+   correct this behavior, one row was added to tables where injection was used.
 
-    1. Tests where example injection did not work. Behave stores the first row
-       in Cucumber tables as headings and the example injection is not working in
-       headings. To correct this behavior, one row was added to tables where
-       injection was used.
+ - Some tests don't have fully defined result ordering. Because the tests rely
+   on result order, some tests fail. If you find a flaky test to ignore output
+   ordering you should change the tag "the result should be" to "the result
+   should be (ignoring element order for lists)".
 
-    2. Tests where the results were not always in the same order. Query does not
-       specify the result order, but tests specified it. It led to the test failure.
-       To correct tests, tag "the result should be" was changed with a
-       tag "the result should be (ignoring element order for lists)".
+ - Behave can't escape character '|' and it throws a parse error. The query was
+   then changed and the result was returned with a different name.
 
-    3. Behave can't escape character '|' and it throws parse error. Query was then
-       changed and result was returned with different name.
+`Comparability.feature` tests are failing because integers are compared to
+strings what is not allowed in openCypher.
 
-Comparability.feature tests are failing because integers are compared to strings
-what is not allowed in openCypher.
+## QA engine issues:
 
-TCK Engine problems:
+Comparing tables with ordering doesn't always work, example:
 
-    1. Comparing tables with ordering.
-         ORDER BY x DESC
-         | x | y |    | x | y |
-         | 3 | 2 |    | 3 | 1 |
-         | 3 | 1 |    | 3 | 2 |
-         | 1 | 4 |    | 1 | 4 |
+```
+ORDER BY x DESC
+| x | y |    | x | y |
+| 3 | 2 |    | 3 | 1 |
+| 3 | 1 |    | 3 | 2 |
+| 1 | 4 |    | 1 | 4 |
+```
 
-    2. Properties side effects
-         | +properties | 1 |
-         | -properties | 1 |
+Side effect aren't tracked or verified, example:
 
-         Database is returning properties_set, not properties_created and properties_deleted.
+```
+| +properties | 1 |
+| -properties | 1 |
+```
+
+This is because Memgraph currently doesn't give out the list of side effects
+that happend on query execution.

@@ -224,3 +224,23 @@ def step(context):
 @then(u'a SyntaxError should be raised at compile time: InvalidUnicodeCharacter')
 def step(context):
     handle_error(context)
+
+
+@then(u'a SyntaxError should be raised at compile time: InvalidArgumentPassingMode')
+def step_impl(context):
+    handle_error(context)
+
+
+@then(u'a SyntaxError should be raised at compile time: InvalidNumberOfArguments')
+def step_impl(context):
+    handle_error(context)
+
+
+@then(u'a ParameterMissing should be raised at compile time: MissingParameter')
+def step_impl(context):
+    handle_error(context)
+
+
+@then(u'a ProcedureError should be raised at compile time: ProcedureNotFound')
+def step_impl(context):
+    handle_error(context)

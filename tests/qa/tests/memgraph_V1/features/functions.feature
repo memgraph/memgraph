@@ -635,6 +635,15 @@ Feature: Functions
             | (:y) | false | true  |
             | (:y) | false | true  |
 
+    Scenario: E test:
+        When executing query:
+            """
+            RETURN E() as n
+            """
+        Then the result should be:
+            | n                   |
+            | 2.718281828459045   |
+
     Scenario: Pi test:
         When executing query:
             """
@@ -786,6 +795,7 @@ Feature: Functions
 
 
     Scenario: CounterSet test:
+        Given an empty graph
         When executing query:
             """
             WITH counter("n") AS zero
@@ -798,7 +808,6 @@ Feature: Functions
             | 42 | 0    | 1   | 0  |
 
     Scenario: Vertex Id test:
-        # 1024 should be a runtime parameter.
         Given an empty graph
         And having executed:
             """

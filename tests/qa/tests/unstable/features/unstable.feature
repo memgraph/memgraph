@@ -1,33 +1,5 @@
 Feature: Unstable
 
-    Scenario: With test 01:
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:A), (b:B), (c:C), (d:D), (e:E), (a)-[:R]->(b), (b)-[:R]->(c), (b)-[:R]->(d), (c)-[:R]->(a), (c)-[:R]->(e), (d)-[:R]->(e)
-            """
-        When executing query:
-            """
-            MATCH (:A)--(a)-->() WITH a, COUNT(*) AS n WHERE n > 1 RETURN a
-            """
-        Then the result should be:
-            | a    |
-            | (:B) |
-
-    Scenario: Count test 06:
-        Given an empty graph
-        And having executed
-            """
-            CREATE (), (), (), (), ()
-            """
-        When executing query:
-            """
-            MATCH (n) RETURN COUNT(*) AS n
-            """
-        Then the result should be:
-            | n |
-            | 5 |
-
     Scenario: Test exponential operator
         When executing query:
             """
@@ -96,12 +68,3 @@ Feature: Unstable
             return n.name
             """
         Then the result should be empty
-
-    Scenario: E test:
-        When executing query:
-            """
-            RETURN E() as n
-            """
-        Then the result should be:
-            | n                   |
-            | 2.718281828459045   |

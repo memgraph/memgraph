@@ -12,121 +12,54 @@ List of responsibilities:
       to post the status on Phabricator. (.quality_assurance_status)
 """
 
+import argparse
+import atexit
+import copy
 import os
 import sys
 import json
-import logging
 import subprocess
+import tempfile
+import time
+import yaml
 
-from argparse import ArgumentParser
 
-log = logging.getLogger(__name__)
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+TESTS_DIR = os.path.join(SCRIPT_DIR, "tests")
+BASE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
+BUILD_DIR = os.path.join(BASE_DIR, "build_release")
 
 
-class Test:
-    """
-    Class used to store basic information about a single
-    test suite
-
-    @attribute name:
-        string, name of the test_suite (must be unique)
-    @attribute test_suite:
-        string, test_suite within tck_engine/tests which contains tck tests
-    @attribute memgraph_params
-        string, any command line arguments that should be passed to
-                memgraph before evaluating tests from this suite
-    @attribute mandatory
-        bool, True if this suite is obligatory for continuous integration
-              to pass
-    """
-
-    def __init__(self, name, test_suite, memgraph_params, mandatory):
-        self.name = name
-        self.test_suite = test_suite
-        self.memgraph_params = memgraph_params
-        self.mandatory = mandatory
-
-# Constants
-suites = [
-    Test(
-        name="memgraph_V1",
-        test_suite="memgraph_V1",
-        memgraph_params="",
-        mandatory=True
-    ),
-    Test(
-        name="memgraph_V1_POD",
-        test_suite="memgraph_V1",
-        memgraph_params="--properties-on-disk=x,y,z,w,k,v,a,b,c,d,e,f,r,t,o,prop,age,name,surname,location",
-        mandatory=True
-    ),
-    Test(
-        name="openCypher_M09",
-        test_suite="openCypher_M09",
-        memgraph_params="",
-        mandatory=False
-    ),
-]
-
-results_folder = os.path.join("tck_engine", "results")
-suite_suffix = "memgraph-{}.json"
-qa_status_path = ".quality_assurance_status"
-measurements_path = ".apollo_measurements"
-
-
-def parse_args():
-    """
-    Parse command line arguments
-    """
-    argp = ArgumentParser(description=__doc__)
-    argp.add_argument("--distributed", action="store_true")
-    return argp.parse_args()
-
-
-def get_newest_path(folder, suffix):
-    """
-    :param folder: Scanned folder.
-    :param suffix: File suffix.
-
-    :return: Path to the newest file in the folder with the specified suffix.
-    """
-    name_list = sorted(filter(lambda x: x.endswith(suffix),
-                       os.listdir(folder)))
-    if len(name_list) <= 0:
-        sys.exit("Unable to find any file with suffix %s in folder %s!" %
-                 (suffix, folder))
-    return os.path.join(folder, name_list.pop())
+def wait_for_server(port, delay=0.01):
+    cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
+    count = 0
+    while subprocess.call(cmd) != 0:
+        time.sleep(0.01)
+        if count > 20 / 0.01:
+            print("Could not wait for server on port", port, "to startup!")
+            sys.exit(1)
+        count += 1
+    time.sleep(delay)
 
 
 def generate_measurements(suite, result_path):
-    """
-    :param suite: Test suite name.
-    :param result_path: File path with json status report.
-
-    :return: Measurements string.
-    """
+    if not os.path.exists(result_path):
+        return ""
     with open(result_path) as f:
         result = json.load(f)
     ret = ""
-    for i in ["total", "passed", "restarts"]:
+    for i in ["total", "passed"]:
         ret += "{}.{} {}\n".format(suite, i, result[i])
     return ret
 
 
-def generate_status(suite, result_path, required=False):
-    """
-    :param suite: Test suite name.
-    :param result_path: File path with json status report.
-    :param required: Adds status ticks to the message if required.
-
-    :return: Status string.
-    """
+def generate_status(suite, result_path, required):
+    if not os.path.exists(result_path):
+        return ("Internal error!", 0, 1)
     with open(result_path) as f:
         result = json.load(f)
     total = result["total"]
     passed = result["passed"]
-    restarts = result["restarts"]
     ratio = passed / total
     msg = "{} / {} //({:.2%})//".format(passed, total, ratio)
     if required:
@@ -134,15 +67,10 @@ def generate_status(suite, result_path, required=False):
             msg += " {icon check color=green}"
         else:
             msg += " {icon times color=red}"
-    return (msg, passed, total, restarts)
+    return (msg, passed, total)
 
 
 def generate_remarkup(data, distributed=False):
-    """
-    :param data: Tabular data to convert to remarkup.
-
-    :return: Remarkup formatted status string.
-    """
     extra_desc = "distributed " if distributed else ""
     ret = "==== Quality assurance {}status: ====\n\n".format(extra_desc)
     ret += "<table>\n"
@@ -159,75 +87,200 @@ def generate_remarkup(data, distributed=False):
     return ret
 
 
-if __name__ == "__main__":
-    args = parse_args()
-    distributed = []
+class MemgraphRunner():
+    def __init__(self, build_directory):
+        self.build_directory = build_directory
+        self.proc_mg = None
+        self.args = []
+
+    def start(self, args):
+        if args == self.args and self.is_running():
+            return
+
+        self.stop()
+        self.args = copy.deepcopy(args)
+
+        self.durability_directory = tempfile.TemporaryDirectory()
+        memgraph_binary = os.path.join(self.build_directory, "memgraph")
+        args_mg = [memgraph_binary, "--durability-directory",
+                   self.durability_directory.name]
+        self.proc_mg = subprocess.Popen(args_mg + self.args)
+        wait_for_server(7687, 1)
+        assert self.is_running(), "The Memgraph process died!"
+
+    def is_running(self):
+        if self.proc_mg is None:
+            return False
+        if self.proc_mg.poll() is not None:
+            return False
+        return True
+
+    def stop(self):
+        if not self.is_running():
+            return
+        self.proc_mg.terminate()
+        code = self.proc_mg.wait()
+        assert code == 0, "The Memgraph process exited with non-zero!"
+
+
+class MemgraphDistributedRunner():
+    def __init__(self, build_directory, cluster_size):
+        self.build_directory = build_directory
+        self.cluster_size = cluster_size
+        self.procs = []
+        self.durability_directories = []
+        self.args = []
+
+    def start(self, args):
+        if args == self.args and self.is_running():
+            return
+
+        self.stop()
+        self.args = copy.deepcopy(args)
+
+        memgraph_binary = os.path.join(self.build_directory,
+                                       "memgraph_distributed")
+
+        self.procs = []
+        self.durability_directories = []
+        for i in range(self.cluster_size):
+            durability_directory = tempfile.TemporaryDirectory()
+            self.durability_directories.append(durability_directory)
+
+            args_mg = [memgraph_binary]
+            if i == 0:
+                args_mg.extend(["--master", "--master-port", "10000"])
+            else:
+                args_mg.extend(["--worker", "--worker-id", str(i),
+                                "--worker-port", str(10000 + i),
+                                "--master-port", "10000"])
+            args_mg.extend(["--durability-directory",
+                            durability_directory.name])
+
+            proc_mg = subprocess.Popen(args_mg + self.args)
+            self.procs.append(proc_mg)
+
+            wait_for_server(10000 + i, 1)
+
+        wait_for_server(7687, 1)
+        assert self.is_running(), "The Memgraph cluster died!"
+
+    def is_running(self):
+        if len(self.procs) == 0:
+            return False
+        for i, proc in enumerate(self.procs):
+            code = proc.poll()
+            if code is not None:
+                if code != 0:
+                    print("Memgraph node", i, "exited with non-zero!")
+                return False
+        return True
+
+    def stop(self):
+        if len(self.procs) == 0:
+            return
+        self.procs[0].terminate()
+        died = False
+        for i, proc in enumerate(self.procs):
+            code = proc.wait()
+            if code != 0:
+                print("Memgraph node", i, "exited with non-zero!")
+                died = True
+        assert not died, "The Memgraph cluster died!"
+
+
+def main():
+    # Parse args
+    argp = argparse.ArgumentParser()
+    argp.add_argument("--build-directory", default=BUILD_DIR)
+    argp.add_argument("--cluster-size", default=3, type=int)
+    argp.add_argument("--distributed", action="store_true")
+    args = argp.parse_args()
+
+    # Load tests from config file
+    with open(os.path.join(TESTS_DIR, "config.yaml")) as f:
+        suites = yaml.load(f)
+
     # Tests are not mandatory for distributed
     if args.distributed:
-        distributed = ["--distributed"]
         for suite in suites:
-            suite.mandatory = False
+            suite["must_pass"] = False
 
-    # Logger config
-    logging.basicConfig(level=logging.INFO)
-
+    # venv used to run the qa engine
     venv_python = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
-    exec_dir = os.path.realpath(os.path.join(SCRIPT_DIR, "tck_engine"))
-    tests_dir = os.path.realpath(os.path.join(exec_dir, "tests"))
-    # Run suites
-    for suite in suites:
-        log.info("Starting suite '{}' scenarios.".format(suite.name))
-        test = os.path.realpath(os.path.join(tests_dir, suite.test_suite))
-        cmd = [venv_python, "-u",
-               os.path.join(exec_dir, "test_executor.py"),
-               "--root", test,
-               "--test-name", "{}".format(suite.name),
-               "--db", "memgraph",
-               "--memgraph-params",
-               "\"{}\"".format(suite.memgraph_params)] + distributed
-        subprocess.run(cmd, check=False)
 
-    # Measurements
+    # Temporary directory for suite results
+    output_dir = tempfile.TemporaryDirectory()
+
+    # Memgraph runner
+    if args.distributed:
+        memgraph = MemgraphDistributedRunner(args.build_directory,
+                                             args.cluster_size)
+    else:
+        memgraph = MemgraphRunner(args.build_directory)
+
+    @atexit.register
+    def cleanup():
+        memgraph.stop()
+
+    # Results storage
     measurements = ""
-
-    # Status table headers
-    status_data = [["Suite", "Scenarios", "Restarts"]]
-
-    # List of mandatory suites that have failed
+    status_data = [["Suite", "Scenarios"]]
     mandatory_fails = []
 
+    # Run suites
     for suite in suites:
-        # Get data files for test suite
-        suite_result_path = get_newest_path(results_folder,
-                                            suite_suffix.format(suite.name))
-        log.info("Memgraph result path is {}".format(suite_result_path))
+        print("Starting suite '{}' scenarios.".format(suite["name"]))
 
-        # Read scenarios
-        suite_status, suite_passed, suite_total, suite_restarts = \
-            generate_status(suite.name, suite_result_path,
-                            required=suite.mandatory)
+        params = []
+        if "properties_on_disk" in suite:
+            params = ["--properties-on-disk=" + suite["properties_on_disk"]]
+        memgraph.start(params)
 
-        if suite.mandatory and suite_passed != suite_total or \
-                not args.distributed and suite_restarts > 0:
-            mandatory_fails.append(suite.name)
+        suite["stats_file"] = os.path.join(output_dir.name,
+                                           suite["name"] + ".json")
+        cmd = [venv_python, "-u",
+               os.path.join(SCRIPT_DIR, "qa.py"),
+               "--stats-file", suite["stats_file"],
+               suite["test_suite"]]
 
-        status_data.append([suite.name, suite_status, suite_restarts])
-        measurements += generate_measurements(suite.name, suite_result_path)
+        # The exit code isn't checked here because the `behave` framework
+        # returns a non-zero exit code when some tests fail.
+        subprocess.run(cmd)
+
+        suite_status, suite_passed, suite_total = \
+            generate_status(suite["name"], suite["stats_file"],
+                            suite["must_pass"])
+
+        status_data.append([suite["name"], suite_status])
+        measurements += generate_measurements(suite["name"],
+                                              suite["stats_file"])
+
+        if suite["must_pass"] and suite_passed != suite_total:
+            mandatory_fails.append(suite["name"])
+            break
 
     # Create status message
     qa_status_message = generate_remarkup(status_data, args.distributed)
 
     # Create the report file
+    qa_status_path = os.path.join(SCRIPT_DIR, ".quality_assurance_status")
     with open(qa_status_path, "w") as f:
         f.write(qa_status_message)
 
     # Create the measurements file
+    measurements_path = os.path.join(SCRIPT_DIR, ".apollo_measurements")
     with open(measurements_path, "w") as f:
         f.write(measurements)
 
-    log.info("Status is generated in %s" % qa_status_path)
-    log.info("Measurements are generated in %s" % measurements_path)
+    print("Status is generated in %s" % qa_status_path)
+    print("Measurements are generated in %s" % measurements_path)
 
+    # Check if tests failed
     if mandatory_fails != []:
-        sys.exit("Some mandatory tests have failed -- %s"
+        sys.exit("Some tests that must pass have failed -- %s"
                  % str(mandatory_fails))
+
+
+if __name__ == "__main__":
+    main()

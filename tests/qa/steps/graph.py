@@ -15,13 +15,11 @@ def clear_graph(context):
 @given('an empty graph')
 def empty_graph_step(context):
     clear_graph(context)
-    context.graph_properties.set_beginning_parameters()
 
 
 @given('any graph')
 def any_graph_step(context):
     clear_graph(context)
-    context.graph_properties.set_beginning_parameters()
 
 
 @given('graph "{name}"')
@@ -37,7 +35,8 @@ def create_graph(name, context):
     and sets graph properties to beginning values.
     """
     clear_graph(context)
-    path = find_graph_path(name, context.config.root)
+    path = os.path.join(context.config.test_directory, "graphs",
+                        name + ".cypher")
 
     q_marks = ["'", '"', '`']
 
@@ -64,15 +63,3 @@ def create_graph(name, context):
                 i += 1
         if single_query.strip() != '':
             database.query(single_query, context)
-    context.graph_properties.set_beginning_parameters()
-
-
-def find_graph_path(name, path):
-    """
-    Function returns path to .cypher file with given name in
-    given folder or subfolders. Argument path is path to a given
-    folder.
-    """
-    for root, dirs, files in os.walk(path):
-        if name + '.cypher' in files:
-            return root + '/' + name + '.cypher'

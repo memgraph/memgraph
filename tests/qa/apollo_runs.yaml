@@ -2,8 +2,7 @@
   commands: TIMEOUT=300 ./continuous_integration
   infiles:
     - . # current directory
-    - ../../build_debug/memgraph # memgraph debug binary
-    - ../../config # directory with config files
+    - ../../build_release/memgraph # memgraph release binary
   outfile_paths: &OUTFILE_PATHS
     - \./memgraph/tests/qa/\.quality_assurance_status
 
@@ -11,6 +10,5 @@
   commands: TIMEOUT=300 ./continuous_integration --distributed
   infiles:
     - . # current directory
-    - ../../build_debug/memgraph_distributed # memgraph distributed debug binary
-    - ../../config # directory with config files
+    - ../../build_release/memgraph_distributed # memgraph distributed release binary
   outfile_paths: *OUTFILE_PATHS

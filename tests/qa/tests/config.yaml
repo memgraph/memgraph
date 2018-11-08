@@ -1,0 +1,12 @@
+- name: memgraph_V1
+  test_suite: memgraph_V1
+  must_pass: true
+
+- name: memgraph_V1_POD
+  test_suite: memgraph_V1
+  properties_on_disk: "x,y,z,w,k,v,a,b,c,d,e,f,r,t,o,prop,age,name,surname,location"
+  must_pass: true
+
+- name: openCypher_M09
+  test_suite: openCypher_M09
+  must_pass: false
