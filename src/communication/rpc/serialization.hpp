@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "communication/rpc/streams.hpp"
+#include "utils/exceptions.hpp"
 
 // The namespace name stands for SaveLoadKit. It should be not mistaken for the
 // Mercedes car model line.
@@ -26,6 +27,13 @@ static_assert(std::experimental::is_same_v<std::uint8_t, char> ||
                   std::experimental::is_same_v<std::uint8_t, unsigned char>,
               "The slk library requires uint8_t to be implemented as char or "
               "unsigned char.");
+
+/// Exception that will be thrown if an object can't be decoded from the byte
+/// stream.
+class SlkDecodeException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+};
 
 // Forward declarations for all recursive `Save` and `Load` functions must be
 // here because C++ doesn't know how to resolve the function call if it isn't in
@@ -320,8 +328,11 @@ inline void Load(std::shared_ptr<T> *obj, Reader *reader,
     } else {
       uint64_t index = 0;
       Load(&index, reader);
-      // TODO: handle if index doesn't exist!
-      *obj = (*loaded)[index];
+      if (index < loaded->size()) {
+        *obj = (*loaded)[index];
+      } else {
+        throw SlkDecodeException("Couldn't load shared pointer!");
+      }
     }
   } else {
     *obj = nullptr;

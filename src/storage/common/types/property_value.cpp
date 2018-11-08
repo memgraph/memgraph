@@ -152,53 +152,6 @@ PropertyValue::PropertyValue(PropertyValue &&other) : type_(other.type_) {
   }
 }
 
-std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type) {
-  switch (type) {
-    case PropertyValue::Type::Null:
-      return os << "null";
-    case PropertyValue::Type::Bool:
-      return os << "bool";
-    case PropertyValue::Type::String:
-      return os << "string";
-    case PropertyValue::Type::Int:
-      return os << "int";
-    case PropertyValue::Type::Double:
-      return os << "double";
-    case PropertyValue::Type::List:
-      return os << "list";
-    case PropertyValue::Type::Map:
-      return os << "map";
-  }
-}
-
-std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
-  switch (value.type_) {
-    case PropertyValue::Type::Null:
-      return os << "Null";
-    case PropertyValue::Type::Bool:
-      return os << (value.Value<bool>() ? "true" : "false");
-    case PropertyValue::Type::String:
-      return os << value.Value<std::string>();
-    case PropertyValue::Type::Int:
-      return os << value.Value<int64_t>();
-    case PropertyValue::Type::Double:
-      return os << value.Value<double>();
-    case PropertyValue::Type::List:
-      os << "[";
-      for (const auto &x : value.Value<std::vector<PropertyValue>>()) {
-        os << x << ",";
-      }
-      return os << "]";
-    case PropertyValue::Type::Map:
-      os << "{";
-      for (const auto &kv :
-           value.Value<std::map<std::string, PropertyValue>>()) {
-        os << kv.first << ": " << kv.second << ",";
-      }
-      return os << "}";
-  }
-}
-
 PropertyValue &PropertyValue::operator=(const PropertyValue &other) {
   if (this != &other) {
     DestroyValue();
@@ -294,3 +247,72 @@ void PropertyValue::DestroyValue() {
 }
 
 PropertyValue::~PropertyValue() { DestroyValue(); }
+
+std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type) {
+  switch (type) {
+    case PropertyValue::Type::Null:
+      return os << "null";
+    case PropertyValue::Type::Bool:
+      return os << "bool";
+    case PropertyValue::Type::String:
+      return os << "string";
+    case PropertyValue::Type::Int:
+      return os << "int";
+    case PropertyValue::Type::Double:
+      return os << "double";
+    case PropertyValue::Type::List:
+      return os << "list";
+    case PropertyValue::Type::Map:
+      return os << "map";
+  }
+}
+
+std::ostream &operator<<(std::ostream &os, const PropertyValue &value) {
+  switch (value.type()) {
+    case PropertyValue::Type::Null:
+      return os << "Null";
+    case PropertyValue::Type::Bool:
+      return os << (value.Value<bool>() ? "true" : "false");
+    case PropertyValue::Type::String:
+      return os << value.Value<std::string>();
+    case PropertyValue::Type::Int:
+      return os << value.Value<int64_t>();
+    case PropertyValue::Type::Double:
+      return os << value.Value<double>();
+    case PropertyValue::Type::List:
+      os << "[";
+      for (const auto &x : value.Value<std::vector<PropertyValue>>()) {
+        os << x << ",";
+      }
+      return os << "]";
+    case PropertyValue::Type::Map:
+      os << "{";
+      for (const auto &kv :
+           value.Value<std::map<std::string, PropertyValue>>()) {
+        os << kv.first << ": " << kv.second << ",";
+      }
+      return os << "}";
+  }
+}
+
+bool operator==(const PropertyValue &first, const PropertyValue &second) {
+  if (first.type() != second.type()) return false;
+  switch (first.type()) {
+    case PropertyValue::Type::Null:
+      return true;
+    case PropertyValue::Type::Bool:
+      return first.Value<bool>() == second.Value<bool>();
+    case PropertyValue::Type::Int:
+      return first.Value<int64_t>() == second.Value<int64_t>();
+    case PropertyValue::Type::Double:
+      return first.Value<double>() == second.Value<double>();
+    case PropertyValue::Type::String:
+      return first.Value<std::string>() == second.Value<std::string>();
+    case PropertyValue::Type::List:
+      return first.Value<std::vector<PropertyValue>>() ==
+             second.Value<std::vector<PropertyValue>>();
+    case PropertyValue::Type::Map:
+      return first.Value<std::map<std::string, PropertyValue>>() ==
+             second.Value<std::map<std::string, PropertyValue>>();
+  }
+}

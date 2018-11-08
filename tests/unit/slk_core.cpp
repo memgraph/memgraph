@@ -15,7 +15,7 @@
     ASSERT_EQ(original, decoded);                                            \
   }
 
-TEST(CustomSerialization, Primitive) {
+TEST(SlkCore, Primitive) {
   CREATE_PRIMITIVE_TEST(bool, true, false);
   CREATE_PRIMITIVE_TEST(int8_t, 0x12, 0);
   CREATE_PRIMITIVE_TEST(uint8_t, 0x12, 0);
@@ -29,7 +29,7 @@ TEST(CustomSerialization, Primitive) {
   CREATE_PRIMITIVE_TEST(double, 1234567890.1234567890, 0);
 }
 
-TEST(CustomSerialization, String) {
+TEST(SlkCore, String) {
   std::string original = "hello world";
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -40,7 +40,7 @@ TEST(CustomSerialization, String) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, VectorPrimitive) {
+TEST(SlkCore, VectorPrimitive) {
   std::vector<int> original{1, 2, 3, 4, 5};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -51,7 +51,7 @@ TEST(CustomSerialization, VectorPrimitive) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, VectorString) {
+TEST(SlkCore, VectorString) {
   std::vector<std::string> original{"hai hai hai", "nandare!"};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -66,7 +66,7 @@ TEST(CustomSerialization, VectorString) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, SetPrimitive) {
+TEST(SlkCore, SetPrimitive) {
   std::set<int> original{1, 2, 3, 4, 5};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -77,7 +77,7 @@ TEST(CustomSerialization, SetPrimitive) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, SetString) {
+TEST(SlkCore, SetString) {
   std::set<std::string> original{"hai hai hai", "nandare!"};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -92,7 +92,7 @@ TEST(CustomSerialization, SetString) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, MapPrimitive) {
+TEST(SlkCore, MapPrimitive) {
   std::map<int, int> original{{1, 2}, {3, 4}, {5, 6}};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -104,7 +104,7 @@ TEST(CustomSerialization, MapPrimitive) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, MapString) {
+TEST(SlkCore, MapString) {
   std::map<std::string, std::string> original{{"hai hai hai", "nandare!"}};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -120,7 +120,7 @@ TEST(CustomSerialization, MapString) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, UnorderedMapPrimitive) {
+TEST(SlkCore, UnorderedMapPrimitive) {
   std::unordered_map<int, int> original{{1, 2}, {3, 4}, {5, 6}};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -132,7 +132,7 @@ TEST(CustomSerialization, UnorderedMapPrimitive) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, UnorderedMapString) {
+TEST(SlkCore, UnorderedMapString) {
   std::unordered_map<std::string, std::string> original{
       {"hai hai hai", "nandare!"}};
   slk::Builder builder;
@@ -149,7 +149,7 @@ TEST(CustomSerialization, UnorderedMapString) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, UniquePtrEmpty) {
+TEST(SlkCore, UniquePtrEmpty) {
   std::unique_ptr<std::string> original;
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -162,7 +162,7 @@ TEST(CustomSerialization, UniquePtrEmpty) {
   ASSERT_EQ(decoded.get(), nullptr);
 }
 
-TEST(CustomSerialization, UniquePtrFull) {
+TEST(SlkCore, UniquePtrFull) {
   std::unique_ptr<std::string> original =
       std::make_unique<std::string>("nandare!");
   slk::Builder builder;
@@ -177,7 +177,7 @@ TEST(CustomSerialization, UniquePtrFull) {
   ASSERT_EQ(*original.get(), *decoded.get());
 }
 
-TEST(CustomSerialization, OptionalPrimitiveEmpty) {
+TEST(SlkCore, OptionalPrimitiveEmpty) {
   std::experimental::optional<int> original;
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -189,7 +189,7 @@ TEST(CustomSerialization, OptionalPrimitiveEmpty) {
   ASSERT_EQ(decoded, std::experimental::nullopt);
 }
 
-TEST(CustomSerialization, OptionalPrimitiveFull) {
+TEST(SlkCore, OptionalPrimitiveFull) {
   std::experimental::optional<int> original = 5;
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -202,7 +202,7 @@ TEST(CustomSerialization, OptionalPrimitiveFull) {
   ASSERT_EQ(*original, *decoded);
 }
 
-TEST(CustomSerialization, OptionalStringEmpty) {
+TEST(SlkCore, OptionalStringEmpty) {
   std::experimental::optional<std::string> original;
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -214,7 +214,7 @@ TEST(CustomSerialization, OptionalStringEmpty) {
   ASSERT_EQ(decoded, std::experimental::nullopt);
 }
 
-TEST(CustomSerialization, OptionalStringFull) {
+TEST(SlkCore, OptionalStringFull) {
   std::experimental::optional<std::string> original = "nandare!";
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -227,7 +227,7 @@ TEST(CustomSerialization, OptionalStringFull) {
   ASSERT_EQ(*original, *decoded);
 }
 
-TEST(CustomSerialization, Pair) {
+TEST(SlkCore, Pair) {
   std::pair<std::string, int> original{"nandare!", 5};
   slk::Builder builder;
   slk::Save(original, &builder);
@@ -239,7 +239,7 @@ TEST(CustomSerialization, Pair) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, SharedPtrEmpty) {
+TEST(SlkCore, SharedPtrEmpty) {
   std::shared_ptr<std::string> original;
   std::vector<std::string *> saved;
   slk::Builder builder;
@@ -256,7 +256,7 @@ TEST(CustomSerialization, SharedPtrEmpty) {
   ASSERT_EQ(loaded.size(), 0);
 }
 
-TEST(CustomSerialization, SharedPtrFull) {
+TEST(SlkCore, SharedPtrFull) {
   std::shared_ptr<std::string> original =
       std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;
@@ -275,7 +275,7 @@ TEST(CustomSerialization, SharedPtrFull) {
   ASSERT_EQ(loaded.size(), 1);
 }
 
-TEST(CustomSerialization, SharedPtrMultiple) {
+TEST(SlkCore, SharedPtrMultiple) {
   std::shared_ptr<std::string> ptr1 = std::make_shared<std::string>("nandare!");
   std::shared_ptr<std::string> ptr2;
   std::shared_ptr<std::string> ptr3 =
@@ -328,7 +328,7 @@ TEST(CustomSerialization, SharedPtrMultiple) {
   ASSERT_EQ(dec5.get(), dec3.get());
 }
 
-TEST(CustomSerialization, Complex) {
+TEST(SlkCore, Complex) {
   std::unique_ptr<std::vector<std::experimental::optional<std::string>>>
       original = std::make_unique<
           std::vector<std::experimental::optional<std::string>>>();
@@ -378,7 +378,7 @@ void Load(Foo *obj, Reader *reader) {
 }
 }  // namespace slk
 
-TEST(CustomSerialization, VectorStruct) {
+TEST(SlkCore, VectorStruct) {
   std::vector<Foo> original;
   original.push_back({"hai hai hai", 5});
   original.push_back({"nandare!", std::experimental::nullopt});
@@ -399,7 +399,7 @@ TEST(CustomSerialization, VectorStruct) {
   ASSERT_EQ(original, decoded);
 }
 
-TEST(CustomSerialization, VectorSharedPtr) {
+TEST(SlkCore, VectorSharedPtr) {
   std::shared_ptr<std::string> ptr1 = std::make_shared<std::string>("nandare!");
   std::shared_ptr<std::string> ptr2;
   std::shared_ptr<std::string> ptr3 =
@@ -445,7 +445,7 @@ TEST(CustomSerialization, VectorSharedPtr) {
   ASSERT_EQ(decoded[4].get(), decoded[2].get());
 }
 
-TEST(CustomSerialization, OptionalSharedPtr) {
+TEST(SlkCore, OptionalSharedPtr) {
   std::experimental::optional<std::shared_ptr<std::string>> original =
       std::make_shared<std::string>("nandare!");
   std::vector<std::string *> saved;

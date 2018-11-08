@@ -37,10 +37,6 @@ target_link_libraries(${test_prefix}concurrent_map mg-single-node kvstore_dummy_
 add_unit_test(counters.cpp)
 target_link_libraries(${test_prefix}counters mg-distributed kvstore_dummy_lib)
 
-# TODO (mferencevic): remove glog and gflags
-add_unit_test(custom_serialization.cpp)
-target_link_libraries(${test_prefix}custom_serialization glog gflags)
-
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-single-node kvstore_dummy_lib)
 
@@ -218,6 +214,13 @@ target_link_libraries(${test_prefix}skiplist_reverse_iteration mg-single-node kv
 
 add_unit_test(skiplist_suffix.cpp)
 target_link_libraries(${test_prefix}skiplist_suffix mg-single-node kvstore_dummy_lib)
+
+add_unit_test(slk_advanced.cpp)
+target_link_libraries(${test_prefix}slk_advanced mg-single-node kvstore_dummy_lib)
+
+# TODO (mferencevic): remove glog, gflags and mg-single-node
+add_unit_test(slk_core.cpp)
+target_link_libraries(${test_prefix}slk_core glog gflags)
 
 add_unit_test(state_delta.cpp)
 target_link_libraries(${test_prefix}state_delta mg-single-node kvstore_dummy_lib)

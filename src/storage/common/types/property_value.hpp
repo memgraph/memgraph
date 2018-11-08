@@ -91,9 +91,6 @@ class PropertyValue {
   template <typename T>
   T &Value();
 
-  friend std::ostream &operator<<(std::ostream &stream,
-                                  const PropertyValue &prop);
-
  private:
   void DestroyValue();
 
@@ -127,3 +124,7 @@ class PropertyValueException : public utils::StacktraceException {
 
 // stream output
 std::ostream &operator<<(std::ostream &os, const PropertyValue::Type type);
+std::ostream &operator<<(std::ostream &os, const PropertyValue &value);
+
+// comparison
+bool operator==(const PropertyValue &first, const PropertyValue &second);
