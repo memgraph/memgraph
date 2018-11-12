@@ -51,8 +51,8 @@ As you might have guessed, analyzing each subtle detail of Raft goes way
 beyond the scope of this document. In the remainder of the chapter we will
 outline only the most important ideas and implications, leaving all further
 analysis to the reader. Detailed explanation can be found either in Diego's
-[dissertation](https://ramcloud.stanford.edu/~ongaro/thesis.pdf) or the
-Raft [paper](https://raft.github.io/raft.pdf).
+[dissertation](https://ramcloud.stanford.edu/~ongaro/thesis.pdf) \[1\] or the
+Raft [paper](https://raft.github.io/raft.pdf) \[2\].
 
 In essence, Raft allows us to implement the previously mentioned idea of
 managing a cluster of machines with identical internal states. In other
@@ -84,7 +84,7 @@ to the state machine. We have therefore decided that the appropriate level
 of abstraction within Memgraph corresponds to `StateDelta`-s (data structures
 which describe a single change to the Memgraph state, used for durability
 in WAL). Moreover, a single instruction in a replicated log will consist of a
-batch of `StateDelta`s which correspond to a single **commited** transaction.
+batch of `StateDelta`s which correspond to a single **committed** transaction.
 This decision both improves performance and handles some special cases that
 present themselves otherwise by leveraging the knowledge that the transaction
 should be committed.
@@ -119,13 +119,13 @@ the following scenario:
 
   * The leader starts working on a transaction which creates a new record in the
     database. Suppose that record is stored in the leader's internal storage
-    but the transaction was not commited (i.e. no such entry in the commit log).
+    but the transaction was not committed (i.e. no such entry in the commit log).
   * The leader should start replicating those `StateDelta`s to its followers
     but, suddenly, it's cut off from the rest of the cluster.
   * Due to timeout, a new election is held and a new leader has been elected.
   * Our old leader comes back to life and becomes a follower.
   * The new leader receives a transaction which creates that same record, but
-    this transaction is successfully replicated and commited by the new leader.
+    this transaction is successfully replicated and committed by the new leader.
 
 The problem lies in the fact that there is still a record within the internal
 storage of our old leader with the same transaction ID and GID as the recently
@@ -179,6 +179,34 @@ There will also be the whole 'integration with Jepsen tests' thing going on.
 
 Answer for analytics: I'm astonished you've read this article. Wanna join
 storage?
+
+### Subtlety Regarding Reads
+
+As we have hinted in the previous chapter, we would like to bypass log
+replication for operations which do not alter the internal state of Memgraph.
+Those operations should therefore be handled only by the leader, which is not
+as trivial as it seems. The subtlety arises from the fact that a (newly-elected)
+leader can have an entry in its log which was committed by the previous leader
+that has crashed but that entry is not yet committed in its internal storage
+by the current leader. Moreover, the rule about safely committing logs that are
+replicated on the majority of the cluster only applies for entries replicated in
+the leaders current term. Therefore, we are faced with two issues:
+
+  * We cannot simply perform read operations if the leader has a non-committed
+    entry in its log (breaks consistency).
+  * Replicating those entries onto the majority of the cluster is not enough
+    to guarantee that they can be safely committed.
+
+This can be solved by introducing a blank no-op operation which the new leader
+will try to replicate at the start of its term. Once that operation is
+replicated and committed, the leader can safely perform those non-altering
+operations on its own.
+
+For further information about these issues, you should check out section
+5.4.2 from the raft paper \[1\] which hints as to why its not safe to commit
+entries from previous terms. Also, you should check out section 6.4 from
+the thesis \[2\] which goes into more details around efficiently processing
+read-only queries.
 
 ## How do we test HA
 
