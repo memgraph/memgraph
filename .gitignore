@@ -85,6 +85,10 @@ src/durability/single_node_ha/state_delta.hpp
 src/query/plan/distributed_ops.capnp
 src/query/plan/distributed_ops.hpp
 src/query/plan/operator.hpp
+src/raft/log_entry.capnp
+src/raft/log_entry.hpp
+src/raft/raft_rpc_messages.capnp
+src/raft/raft_rpc_messages.hpp
 src/stats/stats_rpc_messages.capnp
 src/stats/stats_rpc_messages.hpp
 src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp

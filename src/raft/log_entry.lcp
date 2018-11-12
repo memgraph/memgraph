@@ -1,0 +1,19 @@
+#>cpp
+#pragma once
+
+#include "database/single_node_ha/serialization.hpp"
+#include "durability/single_node_ha/state_delta.hpp"
+#include "raft/log_entry.capnp.h"
+cpp<#
+
+(lcp:namespace raft)
+
+(lcp:capnp-namespace "raft")
+
+(lcp:capnp-import 'database "/database/single_node_ha/serialization.capnp")
+
+(lcp:define-struct log-entry ()
+  ((deltas "std::vector<database::StateDelta>" :capnp-type "List(Database.StateDelta)"))
+  (:serialize :capnp))
+
+(lcp:pop-namespace) ;; raft

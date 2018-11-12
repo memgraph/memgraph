@@ -291,6 +291,10 @@ add_lcp_single_node_ha(database/single_node_ha/serialization.lcp CAPNP_SCHEMA @0
 add_capnp_single_node_ha(database/single_node_ha/serialization.capnp)
 add_lcp_single_node_ha(query/frontend/ast/ast.lcp)
 add_lcp_single_node_ha(query/plan/operator.lcp)
+add_lcp_single_node_ha(raft/raft_rpc_messages.lcp CAPNP_SCHEMA @0xa6c29b4287233b66)
+add_capnp_single_node_ha(raft/raft_rpc_messages.capnp)
+add_lcp_single_node_ha(raft/log_entry.lcp CAPNP_SCHEMA @0x96c07fe13850c22a)
+add_capnp_single_node_ha(raft/log_entry.capnp)
 
 add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_single_node_ha_files})
 
