@@ -64,6 +64,7 @@ BENCHMARK_DEFINE_F(SymbolVectorFixture, CapnpSerial)(benchmark::State &state) {
   while (state.KeepRunning()) {
     SerializeCapnpSymbolVector(symbols_);
   }
+  state.SetItemsProcessed(state.iterations());
 }
 
 BENCHMARK_DEFINE_F(SymbolVectorFixture, CapnpDeserial)
@@ -83,6 +84,7 @@ BENCHMARK_DEFINE_F(SymbolVectorFixture, CapnpDeserial)
                            sym.getTokenPosition());
     }
   }
+  state.SetItemsProcessed(state.iterations());
 }
 
 BENCHMARK_REGISTER_F(SymbolVectorFixture, CapnpSerial)
@@ -178,19 +180,19 @@ BENCHMARK_DEFINE_F(SymbolVectorFixture, CustomSerial)(benchmark::State &state) {
     slk::Builder builder;
     SymbolVectorToCustom(symbols_, &builder);
   }
+  state.SetItemsProcessed(state.iterations());
 }
 
 BENCHMARK_DEFINE_F(SymbolVectorFixture, CustomDeserial)
 (benchmark::State &state) {
+  slk::Builder builder;
+  SymbolVectorToCustom(symbols_, &builder);
   while (state.KeepRunning()) {
-    state.PauseTiming();
-    slk::Builder builder;
-    SymbolVectorToCustom(symbols_, &builder);
-    state.ResumeTiming();
     slk::Reader reader(builder.data(), builder.size());
     std::vector<query::Symbol> symbols;
     CustomToSymbolVector(&symbols, &reader);
   }
+  state.SetItemsProcessed(state.iterations());
 }
 
 BENCHMARK_REGISTER_F(SymbolVectorFixture, CustomSerial)
