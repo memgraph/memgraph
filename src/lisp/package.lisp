@@ -18,3 +18,9 @@
            #:capnp-save-enum
            #:capnp-load-enum
            #:process-file))
+
+(defpackage #:lcp.slk
+  (:use #:cl)
+  (:export #:save-function-declaration-for-class
+           #:save-function-definition-for-class
+           #:slk-error))

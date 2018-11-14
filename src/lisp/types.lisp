@@ -125,6 +125,9 @@
   ;; TODO: Support giving a name for reader function.
   (reader nil :type boolean :read-only t)
   (documentation nil :type (or null string) :read-only t)
+  ;; If T, skips this member in serialization code generation.  The member may
+  ;; still be deserialized with custom load hook.
+  (dont-save nil :type boolean :read-only t)
   ;; CAPNP-TYPE may be a string specifying the type, or a list of
   ;; (member-symbol "capnp-type") specifying a union type.
   (capnp-type nil :type (or null string list) :read-only t)
@@ -132,7 +135,11 @@
   ;; Custom saving and loading code. May be a function which takes 2
   ;; args: (builder-or-reader member-name) and needs to return C++ code.
   (capnp-save nil :type (or null function (eql :dont-save)) :read-only t)
-  (capnp-load nil :type (or null function) :read-only t))
+  (capnp-load nil :type (or null function) :read-only t)
+  ;; May be a function which takes 1 argument, member-name.  It needs to
+  ;; return C++ code.
+  (slk-save nil :type (or null function) :read-only t)
+  (slk-load nil :type (or null function) :read-only t))
 
 (defstruct capnp-opts
   "Cap'n Proto serialization options for C++ class."
@@ -172,6 +179,10 @@
 
 (defvar *cpp-classes* nil "List of defined classes from LCP file")
 (defvar *cpp-enums* nil "List of defined enums from LCP file")
+
+(defun cpp-class-members-for-save (cpp-class)
+  (check-type cpp-class cpp-class)
+  (remove-if #'cpp-member-dont-save (cpp-class-members cpp-class)))
 
 (defun make-cpp-primitive-type (name)
   "Create an instance of CPP-PRIMITIVE-TYPE given the arguments."

@@ -137,3 +137,147 @@
   (subtest "arrays"
     (different-parse-test "char (*)[]" "char (*) []")
     (different-parse-test "char (*)[4]" "char (*) [4]")))
+
+(defun clang-format (cpp-string)
+  (with-input-from-string (s cpp-string)
+    (string-left-trim
+     '(#\Newline)
+     (uiop:run-program "clang-format -style=file" :input s :output '(:string :stripped t)))))
+
+(defun is-generated (got expected)
+  (is (clang-format got) (clang-format expected) :test #'string=))
+
+(defun undefine-cpp-types ()
+  (setf lcp::*cpp-classes* nil)
+  (setf lcp::*cpp-enums* nil))
+
+(deftest "slk"
+  (subtest "function declarations"
+    (undefine-cpp-types)
+    (is-generated (lcp.slk:save-function-declaration-for-class
+                   (lcp:define-struct test-struct ()
+                     ()))
+                  "void Save(const TestStruct &self, slk::Builder *builder)")
+    (undefine-cpp-types)
+    (is-generated (lcp.slk:save-function-declaration-for-class
+                   (lcp:define-class derived (base)
+                     ()))
+                  "void Save(const Derived &self, slk::Builder *builder)")
+    (undefine-cpp-types)
+    (is-error (lcp.slk:save-function-declaration-for-class
+               (lcp:define-class derived (fst-base snd-base)
+                 ()))
+              'lcp.slk:slk-error)
+    (undefine-cpp-types)
+    (is-error (lcp.slk:save-function-declaration-for-class
+               (lcp:define-class (derived t-param) (base)
+                 ()))
+              'lcp.slk:slk-error)
+    (undefine-cpp-types)
+    (is-error (lcp.slk:save-function-declaration-for-class
+               (lcp:define-struct (test-struct fst-param snd-param) ()
+                 ()))
+              'lcp.slk:slk-error)
+    (undefine-cpp-types))
+
+  (subtest "save definitions"
+    (undefine-cpp-types)
+    (is-generated (lcp.slk:save-function-definition-for-class
+                   (lcp:define-struct test-struct ()
+                     ((int-member :int64_t)
+                      (vec-member "std::vector<SomeType>"))))
+                  "void Save(const TestStruct &self, slk::Builder *builder) {
+                     slk::Save(self.int_member, builder);
+                     slk::Save(self.vec_member, builder);
+                   }")
+    (undefine-cpp-types)
+    (is-generated (lcp.slk:save-function-definition-for-class
+                   (lcp:define-struct test-struct ()
+                     ((skip-member :int64_t :dont-save t))))
+                  "void Save(const TestStruct &self, slk::Builder *builder) {}")
+    (undefine-cpp-types)
+    (is-generated (lcp.slk:save-function-definition-for-class
+                   (lcp:define-struct test-struct ()
+                     ((custom-member "SomeType"
+                                     :slk-save (lambda (member-name)
+                                                 (check-type member-name string)
+                                                 (format nil "self.~A.CustomSave(builder);" member-name))))))
+                  "void Save(const TestStruct &self, slk::Builder *builder) {
+                     self.custom_member.CustomSave(builder);
+                   }")
+
+    (subtest "inheritance"
+      (undefine-cpp-types)
+      (is-error (lcp.slk:save-function-declaration-for-class
+                 (lcp:define-struct derived (fst-base snd-base)
+                   ()))
+                'lcp.slk:slk-error)
+      (undefine-cpp-types)
+      (let ((base-class (lcp:define-struct base ()
+                          ((base-member :bool))))
+            (derived-class (lcp:define-struct derived (base)
+                             ((derived-member :int64_t)))))
+        (is-generated (lcp.slk:save-function-definition-for-class base-class)
+                      "void Save(const Base &self, slk::Builder *builder) {
+                         if (const auto &derived_derived = dynamic_cast<const Derived &>(self)) {
+                           return slk::Save(derived_derived, builder);
+                         }
+                         slk::Save(self.base_member, builder);
+                       }")
+        (is-generated (lcp.slk:save-function-definition-for-class derived-class)
+                      "void Save(const Derived &self, slk::Builder *builder) {
+                         // Save parent Base
+                         { slk::Save(self.base_member, builder); }
+                         slk::Save(self.derived_member, builder);
+                       }"))
+      (undefine-cpp-types)
+      (let ((abstract-base-class (lcp:define-struct abstract-base ()
+                                   ((base-member :bool))
+                                   (:abstractp t)))
+            (derived-class (lcp:define-struct derived (abstract-base)
+                             ((derived-member :int64_t)))))
+        (is-generated (lcp.slk:save-function-definition-for-class abstract-base-class)
+                      "void Save(const AbstractBase &self, slk::Builder *builder) {
+                         if (const auto &derived_derived = dynamic_cast<const Derived &>(self)) {
+                           return slk::Save(derived_derived, builder);
+                         }
+                         LOG(FATAL) << \"`AbstractBase` is marked as an abstract class!\";
+                       }")
+        (is-generated (lcp.slk:save-function-definition-for-class derived-class)
+                      "void Save(const Derived &self, slk::Builder *builder) {
+                         // Save parent AbstractBase
+                         { slk::Save(self.base_member, builder); }
+                         slk::Save(self.derived_member, builder);
+                       }"))
+      (undefine-cpp-types)
+      (let ((base-templated-class (lcp:define-struct (base t-param) ()
+                                    ((base-member :bool))))
+            (derived-class (lcp:define-struct derived (base)
+                             ((derived-member :int64_t)))))
+        (is-error (lcp.slk:save-function-definition-for-class base-templated-class)
+                  'lcp.slk:slk-error)
+        (is-error (lcp.slk:save-function-definition-for-class derived-class)
+                  'lcp.slk:slk-error))
+      (undefine-cpp-types)
+      (let ((base-class (lcp:define-struct base ()
+                          ((base-member :bool))))
+            (derived-templated-class (lcp:define-struct (derived t-param) (base)
+                                       ((derived-member :int64_t)))))
+        (is-error (lcp.slk:save-function-definition-for-class base-class)
+                  'lcp.slk:slk-error)
+        (is-error (lcp.slk:save-function-definition-for-class derived-templated-class)
+                  'lcp.slk:slk-error)))
+
+    (subtest "non-public members"
+      (undefine-cpp-types)
+      (is-error (lcp.slk:save-function-definition-for-class
+                 (lcp:define-class test-class ()
+                   ((public-member :bool :scope :public)
+                    (private-member :int64_t))))
+                'lcp.slk:slk-error)
+      (undefine-cpp-types)
+      (is-error (lcp.slk:save-function-definition-for-class
+                 (lcp:define-struct test-struct ()
+                   ((protected-member :int64_t :scope :protected)
+                    (public-member :char))))
+                'lcp.slk:slk-error))))

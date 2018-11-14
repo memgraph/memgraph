@@ -5,6 +5,9 @@ set(lcp_src_files
     ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
     ${CMAKE_SOURCE_DIR}/src/lisp/lcp-compile
     ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
+    ${CMAKE_SOURCE_DIR}/src/lisp/types.lisp
+    ${CMAKE_SOURCE_DIR}/src/lisp/code-gen.lisp
+    ${CMAKE_SOURCE_DIR}/src/lisp/slk.lisp
     ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
     ${CMAKE_SOURCE_DIR}/src/lisp/lcp-test.lisp
     ${CMAKE_SOURCE_DIR}/tools/lcp)
@@ -53,6 +56,9 @@ macro(define_add_lcp name main_src_files generated_lcp_files)
         ${CMAKE_SOURCE_DIR}/src/lisp/lcp.asd
         ${CMAKE_SOURCE_DIR}/src/lisp/lcp-compile
         ${CMAKE_SOURCE_DIR}/src/lisp/package.lisp
+        ${CMAKE_SOURCE_DIR}/src/lisp/types.lisp
+        ${CMAKE_SOURCE_DIR}/src/lisp/code-gen.lisp
+        ${CMAKE_SOURCE_DIR}/src/lisp/slk.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/lcp.lisp
         ${CMAKE_SOURCE_DIR}/src/lisp/lcp-test.lisp
         ${CMAKE_SOURCE_DIR}/tools/lcp)

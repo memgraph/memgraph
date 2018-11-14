@@ -627,7 +627,7 @@ auto ExpandFromVertex(const VertexAccessor &vertex,
         [direction](const EdgeAccessor &edge) {
           return std::make_pair(edge, direction);
         },
-        std::move(vertices));
+        std::forward<decltype(vertices)>(vertices));
   };
 
   // prepare a vector of elements we'll pass to the itertools

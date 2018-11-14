@@ -6,6 +6,8 @@
   :serial t
   :components ((:file "package")
                (:file "types")
+               (:file "code-gen")
+               (:file "slk")
                (:file "lcp"))
   :in-order-to ((test-op (test-op "lcp/test"))))
 
