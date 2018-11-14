@@ -222,6 +222,9 @@ target_link_libraries(${test_prefix}slk_advanced mg-single-node kvstore_dummy_li
 add_unit_test(slk_core.cpp)
 target_link_libraries(${test_prefix}slk_core glog gflags)
 
+add_unit_test(small_vector.cpp)
+target_link_libraries(${test_prefix}small_vector mg-utils)
+
 add_unit_test(state_delta.cpp)
 target_link_libraries(${test_prefix}state_delta mg-single-node kvstore_dummy_lib)
 
