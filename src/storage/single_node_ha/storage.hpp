@@ -60,6 +60,8 @@ class Storage {
 
  private:
   friend class GraphDbAccessor;
+  // Needed for GraphDb::RefreshStat.
+  friend class GraphDb;
   friend class StorageGc;
 
   gid::Generator vertex_generator_;

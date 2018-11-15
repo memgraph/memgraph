@@ -234,6 +234,9 @@ target_link_libraries(${test_prefix}static_bitset mg-single-node kvstore_dummy_l
 add_unit_test(storage_address.cpp)
 target_link_libraries(${test_prefix}storage_address mg-distributed kvstore_dummy_lib)
 
+add_unit_test(storage_stat.cpp)
+target_link_libraries(${test_prefix}storage_stat mg-single-node kvstore_dummy_lib)
+
 add_unit_test(stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-single-node kvstore_dummy_lib)
 

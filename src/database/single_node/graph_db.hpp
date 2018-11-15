@@ -19,6 +19,23 @@
 
 namespace database {
 
+/// Struct containing basic statistics about storage.
+struct Stat {
+  // std::atomic<long> is needed as reference to stat is passed to
+  // other threads. If there were no std::atomic we couldn't guarantee
+  // that a change to any member will be visible to other threads.
+
+  /// Vertex count is number of `VersionList<Vertex>` physically stored.
+  std::atomic<int64_t> vertex_count{0};
+  
+  /// Vertex count is number of `VersionList<Edge>` physically stored.
+  std::atomic<int64_t> edge_count{0};
+
+  /// Average in/out degree of a vertex.
+  /// `avg_degree` is calculated as 2 * `edges_count` / `vertex_count`.
+  std::atomic<double> avg_degree{0};
+};
+
 /// Database configuration. Initialized from flags, but modifiable.
 struct Config {
   Config();
@@ -101,7 +118,27 @@ class GraphDb {
   /// When this is false, no new transactions should be created.
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
 
+  /// Get live view of storage stats. Gets updated on RefreshStat.
+  const Stat &GetStat() const { return stat_; }
+
+  /// Updates storage stats.
+  void RefreshStat() {
+    auto vertex_count = storage().vertices_.access().size();
+    auto edge_count = storage().edges_.access().size();
+
+    stat_.vertex_count = vertex_count;
+    stat_.edge_count = edge_count;
+
+    if (vertex_count != 0) {
+      stat_.avg_degree = 2 * static_cast<double>(edge_count) / vertex_count;
+    } else {
+      stat_.avg_degree = 0; 
+    }
+  }
+
  protected:
+  Stat stat_;
+
   std::atomic<bool> is_accepting_transactions_{true};
 
   std::unique_ptr<utils::Scheduler> snapshot_creator_;
