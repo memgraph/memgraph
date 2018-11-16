@@ -36,6 +36,6 @@ filename=`basename $lcp_file .lcp`
 hpp_file="$(dirname $lcp_file)/$filename.hpp"
 clang-format -style=file -i $hpp_file
 
-if [[ $# -eq 2 && -w  "$lcp_file.cpp" ]]; then
+if [[ -w  "$lcp_file.cpp" ]]; then
   clang-format -style=file -i "$lcp_file.cpp"
 fi

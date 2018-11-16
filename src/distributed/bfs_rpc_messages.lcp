@@ -165,7 +165,6 @@ cpp<#
      (:public
       #>cpp
       using Capnp = capnp::ReconstructPathReq;
-      static const communication::rpc::MessageType TypeInfo;
 
       ReconstructPathReq() {}
 
@@ -204,7 +203,6 @@ cpp<#
    (:public
     #>cpp
     using Capnp = capnp::ReconstructPathRes;
-    static const communication::rpc::MessageType TypeInfo;
 
     ReconstructPathRes() {}
 

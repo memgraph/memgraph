@@ -38,13 +38,13 @@ class Server {
     std::lock_guard<std::mutex> guard(lock_);
     CHECK(!server_.IsRunning()) << "You can't register RPCs when the server is running!";
     RpcCallback rpc;
-    rpc.req_type = TRequestResponse::Request::TypeInfo;
-    rpc.res_type = TRequestResponse::Response::TypeInfo;
+    rpc.req_type = TRequestResponse::Request::kType;
+    rpc.res_type = TRequestResponse::Response::kType;
     rpc.callback = [callback = callback](const auto &reader, auto *builder) {
       auto req_data =
           reader.getData()
               .template getAs<typename TRequestResponse::Request::Capnp>();
-      builder->setTypeId(TRequestResponse::Response::TypeInfo.id);
+      builder->setTypeId(TRequestResponse::Response::kType.id);
       auto data_builder = builder->initData();
       auto res_builder =
           data_builder
@@ -52,12 +52,12 @@ class Server {
       callback(req_data, &res_builder);
     };
 
-    if (extended_callbacks_.find(TRequestResponse::Request::TypeInfo.id) !=
+    if (extended_callbacks_.find(TRequestResponse::Request::kType.id) !=
         extended_callbacks_.end()) {
       LOG(FATAL) << "Callback for that message type already registered!";
     }
 
-    auto got = callbacks_.insert({TRequestResponse::Request::TypeInfo.id, rpc});
+    auto got = callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
     CHECK(got.second) << "Callback for that message type already registered";
     VLOG(12) << "[RpcServer] register " << rpc.req_type.name << " -> "
              << rpc.res_type.name;
@@ -72,14 +72,14 @@ class Server {
     std::lock_guard<std::mutex> guard(lock_);
     CHECK(!server_.IsRunning()) << "You can't register RPCs when the server is running!";
     RpcExtendedCallback rpc;
-    rpc.req_type = TRequestResponse::Request::TypeInfo;
-    rpc.res_type = TRequestResponse::Response::TypeInfo;
+    rpc.req_type = TRequestResponse::Request::kType;
+    rpc.res_type = TRequestResponse::Response::kType;
     rpc.callback = [callback = callback](const io::network::Endpoint &endpoint,
                                          const auto &reader, auto *builder) {
       auto req_data =
           reader.getData()
               .template getAs<typename TRequestResponse::Request::Capnp>();
-      builder->setTypeId(TRequestResponse::Response::TypeInfo.id);
+      builder->setTypeId(TRequestResponse::Response::kType.id);
       auto data_builder = builder->initData();
       auto res_builder =
           data_builder
@@ -87,13 +87,13 @@ class Server {
       callback(endpoint, req_data, &res_builder);
     };
 
-    if (callbacks_.find(TRequestResponse::Request::TypeInfo.id) !=
+    if (callbacks_.find(TRequestResponse::Request::kType.id) !=
         callbacks_.end()) {
       LOG(FATAL) << "Callback for that message type already registered!";
     }
 
     auto got =
-        extended_callbacks_.insert({TRequestResponse::Request::TypeInfo.id, rpc});
+        extended_callbacks_.insert({TRequestResponse::Request::kType.id, rpc});
     CHECK(got.second) << "Callback for that message type already registered";
     VLOG(12) << "[RpcServer] register " << rpc.req_type.name << " -> "
              << rpc.res_type.name;
@@ -103,20 +103,20 @@ class Server {
   friend class Session;
 
   struct RpcCallback {
-    MessageType req_type;
+    utils::TypeInfo req_type;
     std::function<void(const capnp::Message::Reader &,
                        capnp::Message::Builder *)>
         callback;
-    MessageType res_type;
+    utils::TypeInfo res_type;
   };
 
   struct RpcExtendedCallback {
-    MessageType req_type;
+    utils::TypeInfo req_type;
     std::function<void(const io::network::Endpoint &,
                        const capnp::Message::Reader &,
                        capnp::Message::Builder *)>
         callback;
-    MessageType res_type;
+    utils::TypeInfo res_type;
   };
 
   std::mutex lock_;

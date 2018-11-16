@@ -15,7 +15,7 @@ using namespace std::literals::chrono_literals;
 
 struct SumReq {
   using Capnp = ::capnp::AnyPointer;
-  static const MessageType TypeInfo;
+  static const utils::TypeInfo kType;
 
   SumReq() {}  // Needed for serialization.
   SumReq(int x, int y) : x(x), y(y) {}
@@ -35,11 +35,11 @@ void Load(SumReq *sum, const ::capnp::AnyPointer::Reader &reader) {
   sum->y = list_reader[1];
 }
 
-const MessageType SumReq::TypeInfo{0, "SumReq"};
+const utils::TypeInfo SumReq::kType{0, "SumReq"};
 
 struct SumRes {
   using Capnp = ::capnp::AnyPointer;
-  static const MessageType TypeInfo;
+  static const utils::TypeInfo kType;
 
   SumRes() {}  // Needed for serialization.
   SumRes(int sum) : sum(sum) {}
@@ -57,13 +57,13 @@ void Load(SumRes *res, const ::capnp::AnyPointer::Reader &reader) {
   res->sum = list_reader[0];
 }
 
-const MessageType SumRes::TypeInfo{1, "SumRes"};
+const utils::TypeInfo SumRes::kType{1, "SumRes"};
 
 using Sum = RequestResponse<SumReq, SumRes>;
 
 struct EchoMessage {
   using Capnp = ::capnp::AnyPointer;
-  static const MessageType TypeInfo;
+  static const utils::TypeInfo kType;
 
   EchoMessage() {}  // Needed for serialization.
   EchoMessage(const std::string &data) : data(data) {}
@@ -81,7 +81,7 @@ void Load(EchoMessage *echo, const ::capnp::AnyPointer::Reader &reader) {
   echo->data = list_reader[0];
 }
 
-const MessageType EchoMessage::TypeInfo{2, "EchoMessage"};
+const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
 
 using Echo = RequestResponse<EchoMessage, EchoMessage>;
 

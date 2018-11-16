@@ -13,7 +13,7 @@
 
 struct EchoMessage {
   using Capnp = ::capnp::AnyPointer;
-  static const communication::rpc::MessageType TypeInfo;
+  static const utils::TypeInfo kType;
 
   EchoMessage() {}  // Needed for serialization.
   EchoMessage(const std::string &data) : data(data) {}
@@ -31,7 +31,7 @@ void Load(EchoMessage *echo, const ::capnp::AnyPointer::Reader &reader) {
   echo->data = list_reader[0];
 }
 
-const communication::rpc::MessageType EchoMessage::TypeInfo{2, "EchoMessage"};
+const utils::TypeInfo EchoMessage::kType{2, "EchoMessage"};
 
 using Echo = communication::rpc::RequestResponse<EchoMessage, EchoMessage>;
 

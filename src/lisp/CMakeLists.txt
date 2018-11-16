@@ -26,6 +26,10 @@ add_custom_target(lcp
 #
 # The `add_lcp` function expects at least a single argument, path to lcp file.
 # Each added file is standalone and we avoid recompiling everything.
+#
+# By default, each `.lcp` file will produce a `.hpp` and `.cpp` file. To tell
+# CMake that no `.cpp` file will be generated, pass a NO_CPP option.
+#
 # You may pass a CAPNP_SCHEMA <id> keyword argument to generate the Cap'n Proto
 # serialization code from .lcp file. You still need to add the generated capnp
 # file through `add_capnp` function. To generate the <id> use `capnp id`
@@ -34,21 +38,24 @@ add_custom_target(lcp
 # information will break serialization between different compilations.
 macro(define_add_lcp name main_src_files generated_lcp_files)
   function(${name} lcp_file)
+    set(options NO_CPP)
     set(one_value_kwargs CAPNP_SCHEMA)
     set(multi_value_kwargs DEPENDS)
     # NOTE: ${${}ARGN} syntax escapes evaluating macro's ARGN variable; see:
     # https://stackoverflow.com/questions/50365544/how-to-access-enclosing-functions-arguments-from-within-a-macro
-    cmake_parse_arguments(KW "" "${one_value_kwargs}" "${multi_value_kwargs}" ${${}ARGN})
+    cmake_parse_arguments(KW "${options}" "${one_value_kwargs}" "${multi_value_kwargs}" ${${}ARGN})
     string(REGEX REPLACE "\.lcp$" ".hpp" h_file
            "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
+    if (NOT KW_NO_CPP)
+      set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
+      # Update *global* main_src_files
+      set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
+    endif()
     if (KW_CAPNP_SCHEMA)
       string(REGEX REPLACE "\.lcp$" ".capnp" capnp_file
              "${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}")
       set(capnp_id ${KW_CAPNP_SCHEMA})
       set(capnp_depend capnproto-proj)
-      set(cpp_file ${CMAKE_CURRENT_SOURCE_DIR}/${lcp_file}.cpp)
-      # Update *global* main_src_files
-      set(${main_src_files} ${${main_src_files}} ${cpp_file} PARENT_SCOPE)
     endif()
     # Repeat the `lcp_src_files` because this is a macro and the variable is
     # not visible when invoked in another file.

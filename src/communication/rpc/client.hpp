@@ -50,7 +50,7 @@ class Client {
           load,
       Args &&... args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
-    auto req_type = TRequestResponse::Request::TypeInfo;
+    auto req_type = TRequestResponse::Request::kType;
     VLOG(12) << "[RpcClient] sent " << req_type.name;
     ::capnp::MallocMessageBuilder req_msg;
     {
@@ -64,7 +64,7 @@ class Client {
     }
     auto response = Send(&req_msg);
     auto res_msg = response.getRoot<capnp::Message>();
-    auto res_type = TRequestResponse::Response::TypeInfo;
+    auto res_type = TRequestResponse::Response::kType;
     if (res_msg.getTypeId() != res_type.id) {
       // Since message_id was checked in private Call function, this means
       // something is very wrong (probably on the server side).

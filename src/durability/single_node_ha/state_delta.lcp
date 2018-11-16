@@ -9,6 +9,7 @@
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/gid.hpp"
+#include "utils/typeinfo.hpp"
 
 class Vertex;
 class Edge;

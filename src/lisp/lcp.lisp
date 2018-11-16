@@ -6,8 +6,24 @@
 (defvar +vim-read-only+ "vim: readonly")
 (defvar +emacs-read-only+ "-*- buffer-read-only: t; -*-")
 
+(defvar *generating-cpp-impl-p* nil
+  "T if we are currently writing the .cpp file.")
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (set-dispatch-macro-character #\# #\> #'|#>-reader|))
+
+(defun fnv1a64-hash-string (string)
+  "Produce (UNSIGNED-BYTE 64) hash of the given STRING using FNV-1a algorithm.
+See https://en.wikipedia.org/wiki/Fowler_Noll_Vo_hash."
+  (check-type string string)
+  (let ((hash 14695981039346656037) ;; offset basis
+        (prime 1099511628211))
+    (declare (type (unsigned-byte 64) hash prime))
+    (loop for c across string do
+         (setf hash (mod (* (boole boole-xor hash (char-code c)) prime)
+                         (expt 2 64) ;; Fit to 64bit
+                         )))
+    hash))
 
 (defun cpp-documentation (documentation)
   "Convert DOCUMENTATION to Doxygen style string."
@@ -94,10 +110,15 @@ NIL, returns a string."
       (with-cpp-block-output (s :semicolonp t)
         (let ((reader-members (remove-if (complement #'cpp-member-reader)
                                          (cpp-class-members cpp-class))))
-          (when (or (cpp-class-public cpp-class) (cpp-class-members-scoped :public) reader-members)
+          (when (or (cpp-class-public cpp-class) (cpp-class-members-scoped :public) reader-members
+                    ;; We at least have public TypeInfo object for non-template classes.
+                    (not (cpp-type-type-params cpp-class)))
             (unless (cpp-class-structp cpp-class)
               (write-line " public:" s))
-            (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-public cpp-class)))
+            (unless (cpp-type-type-params cpp-class)
+              ;; Skip generating TypeInfo for template classes.
+              (write-line "static const utils::TypeInfo kType;" s))
+            (format s "~%~{~A~%~}" (mapcar #'cpp-code (cpp-class-public cpp-class)))
             (format s "~{~%~A~}~%" (mapcar #'cpp-member-reader-definition reader-members))
             (format s "~{  ~%~A~}~%"
                     (mapcar #'member-declaration (cpp-class-members-scoped :public)))))
@@ -110,7 +131,23 @@ NIL, returns a string."
           (write-line " private:" s)
           (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-private cpp-class)))
           (format s "~{  ~%~A~}~%"
-                  (mapcar #'member-declaration (cpp-class-members-scoped :private))))))))
+                  (mapcar #'member-declaration (cpp-class-members-scoped :private)))))
+      ;; Define the TypeInfo object.  Relies on the fact that *CPP-IMPL* is
+      ;; processed later.
+      (unless (cpp-type-type-params cpp-class)
+        (let ((typeinfo-def
+               (format nil "const utils::TypeInfo ~A::kType{0x~XULL, \"~a\"};~%"
+                       (if *generating-cpp-impl-p*
+                           (cpp-type-name cpp-class)
+                           ;; Use full type declaration if class definition
+                           ;; isn't inside the .cpp file.
+                           (cpp-type-decl cpp-class))
+                       ;; Use full type declaration for hash
+                       (fnv1a64-hash-string (cpp-type-decl cpp-class))
+                       (cpp-type-name cpp-class))))
+          (if *generating-cpp-impl-p*
+              (write-line typeinfo-def s)
+              (in-impl typeinfo-def)))))))
 
 (defun cpp-function-declaration (name &key args (returns "void") type-params)
   "Generate a C++ top level function declaration named NAME as a string.  ARGS
@@ -1285,12 +1322,6 @@ enums which aren't defined in LCP."
   (flet ((decl-type-info (class-name)
            #>cpp
            using Capnp = capnp::${class-name};
-           static const communication::rpc::MessageType TypeInfo;
-           cpp<#)
-         (def-type-info (class-name)
-           #>cpp
-           const communication::rpc::MessageType
-           ${class-name}::TypeInfo{::capnp::typeId<${class-name}::Capnp>(), "${class-name}"};
            cpp<#)
          (def-constructor (class-name members)
            (let ((full-constructor
@@ -1335,14 +1366,12 @@ enums which aren't defined in LCP."
            ,(decl-type-info req-name)
            ,(def-constructor req-name (second request)))
           (:serialize :capnp :base t))
-        (in-impl ,(def-type-info req-name))
         (define-struct ,res-sym ()
           ,@(cdr response)
           (:public
            ,(decl-type-info res-name)
            ,(def-constructor res-name (second response)))
           (:serialize :capnp :base t))
-        (in-impl ,(def-type-info res-name))
         ,rpc-decl))))
 
 (defun read-lcp (filepath)
@@ -1378,6 +1407,11 @@ namespaces."
   (declare (type (function (function)) fun))
   (let (open-namespaces)
     (funcall fun (lambda (namespaces)
+                   ;; No namespaces is global namespace
+                   (unless namespaces
+                     (dolist (to-close open-namespaces)
+                       (declare (ignore to-close))
+                       (format out "~%}")))
                    ;; Check if we need to open or close namespaces
                    (loop for namespace in namespaces
                       with unmatched = open-namespaces do
@@ -1498,19 +1532,22 @@ file."
                 (cpp-enum
                  (format out "~A;~%" (cpp-enum-to-capnp-function-declaration type-for-capnp))
                  (format out "~A;~%" (cpp-enum-from-capnp-function-declaration type-for-capnp)))))))
-        ;; When we have either capnp or C++ code for the .cpp file, generate the .cpp file
+        ;; When we have either capnp or C++ code for the .cpp file, generate
+        ;; the .cpp file.  Note, that some code may rely on the fact that .cpp
+        ;; file is generated after .hpp.
         (when (or *cpp-impl* types-for-capnp)
-          (with-open-file (out cpp-file :direction :output :if-exists :supersede)
-            (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
-            (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
-                    (file-namestring lcp-file))
-            (format out "#include \"~A\"~2%" (file-namestring hpp-file))
-            ;; First output the C++ code from the user
-            (with-namespaced-output (out open-namespace)
-              (dolist (cpp *cpp-impl*)
-                (destructuring-bind (namespaces . code) cpp
-                  (open-namespace namespaces)
-                  (write-line (cpp-code code) out))))
-            (when types-for-capnp
-              (generate-capnp types-for-capnp :capnp-file capnp-file :capnp-id capnp-id
-                              :cpp-out out :lcp-file lcp-file))))))))
+          (let ((*generating-cpp-impl-p* t))
+            (with-open-file (out cpp-file :direction :output :if-exists :supersede)
+              (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
+              (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
+                      (file-namestring lcp-file))
+              (format out "#include \"~A\"~2%" (file-namestring hpp-file))
+              ;; First output the C++ code from the user
+              (with-namespaced-output (out open-namespace)
+                (dolist (cpp *cpp-impl*)
+                  (destructuring-bind (namespaces . code) cpp
+                    (open-namespace namespaces)
+                    (write-line (cpp-code code) out))))
+              (when types-for-capnp
+                (generate-capnp types-for-capnp :capnp-file capnp-file :capnp-id capnp-id
+                                :cpp-out out :lcp-file lcp-file)))))))))

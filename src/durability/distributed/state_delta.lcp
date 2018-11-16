@@ -9,6 +9,7 @@
 #include "storage/common/types/types.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "storage/distributed/gid.hpp"
+#include "utils/typeinfo.hpp"
 cpp<#
 
 (lcp:namespace database)

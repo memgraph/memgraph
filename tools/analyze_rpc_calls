@@ -37,6 +37,12 @@ def parse_capnp_header(fname):
     return ret
 
 
+# TODO(mferencevic): Update this to parse .cpp files (99% are .lcp.cpp),
+# containing the following line.
+#
+#       const utils::TypeInfo <class-name>::kType{<id-hex>, "<class-name>"};
+#
+# Note that clang-format may break the line at any of the spaces or after '{'.
 def parse_all_capnp_headers(dirname):
     ids = {}
     ret = subprocess.run(["find", dirname, "-name", "*.capnp.h"],

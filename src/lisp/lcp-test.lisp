@@ -138,6 +138,13 @@
     (different-parse-test "char (*)[]" "char (*) []")
     (different-parse-test "char (*)[4]" "char (*) [4]")))
 
+(deftest "fnv-hash"
+  (subtest "fnv1a64"
+    (is (lcp::fnv1a64-hash-string "query::plan::LogicalOperator")
+        #xCF6E3316FE845113)
+    (is (lcp::fnv1a64-hash-string "SomeString") #x1730D3E779304E6C)
+    (is (lcp::fnv1a64-hash-string "SomeStrink") #x1730D7E779305538)))
+
 (defun clang-format (cpp-string)
   (with-input-from-string (s cpp-string)
     (string-left-trim
