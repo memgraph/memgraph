@@ -75,8 +75,8 @@ class PropertyValueStore {
   void clear();
 
   /**
-   * Returns a static storage::kvstore instance used for storing properties on
-   * disk. This hack is needed due to statics that are internal to rocksdb and
+   * Returns a static storage::KVStore instance used for storing properties on
+   * disk. This hack is needed due to statics that are internal to RocksDB and
    * availability of durability_directory flag.
    */
   storage::KVStore &DiskStorage() const;

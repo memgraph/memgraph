@@ -255,6 +255,8 @@ set(mg_single_node_ha_sources
     durability/single_node_ha/wal.cpp
     glue/auth.cpp
     glue/communication.cpp
+    raft/coordination.cpp
+    raft/raft_server.cpp
     query/common.cpp
     query/frontend/ast/ast.cpp
     query/frontend/ast/cypher_main_visitor.cpp
