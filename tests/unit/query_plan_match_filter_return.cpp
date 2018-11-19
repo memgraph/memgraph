@@ -710,7 +710,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
     if (add_uniqueness_check) {
       auto last_symbol = symbols.back();
       symbols.pop_back();
-      last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
+      last_op = std::make_shared<EdgeUniquenessFilter>(
           last_op, last_symbol, symbols);
     }
 
@@ -741,7 +741,7 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
         AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower,
                                  upper, e2, "m2", GraphView::OLD);
     if (add_uniqueness_check) {
-      last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
+      last_op = std::make_shared<EdgeUniquenessFilter>(
           last_op, e2, std::vector<Symbol>{e1});
     }
 
@@ -1547,7 +1547,7 @@ TEST(QueryPlan, Filter) {
   EXPECT_EQ(CollectProduce(produce.get(), symbol_table, dba).size(), 2);
 }
 
-TEST(QueryPlan, ExpandUniquenessFilter) {
+TEST(QueryPlan, EdgeUniquenessFilter) {
   database::GraphDb db;
   auto dba = db.Access();
 
@@ -1559,8 +1559,7 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
   dba->InsertEdge(v1, v1, edge_type);
   dba->AdvanceCommand();
 
-  auto check_expand_results = [&](bool vertex_uniqueness,
-                                  bool edge_uniqueness) {
+  auto check_expand_results = [&](bool edge_uniqueness) {
     AstStorage storage;
     SymbolTable symbol_table;
 
@@ -1569,27 +1568,18 @@ TEST(QueryPlan, ExpandUniquenessFilter) {
         MakeExpand(storage, symbol_table, n1.op_, n1.sym_, "r1",
                    EdgeAtom::Direction::OUT, {}, "n2", false, GraphView::OLD);
     std::shared_ptr<LogicalOperator> last_op = r1_n2.op_;
-    if (vertex_uniqueness)
-      last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
-          last_op, r1_n2.node_sym_, std::vector<Symbol>{n1.sym_});
     auto r2_n3 =
         MakeExpand(storage, symbol_table, last_op, r1_n2.node_sym_, "r2",
                    EdgeAtom::Direction::OUT, {}, "n3", false, GraphView::OLD);
     last_op = r2_n3.op_;
     if (edge_uniqueness)
-      last_op = std::make_shared<ExpandUniquenessFilter<EdgeAccessor>>(
+      last_op = std::make_shared<EdgeUniquenessFilter>(
           last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
-    if (vertex_uniqueness)
-      last_op = std::make_shared<ExpandUniquenessFilter<VertexAccessor>>(
-          last_op, r2_n3.node_sym_,
-          std::vector<Symbol>{n1.sym_, r1_n2.node_sym_});
-
     return PullAll(last_op, *dba, symbol_table);
   };
 
-  EXPECT_EQ(2, check_expand_results(false, false));
-  EXPECT_EQ(0, check_expand_results(true, false));
-  EXPECT_EQ(1, check_expand_results(false, true));
+  EXPECT_EQ(2, check_expand_results(false));
+  EXPECT_EQ(1, check_expand_results(true));
 }
 
 TEST(QueryPlan, Distinct) {

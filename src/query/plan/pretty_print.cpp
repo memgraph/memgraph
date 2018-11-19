@@ -99,8 +99,7 @@ PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
 PRE_VISIT(RemoveLabels);
-PRE_VISIT(ExpandUniquenessFilter<VertexAccessor>);
-PRE_VISIT(ExpandUniquenessFilter<EdgeAccessor>);
+PRE_VISIT(EdgeUniquenessFilter);
 PRE_VISIT(Accumulate);
 
 bool PlanPrinter::PreVisit(query::plan::Aggregate &op) {

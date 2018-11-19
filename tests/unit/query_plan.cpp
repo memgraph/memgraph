@@ -305,8 +305,7 @@ TYPED_TEST(TestPlanner, MatchMultiPattern) {
   // single MATCH clause.
   CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(),
                        ExpectScanAll(), ExpectExpand(),
-                       ExpectExpandUniquenessFilter<EdgeAccessor>(),
-                       ExpectProduce());
+                       ExpectEdgeUniquenessFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MatchMultiPatternSameStart) {
@@ -333,7 +332,7 @@ TYPED_TEST(TestPlanner, MatchMultiPatternSameExpandStart) {
   // expansion. Additionally, a uniqueness filter is expected.
   CheckPlan<TypeParam>(
       query, storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-      ExpectExpandUniquenessFilter<EdgeAccessor>(), ExpectProduce());
+      ExpectEdgeUniquenessFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MultiMatch) {
@@ -357,7 +356,7 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   // not cross MATCH boundaries.
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectExpand(),
             ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-            ExpectExpandUniquenessFilter<EdgeAccessor>(), ExpectProduce());
+            ExpectEdgeUniquenessFilter(), ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MultiMatchSameStart) {

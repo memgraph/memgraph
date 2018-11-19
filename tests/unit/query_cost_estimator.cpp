@@ -193,11 +193,11 @@ TEST_F(QueryCostEstimator, Filter) {
           CardParam::kFilter);
 }
 
-TEST_F(QueryCostEstimator, ExpandUniquenessFilter) {
-  TEST_OP(MakeOp<ExpandUniquenessFilter<VertexAccessor>>(last_op_, NextSymbol(),
-                                                         std::vector<Symbol>()),
-          CostParam::kExpandUniquenessFilter,
-          CardParam::kExpandUniquenessFilter);
+TEST_F(QueryCostEstimator, EdgeUniquenessFilter) {
+  TEST_OP(MakeOp<EdgeUniquenessFilter>(last_op_, NextSymbol(),
+                                         std::vector<Symbol>()),
+          CostParam::kEdgeUniquenessFilter,
+          CardParam::kEdgeUniquenessFilter);
 }
 
 TEST_F(QueryCostEstimator, UnwindLiteral) {

@@ -58,8 +58,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ConstructNamedPath &) override;
 
   bool PreVisit(Filter &) override;
-  bool PreVisit(ExpandUniquenessFilter<VertexAccessor> &) override;
-  bool PreVisit(ExpandUniquenessFilter<EdgeAccessor> &) override;
+  bool PreVisit(EdgeUniquenessFilter &) override;
 
   bool PreVisit(Merge &) override;
   bool PreVisit(Optional &) override;

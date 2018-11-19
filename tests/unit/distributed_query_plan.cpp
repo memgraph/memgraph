@@ -1038,14 +1038,14 @@ TYPED_TEST(TestPlanner, MultiMatch) {
                                get_symbol(node_h)});
   auto right_cart = MakeCheckers(
       ExpectScanAll(), ExpectDistributedExpand(), ExpectDistributedExpand(),
-      ExpectExpandUniquenessFilter<EdgeAccessor>(), right_pull);
+      ExpectEdgeUniquenessFilter(), right_pull);
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectProduce()),
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand()),
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                    ExpectDistributedExpand(),
-                   ExpectExpandUniquenessFilter<EdgeAccessor>()));
+                   ExpectEdgeUniquenessFilter()));
   CheckDistributedPlan(planner.plan(), symbol_table, expected);
 }
 
@@ -1962,7 +1962,7 @@ TYPED_TEST(TestPlanner, DistributedCartesianTransitiveDependency) {
                    // This expand depends on the previous one.
                    ExpectDistributedExpand(),
                    // UniquenessFilter depends on both expands.
-                   ExpectExpandUniquenessFilter<EdgeAccessor>(),
+                   ExpectEdgeUniquenessFilter(),
                    ExpectProduce()),
       MakeCheckers(ExpectScanAllByLabel()),
       MakeCheckers(ExpectScanAllByLabel()),

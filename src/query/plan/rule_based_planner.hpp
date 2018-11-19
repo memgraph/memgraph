@@ -454,7 +454,7 @@ class RuleBasedPlanner {
             other_symbols.push_back(symbol);
           }
           if (!other_symbols.empty()) {
-            last_op = std::make_unique<ExpandUniquenessFilter<EdgeAccessor>>(
+            last_op = std::make_unique<EdgeUniquenessFilter>(
                 std::move(last_op), edge_symbol, other_symbols);
           }
         }

@@ -2105,55 +2105,40 @@ void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void RemoveLabels::RemoveLabelsCursor::Reset() { input_cursor_->Reset(); }
 
-template <typename TAccessor>
-ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilter(
+EdgeUniquenessFilter::EdgeUniquenessFilter(
     const std::shared_ptr<LogicalOperator> &input, Symbol expand_symbol,
     const std::vector<Symbol> &previous_symbols)
     : input_(input),
       expand_symbol_(expand_symbol),
       previous_symbols_(previous_symbols) {}
 
-template <typename TAccessor>
-ACCEPT_WITH_INPUT(ExpandUniquenessFilter<TAccessor>)
+ACCEPT_WITH_INPUT(EdgeUniquenessFilter)
 
-template <typename TAccessor>
-std::unique_ptr<Cursor> ExpandUniquenessFilter<TAccessor>::MakeCursor(
+std::unique_ptr<Cursor> EdgeUniquenessFilter::MakeCursor(
     database::GraphDbAccessor &db) const {
-  return std::make_unique<ExpandUniquenessFilterCursor>(*this, db);
+  return std::make_unique<EdgeUniquenessFilterCursor>(*this, db);
 }
 
-template <typename TAccessor>
-std::vector<Symbol> ExpandUniquenessFilter<TAccessor>::ModifiedSymbols(
+std::vector<Symbol> EdgeUniquenessFilter::ModifiedSymbols(
     const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
 }
 
-template <typename TAccessor>
-ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::
-    ExpandUniquenessFilterCursor(const ExpandUniquenessFilter &self,
+EdgeUniquenessFilter::EdgeUniquenessFilterCursor::
+    EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &self,
                                  database::GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 namespace {
 /**
  * Returns true if:
- *    - a and b are vertex values and are the same
  *    - a and b are either edge or edge-list values, and there
  *    is at least one matching edge in the two values
  */
-template <typename TAccessor>
-bool ContainsSame(const TypedValue &a, const TypedValue &b);
-
-template <>
-bool ContainsSame<VertexAccessor>(const TypedValue &a, const TypedValue &b) {
-  return a.Value<VertexAccessor>() == b.Value<VertexAccessor>();
-}
-
-template <>
-bool ContainsSame<EdgeAccessor>(const TypedValue &a, const TypedValue &b) {
+bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
   auto compare_to_list = [](const TypedValue &list, const TypedValue &other) {
     for (const TypedValue &list_elem : list.Value<std::vector<TypedValue>>())
-      if (ContainsSame<EdgeAccessor>(list_elem, other)) return true;
+      if (ContainsSameEdge(list_elem, other)) return true;
     return false;
   };
 
@@ -2164,8 +2149,7 @@ bool ContainsSame<EdgeAccessor>(const TypedValue &a, const TypedValue &b) {
 }
 }  // namespace
 
-template <typename TAccessor>
-bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
+bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(
     Frame &frame, Context &context) {
   auto expansion_ok = [&]() {
     TypedValue &expand_value = frame[self_.expand_symbol_];
@@ -2174,7 +2158,7 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
       // This shouldn't raise a TypedValueException, because the planner
       // makes sure these are all of the expected type. In case they are not
       // an error should be raised long before this code is executed.
-      if (ContainsSame<TAccessor>(previous_value, expand_value)) return false;
+      if (ContainsSameEdge(previous_value, expand_value)) return false;
     }
     return true;
   };
@@ -2184,21 +2168,13 @@ bool ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Pull(
   return false;
 }
 
-template <typename TAccessor>
-void ExpandUniquenessFilter<
-    TAccessor>::ExpandUniquenessFilterCursor::Shutdown() {
+void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Shutdown() {
   input_cursor_->Shutdown();
 }
 
-template <typename TAccessor>
-void ExpandUniquenessFilter<TAccessor>::ExpandUniquenessFilterCursor::Reset() {
+void EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Reset() {
   input_cursor_->Reset();
 }
-
-// instantiations of the ExpandUniquenessFilter template class
-// we only ever need these two
-template class ExpandUniquenessFilter<VertexAccessor>;
-template class ExpandUniquenessFilter<EdgeAccessor>;
 
 Accumulate::Accumulate(const std::shared_ptr<LogicalOperator> &input,
                        const std::vector<Symbol> &symbols, bool advance_command)

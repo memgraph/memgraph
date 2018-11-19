@@ -61,8 +61,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(SetLabels);
   PRE_VISIT(RemoveProperty);
   PRE_VISIT(RemoveLabels);
-  PRE_VISIT(ExpandUniquenessFilter<VertexAccessor>);
-  PRE_VISIT(ExpandUniquenessFilter<EdgeAccessor>);
+  PRE_VISIT(EdgeUniquenessFilter);
   PRE_VISIT(Accumulate);
   PRE_VISIT(Aggregate);
   PRE_VISIT(Skip);
@@ -130,9 +129,7 @@ using ExpectSetProperties = OpChecker<SetProperties>;
 using ExpectSetLabels = OpChecker<SetLabels>;
 using ExpectRemoveProperty = OpChecker<RemoveProperty>;
 using ExpectRemoveLabels = OpChecker<RemoveLabels>;
-template <class TAccessor>
-using ExpectExpandUniquenessFilter =
-    OpChecker<ExpandUniquenessFilter<TAccessor>>;
+using ExpectEdgeUniquenessFilter = OpChecker<EdgeUniquenessFilter>;
 using ExpectSkip = OpChecker<Skip>;
 using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;

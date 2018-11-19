@@ -47,7 +47,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kExpand{2.0};
     static constexpr double kExpandVariable{3.0};
     static constexpr double kFilter{1.5};
-    static constexpr double kExpandUniquenessFilter{1.5};
+    static constexpr double kEdgeUniquenessFilter{1.5};
     static constexpr double kUnwind{1.3};
   };
 
@@ -55,7 +55,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     static constexpr double kExpand{3.0};
     static constexpr double kExpandVariable{9.0};
     static constexpr double kFilter{0.25};
-    static constexpr double kExpandUniquenessFilter{0.95};
+    static constexpr double kEdgeUniquenessFilter{0.95};
   };
 
   struct MiscParam {
@@ -156,10 +156,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   }
 
   POST_VISIT_COST_FIRST(Filter, kFilter)
-  POST_VISIT_COST_FIRST(ExpandUniquenessFilter<VertexAccessor>,
-                        kExpandUniquenessFilter);
-  POST_VISIT_COST_FIRST(ExpandUniquenessFilter<EdgeAccessor>,
-                        kExpandUniquenessFilter);
+  POST_VISIT_COST_FIRST(EdgeUniquenessFilter, kEdgeUniquenessFilter);
 
 #undef POST_VISIT_COST_FIRST
 

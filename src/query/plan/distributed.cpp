@@ -361,11 +361,11 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
+  bool PreVisit(EdgeUniquenessFilter &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
-  bool PostVisit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
+  bool PostVisit(EdgeUniquenessFilter &op) override {
     prev_ops_.pop_back();
     if (branch_.subtree) return true;
     if (auto found = FindForbidden(op.expand_symbol_)) {
@@ -986,11 +986,8 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     prev_ops_.push_back(&op);
     return true;
   }
-  bool PreVisit(ExpandUniquenessFilter<VertexAccessor> &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-  bool PreVisit(ExpandUniquenessFilter<EdgeAccessor> &op) override {
+
+  bool PreVisit(EdgeUniquenessFilter &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
