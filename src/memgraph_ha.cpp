@@ -15,7 +15,6 @@
 #include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"
 #include "query/exceptions.hpp"
-#include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
 
 // General purpose flags.
@@ -33,17 +32,11 @@ DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
 DEFINE_string(cert_file, "", "Certificate file to use.");
 DEFINE_string(key_file, "", "Key file to use.");
 
-DEFINE_bool(telemetry_enabled, false,
-            "Set to true to enable telemetry. We collect information about the "
-            "running system (CPU and memory information) and information about "
-            "the database runtime (vertex and edge counts and resource usage) "
-            "to allow for easier improvement of the product.");
-
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
-void SingleNodeMain() {
-  google::SetUsageMessage("Memgraph single-node database server");
+void SingleNodeHAMain() {
+  google::SetUsageMessage("Memgraph high availability single-node database server");
   database::GraphDb db;
   query::Interpreter interpreter;
   SessionData session_data{&db, &interpreter};
@@ -78,32 +71,24 @@ void SingleNodeMain() {
                  &session_data, &context, FLAGS_session_inactivity_timeout,
                  service_name, FLAGS_num_workers);
 
-  // Setup telemetry
-  std::experimental::optional<telemetry::Telemetry> telemetry;
-  if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(
-        "https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/",
-        std::experimental::filesystem::path(FLAGS_durability_directory) /
-            "telemetry",
-        std::chrono::minutes(10));
-    telemetry->AddCollector("db", [&db]() -> nlohmann::json {
-      auto dba = db.Access();
-      return {{"vertices", dba->VerticesCount()}, {"edges", dba->EdgesCount()}};
-    });
-  }
-
   // Handler for regular termination signals
-  auto shutdown = [&server] {
-    // Server needs to be shutdown first and then the database. This prevents a
-    // race condition when a transaction is accepted during server shutdown.
-    server.Shutdown();
+  auto shutdown = [&db] {
+    db.Shutdown();
   };
+
   InitSignalHandlers(shutdown);
 
+  // Start the database.
+  db.Start();
+  // Start the Bolt server.
   CHECK(server.Start()) << "Couldn't start the Bolt server!";
-  server.AwaitShutdown();
+
+  db.AwaitShutdown([&server] {
+    server.Shutdown();
+    server.AwaitShutdown();
+  });
 }
 
 int main(int argc, char **argv) {
-  return WithInit(argc, argv, []() { return "memgraph"; }, SingleNodeMain);
+  return WithInit(argc, argv, []() { return "memgraph"; }, SingleNodeHAMain);
 }

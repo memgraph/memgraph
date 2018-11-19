@@ -5,8 +5,6 @@
 #include "utils/string.hpp"
 
 // Durability flags.
-DEFINE_bool(durability_enabled, false,
-            "If durability (database persistence) should be enabled");
 DEFINE_string(
     durability_directory, "durability",
     "Path to directory in which to save snapshots and write-ahead log files.");
@@ -30,11 +28,6 @@ DEFINE_int32(gc_cycle_sec, 30,
 DEFINE_string(properties_on_disk, "",
               "Property names of properties which will be stored on available "
               "disk. Property names have to be separated with comma (,).");
-
-// Full durability.
-DEFINE_bool(synchronous_commit, false,
-            "Should a transaction end wait for WAL records to be written to "
-            "disk before the transaction finishes.");
 
 // RPC flags.
 DEFINE_VALIDATED_HIDDEN_int32(
@@ -60,13 +53,11 @@ DEFINE_VALIDATED_int32(
 
 database::Config::Config()
     // Durability flags.
-    : durability_enabled{FLAGS_durability_enabled},
-      durability_directory{FLAGS_durability_directory},
+    : durability_directory{FLAGS_durability_directory},
       db_recover_on_startup{FLAGS_db_recover_on_startup},
       snapshot_cycle_sec{FLAGS_snapshot_cycle_sec},
       snapshot_max_retained{FLAGS_snapshot_max_retained},
       snapshot_on_exit{FLAGS_snapshot_on_exit},
-      synchronous_commit{FLAGS_synchronous_commit},
       // Misc flags.
       gc_cycle_sec{FLAGS_gc_cycle_sec},
       query_execution_time_sec{FLAGS_query_execution_time_sec},

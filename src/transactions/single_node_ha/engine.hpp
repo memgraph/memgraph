@@ -6,10 +6,14 @@
 #include <experimental/optional>
 #include <unordered_map>
 
-#include "durability/single_node_ha/wal.hpp"
 #include "transactions/commit_log.hpp"
 #include "transactions/transaction.hpp"
 #include "utils/thread/sync.hpp"
+
+// Forward declarations.
+namespace raft {
+  class RaftServer;
+}
 
 namespace tx {
 
@@ -17,12 +21,13 @@ class TransactionEngineError : public utils::BasicException {
   using utils::BasicException::BasicException;
 };
 
-/// Single-node deployment transaction engine. Has complete functionality.
+/// High availability single node transaction engine.
+///
+/// Requires RaftServer where it stores StateDeltas containing transaction
+/// information needed for raft followers when replicating logs.
 class Engine final {
  public:
-  /// @param wal - Optional. If present, the Engine will write tx
-  /// Begin/Commit/Abort atomically (while under lock).
-  explicit Engine(durability::WriteAheadLog *wal = nullptr);
+  explicit Engine(raft::RaftServer *log_buffer);
 
   Engine(const Engine &) = delete;
   Engine(Engine &&) = delete;
@@ -65,9 +70,7 @@ class Engine final {
   std::unordered_map<TransactionId, std::unique_ptr<Transaction>> store_;
   Snapshot active_;
   mutable utils::SpinLock lock_;
-  // Optional. If present, the Engine will write tx Begin/Commit/Abort
-  // atomically (while under lock).
-  durability::WriteAheadLog *wal_{nullptr};
+  raft::RaftServer *raft_server_{nullptr};
   std::atomic<bool> accepting_transactions_{true};
 
   // Helper method for transaction begin.

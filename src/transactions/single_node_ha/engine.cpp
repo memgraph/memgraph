@@ -6,10 +6,13 @@
 #include "glog/logging.h"
 
 #include "durability/single_node_ha/state_delta.hpp"
+#include "raft/raft_server.hpp"
 
 namespace tx {
 
-Engine::Engine(durability::WriteAheadLog *wal) : wal_(wal) {}
+Engine::Engine(raft::RaftServer *raft_server) : raft_server_(raft_server) {
+  CHECK(raft_server) << "LogBuffer can't be nullptr in HA";
+}
 
 Transaction *Engine::Begin() {
   VLOG(11) << "[Tx] Starting transaction " << counter_ + 1;
@@ -78,9 +81,7 @@ void Engine::Commit(const Transaction &t) {
   std::lock_guard<utils::SpinLock> guard(lock_);
   clog_.set_committed(t.id_);
   active_.remove(t.id_);
-  if (wal_) {
-    wal_->Emplace(database::StateDelta::TxCommit(t.id_));
-  }
+  raft_server_->Emplace(database::StateDelta::TxCommit(t.id_));
   store_.erase(store_.find(t.id_));
   if (t.blocking()) {
     accepting_transactions_.store(true);
@@ -92,9 +93,7 @@ void Engine::Abort(const Transaction &t) {
   std::lock_guard<utils::SpinLock> guard(lock_);
   clog_.set_aborted(t.id_);
   active_.remove(t.id_);
-  if (wal_) {
-    wal_->Emplace(database::StateDelta::TxAbort(t.id_));
-  }
+  raft_server_->Emplace(database::StateDelta::TxAbort(t.id_));
   store_.erase(store_.find(t.id_));
   if (t.blocking()) {
     accepting_transactions_.store(true);
@@ -169,9 +168,7 @@ Transaction *Engine::BeginTransaction(bool blocking) {
   Transaction *t = new Transaction(id, active_, *this, blocking);
   active_.insert(id);
   store_.emplace(id, t);
-  if (wal_) {
-    wal_->Emplace(database::StateDelta::TxBegin(id));
-  }
+  raft_server_->Emplace(database::StateDelta::TxBegin(id));
   return t;
 }
 

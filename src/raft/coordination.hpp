@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <experimental/filesystem>
 #include <functional>
 #include <mutex>
@@ -19,31 +20,34 @@
 
 namespace raft {
 
-/**
- * This class is responsible for coordination between workers (nodes) within
- * the Raft cluster. Its implementation is quite similar to coordination
- * in distributed Memgraph apart from slight modifications which align more
- * closely to Raft.
- *
- * It should be noted that, in the context of communication, all nodes within
- * the Raft cluster are considered equivalent and are henceforth known simply
- * as workers.
- *
- * This class is thread safe.
- */
+/// This class is responsible for coordination between workers (nodes) within
+/// the Raft cluster. Its implementation is quite similar to coordination
+/// in distributed Memgraph apart from slight modifications which align more
+/// closely to Raft.
+///
+/// It should be noted that, in the context of communication, all nodes within
+/// the Raft cluster are considered equivalent and are henceforth known simply
+/// as workers.
+///
+/// This class is thread safe.
 class Coordination final {
  public:
-  /**
-   * Class constructor
-   *
-   * @param server_workers_count Number of workers in RPC Server.
-   * @param client_workers_count Number of workers in RPC Client.
-   * @param worker_id ID of Raft worker (node) on this machine.
-   * @param coordination_config_file file that contains coordination config.
-   */
+  /// Class constructor
+  ///
+  /// @param server_workers_count Number of workers in RPC Server.
+  /// @param client_workers_count Number of workers in RPC Client.
+  /// @param worker_id ID of Raft worker (node) on this machine.
+  /// @param workers mapping from worker id to endpoint information.
   Coordination(uint16_t server_workers_count, uint16_t client_workers_count,
                uint16_t worker_id,
                std::unordered_map<uint16_t, io::network::Endpoint> workers);
+
+  ~Coordination();
+
+  Coordination(const Coordination &) = delete;
+  Coordination(Coordination &&) = delete;
+  Coordination &operator=(const Coordination &) = delete;
+  Coordination &operator=(Coordination &&) = delete;
 
   /// Gets the endpoint for the given `worker_id`.
   io::network::Endpoint GetEndpoint(int worker_id);
@@ -86,22 +90,34 @@ class Coordination final {
   static std::unordered_map<uint16_t, io::network::Endpoint> LoadFromFile(
       const std::string &coordination_config_file);
 
- protected:
-  /// Adds a worker to the coordination. This function can be called multiple
-  /// times to replace an existing worker.
-  void AddWorker(int worker_id, const io::network::Endpoint &endpoint);
+  /// Starts the coordination and its servers.
+  bool Start();
+
+  bool AwaitShutdown(std::function<bool(void)> call_before_shutdown =
+                         []() -> bool { return true; });
+
+  /// Hints that the coordination should start shutting down the whole cluster.
+  void Shutdown();
 
   /// Gets a worker name for the given endpoint.
   std::string GetWorkerName(const io::network::Endpoint &endpoint);
 
-  communication::rpc::Server server_;
-
  private:
-  std::unordered_map<uint16_t, io::network::Endpoint> workers_;
+  /// Adds a worker to the coordination. This function can be called multiple
+  /// times to replace an existing worker.
+  void AddWorker(int worker_id, const io::network::Endpoint &endpoint);
+
+  communication::rpc::Server server_;
+  uint16_t worker_id_;
+
   mutable std::mutex lock_;
+  std::unordered_map<uint16_t, io::network::Endpoint> workers_;
 
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   utils::ThreadPool thread_pool_;
+
+  // Flags used for shutdown.
+  std::atomic<bool> alive_{true};
 };
 
 }  // namespace raft

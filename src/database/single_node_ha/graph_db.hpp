@@ -7,8 +7,6 @@
 #include <vector>
 
 #include "database/single_node_ha/counters.hpp"
-#include "durability/single_node_ha/recovery.hpp"
-#include "durability/single_node_ha/wal.hpp"
 #include "io/network/endpoint.hpp"
 #include "raft/coordination.hpp"
 #include "raft/raft_server.hpp"
@@ -43,13 +41,11 @@ struct Config {
   Config();
 
   // Durability flags.
-  bool durability_enabled;
   std::string durability_directory;
   bool db_recover_on_startup;
   int snapshot_cycle_sec;
   int snapshot_max_retained;
   int snapshot_on_exit;
-  bool synchronous_commit;
 
   // Misc flags.
   int gc_cycle_sec;
@@ -101,6 +97,10 @@ class GraphDb {
   GraphDb &operator=(const GraphDb &) = delete;
   GraphDb &operator=(GraphDb &&) = delete;
 
+  void Start();
+  bool AwaitShutdown(std::function<void(void)> call_before_shutdown);
+  void Shutdown();
+
   /// Create a new accessor by starting a new transaction.
   std::unique_ptr<GraphDbAccessor> Access();
   std::unique_ptr<GraphDbAccessor> AccessBlocking(
@@ -109,7 +109,7 @@ class GraphDb {
   std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId);
 
   Storage &storage();
-  durability::WriteAheadLog &wal();
+  raft::RaftServer &raft_server();
   tx::Engine &tx_engine();
   storage::ConcurrentIdMapper<storage::Label> &label_mapper();
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
@@ -121,9 +121,9 @@ class GraphDb {
   bool MakeSnapshot(GraphDbAccessor &accessor);
 
   /// Releases the storage object safely and creates a new object.
-  /// This is needed because of recovery, otherwise we might try to recover into
-  /// a storage which has already been polluted because of a failed previous
-  /// recovery
+  /// This is needed because of recovery, otherwise we might try to recover
+  /// into a storage which has already been polluted because of a failed
+  /// previous recovery
   void ReinitializeStorage();
 
   /// When this is false, no new transactions should be created.
@@ -158,10 +158,6 @@ class GraphDb {
   Config config_;
   std::unique_ptr<Storage> storage_ =
       std::make_unique<Storage>(config_.properties_on_disk);
-  durability::WriteAheadLog wal_{config_.durability_directory,
-                                 config_.durability_enabled,
-                                 config_.synchronous_commit};
-
   raft::Coordination coordination_{
       config_.rpc_num_server_workers, config_.rpc_num_client_workers,
       config_.server_id,
@@ -169,7 +165,7 @@ class GraphDb {
   raft::RaftServer raft_server_{
       config_.server_id, config_.durability_directory,
       raft::Config::LoadFromFile(config_.raft_config_file), &coordination_};
-  tx::Engine tx_engine_{&wal_};
+  tx::Engine tx_engine_{&raft_server_};
   std::unique_ptr<StorageGc> storage_gc_ =
       std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);
   storage::ConcurrentIdMapper<storage::Label> label_mapper_{

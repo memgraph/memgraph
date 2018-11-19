@@ -17,8 +17,13 @@ Coordination::Coordination(
     uint16_t worker_id,
     std::unordered_map<uint16_t, io::network::Endpoint> workers)
     : server_(workers[worker_id], server_workers_count),
+      worker_id_(worker_id),
       workers_(workers),
       thread_pool_(client_workers_count, "RPC client") {}
+
+Coordination::~Coordination() {
+  CHECK(!alive_) << "You must call Shutdown and AwaitShutdown on Coordination!";
+}
 
 std::unordered_map<uint16_t, io::network::Endpoint> Coordination::LoadFromFile(
     const std::string &coordination_config_file) {
@@ -74,11 +79,31 @@ communication::rpc::ClientPool *Coordination::GetClientPool(int worker_id) {
               .first->second;
 }
 
-void Coordination::AddWorker(int worker_id,
-                             const io::network::Endpoint &endpoint) {
-  std::lock_guard<std::mutex> guard(lock_);
-  workers_.insert({worker_id, endpoint});
+bool Coordination::Start() {
+  if (!server_.Start()) return false;
+  AddWorker(worker_id_, server_.endpoint());
+  return true;
 }
+
+bool Coordination::AwaitShutdown(
+    std::function<bool(void)> call_before_shutdown) {
+  // Wait for a shutdown notification.
+  while (alive_) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  // Call the before shutdown callback.
+  bool ret = call_before_shutdown();
+
+  // Shutdown our RPC server.
+  server_.Shutdown();
+  server_.AwaitShutdown();
+
+  // Return `true` if the `call_before_shutdown` succeeded.
+  return ret;
+}
+
+void Coordination::Shutdown() { alive_.store(false); }
 
 std::string Coordination::GetWorkerName(const io::network::Endpoint &endpoint) {
   std::lock_guard<std::mutex> guard(lock_);
@@ -88,6 +113,12 @@ std::string Coordination::GetWorkerName(const io::network::Endpoint &endpoint) {
     }
   }
   return fmt::format("unknown worker ({})", endpoint);
+}
+
+void Coordination::AddWorker(int worker_id,
+                             const io::network::Endpoint &endpoint) {
+  std::lock_guard<std::mutex> guard(lock_);
+  workers_.insert({worker_id, endpoint});
 }
 
 }  // namespace raft

@@ -446,7 +446,7 @@ class GraphDbAccessor {
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);
 
-  /// Writes Index (key) creation to wal, marks it as ready for usage
+  /// Writes Index (key) creation to RaftServer, marks it as ready for usage
   void EnableIndex(const LabelPropertyIndex::Key &key);
 
   /**
@@ -583,7 +583,7 @@ class GraphDbAccessor {
   bool should_abort() const;
 
   const tx::Transaction &transaction() const { return transaction_; }
-  durability::WriteAheadLog &wal();
+  raft::RaftServer &raft_server();
   auto &db() { return db_; }
   const auto &db() const { return db_; }
 

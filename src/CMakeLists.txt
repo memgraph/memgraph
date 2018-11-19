@@ -254,9 +254,7 @@ set(mg_single_node_ha_sources
     database/single_node_ha/graph_db_accessor.cpp
     durability/single_node_ha/state_delta.cpp
     durability/single_node_ha/paths.cpp
-    durability/single_node_ha/recovery.cpp
     durability/single_node_ha/snapshooter.cpp
-    durability/single_node_ha/wal.cpp
     glue/auth.cpp
     glue/communication.cpp
     raft/coordination.cpp

@@ -63,7 +63,7 @@ bool GraphDbAccessor::should_abort() const {
   return transaction_.should_abort();
 }
 
-durability::WriteAheadLog &GraphDbAccessor::wal() { return db_.wal(); }
+raft::RaftServer &GraphDbAccessor::raft_server() { return db_.raft_server(); }
 
 VertexAccessor GraphDbAccessor::InsertVertex(
     std::experimental::optional<gid::Gid> requested_gid) {
@@ -76,7 +76,7 @@ VertexAccessor GraphDbAccessor::InsertVertex(
       db_.storage().vertices_.access().insert(gid, vertex_vlist).second;
   CHECK(success) << "Attempting to insert a vertex with an existing GID: "
                  << gid;
-  wal().Emplace(
+  raft_server().Emplace(
       database::StateDelta::CreateVertex(transaction_.id_, vertex_vlist->gid_));
   auto va = VertexAccessor(vertex_vlist, *this);
   return va;
@@ -141,10 +141,9 @@ void GraphDbAccessor::BuildIndex(storage::Label label,
 
 void GraphDbAccessor::EnableIndex(const LabelPropertyIndex::Key &key) {
   // Commit transaction as we finished applying method on newest visible
-  // records. Write that transaction's ID to the WAL as the index has been
-  // built at this point even if this DBA's transaction aborts for some
-  // reason.
-  wal().Emplace(database::StateDelta::BuildIndex(
+  // records. Write that transaction's ID to the RaftServer as the index has been
+  // built at this point even if this DBA's transaction aborts for some reason.
+  raft_server().Emplace(database::StateDelta::BuildIndex(
       transaction_id(), key.label_, LabelName(key.label_), key.property_,
       PropertyName(key.property_), key.unique_));
 }
@@ -171,7 +170,7 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
         db_.AccessBlocking(std::experimental::make_optional(transaction_.id_));
 
     db_.storage().label_property_index_.DeleteIndex(key);
-    dba->wal().Emplace(database::StateDelta::DropIndex(
+    dba->raft_server().Emplace(database::StateDelta::DropIndex(
         dba->transaction_id(), key.label_, LabelName(key.label_), key.property_,
         PropertyName(key.property_)));
 
@@ -291,7 +290,7 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
     return false;
 
   auto *vlist_ptr = vertex_accessor.address();
-  wal().Emplace(database::StateDelta::RemoveVertex(
+  raft_server().Emplace(database::StateDelta::RemoveVertex(
       transaction_.id_, vlist_ptr->gid_, check_empty));
   vlist_ptr->remove(vertex_accessor.current_, transaction_);
   return true;
@@ -338,7 +337,7 @@ EdgeAccessor GraphDbAccessor::InsertEdge(
   to.SwitchNew();
   to.update().in_.emplace(from.address(), edge_vlist, edge_type);
 
-  wal().Emplace(database::StateDelta::CreateEdge(
+  raft_server().Emplace(database::StateDelta::CreateEdge(
       transaction_.id_, edge_vlist->gid_, from.gid(), to.gid(), edge_type,
       EdgeTypeName(edge_type)));
 
@@ -363,7 +362,7 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
   if (remove_in_edge) edge.to().RemoveInEdge(edge.address());
 
   edge.address()->remove(edge.current_, transaction_);
-  wal().Emplace(database::StateDelta::RemoveEdge(transaction_.id_, edge.gid()));
+  raft_server().Emplace(database::StateDelta::RemoveEdge(transaction_.id_, edge.gid()));
 }
 
 storage::Label GraphDbAccessor::Label(const std::string &label_name) {

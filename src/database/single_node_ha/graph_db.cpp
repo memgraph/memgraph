@@ -7,7 +7,6 @@
 #include "database/single_node_ha/counters.hpp"
 #include "database/single_node_ha/graph_db_accessor.hpp"
 #include "durability/single_node_ha/paths.hpp"
-#include "durability/single_node_ha/recovery.hpp"
 #include "durability/single_node_ha/snapshooter.hpp"
 #include "storage/single_node_ha/concurrent_id_mapper.hpp"
 #include "storage/single_node_ha/storage_gc.hpp"
@@ -16,52 +15,11 @@
 
 namespace database {
 
-GraphDb::GraphDb(Config config) : config_(config) {
-  if (config_.durability_enabled) utils::CheckDir(config_.durability_directory);
+GraphDb::GraphDb(Config config) : config_(config) {}
 
-  // Durability recovery.
-  if (config_.db_recover_on_startup) {
-    CHECK(durability::VersionConsistency(config_.durability_directory))
-        << "Contents of durability directory are not compatible with the "
-           "current version of Memgraph binary!";
-
-    // What we recover.
-    std::experimental::optional<durability::RecoveryInfo> recovery_info;
-    durability::RecoveryData recovery_data;
-
-    recovery_info = durability::RecoverOnlySnapshot(
-        config_.durability_directory, this, &recovery_data,
-        std::experimental::nullopt);
-
-    // Post-recovery setup and checking.
-    if (recovery_info) {
-      recovery_data.wal_tx_to_recover = recovery_info->wal_recovered;
-      durability::RecoveryTransactions recovery_transactions(this);
-      durability::RecoverWal(config_.durability_directory, this, &recovery_data,
-                             &recovery_transactions);
-      durability::RecoverIndexes(this, recovery_data.indexes);
-    }
-  }
-
-  if (config_.durability_enabled) {
-    // move any existing snapshots or wal files to a deprecated folder.
-    if (!config_.db_recover_on_startup &&
-        durability::ContainsDurabilityFiles(config_.durability_directory)) {
-      durability::MoveToBackup(config_.durability_directory);
-      LOG(WARNING) << "Since Memgraph was not supposed to recover on startup "
-                      "and durability is enabled, your current durability "
-                      "files will likely be overriden. To prevent important "
-                      "data loss, Memgraph has stored those files into a "
-                      ".backup directory inside durability directory";
-    }
-    wal_.Init();
-    snapshot_creator_ = std::make_unique<utils::Scheduler>();
-    snapshot_creator_->Run(
-        "Snapshot", std::chrono::seconds(config_.snapshot_cycle_sec), [this] {
-          auto dba = this->Access();
-          this->MakeSnapshot(*dba);
-        });
-  }
+void GraphDb::Start() {
+  utils::CheckDir(config_.durability_directory);
+  CHECK(coordination_.Start()) << "Couldn't start coordination!";
 
   // Start transaction killer.
   if (config_.query_execution_time_sec != -1) {
@@ -81,18 +39,30 @@ GraphDb::GraphDb(Config config) : config_(config) {
   }
 }
 
-GraphDb::~GraphDb() {
-  snapshot_creator_ = nullptr;
+GraphDb::~GraphDb() {}
 
-  is_accepting_transactions_ = false;
-  tx_engine_.LocalForEachActiveTransaction(
-      [](auto &t) { t.set_should_abort(); });
+bool GraphDb::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
+  bool ret =
+      coordination_.AwaitShutdown([this, &call_before_shutdown]() -> bool {
+        snapshot_creator_ = nullptr;
+        is_accepting_transactions_ = false;
+        tx_engine_.LocalForEachActiveTransaction(
+            [](auto &t) { t.set_should_abort(); });
 
-  if (config_.snapshot_on_exit) {
-    auto dba = this->Access();
-    MakeSnapshot(*dba);
-  }
+        call_before_shutdown();
+
+        if (config_.snapshot_on_exit) {
+          auto dba = this->Access();
+          MakeSnapshot(*dba);
+        }
+
+        return true;
+      });
+
+  return ret;
 }
+
+void GraphDb::Shutdown() { coordination_.Shutdown(); }
 
 std::unique_ptr<GraphDbAccessor> GraphDb::Access() {
   // NOTE: We are doing a heap allocation to allow polymorphism. If this poses
@@ -114,7 +84,7 @@ std::unique_ptr<GraphDbAccessor> GraphDb::AccessBlocking(
 
 Storage &GraphDb::storage() { return *storage_; }
 
-durability::WriteAheadLog &GraphDb::wal() { return wal_; }
+raft::RaftServer &GraphDb::raft_server() { return raft_server_; }
 
 tx::Engine &GraphDb::tx_engine() { return tx_engine_; }
 
