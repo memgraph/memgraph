@@ -235,7 +235,7 @@ cpp<#
                               query::LoadCapnpTypedValue(reader, &value, dba, data_manager);
                               return value;
                             }"))
-      (worker-id :int :capnp-save :dont-save))
+      (worker-id :int :dont-save t))
      (:serialize :capnp
                  :load-args '((dba "database::GraphDbAccessor *")
                               (data-manager "distributed::DataManager *"))))

@@ -101,17 +101,17 @@ the relevant parts of the response, ready for use."))
                ${member}.emplace_back(current_frame);
              }
              cpp<#))
-   (worker-id :int16_t :capnp-save :dont-save
+   (worker-id :int16_t :dont-save t
               :documentation
               "Id of the worker on which the response is created, used for
 serializing vertices (converting local to global addresses). Indicates which
 of (old, new) records of a graph element should be sent.")
-   (send-versions "storage::SendVersions" :capnp-save :dont-save)
+   (send-versions "storage::SendVersions" :dont-save t)
    ;; Temporary caches used between deserialization and post-processing
    ;; (transfering the ownership of this data to a Cache).
-   (vertices "std::vector<GraphElementData<Vertex>>" :capnp-save :dont-save)
-   (edges "std::vector<GraphElementData<Edge>>" :capnp-save :dont-save)
-   (paths "std::vector<PathData>" :capnp-save :dont-save))
+   (vertices "std::vector<GraphElementData<Vertex>>" :dont-save t)
+   (edges "std::vector<GraphElementData<Edge>>" :dont-save t)
+   (paths "std::vector<PathData>" :dont-save t))
   (:documentation
    "The data of the remote pull response. Post-processing is required after
 deserialization to initialize Vertex/Edge typed values in the frames (possibly

@@ -394,10 +394,6 @@ encoded as union inheritance in Cap'n Proto."
                     (string-downcase (cpp-type-name val) :end 1)
                     field-number)))))
 
-(defun cpp-class-members-for-capnp-save (cpp-class)
-  (remove-if (lambda (m) (eq :dont-save (cpp-member-capnp-save m)))
-             (cpp-class-members cpp-class)))
-
 (defun capnp-schema (cpp-class)
   "Generate Cap'n Proto serialiation schema for CPP-CLASS"
   (declare (type (or cpp-class cpp-enum symbol) cpp-class))
@@ -407,7 +403,7 @@ encoded as union inheritance in Cap'n Proto."
     (return-from capnp-schema (capnp-schema-for-enum cpp-class)))
   (let ((class-name (if (symbolp cpp-class) cpp-class (cpp-type-base-name cpp-class)))
         (members (when (typep cpp-class 'cpp-class)
-                   (cpp-class-members-for-capnp-save cpp-class)))
+                   (cpp-class-members-for-save cpp-class)))
         (inner-types (when (typep cpp-class 'cpp-class) (cpp-class-inner-types cpp-class)))
         (union-subclasses (capnp-union-subclasses cpp-class))
         (type-params (when (typep cpp-class 'cpp-class) (cpp-type-type-params cpp-class)))
@@ -739,7 +735,7 @@ Proto schema."
   (declare (type cpp-class cpp-class))
   (declare (type string instance-access))
   (with-output-to-string (s)
-    (dolist (member (cpp-class-members-for-capnp-save cpp-class))
+    (dolist (member (cpp-class-members-for-save cpp-class))
       (let ((member-access
              (concatenate 'string instance-access
                           (if (eq :public (cpp-member-scope member))
@@ -788,7 +784,7 @@ Proto schema."
                ;; Initialize CPP-CLASS builder
                (when parents
                  (if (or force-builder compose-parents
-                         (cpp-class-members-for-capnp-save cpp-class))
+                         (cpp-class-members-for-save cpp-class))
                      (progn
                        (format cpp-out "auto ~A_builder = ~A->~{get~A().~}init~A();~%"
                                (cpp-variable-name (cpp-type-base-name cpp-class))
@@ -901,7 +897,7 @@ Proto schema."
 ;;; the ownership of the concrete type.
 
 (defun cpp-class-members-for-capnp-load (cpp-class)
-  (remove-if (lambda (m) (and (eq :dont-save (cpp-member-capnp-save m))
+  (remove-if (lambda (m) (and (cpp-member-dont-save m)
                               (not (cpp-member-capnp-load m))))
              (cpp-class-members cpp-class)))
 

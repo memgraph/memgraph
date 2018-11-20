@@ -651,10 +651,10 @@ property value.
   (
    ;; info on what's getting expanded
    (node-symbol "Symbol"
-                :documentation "Symbol pointing to the node to be expanded. 
+                :documentation "Symbol pointing to the node to be expanded.
 This is where the new node will be stored.")
    (edge-symbol "Symbol"
-                :documentation "Symbol for the edges to be expanded. 
+                :documentation "Symbol for the edges to be expanded.
 This is where a TypedValue containing a list of expanded edges will be stored.")
    (direction "EdgeAtom::Direction"
               :documentation "EdgeAtom::Direction determining the direction of edge
@@ -667,8 +667,8 @@ expansion. The direction is relative to the starting vertex for each expansion."
                                                "EdgeAtom::Direction"
                                                '(in out both)))
    (edge-types "std::vector<storage::EdgeType>"
-               :documentation "storage::EdgeType specifying which edges we want 
-to expand. If empty, all edges are valid. If not empty, only edges with one of 
+               :documentation "storage::EdgeType specifying which edges we want
+to expand. If empty, all edges are valid. If not empty, only edges with one of
 the given types are valid."
                :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common"
                                                   "storage::EdgeType")
@@ -713,7 +713,7 @@ pulled.")
    #>cpp
    /**
     * Creates an expansion. All parameters except input and input_symbol are
-    * forwarded to @c ExpandCommon and are documented there. 
+    * forwarded to @c ExpandCommon and are documented there.
     *
     * @param input Optional logical operator that preceeds this one.
     * @param input_symbol Symbol that points to a VertexAccessor in the frame
@@ -2161,11 +2161,9 @@ vectors of symbols used  by each of the inputs.")
   (:serialize :capnp))
 
 (lcp:define-class output-table (logical-operator)
-  ((output-symbols "std::vector<Symbol>" :scope :public
-                   :capnp-save :dont-save)
+  ((output-symbols "std::vector<Symbol>" :scope :public :dont-save t)
    (callback "std::function<std::vector<std::vector<TypedValue>>()>"
-             :scope :public
-             :capnp-save :dont-save))
+             :scope :public :dont-save t))
   (:documentation "An operator that outputs a table, producing a single row on each pull")
   (:public
    #>cpp

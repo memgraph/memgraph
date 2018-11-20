@@ -43,9 +43,8 @@ cpp<#
                     #>cpp
                     self->vertex_output = storage::LoadVertex(${reader});
                     cpp<#))
-    (worker-id :int64_t :capnp-save :dont-save)
-    (vertex-output "std::unique_ptr<Vertex>" :initarg nil
-                   :capnp-save :dont-save))))
+    (worker-id :int64_t :dont-save t)
+    (vertex-output "std::unique_ptr<Vertex>" :initarg nil :dont-save t))))
 
 (lcp:define-rpc edge
     (:request ((member "TxGidPair")))
@@ -65,9 +64,8 @@ cpp<#
                   #>cpp
                   self->edge_output = storage::LoadEdge(${reader});
                   cpp<#))
-    (worker-id :int64_t :capnp-save :dont-save)
-    (edge-output "std::unique_ptr<Edge>" :initarg nil
-                 :capnp-save :dont-save))))
+    (worker-id :int64_t :dont-save t)
+    (edge-output "std::unique_ptr<Edge>" :initarg nil :dont-save t))))
 
 (lcp:define-rpc vertex-count
     (:request ((member "tx::TransactionId" :capnp-type "UInt64")))

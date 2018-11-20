@@ -792,7 +792,7 @@ cpp<#
    (function-name "std::string" :scope :public)
    (function "std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &, database::GraphDbAccessor *)>"
              :scope :public :capnp-init nil
-             :capnp-save :dont-save
+             :dont-save t
              :capnp-load (lambda (reader member capnp-name)
                            #>cpp
                            ${member} = NameToFunction(self->get()->function_name_);

@@ -48,7 +48,7 @@ cpp<#
             :capnp-type "Utils.SharedPtr(Plan.LogicalOperator)"
             :capnp-save #'save-plan :capnp-load #'load-plan)
       (symbol-table "query::SymbolTable" :capnp-type "Query.SymbolTable")
-      (storage "query::AstStorage" :initarg nil :capnp-save :dont-save)))
+      (storage "query::AstStorage" :initarg nil :dont-save t)))
   (:response ()))
 
 (lcp:define-rpc remove-plan
