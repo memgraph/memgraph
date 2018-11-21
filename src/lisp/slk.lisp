@@ -121,3 +121,64 @@ generation expects the declarations and definitions to be in `slk` namespace."
     (lcp::with-cpp-block-output
         (cpp-out :name (save-function-declaration-for-class cpp-class))
       (write-line (save-function-code-for-class cpp-class) cpp-out))))
+
+(defun save-function-declaration-for-enum (cpp-enum)
+  "Generate SLK save function declaration for CPP-ENUM.  Note that the code
+generation expects the declarations and definitions to be in `slk` namespace."
+  (check-type cpp-enum lcp::cpp-enum)
+  (let ((self-arg
+         (list 'self (format nil "const ~A &" (lcp::cpp-type-decl cpp-enum))))
+        (builder-arg (list 'builder "slk::Builder *")))
+    (lcp::cpp-function-declaration "Save" :args (list self-arg builder-arg))))
+
+(defun save-function-code-for-enum (cpp-enum)
+  (with-output-to-string (s)
+    (write-line "uint8_t enum_value;" s)
+    (lcp::with-cpp-block-output (s :name "switch (self)")
+      (loop for enum-value in (lcp::cpp-enum-values cpp-enum)
+         and enum-ix from 0 do
+           (format s "case ~A::~A: enum_value = ~A; break;"
+                   (lcp::cpp-type-decl cpp-enum)
+                   (lcp::cpp-enumerator-name enum-value)
+                   enum-ix)))
+    (write-line "slk::Save(enum_value, builder);" s)))
+
+(defun save-function-definition-for-enum (cpp-enum)
+  "Generate SLK save function.  Note that the code generation expects the
+declarations and definitions to be in `slk` namespace."
+  (check-type cpp-enum lcp::cpp-enum)
+  (with-output-to-string (cpp-out)
+    (lcp::with-cpp-block-output
+        (cpp-out :name (save-function-declaration-for-enum cpp-enum))
+      (write-line (save-function-code-for-enum cpp-enum) cpp-out))))
+
+(defun load-function-declaration-for-enum (cpp-enum)
+  "Generate SLK load function declaration for CPP-ENUM.  Note that the code
+generation expects the declarations and definitions to be in `slk` namespace."
+  (check-type cpp-enum lcp::cpp-enum)
+  (let ((self-arg
+         (list 'self (format nil "~A *" (lcp::cpp-type-decl cpp-enum))))
+        (reader-arg (list 'reader "slk::Reader *")))
+    (lcp::cpp-function-declaration "Load" :args (list self-arg reader-arg))))
+
+(defun load-function-code-for-enum (cpp-enum)
+  (with-output-to-string (s)
+    (write-line "uint8_t enum_value;" s)
+    (write-line "slk::Load(&enum_value, reader);" s)
+    (lcp::with-cpp-block-output (s :name "switch (enum_value)")
+      (loop for enum-value in (lcp::cpp-enum-values cpp-enum)
+         and enum-ix from 0 do
+           (format s "case static_cast<uint8_t>(~A): *self = ~A::~A; break;"
+                   enum-ix
+                   (lcp::cpp-type-decl cpp-enum)
+                   (lcp::cpp-enumerator-name enum-value)))
+      (write-line "default: LOG(FATAL) << \"Trying to load unknown enum value!\";" s))))
+
+(defun load-function-definition-for-enum (cpp-enum)
+  "Generate SLK save function.  Note that the code generation expects the
+declarations and definitions to be in `slk` namespace."
+  (check-type cpp-enum lcp::cpp-enum)
+  (with-output-to-string (cpp-out)
+    (lcp::with-cpp-block-output
+        (cpp-out :name (load-function-declaration-for-enum cpp-enum))
+      (write-line (load-function-code-for-enum cpp-enum) cpp-out))))

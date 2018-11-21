@@ -25,31 +25,6 @@ See https://en.wikipedia.org/wiki/Fowler_Noll_Vo_hash."
                          )))
     hash))
 
-(defun cpp-documentation (documentation)
-  "Convert DOCUMENTATION to Doxygen style string."
-  (declare (type string documentation))
-  (format nil "/// ~A"
-          (cl-ppcre:regex-replace-all
-           (string #\Newline) documentation (format nil "~%/// "))))
-
-(defun cpp-variable-name (symbol)
-  "Get C++ style name of SYMBOL as a string."
-  (declare (type (or string symbol) symbol))
-  (cl-ppcre:regex-replace-all "-" (string-downcase symbol) "_"))
-
-(defun cpp-constant-name (symbol)
-  "Get C++ style constant name of SYMBOL as a string. This is like
-`CPP-VARIABLE-NAME' but upcased."
-  (declare (type (or string symbol) symbol))
-  (cl-ppcre:regex-replace-all "-" (string-upcase symbol) "_"))
-
-(defun cpp-member-name (cpp-member &key struct)
-  "Get C++ style name of the `CPP-MEMBER' as a string."
-  (declare (type cpp-member cpp-member)
-           (type boolean struct))
-  (let ((cpp-name (cpp-variable-name (cpp-member-symbol cpp-member))))
-    (if struct cpp-name (format nil "~A_" cpp-name))))
-
 (defun cpp-enum-definition (cpp-enum)
   "Get C++ style `CPP-ENUM' definition as a string."
   (declare (type cpp-enum cpp-enum))
@@ -58,7 +33,7 @@ See https://en.wikipedia.org/wiki/Fowler_Noll_Vo_hash."
       (write-line (cpp-documentation (cpp-type-documentation cpp-enum)) s))
     (with-cpp-block-output (s :name (format nil "enum class ~A" (cpp-type-name cpp-enum))
                               :semicolonp t)
-      (format s "~{ ~A~^,~%~}~%" (mapcar #'cpp-constant-name (cpp-enum-values cpp-enum))))))
+      (format s "~{ ~A~^,~%~}~%" (mapcar #'cpp-enumerator-name (cpp-enum-values cpp-enum))))))
 
 (defun cpp-member-declaration (cpp-member &key struct)
   "Get C++ style `CPP-MEMBER' declaration as a string."
@@ -1116,7 +1091,7 @@ example, INSTANCE-ACCESS could be `my_struct->`"
              (dolist (subclass (capnp-union-subclasses cpp-class))
                (format s "  case capnp::~A::~A: "
                        (cpp-type-name cpp-class)
-                       (cpp-constant-name (cpp-type-base-name subclass)))
+                       (cpp-enumerator-name (cpp-type-base-name subclass)))
                (flet ((load-derived (derived-type-name)
                         (with-cpp-block-output (s)
                           (format s "std::unique_ptr<~A> derived;~%" derived-type-name)
@@ -1132,7 +1107,7 @@ example, INSTANCE-ACCESS could be `my_struct->`"
                        (with-cpp-block-output (s)
                          (dolist (type-arg (capnp-opts-type-args (cpp-class-capnp-opts subclass)))
                            (format s "  case capnp::~A::~A: "
-                                   (cpp-type-name subclass) (cpp-constant-name type-arg))
+                                   (cpp-type-name subclass) (cpp-enumerator-name type-arg))
                            (load-derived (format nil "~A<~A>"
                                                  (cpp-type-name subclass)
                                                  (cpp-type-name type-arg))))))
@@ -1143,7 +1118,7 @@ example, INSTANCE-ACCESS could be `my_struct->`"
                ;; We are in the middle of the hierarchy, so allow constructing and loading us.
                (with-cpp-block-output (s :name (format nil "case capnp::~A::~A:"
                                                        (cpp-type-name cpp-class)
-                                                       (cpp-constant-name (cpp-type-base-name cpp-class))))
+                                                       (cpp-enumerator-name (cpp-type-base-name cpp-class))))
                  (format s "*self = std::make_unique<~A>();~%"
                          (cpp-type-decl cpp-class :namespace nil))
                  (load-class cpp-class "base_reader" s)))))
@@ -1262,7 +1237,7 @@ which aren't defined in LCP."
   (check-type enum-values list)
   (lambda (builder member capnp-name)
     (let ((cases (mapcar (lambda (value-symbol)
-                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                           (let ((value (cpp-enumerator-name value-symbol)))
                              #>cpp
                              case ${cpp-type}::${value}:
                                ${builder}->set${capnp-name}(${capnp-type}::${value});
@@ -1280,7 +1255,7 @@ enums which aren't defined in LCP."
   (check-type enum-values list)
   (lambda (reader member capnp-name)
     (let ((cases (mapcar (lambda (value-symbol)
-                           (let ((value (cl-ppcre:regex-replace-all "-" (string value-symbol) "_")))
+                           (let ((value (cpp-enumerator-name value-symbol)))
                              #>cpp
                              case ${capnp-type}::${value}:
                                ${member} = ${cpp-type}::${value};

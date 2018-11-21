@@ -21,6 +21,10 @@
 
 (defpackage #:lcp.slk
   (:use #:cl)
-  (:export #:save-function-declaration-for-class
+  (:export #:slk-error
+           #:save-function-declaration-for-class
            #:save-function-definition-for-class
-           #:slk-error))
+           #:save-function-declaration-for-enum
+           #:save-function-definition-for-enum
+           #:load-function-declaration-for-enum
+           #:load-function-definition-for-enum))

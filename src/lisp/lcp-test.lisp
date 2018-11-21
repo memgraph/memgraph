@@ -171,6 +171,13 @@
                      ()))
                   "void Save(const Derived &self, slk::Builder *builder)")
     (undefine-cpp-types)
+    (let ((my-enum (lcp:define-enum my-enum
+                       (first-value second-value))))
+      (is-generated (lcp.slk:save-function-declaration-for-enum my-enum)
+                    "void Save(const MyEnum &self, slk::Builder *builder)")
+      (is-generated (lcp.slk:load-function-declaration-for-enum my-enum)
+                    "void Load(MyEnum *self, slk::Reader *reader)"))
+    (undefine-cpp-types)
     (is-error (lcp.slk:save-function-declaration-for-class
                (lcp:define-class derived (fst-base snd-base)
                  ()))
@@ -212,6 +219,19 @@
                   "void Save(const TestStruct &self, slk::Builder *builder) {
                      self.custom_member.CustomSave(builder);
                    }")
+    (undefine-cpp-types)
+    (is-generated (lcp.slk:save-function-definition-for-enum
+                   (lcp:define-enum test-enum
+                       (first-value second-value)))
+                  "void Save(const TestEnum &self, slk::Builder *builder) {
+                     uint8_t enum_value;
+                     switch (self) {
+                     case TestEnum::FIRST_VALUE: enum_value = 0; break;
+                     case TestEnum::SECOND_VALUE: enum_value = 1; break;
+                     }
+                     slk::Save(enum_value, builder);
+                   }")
+    (undefine-cpp-types)
 
     (subtest "inheritance"
       (undefine-cpp-types)
@@ -273,18 +293,33 @@
         (is-error (lcp.slk:save-function-definition-for-class base-class)
                   'lcp.slk:slk-error)
         (is-error (lcp.slk:save-function-definition-for-class derived-templated-class)
-                  'lcp.slk:slk-error)))
+                  'lcp.slk:slk-error))))
 
-    (subtest "non-public members"
-      (undefine-cpp-types)
-      (is-error (lcp.slk:save-function-definition-for-class
-                 (lcp:define-class test-class ()
-                   ((public-member :bool :scope :public)
-                    (private-member :int64_t))))
-                'lcp.slk:slk-error)
-      (undefine-cpp-types)
-      (is-error (lcp.slk:save-function-definition-for-class
-                 (lcp:define-struct test-struct ()
-                   ((protected-member :int64_t :scope :protected)
-                    (public-member :char))))
-                'lcp.slk:slk-error))))
+  (subtest "load definitions"
+    (undefine-cpp-types)
+    (is-generated (lcp.slk:load-function-definition-for-enum
+                   (lcp:define-enum my-enum
+                       (first-value second-value)))
+                  "void Load(MyEnum *self, slk::Reader *reader) {
+                     uint8_t enum_value;
+                     slk::Load(&enum_value, reader);
+                     switch (enum_value) {
+                       case static_cast<uint8_t>(0): *self = MyEnum::FIRST_VALUE; break;
+                       case static_cast<uint8_t>(1): *self = MyEnum::SECOND_VALUE; break;
+                       default: LOG(FATAL) << \"Trying to load unknown enum value!\";
+                     }
+                   }"))
+
+  (subtest "non-public members"
+    (undefine-cpp-types)
+    (is-error (lcp.slk:save-function-definition-for-class
+               (lcp:define-class test-class ()
+                 ((public-member :bool :scope :public)
+                  (private-member :int64_t))))
+              'lcp.slk:slk-error)
+    (undefine-cpp-types)
+    (is-error (lcp.slk:save-function-definition-for-class
+               (lcp:define-struct test-struct ()
+                 ((protected-member :int64_t :scope :protected)
+                  (public-member :char))))
+              'lcp.slk:slk-error)))
