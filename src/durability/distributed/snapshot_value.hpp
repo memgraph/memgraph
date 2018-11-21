@@ -5,8 +5,6 @@
 #include <vector>
 
 #include "communication/bolt/v1/value.hpp"
-// TODO: WTF is this doing here?
-#include "query/typed_value.hpp"
 #include "storage/common/types/property_value.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "utils/algorithm.hpp"

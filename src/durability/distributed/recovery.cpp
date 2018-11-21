@@ -12,8 +12,6 @@
 #include "durability/distributed/wal.hpp"
 #include "durability/hashed_file_reader.hpp"
 #include "glue/communication.hpp"
-// TODO: WTF is typed value doing here?!
-#include "query/typed_value.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "storage/distributed/indexes/label_property_index.hpp"
 #include "transactions/type.hpp"
