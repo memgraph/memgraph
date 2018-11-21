@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <experimental/filesystem>
 #include <functional>
 #include <mutex>
 #include <thread>
@@ -12,6 +13,7 @@
 #include "communication/rpc/client_pool.hpp"
 #include "communication/rpc/server.hpp"
 #include "io/network/endpoint.hpp"
+#include "raft/exceptions.hpp"
 #include "utils/future.hpp"
 #include "utils/thread.hpp"
 
@@ -29,21 +31,20 @@ namespace raft {
  *
  * This class is thread safe.
  */
-class Coordination {
- protected:
+class Coordination final {
+ public:
   /**
    * Class constructor
    *
    * @param server_workers_count Number of workers in RPC Server.
    * @param client_workers_count Number of workers in RPC Client.
    * @param worker_id ID of Raft worker (node) on this machine.
-   * @param workers Mapping between Raft worker_ids to their network addresses.
+   * @param coordination_config_file file that contains coordination config.
    */
-  Coordination(uint16_t sever_workers_count, uint16_t client_workers_count,
+  Coordination(uint16_t server_workers_count, uint16_t client_workers_count,
                uint16_t worker_id,
                std::unordered_map<uint16_t, io::network::Endpoint> workers);
 
- public:
   /// Gets the endpoint for the given `worker_id`.
   io::network::Endpoint GetEndpoint(int worker_id);
 
@@ -82,6 +83,9 @@ class Coordination {
     server_.Register<TRequestResponse>(callback);
   }
 
+  static std::unordered_map<uint16_t, io::network::Endpoint> LoadFromFile(
+      const std::string &coordination_config_file);
+
  protected:
   /// Adds a worker to the coordination. This function can be called multiple
   /// times to replace an existing worker.
@@ -95,7 +99,6 @@ class Coordination {
  private:
   std::unordered_map<uint16_t, io::network::Endpoint> workers_;
   mutable std::mutex lock_;
-  uint16_t worker_id_;
 
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   utils::ThreadPool thread_pool_;

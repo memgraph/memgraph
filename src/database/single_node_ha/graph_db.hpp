@@ -10,6 +10,8 @@
 #include "durability/single_node_ha/recovery.hpp"
 #include "durability/single_node_ha/wal.hpp"
 #include "io/network/endpoint.hpp"
+#include "raft/coordination.hpp"
+#include "raft/raft_server.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/concurrent_id_mapper.hpp"
 #include "storage/single_node_ha/storage.hpp"
@@ -27,7 +29,7 @@ struct Stat {
 
   /// Vertex count is number of `VersionList<Vertex>` physically stored.
   std::atomic<int64_t> vertex_count{0};
-  
+
   /// Vertex count is number of `VersionList<Edge>` physically stored.
   std::atomic<int64_t> edge_count{0};
 
@@ -55,6 +57,15 @@ struct Config {
 
   // set of properties which will be stored on disk
   std::vector<std::string> properties_on_disk;
+
+  // RPC flags.
+  uint16_t rpc_num_client_workers;
+  uint16_t rpc_num_server_workers;
+
+  // HA flags.
+  std::string coordination_config_file;
+  std::string raft_config_file;
+  uint16_t server_id;
 };
 
 class GraphDbAccessor;
@@ -132,7 +143,7 @@ class GraphDb {
     if (vertex_count != 0) {
       stat_.avg_degree = 2 * static_cast<double>(edge_count) / vertex_count;
     } else {
-      stat_.avg_degree = 0; 
+      stat_.avg_degree = 0;
     }
   }
 
@@ -151,6 +162,13 @@ class GraphDb {
                                  config_.durability_enabled,
                                  config_.synchronous_commit};
 
+  raft::Coordination coordination_{
+      config_.rpc_num_server_workers, config_.rpc_num_client_workers,
+      config_.server_id,
+      raft::Coordination::LoadFromFile(config_.coordination_config_file)};
+  raft::RaftServer raft_server_{
+      config_.server_id, config_.durability_directory,
+      raft::Config::LoadFromFile(config_.raft_config_file), &coordination_};
   tx::Engine tx_engine_{&wal_};
   std::unique_ptr<StorageGc> storage_gc_ =
       std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);

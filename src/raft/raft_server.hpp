@@ -3,11 +3,13 @@
 #pragma once
 
 #include "raft/config.hpp"
-#include "raft/coordination.hpp"
 
 #include "storage/common/kvstore/kvstore.hpp"
 
 namespace raft {
+
+// Forward declaration.
+class Coordination;
 
 enum class Mode { FOLLOWER, CANDIDATE, LEADER };
 
@@ -26,11 +28,12 @@ class RaftServer {
    * ranging from 1 to cluster_size.
    *
    * @param server_id ID of the current server.
-   * @param config Configurable Raft parameters (e.g. timeout interval)
+   * @param durbility_dir directory for persisted data.
+   * @param config raft configuration.
    * @param coordination Abstraction for coordination between Raft servers.
    */
-  RaftServer(uint16_t server_id, const raft::Config &config,
-             raft::Coordination *coordination);
+  RaftServer(uint16_t server_id, const std::string &durability_dir,
+             const Config &config, raft::Coordination *coordination);
 
  private:
   /** volatile state on all servers **/

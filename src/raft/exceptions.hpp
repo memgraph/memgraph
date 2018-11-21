@@ -28,4 +28,27 @@ class InvalidTransitionException : public RaftException {
                       new_mode) {}
 };
 
+/**
+ * Exception used to indicate something is wrong with the raft config provided
+ * by the user.
+ */
+class RaftConfigException : public RaftException {
+ public:
+  using RaftException::RaftException;
+  explicit RaftConfigException(const std::string &path)
+      : RaftException("Unable to parse raft config file " + path) {}
+};
+
+/**
+ * Exception used to indicate something is wrong with the coordination config
+ * provided by the user.
+ */
+class RaftCoordinationConfigException : public RaftException {
+ public:
+  using RaftException::RaftException;
+  explicit RaftCoordinationConfigException(const std::string &path)
+      : RaftException("Unable to parse raft coordination config file " + path) {
+  }
+};
+
 }  // namespace raft
