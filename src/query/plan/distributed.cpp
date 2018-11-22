@@ -1279,7 +1279,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
                         std::to_string(worker_ident->uid_) + "<-" +
                         worker_sym.name();
       auto merge_sym = distributed_plan_.symbol_table.CreateSymbol(
-          merge_name, false, Symbol::Type::Number);
+          merge_name, false, Symbol::Type::NUMBER);
       return Aggregate::Element{worker_ident, nullptr, op, merge_sym};
     };
     // Aggregate uses associative operation(s), so split the work across master
@@ -1320,12 +1320,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
         //  * master: SUM(worker_sum) / toFloat(SUM(worker_count)) AS avg
         case Aggregation::Op::AVG: {
           auto worker_sum_sym = distributed_plan_.symbol_table.CreateSymbol(
-              aggr.output_sym.name() + "_SUM", false, Symbol::Type::Number);
+              aggr.output_sym.name() + "_SUM", false, Symbol::Type::NUMBER);
           Aggregate::Element worker_sum{aggr.value, aggr.key,
                                         Aggregation::Op::SUM, worker_sum_sym};
           worker_aggrs.emplace_back(worker_sum);
           auto worker_count_sym = distributed_plan_.symbol_table.CreateSymbol(
-              aggr.output_sym.name() + "_COUNT", false, Symbol::Type::Number);
+              aggr.output_sym.name() + "_COUNT", false, Symbol::Type::NUMBER);
           Aggregate::Element worker_count{
               aggr.value, aggr.key, Aggregation::Op::COUNT, worker_count_sym};
           worker_aggrs.emplace_back(worker_count);

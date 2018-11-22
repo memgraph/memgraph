@@ -15,7 +15,7 @@ cpp<#
 
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 (lcp:capnp-import 'plan "/query/plan/distributed_ops.capnp")
-(lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
+(lcp:capnp-import 'query "/query/serialization.capnp")
 
 (defun load-plan (reader member capnp-name)
   (declare (ignore capnp-name))
@@ -47,7 +47,7 @@ cpp<#
       (plan "std::shared_ptr<query::plan::LogicalOperator>"
             :capnp-type "Utils.SharedPtr(Plan.LogicalOperator)"
             :capnp-save #'save-plan :capnp-load #'load-plan)
-      (symbol-table "query::SymbolTable" :capnp-type "Sem.SymbolTable")
+      (symbol-table "query::SymbolTable" :capnp-type "Query.SymbolTable")
       (storage "query::AstStorage" :initarg nil :capnp-save :dont-save)))
   (:response ()))
 

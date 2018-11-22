@@ -12,7 +12,7 @@ class SymbolTable final {
  public:
   SymbolTable() {}
   Symbol CreateSymbol(const std::string &name, bool user_declared,
-                      Symbol::Type type = Symbol::Type::Any,
+                      Symbol::Type type = Symbol::Type::ANY,
                       int token_position = -1) {
     int position = position_++;
     return Symbol(name, position, user_declared, type, token_position);

@@ -799,7 +799,7 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
   };
 
   auto path_symbol =
-      symbol_table.CreateSymbol("path", true, Symbol::Type::Path);
+      symbol_table.CreateSymbol("path", true, Symbol::Type::PATH);
   auto create_path = std::make_shared<ConstructNamedPath>(
       expand, path_symbol,
       std::vector<Symbol>{find_symbol("n"), e, find_symbol("m")});

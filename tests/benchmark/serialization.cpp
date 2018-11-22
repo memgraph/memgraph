@@ -6,7 +6,7 @@
 #include <capnp/serialize.h>
 #include <kj/std/iostream.h>
 
-#include "query/frontend/semantic/symbol.capnp.h"
+#include "query/frontend/semantic/symbol_serialization.capnp.h"
 #include "query/frontend/semantic/symbol.hpp"
 
 #include "communication/rpc/serialization.hpp"
@@ -17,8 +17,8 @@ class SymbolVectorFixture : public benchmark::Fixture {
 
   void SetUp(const benchmark::State &state) override {
     using Type = ::query::Symbol::Type;
-    std::vector<Type> types{Type::Any,  Type::Vertex, Type::Edge,
-                            Type::Path, Type::Number, Type::EdgeList};
+    std::vector<Type> types{Type::ANY,  Type::VERTEX, Type::EDGE,
+                            Type::PATH, Type::NUMBER, Type::EDGE_LIST};
     symbols_.reserve(state.range(0));
     for (int i = 0; i < state.range(0); ++i) {
       std::string name = "Symbol " + std::to_string(i);
@@ -80,7 +80,7 @@ BENCHMARK_DEFINE_F(SymbolVectorFixture, CapnpDeserial)
     symbols.reserve(symbols_reader.size());
     for (const auto &sym : symbols_reader) {
       symbols.emplace_back(sym.getName().cStr(), sym.getPosition(),
-                           sym.getUserDeclared(), query::Symbol::Type::Any,
+                           sym.getUserDeclared(), query::Symbol::Type::ANY,
                            sym.getTokenPosition());
     }
   }
@@ -99,17 +99,17 @@ BENCHMARK_REGISTER_F(SymbolVectorFixture, CapnpDeserial)
 
 uint8_t Type2Int(query::Symbol::Type type) {
   switch (type) {
-    case query::Symbol::Type::Any:
+    case query::Symbol::Type::ANY:
       return 1;
-    case query::Symbol::Type::Vertex:
+    case query::Symbol::Type::VERTEX:
       return 2;
-    case query::Symbol::Type::Edge:
+    case query::Symbol::Type::EDGE:
       return 3;
-    case query::Symbol::Type::Path:
+    case query::Symbol::Type::PATH:
       return 4;
-    case query::Symbol::Type::Number:
+    case query::Symbol::Type::NUMBER:
       return 5;
-    case query::Symbol::Type::EdgeList:
+    case query::Symbol::Type::EDGE_LIST:
       return 6;
   }
 }
@@ -117,17 +117,17 @@ uint8_t Type2Int(query::Symbol::Type type) {
 query::Symbol::Type Int2Type(uint8_t value) {
   switch (value) {
     case 1:
-      return query::Symbol::Type::Any;
+      return query::Symbol::Type::ANY;
     case 2:
-      return query::Symbol::Type::Vertex;
+      return query::Symbol::Type::VERTEX;
     case 3:
-      return query::Symbol::Type::Edge;
+      return query::Symbol::Type::EDGE;
     case 4:
-      return query::Symbol::Type::Path;
+      return query::Symbol::Type::PATH;
     case 5:
-      return query::Symbol::Type::Number;
+      return query::Symbol::Type::NUMBER;
     case 6:
-      return query::Symbol::Type::EdgeList;
+      return query::Symbol::Type::EDGE_LIST;
   }
   CHECK(false);
 }

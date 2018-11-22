@@ -31,12 +31,12 @@ TEST_F(TestSymbolGenerator, MatchNodeReturn) {
   auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
   auto pattern = match->patterns_[0];
   auto pattern_sym = symbol_table[*pattern->identifier_];
-  EXPECT_EQ(pattern_sym.type(), Symbol::Type::Path);
+  EXPECT_EQ(pattern_sym.type(), Symbol::Type::PATH);
   EXPECT_FALSE(pattern_sym.user_declared());
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
   EXPECT_EQ(node_sym.name(), "node_atom_1");
-  EXPECT_EQ(node_sym.type(), Symbol::Type::Vertex);
+  EXPECT_EQ(node_sym.type(), Symbol::Type::VERTEX);
   auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table[*named_expr];
@@ -56,7 +56,7 @@ TEST_F(TestSymbolGenerator, MatchNamedPattern) {
   auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
   auto pattern = match->patterns_[0];
   auto pattern_sym = symbol_table[*pattern->identifier_];
-  EXPECT_EQ(pattern_sym.type(), Symbol::Type::Path);
+  EXPECT_EQ(pattern_sym.type(), Symbol::Type::PATH);
   EXPECT_EQ(pattern_sym.name(), "p");
   EXPECT_TRUE(pattern_sym.user_declared());
 }
@@ -95,7 +95,7 @@ TEST_F(TestSymbolGenerator, CreateNodeReturn) {
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   auto node_sym = symbol_table[*node_atom->identifier_];
   EXPECT_EQ(node_sym.name(), "n");
-  EXPECT_EQ(node_sym.type(), Symbol::Type::Vertex);
+  EXPECT_EQ(node_sym.type(), Symbol::Type::VERTEX);
   auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
   auto column_sym = symbol_table[*named_expr];
@@ -195,7 +195,7 @@ TEST_F(TestSymbolGenerator, CreateDelete) {
   EXPECT_EQ(symbol_table.max_position(), 2);
   auto node_symbol = symbol_table.at(*node->identifier_);
   auto ident_symbol = symbol_table.at(*ident);
-  EXPECT_EQ(node_symbol.type(), Symbol::Type::Vertex);
+  EXPECT_EQ(node_symbol.type(), Symbol::Type::VERTEX);
   EXPECT_EQ(node_symbol, ident_symbol);
 }
 
@@ -286,18 +286,18 @@ TEST_F(TestSymbolGenerator, CreateMultiExpand) {
   auto n1 = symbol_table.at(*node_n1->identifier_);
   auto n2 = symbol_table.at(*node_n2->identifier_);
   EXPECT_EQ(n1, n2);
-  EXPECT_EQ(n1.type(), Symbol::Type::Vertex);
+  EXPECT_EQ(n1.type(), Symbol::Type::VERTEX);
   auto m = symbol_table.at(*node_m->identifier_);
-  EXPECT_EQ(m.type(), Symbol::Type::Vertex);
+  EXPECT_EQ(m.type(), Symbol::Type::VERTEX);
   EXPECT_NE(m, n1);
   auto l = symbol_table.at(*node_l->identifier_);
-  EXPECT_EQ(l.type(), Symbol::Type::Vertex);
+  EXPECT_EQ(l.type(), Symbol::Type::VERTEX);
   EXPECT_NE(l, n1);
   EXPECT_NE(l, m);
   auto r = symbol_table.at(*edge_r->identifier_);
   auto p = symbol_table.at(*edge_p->identifier_);
-  EXPECT_EQ(r.type(), Symbol::Type::Edge);
-  EXPECT_EQ(p.type(), Symbol::Type::Edge);
+  EXPECT_EQ(r.type(), Symbol::Type::EDGE);
+  EXPECT_EQ(p.type(), Symbol::Type::EDGE);
   EXPECT_NE(r, p);
 }
 
@@ -408,11 +408,11 @@ TEST_F(TestSymbolGenerator, MatchWithCreate) {
   // symbols: pattern * 2, `n`, `m`, `r`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_1->identifier_);
-  EXPECT_EQ(n.type(), Symbol::Type::Vertex);
+  EXPECT_EQ(n.type(), Symbol::Type::VERTEX);
   auto m = symbol_table.at(*node_2->identifier_);
   EXPECT_NE(n, m);
   // Currently we don't infer expression types, so we lost true type of 'm'.
-  EXPECT_EQ(m.type(), Symbol::Type::Any);
+  EXPECT_EQ(m.type(), Symbol::Type::ANY);
   EXPECT_EQ(m, symbol_table.at(*node_3->identifier_));
 }
 
@@ -703,7 +703,7 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   auto l = symbol_table.at(*node_l->identifier_);
   EXPECT_EQ(l, symbol_table.at(*l_prop->expression_));
   auto r = symbol_table.at(*edge->identifier_);
-  EXPECT_EQ(r.type(), Symbol::Type::EdgeList);
+  EXPECT_EQ(r.type(), Symbol::Type::EDGE_LIST);
 }
 
 TEST_F(TestSymbolGenerator, MatchVariablePathUsingUnboundIdentifier) {

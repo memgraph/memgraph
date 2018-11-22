@@ -56,6 +56,7 @@ define_add_lcp(add_lcp_single_node mg_single_node_sources generated_lcp_single_n
 
 add_lcp_single_node(durability/single_node/state_delta.lcp)
 add_lcp_single_node(query/frontend/ast/ast.lcp)
+add_lcp_single_node(query/frontend/semantic/symbol.lcp)
 add_lcp_single_node(query/plan/operator.lcp)
 
 add_custom_target(generate_lcp_single_node DEPENDS ${generated_lcp_single_node_files})
@@ -201,6 +202,9 @@ add_lcp_distributed(query/frontend/ast/ast.lcp)
 add_lcp_distributed(query/frontend/ast/ast_serialization.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b
         DEPENDS query/frontend/ast/ast.lcp)
 add_capnp_distributed(query/frontend/ast/ast_serialization.capnp)
+add_lcp_distributed(query/frontend/semantic/symbol.lcp)
+add_lcp_distributed(query/frontend/semantic/symbol_serialization.lcp CAPNP_SCHEMA @0x93c1dcee84e93b76
+        DEPENDS query/frontend/semantic/symbol.lcp)
 add_lcp_distributed(query/plan/operator.lcp)
 add_lcp_distributed(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
         DEPENDS query/plan/operator.lcp)
@@ -218,7 +222,7 @@ add_custom_target(generate_lcp_distributed DEPENDS ${generated_lcp_distributed_f
 
 add_capnp_distributed(communication/rpc/messages.capnp)
 add_capnp_distributed(durability/distributed/serialization.capnp)
-add_capnp_distributed(query/frontend/semantic/symbol.capnp)
+add_capnp_distributed(query/frontend/semantic/symbol_serialization.capnp)
 add_capnp_distributed(query/serialization.capnp)
 add_capnp_distributed(storage/distributed/rpc/serialization.capnp)
 
@@ -292,6 +296,7 @@ add_lcp_single_node_ha(database/single_node_ha/serialization.lcp CAPNP_SCHEMA @0
         DEPENDS durability/single_node_ha/state_delta.lcp)
 add_capnp_single_node_ha(database/single_node_ha/serialization.capnp)
 add_lcp_single_node_ha(query/frontend/ast/ast.lcp)
+add_lcp_single_node_ha(query/frontend/semantic/symbol.lcp)
 add_lcp_single_node_ha(query/plan/operator.lcp)
 add_lcp_single_node_ha(raft/raft_rpc_messages.lcp CAPNP_SCHEMA @0xa6c29b4287233b66)
 add_capnp_single_node_ha(raft/raft_rpc_messages.capnp)

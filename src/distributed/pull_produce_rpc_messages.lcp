@@ -31,7 +31,7 @@ cpp<#
 
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
-(lcp:capnp-import 'sem "/query/frontend/semantic/symbol.capnp")
+(lcp:capnp-import 'sem "/query/frontend/semantic/symbol_serialization.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::CommandId" "UInt32")

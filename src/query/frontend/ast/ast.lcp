@@ -38,7 +38,7 @@ cpp<#
 (lcp:capnp-namespace "query")
 
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'symbol "/query/frontend/semantic/symbol.capnp")
+(lcp:capnp-import 'symbol "/query/frontend/semantic/symbol_serialization.capnp")
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "PropertyValue" "Storage.PropertyValue")

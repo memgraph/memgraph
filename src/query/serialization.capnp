@@ -2,6 +2,7 @@
 
 using Ast = import "/query/frontend/ast/ast_serialization.capnp";
 using Cxx = import "/capnp/c++.capnp";
+using Sem = import "/query/frontend/semantic/symbol_serialization.capnp";
 using Storage = import "/storage/distributed/rpc/serialization.capnp";
 using Utils = import "/utils/serialization.capnp";
 
@@ -43,5 +44,15 @@ struct TypedValue {
   struct Path {
     vertices @0 :List(Storage.VertexAccessor);
     edges @1 :List(Storage.EdgeAccessor);
+  }
+}
+
+struct SymbolTable {
+  position @0 :Int32;
+  table @1 :List(Entry);
+
+  struct Entry {
+    key @0 :Int32;
+    val @1 :Sem.Symbol;
   }
 }

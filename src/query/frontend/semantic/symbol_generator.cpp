@@ -26,8 +26,8 @@ auto SymbolGenerator::GetOrCreateSymbol(const std::string &name,
   auto search = scope_.symbols.find(name);
   if (search != scope_.symbols.end()) {
     auto symbol = search->second;
-    // Unless we have `Any` type, check that types match.
-    if (type != Symbol::Type::Any && symbol.type() != Symbol::Type::Any &&
+    // Unless we have `ANY` type, check that types match.
+    if (type != Symbol::Type::ANY && symbol.type() != Symbol::Type::ANY &&
         type != symbol.type()) {
       throw TypeMismatchError(name, Symbol::TypeToString(symbol.type()),
                               Symbol::TypeToString(type));
@@ -79,7 +79,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     }
     // An improvement would be to infer the type of the expression, so that the
     // new symbol would have a more specific type.
-    symbol_table_[*named_expr] = CreateSymbol(name, true, Symbol::Type::Any,
+    symbol_table_[*named_expr] = CreateSymbol(name, true, Symbol::Type::ANY,
                                               named_expr->token_position_);
   }
   scope_.in_order_by = true;
@@ -230,7 +230,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name.
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
-                               Symbol::Type::Path);
+                               Symbol::Type::PATH);
   } else if (scope_.in_pattern && scope_.in_pattern_atom_identifier) {
     //  Patterns used to create nodes and edges cannot redeclare already
     //  established bindings. Declaration only happens in single node
@@ -242,15 +242,15 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         HasSymbol(ident.name_)) {
       throw RedeclareVariableError(ident.name_);
     }
-    auto type = Symbol::Type::Vertex;
+    auto type = Symbol::Type::VERTEX;
     if (scope_.visiting_edge) {
       // Edge referencing is not allowed (like in Neo4j):
       // `MATCH (n) - [r] -> (n) - [r] -> (n) RETURN r` is not allowed.
       if (HasSymbol(ident.name_)) {
         throw RedeclareVariableError(ident.name_);
       }
-      type = scope_.visiting_edge->IsVariable() ? Symbol::Type::EdgeList
-                                                : Symbol::Type::Edge;
+      type = scope_.visiting_edge->IsVariable() ? Symbol::Type::EDGE_LIST
+                                                : Symbol::Type::EDGE;
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, type);
   } else if (scope_.in_pattern && !scope_.in_pattern_atom_identifier &&
@@ -304,7 +304,7 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   auto aggr_name =
       Aggregation::OpToString(aggr.op_) + std::to_string(aggr.uid_);
   symbol_table_[aggr] =
-      symbol_table_.CreateSymbol(aggr_name, false, Symbol::Type::Number);
+      symbol_table_.CreateSymbol(aggr_name, false, Symbol::Type::NUMBER);
   scope_.in_aggregation = true;
   scope_.has_aggregation = true;
   return true;
@@ -437,10 +437,10 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
       // be used in the missing filter expression.
       const auto *inner_edge = edge_atom.filter_lambda_.inner_edge;
       symbol_table_[*inner_edge] = symbol_table_.CreateSymbol(
-          inner_edge->name_, inner_edge->user_declared_, Symbol::Type::Edge);
+          inner_edge->name_, inner_edge->user_declared_, Symbol::Type::EDGE);
       const auto *inner_node = edge_atom.filter_lambda_.inner_node;
       symbol_table_[*inner_node] = symbol_table_.CreateSymbol(
-          inner_node->name_, inner_node->user_declared_, Symbol::Type::Vertex);
+          inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX);
     }
     if (edge_atom.weight_lambda_.expression) {
       VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
@@ -458,7 +458,7 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     }
     symbol_table_[*edge_atom.total_weight_] = GetOrCreateSymbol(
         edge_atom.total_weight_->name_, edge_atom.total_weight_->user_declared_,
-        Symbol::Type::Number);
+        Symbol::Type::NUMBER);
   }
   return false;
 }

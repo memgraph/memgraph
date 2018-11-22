@@ -1996,9 +1996,9 @@ TYPED_TEST(TestPlanner, DistributedOptionalScanExpandExisting) {
 
 TEST(CapnpSerial, Union) {
   std::vector<Symbol> left_symbols{
-      Symbol("symbol", 1, true, Symbol::Type::Edge)};
+      Symbol("symbol", 1, true, Symbol::Type::EDGE)};
   std::vector<Symbol> right_symbols{
-      Symbol("symbol", 3, true, Symbol::Type::Any)};
+      Symbol("symbol", 3, true, Symbol::Type::ANY)};
   auto union_symbols = right_symbols;
   auto union_op = std::make_unique<Union>(nullptr, nullptr, union_symbols,
                                           left_symbols, right_symbols);
@@ -2020,9 +2020,9 @@ TEST(CapnpSerial, Union) {
 
 TEST(CapnpSerial, Cartesian) {
   std::vector<Symbol> left_symbols{
-      Symbol("left_symbol", 1, true, Symbol::Type::Edge)};
+      Symbol("left_symbol", 1, true, Symbol::Type::EDGE)};
   std::vector<Symbol> right_symbols{
-      Symbol("right_symbol", 3, true, Symbol::Type::Any)};
+      Symbol("right_symbol", 3, true, Symbol::Type::ANY)};
   auto cartesian = std::make_unique<Cartesian>(nullptr, left_symbols, nullptr,
                                                right_symbols);
   std::unique_ptr<LogicalOperator> loaded_plan;
@@ -2057,7 +2057,7 @@ TEST(CapnpSerial, Synchronize) {
 }
 
 TEST(CapnpSerial, PullRemote) {
-  std::vector<Symbol> symbols{Symbol("symbol", 1, true, Symbol::Type::Edge)};
+  std::vector<Symbol> symbols{Symbol("symbol", 1, true, Symbol::Type::EDGE)};
   auto pull_remote = std::make_unique<PullRemote>(nullptr, 42, symbols);
   std::unique_ptr<LogicalOperator> loaded_plan;
   ::capnp::MallocMessageBuilder message;
@@ -2077,7 +2077,7 @@ TEST(CapnpSerial, PullRemoteOrderBy) {
   auto once = std::make_shared<Once>();
   AstStorage storage;
   std::vector<Symbol> symbols{
-      Symbol("my_symbol", 2, true, Symbol::Type::Vertex, 3)};
+      Symbol("my_symbol", 2, true, Symbol::Type::VERTEX, 3)};
   std::vector<query::SortItem> order_by{
       {query::Ordering::ASC, IDENT("my_symbol")}};
   auto pull_remote_order_by =
