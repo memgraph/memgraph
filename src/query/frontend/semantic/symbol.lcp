@@ -53,7 +53,7 @@ cpp<#
     bool user_declared() const { return user_declared_; }
     int token_position() const { return token_position_; }
     cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:pop-namespace) ;; query
 

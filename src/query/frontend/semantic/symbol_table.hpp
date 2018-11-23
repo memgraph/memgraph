@@ -13,8 +13,8 @@ class SymbolTable final {
   SymbolTable() {}
   Symbol CreateSymbol(const std::string &name, bool user_declared,
                       Symbol::Type type = Symbol::Type::ANY,
-                      int token_position = -1) {
-    int position = position_++;
+                      int32_t token_position = -1) {
+    int32_t position = position_++;
     return Symbol(name, position, user_declared, type, token_position);
   }
 
@@ -24,13 +24,12 @@ class SymbolTable final {
   const Symbol &at(const Tree &tree) const { return table_.at(tree.uid_); }
 
   // TODO: Remove these since members are public
-  int max_position() const { return position_; }
+  int32_t max_position() const { return position_; }
 
   const auto &table() const { return table_; }
 
-  int position_{0};
-  std::map<int, Symbol> table_;
+  int32_t position_{0};
+  std::map<int32_t, Symbol> table_;
 };
-
 
 }  // namespace query

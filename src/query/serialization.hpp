@@ -61,3 +61,38 @@ inline void Load(SymbolTable *symbol_table,
 }
 
 }  // namespace query
+
+namespace slk {
+
+inline void Save(const query::SymbolTable &symbol_table,
+                 slk::Builder *builder) {
+  slk::Save(symbol_table.position_, builder);
+  slk::Save(symbol_table.table_, builder);
+}
+
+inline void Load(query::SymbolTable *symbol_table, slk::Reader *reader) {
+  slk::Load(&symbol_table->position_, reader);
+  slk::Load(&symbol_table->table_, reader);
+}
+
+void Save(const query::EvaluationContext &ctx, slk::Builder *builder);
+
+void Load(query::EvaluationContext *ctx, slk::Reader *reader);
+
+void Save(const query::TypedValue &value, slk::Builder *builder,
+          storage::SendVersions versions, int16_t worker_id);
+
+void Load(query::TypedValue *value, slk::Reader *reader,
+          database::GraphDbAccessor *dba,
+          distributed::DataManager *data_manager);
+
+void Save(const query::GraphView &graph_view, slk::Builder *builder);
+
+void Load(query::GraphView *graph_view, slk::Reader *reader);
+
+void Save(const query::TypedValueVectorCompare &comparator,
+          slk::Builder *builder);
+
+void Load(query::TypedValueVectorCompare *comparator, slk::Reader *reader);
+
+}  // namespace slk
