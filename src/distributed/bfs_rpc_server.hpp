@@ -3,6 +3,7 @@
 #pragma once
 
 #include <map>
+#include <mutex>
 
 #include "distributed/bfs_rpc_messages.hpp"
 #include "distributed/bfs_subcursor.hpp"
@@ -30,7 +31,10 @@ class BfsRpcServer {
               db_accessor.get(), req.direction, req.edge_types,
               std::move(req.symbol_table), std::move(ast_storage),
               req.filter_lambda, std::move(req.evaluation_context));
-          db_accessors_[id] = std::move(db_accessor);
+          {
+            std::lock_guard<std::mutex> guard(lock_);
+            db_accessors_[id] = std::move(db_accessor);
+          }
           CreateBfsSubcursorRes res(id);
           Save(res, res_builder);
         });
@@ -58,7 +62,10 @@ class BfsRpcServer {
         [this](const auto &req_reader, auto *res_builder) {
           RemoveBfsSubcursorReq req;
           Load(&req, req_reader);
-          db_accessors_.erase(req.member);
+          {
+            std::lock_guard<std::mutex> guard(lock_);
+            db_accessors_.erase(req.member);
+          }
           subcursor_storage_->Erase(req.member);
           RemoveBfsSubcursorRes res;
           Save(res, res_builder);
@@ -109,7 +116,7 @@ class BfsRpcServer {
         });
 
     coordination->Register<ReconstructPathRpc>([this](const auto &req_reader,
-                                                       auto *res_builder) {
+                                                      auto *res_builder) {
       ReconstructPathReq req;
       Load(&req, req_reader);
       auto subcursor = subcursor_storage_->Get(req.subcursor_id);
@@ -127,7 +134,7 @@ class BfsRpcServer {
     });
 
     coordination->Register<PrepareForExpandRpc>([this](const auto &req_reader,
-                                                        auto *res_builder) {
+                                                       auto *res_builder) {
       PrepareForExpandReq req;
       auto subcursor_id = req_reader.getSubcursorId();
       auto *subcursor = subcursor_storage_->Get(subcursor_id);
@@ -141,6 +148,7 @@ class BfsRpcServer {
  private:
   database::DistributedGraphDb *db_;
 
+  std::mutex lock_;
   std::map<int64_t, std::unique_ptr<database::GraphDbAccessor>> db_accessors_;
   BfsSubcursorStorage *subcursor_storage_;
 };
