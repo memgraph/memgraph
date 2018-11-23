@@ -49,10 +49,12 @@ void Session::Execute() {
   // server was started so those two maps will never be updated when we `find`
   // over them.
   auto it = server_->callbacks_.find(request.getTypeId());
+  auto extended_it = server_->extended_callbacks_.end();
   if (it == server_->callbacks_.end()) {
     // We couldn't find a regular callback to call, try to find an extended
     // callback to call.
-    auto extended_it = server_->extended_callbacks_.find(request.getTypeId());
+    extended_it = server_->extended_callbacks_.find(request.getTypeId());
+
     if (extended_it == server_->extended_callbacks_.end()) {
       // Throw exception to close the socket and cleanup the session.
       throw SessionException(
@@ -83,7 +85,10 @@ void Session::Execute() {
     throw SessionException("Couldn't send response data!");
   }
 
-  VLOG(12) << "[RpcServer] sent " << it->second.res_type.name;
+  VLOG(12) << "[RpcServer] sent "
+           << (it != server_->callbacks_.end()
+                   ? it->second.res_type.name
+                   : extended_it->second.res_type.name);
 }
 
 }  // namespace communication::rpc
