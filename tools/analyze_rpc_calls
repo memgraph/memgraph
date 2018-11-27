@@ -5,6 +5,7 @@ import dpkt
 import json
 import operator
 import os
+import re
 import socket
 import subprocess
 import struct
@@ -14,6 +15,14 @@ import tabulate
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, ".."))
 
+TYPE_INFO_PATTERN = re.compile(r"""
+ const\s+utils::TypeInfo\s+
+ (\S+)\s*                     # <class-name>::kType
+ {\s*
+ (\S+)ULL\s*,\s*              # <id-hex>
+ "(\S+)"\s*                   # "<class-name>"
+ }
+ """, re.VERBOSE)
 
 # helpers
 
@@ -21,40 +30,28 @@ def format_endpoint(addr, port):
     return "{}:{}".format(socket.inet_ntoa(addr), port)
 
 
-def parse_capnp_header(fname):
+def parse_source_file(fname):
     ret = {}
-    last_struct = ""
     with open(fname) as f:
-        for row in f:
-            row = row.strip()
-            if row.startswith("struct") and \
-                    not row.startswith("struct _capnpPrivate"):
-                last_struct = row.split()[1]
-            if row.startswith("CAPNP_DECLARE_STRUCT_HEADER"):
-                bytes_val = bytes.fromhex(row.split("(")[1].split(",")[0])
-                val = struct.unpack(">Q", bytes_val)[0]
-                ret[val] = last_struct
+        for match in TYPE_INFO_PATTERN.finditer(f.read()):
+            id_hex = int(match.groups()[1], 16)
+            class_name = match.groups()[2]
+            ret[id_hex] = class_name
     return ret
 
 
-# TODO(mferencevic): Update this to parse .cpp files (99% are .lcp.cpp),
-# containing the following line.
-#
-#       const utils::TypeInfo <class-name>::kType{<id-hex>, "<class-name>"};
-#
-# Note that clang-format may break the line at any of the spaces or after '{'.
-def parse_all_capnp_headers(dirname):
+def parse_all_source_files(dirname):
     ids = {}
-    ret = subprocess.run(["find", dirname, "-name", "*.capnp.h"],
+    ret = subprocess.run(["find", dirname, "-name", "*.lcp.cpp"],
                          stdout=subprocess.PIPE)
     ret.check_returncode()
     headers = list(filter(None, ret.stdout.decode("utf-8").split("\n")))
     for header in headers:
-        ids.update(parse_capnp_header(header))
+        ids.update(parse_source_file(header))
     return ids
 
 
-MESSAGES = parse_all_capnp_headers(os.path.join(PROJECT_DIR, "src"))
+MESSAGES = parse_all_source_files(os.path.join(PROJECT_DIR, "src"))
 
 
 class Connection:
