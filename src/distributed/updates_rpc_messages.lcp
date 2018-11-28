@@ -51,7 +51,7 @@ cpp<#
   ((result "UpdateResult")
    (cypher-id :int64_t :documentation "Only valid if creation was successful.")
    (gid "gid::Gid" :documentation "Only valid if creation was successful."))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-struct create-vertex-req-data ()
   ((tx-id "tx::TransactionId")
@@ -107,7 +107,7 @@ cpp<#
                       return reader.getValue();
                     });
        cpp<#)))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-rpc create-vertex
     (:request ((member "CreateVertexReqData")))
@@ -138,7 +138,7 @@ cpp<#
                         return reader.getValue();
                       });
        cpp<#)))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-rpc create-edge
     (:request ((member "CreateEdgeReqData")))
@@ -150,7 +150,7 @@ cpp<#
    (to "gid::Gid")
    (edge-type "storage::EdgeType")
    (tx-id "tx::TransactionId"))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-rpc add-in-edge
     (:request ((member "AddInEdgeReqData")))
@@ -160,7 +160,7 @@ cpp<#
   ((gid "gid::Gid")
    (tx-id "tx::TransactionId")
    (check-empty :bool))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-rpc remove-vertex
     (:request ((member "RemoveVertexReqData")))
@@ -171,7 +171,7 @@ cpp<#
    (edge-id "gid::Gid")
    (vertex-from-id "gid::Gid")
    (vertex-to-address "storage::VertexAddress"))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-rpc remove-edge
     (:request ((member "RemoveEdgeData")))
@@ -181,7 +181,7 @@ cpp<#
   ((tx-id "tx::TransactionId")
    (vertex "gid::Gid")
    (edge-address "storage::EdgeAddress"))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-rpc remove-in-edge
     (:request ((member "RemoveInEdgeData")))

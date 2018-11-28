@@ -45,6 +45,16 @@ cpp<#
                   :capnp-load (lcp:capnp-load-vector "::storage::capnp::EdgeType"
                                                      "storage::EdgeType"))
       (filter-lambda "query::plan::ExpansionLambda"
+                     :slk-save (lambda (member)
+                                 #>cpp
+                                 std::vector<int32_t> saved_ast_uids;
+                                 slk::Save(self.${member}, builder, &saved_ast_uids);
+                                 cpp<#)
+                     :slk-load (lambda (member)
+                                 #>cpp
+                                 std::vector<int32_t> loaded_ast_uids;
+                                 slk::Load(&self->${member}, reader, ast_storage, &loaded_ast_uids);
+                                 cpp<#)
                      :capnp-type "DistOps.ExpansionLambda"
                      :capnp-save (lambda (builder member capnp-name)
                                    #>cpp
@@ -67,7 +77,8 @@ cpp<#
                                         #>cpp
                                         query::LoadEvaluationContext(${reader}, &${member});
                                         cpp<#)))
-     (:serialize (:capnp :load-args '((ast-storage "query::AstStorage *")))))
+     (:serialize (:slk :load-args '((ast-storage "query::AstStorage *")))
+                 (:capnp :load-args '((ast-storage "query::AstStorage *")))))
   (:response ((member :int64_t))))
 
 (lcp:define-rpc register-subcursors
@@ -120,6 +131,22 @@ cpp<#
   (:request ((member :int64_t)))
   (:response
     ((vertex "std::experimental::optional<VertexAccessor>"
+             :slk-save (lambda (member)
+                         #>cpp
+                         slk::Save(static_cast<bool>(self.${member}), builder);
+                         if (self.${member}) {
+                           slk::Save(*self.${member}, builder,
+                                     storage::SendVersions::BOTH, worker_id);
+                         }
+                         cpp<#)
+             :slk-load (lambda (member)
+                         #>cpp
+                         bool has_value;
+                         slk::Load(&has_value, reader);
+                         if (has_value) {
+                           self->${member} = slk::LoadVertexAccessor(reader, dba, data_manager);
+                         }
+                         cpp<#)
              :capnp-type "Utils.Optional(Storage.VertexAccessor)"
              :capnp-save (lcp:capnp-save-optional
                            "storage::capnp::VertexAccessor"
@@ -133,8 +160,11 @@ cpp<#
                            "[dba, data_manager](const auto &reader) {
                              return storage::LoadVertexAccessor(reader, dba, data_manager);
                             }")))
-   (:serialize (:capnp
-                :save-args '((worker-id :int))
+   (:serialize (:slk :save-args '((worker-id :int16_t))
+                     :load-args '((dba "database::GraphDbAccessor *")
+                                  (data-manager "distributed::DataManager *")))
+               (:capnp
+                :save-args '((worker-id :int16_t))
                 :load-args '((dba "database::GraphDbAccessor *")
                              (data-manager "distributed::DataManager *"))))))
 
@@ -177,7 +207,25 @@ cpp<#
             edge(edge) {}
       cpp<#))
   (:response
-   ((edges "std::vector<EdgeAccessor>" :capnp-type "List(Storage.EdgeAccessor)"
+   ((edges "std::vector<EdgeAccessor>"
+           :slk-save (lambda (member)
+                       #>cpp
+                       size_t size = self.${member}.size();
+                       slk::Save(size, builder);
+                       for (const auto &v : self.${member}) {
+                         slk::Save(v, builder, storage::SendVersions::BOTH, worker_id);
+                       }
+                       cpp<#)
+           :slk-load (lambda (member)
+                       #>cpp
+                       size_t size;
+                       slk::Load(&size, reader);
+                       self->${member}.reserve(size);
+                       for (size_t i = 0; i < size; ++i) {
+                         self->${member}.push_back(slk::LoadEdgeAccessor(reader, dba, data_manager));
+                       }
+                       cpp<#)
+           :capnp-type "List(Storage.EdgeAccessor)"
            :capnp-save (lcp:capnp-save-vector "storage::capnp::EdgeAccessor"
                                               "EdgeAccessor"
                                               "[worker_id](auto *builder, const auto &edge) {
@@ -194,8 +242,11 @@ cpp<#
     (next-edge "std::experimental::optional<storage::EdgeAddress>"
                :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
                :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
-   (:serialize (:capnp
-                :save-args '((worker-id :int))
+   (:serialize (:slk :save-args '((worker-id :int16_t))
+                     :load-args '((dba "database::GraphDbAccessor *")
+                                  (data-manager "distributed::DataManager *")))
+               (:capnp
+                :save-args '((worker-id :int16_t))
                 :load-args '((dba "database::GraphDbAccessor *")
                              (data-manager "distributed::DataManager *"))))
    (:public
@@ -219,6 +270,23 @@ cpp<#
      ((subcursor-id :int64_t)
       (clear :bool)
       (frame "std::vector<query::TypedValue>"
+             :slk-save (lambda (member)
+                         #>cpp
+                         size_t size = self.${member}.size();
+                         slk::Save(size, builder);
+                         for (const auto &v : self.${member}) {
+                           slk::Save(v, builder, storage::SendVersions::ONLY_OLD, self.worker_id);
+                         }
+                         cpp<#)
+             :slk-load (lambda (member)
+                         #>cpp
+                         size_t size;
+                         slk::Load(&size, reader);
+                         self->${member}.resize(size);
+                         for (size_t i = 0; i < size; ++i) {
+                           slk::Load(&self->${member}[i], reader, dba, data_manager);
+                         }
+                         cpp<#)
              :capnp-type "List(Query.TypedValue)"
              :capnp-save (lcp:capnp-save-vector
                            "query::capnp::TypedValue"
@@ -235,8 +303,10 @@ cpp<#
                               query::LoadCapnpTypedValue(reader, &value, dba, data_manager);
                               return value;
                             }"))
-      (worker-id :int :dont-save t))
-     (:serialize (:capnp
+      (worker-id :int16_t :dont-save t))
+     (:serialize (:slk :load-args '((dba "database::GraphDbAccessor *")
+                                    (data-manager "distributed::DataManager *")))
+                 (:capnp
                   :load-args '((dba "database::GraphDbAccessor *")
                                (data-manager "distributed::DataManager *")))))
   (:response ()))

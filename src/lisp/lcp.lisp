@@ -1333,13 +1333,13 @@ enums which aren't defined in LCP."
           (:public
            ,(decl-type-info req-name)
            ,(def-constructor req-name (second request)))
-          (:serialize (:capnp)))
+          (:serialize (:slk) (:capnp)))
         (define-struct ,res-sym ()
           ,@(cdr response)
           (:public
            ,(decl-type-info res-name)
            ,(def-constructor res-name (second response)))
-          (:serialize (:capnp)))
+          (:serialize (:slk) (:capnp)))
         ,rpc-decl))))
 
 (defun read-lcp (filepath)

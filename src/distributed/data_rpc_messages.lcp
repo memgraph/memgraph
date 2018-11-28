@@ -23,7 +23,7 @@ cpp<#
 (lcp:define-struct tx-gid-pair ()
   ((tx-id "tx::TransactionId" :capnp-type "UInt64")
    (gid "gid::Gid" :capnp-type "UInt64"))
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-rpc vertex
     (:request ((member "TxGidPair")))
@@ -37,11 +37,23 @@ cpp<#
                     #>cpp
                     storage::SaveVertex(*${member}, &${builder}, self.worker_id);
                     cpp<#)
+                  :slk-save
+                  (lambda (member)
+                    #>cpp
+                    slk::Save(*self.${member}, builder, self.worker_id);
+                    cpp<#)
                   :capnp-load
                   (lambda (reader member capnp-name)
                     (declare (ignore member capnp-name))
                     #>cpp
                     self->vertex_output = storage::LoadVertex(${reader});
+                    cpp<#)
+                  :slk-load
+                  (lambda (member)
+                    (declare (ignore member))
+                    #>cpp
+                    self->vertex_output = std::make_unique<Vertex>();
+                    slk::Load(self->vertex_output.get(), reader);
                     cpp<#))
     (worker-id :int64_t :dont-save t)
     (vertex-output "std::unique_ptr<Vertex>" :initarg nil :dont-save t))))
@@ -58,11 +70,21 @@ cpp<#
                   #>cpp
                   storage::SaveEdge(*${member}, &${builder}, self.worker_id);
                   cpp<#)
+                :slk-save
+                (lambda (member)
+                  #>cpp
+                  slk::Save(*self.${member}, builder, self.worker_id);
+                  cpp<#)
                 :capnp-load
                 (lambda (reader member capnp-name)
                   (declare (ignore member capnp-name))
                   #>cpp
                   self->edge_output = storage::LoadEdge(${reader});
+                  cpp<#)
+                :slk-load
+                (lambda (member)
+                  #>cpp
+                  slk::Load(&self->edge_output, reader);
                   cpp<#))
     (worker-id :int64_t :dont-save t)
     (edge-output "std::unique_ptr<Edge>" :initarg nil :dont-save t))))

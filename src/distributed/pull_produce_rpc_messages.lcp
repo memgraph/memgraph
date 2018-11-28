@@ -67,9 +67,40 @@ RPC. Indicates the state of execution on the worker.")
    "The data returned to the end consumer (the Pull operator). Contains only
 the relevant parts of the response, ready for use."))
 
+(defun slk-save-frames (member)
+  #>cpp
+  size_t frame_count = self.${member}.size();
+  slk::Save(frame_count, builder);
+  for (const auto &frame : self.${member}) {
+    size_t frame_size = frame.size();
+    slk::Save(frame_size, builder);
+    for (const auto &value : frame) {
+      slk::Save(value, builder, self.send_versions, self.worker_id);
+    }
+  }
+  cpp<#)
+
+(defun slk-load-frames (member)
+  #>cpp
+  size_t frame_count = 0;
+  slk::Load(&frame_count, reader);
+  self->${member}.reserve(frame_count);
+  for (size_t frame_i = 0; frame_i < frame_count; ++frame_i) {
+    size_t frame_size = 0;
+    slk::Load(&frame_size, reader);
+    std::vector<query::TypedValue> frame(frame_size);
+    for (size_t val_i = 0; val_i < frame_size; ++val_i) {
+      slk::Load(&frame[val_i], reader, dba, data_manager);
+    }
+    self->${member}.emplace_back(std::move(frame));
+  }
+  cpp<#)
+
 (lcp:define-struct pull-res-data ()
   ((pull-state "PullState")
    (frames "std::vector<std::vector<query::TypedValue>>"
+           :slk-save #'slk-save-frames
+           :slk-load #'slk-load-frames
            :capnp-type "List(List(Query.TypedValue))"
            :capnp-save
            (lambda (builder member capnp-name)
@@ -174,13 +205,17 @@ to the appropriate value. Not used on side that generates the response.")
     PullResData(PullResData &&) = default;
     PullResData &operator=(PullResData &&) = default;
    cpp<#)
-  (:serialize (:capnp :load-args '((dba "database::GraphDbAccessor *")
+  (:serialize (:slk :load-args '((dba "database::GraphDbAccessor *")
+                                 (data-manager "distributed::DataManager *")))
+              (:capnp :load-args '((dba "database::GraphDbAccessor *")
                                    (data-manager "distributed::DataManager *")))))
 
 (lcp:define-rpc pull
     (:request
      ((tx-id "tx::TransactionId")
       (tx-snapshot "tx::Snapshot"
+                   :slk-save #'slk-save-snapshot
+                   :slk-load #'slk-load-snapshot
                    :capnp-type "List(UInt64)"
                    :capnp-init nil
                    :capnp-save #'save-snapshot
@@ -210,9 +245,15 @@ to the appropriate value. Not used on side that generates the response.")
                                                       "storage::SendVersions"
                                                       '(both only-old only-new)))))
   (:response
-   ((data "PullResData" :initarg :move))
-   (:serialize (:capnp :base t :load-args '((dba "database::GraphDbAccessor *")
-                                            (data-manager "distributed::DataManager *"))))))
+   ((data "PullResData" :initarg :move
+          :slk-load (lambda (m)
+                      #>cpp
+                      slk::Load(&self->${m}, reader, dba, data_manager);
+                      cpp<#)))
+   (:serialize (:slk :load-args '((dba "database::GraphDbAccessor *")
+                                  (data-manager "distributed::DataManager *")))
+               (:capnp :load-args '((dba "database::GraphDbAccessor *")
+                                    (data-manager "distributed::DataManager *"))))))
 
 ;; TODO make a separate RPC for the continuation of an existing pull, as an
 ;; optimization not to have to send the full PullReqData pack every time.

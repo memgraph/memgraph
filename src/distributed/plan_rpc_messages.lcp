@@ -30,6 +30,26 @@ cpp<#
   self->storage = std::move(helper.ast_storage);
   cpp<#)
 
+(defun slk-save-plan (member)
+  #>cpp
+  query::plan::LogicalOperator::SaveHelper helper;
+  slk::Save<query::plan::LogicalOperator>(
+      self.${member}, builder, &helper.saved_ops,
+      [&helper](const auto &val, auto *builder) {
+        slk::Save(val, builder, &helper);
+      });
+  cpp<#)
+
+(defun slk-load-plan (member)
+  #>cpp
+  query::plan::LogicalOperator::SlkLoadHelper helper;
+  slk::Load<query::plan::LogicalOperator>(&self->${member}, reader, &helper.loaded_ops,
+      [&helper](auto *op, auto *reader) {
+        slk::ConstructAndLoad(op, reader, &helper);
+      });
+  self->storage = std::move(helper.ast_storage);
+  cpp<#)
+
 (defun save-plan (builder member capnp-name)
   (declare (ignore capnp-name))
   #>cpp
@@ -46,6 +66,8 @@ cpp<#
      ((plan-id :int64_t)
       (plan "std::shared_ptr<query::plan::LogicalOperator>"
             :capnp-type "Utils.SharedPtr(Plan.LogicalOperator)"
+            :slk-save #'slk-save-plan
+            :slk-load #'slk-load-plan
             :capnp-save #'save-plan :capnp-load #'load-plan)
       (symbol-table "query::SymbolTable" :capnp-type "Query.SymbolTable")
       (storage "query::AstStorage" :initarg nil :dont-save t)))
