@@ -51,6 +51,8 @@ cpp<#
 
 (lcp:define-class pull-remote (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (plan-id :int64_t :initval 0 :scope :public)
@@ -82,7 +84,18 @@ time on data transfer. It gives no guarantees on result order.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
+
+(defun slk-load-pull-remote (member)
+  #>cpp
+  std::shared_ptr<query::plan::LogicalOperator> op;
+  slk::Load<query::plan::LogicalOperator>(
+      &op, reader, &helper->loaded_ops,
+      [&helper](auto *op, auto *reader) {
+        slk::ConstructAndLoad(op, reader, helper);
+      });
+  self->${member} = std::static_pointer_cast<query::plan::PullRemote>(op);
+  cpp<#)
 
 (defun load-pull-remote (reader member-name capnp-name)
   (declare (ignore capnp-name))
@@ -98,9 +111,13 @@ time on data transfer. It gives no guarantees on result order.")
 
 (lcp:define-class synchronize (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (pull-remote "std::shared_ptr<PullRemote>" :scope :public
+                :slk-save #'slk-save-operator-pointer
+                :slk-load #'slk-load-pull-remote
                 :capnp-save #'save-operator-pointer
                 :capnp-load #'load-pull-remote)
    (advance-command :bool :initval "false" :scope :public))
@@ -147,10 +164,12 @@ Logic of the synchronize operator is:
      input_ = input;
    }
    cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-class pull-remote-order-by (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (plan-id :int64_t :initval 0 :scope :public)
@@ -158,6 +177,8 @@ Logic of the synchronize operator is:
             :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
             :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol"))
    (order-by "std::vector<Expression *>" :scope :public
+             :slk-save #'slk-save-ast-vector
+             :slk-load (slk-load-ast-vector "Expression")
              :capnp-type "List(Ast.Tree)"
              :capnp-save (save-ast-vector "Expression *")
              :capnp-load (load-ast-vector "Expression *"))
@@ -188,10 +209,12 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-class distributed-expand (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
@@ -219,26 +242,40 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-class distributed-expand-bfs (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (common "ExpandCommon" :scope :public)
    (lower-bound "Expression *" :scope :public
                 :documentation "Optional lower bound, default is 1"
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
                 :capnp-load (load-ast-pointer "Expression *"))
    (upper-bound "Expression *" :scope :public
                 :documentation "Optional upper bound, default is infinity"
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")
                 :capnp-type "Ast.Tree" :capnp-init nil
                 :capnp-save #'save-ast-pointer
                 :capnp-load (load-ast-pointer "Expression *"))
    (filter-lambda "ExpansionLambda" :scope :public
                   :documentation "Filter that must be satisfied for expansion to succeed."
+                  :slk-save (lambda (member)
+                              #>cpp
+                              slk::Save(self.${member}, builder, &helper->saved_ast_uids);
+                              cpp<#)
+                  :slk-load (lambda (member)
+                              #>cpp
+                              slk::Load(&self->${member}, reader, &helper->ast_storage, &helper->loaded_ast_uids);
+                              cpp<#)
                   :capnp-type "ExpansionLambda"
                   :capnp-save (lambda (builder member capnp-name)
                                 #>cpp
@@ -275,13 +312,17 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-class distributed-create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (node-atom "NodeAtom *" :initval "nullptr" :scope :public
+              :slk-save #'slk-save-ast-pointer
+              :slk-load (slk-load-ast-pointer "NodeAtom")
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
    (on-random-worker :bool :initval "false" :scope :public))
@@ -303,16 +344,22 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:define-class distributed-create-expand (logical-operator)
   ((node-atom "NodeAtom *" :scope :public
+              :slk-save #'slk-save-ast-pointer
+              :slk-load (slk-load-ast-pointer "NodeAtom")
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
    (edge-atom "EdgeAtom *" :scope :public
+              :slk-save #'slk-save-ast-pointer
+              :slk-load (slk-load-ast-pointer "EdgeAtom")
               :capnp-type "Ast.Tree" :capnp-init nil
               :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "EdgeAtom *"))
    (input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
@@ -335,7 +382,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
-(lcp:pop-namespace)
-(lcp:pop-namespace)
+(lcp:pop-namespace) ;; plan
+(lcp:pop-namespace) ;; query
