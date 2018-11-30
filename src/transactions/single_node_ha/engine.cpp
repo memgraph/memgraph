@@ -6,12 +6,12 @@
 #include "glog/logging.h"
 
 #include "durability/single_node_ha/state_delta.hpp"
-#include "raft/raft_server.hpp"
 
 namespace tx {
 
-Engine::Engine(raft::RaftServer *raft_server) : raft_server_(raft_server) {
-  CHECK(raft_server) << "LogBuffer can't be nullptr in HA";
+Engine::Engine(raft::RaftInterface *raft)
+    : clog_(std::make_unique<CommitLog>()), raft_(raft) {
+  CHECK(raft) << "Raft can't be nullptr in HA";
 }
 
 Transaction *Engine::Begin() {
@@ -32,7 +32,7 @@ Transaction *Engine::BeginBlocking(
     if (!accepting_transactions_.load())
       throw TransactionEngineError("Engine is not accepting new transactions");
 
-    // Block the engine from acceping new transactions.
+    // Block the engine from accepting new transactions.
     accepting_transactions_.store(false);
 
     // Set active transactions to abort ASAP.
@@ -79,9 +79,9 @@ CommandId Engine::UpdateCommand(TransactionId id) {
 void Engine::Commit(const Transaction &t) {
   VLOG(11) << "[Tx] Commiting transaction " << t.id_;
   std::lock_guard<utils::SpinLock> guard(lock_);
-  clog_.set_committed(t.id_);
+  clog_->set_committed(t.id_);
   active_.remove(t.id_);
-  raft_server_->Emplace(database::StateDelta::TxCommit(t.id_));
+  raft_->Emplace(database::StateDelta::TxCommit(t.id_));
   store_.erase(store_.find(t.id_));
   if (t.blocking()) {
     accepting_transactions_.store(true);
@@ -91,9 +91,9 @@ void Engine::Commit(const Transaction &t) {
 void Engine::Abort(const Transaction &t) {
   VLOG(11) << "[Tx] Aborting transaction " << t.id_;
   std::lock_guard<utils::SpinLock> guard(lock_);
-  clog_.set_aborted(t.id_);
+  clog_->set_aborted(t.id_);
   active_.remove(t.id_);
-  raft_server_->Emplace(database::StateDelta::TxAbort(t.id_));
+  raft_->Emplace(database::StateDelta::TxAbort(t.id_));
   store_.erase(store_.find(t.id_));
   if (t.blocking()) {
     accepting_transactions_.store(true);
@@ -101,7 +101,7 @@ void Engine::Abort(const Transaction &t) {
 }
 
 CommitLog::Info Engine::Info(TransactionId tx) const {
-  return clog_.fetch_info(tx);
+  return clog_->fetch_info(tx);
 }
 
 Snapshot Engine::GlobalGcSnapshot() {
@@ -139,7 +139,7 @@ TransactionId Engine::LocalOldestActive() const {
 }
 
 void Engine::GarbageCollectCommitLog(TransactionId tx_id) {
-  clog_.garbage_collect_older(tx_id);
+  clog_->garbage_collect_older(tx_id);
 }
 
 void Engine::LocalForEachActiveTransaction(
@@ -163,12 +163,50 @@ void Engine::EnsureNextIdGreater(TransactionId tx_id) {
   counter_ = std::max(tx_id, counter_);
 }
 
+void Engine::Reset() {
+  Snapshot wait_for_txs;
+  {
+    std::lock_guard<utils::SpinLock> guard(lock_);
+
+    // Block the engine from accepting new transactions.
+    accepting_transactions_.store(false);
+
+    // Set active transactions to abort ASAP.
+    for (auto transaction : active_) {
+      store_.find(transaction)->second->set_should_abort();
+    }
+
+    wait_for_txs = active_;
+  }
+
+  // Wait for all active transactions to end.
+  for (auto id : wait_for_txs) {
+    while (Info(id).is_active()) {
+      // TODO reconsider this constant, currently rule-of-thumb chosen
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
+  }
+
+  // Only after all transactions have finished, reset the engine.
+  std::lock_guard<utils::SpinLock> guard(lock_);
+  counter_ = 0;
+  store_.clear();
+  active_.clear();
+  {
+    clog_ = nullptr;
+    clog_ = std::make_unique<CommitLog>();
+  }
+  // local_lock_graph_ should be empty because all transactions should've finish
+  // by now.
+  accepting_transactions_.store(true);
+}
+
 Transaction *Engine::BeginTransaction(bool blocking) {
   TransactionId id{++counter_};
   Transaction *t = new Transaction(id, active_, *this, blocking);
   active_.insert(id);
   store_.emplace(id, t);
-  raft_server_->Emplace(database::StateDelta::TxBegin(id));
+  raft_->Emplace(database::StateDelta::TxBegin(id));
   return t;
 }
 

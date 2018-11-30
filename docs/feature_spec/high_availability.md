@@ -129,9 +129,10 @@ the following scenario:
 
 The problem lies in the fact that there is still a record within the internal
 storage of our old leader with the same transaction ID and GID as the recently
-committed record by the new leader. Obviously, this is broken. As a solution, we
-will prefix the transaction ID with the Raft term, thus ensuring that the
-transaction IDs will differ.
+committed record by the new leader. Obviously, this is broken. As a solution, on
+each transition from `Leader` to `Follower`, we will reinitialize storage, reset
+the transaction engine and recover data from the Raft log. This will ensure all
+ongoing transactions which have "polluted" the storage will be gone.
 
 "When will followers append that transaction to their commit logs?"
 

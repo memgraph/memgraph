@@ -1,7 +1,7 @@
 #include "raft/raft_server.hpp"
 
-#include <experimental/filesystem>
 #include <kj/std/iostream.h>
+#include <experimental/filesystem>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -15,18 +15,19 @@ namespace raft {
 namespace fs = std::experimental::filesystem;
 
 const std::string kCurrentTermKey = "current_term";
-const std::string kVotedForKey    = "voted_for";
-const std::string kLogKey         = "log";
-const std::string kRaftDir        = "raft";
+const std::string kVotedForKey = "voted_for";
+const std::string kLogKey = "log";
+const std::string kRaftDir = "raft";
 
 RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
-                       const Config &config, Coordination *coordination)
+                       const Config &config, Coordination *coordination,
+                       std::function<void(void)> reset_callback)
     : config_(config),
       coordination_(coordination),
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
-      disk_storage_(fs::path(durability_dir) / kRaftDir) {
-
+      disk_storage_(fs::path(durability_dir) / kRaftDir),
+      reset_callback_(reset_callback) {
   // Persistent storage initialization/recovery.
   if (Log().empty()) {
     disk_storage_.Put(kCurrentTermKey, "0");
@@ -74,70 +75,68 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
         Save(res, res_builder);
       });
 
-  coordination_->Register<AppendEntriesRpc>(
-      [this](const auto &req_reader, auto *res_builder) {
-        std::lock_guard<std::mutex> guard(lock_);
-        AppendEntriesReq req;
-        Load(&req, req_reader);
+  coordination_->Register<AppendEntriesRpc>([this](const auto &req_reader,
+                                                   auto *res_builder) {
+    std::lock_guard<std::mutex> guard(lock_);
+    AppendEntriesReq req;
+    Load(&req, req_reader);
 
-        // [Raft paper 5.1]
-        // "If a server recieves a request with a stale term,
-        // it rejects the request"
-        uint64_t current_term = CurrentTerm();
-        if (req.term < current_term) {
-          AppendEntriesRes res(false, current_term);
-          Save(res, res_builder);
-          return;
-        }
+    // [Raft paper 5.1]
+    // "If a server recieves a request with a stale term,
+    // it rejects the request"
+    uint64_t current_term = CurrentTerm();
+    if (req.term < current_term) {
+      AppendEntriesRes res(false, current_term);
+      Save(res, res_builder);
+      return;
+    }
 
-        // respond positively to a heartbeat.
-        // TODO(ipaljak) review this when implementing log replication.
-        if (req.entries.empty()) {
-          AppendEntriesRes res(true, current_term);
-          Save(res, res_builder);
-          if (mode_ != Mode::FOLLOWER) {
-            Transition(Mode::FOLLOWER);
-            state_changed_.notify_all();
-          } else {
-            SetNextElectionTimePoint();
-          }
-          return;
-        }
+    // respond positively to a heartbeat.
+    // TODO(ipaljak) review this when implementing log replication.
+    if (req.entries.empty()) {
+      AppendEntriesRes res(true, current_term);
+      Save(res, res_builder);
+      if (mode_ != Mode::FOLLOWER) {
+        Transition(Mode::FOLLOWER);
+        state_changed_.notify_all();
+      } else {
+        SetNextElectionTimePoint();
+      }
+      return;
+    }
 
-        throw utils::NotYetImplemented(
-            "AppendEntriesRpc which is not a heartbeat");
+    throw utils::NotYetImplemented("AppendEntriesRpc which is not a heartbeat");
 
-        // [Raft paper 5.3]
-        // "If a follower's log is inconsistent with the leader's, the
-        // consistency check will fail in the next AppendEntries RPC."
-        //
-        // Consistency checking assures the Log Matching Property:
-        //   - If two entries in different logs have the same index and
-        //     term, then they store the same command.
-        //   - If two entries in different logs have the same index and term,
-        //     then the logs are identical in all preceding entries.
-        auto log = Log();
-        if (log.size() < req.prev_log_index ||
-            log[req.prev_log_index - 1].term != req.prev_log_term) {
-          AppendEntriesRes res(false, current_term);
-          Save(res, res_builder);
-          return;
-        }
+    // [Raft paper 5.3]
+    // "If a follower's log is inconsistent with the leader's, the
+    // consistency check will fail in the next AppendEntries RPC."
+    //
+    // Consistency checking assures the Log Matching Property:
+    //   - If two entries in different logs have the same index and
+    //     term, then they store the same command.
+    //   - If two entries in different logs have the same index and term,
+    //     then the logs are identical in all preceding entries.
+    auto log = Log();
+    if (log.size() < req.prev_log_index ||
+        log[req.prev_log_index - 1].term != req.prev_log_term) {
+      AppendEntriesRes res(false, current_term);
+      Save(res, res_builder);
+      return;
+    }
 
-        // If existing entry conflicts with new one, we need to delete the
-        // existing entry and all that follow it.
-        if (log.size() > req.prev_log_index &&
-            log[req.prev_log_index].term != req.entries[0].term)
-          DeleteLogSuffix(req.prev_log_index + 1);
+    // If existing entry conflicts with new one, we need to delete the
+    // existing entry and all that follow it.
+    if (log.size() > req.prev_log_index &&
+        log[req.prev_log_index].term != req.entries[0].term)
+      DeleteLogSuffix(req.prev_log_index + 1);
 
-        AppendLogEntries(req.leader_commit, req.entries);
-        AppendEntriesRes res(true, current_term);
-        Save(res, res_builder);
-      });
+    AppendLogEntries(req.leader_commit, req.entries);
+    AppendEntriesRes res(true, current_term);
+    Save(res, res_builder);
+  });
 
   SetNextElectionTimePoint();
-  election_thread_ =
-      std::thread(&RaftServer::ElectionThreadMain, this);
+  election_thread_ = std::thread(&RaftServer::ElectionThreadMain, this);
 
   for (const auto &peer_id : coordination_->GetWorkerIds()) {
     if (peer_id == server_id_) continue;
@@ -152,12 +151,10 @@ RaftServer::~RaftServer() {
   election_change_.notify_all();
 
   for (auto &peer_thread : peer_threads_) {
-    if (peer_thread.joinable())
-      peer_thread.join();
+    if (peer_thread.joinable()) peer_thread.join();
   }
 
-  if (election_thread_.joinable())
-    election_thread_.join();
+  if (election_thread_.joinable()) election_thread_.join();
 }
 
 uint64_t RaftServer::CurrentTerm() {
@@ -251,16 +248,19 @@ bool RaftServer::LogEntryBuffer::IsStateDeltaTransactionEnd(
 void RaftServer::Transition(const Mode &new_mode) {
   switch (new_mode) {
     case Mode::FOLLOWER: {
+      if (mode_ == Mode::LEADER) {
+        reset_callback_();
+      }
       LOG(INFO) << "Server " << server_id_ << ": Transition to FOLLOWER";
       SetNextElectionTimePoint();
       mode_ = Mode::FOLLOWER;
-      //log_entry_buffer_.Disable();
+      // log_entry_buffer_.Disable();
       break;
     }
 
     case Mode::CANDIDATE: {
       LOG(INFO) << "Server " << server_id_ << ": Transition to CANDIDATE";
-      //log_entry_buffer_.Disable();
+      // log_entry_buffer_.Disable();
 
       // [Raft thesis, section 3.4]
       // "Each candidate restarts its randomized election timeout at the start
@@ -294,7 +294,7 @@ void RaftServer::Transition(const Mode &new_mode) {
 
     case Mode::LEADER: {
       LOG(INFO) << "Server " << server_id_ << ": Transition to LEADER";
-      //log_entry_buffer_.Enable();
+      // log_entry_buffer_.Enable();
 
       // Freeze election timer
       next_election_ = TimePoint::max();
@@ -493,7 +493,7 @@ bool RaftServer::OutOfSync(uint64_t reply_term) {
 
 void RaftServer::DeleteLogSuffix(int starting_index) {
   auto log = Log();
-  log.erase(log.begin() + starting_index - 1, log.end()); // 1-indexed
+  log.erase(log.begin() + starting_index - 1, log.end());  // 1-indexed
   disk_storage_.Put(kLogKey, SerializeLog(log));
 }
 

@@ -109,7 +109,7 @@ class GraphDb {
   std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId);
 
   Storage &storage();
-  raft::RaftServer &raft_server();
+  raft::RaftInterface *raft();
   tx::Engine &tx_engine();
   storage::ConcurrentIdMapper<storage::Label> &label_mapper();
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
@@ -120,11 +120,12 @@ class GraphDb {
   /// Makes a snapshot from the visibility of the given accessor
   bool MakeSnapshot(GraphDbAccessor &accessor);
 
-  /// Releases the storage object safely and creates a new object.
-  /// This is needed because of recovery, otherwise we might try to recover
-  /// into a storage which has already been polluted because of a failed
-  /// previous recovery
-  void ReinitializeStorage();
+  /// Releases the storage object safely and creates a new object, resets the tx
+  /// engine.
+  ///
+  /// This is needed in HA during the leader -> follower transition where we
+  /// might end up with some stale transactions on the leader.
+  void Reset();
 
   /// When this is false, no new transactions should be created.
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
@@ -164,7 +165,8 @@ class GraphDb {
       raft::Coordination::LoadFromFile(config_.coordination_config_file)};
   raft::RaftServer raft_server_{
       config_.server_id, config_.durability_directory,
-      raft::Config::LoadFromFile(config_.raft_config_file), &coordination_};
+      raft::Config::LoadFromFile(config_.raft_config_file), &coordination_,
+      [this]() { this->Reset(); }};
   tx::Engine tx_engine_{&raft_server_};
   std::unique_ptr<StorageGc> storage_gc_ =
       std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);

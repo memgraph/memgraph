@@ -11,6 +11,7 @@
 #include "raft/coordination.hpp"
 #include "raft/log_entry.hpp"
 #include "raft/raft_rpc_messages.hpp"
+#include "raft/raft_interface.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
@@ -22,11 +23,22 @@ using TimePoint = std::chrono::system_clock::time_point;
 
 enum class Mode { FOLLOWER, CANDIDATE, LEADER };
 
+inline std::string ModeToString(const Mode &mode) {
+  switch (mode) {
+    case Mode::FOLLOWER:
+      return "FOLLOWER";
+    case Mode::CANDIDATE:
+      return "CANDIDATE";
+    case Mode::LEADER:
+      return "LEADER";
+  }
+}
+
 /// Class which models the behaviour of a single server within the Raft
 /// cluster. The class is responsible for storing both volatile and
 /// persistent internal state of the corresponding state machine as well
 /// as performing operations that comply with the Raft protocol.
-class RaftServer {
+class RaftServer final : public RaftInterface {
  public:
   RaftServer() = delete;
 
@@ -37,8 +49,11 @@ class RaftServer {
   /// @param durbility_dir directory for persisted data.
   /// @param config raft configuration.
   /// @param coordination Abstraction for coordination between Raft servers.
+  /// @param reset_callback Function that is called on each Leader->Follower
+  ///                       transition.
   RaftServer(uint16_t server_id, const std::string &durability_dir,
-             const Config &config, raft::Coordination *coordination);
+             const Config &config, raft::Coordination *coordination,
+             std::function<void(void)> reset_callback);
 
   ~RaftServer();
 
@@ -57,11 +72,12 @@ class RaftServer {
   /// persistent storage, an empty Log will be created.
   std::vector<LogEntry> Log();
 
-  // TODO(msantl): document
+  /// Start replicating StateDeltas batched together in a Raft log.
   void Replicate(const std::vector<database::StateDelta> &log);
 
-  // TODO(msantl): document
-  void Emplace(const database::StateDelta &delta);
+  /// Emplace a single StateDelta to the corresponding batch. If the StateDelta
+  /// marks the transaction end, it will replicate the log accorss the cluster.
+  void Emplace(const database::StateDelta &delta) override;
 
  private:
   /// Buffers incomplete Raft logs.
@@ -175,6 +191,9 @@ class RaftServer {
   //////////////////////////////////////////////////////////////////////////////
 
   storage::KVStore disk_storage_;
+
+  /// Callback that needs to be called to reset the db state.
+  std::function<void(void)> reset_callback_;
 
   /// Makes a transition to a new `raft::Mode`.
   ///

@@ -84,7 +84,7 @@ std::unique_ptr<GraphDbAccessor> GraphDb::AccessBlocking(
 
 Storage &GraphDb::storage() { return *storage_; }
 
-raft::RaftServer &GraphDb::raft_server() { return raft_server_; }
+raft::RaftInterface *GraphDb::raft() { return &raft_server_; }
 
 tx::Engine &GraphDb::tx_engine() { return tx_engine_; }
 
@@ -116,10 +116,15 @@ bool GraphDb::MakeSnapshot(GraphDbAccessor &accessor) {
   return status;
 }
 
-void GraphDb::ReinitializeStorage() {
+void GraphDb::Reset() {
   // Release gc scheduler to stop it from touching storage
   storage_gc_ = nullptr;
   storage_ = std::make_unique<Storage>(config_.properties_on_disk);
+
+  // This will make all active transactions to abort and reset the internal
+  // state.
+  tx_engine_.Reset();
+
   storage_gc_ =
       std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);
 }

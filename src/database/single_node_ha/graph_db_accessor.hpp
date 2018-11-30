@@ -11,6 +11,7 @@
 #include <cppitertools/imap.hpp>
 
 #include "database/single_node_ha/graph_db.hpp"
+#include "raft/raft_interface.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/edge_accessor.hpp"
 #include "storage/single_node_ha/vertex_accessor.hpp"
@@ -185,9 +186,7 @@ class GraphDbAccessor {
   auto Vertices(storage::Label label, bool current_state) {
     DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
     return iter::imap(
-        [this](auto vlist) {
-          return VertexAccessor(vlist, *this);
-        },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.storage().labels_index_.GetVlists(label, transaction_,
                                               current_state));
   }
@@ -211,9 +210,7 @@ class GraphDbAccessor {
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
-        [this](auto vlist) {
-          return VertexAccessor(vlist, *this);
-        },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), transaction_,
             current_state));
@@ -241,9 +238,7 @@ class GraphDbAccessor {
     CHECK(value.type() != PropertyValue::Type::Null)
         << "Can't query index for propery value type null.";
     return iter::imap(
-        [this](auto vlist) {
-          return VertexAccessor(vlist, *this);
-        },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), value, transaction_,
             current_state));
@@ -286,9 +281,7 @@ class GraphDbAccessor {
         LabelPropertyIndex::Key(label, property)))
         << "Label+property index doesn't exist.";
     return iter::imap(
-        [this](auto vlist) {
-          return VertexAccessor(vlist, *this);
-        },
+        [this](auto vlist) { return VertexAccessor(vlist, *this); },
         db_.storage().label_property_index_.GetVlists(
             LabelPropertyIndex::Key(label, property), lower, upper,
             transaction_, current_state));
@@ -374,9 +367,7 @@ class GraphDbAccessor {
 
     // wrap version lists into accessors, which will look for visible versions
     auto accessors = iter::imap(
-        [this](auto id_vlist) {
-          return EdgeAccessor(id_vlist.second, *this);
-        },
+        [this](auto id_vlist) { return EdgeAccessor(id_vlist.second, *this); },
         db_.storage().edges_.access());
 
     // filter out the accessors not visible to the current transaction
@@ -446,7 +437,7 @@ class GraphDbAccessor {
   /// Populates index with vertices containing the key
   void PopulateIndex(const LabelPropertyIndex::Key &key);
 
-  /// Writes Index (key) creation to RaftServer, marks it as ready for usage
+  /// Writes Index (key) creation to Raft, marks it as ready for usage
   void EnableIndex(const LabelPropertyIndex::Key &key);
 
   /**
@@ -583,7 +574,7 @@ class GraphDbAccessor {
   bool should_abort() const;
 
   const tx::Transaction &transaction() const { return transaction_; }
-  raft::RaftServer &raft_server();
+  raft::RaftInterface *raft();
   auto &db() { return db_; }
   const auto &db() const { return db_; }
 

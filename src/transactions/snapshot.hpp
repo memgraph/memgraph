@@ -56,6 +56,11 @@ class Snapshot final {
     transaction_ids_.erase(last, transaction_ids_.end());
   }
 
+  /// Removes all transactions from this Snapshot.
+  void clear() {
+    transaction_ids_.clear();
+  }
+
   TransactionId front() const {
     DCHECK(transaction_ids_.size()) << "Snapshot.front() on empty Snapshot";
     return transaction_ids_.front();
