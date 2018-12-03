@@ -99,7 +99,8 @@ import_external_library(fmt STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/fmt/lib/libfmt.a
   ${CMAKE_CURRENT_SOURCE_DIR}/fmt/include
   # Skip testing.
-  CMAKE_ARGS -DFMT_TEST=OFF)
+  CMAKE_ARGS -DFMT_TEST=OFF
+             -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
 
 
 # Setup ltalloc library
@@ -147,7 +148,8 @@ import_external_library(gflags STATIC
   # Don't register installation in ~/.cmake
   CMAKE_ARGS -DREGISTER_INSTALL_PREFIX=OFF
              -DBUILD_gflags_nothreads_LIB=OFF
-             -DGFLAGS_NO_FILENAMES=${GFLAGS_NO_FILENAMES})
+             -DGFLAGS_NO_FILENAMES=${GFLAGS_NO_FILENAMES}
+             -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
 
 # Setup google logging after gflags (so that glog can use it).
 set(GLOG_DISABLE_OPTIONS "0")

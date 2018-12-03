@@ -19,5 +19,7 @@ add_library(mg-communication STATIC ${communication_src_files})
 target_link_libraries(mg-communication Threads::Threads mg-utils mg-io fmt glog gflags)
 target_link_libraries(mg-communication ${OPENSSL_LIBRARIES})
 target_include_directories(mg-communication SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
-target_link_libraries(mg-communication capnp kj)
+#target_link_libraries(mg-communication capnp kj)
 add_dependencies(mg-communication generate_communication_capnp)
+
+target_compile_options(mg-communication PRIVATE -fPIC)

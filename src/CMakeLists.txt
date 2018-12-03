@@ -10,6 +10,7 @@ add_subdirectory(telemetry)
 add_subdirectory(communication)
 add_subdirectory(stats)
 add_subdirectory(auth)
+add_subdirectory(tensorflow)
 
 # ----------------------------------------------------------------------------
 # Memgraph Single Node

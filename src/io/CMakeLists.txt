@@ -14,3 +14,5 @@ add_library(mg-io STATIC ${io_src_files})
 target_link_libraries(mg-io stdc++fs Threads::Threads fmt glog mg-utils)
 target_link_libraries(mg-io capnp kj)
 add_dependencies(mg-io generate_io_capnp)
+
+target_compile_options(mg-io PRIVATE -fPIC)
