@@ -7,8 +7,9 @@ bolt_wrapper_module = tf.load_op_library('/home/dino/git/memgraph/build/src/tens
 def main():
   with tf.Session() as sess:
     c = tf.placeholder(tf.string)
-    bolt_wrapper = bolt_wrapper_module.bolt_wrapper(c)
-    output = sess.run(bolt_wrapper, {c: "match (n :Movie) return n.title as title, n.id as id;"})
+    d = tf.placeholder(tf.string)
+    bolt_wrapper = bolt_wrapper_module.bolt_wrapper(c, d)
+    output = sess.run(bolt_wrapper, {c: "match (n :Movie) return n.title as title, n.id as id;", d: ""})
     for i in output[0]:
       print(i)
     for i in output[1]:
