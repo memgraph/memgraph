@@ -169,21 +169,22 @@ cpp<#
     #>cpp
     explicit Tree(int uid) : uid_(uid) {}
     cpp<#)
-  (:serialize :capnp :base t
-              :save-args '((saved-uids "std::vector<int32_t> *"))
-              :load-args '((storage "AstStorage *")
-                           (loaded-uids "std::vector<int32_t> *"))
-              :post-save (lambda (builder)
-                           (declare (ignore builder))
-                           ;; This is a bit hacky because it relies on the fact that parent class
-                           ;; serialization is inlined so we can short-circuit and avoid serializing
-                           ;; the derived class.
-                           #>cpp
-                           if (utils::Contains(*saved_uids, self.uid_)) {
-                             return;
-                           }
-                           saved_uids->push_back(self.uid_);
-                           cpp<#)))
+  (:serialize
+   (:capnp :base t
+           :save-args '((saved-uids "std::vector<int32_t> *"))
+           :load-args '((storage "AstStorage *")
+                        (loaded-uids "std::vector<int32_t> *"))
+           :post-save (lambda (builder)
+                        (declare (ignore builder))
+                        ;; This is a bit hacky because it relies on the fact that parent class
+                        ;; serialization is inlined so we can short-circuit and avoid serializing
+                        ;; the derived class.
+                        #>cpp
+                        if (utils::Contains(*saved_uids, self.uid_)) {
+                          return;
+                        }
+                        saved_uids->push_back(self.uid_);
+                        cpp<#))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Expressions
@@ -212,7 +213,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class where (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -245,7 +246,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class binary-operator (expression)
   ((expression1 "Expression *" :initval "nullptr" :scope :public
@@ -273,7 +274,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class unary-operator (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -297,7 +298,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (macrolet ((define-binary-operators ()
              `(lcp:cpp-list
@@ -331,7 +332,7 @@ cpp<#
                             #>cpp
                             friend class AstStorage;
                             cpp<#)
-                          (:serialize :capnp))))))
+                          (:serialize (:capnp)))))))
   (define-binary-operators))
 
 (macrolet ((define-unary-operators ()
@@ -363,7 +364,7 @@ cpp<#
                             #>cpp
                             friend class AstStorage;
                             cpp<#)
-                          (:serialize :capnp))))))
+                          (:serialize (:capnp)))))))
   (define-unary-operators))
 
 (lcp:define-class aggregation (binary-operator)
@@ -371,7 +372,7 @@ cpp<#
   (:public
     (lcp:define-enum op
       (count min max sum avg collect-list collect-map)
-      (:serialize :capnp))
+      (:serialize))
     #>cpp
     Aggregation() = default;
 
@@ -425,7 +426,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class list-slicing-operator (expression)
   ((list "Expression *" :initval "nullptr" :scope :public
@@ -479,7 +480,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class if-operator (expression)
   ((condition "Expression *" :scope :public
@@ -528,7 +529,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class base-literal (expression)
   ()
@@ -547,7 +548,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class primitive-literal (base-literal)
   ((value "PropertyValue" :scope :public
@@ -586,7 +587,7 @@ cpp<#
     PrimitiveLiteral(int uid, T value, int token_position)
         : BaseLiteral(uid), value_(value), token_position_(token_position) {}
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class list-literal (base-literal)
   ((elements "std::vector<Expression *>"
@@ -626,7 +627,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class map-literal (base-literal)
   ((elements "std::unordered_map<std::pair<std::string, storage::Property>, Expression *>"
@@ -667,7 +668,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class identifier (expression)
   ((name "std::string" :scope :public)
@@ -694,7 +695,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class property-lookup (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -740,7 +741,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class labels-test (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -781,7 +782,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class function (expression)
   ((arguments "std::vector<Expression *>"
@@ -837,7 +838,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class reduce (expression)
   ((accumulator "Identifier *" :initval "nullptr" :scope :public
@@ -902,7 +903,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class coalesce (expression)
   ((expressions "std::vector<Expression *>"
@@ -943,7 +944,7 @@ cpp<#
 
    friend class AstStorage;
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class extract (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -994,7 +995,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class all (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -1042,7 +1043,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 ;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
 ;; All, Any and Single into something like a higher-order function call which
@@ -1093,7 +1094,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class parameter-lookup (expression)
   ((token-position :int32_t :initval -1 :scope :public
@@ -1120,7 +1121,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class named-expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
                                          "::utils::Visitable<ExpressionVisitor<TypedValue>>"
@@ -1171,7 +1172,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; END Expressions
@@ -1201,7 +1202,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class node-atom (pattern-atom)
   ((labels "std::vector<storage::Label>" :scope :public
@@ -1247,7 +1248,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class edge-atom (pattern-atom)
   ((type "Type" :initval "Type::SINGLE" :scope :public)
@@ -1286,10 +1287,10 @@ cpp<#
   (:public
     (lcp:define-enum type
                      (single depth-first breadth-first weighted-shortest-path)
-                     (:serialize :capnp))
+                     (:serialize))
     (lcp:define-enum direction
                      (in out both)
-                     (:serialize :capnp))
+                     (:serialize))
     (lcp:define-struct lambda ()
       ((inner-edge "Identifier *" :initval "nullptr"
                    :capnp-type "Tree" :capnp-init nil
@@ -1307,10 +1308,10 @@ cpp<#
                    :capnp-load (load-ast-pointer "Expression *")
                    :documentation "Evaluates the result of the lambda."))
       (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
-      (:serialize :capnp
-                  :save-args '((saved-uids "std::vector<int32_t> *"))
-                  :load-args '((storage "AstStorage *")
-                               (loaded-uids "std::vector<int32_t> *"))))
+      (:serialize (:capnp
+                   :save-args '((saved-uids "std::vector<int32_t> *"))
+                   :load-args '((storage "AstStorage *")
+                                (loaded-uids "std::vector<int32_t> *")))))
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
@@ -1388,7 +1389,7 @@ cpp<#
       return ptr ? ptr->Clone(storage) : nullptr;
     }
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class pattern (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -1435,7 +1436,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class clause (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ()
@@ -1456,7 +1457,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class single-query (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((clauses "std::vector<Clause *>"
@@ -1495,7 +1496,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class cypher-union (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
@@ -1540,7 +1541,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class query (tree "::utils::Visitable<QueryVisitor<void>>")
   ()
@@ -1561,7 +1562,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class cypher-query (query)
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
@@ -1598,7 +1599,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class explain-query (query)
   ((cypher-query "CypherQuery *" :initval "nullptr" :scope :public
@@ -1626,7 +1627,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class index-query (query)
   ((action "Action" :scope :public)
@@ -1637,7 +1638,7 @@ cpp<#
   (:public
    (lcp:define-enum action
        (create create-unique drop)
-     (:serialize :capnp))
+     (:serialize))
 
     #>cpp
     IndexQuery() = default;
@@ -1659,7 +1660,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class create (clause)
   ((patterns "std::vector<Pattern *>"
@@ -1698,7 +1699,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class match (clause)
   ((patterns "std::vector<Pattern *>"
@@ -1751,12 +1752,12 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-enum ordering
                  (asc desc)
                  (:documentation "Defines the order for sorting values (ascending or descending).")
-                 (:serialize :capnp))
+                 (:serialize))
 
 (lcp:define-struct sort-item ()
   ((ordering "Ordering")
@@ -1764,10 +1765,10 @@ cpp<#
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Expression *")))
-  (:serialize :capnp
-              :save-args '((saved-uids "std::vector<int32_t> *"))
-              :load-args '((storage "AstStorage *")
-                           (loaded-uids "std::vector<int32_t> *"))))
+  (:serialize (:capnp
+               :save-args '((saved-uids "std::vector<int32_t> *"))
+               :load-args '((storage "AstStorage *")
+                            (loaded-uids "std::vector<int32_t> *")))))
 
 (lcp:define-struct return-body ()
   ((distinct :bool :initval "false"
@@ -1806,10 +1807,10 @@ cpp<#
           :capnp-load (load-ast-pointer "Expression *")
           :documentation "Optional expression on how many results to produce."))
   (:documentation "Contents common to @c Return and @c With clauses.")
-  (:serialize :capnp
-              :save-args '((saved-uids "std::vector<int32_t> *"))
-              :load-args '((storage "AstStorage *")
-                           (loaded-uids "std::vector<int32_t> *"))))
+  (:serialize (:capnp
+               :save-args '((saved-uids "std::vector<int32_t> *"))
+               :load-args '((storage "AstStorage *")
+                            (loaded-uids "std::vector<int32_t> *")))))
 
 #>cpp
 // Deep copy ReturnBody.
@@ -1862,7 +1863,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class with (clause)
   ((body "ReturnBody" :scope :public)
@@ -1915,7 +1916,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class delete (clause)
   ((expressions "std::vector<Expression *>"
@@ -1956,7 +1957,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class set-property (clause)
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
@@ -1995,7 +1996,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class set-properties (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -2037,7 +2038,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class set-labels (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -2077,7 +2078,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class remove-property (clause)
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
@@ -2109,7 +2110,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class remove-labels (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -2149,7 +2150,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class merge (clause)
   ((pattern "Pattern *" :initval "nullptr" :scope :public
@@ -2219,7 +2220,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class unwind (clause)
   ((named-expression "NamedExpression *" :initval "nullptr" :scope :public
@@ -2255,7 +2256,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class auth-query (query)
   ((action "Action" :scope :public)
@@ -2274,10 +2275,10 @@ cpp<#
                       clear-role grant-privilege deny-privilege
                       revoke-privilege show-privileges
                       show-role-for-user show-users-for-role)
-                     (:serialize :capnp))
+                     (:serialize))
     (lcp:define-enum privilege
                      (create delete match merge set remove index auth stream)
-                     (:serialize :capnp))
+                     (:serialize))
     #>cpp
     AuthQuery() = default;
 
@@ -2308,7 +2309,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 #>cpp
 // Constant that holds all available privileges.
@@ -2350,7 +2351,7 @@ cpp<#
   (:public
     (lcp:define-enum action (create-stream drop-stream show-streams start-stream
                              stop-stream start-all-streams stop-all-streams test-stream)
-                     (:serialize :capnp))
+                     (:serialize))
 
     #>cpp
     StreamQuery() = default;
@@ -2393,7 +2394,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 #>cpp
 #undef CLONE_BINARY_EXPRESSION

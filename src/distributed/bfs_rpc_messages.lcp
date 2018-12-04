@@ -67,7 +67,7 @@ cpp<#
                                         #>cpp
                                         query::LoadEvaluationContext(${reader}, &${member});
                                         cpp<#)))
-     (:serialize :capnp :load-args '((ast-storage "query::AstStorage *"))))
+     (:serialize (:capnp :load-args '((ast-storage "query::AstStorage *")))))
   (:response ((member :int64_t))))
 
 (lcp:define-rpc register-subcursors
@@ -110,7 +110,7 @@ cpp<#
 
 (lcp:define-enum expand-result
   (success failure lambda-error)
-  (:serialize :capnp))
+  (:serialize))
 
 (lcp:define-rpc expand-level
     (:request ((member :int64_t)))
@@ -133,10 +133,10 @@ cpp<#
                            "[dba, data_manager](const auto &reader) {
                              return storage::LoadVertexAccessor(reader, dba, data_manager);
                             }")))
-   (:serialize :capnp
-               :save-args '((worker-id :int))
-               :load-args '((dba "database::GraphDbAccessor *")
-                            (data-manager "distributed::DataManager *")))))
+   (:serialize (:capnp
+                :save-args '((worker-id :int))
+                :load-args '((dba "database::GraphDbAccessor *")
+                             (data-manager "distributed::DataManager *"))))))
 
 (lcp:define-rpc set-source
     (:request
@@ -194,10 +194,10 @@ cpp<#
     (next-edge "std::experimental::optional<storage::EdgeAddress>"
                :capnp-save (lcp:capnp-save-optional "storage::capnp::Address" "storage::EdgeAddress")
                :capnp-load (lcp:capnp-load-optional "storage::capnp::Address" "storage::EdgeAddress")))
-   (:serialize :capnp
-               :save-args '((worker-id :int))
-               :load-args '((dba "database::GraphDbAccessor *")
-                            (data-manager "distributed::DataManager *")))
+   (:serialize (:capnp
+                :save-args '((worker-id :int))
+                :load-args '((dba "database::GraphDbAccessor *")
+                             (data-manager "distributed::DataManager *"))))
    (:public
     #>cpp
     using Capnp = capnp::ReconstructPathRes;
@@ -236,9 +236,9 @@ cpp<#
                               return value;
                             }"))
       (worker-id :int :dont-save t))
-     (:serialize :capnp
-                 :load-args '((dba "database::GraphDbAccessor *")
-                              (data-manager "distributed::DataManager *"))))
+     (:serialize (:capnp
+                  :load-args '((dba "database::GraphDbAccessor *")
+                               (data-manager "distributed::DataManager *")))))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

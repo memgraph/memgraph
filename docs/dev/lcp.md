@@ -416,7 +416,7 @@ generation and tuning of its serialization code. Previously, LCP supported
 Boost.Serialization, but it was removed.
 
 To specify a class or structure for serialization, you may pass a
-`:serialize :capnp` option when defining such type. (Note that
+`:serialize (:capnp)` option when defining such type. (Note that
 `lcp:define-enum` takes `:serialize` without any arguments).
 
 For example:
@@ -424,7 +424,7 @@ For example:
 ```lisp
 (lcp:define-struct my-struct ()
   ((member :int64_t))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 ```
 
 `:serialize` option will generate a Cap'n Proto schema of the class and store
@@ -454,11 +454,11 @@ For example:
 ```lisp
 (lcp:define-class base ()
   ((base-member "std::vector<int64_t>" :scope :public))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class derived (base)
   ((derived-member :bool :scope :public))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 ```
 
 Note that all classes need to have the `:serialize` option set. Signatures of
@@ -492,7 +492,7 @@ of super classes.
 ```lisp
 (lcp:define-class derived (primary-base some-interface other-interface)
   ...
-  (:serialize :capnp :ignore-other-base-classes t))
+  (:serialize (:capnp :ignore-other-base-classes t)))
 ```
 
 Another form of multiple inheritance is reusing some common code. In
@@ -506,7 +506,7 @@ For example:
 ```lisp
 (lcp:define-class derived (first-base second-base)
   ...
-  (:serialize :capnp :inherit-compose '(second-base)))
+  (:serialize (:capnp :inherit-compose '(second-base))))
 ```
 
 With `:inherit-compose` you can pass a list of parent classes which should be
@@ -523,19 +523,19 @@ will not be able to generate correct serialization code.
 
 The cases so far have been only with classes that are pure interface and need
 no serialization code. This is signaled to LCP by passing the option `:base t`
-to `:serialize :capnp`. LCP will treat such classes as actually being the base
-class of a hierarchy.
+to `:capnp`. LCP will treat such classes as actually being the base class of a
+hierarchy.
 
 For example:
 
 ```lisp
 (lcp:define-class my-class ("utils::TotalOrdering")
   (...)
-  (:serialize :capnp :base t))
+  (:serialize (:capnp :base t)))
 
 (lcp:define-class derived (my-class)
   (...)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 ```
 
 Only the base class for serialization has the `:base t` option set. Derived
@@ -555,7 +555,7 @@ To specify template arguments, pass a `:type-args` option. For example:
 ```lisp
 (lcp:define-class (my-container t-value) ()
   (...)
-  (:serialize :capnp :type-args '(my-class)))
+  (:serialize (:capnp :type-args '(my-class))))
 ```
 
 The above will support serialization of `MyContainer<MyClass>` type.
@@ -646,7 +646,7 @@ Example:
                             auto data = ${reader}.getData();
                             ${member}.LoadFromData(data);
                             cpp<#)))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 ```
 
 With custom serialization code, you may want to get additional details through
@@ -683,9 +683,9 @@ For example:
            :capnp-save ;; custom save
            :capnp-load ;; custom load
     ))
-  (:serialize :capnp
-              :save-args '((save-helper "SaveHelper *"))
-              :load-args '((load-helper "LoadHelper *"))))
+  (:serialize (:capnp
+               :save-args '((save-helper "SaveHelper *"))
+               :load-args '((load-helper "LoadHelper *")))))
 ```
 
 The custom serialization code will now have access to `save_helper` and
@@ -707,11 +707,11 @@ serialized as expected:
 ```lisp
 (lcp:define-class my-class-with-primitive-optional ()
   ((primitive-optional "std::experimental::optional<int64_t>"))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class my-class-with-known-type-optional ()
   ((known-type-optional "std::experimental::optional<MyClassWithPrimitiveOptional>"))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 ```
 
 In cases when the value contained in `std::optional` needs custom
@@ -780,13 +780,13 @@ Example:
 LCP supports generating serialization code for use with our own simple
 serialization framework, SaveLoadKit (SLK).
 
-To specify a class or structure for serialization, pass a `:serialize :slk`
+To specify a class or structure for serialization, pass a `:serialize (:slk)`
 class option. For example:
 
 ```lisp
 (lcp:define-struct my-struct ()
   ((member :int64_t))
-  (:serialize :slk))
+  (:serialize (:slk)))
 ```
 
 The above will generate C++ functions for saving and loading all members of
@@ -856,11 +856,11 @@ For example:
 ```lisp
 (lcp:define-class base ()
   ...
-  (:serialize :slk))
+  (:serialize (:slk)))
 
 (lcp:define-class derived (base)
   ...
-  (:serialize :slk))
+  (:serialize (:slk)))
 ```
 
 We get the following declarations generated:
@@ -894,7 +894,7 @@ inheritance by specifying `:ignore-other-base-classes` option. For example:
 ```lisp
 (lcp:define-class derived (primary-base some-interface ...)
   ...
-  (:serialize :slk (:ignore-other-base-classes t)))
+  (:serialize (:slk :ignore-other-base-classes t)))
 ```
 
 The above will produce serialization code as if `derived` is inheriting *only*
@@ -938,7 +938,7 @@ be done in LCP.
                          std::vector<std::shared_ptr<SomeType>> already_loaded;
                          slk::Load(&self->${member}, reader, &already_loaded);
                          cpp<#)))
-  (:serialize :slk))
+  (:serialize (:slk)))
 ```
 
 The above use is very artificial, because we usually have multiple shared
@@ -976,7 +976,7 @@ type.
                          #>cpp
                          slk::Load(&self->${member}, reader, already_loaded);
                          cpp<#)))
-  (:serialize :slk (:save-args '((already-saved "std::vector<SomeType *> *"))
+  (:serialize (:slk :save-args '((already-saved "std::vector<SomeType *> *"))
                     :load-args '((already-loaded "std::vector<std::shared_ptr<SomeType>> *")))))
 ```
 
@@ -1011,6 +1011,6 @@ example:
                         for (size_t i = 0; i < size; ++i)
                           slk::Load(&self->${member}[i], reader, &already_loaded);
                         cpp<#)))
-  (:serialize :slk))
+  (:serialize (:slk)))
 ```
 

@@ -14,6 +14,6 @@ cpp<#
 
 (lcp:define-struct log-entry ()
   ((deltas "std::vector<database::StateDelta>" :capnp-type "List(Database.StateDelta)"))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:pop-namespace) ;; raft

@@ -304,9 +304,6 @@ encoded as union inheritance in Cap'n Proto."
                            (list (first (capnp-union-and-compose-parents class)))))))))
     (cdr (rec cpp-class))))
 
-(defvar *capnp-serialize-p* nil
-  "True if we should generate Cap'n Proto serialization code")
-
 (defvar *capnp-type-converters* nil
   "Pairs of (cpp-type capnp-type) which map the conversion of C++ types to
   Cap'n Proto types.")
@@ -453,7 +450,7 @@ encoded as union inheritance in Cap'n Proto."
                           (incf field-number)))))))
             (dolist (inner inner-types)
               (when (or (and (typep inner 'cpp-class) (cpp-class-capnp-opts inner))
-                        (and (typep inner 'cpp-enum) (cpp-enum-capnp-schema inner)))
+                        (and (typep inner 'cpp-enum) (cpp-enum-serializep inner)))
                 (write-line (capnp-schema inner) s)))
             (when union-subclasses
               (with-cpp-block-output (s :name "union")
@@ -1336,13 +1333,13 @@ enums which aren't defined in LCP."
           (:public
            ,(decl-type-info req-name)
            ,(def-constructor req-name (second request)))
-          (:serialize :capnp :base t))
+          (:serialize (:capnp)))
         (define-struct ,res-sym ()
           ,@(cdr response)
           (:public
            ,(decl-type-info res-name)
            ,(def-constructor res-name (second response)))
-          (:serialize :capnp :base t))
+          (:serialize (:capnp)))
         ,rpc-decl))))
 
 (defun read-lcp (filepath)
@@ -1422,8 +1419,8 @@ file."
           ;; have our own accompanying .cpp files
           (cpp-file (concatenate 'string lcp-file ".cpp"))
           (capnp-file (concatenate 'string filename ".capnp"))
+          (serializep capnp-id)
           ;; Reset globals
-          (*capnp-serialize-p* capnp-id)
           (*capnp-namespace* nil)
           (*capnp-imports* nil)
           (*capnp-type-converters* nil)
@@ -1445,40 +1442,82 @@ file."
           (write-line (cpp-code res) out)))
       (when *cpp-namespaces*
         (error "Unclosed namespaces: ~A" (reverse *cpp-namespaces*)))
-      ;; If we have a capnp-id, generate the schema and serialization code
-      (let ((types-for-capnp (when capnp-id
+      ;; Collect types for serialization
+      (let ((types-for-capnp (when (and serializep capnp-id)
                                (append (remove-if (complement #'cpp-class-capnp-opts) *cpp-classes*)
-                                       (remove-if (complement #'cpp-enum-capnp-schema) *cpp-enums*)))))
-        ;; Append top-level declarations for Cap'n Proto serialization
-        (with-open-file (out hpp-file :direction :output :if-exists :append)
-          (terpri out)
-          (write-line "// Cap'n Proto serialization declarations" out)
-          (with-namespaced-output (out open-namespace)
-            (dolist (type-for-capnp types-for-capnp)
-              (open-namespace (cpp-type-namespace type-for-capnp))
-              (ctypecase type-for-capnp
-                (cpp-class
-                 (format out "~A;~%" (capnp-save-function-declaration type-for-capnp))
-                 (format out "~A;~%" (capnp-load-function-declaration type-for-capnp)))
-                (cpp-enum
-                 (format out "~A;~%" (cpp-enum-to-capnp-function-declaration type-for-capnp))
-                 (format out "~A;~%" (cpp-enum-from-capnp-function-declaration type-for-capnp)))))))
-        ;; When we have either capnp or C++ code for the .cpp file, generate
-        ;; the .cpp file.  Note, that some code may rely on the fact that .cpp
-        ;; file is generated after .hpp.
-        (when (or *cpp-impl* types-for-capnp)
-          (let ((*generating-cpp-impl-p* t))
-            (with-open-file (out cpp-file :direction :output :if-exists :supersede)
-              (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
-              (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
-                      (file-namestring lcp-file))
-              (format out "#include \"~A\"~2%" (file-namestring hpp-file))
-              ;; First output the C++ code from the user
+                                       (remove-if (complement #'cpp-enum-serializep) *cpp-enums*))))
+            (types-for-slk (when serializep
+                             (append (remove-if (complement #'cpp-class-slk-opts) *cpp-classes*)
+                                     (remove-if (complement #'cpp-enum-serializep) *cpp-enums*)))))
+        (when types-for-capnp
+          ;; Append top-level declarations for Cap'n Proto serialization
+          (with-open-file (out hpp-file :direction :output :if-exists :append)
+            (terpri out)
+            (write-line "// Cap'n Proto serialization declarations" out)
+            (with-namespaced-output (out open-namespace)
+              (dolist (type-for-capnp types-for-capnp)
+                (open-namespace (cpp-type-namespace type-for-capnp))
+                (ctypecase type-for-capnp
+                  (cpp-class
+                   (format out "~A;~%" (capnp-save-function-declaration type-for-capnp))
+                   (format out "~A;~%" (capnp-load-function-declaration type-for-capnp)))
+                  (cpp-enum
+                   (format out "~A;~%" (cpp-enum-to-capnp-function-declaration type-for-capnp))
+                   (format out "~A;~%" (cpp-enum-from-capnp-function-declaration type-for-capnp))))))))
+        (when types-for-slk
+          ;; Append top-level declarations for SLK serialization
+          (with-open-file (out hpp-file :direction :output :if-exists :append)
+            (terpri out)
+            (write-line "// SLK serialization declarations" out)
+            (write-line "#include \"communication/rpc/serialization.hpp\"" out)
+            (with-namespaced-output (out open-namespace)
+              (open-namespace '("slk"))
+              (dolist (type-for-slk types-for-slk)
+                (ctypecase type-for-slk
+                  (cpp-class
+                   (format out "~A;~%" (lcp.slk:save-function-declaration-for-class type-for-slk))
+                   (when (or (cpp-class-super-classes type-for-slk)
+                             (direct-subclasses-of type-for-slk))
+                     (format out "~A;~%" (lcp.slk:construct-and-load-function-declaration-for-class type-for-slk)))
+                   (unless (cpp-class-abstractp type-for-slk)
+                     (format out "~A;~%" (lcp.slk:load-function-declaration-for-class type-for-slk))))
+                  (cpp-enum
+                   (format out "~A;~%" (lcp.slk:save-function-declaration-for-enum type-for-slk))
+                   (format out "~A;~%" (lcp.slk:load-function-declaration-for-enum type-for-slk))))))))
+        ;; Generate the .cpp file.  Note, that some code may rely on the fact
+        ;; that .cpp file is generated after .hpp.
+        (let ((*generating-cpp-impl-p* t))
+          (with-open-file (out cpp-file :direction :output :if-exists :supersede)
+            (format out "~@{// ~A~%~}" +emacs-read-only+ +vim-read-only+)
+            (format out "// DO NOT EDIT! Generated using LCP from '~A'~2%"
+                    (file-namestring lcp-file))
+            (format out "#include \"~A\"~2%" (file-namestring hpp-file))
+            ;; First output the C++ code from the user
+            (with-namespaced-output (out open-namespace)
+              (dolist (cpp *cpp-impl*)
+                (destructuring-bind (namespaces . code) cpp
+                  (open-namespace namespaces)
+                  (write-line (cpp-code code) out))))
+            ;; Generate Cap'n Proto serialization
+            (when types-for-capnp
+              (generate-capnp types-for-capnp :capnp-file capnp-file :capnp-id capnp-id
+                              :cpp-out out :lcp-file lcp-file))
+            ;; Generate SLK serialization
+            (when types-for-slk
+              (write-line "// Autogenerated SLK serialization code" out)
               (with-namespaced-output (out open-namespace)
-                (dolist (cpp *cpp-impl*)
-                  (destructuring-bind (namespaces . code) cpp
-                    (open-namespace namespaces)
-                    (write-line (cpp-code code) out))))
-              (when types-for-capnp
-                (generate-capnp types-for-capnp :capnp-file capnp-file :capnp-id capnp-id
-                                :cpp-out out :lcp-file lcp-file)))))))))
+                (open-namespace '("slk"))
+                (dolist (cpp-type types-for-slk)
+                  (ctypecase cpp-type
+                    (cpp-class
+                     (format out "// Serialize code for ~A~2%" (cpp-type-name cpp-type))
+                     ;; Top level functions
+                     (write-line (lcp.slk:save-function-definition-for-class cpp-type) out)
+                     (when (or (cpp-class-super-classes cpp-type)
+                               (direct-subclasses-of cpp-type))
+                       (format out "~A;~%" (lcp.slk:construct-and-load-function-definition-for-class cpp-type)))
+                     (unless (cpp-class-abstractp cpp-type)
+                       (write-line (lcp.slk:load-function-definition-for-class cpp-type) out)))
+                    (cpp-enum
+                     (write-line (lcp.slk:save-function-definition-for-enum cpp-type) out)
+                     (write-line (lcp.slk:load-function-definition-for-enum cpp-type) out))))))))))))

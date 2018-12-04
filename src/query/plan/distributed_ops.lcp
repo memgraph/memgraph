@@ -82,7 +82,7 @@ time on data transfer. It gives no guarantees on result order.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (defun load-pull-remote (reader member-name capnp-name)
   (declare (ignore capnp-name))
@@ -147,7 +147,7 @@ Logic of the synchronize operator is:
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class pull-remote-order-by (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -188,7 +188,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class distributed-expand (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -219,7 +219,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class distributed-expand-bfs (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -275,7 +275,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class distributed-create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -303,7 +303,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-class distributed-create-expand (logical-operator)
   ((node-atom "NodeAtom *" :scope :public
@@ -335,7 +335,7 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:pop-namespace)
 (lcp:pop-namespace)

@@ -174,8 +174,8 @@ to the appropriate value. Not used on side that generates the response.")
     PullResData(PullResData &&) = default;
     PullResData &operator=(PullResData &&) = default;
    cpp<#)
-  (:serialize :capnp :load-args '((dba "database::GraphDbAccessor *")
-                                  (data-manager "distributed::DataManager *"))))
+  (:serialize (:capnp :load-args '((dba "database::GraphDbAccessor *")
+                                   (data-manager "distributed::DataManager *")))))
 
 (lcp:define-rpc pull
     (:request
@@ -211,8 +211,8 @@ to the appropriate value. Not used on side that generates the response.")
                                                       '(both only-old only-new)))))
   (:response
    ((data "PullResData" :initarg :move))
-   (:serialize :capnp :base t :load-args '((dba "database::GraphDbAccessor *")
-                                           (data-manager "distributed::DataManager *")))))
+   (:serialize (:capnp :base t :load-args '((dba "database::GraphDbAccessor *")
+                                            (data-manager "distributed::DataManager *"))))))
 
 ;; TODO make a separate RPC for the continuation of an existing pull, as an
 ;; optimization not to have to send the full PullReqData pack every time.

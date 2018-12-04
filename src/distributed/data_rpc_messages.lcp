@@ -23,7 +23,7 @@ cpp<#
 (lcp:define-struct tx-gid-pair ()
   ((tx-id "tx::TransactionId" :capnp-type "UInt64")
    (gid "gid::Gid" :capnp-type "UInt64"))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-rpc vertex
     (:request ((member "TxGidPair")))

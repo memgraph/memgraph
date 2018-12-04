@@ -110,9 +110,8 @@
 
 (defclass cpp-enum (cpp-type)
   ((values :type list :initarg :values :initform nil :reader cpp-enum-values)
-   ;; If true, generate the schema for this enum.
-   (capnp-schema :type boolean :initarg :capnp-schema :initform nil
-                 :reader cpp-enum-capnp-schema))
+   ;; If true, generate serialization code for this enum.
+   (serializep :type boolean :initarg :serializep :initform nil :reader cpp-enum-serializep))
   (:documentation "Meta information on a C++ enum."))
 
 (defstruct cpp-member
@@ -473,7 +472,7 @@ CPP-TYPE has no namespace, return an empty string."
                                  :values ',values
                                  :namespace (reverse *cpp-namespaces*)
                                  :enclosing-class *cpp-enclosing-class*
-                                 :capnp-schema (and *capnp-serialize-p* ',(assoc :serialize options)))))
+                                 :serializep ,(if (assoc :serialize options) t))))
        (prog1 ,enum
          (push ,enum *cpp-enums*)
          (push ,enum *cpp-inner-types*)))))
@@ -522,9 +521,10 @@ Currently supported class-options are:
   * :public -- additional C++ code in public scope.
   * :protected -- additional C++ code in protected scope.
   * :private -- additional C++ code in private scope.
-  * :serialize -- only :capnp is a valid value.  Setting :capnp will generate
+  * :serialize -- either (:capnp) or (:slk).  Setting :capnp will generate
     the Cap'n Proto serialization code for the class members.  You may
     specifiy additional options after :capnp to fill the `CAPNP-OPTS' slots.
+    Similarly, you may specify `SLK-OPTS' after :slk.
   * :abstractp -- if t, marks that this class cannot be instantiated
     (currently only useful in serialization code)
 
@@ -533,7 +533,7 @@ Larger example:
 ;; (lcp:define-class derived (base)
 ;;   ((val :int :reader t :initval 42))
 ;;   (:public #>cpp void set_val(int new_val) { val_ = new_val; } cpp<#)
-;;   (:serialize :capnp))
+;;   (:serialize (:capnp)))
 
 Generates C++:
 
@@ -577,11 +577,10 @@ Generates C++:
                                  :public (list ,@(cdr (assoc :public options)))
                                  :protected (list ,@(cdr (assoc :protected options)))
                                  :private (list ,@(cdr (assoc :private options)))
-                                 :capnp-opts ,(when (member :capnp serialize)
-                                                `(and *capnp-serialize-p*
-                                                      (make-capnp-opts ,@(cdr (member :capnp serialize)))))
-                                 :slk-opts ,(when (member :slk serialize)
-                                              `(make-slk-opts ,@(cadr (member :slk serialize))))
+                                 :capnp-opts ,(when (assoc :capnp serialize)
+                                                `(make-capnp-opts ,@(cdr (assoc :capnp serialize))))
+                                 :slk-opts ,(when (assoc :slk serialize)
+                                              `(make-slk-opts ,@(cdr (assoc :slk serialize))))
                                  :abstractp ,abstractp
                                  :namespace (reverse *cpp-namespaces*)
                                  ;; Set inner types at the end. This works

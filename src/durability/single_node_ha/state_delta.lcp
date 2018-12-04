@@ -95,7 +95,7 @@ in StateDeltas.")
       "Defines StateDelta type. For each type the comment indicates which values
 need to be stored. All deltas have the transaction_id member, so that's
 omitted in the comment.")
-     (:serialize :capnp))
+     (:serialize))
      #>cpp
      StateDelta() = default;
      StateDelta(const enum Type &type, tx::TransactionId tx_id)
@@ -153,6 +153,6 @@ omitted in the comment.")
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;
      cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:pop-namespace) ;; database

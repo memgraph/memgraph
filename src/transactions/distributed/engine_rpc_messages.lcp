@@ -24,7 +24,7 @@ cpp<#
              :capnp-init nil
              :capnp-save #'save-snapshot
              :capnp-load #'load-snapshot))
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:define-rpc begin
     (:request ())

@@ -20,7 +20,7 @@ cpp<#
     ;; This is similar to TypedValue::Type, but this has `Any` type.
     ;; TODO: Make a better Type structure which can store a generic List.
     (lcp:define-enum type (any vertex edge path number edge-list)
-      (:serialize :capnp))
+      (:serialize))
     #>cpp
     // TODO: Generate enum to string conversion from LCP. Note, that this is
     // displayed to the end user, so we may want to have a pretty name of each
@@ -53,7 +53,7 @@ cpp<#
     bool user_declared() const { return user_declared_; }
     int token_position() const { return token_position_; }
     cpp<#)
-  (:serialize :capnp))
+  (:serialize (:capnp)))
 
 (lcp:pop-namespace) ;; query
 
