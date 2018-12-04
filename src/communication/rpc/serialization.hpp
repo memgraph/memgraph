@@ -63,6 +63,9 @@ template <typename T>
 void Save(const std::unique_ptr<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::unique_ptr<T> *obj, Reader *reader);
+template <typename T>
+void Load(std::unique_ptr<T> *obj, Reader *reader,
+          const std::function<void(std::unique_ptr<T> *, Reader *)> &load);
 
 template <typename T>
 void Save(const std::experimental::optional<T> &obj, Builder *builder);
@@ -73,8 +76,17 @@ template <typename T>
 void Save(const std::shared_ptr<T> &obj, Builder *builder,
           std::vector<T *> *saved);
 template <typename T>
+void Save(const std::shared_ptr<T> &obj, Builder *builder,
+          std::vector<T *> *saved,
+          const std::function<void(const T &, Builder *builder)> &save);
+template <typename T>
 void Load(std::shared_ptr<T> *obj, Reader *reader,
           std::vector<std::shared_ptr<T>> *loaded);
+template <typename T>
+void Load(
+    std::shared_ptr<T> *obj, Reader *reader,
+    std::vector<std::shared_ptr<T>> *loaded,
+    const std::function<void(std::unique_ptr<T> *, Reader *reader)> &load);
 
 // Implementation of serialization for primitive types.
 
@@ -235,12 +247,31 @@ inline void Save(const std::unique_ptr<T> &obj, Builder *builder) {
 
 template <typename T>
 inline void Load(std::unique_ptr<T> *obj, Reader *reader) {
+  // Prevent any loading which may potentially break class hierarchies.
+  // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
+  // checking whether some type has any derived or base classes.
+  static_assert(!std::is_polymorphic<T>::value,
+                "Only non polymorphic types can be loaded generically from a "
+                "pointer. Pass a custom load function as the 3rd argument.");
   bool exists = false;
   Load(&exists, reader);
   if (exists) {
     T item;
     Load(&item, reader);
     *obj = std::make_unique<T>(std::move(item));
+  } else {
+    *obj = nullptr;
+  }
+}
+
+template <typename T>
+inline void Load(
+    std::unique_ptr<T> *obj, Reader *reader,
+    const std::function<void(std::unique_ptr<T> *, Reader *)> &load) {
+  bool exists = false;
+  Load(&exists, reader);
+  if (exists) {
+    load(obj, reader);
   } else {
     *obj = nullptr;
   }
@@ -291,6 +322,14 @@ inline void Load(std::pair<A, B> *obj, Reader *reader) {
 template <typename T>
 inline void Save(const std::shared_ptr<T> &obj, Builder *builder,
                  std::vector<T *> *saved) {
+  Save<T>(obj, builder, saved,
+          [](const auto &elem, auto *builder) { Save(elem, builder); });
+}
+
+template <typename T>
+inline void Save(const std::shared_ptr<T> &obj, Builder *builder,
+                 std::vector<T *> *saved,
+                 const std::function<void(const T &, Builder *builder)> &save) {
   if (obj.get() == nullptr) {
     bool exists = false;
     Save(exists, builder);
@@ -306,7 +345,7 @@ inline void Save(const std::shared_ptr<T> &obj, Builder *builder,
     } else {
       bool in_place = true;
       Save(in_place, builder);
-      Save(*obj.get(), builder);
+      save(*obj, builder);
       saved->push_back(obj.get());
     }
   }
@@ -315,6 +354,12 @@ inline void Save(const std::shared_ptr<T> &obj, Builder *builder,
 template <typename T>
 inline void Load(std::shared_ptr<T> *obj, Reader *reader,
                  std::vector<std::shared_ptr<T>> *loaded) {
+  // Prevent any loading which may potentially break class hierarchies.
+  // Unfortunately, C++14 doesn't have (or I'm not aware of it) a trait for
+  // checking whether some type has any derived or base classes.
+  static_assert(!std::is_polymorphic<T>::value,
+                "Only non polymorphic types can be loaded generically from a "
+                "pointer. Pass a custom load function as the 4th argument.");
   bool exists = false;
   Load(&exists, reader);
   if (exists) {
@@ -324,6 +369,35 @@ inline void Load(std::shared_ptr<T> *obj, Reader *reader,
       T item;
       Load(&item, reader);
       *obj = std::make_shared<T>(std::move(item));
+      loaded->push_back(*obj);
+    } else {
+      uint64_t index = 0;
+      Load(&index, reader);
+      if (index < loaded->size()) {
+        *obj = (*loaded)[index];
+      } else {
+        throw SlkDecodeException("Couldn't load shared pointer!");
+      }
+    }
+  } else {
+    *obj = nullptr;
+  }
+}
+
+template <typename T>
+inline void Load(
+    std::shared_ptr<T> *obj, Reader *reader,
+    std::vector<std::shared_ptr<T>> *loaded,
+    const std::function<void(std::unique_ptr<T> *, Reader *reader)> &load) {
+  bool exists = false;
+  Load(&exists, reader);
+  if (exists) {
+    bool in_place = false;
+    Load(&in_place, reader);
+    if (in_place) {
+      std::unique_ptr<T> item;
+      load(&item, reader);
+      *obj = std::move(item);
       loaded->push_back(*obj);
     } else {
       uint64_t index = 0;
