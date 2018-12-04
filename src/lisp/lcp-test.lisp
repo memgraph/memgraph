@@ -161,15 +161,42 @@
 (deftest "slk"
   (subtest "function declarations"
     (undefine-cpp-types)
-    (is-generated (lcp.slk:save-function-declaration-for-class
-                   (lcp:define-struct test-struct ()
-                     ()))
-                  "void Save(const TestStruct &self, slk::Builder *builder)")
+    (let ((test-struct (lcp:define-struct test-struct ()
+                         ())))
+      (is-generated (lcp.slk:save-function-declaration-for-class test-struct)
+                    "void Save(const TestStruct &self, slk::Builder *builder)")
+      (is-generated (lcp.slk:load-function-declaration-for-class test-struct)
+                    "void Load(TestStruct *self, slk::Reader *reader)"))
     (undefine-cpp-types)
-    (is-generated (lcp.slk:save-function-declaration-for-class
-                   (lcp:define-class derived (base)
-                     ()))
-                  "void Save(const Derived &self, slk::Builder *builder)")
+    (let ((derived (lcp:define-class derived (base)
+                     ())))
+      (is-generated (lcp.slk:save-function-declaration-for-class derived)
+                    "void Save(const Derived &self, slk::Builder *builder)")
+      (is-generated (lcp.slk:load-function-declaration-for-class derived)
+                    "void Load(Derived *self, slk::Reader *reader)"))
+    (undefine-cpp-types)
+    (let ((test-struct (lcp:define-struct test-struct ()
+                         ()
+                         (:serialize :slk (:save-args '((extra-arg "SaveArgType"))
+                                           :load-args '((extra-arg "LoadArgType")))))))
+      (is-generated (lcp.slk:save-function-declaration-for-class test-struct)
+                    "void Save(const TestStruct &self, slk::Builder *builder, SaveArgType extra_arg)")
+      (is-generated (lcp.slk:load-function-declaration-for-class test-struct)
+                    "void Load(TestStruct *self, slk::Reader *reader, LoadArgType extra_arg)"))
+    (undefine-cpp-types)
+    (let ((base-class (lcp:define-struct base ()
+                        ()
+                        (:serialize :slk (:save-args '((extra-arg "SaveArgType"))
+                                          :load-args '((extra-arg "LoadArgType"))))))
+          (derived-class (lcp:define-struct derived (base)
+                           ())))
+      (declare (ignore base-class))
+      (is-generated (lcp.slk:save-function-declaration-for-class derived-class)
+                    "void Save(const Derived &self, slk::Builder *builder, SaveArgType extra_arg)")
+      (is-generated (lcp.slk:load-function-declaration-for-class derived-class)
+                    "void Load(Derived *self, slk::Reader *reader, LoadArgType extra_arg)")
+      (is-generated (lcp.slk:construct-and-load-function-declaration-for-class derived-class)
+                    "void ConstructAndLoad(std::unique_ptr<Derived> *self, slk::Reader *reader, LoadArgType extra_arg)"))
     (undefine-cpp-types)
     (let ((my-enum (lcp:define-enum my-enum
                        (first-value second-value))))
@@ -178,11 +205,20 @@
       (is-generated (lcp.slk:load-function-declaration-for-enum my-enum)
                     "void Load(MyEnum *self, slk::Reader *reader)"))
     (undefine-cpp-types)
+    ;; Unsupported multiple inheritance
     (is-error (lcp.slk:save-function-declaration-for-class
                (lcp:define-class derived (fst-base snd-base)
                  ()))
               'lcp.slk:slk-error)
     (undefine-cpp-types)
+    ;; Ignoring multiple inheritance
+    (is-generated (lcp.slk:save-function-declaration-for-class
+                   (lcp:define-class derived (fst-base snd-base)
+                     ()
+                     (:serialize :slk (:ignore-other-base-classes t))))
+                  "void Save(const Derived &self, slk::Builder *builder)")
+    (undefine-cpp-types)
+    ;; Unsupported template classes
     (is-error (lcp.slk:save-function-declaration-for-class
                (lcp:define-class (derived t-param) (base)
                  ()))
@@ -194,121 +230,326 @@
               'lcp.slk:slk-error)
     (undefine-cpp-types))
 
-  (subtest "save definitions"
+  (subtest "enum serialization"
     (undefine-cpp-types)
-    (is-generated (lcp.slk:save-function-definition-for-class
-                   (lcp:define-struct test-struct ()
-                     ((int-member :int64_t)
-                      (vec-member "std::vector<SomeType>"))))
-                  "void Save(const TestStruct &self, slk::Builder *builder) {
-                     slk::Save(self.int_member, builder);
-                     slk::Save(self.vec_member, builder);
-                   }")
-    (undefine-cpp-types)
-    (is-generated (lcp.slk:save-function-definition-for-class
-                   (lcp:define-struct test-struct ()
-                     ((skip-member :int64_t :dont-save t))))
-                  "void Save(const TestStruct &self, slk::Builder *builder) {}")
-    (undefine-cpp-types)
-    (is-generated (lcp.slk:save-function-definition-for-class
-                   (lcp:define-struct test-struct ()
-                     ((custom-member "SomeType"
-                                     :slk-save (lambda (member-name)
-                                                 (check-type member-name string)
-                                                 (format nil "self.~A.CustomSave(builder);" member-name))))))
-                  "void Save(const TestStruct &self, slk::Builder *builder) {
-                     self.custom_member.CustomSave(builder);
-                   }")
-    (undefine-cpp-types)
-    (is-generated (lcp.slk:save-function-definition-for-enum
-                   (lcp:define-enum test-enum
-                       (first-value second-value)))
-                  "void Save(const TestEnum &self, slk::Builder *builder) {
-                     uint8_t enum_value;
-                     switch (self) {
-                     case TestEnum::FIRST_VALUE: enum_value = 0; break;
-                     case TestEnum::SECOND_VALUE: enum_value = 1; break;
-                     }
-                     slk::Save(enum_value, builder);
-                   }")
-    (undefine-cpp-types)
+    (let ((my-enum (lcp:define-enum my-enum
+                       (first-value second-value))))
+      (is-generated (lcp.slk:save-function-definition-for-enum my-enum)
+                    "void Save(const MyEnum &self, slk::Builder *builder) {
+                       uint8_t enum_value;
+                       switch (self) {
+                         case MyEnum::FIRST_VALUE: enum_value = 0; break;
+                         case MyEnum::SECOND_VALUE: enum_value = 1; break;
+                       }
+                       slk::Save(enum_value, builder);
+                     }")
+      (is-generated (lcp.slk:load-function-definition-for-enum my-enum)
+                    "void Load(MyEnum *self, slk::Reader *reader) {
+                       uint8_t enum_value;
+                       slk::Load(&enum_value, reader);
+                       switch (enum_value) {
+                         case static_cast<uint8_t>(0): *self = MyEnum::FIRST_VALUE; break;
+                         case static_cast<uint8_t>(1): *self = MyEnum::SECOND_VALUE; break;
+                         default: throw slk::SlkDecodeException(\"Trying to load unknown enum value!\");
+                       }
+                     }")))
 
-    (subtest "inheritance"
-      (undefine-cpp-types)
-      (is-error (lcp.slk:save-function-declaration-for-class
-                 (lcp:define-struct derived (fst-base snd-base)
-                   ()))
-                'lcp.slk:slk-error)
-      (undefine-cpp-types)
+  (subtest "plain class serialization"
+    (undefine-cpp-types)
+    (let ((test-struct (lcp:define-struct test-struct ()
+                         ((int-member :int64_t)
+                          (vec-member "std::vector<SomeType>")))))
+      (is-generated (lcp.slk:save-function-definition-for-class test-struct)
+                    "void Save(const TestStruct &self, slk::Builder *builder) {
+                       slk::Save(self.int_member, builder);
+                       slk::Save(self.vec_member, builder);
+                     }")
+      (is-generated (lcp.slk:load-function-definition-for-class test-struct)
+                    "void Load (TestStruct *self, slk::Reader *reader) {
+                       slk::Load(&self->int_member, reader);
+                       slk::Load(&self->vec_member, reader);
+                     }"))
+    (undefine-cpp-types)
+    (let ((test-struct (lcp:define-struct test-struct ()
+                         ((skip-member :int64_t :dont-save t)))))
+      (is-generated (lcp.slk:save-function-definition-for-class test-struct)
+                    "void Save(const TestStruct &self, slk::Builder *builder) {}")
+      (is-generated (lcp.slk:load-function-definition-for-class test-struct)
+                    "void Load(TestStruct *self, slk::Reader *reader) {}"))
+    (undefine-cpp-types)
+    (let ((test-struct
+           (lcp:define-struct test-struct ()
+             ((custom-member "SomeType"
+                             :slk-save (lambda (member-name)
+                                         (check-type member-name string)
+                                         (format nil "self.~A.CustomSave(builder);" member-name))
+                             :slk-load (lambda (member-name)
+                                         (check-type member-name string)
+                                         (format nil "self->~A.CustomLoad(reader);" member-name)))))))
+      (is-generated (lcp.slk:save-function-definition-for-class test-struct)
+                    "void Save(const TestStruct &self, slk::Builder *builder) {
+                       { self.custom_member.CustomSave(builder); }
+                     }")
+      (is-generated (lcp.slk:load-function-definition-for-class test-struct)
+                    "void Load(TestStruct *self, slk::Reader *reader) {
+                       { self->custom_member.CustomLoad(reader); }
+                     }"))
+    (undefine-cpp-types)
+    (let ((raw-ptr-class (lcp:define-struct has-raw-ptr ()
+                           ((raw-ptr "SomeType *"))))
+          (shared-ptr-class (lcp:define-struct has-shared-ptr ()
+                              ((shared-ptr "std::shared_ptr<SomeType>"))))
+          (unique-ptr-class (lcp:define-struct has-unique-ptr()
+                              ((unique-ptr "std::unique_ptr<SomeType>")))))
+      (dolist (ptr-class (list raw-ptr-class shared-ptr-class unique-ptr-class))
+        (is-error (lcp.slk:save-function-definition-for-class ptr-class)
+                  'lcp.slk:slk-error)
+        (is-error (lcp.slk:load-function-definition-for-class ptr-class)
+                  'lcp.slk:slk-error)))
+    (undefine-cpp-types)
+    (flet ((custom-save (m)
+             (declare (ignore m))
+             "CustomSave();")
+           (custom-load (m)
+             (declare (ignore m))
+             "CustomLoad();"))
+      (let ((raw-ptr-class (lcp:define-struct has-raw-ptr ()
+                             ((member "SomeType *"
+                                      :slk-save #'custom-save
+                                      :slk-load #'custom-load))))
+            (shared-ptr-class (lcp:define-struct has-shared-ptr ()
+                                ((member "std::shared_ptr<SomeType>"
+                                         :slk-save #'custom-save
+                                         :slk-load #'custom-load))))
+            (unique-ptr-class (lcp:define-struct has-unique-ptr()
+                                ((member "std::unique_ptr<SomeType>"
+                                         :slk-save #'custom-save
+                                         :slk-load #'custom-load)))))
+        (dolist (ptr-class (list raw-ptr-class shared-ptr-class unique-ptr-class))
+          (is-generated (lcp.slk:save-function-definition-for-class ptr-class)
+                        (format nil "void Save(const ~A &self, slk::Builder *builder) { { CustomSave(); } }"
+                                (lcp::cpp-type-decl ptr-class)))
+          (is-generated (lcp.slk:load-function-definition-for-class ptr-class)
+                        (format nil "void Load(~A *self, slk::Reader *reader) { { CustomLoad(); } }"
+                                (lcp::cpp-type-decl ptr-class)))))))
+
+  (subtest "class inheritance serialization"
+    (undefine-cpp-types)
+    ;; Unsupported multiple inheritance
+    (is-error (lcp.slk:save-function-declaration-for-class
+               (lcp:define-struct derived (fst-base snd-base)
+                 ()))
+              'lcp.slk:slk-error)
+
+    (undefine-cpp-types)
+    ;; We will test single inheritance and ignored multiple inheritance, both
+    ;; should generate the same code that follows.
+    (let ((base-save-code
+           "void Save(const Base &self, slk::Builder *builder) {
+              if (const auto *derived_derived = dynamic_cast<const Derived *>(&self)) {
+                return slk::Save(*derived_derived, builder);
+              }
+              slk::Save(Base::kType.id, builder);
+              slk::Save(self.base_member, builder);
+            }")
+          (base-construct-code
+           "void ConstructAndLoad(std::unique_ptr<Base> *self, slk::Reader *reader) {
+              uint64_t type_id;
+              slk::Load(&type_id, reader);
+              if (Base::kType.id == type_id) {
+                auto base_instance = std::make_unique<Base>();
+                slk::Load(base_instance.get(), reader);
+                *self = std::move(base_instance);
+                return;
+              }
+              if (Derived::kType.id == type_id) {
+                auto derived_instance = std::make_unique<Derived>();
+                slk::Load(derived_instance.get(), reader);
+                *self = std::move(derived_instance);
+                return;
+              }
+              throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+            }")
+          (base-load-code
+           "void Load(Base *self, slk::Reader *reader) {
+              // CHECK(self->GetTypeInfo() == Base::kType);
+              slk::Load(&self->base_member, reader);
+            }")
+          (derived-save-code
+           "void Save(const Derived &self, slk::Builder *builder) {
+              slk::Save(Derived::kType.id, builder);
+              // Save parent Base
+              { slk::Save(self.base_member, builder); }
+              slk::Save(self.derived_member, builder);
+            }")
+          (derived-construct-code
+           "void ConstructAndLoad(std::unique_ptr<Derived> *self, slk::Reader *reader) {
+              uint64_t type_id;
+              slk::Load(&type_id, reader);
+              if (Derived::kType.id == type_id) {
+                auto derived_instance = std::make_unique<Derived>();
+                slk::Load(derived_instance.get(), reader);
+                *self = std::move(derived_instance);
+                return;
+              }
+              throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+            }")
+          (derived-load-code
+           "void Load(Derived *self, slk::Reader *reader) {
+              // Load parent Base
+              { slk::Load(&self->base_member, reader); }
+              slk::Load(&self->derived_member, reader);
+            }"))
+      ;; Single inheritance
       (let ((base-class (lcp:define-struct base ()
                           ((base-member :bool))))
             (derived-class (lcp:define-struct derived (base)
                              ((derived-member :int64_t)))))
         (is-generated (lcp.slk:save-function-definition-for-class base-class)
-                      "void Save(const Base &self, slk::Builder *builder) {
-                         if (const auto &derived_derived = dynamic_cast<const Derived &>(self)) {
-                           return slk::Save(derived_derived, builder);
-                         }
-                         slk::Save(self.base_member, builder);
-                       }")
+                      base-save-code)
+        (is-generated (lcp.slk:construct-and-load-function-definition-for-class base-class)
+                      base-construct-code)
+        (is-generated (lcp.slk:load-function-definition-for-class base-class)
+                      base-load-code)
         (is-generated (lcp.slk:save-function-definition-for-class derived-class)
-                      "void Save(const Derived &self, slk::Builder *builder) {
-                         // Save parent Base
-                         { slk::Save(self.base_member, builder); }
-                         slk::Save(self.derived_member, builder);
-                       }"))
+                      derived-save-code)
+        (is-generated (lcp.slk:construct-and-load-function-definition-for-class derived-class)
+                      derived-construct-code)
+        (is-generated (lcp.slk:load-function-definition-for-class derived-class)
+                      derived-load-code))
       (undefine-cpp-types)
-      (let ((abstract-base-class (lcp:define-struct abstract-base ()
-                                   ((base-member :bool))
-                                   (:abstractp t)))
-            (derived-class (lcp:define-struct derived (abstract-base)
-                             ((derived-member :int64_t)))))
-        (is-generated (lcp.slk:save-function-definition-for-class abstract-base-class)
-                      "void Save(const AbstractBase &self, slk::Builder *builder) {
-                         if (const auto &derived_derived = dynamic_cast<const Derived &>(self)) {
-                           return slk::Save(derived_derived, builder);
-                         }
-                         LOG(FATAL) << \"`AbstractBase` is marked as an abstract class!\";
-                       }")
-        (is-generated (lcp.slk:save-function-definition-for-class derived-class)
-                      "void Save(const Derived &self, slk::Builder *builder) {
-                         // Save parent AbstractBase
-                         { slk::Save(self.base_member, builder); }
-                         slk::Save(self.derived_member, builder);
-                       }"))
-      (undefine-cpp-types)
-      (let ((base-templated-class (lcp:define-struct (base t-param) ()
-                                    ((base-member :bool))))
-            (derived-class (lcp:define-struct derived (base)
-                             ((derived-member :int64_t)))))
-        (is-error (lcp.slk:save-function-definition-for-class base-templated-class)
-                  'lcp.slk:slk-error)
-        (is-error (lcp.slk:save-function-definition-for-class derived-class)
-                  'lcp.slk:slk-error))
-      (undefine-cpp-types)
+      ;; Ignored multiple inheritance should be the same as single
       (let ((base-class (lcp:define-struct base ()
                           ((base-member :bool))))
-            (derived-templated-class (lcp:define-struct (derived t-param) (base)
-                                       ((derived-member :int64_t)))))
-        (is-error (lcp.slk:save-function-definition-for-class base-class)
-                  'lcp.slk:slk-error)
-        (is-error (lcp.slk:save-function-definition-for-class derived-templated-class)
-                  'lcp.slk:slk-error))))
+            (derived-class (lcp:define-struct derived (base ignored-base)
+                             ((derived-member :int64_t))
+                             (:serialize :slk (:ignore-other-base-classes t)))))
+        (is-generated (lcp.slk:save-function-definition-for-class base-class)
+                      base-save-code)
+        (is-generated (lcp.slk:construct-and-load-function-definition-for-class base-class)
+                      base-construct-code)
+        (is-generated (lcp.slk:load-function-definition-for-class base-class)
+                      base-load-code)
+        (is-generated (lcp.slk:save-function-definition-for-class derived-class)
+                      derived-save-code)
+        (is-generated (lcp.slk:construct-and-load-function-definition-for-class derived-class)
+                      derived-construct-code)
+        (is-generated (lcp.slk:load-function-definition-for-class derived-class)
+                      derived-load-code)))
 
-  (subtest "load definitions"
     (undefine-cpp-types)
-    (is-generated (lcp.slk:load-function-definition-for-enum
-                   (lcp:define-enum my-enum
-                       (first-value second-value)))
-                  "void Load(MyEnum *self, slk::Reader *reader) {
-                     uint8_t enum_value;
-                     slk::Load(&enum_value, reader);
-                     switch (enum_value) {
-                       case static_cast<uint8_t>(0): *self = MyEnum::FIRST_VALUE; break;
-                       case static_cast<uint8_t>(1): *self = MyEnum::SECOND_VALUE; break;
-                       default: LOG(FATAL) << \"Trying to load unknown enum value!\";
-                     }
-                   }"))
+    (let ((abstract-base-class (lcp:define-struct abstract-base ()
+                                 ((base-member :bool))
+                                 (:abstractp t)))
+          (derived-class (lcp:define-struct derived (abstract-base)
+                           ((derived-member :int64_t)))))
+      (is-generated (lcp.slk:save-function-definition-for-class abstract-base-class)
+                    "void Save(const AbstractBase &self, slk::Builder *builder) {
+                       if (const auto *derived_derived = dynamic_cast<const Derived *>(&self)) {
+                         return slk::Save(*derived_derived, builder);
+                       }
+                       LOG(FATAL) << \"`AbstractBase` is marked as an abstract class!\";
+                     }")
+      (is-generated (lcp.slk:construct-and-load-function-definition-for-class abstract-base-class)
+                    "void ConstructAndLoad(std::unique_ptr<AbstractBase> *self, slk::Reader *reader) {
+                       uint64_t type_id;
+                       slk::Load(&type_id, reader);
+                       if (Derived::kType.id == type_id) {
+                         auto derived_instance = std::make_unique<Derived>();
+                         slk::Load(derived_instance.get(), reader);
+                         *self = std::move(derived_instance);
+                         return;
+                       }
+                       throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+                     }")
+      (is-generated (lcp.slk:save-function-definition-for-class derived-class)
+                    "void Save(const Derived &self, slk::Builder *builder) {
+                       slk::Save(Derived::kType.id, builder);
+                       // Save parent AbstractBase
+                       { slk::Save(self.base_member, builder); }
+                       slk::Save(self.derived_member, builder);
+                     }")
+      (is-generated (lcp.slk:construct-and-load-function-definition-for-class derived-class)
+                    "void ConstructAndLoad(std::unique_ptr<Derived> *self, slk::Reader *reader) {
+                       uint64_t type_id;
+                       slk::Load(&type_id, reader);
+                       if (Derived::kType.id == type_id) {
+                         auto derived_instance = std::make_unique<Derived>();
+                         slk::Load(derived_instance.get(), reader);
+                         *self = std::move(derived_instance);
+                         return;
+                       }
+                       throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+                     }")
+      (is-generated (lcp.slk:load-function-definition-for-class derived-class)
+                    "void Load(Derived *self, slk::Reader *reader) {
+                       // Load parent AbstractBase
+                       { slk::Load(&self->base_member, reader); }
+                       slk::Load(&self->derived_member, reader);
+                     }"))
+    (undefine-cpp-types)
+    (let ((base-templated-class (lcp:define-struct (base t-param) ()
+                                  ((base-member :bool))))
+          (derived-class (lcp:define-struct derived (base)
+                           ((derived-member :int64_t)))))
+      (is-error (lcp.slk:save-function-definition-for-class base-templated-class)
+                'lcp.slk:slk-error)
+      (is-error (lcp.slk:save-function-definition-for-class derived-class)
+                'lcp.slk:slk-error))
+    (undefine-cpp-types)
+    (let ((base-class (lcp:define-struct base ()
+                        ((base-member :bool))))
+          (derived-templated-class (lcp:define-struct (derived t-param) (base)
+                                     ((derived-member :int64_t)))))
+      (is-error (lcp.slk:save-function-definition-for-class base-class)
+                'lcp.slk:slk-error)
+      (is-error (lcp.slk:save-function-definition-for-class derived-templated-class)
+                'lcp.slk:slk-error))
+
+    (undefine-cpp-types)
+    (let ((class (lcp:define-struct derived ("UnknownBase")
+                   ((member :bool)))))
+      (is-error (lcp.slk:save-function-definition-for-class class)
+                'lcp.slk:slk-error)
+      (is-error (lcp.slk:load-function-definition-for-class class)
+                'lcp.slk:slk-error))
+    (undefine-cpp-types)
+    (let ((class (lcp:define-struct derived ("UnknownBase")
+                   ((member :bool))
+                   (:serialize :slk (:base t)))))
+      (is-generated (lcp.slk:save-function-definition-for-class class)
+                    "void Save(const Derived &self, slk::Builder *builder) { slk::Save(self.member, builder); }")
+      (is-generated (lcp.slk:load-function-definition-for-class class)
+                    "void Load(Derived *self, slk::Reader *reader) { slk::Load(&self->member, reader); }"))
+
+    (undefine-cpp-types)
+    (let ((base-class (lcp:define-struct base ()
+                        ()
+                        (:abstractp t)
+                        (:serialize :slk (:save-args '((extra-arg "SaveArg"))
+                                          :load-args '((extra-arg "LoadArg"))))))
+          (derived-class (lcp:define-struct derived (base)
+                           ())))
+      (declare (ignore derived-class))
+      (is-generated (lcp.slk:save-function-definition-for-class base-class)
+                    "void Save(const Base &self, slk::Builder *builder, SaveArg extra_arg) {
+                       if (const auto *derived_derived = dynamic_cast<const Derived *>(&self)) {
+                         return slk::Save(*derived_derived, builder, extra_arg);
+                       }
+                       LOG(FATAL) << \"`Base` is marked as an abstract class!\";
+                     }")
+      (is-generated (lcp.slk:construct-and-load-function-definition-for-class base-class)
+                    "void ConstructAndLoad(std::unique_ptr<Base> *self, slk::Reader *reader, LoadArg extra_arg) {
+                       uint64_t type_id;
+                       slk::Load(&type_id, reader);
+                       if (Derived::kType.id == type_id) {
+                         auto derived_instance = std::make_unique<Derived>();
+                         slk::Load(derived_instance.get(), reader, extra_arg);
+                         *self = std::move(derived_instance);
+                         return;
+                       }
+                       throw slk::SlkDecodeException(\"Trying to load unknown derived type!\");
+                     }")))
 
   (subtest "non-public members"
     (undefine-cpp-types)

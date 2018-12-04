@@ -22,6 +22,7 @@ Contents
     - [C++ Classes & Structs](#cpp-classes)
     - [Defining an RPC](#defining-an-rpc)
     - [Cap'n Proto Serialization](#capnp-serial)
+    - [SaveLoadKit Serialization](#slk-serial)
 
 ## Running LCP
 
@@ -773,3 +774,243 @@ Example:
                              "capnp::SomeEnum" "SomeEnum"
                              '(first-value second-value)))))
 ```
+
+### SaveLoadKit Serialization {#slk-serial}
+
+LCP supports generating serialization code for use with our own simple
+serialization framework, SaveLoadKit (SLK).
+
+To specify a class or structure for serialization, pass a `:serialize :slk`
+class option. For example:
+
+```lisp
+(lcp:define-struct my-struct ()
+  ((member :int64_t))
+  (:serialize :slk))
+```
+
+The above will generate C++ functions for saving and loading all members of
+the defined type. The generated code is put inside the `slk` namespace. For
+the above example, we would get the following declarations:
+
+```cpp
+namespace slk {
+void Save(const MyStruct &self, slk::Builder *builder);
+void Load(MyStruct *self, slk::Reader *reader);
+}
+```
+
+Since we use top level (i.e. non-member) functions, the class members need to
+have public access. The primary reason why we use non-member functions is the
+ability to have them decoupled from types. This in turn allows us to easily
+compile the code with and without serialization. The obvious downside is the
+requirement of public access which could potentially allow for erroneous use
+of classes and its members. Therefore, the recommended way to use
+serialization is with plain old data types. The programmer needs be aware of
+that and use POD as an immutable type as much as possible.  This
+recommendation of using POD types will also help minimize the complexity of
+serialization code as well as minimize required features in LCP.
+
+Another requirement on serialized types is that they need to be default
+constructible. This keeps the serialization implementation simple and uniform.
+Each type is first default constructed, potentially on stack memory. Then the
+`slk::Load` function is invoked with the pointer to that instance. We could
+add support for having a pointer to an uninitialized memory and perform the
+construct in `slk::Load` to allow types which aren't default constructible.
+At the moment, implementing this support would needlessly complicate our code
+where most of the types can be and are default constructible.
+
+#### Single Inheritance
+
+The first and most common step out of the POD zone is having classes with
+inheritance. LCP supports serializing classes with single inheritance.
+
+A minor complication appears when loading a pointer to a base class. When we
+have a pointer to a base class, serializing it may save the data of some
+concrete, derived type. Loading the pointer back will need to determine which
+type was actually serialized. When we know the concrete type, we need to
+construct it and load it. Finally, we can return a base pointer to that. For
+this reason, we generate 2 loading functions: regular `Load` and
+`ConstructAndLoad`. The latter function is used to do the whole process of
+determining the type, constructing it and invoking regular `Load`. Since we
+cannot know the type of the serialized pointer upfront, we cannot allocate the
+exact required memory on the stack. For that reason, `ConstructAndLoad` will
+perform a heap allocation for you. Obviously, this could be a performance
+issue. In cases when we know the exact concrete type, then we can use the
+regular `Load` which expects the pointer to that type. If you are using `Load`
+instead of `ConstructAndLoad`, read the next paragraph carefully!
+
+Determining which type was serialized works by storing the `id` of
+`utils::TypeInfo` when saving a class which is anywhere in the inheritance
+hierarchy. This is the *first* thing the invocation to `Save` does. Later,
+when we call `ConstructAndLoad` it will read that type `id` and dispatch on it
+to construct the instance of that type and call the appropriate `Load`
+function. Beware when invoking `Load` of polymorphic types yourself! You
+*need* to read the type `id` yourself *first* and then invoke the `Load`
+function. Things will not work correctly if you forget to do that, because
+`Load` expects to read the serialized data members and not the type
+information.
+
+For example:
+
+```lisp
+(lcp:define-class base ()
+  ...
+  (:serialize :slk))
+
+(lcp:define-class derived (base)
+  ...
+  (:serialize :slk))
+```
+
+We get the following declarations generated:
+
+```cpp
+namespace slk {
+// Save will correctly forward to derived class using `dynamic_cast`!
+void Save(const Base &self, slk::Builder *builder);
+// Load only the Base instance, does *not* forward!
+void Load(Base *self, slk::Reader *reader);
+// Construct the concrete type (could be Base or any derived) and call the
+// correct Load. Raises `slk::SlkDecodeException` if an unknown type is
+// serialized.
+void ConstructAndLoad(std::unique_ptr<Base> *self, slk::Reader *reader);
+
+void Save(const Derived &self, slk::Builder *builder);
+void Load(Derived *self, slk::Reader *reader);
+// This will raise slk::SlkDecodeException, if something other than `Derived`
+// was serialized. `Derived` does not have any subclassses.
+void ConstructAndLoad(std::unique_ptr<Derived> *self, slk::Reader *reader);
+```
+
+#### Multiple Inheritance
+
+Serializing classes with multiple inheritance is *not* supported!
+
+Usually, multiple inheritance is used to satisfy some interface which doesn't
+carry data for serialization. In such cases, you can ignore the multiple
+inheritance by specifying `:ignore-other-base-classes` option. For example:
+
+```lisp
+(lcp:define-class derived (primary-base some-interface ...)
+  ...
+  (:serialize :slk (:ignore-other-base-classes t)))
+```
+
+The above will produce serialization code as if `derived` is inheriting *only*
+from `primary-base`.
+
+#### Templated Types
+
+Serializing templated types is *not* supported!
+
+You may still write your own serialization code in C++, but LCP will not
+generate it for you.
+
+#### Custom Save and Load Hooks
+
+In cases when default serialization is not adequate, you may wish to provide
+your own serialization code. LCP provides `:slk-save` and `:slk-load` options
+for each member.
+
+These hooks for custom serialization expect a function with a single argument,
+`member`, representing the member currently being serialized. This allows to
+have a more generic function which works with any member of some type. The
+return value of the function needs to be C++ code. The generated code may
+expect to have `self` and `builder` variables in scope, just like they are
+found in the generated `Save` and `Load` declarations.
+
+For example, one of the most common use cases is saving and loading
+a `std::shared_ptr`. You need to provide an argument which is used to track
+which pointers were already (de)serialized. Let's take a look how this could
+be done in LCP.
+
+```lisp
+(lcp:define-struct my-struct ()
+  ((some-ptr "std::shared_ptr<SomeType>"
+             :slk-save (lambda (member)
+                         #>cpp
+                         std::vector<SomeType *> already_saved;
+                         slk::Save(self.${member}, builder, &already_saved);
+                         cpp<#)
+             :slk-load (lambda (member)
+                         #>cpp
+                         std::vector<std::shared_ptr<SomeType>> already_loaded;
+                         slk::Load(&self->${member}, reader, &already_loaded);
+                         cpp<#)))
+  (:serialize :slk))
+```
+
+The above use is very artificial, because we usually have multiple shared
+pointers across different members. In such cases we would like to share the
+tracking data. One way to do that is explained in the next section.
+
+#### Additional Arguments to Generated Save and Load
+
+As you may have noticed, primary arguments for `Save` and `Load` are the type
+instance and a `slk::Builder` or a `slk::Reader`. In some cases we would like
+to accept additional arguments to help us with the serialization process.
+Let's see how this is done in LCP using the `:save-args` and `:load-args`
+options for `:slk` serialization.
+
+Both `:save-args` and `:load-args` options expect a list of pairs. Each pair
+designates one argument. The first element of the pair is the argument name
+and the second is the C++ type of that argument.
+
+As mentioned in the previous section, one of the most common cases where
+default serialization doesn't cut it is when we have a `std::shared_ptr`.
+Here, we would like to track already serialized pointers. Instead of having
+some kind of a global variable, we could pass the tracking data as an
+additional argument. Let's take the example from the previous section, and
+have it take tracking data as an argument to `Save` and `Load` of `my-struct`
+type.
+
+```lisp
+(lcp:define-struct my-struct ()
+  ((some-ptr "std::shared_ptr<SomeType>"
+             :slk-save (lambda (member)
+                         #>cpp
+                         slk::Save(self.${member}, builder, already_saved);
+                         cpp<#)
+             :slk-load (lambda (member)
+                         #>cpp
+                         slk::Load(&self->${member}, reader, already_loaded);
+                         cpp<#)))
+  (:serialize :slk (:save-args '((already-saved "std::vector<SomeType *> *"))
+                    :load-args '((already-loaded "std::vector<std::shared_ptr<SomeType>> *")))))
+```
+
+The generated declarations now look like the following:
+
+```cpp
+void Save(const MyStruct &self, slk::Builder *builder,
+          std::vector<SomeType *> *already_saved);
+void Load(MyStruct *self, slk::Builder *builder,
+          std::vector<std::shared_ptr<SomeType>> *already_loaded);
+```
+
+This can now be handy when serializing multiple instances of `my-struct`. For
+example:
+
+```lisp
+(lcp:define-struct my-array-of-struct ()
+  ((structs "std::vector<MyStruct>"
+            :slk-save (lambda (member)
+                        #>cpp
+                        slk::Save(self.${member}.size(), builder);
+                        std::vector<SomeType *> already_saved;
+                        for (const auto &my_struct : structs)
+                          slk::Save(my_struct, builder, &already_saved);
+                        cpp<#)
+            :slk-load (lambda (member)
+                        #>cpp
+                        size_t size = 0;
+                        slk::Load(&size, reader);
+                        self->${member}.resize(size);
+                        std::vector<std::shared_ptr<SomeType>> already_loaded;
+                        for (size_t i = 0; i < size; ++i)
+                          slk::Load(&self->${member}[i], reader, &already_loaded);
+                        cpp<#)))
+  (:serialize :slk))
+```
+

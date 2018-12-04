@@ -160,6 +160,17 @@
   ;; In case of multiple inheritance, pretend we only inherit the 1st base class.
   (ignore-other-base-classes nil :type boolean :read-only t))
 
+(defstruct slk-opts
+  "SLK serialization options for C++ class."
+  ;; BASE is T if the class should be treated as a base class for SLK, even
+  ;; though it may have parents.
+  (base nil :type boolean :read-only t)
+  ;; Extra arguments to the generated save function. List of (name cpp-type).
+  (save-args nil :read-only t)
+  (load-args nil :read-only t)
+  ;; In case of multiple inheritance, pretend we only inherit the 1st base class.
+  (ignore-other-base-classes nil :type boolean :read-only t))
+
 (defclass cpp-class (cpp-type)
   ((structp :type boolean :initarg :structp :initform nil
             :reader cpp-class-structp)
@@ -173,6 +184,8 @@
    (private :initarg :private :initform nil :accessor cpp-class-private)
    (capnp-opts :type (or null capnp-opts) :initarg :capnp-opts :initform nil
                :reader cpp-class-capnp-opts)
+   (slk-opts :type (or null slk-opts) :initarg :slk-opts :initform nil
+             :reader cpp-class-slk-opts)
    (inner-types :initarg :inner-types :initform nil :reader cpp-class-inner-types)
    (abstractp :initarg :abstractp :initform nil :reader cpp-class-abstractp))
   (:documentation "Meta information on a C++ class (or struct)."))
@@ -567,6 +580,8 @@ Generates C++:
                                  :capnp-opts ,(when (member :capnp serialize)
                                                 `(and *capnp-serialize-p*
                                                       (make-capnp-opts ,@(cdr (member :capnp serialize)))))
+                                 :slk-opts ,(when (member :slk serialize)
+                                              `(make-slk-opts ,@(cadr (member :slk serialize))))
                                  :abstractp ,abstractp
                                  :namespace (reverse *cpp-namespaces*)
                                  ;; Set inner types at the end. This works

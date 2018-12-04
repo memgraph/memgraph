@@ -1370,46 +1370,6 @@ formatted and output."
                  (count-newlines in-stream
                                  :stop-position (1+ stream-pos))))))))
 
-(defun call-with-namespaced-output (out fun)
-  "Invoke FUN with a function for opening C++ namespaces.  The function takes
-care to write namespaces to OUT without redundantly opening already open
-namespaces."
-  (declare (type stream out))
-  (declare (type (function (function)) fun))
-  (let (open-namespaces)
-    (funcall fun (lambda (namespaces)
-                   ;; No namespaces is global namespace
-                   (unless namespaces
-                     (dolist (to-close open-namespaces)
-                       (declare (ignore to-close))
-                       (format out "~%}")))
-                   ;; Check if we need to open or close namespaces
-                   (loop for namespace in namespaces
-                      with unmatched = open-namespaces do
-                        (if (string= namespace (car unmatched))
-                            (setf unmatched (cdr unmatched))
-                            (progn
-                              (dolist (to-close unmatched)
-                                (declare (ignore to-close))
-                                (format out "~%}"))
-                              (format out "namespace ~A {~2%" namespace))))
-                   (setf open-namespaces namespaces)))
-    ;; Close remaining namespaces
-    (dolist (to-close open-namespaces)
-      (declare (ignore to-close))
-      (format out "~%}"))))
-
-(defmacro with-namespaced-output ((out open-namespace-fun) &body body)
-  "Use `CALL-WITH-NAMESPACED-OUTPUT' more conveniently by executing BODY in a
-context which binds OPEN-NAMESPACE-FUN function for opening namespaces."
-  (let ((open-namespace (gensym)))
-    `(call-with-namespaced-output
-      ,out
-      (lambda (,open-namespace)
-        (flet ((,open-namespace-fun (namespaces)
-                 (funcall ,open-namespace namespaces)))
-          ,@body)))))
-
 (defun generate-capnp (cpp-types &key capnp-file capnp-id cpp-out lcp-file)
   "Generate Cap'n Proto serialization code for given CPP-TYPES.  The schema
 is written to CAPNP-FILE using the CAPNP-ID.  The C++ serialization code is
