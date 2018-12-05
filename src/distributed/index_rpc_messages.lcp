@@ -19,15 +19,15 @@ cpp<#
 
 (lcp:define-rpc populate-index
     (:request
-     ((label "storage::Label" :capnp-type "Storage.Common")
-      (property "storage::Property" :capnp-type "Storage.Common")
+     ((label "storage::Label" :capnp-type "Storage.Label")
+      (property "storage::Property" :capnp-type "Storage.Property")
       (tx-id "tx::TransactionId" :capnp-type "UInt64")))
   (:response ()))
 
 (lcp:define-rpc create-index
     (:request
-     ((label "storage::Label" :capnp-type "Storage.Common")
-      (property "storage::Property" :capnp-type "Storage.Common")))
+     ((label "storage::Label" :capnp-type "Storage.Label")
+      (property "storage::Property" :capnp-type "Storage.Property")))
   (:response ()))
 
 (lcp:pop-namespace) ;; distributed

@@ -28,15 +28,17 @@ void Load(Address<TLocalObj> *address, const capnp::Address::Reader &reader) {
   address->storage_ = reader.getStorage();
 }
 
-template <class Type>
-void Save(const Common<Type> &common, capnp::Common::Builder *builder) {
-  builder->setStorage(common.id_);
-}
+void Save(const Label &label, capnp::Label::Builder *builder);
 
-template <class Type>
-void Load(Common<Type> *common, const capnp::Common::Reader &reader) {
-  common->id_ = reader.getStorage();
-}
+void Load(Label *label, const capnp::Label::Reader &reader);
+
+void Save(const EdgeType &edge_type, capnp::EdgeType::Builder *builder);
+
+void Load(EdgeType *edge_type, const capnp::EdgeType::Reader &reader);
+
+void Save(const Property &property, capnp::Property::Builder *builder);
+
+void Load(Property *property, const capnp::Property::Reader &reader);
 
 void SaveCapnpPropertyValue(const PropertyValue &value,
                             capnp::PropertyValue::Builder *builder);

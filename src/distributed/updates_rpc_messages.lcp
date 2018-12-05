@@ -24,9 +24,9 @@ cpp<#
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 (lcp:capnp-type-conversion "gid::Gid" "UInt64")
-(lcp:capnp-type-conversion "storage::Label" "Storage.Common")
-(lcp:capnp-type-conversion "storage::EdgeType" "Storage.Common")
-(lcp:capnp-type-conversion "storage::Property" "Storage.Common")
+(lcp:capnp-type-conversion "storage::Label" "Storage.Label")
+(lcp:capnp-type-conversion "storage::EdgeType" "Storage.EdgeType")
+(lcp:capnp-type-conversion "storage::Property" "Storage.Property")
 (lcp:capnp-type-conversion "storage::EdgeAddress" "Storage.Address")
 (lcp:capnp-type-conversion "storage::VertexAddress" "Storage.Address")
 
@@ -56,15 +56,15 @@ cpp<#
 (lcp:define-struct create-vertex-req-data ()
   ((tx-id "tx::TransactionId")
    (labels "std::vector<storage::Label>"
-     :capnp-save (lcp:capnp-save-vector "storage::capnp::Common" "storage::Label")
-     :capnp-load (lcp:capnp-load-vector "storage::capnp::Common" "storage::Label"))
+     :capnp-save (lcp:capnp-save-vector "storage::capnp::Label" "storage::Label")
+     :capnp-load (lcp:capnp-load-vector "storage::capnp::Label" "storage::Label"))
    (properties "std::unordered_map<storage::Property, PropertyValue>"
-               :capnp-type "Utils.Map(Storage.Common, Storage.PropertyValue)"
+               :capnp-type "Utils.Map(Storage.Property, Storage.PropertyValue)"
                :capnp-save
                (lambda (builder member capnp-name)
                  (declare (ignore capnp-name))
                  #>cpp
-                 utils::SaveMap<storage::capnp::Common, storage::capnp::PropertyValue>(
+                 utils::SaveMap<storage::capnp::Property, storage::capnp::PropertyValue>(
                      ${member}, &${builder},
                      [](auto *builder, const auto &entry) {
                        auto key_builder = builder->initKey();
@@ -77,7 +77,7 @@ cpp<#
                (lambda (reader member capnp-name)
                  (declare (ignore capnp-name))
                  #>cpp
-                 utils::LoadMap<storage::capnp::Common, storage::capnp::PropertyValue>(
+                 utils::LoadMap<storage::capnp::Property, storage::capnp::PropertyValue>(
                      &${member}, ${reader},
                      [](const auto &reader) {
                        storage::Property prop;

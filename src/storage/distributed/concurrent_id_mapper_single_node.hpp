@@ -12,7 +12,7 @@ namespace storage {
 /** SingleNode implementation of ConcurrentIdMapper. */
 template <typename TId>
 class SingleNodeConcurrentIdMapper : public ConcurrentIdMapper<TId> {
-  using StorageT = typename TId::IdT;
+  using StorageT = IdT;
 
  public:
   SingleNodeConcurrentIdMapper() = default;

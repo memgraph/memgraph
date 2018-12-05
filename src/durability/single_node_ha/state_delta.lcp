@@ -27,9 +27,9 @@ cpp<#
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 (lcp:capnp-type-conversion "gid::Gid" "UInt64")
-(lcp:capnp-type-conversion "storage::Label" "Storage.Common")
-(lcp:capnp-type-conversion "storage::EdgeType" "Storage.Common")
-(lcp:capnp-type-conversion "storage::Property" "Storage.Common")
+(lcp:capnp-type-conversion "storage::Label" "Storage.Label")
+(lcp:capnp-type-conversion "storage::EdgeType" "Storage.EdgeType")
+(lcp:capnp-type-conversion "storage::Property" "Storage.Property")
 
 (lcp:define-struct state-delta ()
   (

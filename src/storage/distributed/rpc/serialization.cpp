@@ -5,6 +5,30 @@
 
 namespace storage {
 
+void Save(const Label &label, capnp::Label::Builder *builder) {
+  builder->setStorage(label.id_);
+}
+
+void Load(Label *label, const capnp::Label::Reader &reader) {
+  label->id_ = reader.getStorage();
+}
+
+void Save(const EdgeType &edge_type, capnp::EdgeType::Builder *builder) {
+  builder->setStorage(edge_type.id_);
+}
+
+void Load(EdgeType *edge_type, const capnp::EdgeType::Reader &reader) {
+  edge_type->id_ = reader.getStorage();
+}
+
+void Save(const Property &property, capnp::Property::Builder *builder) {
+  builder->setStorage(property.id_);
+}
+
+void Load(Property *property, const capnp::Property::Reader &reader) {
+  property->id_ = reader.getStorage();
+}
+
 void SaveCapnpPropertyValue(const PropertyValue &value,
                             capnp::PropertyValue::Builder *builder) {
   switch (value.type()) {

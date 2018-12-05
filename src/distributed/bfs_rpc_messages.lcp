@@ -26,7 +26,7 @@ cpp<#
 
 (lcp:capnp-type-conversion "storage::EdgeAddress" "Storage.Address")
 (lcp:capnp-type-conversion "storage::VertexAddress" "Storage.Address")
-(lcp:capnp-type-conversion "storage::EdgeType" "Storage.Common")
+(lcp:capnp-type-conversion "storage::EdgeType" "Storage.EdgeType")
 
 (lcp:define-rpc create-bfs-subcursor
     (:request
@@ -40,9 +40,9 @@ cpp<#
                                                   "query::EdgeAtom::Direction"
                                                   '(in out both)))
       (edge-types "std::vector<storage::EdgeType>"
-                  :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common"
+                  :capnp-save (lcp:capnp-save-vector "::storage::capnp::EdgeType"
                                                      "storage::EdgeType")
-                  :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common"
+                  :capnp-load (lcp:capnp-load-vector "::storage::capnp::EdgeType"
                                                      "storage::EdgeType"))
       (filter-lambda "query::plan::ExpansionLambda"
                      :capnp-type "DistOps.ExpansionLambda"

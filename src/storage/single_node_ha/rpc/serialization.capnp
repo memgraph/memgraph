@@ -3,18 +3,17 @@
 using Cxx = import "/capnp/c++.capnp";
 $Cxx.namespace("storage::capnp");
 
-struct Common {
+struct Label {
   storage @0 :UInt16;
-  union {
-    label @1 :Label;
-    edgeType @2 :EdgeType;
-    property @3 :Property;
-  }
 }
 
-struct Label {}
-struct EdgeType {}
-struct Property {}
+struct EdgeType {
+  storage @0 :UInt16;
+}
+
+struct Property {
+  storage @0 :UInt16;
+}
 
 struct PropertyValue {
   union {

@@ -130,9 +130,9 @@ cpp<#
 (lcp:capnp-import 'query "/query/serialization.capnp")
 
 (lcp:capnp-type-conversion "Symbol" "Semantic.Symbol")
-(lcp:capnp-type-conversion "storage::Label" "Storage.Common")
-(lcp:capnp-type-conversion "storage::Property" "Storage.Common")
-(lcp:capnp-type-conversion "storage::EdgeType" "Storage.Common")
+(lcp:capnp-type-conversion "storage::Label" "Storage.Label")
+(lcp:capnp-type-conversion "storage::Property" "Storage.Property")
+(lcp:capnp-type-conversion "storage::EdgeType" "Storage.EdgeType")
 (lcp:capnp-type-conversion "GraphView" "Query.GraphView")
 
 (lcp:define-class logical-operator ("::utils::Visitable<HierarchicalLogicalOperatorVisitor>")
@@ -671,9 +671,9 @@ expansion. The direction is relative to the starting vertex for each expansion."
                :documentation "storage::EdgeType specifying which edges we want
 to expand. If empty, all edges are valid. If not empty, only edges with one of
 the given types are valid."
-               :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common"
+               :capnp-save (lcp:capnp-save-vector "::storage::capnp::EdgeType"
                                                   "storage::EdgeType")
-               :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common"
+               :capnp-load (lcp:capnp-load-vector "::storage::capnp::EdgeType"
                                                   "storage::EdgeType"))
    (existing-node :bool :documentation "If the given node atom refer to a symbol
 that has already been expanded and should be just validated in the frame.")
@@ -1224,8 +1224,8 @@ that the old props are discarded and replaced with new ones.")
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (labels "std::vector<storage::Label>" :scope :public
-     :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
-     :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
+     :capnp-save (lcp:capnp-save-vector "::storage::capnp::Label" "storage::Label")
+     :capnp-load (lcp:capnp-load-vector "::storage::capnp::Label" "storage::Label")))
   (:documentation
    "Logical operator for setting an arbitrary number of labels on a Vertex.
 
@@ -1312,8 +1312,8 @@ It does NOT remove labels that are already set on that Vertex.")
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
    (labels "std::vector<storage::Label>" :scope :public
-     :capnp-save (lcp:capnp-save-vector "::storage::capnp::Common" "storage::Label")
-     :capnp-load (lcp:capnp-load-vector "::storage::capnp::Common" "storage::Label")))
+     :capnp-save (lcp:capnp-save-vector "::storage::capnp::Label" "storage::Label")
+     :capnp-load (lcp:capnp-load-vector "::storage::capnp::Label" "storage::Label")))
   (:documentation
    "Logical operator for removing an arbitrary number of labels on a Vertex.
 
