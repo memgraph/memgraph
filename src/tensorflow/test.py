@@ -2,14 +2,14 @@
 
 import numpy as np
 import tensorflow as tf
-bolt_wrapper_module = tf.load_op_library('/home/dino/git/memgraph/build/src/tensorflow/libbolt_wrapper.so')
+memgraph_op_module = tf.load_op_library('/home/dino/git/memgraph/build/src/tensorflow/libmemgraph_op.so')
 
 def main():
   with tf.Session() as sess:
     c = tf.placeholder(tf.string)
-    d = tf.placeholder(tf.string)
-    bolt_wrapper = bolt_wrapper_module.bolt_wrapper(c, d)
-    output = sess.run(bolt_wrapper, {c: "match (n :Movie) return n.title as title, n.id as id;", d: ""})
+    d = tf.placeholder(tf.int64)
+    memgraph_op = memgraph_op_module.memgraph_op(c, d, T = tf.int64)
+    output = sess.run(memgraph_op, {c: "match (n) where id(n) in $input_list return id(n);", d: [1,2,3,4,5]})
     for i in output[0]:
       print(i)
     for i in output[1]:

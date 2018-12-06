@@ -27,13 +27,13 @@ set(io_src_files
 execute_process(COMMAND python3 -c "import tensorflow; print(tensorflow.sysconfig.get_include())" OUTPUT_VARIABLE Tensorflow_INCLUDE_DIRS)
 execute_process(COMMAND python3 -c "import tensorflow; print(tensorflow.sysconfig.get_lib() + '/libtensorflow_framework.so', end='')" OUTPUT_VARIABLE Tensorflow_INCLUDE_LIB)
 
-add_library(bolt_wrapper SHARED bolt_wrapper.cc ${communication_src_files} ${utils_src_files} ${io_src_files})
-target_include_directories(bolt_wrapper SYSTEM PUBLIC ${Tensorflow_INCLUDE_DIRS})
+add_library(memgraph_op SHARED memgraph_op.cc ${communication_src_files} ${utils_src_files} ${io_src_files})
+target_include_directories(memgraph_op SYSTEM PUBLIC ${Tensorflow_INCLUDE_DIRS})
 
-target_link_libraries(bolt_wrapper ${Tensorflow_INCLUDE_LIB} mg-utils)
-target_link_libraries(bolt_wrapper stdc++fs Threads::Threads fmt glog gflags uuid)
-target_link_libraries(bolt_wrapper Threads::Threads mg-io fmt glog gflags)
-target_link_libraries(bolt_wrapper ${OPENSSL_LIBRARIES})
-target_include_directories(bolt_wrapper SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+target_link_libraries(memgraph_op ${Tensorflow_INCLUDE_LIB} mg-utils)
+target_link_libraries(memgraph_op stdc++fs Threads::Threads fmt glog gflags uuid)
+target_link_libraries(memgraph_op Threads::Threads mg-io fmt glog gflags)
+target_link_libraries(memgraph_op ${OPENSSL_LIBRARIES})
+target_include_directories(memgraph_op SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
 
-target_compile_definitions(bolt_wrapper PUBLIC -D_GLIBCXX_USE_CXX11_ABI=0)
+target_compile_definitions(memgraph_op PUBLIC -D_GLIBCXX_USE_CXX11_ABI=0)
