@@ -1,5 +1,7 @@
-/// \file memgraph_op.cc
-/// \brief Implementation of a memgraph operation in Tensorflow.
+/**
+ * \file memgraph_op.cc
+ * \brief Implementation of a memgraph operation in Tensorflow.
+ */
 
 #include <string>
 #include <vector>
@@ -21,7 +23,18 @@ const string kPort = "port";
 const string kUser = "user";
 const string kPassword = "password";
 const string kUseSsl = "use_ssl";
+const string kInputList = "input_list";
 
+/**
+ * @brief Construct attribute definition.
+ * @details Attribute in TF has special format "key: value = default". This
+ * function is helper function for constructing attribute definition.
+ *
+ * @param key Attribute name
+ * @param value Attribute value
+ * @param default_value Default value
+ * @return "key: value = default_value"
+ */
 const string Define(const string& key, const string& value,
                     const string& default_value) {
   return key + ": " + value + " = " + default_value;
@@ -45,6 +58,23 @@ REGISTER_OP("MemgraphOp")
       return Status::OK();
     });
 
+// TODO Smart connecting to memgraph
+/**
+ * @brief Memgraph Tensorflow Op
+ * @details Memgraph op is the wrapper around the memgraph client. Memgraph op
+ * takes attributes for connection information and one attribute for output type
+ * definition: int64, double, bool, string. There are two inputs: query (string)
+ * and the input list (int64 list). The user can use the input list in the query
+ * with variable $input_list. There are two outputs: header and rows. Headers
+ * are names of the columns in the output table and rows are all data fetch from
+ * memgraph with the query. Memgraph Op has one limitation on output. All output
+ * values in rows data must have the same type. If the user set output type to
+ * string, then all data convert to the string,  however, in any other case
+ * error appears  (the implicit cast is not possible for other types).
+ *
+ *
+ * @tparam T Output type
+ */
 template <typename T>
 class MemgraphOp : public OpKernel {
  private:
@@ -60,8 +90,13 @@ class MemgraphOp : public OpKernel {
   T GetValue(const communication::bolt::Value& value, OpKernelContext* context);
 
  public:
-  /// \brief Constructor.
-  /// \param context
+  /**
+   * @brief Constructor
+   * @details Instance will connect to memgraph.
+   *
+   * @param context Context contains attribute values - database connection
+   * information and output data type.
+   */
   explicit MemgraphOp(OpKernelConstruction* context) : OpKernel(context) {
     OP_REQUIRES_OK(context, context->GetAttr(kHost, &host_));
     OP_REQUIRES_OK(context, context->GetAttr(kPort, &port_));
@@ -78,8 +113,13 @@ class MemgraphOp : public OpKernel {
     client_->Connect(endpoint, user_, password_, kBoltClientVersion);
   }
 
-  /// \brief Compute the inner product.
-  /// \param context
+  /**
+   * @brief Compute stage
+   * @details Op reads input data (query and input list), executes query and on
+   * the end fills outputs.
+   *
+   * @param context Context contains data for inputs and outputs.
+   */
   void Compute(OpKernelContext* context) override {
     const Tensor& param_tensor = context->input(1);
     auto params = param_tensor.flat<int64>();
@@ -90,16 +130,13 @@ class MemgraphOp : public OpKernel {
       input_list.push_back(value);
     }
 
-    // communication::bolt::Value& value = input_list;
-    // parameters["input_list"] = value;
-
     bool exception_free = true;
     string message;
     try {
       const Tensor& input_tensor = context->input(0);
       auto query = input_tensor.flat<string>()(0);
 
-      auto ret = client_->Execute(query, {{"input_list", input_list}});
+      auto ret = client_->Execute(query, {{kInputList, input_list}});
 
       TensorShape header_output__shape;
       header_output__shape.AddDim(ret.fields.size());
@@ -125,8 +162,7 @@ class MemgraphOp : public OpKernel {
         for (int j = 0; j < ret.records[i].size(); ++j) {
           const auto& field = ret.records[i][j];
           try {
-            rows_output_matrix(i, j) =
-                GetValue(field, context);  // TODO catch exception
+            rows_output_matrix(i, j) = GetValue(field, context);
           } catch (const communication::bolt::ValueException e) {
             std::stringstream value_stream;
             value_stream << field;
@@ -151,7 +187,6 @@ class MemgraphOp : public OpKernel {
   }
 };
 
-// TODO better messages
 template <>
 int64 MemgraphOp<int64>::GetValue(const communication::bolt::Value& value,
                                   OpKernelContext* context) {
