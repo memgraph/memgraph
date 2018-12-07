@@ -15,7 +15,6 @@
 #include "communication/rpc/server.hpp"
 #include "io/network/endpoint.hpp"
 #include "raft/exceptions.hpp"
-#include "utils/future.hpp"
 #include "utils/thread.hpp"
 
 namespace raft {
@@ -55,11 +54,16 @@ class Coordination final {
   /// Gets the endpoint for this RPC server.
   io::network::Endpoint GetServerEndpoint();
 
+  /// Returns all workers ids.
+  std::vector<int> GetWorkerIds();
+
   /// Returns a cached `ClientPool` for the given `worker_id`.
   communication::rpc::ClientPool *GetClientPool(int worker_id);
 
+  uint16_t WorkerCount();
+
   /// Asynchronously executes the given function on the RPC client for the
-  /// given worker id. Returns an `utils::Future` of the given `execute`
+  /// given worker id. Returns an `std::future` of the given `execute`
   /// function's return type.
   template <typename TResult>
   auto ExecuteOnWorker(
@@ -68,6 +72,21 @@ class Coordination final {
           execute) {
     auto client_pool = GetClientPool(worker_id);
     return thread_pool_.Run(execute, worker_id, std::ref(*client_pool));
+  }
+  /// Asynchroniously executes the `execute` function on all worker rpc clients
+  /// except the one whose id is `skip_worker_id`. Returns a vector of futures
+  /// contaning the results of the `execute` function.
+  template <typename TResult>
+  auto ExecuteOnWorkers(
+      int skip_worker_id,
+      std::function<TResult(int worker_id, communication::rpc::ClientPool &)>
+          execute) {
+    std::vector<std::future<TResult>> futures;
+    for (auto &worker_id : GetWorkerIds()) {
+      if (worker_id == skip_worker_id) continue;
+      futures.emplace_back(std::move(ExecuteOnWorker(worker_id, execute)));
+    }
+    return futures;
   }
 
   template <class TRequestResponse>

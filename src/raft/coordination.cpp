@@ -64,6 +64,13 @@ io::network::Endpoint Coordination::GetServerEndpoint() {
   return server_.endpoint();
 }
 
+std::vector<int> Coordination::GetWorkerIds() {
+  std::lock_guard<std::mutex> guard(lock_);
+  std::vector<int> worker_ids;
+  for (auto worker : workers_) worker_ids.push_back(worker.first);
+  return worker_ids;
+}
+
 communication::rpc::ClientPool *Coordination::GetClientPool(int worker_id) {
   std::lock_guard<std::mutex> guard(lock_);
   auto found = client_pools_.find(worker_id);
@@ -77,6 +84,10 @@ communication::rpc::ClientPool *Coordination::GetClientPool(int worker_id) {
                        std::forward_as_tuple(worker_id),
                        std::forward_as_tuple(endpoint))
               .first->second;
+}
+
+uint16_t Coordination::WorkerCount() {
+  return workers_.size();
 }
 
 bool Coordination::Start() {

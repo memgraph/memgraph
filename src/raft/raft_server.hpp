@@ -8,13 +8,17 @@
 
 #include "durability/single_node_ha/state_delta.hpp"
 #include "raft/config.hpp"
+#include "raft/coordination.hpp"
+#include "raft/log_entry.hpp"
+#include "raft/raft_rpc_messages.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
+#include "utils/scheduler.hpp"
 
 namespace raft {
 
-// Forward declaration.
-class Coordination;
+using Clock     = std::chrono::system_clock;
+using TimePoint = std::chrono::system_clock::time_point;
 
 enum class Mode { FOLLOWER, CANDIDATE, LEADER };
 
@@ -26,20 +30,37 @@ class RaftServer {
  public:
   RaftServer() = delete;
 
-  /**
-   * The implementation assumes that server IDs are unique integers between
-   * ranging from 1 to cluster_size.
-   *
-   * @param server_id ID of the current server.
-   * @param durbility_dir directory for persisted data.
-   * @param config raft configuration.
-   * @param coordination Abstraction for coordination between Raft servers.
-   */
+  /// The implementation assumes that server IDs are unique integers between
+  /// ranging from 1 to cluster_size.
+  ///
+  /// @param server_id ID of the current server.
+  /// @param durbility_dir directory for persisted data.
+  /// @param config raft configuration.
+  /// @param coordination Abstraction for coordination between Raft servers.
   RaftServer(uint16_t server_id, const std::string &durability_dir,
              const Config &config, raft::Coordination *coordination);
 
+  ~RaftServer();
+
+  /// Retrieves the current term from persistent storage.
+  ///
+  /// @throws MissingPersistentDataException
+  uint64_t CurrentTerm();
+
+  /// Retrieves the ID of the server this server has voted for in
+  /// the current term from persistent storage. Returns std::nullopt
+  /// if such server doesn't exist.
+  std::experimental::optional<uint16_t> VotedFor();
+
+  /// Retrieves the log entries from persistent storage. The log is 1-indexed
+  /// in order to be consistent with the paper. If the Log isn't present in
+  /// persistent storage, an empty Log will be created.
+  std::vector<LogEntry> Log();
+
+  // TODO(msantl): document
   void Replicate(const std::vector<database::StateDelta> &log);
 
+  // TODO(msantl): document
   void Emplace(const database::StateDelta &delta);
 
  private:
@@ -80,15 +101,17 @@ class RaftServer {
     bool IsStateDeltaTransactionEnd(const database::StateDelta &delta);
   };
 
+  mutable std::mutex lock_; ///< Guards all internal state.
+
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on all servers
   //////////////////////////////////////////////////////////////////////////////
 
-  uint16_t server_id_;                   ///< ID of the current server.
   Config config_;                        ///< Raft config.
   Coordination *coordination_{nullptr};  ///< Cluster coordination.
 
   Mode mode_;              ///< Server's current mode.
+  uint16_t server_id_;     ///< ID of the current server.
   uint64_t commit_index_;  ///< Index of the highest known committed entry.
   uint64_t last_applied_;  ///< Index of the highest applied entry to SM.
 
@@ -98,6 +121,33 @@ class RaftServer {
   /// replication. This doesn't have to persist, if something fails before a
   /// log is ready for replication it will be discarded anyway.
   LogEntryBuffer log_entry_buffer_{this};
+
+  std::vector<std::thread> peer_threads_; ///< One thread per peer which
+                                          ///< handles outgoing RPCs.
+
+  std::condition_variable state_changed_; ///< Notifies all peer threads on
+                                          ///< relevant state change.
+
+  bool exiting_ = false; ///< True on server shutdown.
+
+  //////////////////////////////////////////////////////////////////////////////
+  // volatile state on followers and candidates
+  //////////////////////////////////////////////////////////////////////////////
+
+  std::thread election_thread_;  ///< Timer thread for triggering elections.
+  TimePoint next_election_;      ///< Next election `TimePoint`.
+
+  std::condition_variable election_change_; ///> Used to notify election_thread
+                                            ///> on next_election_ change.
+
+  std::mt19937_64 rng_ = std::mt19937_64(std::random_device{}());
+
+  //////////////////////////////////////////////////////////////////////////////
+  // volatile state on candidates
+  //////////////////////////////////////////////////////////////////////////////
+
+  uint16_t granted_votes_;
+  std::vector<bool> vote_requested_;
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on leaders
@@ -110,6 +160,10 @@ class RaftServer {
                                        ///< highest log entry known to be
                                        ///< replicated on server.
 
+  std::vector<TimePoint> next_heartbeat_;  ///< for each server, time point for
+                                           ///< the next heartbeat.
+  std::vector<TimePoint> backoff_until_;   ///< backoff for each server.
+
   //////////////////////////////////////////////////////////////////////////////
   // persistent state on all servers
   //
@@ -119,11 +173,82 @@ class RaftServer {
   //                              term (null if none).
   //   - vector<LogEntry> log  -- log entries.
   //////////////////////////////////////////////////////////////////////////////
+
   storage::KVStore disk_storage_;
 
   /// Makes a transition to a new `raft::Mode`.
   ///
-  /// @throws InvalidTransitionException when transitioning between incompatible
-  void Transition(const Mode &new_mode);
+  /// throws InvalidTransitionException when transitioning between incompatible
+  ///                                   `raft::Mode`s.
+  void Transition(const raft::Mode &new_mode);
+
+  /// Recovers from persistent storage. This function should be called from
+  /// the constructor before the server starts with normal operation.
+  void Recover();
+
+  /// Main function of the `election_thread_`. It is responsible for
+  /// transition to CANDIDATE mode when election timeout elapses.
+  void ElectionThreadMain();
+
+  /// Main function of the thread that handles outgoing RPCs towards a
+  /// specified node within the Raft cluster.
+  ///
+  /// @param peer_id - ID of a receiving node in the cluster.
+  void PeerThreadMain(int peer_id);
+
+  /// Sets the `TimePoint` for next election.
+  void SetNextElectionTimePoint();
+
+  /// Checks if the current server obtained enough votes to become a leader.
+  bool HasMajortyVote();
+
+  /// Returns relevant metadata about the last entry in this server's Raft Log.
+  /// More precisely, returns a pair consisting of an index of the last entry
+  /// in the log and the term of the last entry in the log.
+  ///
+  /// @return std::pair<last_log_index, last_log_term>
+  std::pair<uint64_t, uint64_t> LastEntryData();
+
+  /// Checks whether Raft log of server A is at least as up-to-date as the Raft
+  /// log of server B. This is strictly defined in Raft paper 5.4.
+  ///
+  /// @param last_log_index_a - Index of server A's last log entry.
+  /// @param last_log_term_a  - Term of server A's last log entry.
+  /// @param last_log_index_b - Index of server B's last log entry.
+  /// @param last_log_term_b  - Term of server B's last log entry.
+  bool AtLeastUpToDate(uint64_t last_log_index_a, uint64_t last_log_term_a,
+                       uint64_t last_log_index_b, uint64_t last_log_term_b);
+
+  /// Checks whether the current server got a reply from "future", i.e. reply
+  /// with a higher term. If so, the current server falls back to follower mode
+  /// and updates its current term.
+  ///
+  /// @param reply_term Term from RPC response.
+  /// @return true if the current server's term lags behind.
+  bool OutOfSync(uint64_t reply_term);
+
+  /// Deletes log entries with indexes that are greater or equal to the given
+  /// starting index.
+  ///
+  /// @param starting_index Smallest index which will be deleted from the Log.
+  ///                       Also, a friendly remainder that log entries are
+  ///                       1-indexed.
+  void DeleteLogSuffix(int starting_index);
+
+  /// Appends new log entries to Raft log. Note that this function is not
+  /// smart in any way, i.e. the caller should make sure that it's safe
+  /// to call this function. This function also updates this server's commit
+  /// index if necessary.
+  ///
+  /// @param leader_commit_index - Used to update local commit index.
+  /// @param new_entries - New `LogEntry` instances to be appended in the log.
+  void AppendLogEntries(uint64_t leader_commit_index,
+                        const std::vector<LogEntry> &new_entries);
+
+  /// Serializes Raft log into `std::string`.
+  std::string SerializeLog(const std::vector<LogEntry> &log);
+
+  /// Deserializes Raft log from `std::string`.
+  std::vector<LogEntry> DeserializeLog(const std::string &serialized_log);
 };
 }  // namespace raft

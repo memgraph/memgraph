@@ -13,7 +13,8 @@ cpp<#
 (lcp:capnp-import 'database "/database/single_node_ha/serialization.capnp")
 
 (lcp:define-struct log-entry ()
-  ((deltas "std::vector<database::StateDelta>" :capnp-type "List(Database.StateDelta)"))
+  ((term :uint64_t)
+   (deltas "std::vector<database::StateDelta>" :capnp-type "List(Database.StateDelta)"))
   (:serialize (:slk) (:capnp)))
 
 (lcp:pop-namespace) ;; raft
