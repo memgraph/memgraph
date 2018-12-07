@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "storage/common/types/property_value.slk.hpp"
+#include "storage/common/types/slk.hpp"
 
 TEST(SlkAdvanced, PropertyValueList) {
   std::vector<PropertyValue> original{"hello world!", 5, 1.123423, true,

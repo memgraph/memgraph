@@ -1,6 +1,8 @@
 #pragma once
 
+#include "communication/rpc/serialization.hpp"
 #include "storage/common/types/property_value.hpp"
+#include "storage/common/types/slk.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/rpc/serialization.capnp.h"
 

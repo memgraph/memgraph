@@ -152,6 +152,7 @@ set(mg_distributed_sources
     storage/common/locking/record_lock.cpp
     storage/common/types/property_value.cpp
     storage/common/types/property_value_store.cpp
+    storage/common/types/slk.cpp
     storage/distributed/edge_accessor.cpp
     storage/distributed/record_accessor.cpp
     storage/distributed/rpc/serialization.cpp
@@ -275,6 +276,7 @@ set(mg_single_node_ha_sources
     query/repl.cpp
     query/typed_value.cpp
     storage/common/types/property_value.cpp
+    storage/common/types/slk.cpp
     storage/common/types/property_value_store.cpp
     storage/common/locking/record_lock.cpp
     storage/single_node_ha/edge_accessor.cpp

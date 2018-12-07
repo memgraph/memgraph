@@ -171,6 +171,6 @@ omitted in the comment.")
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;
      cpp<#)
-  (:serialize (:capnp)))
+  (:serialize (:slk) (:capnp)))
 
 (lcp:pop-namespace) ;; database
