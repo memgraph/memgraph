@@ -30,7 +30,7 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       reset_callback_(reset_callback) {
   // Persistent storage initialization/recovery.
   if (Log().empty()) {
-    disk_storage_.Put(kCurrentTermKey, "0");
+    UpdateTerm(0);
   } else {
     Recover();
   }
@@ -57,6 +57,15 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
           RequestVoteRes res(false, current_term);
           Save(res, res_builder);
           return;
+        }
+
+        // [Raft paper figure 2]
+        // If RPC request or response contains term T > currentTerm,
+        // set currentTerm = T and convert to follower.
+        if (req.term > current_term) {
+          UpdateTerm(req.term);
+          if (mode_ != Mode::FOLLOWER)
+            Transition(Mode::FOLLOWER);
         }
 
         // [Raft paper 5.2, 5.4]
@@ -91,6 +100,15 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       return;
     }
 
+    // [Raft paper figure 2]
+    // If RPC request or response contains term T > currentTerm,
+    // set currentTerm = T and convert to follower.
+    if (req.term > current_term) {
+      UpdateTerm(req.term);
+      if (mode_ != Mode::FOLLOWER)
+        Transition(Mode::FOLLOWER);
+    }
+
     // respond positively to a heartbeat.
     // TODO(ipaljak) review this when implementing log replication.
     if (req.entries.empty()) {
@@ -98,9 +116,9 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       Save(res, res_builder);
       if (mode_ != Mode::FOLLOWER) {
         Transition(Mode::FOLLOWER);
-        state_changed_.notify_all();
       } else {
         SetNextElectionTimePoint();
+        election_change_.notify_all();
       }
       return;
     }
@@ -252,9 +270,10 @@ void RaftServer::Transition(const Mode &new_mode) {
         reset_callback_();
       }
       LOG(INFO) << "Server " << server_id_ << ": Transition to FOLLOWER";
-      SetNextElectionTimePoint();
       mode_ = Mode::FOLLOWER;
       // log_entry_buffer_.Disable();
+      SetNextElectionTimePoint();
+      election_change_.notify_all();
       break;
     }
 
@@ -312,6 +331,11 @@ void RaftServer::Transition(const Mode &new_mode) {
       break;
     }
   }
+}
+
+void RaftServer::UpdateTerm(uint64_t new_term) {
+  disk_storage_.Put(kCurrentTermKey, std::to_string(new_term));
+  disk_storage_.Delete(kVotedForKey);
 }
 
 void RaftServer::Recover() {

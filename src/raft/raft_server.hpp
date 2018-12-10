@@ -201,6 +201,9 @@ class RaftServer final : public RaftInterface {
   ///                                   `raft::Mode`s.
   void Transition(const raft::Mode &new_mode);
 
+  /// Updates the current term.
+  void UpdateTerm(uint64_t new_term);
+
   /// Recovers from persistent storage. This function should be called from
   /// the constructor before the server starts with normal operation.
   void Recover();
