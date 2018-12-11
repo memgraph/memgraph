@@ -27,7 +27,9 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
       disk_storage_(fs::path(durability_dir) / kRaftDir),
-      reset_callback_(reset_callback) {
+      reset_callback_(reset_callback) {}
+
+void RaftServer::Start() {
   // Persistent storage initialization/recovery.
   if (Log().empty()) {
     UpdateTerm(0);
@@ -36,14 +38,14 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
   }
 
   // Peer state
-  int cluster_size = coordination_->WorkerCount();
+  int cluster_size = coordination_->WorkerCount() + 1;
   next_index_.resize(cluster_size);
   match_index_.resize(cluster_size);
   next_heartbeat_.resize(cluster_size);
   backoff_until_.resize(cluster_size);
 
   // RPC registration
-  coordination->Register<RequestVoteRpc>(
+  coordination_->Register<RequestVoteRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         std::lock_guard<std::mutex> guard(lock_);
         RequestVoteReq req;
@@ -64,8 +66,7 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
         // set currentTerm = T and convert to follower.
         if (req.term > current_term) {
           UpdateTerm(req.term);
-          if (mode_ != Mode::FOLLOWER)
-            Transition(Mode::FOLLOWER);
+          if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
         }
 
         // [Raft paper 5.2, 5.4]
@@ -105,8 +106,7 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
     // set currentTerm = T and convert to follower.
     if (req.term > current_term) {
       UpdateTerm(req.term);
-      if (mode_ != Mode::FOLLOWER)
-        Transition(Mode::FOLLOWER);
+      if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
     }
 
     // respond positively to a heartbeat.
@@ -162,11 +162,14 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
   }
 }
 
-RaftServer::~RaftServer() {
-  exiting_ = true;
+void RaftServer::Shutdown() {
+  {
+    std::lock_guard<std::mutex> guard(lock_);
+    exiting_ = true;
 
-  state_changed_.notify_all();
-  election_change_.notify_all();
+    state_changed_.notify_all();
+    election_change_.notify_all();
+  }
 
   for (auto &peer_thread : peer_threads_) {
     if (peer_thread.joinable()) peer_thread.join();
@@ -449,6 +452,8 @@ void RaftServer::PeerThreadMain(int peer_id) {
                 });
             next_heartbeat_[peer_id] =
                 Clock::now() + config_.heartbeat_interval;
+            state_changed_.notify_all();
+            continue;
           }
           wait_until = next_heartbeat_[peer_id];
           break;

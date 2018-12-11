@@ -18,7 +18,7 @@
 
 namespace raft {
 
-using Clock     = std::chrono::system_clock;
+using Clock = std::chrono::system_clock;
 using TimePoint = std::chrono::system_clock::time_point;
 
 enum class Mode { FOLLOWER, CANDIDATE, LEADER };
@@ -55,7 +55,11 @@ class RaftServer final : public RaftInterface {
              const Config &config, raft::Coordination *coordination,
              std::function<void(void)> reset_callback);
 
-  ~RaftServer();
+  /// Starts the RPC servers and starts mechanisms inside Raft protocol.
+  void Start();
+
+  /// Stops all threads responsible for the Raft protocol.
+  void Shutdown();
 
   /// Retrieves the current term from persistent storage.
   ///
@@ -117,7 +121,7 @@ class RaftServer final : public RaftInterface {
     bool IsStateDeltaTransactionEnd(const database::StateDelta &delta);
   };
 
-  mutable std::mutex lock_; ///< Guards all internal state.
+  mutable std::mutex lock_;  ///< Guards all internal state.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on all servers
@@ -138,13 +142,13 @@ class RaftServer final : public RaftInterface {
   /// log is ready for replication it will be discarded anyway.
   LogEntryBuffer log_entry_buffer_{this};
 
-  std::vector<std::thread> peer_threads_; ///< One thread per peer which
-                                          ///< handles outgoing RPCs.
+  std::vector<std::thread> peer_threads_;  ///< One thread per peer which
+                                           ///< handles outgoing RPCs.
 
-  std::condition_variable state_changed_; ///< Notifies all peer threads on
-                                          ///< relevant state change.
+  std::condition_variable state_changed_;  ///< Notifies all peer threads on
+                                           ///< relevant state change.
 
-  bool exiting_ = false; ///< True on server shutdown.
+  bool exiting_ = false;  ///< True on server shutdown.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on followers and candidates
@@ -153,8 +157,8 @@ class RaftServer final : public RaftInterface {
   std::thread election_thread_;  ///< Timer thread for triggering elections.
   TimePoint next_election_;      ///< Next election `TimePoint`.
 
-  std::condition_variable election_change_; ///> Used to notify election_thread
-                                            ///> on next_election_ change.
+  std::condition_variable election_change_;  ///> Used to notify election_thread
+                                             ///> on next_election_ change.
 
   std::mt19937_64 rng_ = std::mt19937_64(std::random_device{}());
 

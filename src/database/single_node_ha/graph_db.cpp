@@ -19,6 +19,7 @@ GraphDb::GraphDb(Config config) : config_(config) {}
 
 void GraphDb::Start() {
   utils::CheckDir(config_.durability_directory);
+  raft_server_.Start();
   CHECK(coordination_.Start()) << "Couldn't start coordination!";
 
   // Start transaction killer.
@@ -62,7 +63,10 @@ bool GraphDb::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
   return ret;
 }
 
-void GraphDb::Shutdown() { coordination_.Shutdown(); }
+void GraphDb::Shutdown() {
+  raft_server_.Shutdown();
+  coordination_.Shutdown();
+}
 
 std::unique_ptr<GraphDbAccessor> GraphDb::Access() {
   // NOTE: We are doing a heap allocation to allow polymorphism. If this poses
