@@ -9,12 +9,17 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include "communication/rpc/serialization.hpp"
+#include "database/distributed/distributed_graph_db.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_serialization.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
+
+#include "capnp/message.h"
 
 namespace {
 
@@ -25,12 +30,15 @@ using testing::ElementsAre;
 using testing::Pair;
 using testing::UnorderedElementsAre;
 
+static std::unique_ptr<database::Master> db_;
+
 // Base class for all test types
 class Base {
  public:
-  explicit Base(const std::string &query) : query_string_(query) {}
-  database::GraphDb db_;
-  std::unique_ptr<database::GraphDbAccessor> db_accessor_{db_.Access()};
+  explicit Base(const std::string &query) : query_string_(query) {
+    db_accessor_ = db_->Access();
+  }
+  std::unique_ptr<database::GraphDbAccessor> db_accessor_;
   ParsingContext context_;
   Parameters parameters_;
   std::string query_string_;
@@ -73,73 +81,75 @@ class Base {
   }
 };
 
-// This generator uses ast constructed by parsing the query.
-class AstGenerator : public Base {
+class CapnpAstGenerator : public Base {
  public:
-  explicit AstGenerator(const std::string &query) : Base(query) {
-    ::frontend::opencypher::Parser parser(query);
-    CypherMainVisitor visitor(context_, &ast_storage_, db_accessor_.get());
-    visitor.visit(parser.tree());
-    query_ = visitor.query();
-  }
-
-  AstStorage ast_storage_;
-  Query *query_;
-};
-
-// This clones ast, but uses original one. This done just to ensure that cloning
-// doesn't change original.
-class OriginalAfterCloningAstGenerator : public AstGenerator {
- public:
-  explicit OriginalAfterCloningAstGenerator(const std::string &query)
-      : AstGenerator(query) {
-    AstStorage storage;
-    query_->Clone(storage);
-  }
-};
-
-// This generator clones parsed ast and uses that one.
-// Original ast is cleared after cloning to ensure that cloned ast doesn't reuse
-// any data from original ast.
-class ClonedAstGenerator : public Base {
- public:
-  explicit ClonedAstGenerator(const std::string &query) : Base(query) {
+  explicit CapnpAstGenerator(const std::string &query) : Base(query) {
     ::frontend::opencypher::Parser parser(query);
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage, db_accessor_.get());
     visitor.visit(parser.tree());
-    query_ = visitor.query()->Clone(ast_storage_);
+
+    ::capnp::MallocMessageBuilder message;
+    {
+      query::capnp::Tree::Builder builder =
+          message.initRoot<query::capnp::Tree>();
+      std::vector<int> saved_uids;
+      Save(*visitor.query(), &builder, &saved_uids);
+    }
+
+    {
+      const query::capnp::Tree::Reader reader =
+          message.getRoot<query::capnp::Tree>();
+      std::vector<int> loaded_uids;
+      query_ = dynamic_cast<Query *>(Load(&storage_, reader, &loaded_uids));
+    }
   }
 
-  AstStorage ast_storage_;
+  AstStorage storage_;
   Query *query_;
 };
 
-// This generator strips ast, clones it and then plugs stripped out literals in
-// the same way it is done in ast cacheing in interpreter.
-class CachedAstGenerator : public Base {
+class SlkAstGenerator : public Base {
  public:
-  explicit CachedAstGenerator(const std::string &query) : Base(query) {
-    context_.is_query_cached = true;
-    StrippedQuery stripped(query_string_);
-    parameters_ = stripped.literals();
-    ::frontend::opencypher::Parser parser(stripped.query());
+  explicit SlkAstGenerator(const std::string &query) : Base(query) {
+    ::frontend::opencypher::Parser parser(query);
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage, db_accessor_.get());
     visitor.visit(parser.tree());
-    query_ = visitor.query()->Clone(ast_storage_);
+
+    slk::Builder builder;
+    {
+      std::vector<int32_t> saved_uids;
+      SaveAstPointer(visitor.query(), &builder, &saved_uids);
+    }
+
+    {
+      slk::Reader reader(builder.data(), builder.size());
+      std::vector<int32_t> loaded_uids;
+      query_ = LoadAstPointer<Query>(&storage_, &reader, &loaded_uids);
+    }
   }
 
-  AstStorage ast_storage_;
+  AstStorage storage_;
   Query *query_;
 };
 
 template <typename T>
-class CypherMainVisitorTest : public ::testing::Test {};
+class CypherMainVisitorTest : public ::testing::Test {
+ public:
+  static void SetUpTestCase() {
+    db_ = std::make_unique<database::Master>();
+    db_->Start();
+  }
 
-typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
-                         ClonedAstGenerator, CachedAstGenerator>
-    AstGeneratorTypes;
+  static void TearDownTestCase() {
+    db_->Shutdown();
+    db_->AwaitShutdown();
+    db_ = nullptr;
+  }
+};
+
+typedef ::testing::Types<CapnpAstGenerator, SlkAstGenerator> AstGeneratorTypes;
 
 TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
 
@@ -1200,23 +1210,6 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
   ast_generator.CheckLiteral(edge->properties_[ast_generator.PropPair("prop")],
                              42);
 }
-
-// TODO maybe uncomment
-// // PatternPart with variable.
-// TYPED_TEST(CypherMainVisitorTest, PatternPartVariable) {
-//   ParserTables parser("CREATE var=()--()");
-//   ASSERT_EQ(parser.identifiers_map_.size(), 1U);
-//   ASSERT_EQ(parser.pattern_parts_.size(), 1U);
-//   ASSERT_EQ(parser.relationships_.size(), 1U);
-//   ASSERT_EQ(parser.nodes_.size(), 2U);
-//   ASSERT_EQ(parser.pattern_parts_.begin()->second.nodes.size(), 2U);
-//   ASSERT_EQ(parser.pattern_parts_.begin()->second.relationships.size(), 1U);
-//   ASSERT_NE(parser.identifiers_map_.find("var"),
-//   parser.identifiers_map_.end());
-//   auto output_identifier = parser.identifiers_map_["var"];
-//   ASSERT_NE(parser.pattern_parts_.find(output_identifier),
-//             parser.pattern_parts_.end());
-// }
 
 TYPED_TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
   TypeParam ast_generator("RETURN var");

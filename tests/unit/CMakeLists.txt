@@ -19,6 +19,9 @@ function(add_unit_test test_cpp)
   add_dependencies(memgraph__unit ${target_name})
 endfunction(add_unit_test)
 
+add_unit_test(ast_serialization.cpp)
+target_link_libraries(${test_prefix}ast_serialization mg-distributed kvstore_dummy_lib)
+
 add_unit_test(bolt_encoder.cpp)
 target_link_libraries(${test_prefix}bolt_encoder mg-single-node kvstore_dummy_lib)
 
