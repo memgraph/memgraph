@@ -272,17 +272,19 @@ void RaftServer::Transition(const Mode &new_mode) {
       if (mode_ == Mode::LEADER) {
         reset_callback_();
       }
-      LOG(INFO) << "Server " << server_id_ << ": Transition to FOLLOWER";
+      LOG(INFO) << "Server " << server_id_
+                << ": Transition to FOLLOWER (Term: " << CurrentTerm() << ")";
       mode_ = Mode::FOLLOWER;
-      // log_entry_buffer_.Disable();
+      log_entry_buffer_.Disable();
       SetNextElectionTimePoint();
       election_change_.notify_all();
       break;
     }
 
     case Mode::CANDIDATE: {
-      LOG(INFO) << "Server " << server_id_ << ": Transition to CANDIDATE";
-      // log_entry_buffer_.Disable();
+      LOG(INFO) << "Server " << server_id_
+                << ": Transition to CANDIDATE (Term: " << CurrentTerm() << ")";
+      log_entry_buffer_.Disable();
 
       // [Raft thesis, section 3.4]
       // "Each candidate restarts its randomized election timeout at the start
@@ -315,8 +317,9 @@ void RaftServer::Transition(const Mode &new_mode) {
     }
 
     case Mode::LEADER: {
-      LOG(INFO) << "Server " << server_id_ << ": Transition to LEADER";
-      // log_entry_buffer_.Enable();
+      LOG(INFO) << "Server " << server_id_
+                << ": Transition to LEADER (Term: " << CurrentTerm() << ")";
+      log_entry_buffer_.Enable();
 
       // Freeze election timer
       next_election_ = TimePoint::max();
@@ -349,7 +352,9 @@ void RaftServer::ElectionThreadMain() {
   std::unique_lock<std::mutex> lock(lock_);
   while (!exiting_) {
     if (Clock::now() >= next_election_) {
-      LOG(INFO) << "Server " << server_id_ << ": Election timeout exceeded";
+      LOG(INFO) << "Server " << server_id_
+                << ": Election timeout exceeded (Term: " << CurrentTerm()
+                << ")";
       Transition(Mode::CANDIDATE);
       state_changed_.notify_all();
     }
@@ -439,7 +444,7 @@ void RaftServer::PeerThreadMain(int peer_id) {
         case Mode::LEADER: {
           if (now >= next_heartbeat_[peer_id]) {
             LOG(INFO) << "Server " << server_id_ << ": Send HB to server "
-                      << peer_id;
+                      << peer_id << " (Term: " << CurrentTerm() << ")";
             auto peer_future = coordination_->ExecuteOnWorker<AppendEntriesRes>(
                 peer_id, [&](int worker_id, auto &client) {
                   auto last_entry_data = LastEntryData();
@@ -480,7 +485,8 @@ void RaftServer::SetNextElectionTimePoint() {
 
 bool RaftServer::HasMajortyVote() {
   if (2 * granted_votes_ > coordination_->WorkerCount()) {
-    LOG(INFO) << "Server " << server_id_ << ": Obtained majority vote";
+    LOG(INFO) << "Server " << server_id_
+              << ": Obtained majority vote (Term: " << CurrentTerm() << ")";
     return true;
   }
   return false;
