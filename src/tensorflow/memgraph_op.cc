@@ -3,8 +3,8 @@
  * \brief Implementation of a memgraph operation in Tensorflow.
  */
 
+#include <fmt/format.h>
 #include <string>
-#include <vector>
 
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/shape_inference.h"
@@ -58,7 +58,6 @@ REGISTER_OP("MemgraphOp")
       return Status::OK();
     });
 
-// TODO Smart connecting to memgraph
 /**
  * @brief Memgraph Tensorflow Op
  * @details Memgraph op is the wrapper around the memgraph client. Memgraph op
@@ -70,24 +69,37 @@ REGISTER_OP("MemgraphOp")
  * memgraph with the query. Memgraph Op has one limitation on output. All output
  * values in rows data must have the same type. If the user set output type to
  * string, then all data convert to the string,  however, in any other case
- * error appears  (the implicit cast is not possible for other types).
+ * error appears  (the implicit cast is not possible for other types). List will
+ * be expand into the matrix. All rows must contains lists with same size.
  *
  *
  * @tparam T Output type
  */
 template <typename T>
-class MemgraphOp : public OpKernel {
+class MemgraphOp final : public OpKernel {
  private:
-  const string kBoltClientVersion =
-      "TensorflowClient";  // TODO maybe we can use real version...
+  const string kBoltClientVersion = "TensorflowMemgraphOp";  // TODO version?
   string host_;
   int port_;
   string user_;
   string password_;
   bool use_ssl_;
+  io::network::Endpoint endpoint_;
   communication::bolt::Client* client_;
 
-  T GetValue(const communication::bolt::Value& value, OpKernelContext* context);
+  T GetValue(const communication::bolt::Value& value);
+
+  string ToString(const communication::bolt::Value& value) {
+    std::stringstream stream;
+    stream << value;
+    return stream.str();
+  }
+
+  string ToString(const communication::bolt::Value::Type& type) {
+    std::stringstream stream;
+    stream << type;
+    return stream.str();
+  }
 
  public:
   /**
@@ -104,19 +116,24 @@ class MemgraphOp : public OpKernel {
     OP_REQUIRES_OK(context, context->GetAttr(kPassword, &password_));
     OP_REQUIRES_OK(context, context->GetAttr(kUseSsl, &use_ssl_));
     communication::Init();
-    io::network::Endpoint endpoint(io::network::ResolveHostname(host_), port_);
+    endpoint_ =
+        io::network::Endpoint(io::network::ResolveHostname(host_), port_);
     communication::ClientContext context_mg(use_ssl_);
     client_ = new communication::bolt::Client(&context_mg);
     OP_REQUIRES(context, client_ != NULL,
-                errors::Internal("Cannot create client"));
-
-    client_->Connect(endpoint, user_, password_, kBoltClientVersion);
+                errors::Internal("Cannot create bolt client"));
+    try {
+      client_->Connect(endpoint_, user_, password_, kBoltClientVersion);
+    } catch (const communication::bolt::ClientFatalException& e) {
+      OP_REQUIRES(context, false,
+                  errors::Internal("Cannot connect to memgraph"));
+    }
   }
 
   /**
    * @brief Compute stage
    * @details Op reads input data (query and input list), executes query and on
-   * the end fills outputs.
+   * fills the outputs.
    *
    * @param context Context contains data for inputs and outputs.
    */
@@ -125,92 +142,123 @@ class MemgraphOp : public OpKernel {
     auto params = param_tensor.flat<int64>();
     std::vector<communication::bolt::Value> input_list;
 
-    for (int i = 0; i < params.size(); ++i) {
+    for (size_t i = 0; i < params.size(); ++i) {
       communication::bolt::Value value(static_cast<int64_t>(params(i)));
       input_list.push_back(value);
     }
 
-    bool exception_free = true;
+    const Tensor& input_tensor = context->input(0);
+    auto query = input_tensor.flat<string>()(0);
+
     string message;
+    communication::bolt::QueryData ret;
     try {
-      const Tensor& input_tensor = context->input(0);
-      auto query = input_tensor.flat<string>()(0);
-
-      auto ret = client_->Execute(query, {{kInputList, input_list}});
-
-      TensorShape header_output__shape;
-      header_output__shape.AddDim(ret.fields.size());
-      Tensor* header_output = NULL;
-      OP_REQUIRES_OK(context, context->allocate_output(0, header_output__shape,
-                                                       &header_output));
-      auto header_output_flat = header_output->flat<string>();
-
-      TensorShape rows_output_shape;
-      rows_output_shape.AddDim(ret.records.size());
-      rows_output_shape.AddDim(ret.fields.size());
-      Tensor* rows_output = NULL;
-
-      OP_REQUIRES_OK(context, context->allocate_output(1, rows_output_shape,
-                                                       &rows_output));
-      auto rows_output_matrix = rows_output->matrix<T>();
-
-      for (int i = 0; i < ret.fields.size(); ++i) {
-        header_output_flat(i) = ret.fields[i];
-      }
-
-      for (int i = 0; i < ret.records.size(); ++i) {
-        for (int j = 0; j < ret.records[i].size(); ++j) {
-          const auto& field = ret.records[i][j];
-          try {
-            rows_output_matrix(i, j) = GetValue(field, context);
-          } catch (const communication::bolt::ValueException e) {
-            std::stringstream value_stream;
-            value_stream << field;
-            std::stringstream type_stream;
-            type_stream << field.type();
-            string message = "Wrong type: " + header_output_flat(i) + " = " +
-                             type_stream.str() + "(" + value_stream.str() + ")";
-            OP_REQUIRES(context, false, errors::Internal(message));
-          }
-        }
-      }
-    } catch (const communication::bolt::ClientFatalException& e) {
-      client_->Close();
-      exception_free = false;
-      message = e.what();
+      ret = client_->Execute(query, {{kInputList, input_list}});
     } catch (communication::bolt::ClientQueryException& e) {
       client_->Close();
-      exception_free = false;
-      message = e.what();
+      message = fmt::format("Query error: {}", e.what());
+      OP_REQUIRES(context, false, errors::Internal(message));
+    } catch (const communication::bolt::ClientFatalException& e) {
+      client_->Close();
+      message = fmt::format("Internal error: {}", e.what());
+      bool is_connected = false;
+      try {
+        client_->Connect(endpoint_, user_, password_, kBoltClientVersion);
+        is_connected = true;
+      } catch (const communication::bolt::ClientFatalException& e) {
+      }
+      OP_REQUIRES(context, is_connected, errors::Internal(message));
     }
-    OP_REQUIRES(context, exception_free, errors::Internal(message));
+
+    // Use first row to find out Tensor size (inner lists).
+    size_t row_width = 0;
+    size_t row_height = 0;
+    std::vector<size_t> column_list_size(ret.fields.size(), 0);
+    if (ret.records.size() > 0) {
+      for (size_t j = 0, i = 0; j < ret.records[i].size(); ++j) {
+        const auto& field = ret.records[i][j];
+        if (field.IsList())
+          column_list_size[j] = field.ValueList().size();
+        else
+          column_list_size[j] = 1;
+        row_width += column_list_size[j];
+      }
+    }
+
+    if (ret.records.size() == 1 && row_width == 0)
+      row_height = 0;
+    else
+      row_height = ret.records.size();
+
+    // Create header output
+    TensorShape header_output__shape;
+    header_output__shape.AddDim(row_width);
+    Tensor* header_output = NULL;
+    OP_REQUIRES_OK(context, context->allocate_output(0, header_output__shape,
+                                                     &header_output));
+    auto header_output_flat = header_output->flat<string>();
+
+    for (size_t i = 0, cnt = 0; i < ret.fields.size(); ++i)
+      if (column_list_size[i] == 1)
+        header_output_flat(cnt++) = ret.fields[i];
+      else
+        for (size_t j = 0; j < column_list_size[i]; ++j)
+          header_output_flat(cnt++) = ret.fields[i] + "_" + std::to_string(j);
+
+    // Create row output
+    TensorShape rows_output_shape;
+    rows_output_shape.AddDim(row_height);
+    rows_output_shape.AddDim(row_width);
+    Tensor* rows_output = NULL;
+    OP_REQUIRES_OK(
+        context, context->allocate_output(1, rows_output_shape, &rows_output));
+    auto rows_output_matrix = rows_output->matrix<T>();
+
+    for (size_t i = 0; i < row_height; ++i) {
+      for (size_t j = 0, cnt = 0; j < ret.records[i].size(); ++j) {
+        const auto& field = ret.records[i][j];
+        try {
+          if (field.IsList()) {
+            OP_REQUIRES(context,
+                        column_list_size[j] == field.ValueList().size(),
+                        errors::Internal(fmt::format(
+                            "List has wrong size, row: {}, header: {}", i,
+                            ret.fields[j])));
+            for (size_t k = 0; k < column_list_size[j]; ++k) {
+              rows_output_matrix(i, cnt++) = GetValue(field.ValueList().at(k));
+            }
+          } else {
+            rows_output_matrix(i, cnt++) = GetValue(field);
+          }
+        } catch (const communication::bolt::ValueException e) {
+          string message =
+              fmt::format("Wrong type: {} = {} ({})", header_output_flat(cnt),
+                          field.type(), field);
+          OP_REQUIRES(context, false, errors::Internal(message));
+        }
+      }
+    }
   }
 };
 
 template <>
-int64 MemgraphOp<int64>::GetValue(const communication::bolt::Value& value,
-                                  OpKernelContext* context) {
+int64 MemgraphOp<int64>::GetValue(const communication::bolt::Value& value) {
   return value.ValueInt();
 }
 
 template <>
-double MemgraphOp<double>::GetValue(const communication::bolt::Value& value,
-                                    OpKernelContext* context) {
+double MemgraphOp<double>::GetValue(const communication::bolt::Value& value) {
   return value.ValueDouble();
 }
 
 template <>
-bool MemgraphOp<bool>::GetValue(const communication::bolt::Value& value,
-                                OpKernelContext* context) {
+bool MemgraphOp<bool>::GetValue(const communication::bolt::Value& value) {
   return value.ValueBool();
 }
 
 template <>
-string MemgraphOp<string>::GetValue(const communication::bolt::Value& value,
-                                    OpKernelContext* context) {
-  std::stringstream value_stream;
-  value_stream << value;
-  return value_stream.str();
+string MemgraphOp<string>::GetValue(const communication::bolt::Value& value) {
+  return ToString(value);
 }
 
 REGISTER_KERNEL_BUILDER(
