@@ -78,10 +78,16 @@ CommandId Engine::UpdateCommand(TransactionId id) {
 
 void Engine::Commit(const Transaction &t) {
   VLOG(11) << "[Tx] Commiting transaction " << t.id_;
+  raft_->Emplace(database::StateDelta::TxCommit(t.id_));
+
+  // Wait for Raft to receive confirmation from the majority of followers.
+  while (!raft_->HasCommitted(t.id_)) {
+    std::this_thread::sleep_for(std::chrono::microseconds(100));
+  }
+
   std::lock_guard<utils::SpinLock> guard(lock_);
   clog_->set_committed(t.id_);
   active_.remove(t.id_);
-  raft_->Emplace(database::StateDelta::TxCommit(t.id_));
   store_.erase(store_.find(t.id_));
   if (t.blocking()) {
     accepting_transactions_.store(true);

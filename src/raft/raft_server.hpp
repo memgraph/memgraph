@@ -6,12 +6,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "database/single_node_ha/state_delta_applier.hpp"
 #include "durability/single_node_ha/state_delta.hpp"
 #include "raft/config.hpp"
 #include "raft/coordination.hpp"
 #include "raft/log_entry.hpp"
-#include "raft/raft_rpc_messages.hpp"
 #include "raft/raft_interface.hpp"
+#include "raft/raft_rpc_messages.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
@@ -49,10 +50,12 @@ class RaftServer final : public RaftInterface {
   /// @param durbility_dir directory for persisted data.
   /// @param config raft configuration.
   /// @param coordination Abstraction for coordination between Raft servers.
+  /// @param delta_applier TODO
   /// @param reset_callback Function that is called on each Leader->Follower
   ///                       transition.
   RaftServer(uint16_t server_id, const std::string &durability_dir,
              const Config &config, raft::Coordination *coordination,
+             database::StateDeltaApplier *delta_applier,
              std::function<void(void)> reset_callback);
 
   /// Starts the RPC servers and starts mechanisms inside Raft protocol.
@@ -83,6 +86,10 @@ class RaftServer final : public RaftInterface {
   /// marks the transaction end, it will replicate the log accorss the cluster.
   void Emplace(const database::StateDelta &delta) override;
 
+  /// Check if the transaction with the given transaction id has been
+  /// replicated on the majority of the Raft cluster and commited.
+  bool HasCommitted(const tx::TransactionId &tx_id) override;
+
  private:
   /// Buffers incomplete Raft logs.
   ///
@@ -106,8 +113,9 @@ class RaftServer final : public RaftInterface {
 
     /// Insert a new StateDelta in logs.
     ///
-    /// If for a state delta, `IsStateDeltaTransactionEnd` returns true, this
-    /// marks that this log is complete and the replication can start.
+    /// If the StateDelta type is `TRANSACTION_COMMIT` it will start
+    /// replicating, and if the type is `TRANSACTION_ABORT` it will delete the
+    /// log from buffer.
     void Emplace(const database::StateDelta &delta);
 
    private:
@@ -117,8 +125,6 @@ class RaftServer final : public RaftInterface {
         logs_;
 
     RaftServer *raft_server_{nullptr};
-
-    bool IsStateDeltaTransactionEnd(const database::StateDelta &delta);
   };
 
   mutable std::mutex lock_;  ///< Guards all internal state.
@@ -129,6 +135,7 @@ class RaftServer final : public RaftInterface {
 
   Config config_;                        ///< Raft config.
   Coordination *coordination_{nullptr};  ///< Cluster coordination.
+  database::StateDeltaApplier *delta_applier_{nullptr};
 
   Mode mode_;              ///< Server's current mode.
   uint16_t server_id_;     ///< ID of the current server.

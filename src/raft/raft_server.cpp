@@ -21,9 +21,11 @@ const std::string kRaftDir = "raft";
 
 RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
                        const Config &config, Coordination *coordination,
+                       database::StateDeltaApplier *delta_applier,
                        std::function<void(void)> reset_callback)
     : config_(config),
       coordination_(coordination),
+      delta_applier_(delta_applier),
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
       disk_storage_(fs::path(durability_dir) / kRaftDir),
@@ -209,6 +211,13 @@ void RaftServer::Emplace(const database::StateDelta &delta) {
   log_entry_buffer_.Emplace(delta);
 }
 
+bool RaftServer::HasCommitted(const tx::TransactionId &tx_id) {
+  // When in follower mode return true.
+  // Raise an exception if in candidate mode (should't happen).
+  // Check the state and return the correct value if leader.
+  return true;
+}
+
 RaftServer::LogEntryBuffer::LogEntryBuffer(RaftServer *raft_server)
     : raft_server_(raft_server) {
   CHECK(raft_server_) << "RaftServer can't be nullptr";
@@ -231,7 +240,7 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
   if (!enabled_) return;
 
   tx::TransactionId tx_id = delta.transaction_id;
-  if (IsStateDeltaTransactionEnd(delta)) {
+  if (delta.type == database::StateDelta::Type::TRANSACTION_COMMIT) {
     auto it = logs_.find(tx_id);
     CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
 
@@ -240,29 +249,12 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
     logs_.erase(it);
 
     raft_server_->Replicate(log);
+  } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
+    auto it = logs_.find(tx_id);
+    CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
+    logs_.erase(it);
   } else {
     logs_[tx_id].emplace_back(std::move(delta));
-  }
-}
-
-bool RaftServer::LogEntryBuffer::IsStateDeltaTransactionEnd(
-    const database::StateDelta &delta) {
-  switch (delta.type) {
-    case database::StateDelta::Type::TRANSACTION_COMMIT:
-      return true;
-    case database::StateDelta::Type::TRANSACTION_ABORT:
-    case database::StateDelta::Type::TRANSACTION_BEGIN:
-    case database::StateDelta::Type::CREATE_VERTEX:
-    case database::StateDelta::Type::CREATE_EDGE:
-    case database::StateDelta::Type::SET_PROPERTY_VERTEX:
-    case database::StateDelta::Type::SET_PROPERTY_EDGE:
-    case database::StateDelta::Type::ADD_LABEL:
-    case database::StateDelta::Type::REMOVE_LABEL:
-    case database::StateDelta::Type::REMOVE_VERTEX:
-    case database::StateDelta::Type::REMOVE_EDGE:
-    case database::StateDelta::Type::BUILD_INDEX:
-    case database::StateDelta::Type::DROP_INDEX:
-      return false;
   }
 }
 
@@ -537,8 +529,9 @@ void RaftServer::AppendLogEntries(uint64_t leader_commit_index,
   auto log = Log();
   for (auto &entry : new_entries) log.emplace_back(entry);
   // See Raft paper 5.3
-  if (leader_commit_index > commit_index_)
-    commit_index_ = std::min(leader_commit_index, log.size());
+  if (leader_commit_index > commit_index_) {
+    commit_index_ = std::min(leader_commit_index, log.size() - 1);
+  }
   disk_storage_.Put(kLogKey, SerializeLog(log));
 }
 

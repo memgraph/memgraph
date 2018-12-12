@@ -16,6 +16,10 @@ class RaftMock final : public raft::RaftInterface {
     log_[delta.transaction_id].emplace_back(std::move(delta));
   }
 
+  bool HasCommitted(const tx::TransactionId &tx_id) override {
+    return true;
+  }
+
   std::vector<database::StateDelta> GetLogForTx(
       const tx::TransactionId &tx_id) {
     return log_[tx_id];
