@@ -46,11 +46,11 @@ REGISTER_OP("MemgraphOp")
     .Attr(Define(kUser, "string", "''"))
     .Attr(Define(kPassword, "string", "''"))
     .Attr(Define(kUseSsl, "bool", "false"))
-    .Attr("T: {int64, double, bool, string}")
+    .Attr("output_dtype: {int64, double, bool, string}")
     .Input("query: string")
     .Input("input_list: int64")
     .Output("header: string")
-    .Output("rows: T")
+    .Output("rows: output_dtype")
     .SetShapeFn([](::tensorflow::shape_inference::InferenceContext* c) {
       ::tensorflow::shape_inference::ShapeHandle input;
       TF_RETURN_IF_ERROR(c->WithRank(c->input(0), 0, &input));
@@ -121,12 +121,13 @@ class MemgraphOp final : public OpKernel {
     communication::ClientContext context_mg(use_ssl_);
     client_ = new communication::bolt::Client(&context_mg);
     OP_REQUIRES(context, client_ != NULL,
-                errors::Internal("Cannot create bolt client"));
+                errors::Internal("Cannot create client instance"));
     try {
       client_->Connect(endpoint_, user_, password_, kBoltClientVersion);
     } catch (const communication::bolt::ClientFatalException& e) {
       OP_REQUIRES(context, false,
-                  errors::Internal("Cannot connect to memgraph"));
+                  errors::Internal(
+                      fmt::format("Cannot connect to memgraph: {}", e.what())));
     }
   }
 
@@ -262,14 +263,16 @@ string MemgraphOp<string>::GetValue(const communication::bolt::Value& value) {
 }
 
 REGISTER_KERNEL_BUILDER(
-    Name("MemgraphOp").Device(DEVICE_CPU).TypeConstraint<int64>("T"),
+    Name("MemgraphOp").Device(DEVICE_CPU).TypeConstraint<int64>("output_dtype"),
     MemgraphOp<int64>);
+REGISTER_KERNEL_BUILDER(Name("MemgraphOp")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<double>("output_dtype"),
+                        MemgraphOp<double>);
 REGISTER_KERNEL_BUILDER(
-    Name("MemgraphOp").Device(DEVICE_CPU).TypeConstraint<double>("T"),
-    MemgraphOp<double>);
-REGISTER_KERNEL_BUILDER(
-    Name("MemgraphOp").Device(DEVICE_CPU).TypeConstraint<bool>("T"),
+    Name("MemgraphOp").Device(DEVICE_CPU).TypeConstraint<bool>("output_dtype"),
     MemgraphOp<bool>);
-REGISTER_KERNEL_BUILDER(
-    Name("MemgraphOp").Device(DEVICE_CPU).TypeConstraint<string>("T"),
-    MemgraphOp<string>);
+REGISTER_KERNEL_BUILDER(Name("MemgraphOp")
+                            .Device(DEVICE_CPU)
+                            .TypeConstraint<string>("output_dtype"),
+                        MemgraphOp<string>);
