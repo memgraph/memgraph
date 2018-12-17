@@ -6,7 +6,11 @@ namespace communication {
 
 ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl), ctx_(nullptr) {
   if (use_ssl_) {
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+    ctx_ = SSL_CTX_new(SSLv23_client_method());
+#else
     ctx_ = SSL_CTX_new(TLS_client_method());
+#endif
     CHECK(ctx_ != nullptr) << "Couldn't create client SSL_CTX object!";
 
     // Disable legacy SSL support. Other options can be seen here:
@@ -37,7 +41,13 @@ ServerContext::ServerContext() : use_ssl_(false), ctx_(nullptr) {}
 ServerContext::ServerContext(const std::string &key_file,
                              const std::string &cert_file,
                              const std::string &ca_file, bool verify_peer)
-    : use_ssl_(true), ctx_(SSL_CTX_new(TLS_server_method())) {
+    : use_ssl_(true),
+#if OPENSSL_VERSION_NUMBER < 0x10100000L
+      ctx_(SSL_CTX_new(SSLv23_server_method()))
+#else
+      ctx_(SSL_CTX_new(TLS_server_method()))
+#endif
+{
   // TODO (mferencevic): add support for encrypted private keys
   // TODO (mferencevic): add certificate revocation list (CRL)
   CHECK(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(),
