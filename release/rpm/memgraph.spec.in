@@ -69,8 +69,17 @@ chown memgraph:memgraph /var/lib/memgraph || exit 1
 chmod 750 /var/lib/memgraph || exit 1
 chown memgraph:adm /var/log/memgraph || exit 1
 chmod 750 /var/log/memgraph || exit 1
-# Make examples directory immutable (optional)
-chattr +i -R /usr/share/memgraph/examples || true
+
+# Create telemetry directory in examples
+for i in /usr/share/memgraph/examples/*; do
+    # The telemetry directory may already exist from some prior installation
+    if [ ! -d $i/telemetry ]; then
+        mkdir $i/telemetry || exit 1
+    fi
+    chown -R memgraph:memgraph $i/telemetry || exit 1
+    # Make snapshots directory immutable (optional)
+    chattr +i -R $i/snapshots || true
+done
 
 # Generate SSL certificates
 if [ ! -d /etc/memgraph/ssl ]; then
