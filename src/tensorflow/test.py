@@ -15,7 +15,7 @@ def main():
     
     memgraph_op = memgraph_op_module.memgraph_op(query_holder, \
       input_list_holder, \
-      output_dtype = tf.int64)
+      output_dtype=tf.int64, host="10.10.10.10")
     
     output = sess.run(memgraph_op, {query_holder: query, \
       input_list_holder: input_list})

@@ -90,9 +90,13 @@ class MemgraphOp final : public OpKernel {
   T GetValue(const communication::bolt::Value& value);
 
   string ToString(const communication::bolt::Value& value) {
-    std::stringstream stream;
-    stream << value;
-    return stream.str();
+    if (value.IsString())
+      return value.ValueString();
+    else {
+      std::stringstream stream;
+      stream << value;
+      return stream.str();
+    }
   }
 
   string ToString(const communication::bolt::Value::Type& type) {
@@ -165,7 +169,9 @@ class MemgraphOp final : public OpKernel {
       bool is_connected = false;
       try {
         client_->Connect(endpoint_, user_, password_, kBoltClientVersion);
+        ret = client_->Execute(query, {{kInputList, input_list}});
         is_connected = true;
+      } catch (communication::bolt::ClientQueryException& e) {
       } catch (const communication::bolt::ClientFatalException& e) {
       }
       OP_REQUIRES(context, is_connected, errors::Internal(message));
