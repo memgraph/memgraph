@@ -158,6 +158,9 @@ target_link_libraries(${test_prefix}pod_buffer mg-single-node kvstore_dummy_lib)
 add_unit_test(property_value_store.cpp)
 target_link_libraries(${test_prefix}property_value_store kvstore_lib mg-single-node)
 
+add_unit_test(replication_log.cpp)
+target_link_libraries(${test_prefix}replication_log mg-single-node-ha kvstore_lib glog)
+
 add_unit_test(query_cost_estimator.cpp)
 target_link_libraries(${test_prefix}query_cost_estimator mg-single-node kvstore_dummy_lib)
 

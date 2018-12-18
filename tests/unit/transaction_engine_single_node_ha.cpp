@@ -16,7 +16,7 @@ class RaftMock final : public raft::RaftInterface {
     log_[delta.transaction_id].emplace_back(std::move(delta));
   }
 
-  bool HasCommitted(const tx::TransactionId &tx_id) override {
+  bool SafeToCommit(const tx::TransactionId &tx_id) override {
     return true;
   }
 

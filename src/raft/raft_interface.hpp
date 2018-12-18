@@ -14,9 +14,9 @@ class RaftInterface {
   /// Add StateDelta to the appropriate Raft log entry.
   virtual void Emplace(const database::StateDelta &) = 0;
 
-  /// Check if the transaction with the given transaction id has been
-  /// replicated on the majority of the Raft cluster and commited.
-  virtual bool HasCommitted(const tx::TransactionId &tx_id) = 0;
+  /// Checks if the transaction with the given transaction id can safely be
+  /// committed in local storage.
+  virtual bool SafeToCommit(const tx::TransactionId &tx_id) = 0;
 
  protected:
   ~RaftInterface() {}

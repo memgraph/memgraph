@@ -4,12 +4,13 @@
 #include <queue>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "storage/single_node_ha/mvcc/version_list.hpp"
+#include "raft/raft_server.hpp"
 #include "stats/metrics.hpp"
 #include "storage/single_node_ha/deferred_deleter.hpp"
 #include "storage/single_node_ha/edge.hpp"
 #include "storage/single_node_ha/garbage_collector.hpp"
 #include "storage/single_node_ha/gid.hpp"
+#include "storage/single_node_ha/mvcc/version_list.hpp"
 #include "storage/single_node_ha/storage.hpp"
 #include "storage/single_node_ha/vertex.hpp"
 #include "transactions/single_node_ha/engine.hpp"
@@ -41,8 +42,10 @@ class StorageGc {
   /** Creates a garbage collector for the given storage that uses the given
    * tx::Engine. If `pause_sec` is greater then zero, then GC gets triggered
    * periodically. */
-  StorageGc(Storage &storage, tx::Engine &tx_engine, int pause_sec)
+  StorageGc(Storage &storage, tx::Engine &tx_engine,
+            raft::RaftServer *raft_server, int pause_sec)
       : tx_engine_(tx_engine),
+        raft_server_(raft_server),
         storage_(storage),
         vertices_(storage.vertices_),
         edges_(storage.edges_) {
@@ -75,9 +78,12 @@ class StorageGc {
   StorageGc &operator=(const StorageGc &) = delete;
   StorageGc &operator=(StorageGc &&) = delete;
 
-  void CollectCommitLogGarbage(tx::TransactionId oldest_active) {
+  void CollectLogGarbage(tx::TransactionId oldest_active) {
     auto safe_to_delete = GetClogSafeTransaction(oldest_active);
-    if (safe_to_delete) tx_engine_.GarbageCollectCommitLog(*safe_to_delete);
+    if (safe_to_delete) {
+      tx_engine_.GarbageCollectCommitLog(*safe_to_delete);
+      raft_server_->GarbageCollectReplicationLog(*safe_to_delete);
+    }
   }
 
   void CollectGarbage() {
@@ -121,7 +127,7 @@ class StorageGc {
                << x.Elapsed().count();
     }
 
-    CollectCommitLogGarbage(snapshot_gc.back());
+    CollectLogGarbage(snapshot_gc.back());
     gc_txid_ranges_.emplace(snapshot_gc.back(), tx_engine_.GlobalLast());
 
     VLOG(21) << "gc snapshot: " << snapshot_gc;
@@ -155,6 +161,7 @@ class StorageGc {
   }
 
   tx::Engine &tx_engine_;
+  raft::RaftServer *raft_server_;
   utils::Scheduler scheduler_;
 
  private:

@@ -13,6 +13,7 @@
 #include "raft/log_entry.hpp"
 #include "raft/raft_interface.hpp"
 #include "raft/raft_rpc_messages.hpp"
+#include "raft/replication_log.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
@@ -79,16 +80,20 @@ class RaftServer final : public RaftInterface {
   /// persistent storage, an empty Log will be created.
   std::vector<LogEntry> Log();
 
-  /// Start replicating StateDeltas batched together in a Raft log.
-  void Replicate(const std::vector<database::StateDelta> &log);
+  /// Append the log to the list of completed logs that are ready to be
+  /// replicated.
+  void AppendToLog(const tx::TransactionId &tx_id,
+                   const std::vector<database::StateDelta> &log);
 
   /// Emplace a single StateDelta to the corresponding batch. If the StateDelta
   /// marks the transaction end, it will replicate the log accorss the cluster.
   void Emplace(const database::StateDelta &delta) override;
 
-  /// Check if the transaction with the given transaction id has been
-  /// replicated on the majority of the Raft cluster and commited.
-  bool HasCommitted(const tx::TransactionId &tx_id) override;
+  /// Checks if the transaction with the given transaction id can safely be
+  /// committed in local storage.
+  bool SafeToCommit(const tx::TransactionId &tx_id) override;
+
+  void GarbageCollectReplicationLog(const tx::TransactionId &tx_id);
 
  private:
   /// Buffers incomplete Raft logs.
@@ -136,6 +141,7 @@ class RaftServer final : public RaftInterface {
   Config config_;                        ///< Raft config.
   Coordination *coordination_{nullptr};  ///< Cluster coordination.
   database::StateDeltaApplier *delta_applier_{nullptr};
+  std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
   Mode mode_;              ///< Server's current mode.
   uint16_t server_id_;     ///< ID of the current server.
@@ -283,5 +289,10 @@ class RaftServer final : public RaftInterface {
 
   /// Deserializes Raft log from `std::string`.
   std::vector<LogEntry> DeserializeLog(const std::string &serialized_log);
+
+  void ResetReplicationLog() {
+    rlog_ = nullptr;
+    rlog_ = std::make_unique<ReplicationLog>();
+  }
 };
 }  // namespace raft

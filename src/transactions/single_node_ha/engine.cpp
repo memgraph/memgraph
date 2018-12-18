@@ -81,7 +81,7 @@ void Engine::Commit(const Transaction &t) {
   raft_->Emplace(database::StateDelta::TxCommit(t.id_));
 
   // Wait for Raft to receive confirmation from the majority of followers.
-  while (!raft_->HasCommitted(t.id_)) {
+  while (!raft_->SafeToCommit(t.id_)) {
     std::this_thread::sleep_for(std::chrono::microseconds(100));
   }
 

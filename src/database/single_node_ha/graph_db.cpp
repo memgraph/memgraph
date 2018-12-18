@@ -129,8 +129,8 @@ void GraphDb::Reset() {
   // state.
   tx_engine_.Reset();
 
-  storage_gc_ =
-      std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);
+  storage_gc_ = std::make_unique<StorageGc>(
+      *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);
 }
 
 }  // namespace database

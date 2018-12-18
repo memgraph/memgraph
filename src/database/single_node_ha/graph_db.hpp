@@ -173,8 +173,8 @@ class GraphDb {
       &delta_applier_,
       [this]() { this->Reset(); }};
   tx::Engine tx_engine_{&raft_server_};
-  std::unique_ptr<StorageGc> storage_gc_ =
-      std::make_unique<StorageGc>(*storage_, tx_engine_, config_.gc_cycle_sec);
+  std::unique_ptr<StorageGc> storage_gc_ = std::make_unique<StorageGc>(
+      *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);
   storage::ConcurrentIdMapper<storage::Label> label_mapper_{
       storage_->PropertiesOnDisk()};
   storage::ConcurrentIdMapper<storage::EdgeType> edge_mapper_{

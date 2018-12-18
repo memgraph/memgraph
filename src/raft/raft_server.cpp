@@ -2,6 +2,7 @@
 
 #include <kj/std/iostream.h>
 #include <experimental/filesystem>
+#include <memory>
 
 #include <gflags/gflags.h>
 #include <glog/logging.h>
@@ -26,6 +27,7 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
     : config_(config),
       coordination_(coordination),
       delta_applier_(delta_applier),
+      rlog_(std::make_unique<ReplicationLog>()),
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
       disk_storage_(fs::path(durability_dir) / kRaftDir),
@@ -203,7 +205,9 @@ std::vector<LogEntry> RaftServer::Log() {
   return DeserializeLog(opt_value.value());
 }
 
-void RaftServer::Replicate(const std::vector<database::StateDelta> &log) {
+void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
+                             const std::vector<database::StateDelta> &log) {
+  rlog_->set_active(tx_id);
   throw utils::NotYetImplemented("RaftServer replication");
 }
 
@@ -211,11 +215,29 @@ void RaftServer::Emplace(const database::StateDelta &delta) {
   log_entry_buffer_.Emplace(delta);
 }
 
-bool RaftServer::HasCommitted(const tx::TransactionId &tx_id) {
-  // When in follower mode return true.
-  // Raise an exception if in candidate mode (should't happen).
-  // Check the state and return the correct value if leader.
-  return true;
+bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
+  std::unique_lock<std::mutex> lock(lock_);
+
+  switch (mode_) {
+    case Mode::FOLLOWER:
+      // When in follower mode, we will only try to apply a Raft Log when we
+      // receive a commit index greater or equal from the Log index from the
+      // leader. At that moment we don't have to check the replication log
+      // because the leader won't commit the Log locally if it's not replicated
+      // on the majority of the peers in the cluster. This is why we can short
+      // circut the check to always return true if in follower mode.
+      return true;
+    case Mode::LEADER:
+      if (rlog_->is_active(tx_id)) return false;
+      if (rlog_->is_replicated(tx_id)) return true;
+      // The only possibility left is that our ReplicationLog doesn't contain
+      // information about that tx. Let's log that on our way out.
+      break;
+    case Mode::CANDIDATE:
+      break;
+  }
+
+  throw InvalidReplicationLogLookup();
 }
 
 RaftServer::LogEntryBuffer::LogEntryBuffer(RaftServer *raft_server)
@@ -248,7 +270,7 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
     log.emplace_back(std::move(delta));
     logs_.erase(it);
 
-    raft_server_->Replicate(log);
+    raft_server_->AppendToLog(tx_id, log);
   } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
     auto it = logs_.find(tx_id);
     CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
@@ -263,6 +285,7 @@ void RaftServer::Transition(const Mode &new_mode) {
     case Mode::FOLLOWER: {
       if (mode_ == Mode::LEADER) {
         reset_callback_();
+        ResetReplicationLog();
       }
       LOG(INFO) << "Server " << server_id_
                 << ": Transition to FOLLOWER (Term: " << CurrentTerm() << ")";
@@ -573,6 +596,10 @@ std::vector<LogEntry> RaftServer::DeserializeLog(
                                                  return log_entry;
                                                });
   return deserialized_log;
+}
+
+void RaftServer::GarbageCollectReplicationLog(const tx::TransactionId &tx_id) {
+  rlog_->garbage_collect_older(tx_id);
 }
 
 }  // namespace raft
