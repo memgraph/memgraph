@@ -92,6 +92,8 @@ class TransactionEngine final {
 
   void Abort() {
     results_ = std::experimental::nullopt;
+    expect_rollback_ = false;
+    in_explicit_transaction_ = false;
     if (!db_accessor_) return;
     db_accessor_->Abort();
     db_accessor_ = nullptr;
