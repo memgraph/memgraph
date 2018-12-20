@@ -464,8 +464,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   }
   bool PostVisit(DistributedCreateNode &op) override {
     prev_ops_.pop_back();
-    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom_->identifier_))));
-    for (auto &kv : op.node_atom_->properties_) {
+    CHECK(!FindForbidden(op.node_info_.symbol));
+    for (auto &kv : op.node_info_.properties) {
       UsedSymbolsCollector collector(*symbol_table_);
       kv.second->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -480,14 +480,14 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
   bool PostVisit(DistributedCreateExpand &op) override {
     prev_ops_.pop_back();
     CHECK(!FindForbidden(op.input_symbol_));
-    CHECK(!FindForbidden(symbol_table_->at(*(op.node_atom_->identifier_))));
-    CHECK(!FindForbidden(symbol_table_->at(*(op.edge_atom_->identifier_))));
-    for (auto &kv : op.node_atom_->properties_) {
+    CHECK(!FindForbidden(op.node_info_.symbol));
+    CHECK(!FindForbidden(op.edge_info_.symbol));
+    for (auto &kv : op.node_info_.properties) {
       UsedSymbolsCollector collector(*symbol_table_);
       kv.second->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
     }
-    for (auto &kv : op.edge_atom_->properties_) {
+    for (auto &kv : op.edge_info_.properties) {
       UsedSymbolsCollector collector(*symbol_table_);
       kv.second->Accept(collector);
       CHECK(!ContainsForbidden(collector.symbols_));
@@ -1441,7 +1441,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     // node creation to workers.
     bool create_on_random_worker = !ShouldSplit();
     auto distributed_create = std::make_unique<DistributedCreateNode>(
-        op.input(), op.node_atom_, create_on_random_worker);
+        op.input(), op.node_info_, create_on_random_worker);
     if (prev_ops_.empty())
       distributed_plan_.master_plan = std::move(distributed_create);
     else
@@ -1460,7 +1460,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
       Split(op, PlanCartesian(op.input()));
     }
     auto distributed_create = std::make_unique<DistributedCreateExpand>(
-        op.node_atom_, op.edge_atom_, op.input(), op.input_symbol_,
+        op.node_info_, op.edge_info_, op.input(), op.input_symbol_,
         op.existing_node_);
     if (prev_ops_.empty())
       distributed_plan_.master_plan = std::move(distributed_create);

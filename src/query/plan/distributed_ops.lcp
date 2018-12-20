@@ -320,18 +320,22 @@ by having only one result from each worker.")
           :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (node-atom "NodeAtom *" :initval "nullptr" :scope :public
-              :slk-save #'slk-save-ast-pointer
-              :slk-load (slk-load-ast-pointer "NodeAtom")
-              :capnp-type "Ast.Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
+   (node-info "NodeCreationInfo" :scope :public
+              :slk-save (lambda (m)
+                          #>cpp
+                          slk::Save(self.${m}, builder, helper);
+                          cpp<#)
+              :slk-load (lambda (m)
+                          #>cpp
+                          slk::Load(&self->${m}, reader, helper);
+                          cpp<#))
    (on-random-worker :bool :initval "false" :scope :public))
   (:documentation "Create nodes in distributed environment.")
   (:public
    #>cpp
    DistributedCreateNode() {}
    DistributedCreateNode(const std::shared_ptr<LogicalOperator> &input,
-                         NodeAtom *node_atom, bool on_random_worker);
+                         const NodeCreationInfo &node_info, bool on_random_worker);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
@@ -347,16 +351,24 @@ by having only one result from each worker.")
   (:serialize (:slk) (:capnp)))
 
 (lcp:define-class distributed-create-expand (logical-operator)
-  ((node-atom "NodeAtom *" :scope :public
-              :slk-save #'slk-save-ast-pointer
-              :slk-load (slk-load-ast-pointer "NodeAtom")
-              :capnp-type "Ast.Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
-   (edge-atom "EdgeAtom *" :scope :public
-              :slk-save #'slk-save-ast-pointer
-              :slk-load (slk-load-ast-pointer "EdgeAtom")
-              :capnp-type "Ast.Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "EdgeAtom *"))
+  ((node-info "NodeCreationInfo" :scope :public
+              :slk-save (lambda (m)
+                          #>cpp
+                          slk::Save(self.${m}, builder, helper);
+                          cpp<#)
+              :slk-load (lambda (m)
+                          #>cpp
+                          slk::Load(&self->${m}, reader, helper);
+                          cpp<#))
+   (edge-info "EdgeCreationInfo" :scope :public
+              :slk-save (lambda (m)
+                          #>cpp
+                          slk::Save(self.${m}, builder, helper);
+                          cpp<#)
+              :slk-load (lambda (m)
+                          #>cpp
+                          slk::Load(&self->${m}, reader, helper);
+                          cpp<#))
    (input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer
@@ -368,7 +380,8 @@ by having only one result from each worker.")
   (:public
    #>cpp
    DistributedCreateExpand() {}
-   DistributedCreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
+   DistributedCreateExpand(const NodeCreationInfo &node_info,
+                           const EdgeCreationInfo &edge_info,
                            const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol, bool existing_node);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;

@@ -86,19 +86,16 @@ TEST(QueryPlan, Accumulate) {
 TEST(QueryPlan, AccumulateAdvance) {
   // we simulate 'CREATE (n) WITH n AS n MATCH (m) RETURN m'
   // to get correct results we need to advance the command
-
   auto check = [&](bool advance) {
     database::GraphDb db;
     auto dba = db.Access();
     AstStorage storage;
     SymbolTable symbol_table;
-
-    auto node = NODE("n");
-    auto sym_n = symbol_table.CreateSymbol("n", true);
-    symbol_table[*node->identifier_] = sym_n;
+    NodeCreationInfo node;
+    node.symbol = symbol_table.CreateSymbol("n", true);
     auto create = std::make_shared<CreateNode>(nullptr, node);
     auto accumulate = std::make_shared<Accumulate>(
-        create, std::vector<Symbol>{sym_n}, advance);
+        create, std::vector<Symbol>{node.symbol}, advance);
     auto match = MakeScanAll(storage, symbol_table, "m", accumulate);
     EXPECT_EQ(advance ? 1 : 0, PullAll(match.op_, *dba, symbol_table));
   };

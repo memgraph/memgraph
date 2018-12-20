@@ -373,17 +373,81 @@ and false on every following Pull.")
    cpp<#)
   (:serialize (:slk) (:capnp)))
 
+(defun slk-save-properties (member)
+  #>cpp
+  size_t size = self.${member}.size();
+  slk::Save(size, builder);
+  for (const auto &kv : self.${member}) {
+    slk::Save(kv.first, builder);
+    query::SaveAstPointer(kv.second, builder, &helper->saved_ast_uids);
+  }
+  cpp<#)
+
+(defun slk-load-properties (member)
+  #>cpp
+  size_t size = 0;
+  slk::Load(&size, reader);
+  self->${member}.resize(size);
+  for (size_t i = 0; i < size; ++i) {
+    storage::Property prop;
+    slk::Load(&prop, reader);
+    auto *expr = query::LoadAstPointer<query::Expression>(
+        &helper->ast_storage, reader, &helper->loaded_ast_uids);
+    self->${member}[i] = {prop, expr};
+  }
+  cpp<#)
+
+(defun capnp-save-properties (builder member capnp-name)
+  #>cpp
+  for (size_t i = 0; i < ${member}.size(); ++i) {
+    auto prop_builder = ${builder}[i].initFirst();
+    storage::Save(${member}[i].first, &prop_builder);
+    auto expr_builder = ${builder}[i].initSecond();
+    Save(*${member}[i].second, &expr_builder, &helper->saved_ast_uids);
+  }
+  cpp<#)
+
+(defun capnp-load-properties (reader member capnp-name)
+  #>cpp
+  for (const auto &pair_reader : ${reader}) {
+    auto prop_reader = pair_reader.getFirst();
+    storage::Property prop;
+    storage::Load(&prop, prop_reader);
+    auto *expr = static_cast<Expression *>(Load(
+        &helper->ast_storage, pair_reader.getSecond(), &helper->loaded_ast_uids));
+    ${member}.emplace_back(prop, expr);
+  }
+  cpp<#)
+
+(lcp:define-struct node-creation-info ()
+  ((symbol "Symbol")
+   (labels "std::vector<storage::Label>")
+   (properties "std::vector<std::pair<storage::Property, Expression *>>"
+               :slk-save #'slk-save-properties
+               :slk-load #'slk-load-properties
+               :capnp-type "List(Utils.Pair(Storage.Property, Ast.Tree))"
+               :capnp-save #'capnp-save-properties
+               :capnp-load #'capnp-load-properties))
+  (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
+                    :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *")))
+              (:capnp :save-args '((helper "LogicalOperator::SaveHelper *"))
+                      :load-args '((helper "LogicalOperator::LoadHelper *")))))
+
 (lcp:define-class create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
           :slk-save #'slk-save-operator-pointer
           :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
-   (node-atom "NodeAtom *" :initval "nullptr" :scope :public
-              :slk-save #'slk-save-ast-pointer
-              :slk-load (slk-load-ast-pointer "NodeAtom")
-              :capnp-type "Ast.Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *")))
+   (node-info "NodeCreationInfo" :scope :public
+              :slk-save (lambda (m)
+                          #>cpp
+                          slk::Save(self.${m}, builder, helper);
+                          cpp<#)
+              :slk-load (lambda (m)
+                          #>cpp
+                          slk::Load(&self->${m}, reader, helper);
+                          cpp<#)))
   (:documentation
    "Operator for creating a node.
 
@@ -401,11 +465,10 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
     *    created (a single successful @c Cursor::Pull from this op's @c Cursor).
     *    If a valid input, then a node will be created for each
     *    successful pull from the given input.
-    * @param node_atom @c NodeAtom with information on how to create a node.
-    * @param on_random_worker If the node should be created locally or on random
-    * worker.
+    * @param node_info @c NodeCreationInfo
     */
-   CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeAtom *node_atom);
+   CreateNode(const std::shared_ptr<LogicalOperator> &input,
+              const NodeCreationInfo &node_info);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
@@ -433,19 +496,47 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    cpp<#)
   (:serialize (:slk) (:capnp)))
 
+(lcp:define-struct edge-creation-info ()
+  ((symbol "Symbol")
+   (properties "std::vector<std::pair<storage::Property, Expression *>>"
+               :slk-save #'slk-save-properties
+               :slk-load #'slk-load-properties
+               :capnp-type "List(Utils.Pair(Storage.Property, Ast.Tree))"
+               :capnp-save #'capnp-save-properties
+               :capnp-load #'capnp-load-properties)
+   (edge-type "storage::EdgeType")
+   (direction "EdgeAtom::Direction" :initval "EdgeAtom::Direction::BOTH"
+              :capnp-type "Ast.EdgeAtom.Direction" :capnp-init nil
+              :capnp-save (lcp:capnp-save-enum "::query::capnp::EdgeAtom::Direction"
+                                               "EdgeAtom::Direction"
+                                               '(in out both))
+              :capnp-load (lcp:capnp-load-enum "::query::capnp::EdgeAtom::Direction"
+                                               "EdgeAtom::Direction"
+                                               '(in out both))))
+  (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
+                    :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *")))
+              (:capnp :save-args '((helper "LogicalOperator::SaveHelper *"))
+                      :load-args '((helper "LogicalOperator::LoadHelper *")))))
+
 (lcp:define-class create-expand (logical-operator)
-  (
-   ;; info on what's getting expanded
-   (node-atom "NodeAtom *" :scope :public
-              :slk-save #'slk-save-ast-pointer
-              :slk-load (slk-load-ast-pointer "NodeAtom")
-              :capnp-type "Ast.Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "NodeAtom *"))
-   (edge-atom "EdgeAtom *" :scope :public
-              :slk-save #'slk-save-ast-pointer
-              :slk-load (slk-load-ast-pointer "EdgeAtom")
-              :capnp-type "Ast.Tree" :capnp-init nil
-              :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "EdgeAtom *"))
+  ((node-info "NodeCreationInfo" :scope :public
+              :slk-save (lambda (m)
+                          #>cpp
+                          slk::Save(self.${m}, builder, helper);
+                          cpp<#)
+              :slk-load (lambda (m)
+                          #>cpp
+                          slk::Load(&self->${m}, reader, helper);
+                          cpp<#))
+   (edge-info "EdgeCreationInfo" :scope :public
+              :slk-save (lambda (m)
+                          #>cpp
+                          slk::Save(self.${m}, builder, helper);
+                          cpp<#)
+              :slk-load (lambda (m)
+                          #>cpp
+                          slk::Load(&self->${m}, reader, helper);
+                          cpp<#))
    ;; the input op and the symbol under which the op's result
    ;; can be found in the frame
    (input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -475,9 +566,9 @@ chained in cases when longer paths need creating.
 
    /** @brief Construct @c CreateExpand.
     *
-    * @param node_atom @c NodeAtom at the end of the edge. Used to create a node,
-    *     unless it refers to an existing one.
-    * @param edge_atom @c EdgeAtom with information for the edge to be created.
+    * @param node_info @c NodeCreationInfo at the end of the edge.
+    *     Used to create a node, unless it refers to an existing one.
+    * @param edge_info @c EdgeCreationInfo for the edge to be created.
     * @param input Optional. Previous @c LogicalOperator which will be pulled.
     *     For each successful @c Cursor::Pull, this operator will create an
     *     expansion.
@@ -485,7 +576,8 @@ chained in cases when longer paths need creating.
     * @param existing_node @c bool indicating whether the @c node_atom refers to
     *     an existing node. If @c false, the operator will also create the node.
     */
-   CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
+   CreateExpand(const NodeCreationInfo &node_info,
+                const EdgeCreationInfo &edge_info,
                 const std::shared_ptr<LogicalOperator> &input,
                 Symbol input_symbol, bool existing_node);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;

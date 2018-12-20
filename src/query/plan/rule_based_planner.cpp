@@ -616,11 +616,24 @@ std::unique_ptr<LogicalOperator> GenCreateForPattern(
     Pattern &pattern, std::unique_ptr<LogicalOperator> input_op,
     const SymbolTable &symbol_table,
     std::unordered_set<Symbol> &bound_symbols) {
+  auto node_to_creation_info = [&](const NodeAtom &node) {
+    const auto &node_symbol = symbol_table.at(*node.identifier_);
+    std::vector<storage::Label> labels(node.labels_);
+    std::vector<std::pair<storage::Property, Expression *>> properties;
+    properties.reserve(node.properties_.size());
+    for (const auto &kv : node.properties_) {
+      properties.push_back({kv.first.second, kv.second});
+    }
+    return NodeCreationInfo{node_symbol, labels, properties};
+  };
+
   auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
-    if (bound_symbols.insert(symbol_table.at(*node->identifier_)).second)
-      return std::make_unique<CreateNode>(std::move(input_op), node);
-    else
+    if (bound_symbols.insert(symbol_table.at(*node->identifier_)).second) {
+      auto node_info = node_to_creation_info(*node);
+      return std::make_unique<CreateNode>(std::move(input_op), node_info);
+    } else {
       return std::move(input_op);
+    }
   };
 
   auto collect = [&](std::unique_ptr<LogicalOperator> last_op,
@@ -633,11 +646,22 @@ std::unique_ptr<LogicalOperator> GenCreateForPattern(
     if (!bound_symbols.insert(symbol_table.at(*node->identifier_)).second) {
       node_existing = true;
     }
-    if (!bound_symbols.insert(symbol_table.at(*edge->identifier_)).second) {
+    const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+    if (!bound_symbols.insert(edge_symbol).second) {
       LOG(FATAL) << "Symbols used for created edges cannot be redeclared.";
     }
-    return std::make_unique<CreateExpand>(node, edge, std::move(last_op),
-                                          input_symbol, node_existing);
+    auto node_info = node_to_creation_info(*node);
+    std::vector<std::pair<storage::Property, Expression *>> properties;
+    properties.reserve(edge->properties_.size());
+    for (const auto &kv : edge->properties_) {
+      properties.push_back({kv.first.second, kv.second});
+    }
+    CHECK(edge->edge_types_.size() == 1)
+        << "Creating an edge with a single type should be required by syntax";
+    EdgeCreationInfo edge_info{edge_symbol, properties, edge->edge_types_[0],
+                               edge->direction_};
+    return std::make_unique<CreateExpand>(
+        node_info, edge_info, std::move(last_op), input_symbol, node_existing);
   };
 
   auto last_op =

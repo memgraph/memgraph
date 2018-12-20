@@ -285,9 +285,8 @@ TEST_F(DistributedQueryPlan, Create) {
   auto range = FN("range", LITERAL(0), LITERAL(1000));
   auto x = ctx.symbol_table_.CreateSymbol("x", true);
   auto unwind = std::make_shared<plan::Unwind>(nullptr, range, x);
-  auto node = NODE("n");
-  ctx.symbol_table_[*node->identifier_] =
-      ctx.symbol_table_.CreateSymbol("n", true);
+  NodeCreationInfo node;
+  node.symbol = ctx.symbol_table_.CreateSymbol("n", true);
   auto create =
       std::make_shared<query::plan::DistributedCreateNode>(unwind, node, true);
   PullAll(create, *dba, ctx.symbol_table_);

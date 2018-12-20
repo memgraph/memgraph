@@ -89,26 +89,25 @@ void Once::OnceCursor::Shutdown() {}
 void Once::OnceCursor::Reset() { did_pull_ = false; }
 
 CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input,
-                       NodeAtom *node_atom)
-    : input_(input ? input : std::make_shared<Once>()), node_atom_(node_atom) {}
+                       const NodeCreationInfo &node_info)
+    : input_(input ? input : std::make_shared<Once>()), node_info_(node_info) {}
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(NodeAtom *node_atom, Frame &frame,
-                                  Context &context) {
+VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info,
+                                  Frame *frame, const Context &context) {
   auto &dba = context.db_accessor_;
   auto new_node = dba.InsertVertex();
-  for (auto label : node_atom->labels_) new_node.add_label(label);
-
+  for (auto label : node_info.labels) new_node.add_label(label);
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
-  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
+  ExpressionEvaluator evaluator(frame, context.symbol_table_,
                                 context.evaluation_context_,
                                 &context.db_accessor_, GraphView::NEW);
-  for (auto &kv : node_atom->properties_)
-    PropsSetChecked(&new_node, kv.first.second, kv.second->Accept(evaluator));
-  frame[context.symbol_table_.at(*node_atom->identifier_)] = new_node;
-  return frame[context.symbol_table_.at(*node_atom->identifier_)].ValueVertex();
+  for (auto &kv : node_info.properties)
+    PropsSetChecked(&new_node, kv.first, kv.second->Accept(evaluator));
+  (*frame)[node_info.symbol] = new_node;
+  return (*frame)[node_info.symbol].ValueVertex();
 }
 
 ACCEPT_WITH_INPUT(CreateNode)
@@ -121,7 +120,7 @@ std::unique_ptr<Cursor> CreateNode::MakeCursor(
 std::vector<Symbol> CreateNode::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(table.at(*node_atom_->identifier_));
+  symbols.emplace_back(node_info_.symbol);
   return symbols;
 }
 
@@ -131,7 +130,7 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self,
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
   if (input_cursor_->Pull(frame, context)) {
-    CreateLocalVertex(self_.node_atom_, frame, context);
+    CreateLocalVertex(self_.node_info_, &frame, context);
     return true;
   }
   return false;
@@ -141,11 +140,12 @@ void CreateNode::CreateNodeCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void CreateNode::CreateNodeCursor::Reset() { input_cursor_->Reset(); }
 
-CreateExpand::CreateExpand(NodeAtom *node_atom, EdgeAtom *edge_atom,
+CreateExpand::CreateExpand(const NodeCreationInfo &node_info,
+                           const EdgeCreationInfo &edge_info,
                            const std::shared_ptr<LogicalOperator> &input,
                            Symbol input_symbol, bool existing_node)
-    : node_atom_(node_atom),
-      edge_atom_(edge_atom),
+    : node_info_(node_info),
+      edge_info_(edge_info),
       input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
       existing_node_(existing_node) {}
@@ -160,8 +160,8 @@ std::unique_ptr<Cursor> CreateExpand::MakeCursor(
 std::vector<Symbol> CreateExpand::ModifiedSymbols(
     const SymbolTable &table) const {
   auto symbols = input_->ModifiedSymbols(table);
-  symbols.emplace_back(table.at(*node_atom_->identifier_));
-  symbols.emplace_back(table.at(*edge_atom_->identifier_));
+  symbols.emplace_back(node_info_.symbol);
+  symbols.emplace_back(edge_info_.symbol);
   return symbols;
 }
 
@@ -190,7 +190,7 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
   v2.SwitchNew();
 
   // create an edge between the two nodes
-  switch (self_.edge_atom_->direction_) {
+  switch (self_.edge_info_.direction) {
     case EdgeAtom::Direction::IN:
       CreateEdge(v2, v1, frame, context.symbol_table_, evaluator);
       break;
@@ -215,24 +215,22 @@ void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(
     Frame &frame, Context &context) {
   if (self_.existing_node_) {
-    const auto &dest_node_symbol =
-        context.symbol_table_.at(*self_.node_atom_->identifier_);
-    TypedValue &dest_node_value = frame[dest_node_symbol];
-    ExpectType(dest_node_symbol, dest_node_value, TypedValue::Type::Vertex);
+    TypedValue &dest_node_value = frame[self_.node_info_.symbol];
+    ExpectType(self_.node_info_.symbol, dest_node_value,
+               TypedValue::Type::Vertex);
     return dest_node_value.Value<VertexAccessor>();
   } else {
-    return CreateLocalVertex(self_.node_atom_, frame, context);
+    return CreateLocalVertex(self_.node_info_, &frame, context);
   }
 }
 
 void CreateExpand::CreateExpandCursor::CreateEdge(
     VertexAccessor &from, VertexAccessor &to, Frame &frame,
     const SymbolTable &symbol_table, ExpressionEvaluator &evaluator) {
-  EdgeAccessor edge =
-      db_.InsertEdge(from, to, self_.edge_atom_->edge_types_[0]);
-  for (auto kv : self_.edge_atom_->properties_)
-    PropsSetChecked(&edge, kv.first.second, kv.second->Accept(evaluator));
-  frame[symbol_table.at(*self_.edge_atom_->identifier_)] = edge;
+  EdgeAccessor edge = db_.InsertEdge(from, to, self_.edge_info_.edge_type);
+  for (auto kv : self_.edge_info_.properties)
+    PropsSetChecked(&edge, kv.first, kv.second->Accept(evaluator));
+  frame[self_.edge_info_.symbol] = edge;
 }
 
 template <class TVerticesFun>
