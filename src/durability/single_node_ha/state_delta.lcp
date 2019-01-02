@@ -89,7 +89,8 @@ in StateDeltas.")
         remove-vertex ;; vertex_id, check_empty
         remove-edge   ;; edge_id
         build-index   ;; label, label_name, property, property_name, unique
-        drop-index   ;; label, label_name, property, property_name
+        drop-index    ;; label, label_name, property, property_name
+        no-op         ;; no-op state delta required by Raft protocol
         )
      (:documentation
       "Defines StateDelta type. For each type the comment indicates which values
@@ -98,6 +99,7 @@ omitted in the comment.")
      (:serialize))
      #>cpp
      StateDelta() = default;
+     StateDelta(const enum Type &type) : type(type) {}
      StateDelta(const enum Type &type, tx::TransactionId tx_id)
          : type(type), transaction_id(tx_id) {}
 
@@ -149,6 +151,8 @@ omitted in the comment.")
                                   const std::string &label_name,
                                   storage::Property property,
                                   const std::string &property_name);
+
+     static StateDelta NoOp();
 
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;

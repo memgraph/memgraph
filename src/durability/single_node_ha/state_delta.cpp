@@ -126,6 +126,11 @@ StateDelta StateDelta::DropIndex(tx::TransactionId tx_id, storage::Label label,
   return op;
 }
 
+StateDelta StateDelta::NoOp() {
+  StateDelta op(StateDelta::Type::NO_OP);
+  return op;
+}
+
 void StateDelta::Encode(
     HashedFileWriter &writer,
     communication::bolt::BaseEncoder<HashedFileWriter> &encoder) const {
@@ -136,6 +141,7 @@ void StateDelta::Encode(
     case Type::TRANSACTION_BEGIN:
     case Type::TRANSACTION_COMMIT:
     case Type::TRANSACTION_ABORT:
+    case Type::NO_OP:
       break;
     case Type::CREATE_VERTEX:
       encoder.WriteInt(vertex_id);
@@ -215,6 +221,7 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
       case Type::TRANSACTION_BEGIN:
       case Type::TRANSACTION_COMMIT:
       case Type::TRANSACTION_ABORT:
+      case Type::NO_OP:
         break;
       case Type::CREATE_VERTEX:
         DECODE_MEMBER(vertex_id, ValueInt)
@@ -334,6 +341,8 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       LOG(FATAL) << "Index handling not handled in Apply";
       break;
     }
+    case Type::NO_OP:
+      break;
   }
 }
 
