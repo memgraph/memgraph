@@ -12,6 +12,7 @@
 #include "storage/single_node_ha/vertex_accessor.hpp"
 #include "utils/cast.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/stat.hpp"
 
 namespace database {
 
@@ -418,4 +419,20 @@ std::vector<std::string> GraphDbAccessor::IndexInfo() const {
   }
   return info;
 }
+
+std::map<std::string, std::string> GraphDbAccessor::StorageInfo() const {
+  std::map<std::string, std::string> info;
+
+  db_.RefreshStat();
+  auto &stat = db_.GetStat();
+
+  info.emplace("vertex_count", std::to_string(stat.vertex_count));
+  info.emplace("edge_count", std::to_string(stat.edge_count));
+  info.emplace("average_degree", std::to_string(stat.avg_degree));
+  info.emplace("memory_usage", std::to_string(utils::GetMemoryUsage()));
+  info.emplace("disk_usage", std::to_string(db_.GetDurabilityDirDiskUsage()));
+
+  return info;
+}
+
 }  // namespace database

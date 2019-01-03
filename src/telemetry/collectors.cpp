@@ -8,6 +8,7 @@
 #include <unistd.h>
 
 #include "utils/file.hpp"
+#include "utils/stat.hpp"
 #include "utils/string.hpp"
 
 namespace telemetry {
@@ -74,17 +75,7 @@ const nlohmann::json GetResourceUsage() {
   auto cpu_total = GetCpuUsage(pid);
   cpu["usage"] = cpu_total.second;
 
-  // Parse memory usage.
-  uint64_t memory = 0;
-  auto statm_data = utils::ReadLines(fmt::format("/proc/{}/statm", pid));
-  if (statm_data.size() >= 1) {
-    auto split = utils::Split(statm_data[0]);
-    if (split.size() >= 2) {
-      memory = std::stoull(split[1]) * sysconf(_SC_PAGESIZE);
-    }
-  }
-
-  return {{"cpu", cpu}, {"memory", memory}};
+  return {{"cpu", cpu}, {"memory", utils::GetMemoryUsage()}};
 }
 
 }  // namespace telemetry

@@ -16,6 +16,7 @@
 #include "storage/single_node/storage_gc.hpp"
 #include "transactions/single_node/engine.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/stat.hpp"
 
 namespace database {
 
@@ -27,7 +28,7 @@ struct Stat {
 
   /// Vertex count is number of `VersionList<Vertex>` physically stored.
   std::atomic<int64_t> vertex_count{0};
-  
+
   /// Vertex count is number of `VersionList<Edge>` physically stored.
   std::atomic<int64_t> edge_count{0};
 
@@ -132,8 +133,13 @@ class GraphDb {
     if (vertex_count != 0) {
       stat_.avg_degree = 2 * static_cast<double>(edge_count) / vertex_count;
     } else {
-      stat_.avg_degree = 0; 
+      stat_.avg_degree = 0;
     }
+  }
+
+  /// Returns the number of bytes used by the durability directory on disk.
+  uint64_t GetDurabilityDirDiskUsage() const {
+    return utils::GetDirDiskUsage(config_.durability_directory);
   }
 
  protected:

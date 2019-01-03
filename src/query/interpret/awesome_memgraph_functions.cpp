@@ -703,6 +703,17 @@ TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
 }
 #endif
 
+#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
+TypedValue StorageInfo(TypedValue *, int64_t nargs, const EvaluationContext &,
+                       database::GraphDbAccessor *dba) {
+  if (nargs != 0)
+    throw QueryRuntimeException("'storageInfo' requires no arguments.");
+
+  auto info = dba->StorageInfo();
+  return std::map<std::string, TypedValue>(info.begin(), info.end());
+}
+#endif
+
 TypedValue Id(TypedValue *args, int64_t nargs, const EvaluationContext &,
               database::GraphDbAccessor *dba) {
   if (nargs != 1) {
@@ -984,6 +995,9 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "INDEXINFO") return IndexInfo;
 #ifdef MG_DISTRIBUTED
   if (function_name == "WORKERID") return WorkerId;
+#endif
+#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
+  if (function_name == "STORAGEINFO") return StorageInfo;
 #endif
 
   return nullptr;

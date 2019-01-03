@@ -17,6 +17,7 @@
 #include "storage/single_node_ha/storage_gc.hpp"
 #include "transactions/single_node_ha/engine.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/stat.hpp"
 
 namespace database {
 
@@ -138,6 +139,11 @@ class GraphDb {
     } else {
       stat_.avg_degree = 0;
     }
+  }
+
+  /// Returns the number of bytes used by the durability directory on disk.
+  uint64_t GetDurabilityDirDiskUsage() const {
+    return utils::GetDirDiskUsage(config_.durability_directory);
   }
 
  protected:
