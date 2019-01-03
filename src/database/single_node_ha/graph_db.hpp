@@ -149,6 +149,9 @@ class GraphDb {
     }
   }
 
+ private:
+  void NoOpCreate(void);
+
  protected:
   Stat stat_;
 
@@ -171,7 +174,9 @@ class GraphDb {
       raft::Config::LoadFromFile(config_.raft_config_file),
       &coordination_,
       &delta_applier_,
-      [this]() { this->Reset(); }};
+      [this]() { this->Reset(); },
+      [this]() { this->NoOpCreate(); },
+  };
   tx::Engine tx_engine_{&raft_server_};
   std::unique_ptr<StorageGc> storage_gc_ = std::make_unique<StorageGc>(
       *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);

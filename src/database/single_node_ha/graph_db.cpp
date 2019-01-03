@@ -133,4 +133,10 @@ void GraphDb::Reset() {
       *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);
 }
 
+void GraphDb::NoOpCreate(void) {
+  auto dba = this->Access();
+  raft()->Emplace(database::StateDelta::NoOp(dba->transaction_id()));
+  dba->Commit();
+}
+
 }  // namespace database

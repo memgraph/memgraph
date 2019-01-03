@@ -23,7 +23,8 @@ const std::string kRaftDir = "raft";
 RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
                        const Config &config, Coordination *coordination,
                        database::StateDeltaApplier *delta_applier,
-                       std::function<void(void)> reset_callback)
+                       std::function<void(void)> reset_callback,
+                       std::function<void(void)> no_op_create_callback)
     : config_(config),
       coordination_(coordination),
       delta_applier_(delta_applier),
@@ -31,7 +32,8 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
       disk_storage_(fs::path(durability_dir) / kRaftDir),
-      reset_callback_(reset_callback) {}
+      reset_callback_(reset_callback),
+      no_op_create_callback_(no_op_create_callback) {}
 
 void RaftServer::Start() {
   // Persistent storage initialization/recovery.
@@ -270,6 +272,14 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
     log.emplace_back(std::move(delta));
     logs_.erase(it);
 
+    // Make sure that this wasn't a read query (contains transaction begin and
+    // commit).
+    if (log.size() == 2) {
+      DCHECK(log[0].type == database::StateDelta::Type::TRANSACTION_BEGIN)
+          << "Raft log of size two doesn't start with TRANSACTION_BEGIN";
+      return;
+    }
+
     raft_server_->AppendToLog(tx_id, log);
   } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
     auto it = logs_.find(tx_id);
@@ -347,8 +357,10 @@ void RaftServer::Transition(const Mode &new_mode) {
 
       mode_ = Mode::LEADER;
 
-      // TODO(ipaljak): Implement no-op replication. For now, we are only
-      //                sending heartbeats.
+      // no_op_create_callback_ will create a new transaction that has a NO_OP
+      // StateDelta. This will trigger the whole procedure of replicating logs
+      // in our implementation of Raft.
+      no_op_create_callback_();
       break;
     }
   }

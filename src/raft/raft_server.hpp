@@ -57,7 +57,8 @@ class RaftServer final : public RaftInterface {
   RaftServer(uint16_t server_id, const std::string &durability_dir,
              const Config &config, raft::Coordination *coordination,
              database::StateDeltaApplier *delta_applier,
-             std::function<void(void)> reset_callback);
+             std::function<void(void)> reset_callback,
+             std::function<void(void)> no_op_create);
 
   /// Starts the RPC servers and starts mechanisms inside Raft protocol.
   void Start();
@@ -99,7 +100,7 @@ class RaftServer final : public RaftInterface {
   /// Buffers incomplete Raft logs.
   ///
   /// A Raft log is considered to be complete if it ends with a StateDelta
-  /// that represents transaction commit;
+  /// that represents transaction commit.
   /// LogEntryBuffer will be used instead of WriteAheadLog. We don't need to
   /// persist logs until we receive a majority vote from the Raft cluster, and
   /// apply the to our local state machine(storage).
@@ -211,6 +212,9 @@ class RaftServer final : public RaftInterface {
 
   /// Callback that needs to be called to reset the db state.
   std::function<void(void)> reset_callback_;
+
+  /// Callback that creates a new transaction with NO_OP StateDelta.
+  std::function<void(void)> no_op_create_callback_;
 
   /// Makes a transition to a new `raft::Mode`.
   ///

@@ -126,8 +126,8 @@ StateDelta StateDelta::DropIndex(tx::TransactionId tx_id, storage::Label label,
   return op;
 }
 
-StateDelta StateDelta::NoOp() {
-  StateDelta op(StateDelta::Type::NO_OP);
+StateDelta StateDelta::NoOp(tx::TransactionId tx_id) {
+  StateDelta op(StateDelta::Type::NO_OP, tx_id);
   return op;
 }
 

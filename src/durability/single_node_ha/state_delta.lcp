@@ -99,7 +99,6 @@ omitted in the comment.")
      (:serialize))
      #>cpp
      StateDelta() = default;
-     StateDelta(const enum Type &type) : type(type) {}
      StateDelta(const enum Type &type, tx::TransactionId tx_id)
          : type(type), transaction_id(tx_id) {}
 
@@ -152,7 +151,7 @@ omitted in the comment.")
                                   storage::Property property,
                                   const std::string &property_name);
 
-     static StateDelta NoOp();
+     static StateDelta NoOp(tx::TransactionId tx_id);
 
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;
