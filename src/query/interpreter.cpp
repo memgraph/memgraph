@@ -561,6 +561,13 @@ Interpreter::Results Interpreter::operator()(
     const std::string &query_string, database::GraphDbAccessor &db_accessor,
     const std::map<std::string, PropertyValue> &params,
     bool in_explicit_transaction) {
+#ifdef MG_SINGLE_NODE_HA
+  if (!db_accessor.raft()->IsLeader()) {
+    throw QueryException(
+        "Memgraph High Availability: Can't execute queries if not leader.");
+  }
+#endif
+
   utils::Timer frontend_timer;
 
   // Strip the input query.

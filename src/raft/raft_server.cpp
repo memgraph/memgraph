@@ -118,6 +118,12 @@ void RaftServer::Start() {
       if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
     }
 
+    // [Raft thesis 3.4]
+    // A server remains in follower state as long as it receives valid RPCs from
+    // a leader or candidate.
+    SetNextElectionTimePoint();
+    election_change_.notify_all();
+
     // [Raft paper 5.3]
     // "Once a follower learns that a log entry is committed, it applies
     // the entry to its state machine (in log order)
@@ -245,6 +251,11 @@ void RaftServer::Emplace(const database::StateDelta &delta) {
 
 bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
   switch (mode_) {
+    case Mode::CANDIDATE:
+      // When Memgraph first starts, the Raft is initialized in candidate
+      // mode and we try to perform recovery. Since everything for recovery
+      // needs to be able to commit, we return true.
+      return true;
     case Mode::FOLLOWER:
       // When in follower mode, we will only try to apply a Raft Log when we
       // receive a commit index greater or equal from the Log index from the
@@ -257,18 +268,17 @@ bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
       if (rlog_->is_active(tx_id)) return false;
       if (rlog_->is_replicated(tx_id)) return true;
       // The only possibility left is that our ReplicationLog doesn't contain
-      // information about that tx. Let's log that on our way out.
-      break;
-    case Mode::CANDIDATE:
+      // information about that tx.
+      throw InvalidReplicationLogLookup();
       break;
   }
-
-  throw InvalidReplicationLogLookup();
 }
 
 void RaftServer::GarbageCollectReplicationLog(const tx::TransactionId &tx_id) {
   rlog_->garbage_collect_older(tx_id);
 }
+
+bool RaftServer::IsLeader() { return mode_ == Mode::LEADER; }
 
 RaftServer::LogEntryBuffer::LogEntryBuffer(RaftServer *raft_server)
     : raft_server_(raft_server) {
@@ -300,14 +310,6 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
     log.emplace_back(std::move(delta));
     logs_.erase(it);
     raft_server_->AppendToLog(tx_id, log);
-
-    // Make sure that this wasn't a read query (contains transaction begin and
-    // commit).
-    if (log.size() == 2) {
-      DCHECK(log[0].type == database::StateDelta::Type::TRANSACTION_BEGIN)
-          << "Raft log of size two doesn't start with TRANSACTION_BEGIN";
-      return;
-    }
   } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
     auto it = logs_.find(tx_id);
     CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
@@ -320,22 +322,29 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
 void RaftServer::Transition(const Mode &new_mode) {
   switch (new_mode) {
     case Mode::FOLLOWER: {
-      if (mode_ == Mode::LEADER) {
+      VLOG(40) << "Server " << server_id_
+               << ": Transition to FOLLOWER (Term: " << CurrentTerm() << ")";
+
+      bool reset = mode_ == Mode::LEADER;
+      mode_ = Mode::FOLLOWER;
+      log_entry_buffer_.Disable();
+
+      if (reset) {
+        // Temporaray freeze election timer while we do the reset.
+        next_election_ = TimePoint::max();
+
         reset_callback_();
         ResetReplicationLog();
       }
-      LOG(INFO) << "Server " << server_id_
-                << ": Transition to FOLLOWER (Term: " << CurrentTerm() << ")";
-      mode_ = Mode::FOLLOWER;
-      log_entry_buffer_.Disable();
+
       SetNextElectionTimePoint();
       election_change_.notify_all();
       break;
     }
 
     case Mode::CANDIDATE: {
-      LOG(INFO) << "Server " << server_id_
-                << ": Transition to CANDIDATE (Term: " << CurrentTerm() << ")";
+      VLOG(40) << "Server " << server_id_
+               << ": Transition to CANDIDATE (Term: " << CurrentTerm() << ")";
       log_entry_buffer_.Disable();
 
       // [Raft thesis, section 3.4]
@@ -369,8 +378,8 @@ void RaftServer::Transition(const Mode &new_mode) {
     }
 
     case Mode::LEADER: {
-      LOG(INFO) << "Server " << server_id_
-                << ": Transition to LEADER (Term: " << CurrentTerm() << ")";
+      VLOG(40) << "Server " << server_id_
+               << ": Transition to LEADER (Term: " << CurrentTerm() << ")";
       // Freeze election timer
       next_election_ = TimePoint::max();
       election_change_.notify_all();
@@ -436,13 +445,14 @@ void RaftServer::AdvanceCommitIndex() {
   // in this way, then all prior entries are committed indirectly because of the
   // Log Matching Property."
   if (Log()[new_commit_index].term != CurrentTerm()) {
-    LOG(INFO) << "Server " << server_id_ << ": cannot commit log entry from "
-                                            "previous term based on "
-                                            "replication count.";
+    VLOG(40) << "Server " << server_id_
+             << ": cannot commit log entry from "
+                "previous term based on "
+                "replication count.";
     return;
   }
 
-  LOG(INFO) << "Begin noting comimitted transactions";
+  VLOG(40) << "Begin noting comimitted transactions";
 
   // Note the newly committed transactions in ReplicationLog
   std::set<tx::TransactionId> replicated_tx_ids;
@@ -453,8 +463,7 @@ void RaftServer::AdvanceCommitIndex() {
     }
   }
 
-  for (const auto &tx_id : replicated_tx_ids)
-    rlog_->set_replicated(tx_id);
+  for (const auto &tx_id : replicated_tx_ids) rlog_->set_replicated(tx_id);
 
   commit_index_ = new_commit_index;
 }
@@ -477,10 +486,10 @@ void RaftServer::SendEntries(uint16_t peer_id,
   auto peer_future = coordination_->ExecuteOnWorker<AppendEntriesRes>(
       peer_id, [&](int worker_id, auto &client) {
         try {
-        auto res = client.template Call<AppendEntriesRpc>(
-            server_id_, commit_index_, request_term, request_prev_log_index,
-            request_prev_log_term, request_entries);
-        return res;
+          auto res = client.template Call<AppendEntriesRpc>(
+              server_id_, commit_index_, request_term, request_prev_log_index,
+              request_prev_log_term, request_entries);
+          return res;
         } catch (...) {
           // not being able to connect to peer means we need to retry.
           // TODO(ipaljak): Consider backoff.
@@ -489,9 +498,9 @@ void RaftServer::SendEntries(uint16_t peer_id,
         }
       });
 
-  LOG(INFO) << "Entries size: " << request_entries.size();
+  VLOG(40) << "Entries size: " << request_entries.size();
 
-  lock.unlock(); // Release lock while waiting for response.
+  lock.unlock();  // Release lock while waiting for response.
   auto reply = peer_future.get();
   lock.lock();
 
@@ -513,8 +522,8 @@ void RaftServer::SendEntries(uint16_t peer_id,
       << "Elected leader for term should never change.";
 
   if (reply.term != CurrentTerm()) {
-    LOG(INFO) << "Server " << server_id_
-              << ": Ignoring stale AppendEntriesRPC reply from " << peer_id;
+    VLOG(40) << "Server " << server_id_
+             << ": Ignoring stale AppendEntriesRPC reply from " << peer_id;
     return;
   }
 
@@ -539,9 +548,8 @@ void RaftServer::ElectionThreadMain() {
   std::unique_lock<std::mutex> lock(lock_);
   while (!exiting_) {
     if (Clock::now() >= next_election_) {
-      LOG(INFO) << "Server " << server_id_
-                << ": Election timeout exceeded (Term: " << CurrentTerm()
-                << ")";
+      VLOG(40) << "Server " << server_id_
+               << ": Election timeout exceeded (Term: " << CurrentTerm() << ")";
       Transition(Mode::CANDIDATE);
       state_changed_.notify_all();
     }
@@ -603,8 +611,8 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
 
           if (CurrentTerm() != request_term || mode_ != Mode::CANDIDATE ||
               exiting_) {
-            LOG(INFO) << "Server " << server_id_
-                      << ": Ignoring RequestVoteRPC reply from " << peer_id;
+            VLOG(40) << "Server " << server_id_
+                     << ": Ignoring RequestVoteRPC reply from " << peer_id;
             break;
           }
 
@@ -616,13 +624,13 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
           vote_requested_[peer_id] = true;
 
           if (reply.vote_granted) {
-            LOG(INFO) << "Server " << server_id_ << ": Got vote from "
-                      << peer_id;
+            VLOG(40) << "Server " << server_id_ << ": Got vote from "
+                     << peer_id;
             ++granted_votes_;
             if (HasMajortyVote()) Transition(Mode::LEADER);
           } else {
-            LOG(INFO) << "Server " << server_id_ << ": Denied vote from "
-                      << peer_id;
+            VLOG(40) << "Server " << server_id_ << ": Denied vote from "
+                     << peer_id;
           }
 
           state_changed_.notify_all();
@@ -631,9 +639,9 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
 
         case Mode::LEADER: {
           if (now >= next_heartbeat_[peer_id]) {
-            LOG(INFO) << "Server " << server_id_
-                      << ": Send AppendEntries RPC to server " << peer_id
-                      << " (Term: " << CurrentTerm() << ")";
+            VLOG(40) << "Server " << server_id_
+                     << ": Send AppendEntries RPC to server " << peer_id
+                     << " (Term: " << CurrentTerm() << ")";
             SendEntries(peer_id, lock);
             continue;
           }
@@ -655,8 +663,7 @@ void RaftServer::NoOpIssuerThreadMain() {
     // no_op_create_callback_ will create a new transaction that has a NO_OP
     // StateDelta. This will trigger the whole procedure of replicating logs
     // in our implementation of Raft.
-    if (!exiting_)
-      no_op_create_callback_();
+    if (!exiting_) no_op_create_callback_();
   }
 }
 
@@ -675,8 +682,8 @@ void RaftServer::SetNextElectionTimePoint() {
 
 bool RaftServer::HasMajortyVote() {
   if (2 * granted_votes_ > coordination_->WorkerCount()) {
-    LOG(INFO) << "Server " << server_id_
-              << ": Obtained majority vote (Term: " << CurrentTerm() << ")";
+    VLOG(40) << "Server " << server_id_
+             << ": Obtained majority vote (Term: " << CurrentTerm() << ")";
     return true;
   }
   return false;
@@ -740,8 +747,7 @@ void RaftServer::AppendLogEntries(uint64_t leader_commit_index,
         log[current_index].term != new_entries[i].term)
       DeleteLogSuffix(current_index);
     DCHECK(log.size() >= current_index);
-    if (log.size() == current_index)
-      log.emplace_back(new_entries[i]);
+    if (log.size() == current_index) log.emplace_back(new_entries[i]);
   }
 
   // See Raft paper 5.3

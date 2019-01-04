@@ -15,3 +15,6 @@ add_subdirectory(auth)
 
 # distributed test binaries
 add_subdirectory(distributed)
+
+# raft test binaries
+add_subdirectory(ha_basic)

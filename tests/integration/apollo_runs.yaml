@@ -50,3 +50,13 @@
     - runner.py # runner script
     - ../../../build_debug/memgraph_distributed # memgraph distributed binary
     - ../../../build_debug/tests/integration/distributed/tester # tester binary
+
+- name: integration__ha_basic
+  cd: ha_basic
+  commands: ./runner.py
+  infiles:
+    - runner.py # runner script
+    - raft.json # raft configuration
+    - coordination.json # coordination configuration
+    - ../../../build_debug/memgraph_ha # memgraph distributed binary
+    - ../../../build_debug/tests/integration/ha_basic/tester # tester binary

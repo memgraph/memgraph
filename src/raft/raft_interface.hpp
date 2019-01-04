@@ -18,6 +18,9 @@ class RaftInterface {
   /// committed in local storage.
   virtual bool SafeToCommit(const tx::TransactionId &tx_id) = 0;
 
+  /// Returns true if the current servers mode is LEADER. False otherwise.
+  virtual bool IsLeader() = 0;
+
  protected:
   ~RaftInterface() {}
 };

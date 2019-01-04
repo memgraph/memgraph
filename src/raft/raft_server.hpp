@@ -95,6 +95,9 @@ class RaftServer final : public RaftInterface {
   /// committed in local storage.
   bool SafeToCommit(const tx::TransactionId &tx_id) override;
 
+  /// Returns true if the current servers mode is LEADER. False otherwise.
+  bool IsLeader() override;
+
   void GarbageCollectReplicationLog(const tx::TransactionId &tx_id);
 
  private:
@@ -145,10 +148,10 @@ class RaftServer final : public RaftInterface {
   database::StateDeltaApplier *delta_applier_{nullptr};
   std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
-  std::atomic<Mode> mode_;              ///< Server's current mode.
-  uint16_t server_id_;     ///< ID of the current server.
-  uint64_t commit_index_;  ///< Index of the highest known committed entry.
-  uint64_t last_applied_;  ///< Index of the highest applied entry to SM.
+  std::atomic<Mode> mode_;  ///< Server's current mode.
+  uint16_t server_id_;      ///< ID of the current server.
+  uint64_t commit_index_;   ///< Index of the highest known committed entry.
+  uint64_t last_applied_;   ///< Index of the highest applied entry to SM.
 
   /// Raft log entry buffer.
   ///
@@ -163,12 +166,12 @@ class RaftServer final : public RaftInterface {
   std::condition_variable state_changed_;  ///< Notifies all peer threads on
                                            ///< relevant state change.
 
-  std::thread no_op_issuer_thread_; ///< Thread responsible for issuing no-op
-                                    ///< command on leader change.
+  std::thread no_op_issuer_thread_;  ///< Thread responsible for issuing no-op
+                                     ///< command on leader change.
 
-  std::condition_variable leader_changed_; ///< Notifies the no_op_issuer_thread
-                                           ///< that a new leader has been
-                                           ///< elected.
+  std::condition_variable leader_changed_;  ///< Notifies the
+                                            ///< no_op_issuer_thread that a new
+                                            ///< leader has been elected.
 
   bool exiting_ = false;  ///< True on server shutdown.
 

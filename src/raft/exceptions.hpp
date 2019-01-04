@@ -55,15 +55,13 @@ class MissingPersistentDataException : public RaftException {
 };
 
 /// This exception should be thrown when a `RaftServer` instance attempts to
-/// read from replication log from a invalid mode or for a garbage collected
-/// transaction.
+/// read from replication log for a garbage collected transaction or a
+/// transaction that didn't begin.
 class InvalidReplicationLogLookup : public RaftException {
  public:
   using RaftException::RaftException;
   InvalidReplicationLogLookup()
-      : RaftException(
-            "Replication log lookup for invalid transaction or from invalid "
-            "mode.") {}
+      : RaftException("Replication log lookup for invalid transaction.") {}
 };
 
 }  // namespace raft
