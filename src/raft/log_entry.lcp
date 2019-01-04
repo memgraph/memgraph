@@ -15,6 +15,10 @@ cpp<#
 (lcp:define-struct log-entry ()
   ((term :uint64_t)
    (deltas "std::vector<database::StateDelta>" :capnp-type "List(Database.StateDelta)"))
+   (:public #>cpp
+   LogEntry() = default;
+   LogEntry(uint64_t _term, std::vector<database::StateDelta> _deltas): term(_term), deltas(_deltas) {}
+   cpp<#)
   (:serialize (:slk) (:capnp)))
 
 (lcp:pop-namespace) ;; raft

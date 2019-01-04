@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -51,7 +52,7 @@ class RaftServer final : public RaftInterface {
   /// @param durbility_dir directory for persisted data.
   /// @param config raft configuration.
   /// @param coordination Abstraction for coordination between Raft servers.
-  /// @param delta_applier TODO
+  /// @param delta_applier Object which is able to apply state deltas to SM.
   /// @param reset_callback Function that is called on each Leader->Follower
   ///                       transition.
   RaftServer(uint16_t server_id, const std::string &durability_dir,
@@ -81,10 +82,10 @@ class RaftServer final : public RaftInterface {
   /// persistent storage, an empty Log will be created.
   std::vector<LogEntry> Log();
 
-  /// Append the log to the list of completed logs that are ready to be
+  /// Append to the log a list of batched state deltasa that are ready to be
   /// replicated.
   void AppendToLog(const tx::TransactionId &tx_id,
-                   const std::vector<database::StateDelta> &log);
+                   const std::vector<database::StateDelta> &deltas);
 
   /// Emplace a single StateDelta to the corresponding batch. If the StateDelta
   /// marks the transaction end, it will replicate the log accorss the cluster.
@@ -126,7 +127,7 @@ class RaftServer final : public RaftInterface {
 
    private:
     bool enabled_{false};
-    mutable std::mutex lock_;
+    mutable std::mutex buffer_lock_;
     std::unordered_map<tx::TransactionId, std::vector<database::StateDelta>>
         logs_;
 
@@ -144,7 +145,7 @@ class RaftServer final : public RaftInterface {
   database::StateDeltaApplier *delta_applier_{nullptr};
   std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
-  Mode mode_;              ///< Server's current mode.
+  std::atomic<Mode> mode_;              ///< Server's current mode.
   uint16_t server_id_;     ///< ID of the current server.
   uint64_t commit_index_;  ///< Index of the highest known committed entry.
   uint64_t last_applied_;  ///< Index of the highest applied entry to SM.
@@ -161,6 +162,13 @@ class RaftServer final : public RaftInterface {
 
   std::condition_variable state_changed_;  ///< Notifies all peer threads on
                                            ///< relevant state change.
+
+  std::thread no_op_issuer_thread_; ///< Thread responsible for issuing no-op
+                                    ///< command on leader change.
+
+  std::condition_variable leader_changed_; ///< Notifies the no_op_issuer_thread
+                                           ///< that a new leader has been
+                                           ///< elected.
 
   bool exiting_ = false;  ///< True on server shutdown.
 
@@ -187,10 +195,10 @@ class RaftServer final : public RaftInterface {
   // volatile state on leaders
   //////////////////////////////////////////////////////////////////////////////
 
-  std::vector<uint16_t> next_index_;  ///< for each server, index of the next
+  std::vector<uint64_t> next_index_;  ///< for each server, index of the next
                                       ///< log entry to send to that server.
 
-  std::vector<uint16_t> match_index_;  ///< for each server, index of the
+  std::vector<uint64_t> match_index_;  ///< for each server, index of the
                                        ///< highest log entry known to be
                                        ///< replicated on server.
 
@@ -225,9 +233,20 @@ class RaftServer final : public RaftInterface {
   /// Updates the current term.
   void UpdateTerm(uint64_t new_term);
 
+  /// Tries to advance the commit index on a leader.
+  void AdvanceCommitIndex();
+
   /// Recovers from persistent storage. This function should be called from
   /// the constructor before the server starts with normal operation.
   void Recover();
+
+  /// Sends Entries to peer. This function should only be called in leader
+  /// mode.
+  ///
+  /// @param peer_id ID of the peer which receives entries.
+  /// @param lock Lock from the peer thread (released while waiting for
+  ///             response)
+  void SendEntries(uint16_t peer_id, std::unique_lock<std::mutex> &lock);
 
   /// Main function of the `election_thread_`. It is responsible for
   /// transition to CANDIDATE mode when election timeout elapses.
@@ -237,7 +256,12 @@ class RaftServer final : public RaftInterface {
   /// specified node within the Raft cluster.
   ///
   /// @param peer_id - ID of a receiving node in the cluster.
-  void PeerThreadMain(int peer_id);
+  void PeerThreadMain(uint16_t peer_id);
+
+  /// Issues no-op command when a new leader is elected. This is done to
+  /// force the Raft protocol to commit logs from previous terms that
+  /// have been replicated on a majority of peers.
+  void NoOpIssuerThreadMain();
 
   /// Sets the `TimePoint` for next election.
   void SetNextElectionTimePoint();
@@ -278,14 +302,24 @@ class RaftServer final : public RaftInterface {
   ///                       1-indexed.
   void DeleteLogSuffix(int starting_index);
 
+  /// Stores log entries with indexes that are greater or equal to the given
+  /// starting index into a provided container. If the starting index is
+  /// greater than the log size, nothing will be stored in the provided
+  /// container.
+  ///
+  /// @param starting_index Smallest index which will be stored.
+  /// @param entries The container which will store the wanted suffix.
+  void GetLogSuffix(int starting_index, std::vector<raft::LogEntry> &entries);
+
   /// Appends new log entries to Raft log. Note that this function is not
   /// smart in any way, i.e. the caller should make sure that it's safe
   /// to call this function. This function also updates this server's commit
   /// index if necessary.
   ///
   /// @param leader_commit_index - Used to update local commit index.
+  /// @param starting_index - Index in the log from which we start to append.
   /// @param new_entries - New `LogEntry` instances to be appended in the log.
-  void AppendLogEntries(uint64_t leader_commit_index,
+  void AppendLogEntries(uint64_t leader_commit_index, uint64_t starting_index,
                         const std::vector<LogEntry> &new_entries);
 
   /// Serializes Raft log into `std::string`.
@@ -294,9 +328,6 @@ class RaftServer final : public RaftInterface {
   /// Deserializes Raft log from `std::string`.
   std::vector<LogEntry> DeserializeLog(const std::string &serialized_log);
 
-  void ResetReplicationLog() {
-    rlog_ = nullptr;
-    rlog_ = std::make_unique<ReplicationLog>();
-  }
+  void ResetReplicationLog();
 };
 }  // namespace raft
