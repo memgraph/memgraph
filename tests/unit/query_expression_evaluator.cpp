@@ -1232,6 +1232,43 @@ TEST_F(FunctionTest, Tail) {
   ASSERT_THROW(EvaluateFunction("TAIL", {2}), QueryRuntimeException);
 }
 
+TEST_F(FunctionTest, UniformSample) {
+  ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE", {}), QueryRuntimeException);
+  ASSERT_TRUE(
+      EvaluateFunction("UNIFORMSAMPLE", {TypedValue::Null, TypedValue::Null})
+          .IsNull());
+  ASSERT_TRUE(
+      EvaluateFunction("UNIFORMSAMPLE", {TypedValue::Null, 1}).IsNull());
+  ASSERT_THROW(EvaluateFunction("UNIFORMSAMPLE",
+                                {std::vector<TypedValue>{}, TypedValue::Null}),
+               QueryRuntimeException);
+  ASSERT_TRUE(EvaluateFunction("UNIFORMSAMPLE", {std::vector<TypedValue>{}, 1})
+                  .IsNull());
+  ASSERT_THROW(
+      EvaluateFunction("UNIFORMSAMPLE", {std::vector<TypedValue>{1, 2, 3}, -1}),
+      QueryRuntimeException);
+  ASSERT_EQ(
+      EvaluateFunction("UNIFORMSAMPLE", {std::vector<TypedValue>{1, 2, 3}, 0})
+          .ValueList()
+          .size(),
+      0);
+  ASSERT_EQ(
+      EvaluateFunction("UNIFORMSAMPLE", {std::vector<TypedValue>{1, 2, 3}, 2})
+          .ValueList()
+          .size(),
+      2);
+  ASSERT_EQ(
+      EvaluateFunction("UNIFORMSAMPLE", {std::vector<TypedValue>{1, 2, 3}, 3})
+          .ValueList()
+          .size(),
+      3);
+  ASSERT_EQ(
+      EvaluateFunction("UNIFORMSAMPLE", {std::vector<TypedValue>{1, 2, 3}, 5})
+          .ValueList()
+          .size(),
+      5);
+}
+
 TEST_F(FunctionTest, Abs) {
   ASSERT_THROW(EvaluateFunction("ABS", {}), QueryRuntimeException);
   ASSERT_TRUE(EvaluateFunction("ABS", {TypedValue::Null}).IsNull());
