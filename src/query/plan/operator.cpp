@@ -30,7 +30,6 @@
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
 #include "utils/string.hpp"
-#include "utils/thread/sync.hpp"
 
 // macro for the default implementation of LogicalOperator::Accept
 // that accepts the visitor and visits it's input_ operator

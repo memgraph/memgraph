@@ -10,7 +10,7 @@
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/timer.hpp"
 
 DECLARE_bool(query_cost_planner);

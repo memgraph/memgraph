@@ -20,7 +20,7 @@
 #include "io/network/socket.hpp"
 #include "io/network/stream_buffer.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace communication {
 

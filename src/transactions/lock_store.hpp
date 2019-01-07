@@ -8,7 +8,7 @@
 #include "storage/common/locking/lock_status.hpp"
 #include "storage/common/locking/record_lock.hpp"
 #include "transactions/type.hpp"
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace tx {
 

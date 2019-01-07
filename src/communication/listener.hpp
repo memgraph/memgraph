@@ -14,8 +14,8 @@
 #include "io/network/epoll.hpp"
 #include "io/network/socket.hpp"
 #include "utils/signals.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/thread.hpp"
-#include "utils/thread/sync.hpp"
 
 namespace communication {
 

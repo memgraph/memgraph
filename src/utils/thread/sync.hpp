@@ -5,12 +5,11 @@
 #include <unistd.h>
 
 #include <atomic>
-#include <cerrno>
-#include <chrono>
 #include <cstdint>
 #include <mutex>
 
 #include "utils/exceptions.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace utils {
 
@@ -45,59 +44,6 @@ class CasLock {
 
  private:
   std::atomic<bool> lock_flag;
-};
-
-/// Spinlock is used as a locking mechanism based on an atomic flag and waiting
-/// loops.
-///
-/// It uses the CpuRelax "asm pause" command to optimize wasted time while the
-/// threads are waiting.
-class SpinLock {
- public:
-  void lock() {  // Before was memory_order_acquire
-    while (lock_flag_.test_and_set()) {
-      CpuRelax();
-    }
-  }
-  // Before was memory_order_release
-  void unlock() { lock_flag_.clear(); }
-
-  bool try_lock() { return !lock_flag_.test_and_set(); }
-
- private:
-  // guaranteed by standard to be lock free!
-  mutable std::atomic_flag lock_flag_ = ATOMIC_FLAG_INIT;
-};
-
-template <size_t microseconds = 250>
-class TimedSpinLock {
- public:
-  TimedSpinLock(std::chrono::seconds expiration) : expiration_(expiration) {}
-
-  void lock() {
-    using clock = std::chrono::high_resolution_clock;
-
-    auto start = clock::now();
-
-    while (!lock_flag.test_and_set(std::memory_order_acquire)) {
-      // how long have we been locked? if we exceeded the expiration
-      // time, throw an exception and stop being blocked because this
-      // might be a deadlock!
-
-      if (clock::now() - start > expiration_)
-        throw LockTimeoutException("This lock has expired");
-
-      usleep(microseconds);
-    }
-  }
-
-  void unlock() { lock_flag.clear(std::memory_order_release); }
-
- private:
-  std::chrono::milliseconds expiration_;
-
-  // guaranteed by standard to be lock free!
-  std::atomic_flag lock_flag = ATOMIC_FLAG_INIT;
 };
 
 /// By passing the appropriate parameter to the `RWLock` constructor, it is

@@ -10,7 +10,7 @@
 #include "transactions/commit_log.hpp"
 #include "transactions/distributed/engine.hpp"
 #include "transactions/transaction.hpp"
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 
 namespace tx {
 

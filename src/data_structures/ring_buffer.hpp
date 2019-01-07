@@ -9,7 +9,7 @@
 
 #include "glog/logging.h"
 
-#include "utils/thread/sync.hpp"
+#include "utils/spin_lock.hpp"
 
 /**
  * A thread-safe ring buffer. Multi-producer, multi-consumer. Producers get
