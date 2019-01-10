@@ -15,7 +15,21 @@ PlanPrinter::PlanPrinter(const database::GraphDbAccessor *dba,
   }
 
 PRE_VISIT(CreateNode);
-PRE_VISIT(CreateExpand);
+
+bool PlanPrinter::PreVisit(CreateExpand &op) {
+  WithPrintLn([&](auto &out) {
+    out << "* CreateExpand (" << op.input_symbol_.name() << ")"
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-"
+                                                                      : "-")
+        << "[" << op.edge_info_.symbol.name() << ":"
+        << dba_->EdgeTypeName(op.edge_info_.edge_type) << "]"
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->"
+                                                                       : "-")
+        << "(" << op.node_info_.symbol.name() << ")";
+  });
+  return true;
+}
+
 PRE_VISIT(Delete);
 
 bool PlanPrinter::PreVisit(query::plan::ScanAll &op) {
@@ -60,7 +74,12 @@ bool PlanPrinter::PreVisit(query::plan::Expand &op) {
     *out_ << "* Expand (" << op.input_symbol_.name() << ")"
           << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-"
                                                                      : "-")
-          << "[" << op.common_.edge_symbol.name() << "]"
+          << "[" << op.common_.edge_symbol.name();
+    utils::PrintIterable(*out_, op.common_.edge_types, "|",
+                         [this](auto &stream, const auto &edge_type) {
+                           stream << ":" << dba_->EdgeTypeName(edge_type);
+                         });
+    *out_ << "]"
           << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
                                                                       : "-")
           << "(" << op.common_.node_symbol.name() << ")";
@@ -73,7 +92,12 @@ bool PlanPrinter::PreVisit(query::plan::ExpandVariable &op) {
     *out_ << "* ExpandVariable (" << op.input_symbol_.name() << ")"
           << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-"
                                                                      : "-")
-          << "[" << op.common_.edge_symbol.name() << "]"
+          << "[" << op.common_.edge_symbol.name();
+    utils::PrintIterable(*out_, op.common_.edge_types, "|",
+                         [this](auto &stream, const auto &edge_type) {
+                           stream << ":" << dba_->EdgeTypeName(edge_type);
+                         });
+    *out_ << "]"
           << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
                                                                       : "-")
           << "(" << op.common_.node_symbol.name() << ")";

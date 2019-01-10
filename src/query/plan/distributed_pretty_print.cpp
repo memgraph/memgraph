@@ -6,7 +6,12 @@ bool DistributedPlanPrinter::PreVisit(query::plan::DistributedExpand &op) {
   WithPrintLn([&](auto &out) {
     out << "* DistributedExpand (" << op.input_symbol_.name() << ")"
         << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-")
-        << "[" << op.common_.edge_symbol.name() << "]"
+        << "[" << op.common_.edge_symbol.name();
+    utils::PrintIterable(out, op.common_.edge_types, "|",
+                         [this](auto &stream, const auto &edge_type) {
+                           stream << ":" << dba_->EdgeTypeName(edge_type);
+                         });
+    out << "]"
         << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
                                                                     : "-")
         << "(" << op.common_.node_symbol.name() << ")";
@@ -18,7 +23,12 @@ bool DistributedPlanPrinter::PreVisit(query::plan::DistributedExpandBfs &op) {
   WithPrintLn([&](auto &out) {
     out << "* DistributedExpandBfs (" << op.input_symbol_.name() << ")"
         << (op.common_.direction == query::EdgeAtom::Direction::IN ? "<-" : "-")
-        << "[" << op.common_.edge_symbol.name() << "]"
+        << "[" << op.common_.edge_symbol.name();
+    utils::PrintIterable(out, op.common_.edge_types, "|",
+                         [this](auto &stream, const auto &edge_type) {
+                           stream << ":" << dba_->EdgeTypeName(edge_type);
+                         });
+    out << "]"
         << (op.common_.direction == query::EdgeAtom::Direction::OUT ? "->"
                                                                     : "-")
         << "(" << op.common_.node_symbol.name() << ")";
@@ -62,7 +72,21 @@ bool DistributedPlanPrinter::PreVisit(query::plan::PullRemoteOrderBy &op) {
   }
 
 PRE_VISIT(DistributedCreateNode);
-PRE_VISIT(DistributedCreateExpand);
+
+bool DistributedPlanPrinter::PreVisit(DistributedCreateExpand &op) {
+  WithPrintLn([&](auto &out) {
+    out << "* DistributedCreateExpand (" << op.input_symbol_.name() << ")"
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::IN ? "<-"
+                                                                      : "-")
+        << "[" << op.edge_info_.symbol.name() << ":"
+        << dba_->EdgeTypeName(op.edge_info_.edge_type) << "]"
+        << (op.edge_info_.direction == query::EdgeAtom::Direction::OUT ? "->"
+                                                                       : "-")
+        << "(" << op.node_info_.symbol.name() << ")";
+  });
+  return true;
+}
+
 
 #undef PRE_VISIT
 

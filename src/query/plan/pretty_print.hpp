@@ -93,8 +93,6 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
   int64_t depth_{0};
-
- private:
   const database::GraphDbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
 };
