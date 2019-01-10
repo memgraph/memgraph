@@ -57,6 +57,5 @@
   infiles:
     - runner.py # runner script
     - raft.json # raft configuration
-    - coordination.json # coordination configuration
     - ../../../build_debug/memgraph_ha # memgraph distributed binary
     - ../../../build_debug/tests/integration/ha_basic/tester # tester binary
