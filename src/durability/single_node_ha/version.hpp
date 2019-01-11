@@ -27,11 +27,8 @@ constexpr int64_t kVersion{7};
 //
 // 4) A list of label+property indices.
 //
-// We must inline edges with nodes because some edges might be stored on other
-// worker (edges are always stored only on the worker of the edge source).
 // 5) Bolt encoded nodes. Each node is written in the following format:
 //      * gid, labels, properties
-//      * inlined edges (edge address, other endpoint address and edge type)
 // 6) Bolt encoded edges. Each edge is written in the following format:
 //      * gid
 //      * from, to
