@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 namespace utils {
 
 /// Type information on a C++ type.
@@ -12,7 +14,7 @@ struct TypeInfo {
   /// Unique ID for the type.
   uint64_t id;
   /// Pretty name of the type.
-  std::string name;
+  const char *name;
 };
 
 inline bool operator==(const TypeInfo &a, const TypeInfo &b) {
