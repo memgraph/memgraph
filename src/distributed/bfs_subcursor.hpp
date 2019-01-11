@@ -86,6 +86,8 @@ class ExpandBfsSubcursor {
 
   database::GraphDbAccessor *db_accessor() { return dba_; }
 
+  tx::TransactionId tx_id() { return tx_id_; }
+
   /// Used to reset subcursor state before starting expansion from new source.
   void Reset();
 
@@ -144,6 +146,9 @@ class ExpandBfsSubcursor {
 
   /// Index of the vertex from `to_visit_next_` to return on next pull.
   size_t pull_index_;
+
+  // Transaction ID used for transactional cache clean-up mechanism.
+  tx::TransactionId tx_id_;
 };
 
 /// Thread-safe storage for BFS subcursors.
@@ -158,8 +163,8 @@ class BfsSubcursorStorage {
                  std::unique_ptr<query::AstStorage> ast_storage,
                  query::plan::ExpansionLambda filter_lambda,
                  query::EvaluationContext evaluation_context);
-  void Erase(int64_t subcursor_id);
   ExpandBfsSubcursor *Get(int64_t subcursor_id);
+  void ClearTransactionalCache(tx::TransactionId oldest_active);
 
  private:
   BfsRpcClients *bfs_subcursor_clients_{nullptr};

@@ -30,7 +30,8 @@ ExpandBfsSubcursor::ExpandBfsSubcursor(
       evaluation_context_(std::move(evaluation_context)),
       frame_(symbol_table_.max_position()),
       expression_evaluator_(&frame_, symbol_table_, evaluation_context_, dba_,
-                            query::GraphView::OLD) {
+                            query::GraphView::OLD),
+      tx_id_(dba->transaction_id()) {
   Reset();
 }
 
@@ -205,18 +206,26 @@ int64_t BfsSubcursorStorage::Create(
   return id;
 }
 
-void BfsSubcursorStorage::Erase(int64_t subcursor_id) {
-  std::lock_guard<std::mutex> lock(mutex_);
-  auto removed = storage_.erase(subcursor_id);
-  CHECK(removed == 1) << "Subcursor with ID " << subcursor_id << " not found";
-}
-
 ExpandBfsSubcursor *BfsSubcursorStorage::Get(int64_t subcursor_id) {
   std::lock_guard<std::mutex> lock(mutex_);
   auto it = storage_.find(subcursor_id);
   CHECK(it != storage_.end())
       << "Subcursor with ID " << subcursor_id << " not found";
   return it->second.get();
+}
+
+void BfsSubcursorStorage::ClearTransactionalCache(
+    tx::TransactionId oldest_active) {
+  // It is unlikely this will become a performance issue, but if it does, we
+  // should store BFS subcursors in a lock-free map.
+  std::lock_guard<std::mutex> guard(mutex_);
+  for (auto it = storage_.begin(); it != storage_.end();) {
+    if (it->second->tx_id() < oldest_active) {
+      it = storage_.erase(it);
+    } else {
+      it++;
+    }
+  }
 }
 
 }  // namespace distributed

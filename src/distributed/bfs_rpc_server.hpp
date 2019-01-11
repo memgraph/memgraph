@@ -21,23 +21,27 @@ class BfsRpcServer {
                distributed::Coordination *coordination,
                BfsSubcursorStorage *subcursor_storage)
       : db_(db), subcursor_storage_(subcursor_storage) {
-    coordination->Register<CreateBfsSubcursorRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
-          CreateBfsSubcursorReq req;
-          auto ast_storage = std::make_unique<query::AstStorage>();
-          Load(&req, req_reader, ast_storage.get());
-          auto db_accessor = db_->Access(req.tx_id);
-          auto id = subcursor_storage_->Create(
-              db_accessor.get(), req.direction, req.edge_types,
-              std::move(req.symbol_table), std::move(ast_storage),
-              req.filter_lambda, std::move(req.evaluation_context));
-          {
-            std::lock_guard<std::mutex> guard(lock_);
-            db_accessors_[id] = std::move(db_accessor);
-          }
-          CreateBfsSubcursorRes res(id);
-          Save(res, res_builder);
-        });
+    coordination->Register<CreateBfsSubcursorRpc>([this](const auto &req_reader,
+                                                         auto *res_builder) {
+      CreateBfsSubcursorReq req;
+      auto ast_storage = std::make_unique<query::AstStorage>();
+      Load(&req, req_reader, ast_storage.get());
+      database::GraphDbAccessor *dba;
+      {
+        std::lock_guard<std::mutex> guard(lock_);
+        auto it = db_accessors_.find(req.tx_id);
+        if (it == db_accessors_.end()) {
+          it = db_accessors_.emplace(req.tx_id, db_->Access(req.tx_id)).first;
+        }
+        dba = it->second.get();
+      }
+      auto id = subcursor_storage_->Create(
+          dba, req.direction, req.edge_types, std::move(req.symbol_table),
+          std::move(ast_storage), req.filter_lambda,
+          std::move(req.evaluation_context));
+      CreateBfsSubcursorRes res(id);
+      Save(res, res_builder);
+    });
 
     coordination->Register<RegisterSubcursorsRpc>(
         [this](const auto &req_reader, auto *res_builder) {
@@ -55,19 +59,6 @@ class BfsRpcServer {
           Load(&req, req_reader);
           subcursor_storage_->Get(req.subcursor_id)->Reset();
           ResetSubcursorRes res;
-          Save(res, res_builder);
-        });
-
-    coordination->Register<RemoveBfsSubcursorRpc>(
-        [this](const auto &req_reader, auto *res_builder) {
-          RemoveBfsSubcursorReq req;
-          Load(&req, req_reader);
-          {
-            std::lock_guard<std::mutex> guard(lock_);
-            db_accessors_.erase(req.member);
-          }
-          subcursor_storage_->Erase(req.member);
-          RemoveBfsSubcursorRes res;
           Save(res, res_builder);
         });
 
@@ -145,11 +136,25 @@ class BfsRpcServer {
     });
   }
 
+  void ClearTransactionalCache(tx::TransactionId oldest_active) {
+    // It is unlikely this will become a performance issue, but if it does, we
+    // should store database accessors in a lock-free map.
+    std::lock_guard<std::mutex> guard(lock_);
+    for (auto it = db_accessors_.begin(); it != db_accessors_.end();) {
+      if (it->first < oldest_active) {
+        it = db_accessors_.erase(it);
+      } else {
+        it++;
+      }
+    }
+  }
+
  private:
   database::DistributedGraphDb *db_;
 
   std::mutex lock_;
-  std::map<int64_t, std::unique_ptr<database::GraphDbAccessor>> db_accessors_;
+  std::map<tx::TransactionId, std::unique_ptr<database::GraphDbAccessor>>
+      db_accessors_;
   BfsSubcursorStorage *subcursor_storage_;
 };
 

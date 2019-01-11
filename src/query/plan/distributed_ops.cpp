@@ -1207,13 +1207,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     }
   }
 
-  void Shutdown() override {
-    input_cursor_->Shutdown();
-    VLOG(10) << "Removing BFS subcursors";
-    // TODO: This should be done using the
-    // `RegisterForTransactionalCacheCleanup` mechanism.
-    bfs_subcursor_clients_->RemoveBfsSubcursors(subcursor_ids_);
-  }
+  void Shutdown() override { input_cursor_->Shutdown(); }
 
   void Reset() override {
     input_cursor_->Reset();

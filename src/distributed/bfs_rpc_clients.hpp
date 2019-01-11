@@ -38,9 +38,6 @@ class BfsRpcClients {
   void ResetSubcursors(
       const std::unordered_map<int16_t, int64_t> &subcursor_ids);
 
-  void RemoveBfsSubcursors(
-      const std::unordered_map<int16_t, int64_t> &subcursor_ids);
-
   std::experimental::optional<VertexAccessor> Pull(
       int16_t worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba);
 

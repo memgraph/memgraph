@@ -67,20 +67,6 @@ void BfsRpcClients::ResetSubcursors(
   }
 }
 
-void BfsRpcClients::RemoveBfsSubcursors(
-    const std::unordered_map<int16_t, int64_t> &subcursor_ids) {
-  auto futures = coordination_->ExecuteOnWorkers<void>(
-      db_->WorkerId(), [&subcursor_ids](int worker_id, auto &client) {
-        client.template Call<RemoveBfsSubcursorRpc>(
-            subcursor_ids.at(worker_id));
-      });
-  subcursor_storage_->Erase(subcursor_ids.at(db_->WorkerId()));
-  // Wait and get all of the replies.
-  for (auto &future : futures) {
-    if (future.valid()) future.get();
-  }
-}
-
 std::experimental::optional<VertexAccessor> BfsRpcClients::Pull(
     int16_t worker_id, int64_t subcursor_id, database::GraphDbAccessor *dba) {
   if (worker_id == db_->WorkerId()) {

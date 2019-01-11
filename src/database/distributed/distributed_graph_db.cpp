@@ -651,6 +651,10 @@ Master::Master(Config config)
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
       impl_->updates_server_);
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(impl_->data_manager_);
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
+      impl_->subcursor_storage_);
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
+      impl_->bfs_subcursor_server_);
 }
 
 Master::~Master() {}
@@ -1030,6 +1034,10 @@ Worker::Worker(Config config)
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(impl_->data_manager_);
   impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
       impl_->produce_server_);
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
+      impl_->subcursor_storage_);
+  impl_->tx_engine_.RegisterForTransactionalCacheCleanup(
+      impl_->bfs_subcursor_server_);
 }
 
 Worker::~Worker() {}
