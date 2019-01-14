@@ -206,6 +206,9 @@ target_link_libraries(${test_prefix}record_edge_vertex_accessor mg-single-node k
 add_unit_test(serialization.cpp)
 target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
 
+add_unit_test(skip_list.cpp)
+target_link_libraries(${test_prefix}skip_list mg-utils)
+
 add_unit_test(skiplist_access.cpp)
 target_link_libraries(${test_prefix}skiplist_access mg-single-node kvstore_dummy_lib)
 

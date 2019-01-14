@@ -54,6 +54,18 @@ target_link_libraries(${test_prefix}rpc mg-communication)
 add_benchmark(serialization.cpp)
 target_link_libraries(${test_prefix}serialization mg-distributed kvstore_dummy_lib)
 
+add_benchmark(skip_list_random.cpp)
+target_link_libraries(${test_prefix}skip_list_random mg-utils)
+
+add_benchmark(skip_list_real_world.cpp)
+target_link_libraries(${test_prefix}skip_list_real_world mg-utils)
+
+add_benchmark(skip_list_same_item.cpp)
+target_link_libraries(${test_prefix}skip_list_same_item mg-utils)
+
+add_benchmark(skip_list_vs_stl.cpp)
+target_link_libraries(${test_prefix}skip_list_vs_stl mg-utils)
+
 add_benchmark(tx_engine.cpp)
 target_link_libraries(${test_prefix}tx_engine mg-single-node kvstore_dummy_lib)
 

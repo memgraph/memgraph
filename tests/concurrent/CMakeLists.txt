@@ -44,6 +44,24 @@ target_link_libraries(${test_prefix}network_session_leak mg-single-node kvstore_
 add_concurrent_test(push_queue.cpp)
 target_link_libraries(${test_prefix}push_queue mg-single-node kvstore_dummy_lib)
 
+add_concurrent_test(stack.cpp)
+target_link_libraries(${test_prefix}stack mg-utils)
+
+add_concurrent_test(skip_list_insert.cpp)
+target_link_libraries(${test_prefix}skip_list_insert mg-utils)
+
+add_concurrent_test(skip_list_insert_competitive.cpp)
+target_link_libraries(${test_prefix}skip_list_insert_competitive mg-utils)
+
+add_concurrent_test(skip_list_mixed.cpp)
+target_link_libraries(${test_prefix}skip_list_mixed mg-utils)
+
+add_concurrent_test(skip_list_remove.cpp)
+target_link_libraries(${test_prefix}skip_list_remove mg-utils)
+
+add_concurrent_test(skip_list_remove_competitive.cpp)
+target_link_libraries(${test_prefix}skip_list_remove_competitive mg-utils)
+
 add_concurrent_test(sl_hang.cpp)
 target_link_libraries(${test_prefix}sl_hang mg-single-node kvstore_dummy_lib)
 
