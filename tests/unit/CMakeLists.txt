@@ -116,6 +116,12 @@ target_link_libraries(${test_prefix}durability mg-single-node kvstore_dummy_lib)
 add_unit_test(dynamic_bitset.cpp)
 target_link_libraries(${test_prefix}dynamic_bitset mg-single-node kvstore_dummy_lib)
 
+add_unit_test(edges_distributed.cpp)
+target_link_libraries(${test_prefix}edges_distributed mg-distributed kvstore_dummy_lib)
+
+add_unit_test(edges_single_node.cpp)
+target_link_libraries(${test_prefix}edges_single_node mg-single-node kvstore_dummy_lib)
+
 add_unit_test(gid.cpp)
 target_link_libraries(${test_prefix}gid mg-distributed kvstore_dummy_lib)
 

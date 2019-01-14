@@ -86,15 +86,18 @@ class Edges {
     /** Helper function that skips edges that don't satisfy the predicate
      * present in this iterator. */
     void update_position() {
-      if (vertex_) {
-        position_ = std::find_if(position_,
-                                 end_, [v = this->vertex_](const Element &e) {
-                                   return e.vertex == v;
-                                 });
-      }
-      if (edge_types_) {
+      if (vertex_ && edge_types_) {
         position_ = std::find_if(position_, end_, [this](const Element &e) {
-          return utils::Contains(*edge_types_, e.edge_type);
+          return e.vertex == this->vertex_ &&
+                 utils::Contains(*this->edge_types_, e.edge_type);
+        });
+      } else if (vertex_) {
+        position_ = std::find_if(position_, end_, [this](const Element &e) {
+          return e.vertex == this->vertex_;
+        });
+      } else if (edge_types_) {
+        position_ = std::find_if(position_, end_, [this](const Element &e) {
+          return utils::Contains(*this->edge_types_, e.edge_type);
         });
       }
     }
