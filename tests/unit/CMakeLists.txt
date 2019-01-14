@@ -62,6 +62,9 @@ target_link_libraries(${test_prefix}durability mg-single-node kvstore_dummy_lib)
 add_unit_test(dynamic_bitset.cpp)
 target_link_libraries(${test_prefix}dynamic_bitset mg-single-node kvstore_dummy_lib)
 
+add_unit_test(edges_single_node.cpp)
+target_link_libraries(${test_prefix}edges_single_node mg-single-node kvstore_dummy_lib)
+
 add_unit_test(graph_db_accessor.cpp)
 target_link_libraries(${test_prefix}graph_db_accessor mg-single-node kvstore_dummy_lib)
 
