@@ -1,0 +1,6 @@
+{
+  "election_timeout_min": 100,
+  "election_timeout_max": 300,
+  "heartbeat_interval": 1,
+  "replicate_timeout": 100
+}
