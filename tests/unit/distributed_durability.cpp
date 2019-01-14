@@ -3,9 +3,10 @@
 #include "distributed_common.hpp"
 
 #include "database/distributed/graph_db_accessor.hpp"
+#include "durability/distributed/paths.hpp"
 #include "durability/distributed/snapshooter.hpp"
 #include "durability/distributed/version.hpp"
-#include "durability/distributed/paths.hpp"
+#include "utils/file.hpp"
 #include "utils/string.hpp"
 
 std::vector<fs::path> DirFiles(fs::path dir) {
@@ -194,6 +195,27 @@ TEST_F(DistributedDurability, RecoveryFailure) {
   }
   ::testing::FLAGS_gtest_death_test_style = "threadsafe";
   EXPECT_DEATH(RestartWithRecovery(), "worker failed to recover");
+}
+
+TEST_F(DistributedDurability, InvalidSnapshotRecovery) {
+  {
+    auto dba = master().Access();
+    // Make sure we first create a valid snapshot to ensure valid dir structure.
+    master().MakeSnapshot(*dba);
+
+    auto path = durability::MakeSnapshotPath(
+        GetDurabilityDirectory(0), master().WorkerId(), dba->transaction_id());
+
+    // Create a fake snapshot.
+    utils::LogFile snapshot;
+    snapshot.Open(path);
+    snapshot.Write("This is not the snapshot you're looking for");
+    snapshot.Sync();
+  }
+  // We expect that the db doesn't crash on the next line.
+  RestartWithRecovery();
+  // Make sure we didn't recover anything from the corrupted snapshot.
+  CheckVertices(0);
 }
 
 TEST_F(DistributedDurability, WalWrite) {
