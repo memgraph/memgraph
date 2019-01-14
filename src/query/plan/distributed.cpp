@@ -139,7 +139,10 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
       auto ident = storage_->Create<Identifier>(
           scan.output_symbol_.name(), scan.output_symbol_.user_declared());
       (*symbol_table_)[*ident] = scan.output_symbol_;
-      return storage_->Create<PropertyLookup>(ident, "", scan.property_);
+      // TODO: When this extraction of a filter is removed, also remove
+      // property_name from ScanAll operators.
+      return storage_->Create<PropertyLookup>(
+          ident, storage_->GetPropertyIx(scan.property_name_));
     };
     Expression *extracted_filter = nullptr;
     std::shared_ptr<ScanAll> new_scan;
@@ -163,7 +166,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
         // Case 1.a)
         new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
             scan.input(), scan.output_symbol_, scan.label_, scan.property_,
-            std::experimental::nullopt, scan.upper_bound_, scan.graph_view_);
+            scan.property_name_, std::experimental::nullopt, scan.upper_bound_,
+            scan.graph_view_);
       }
     }
     if (upper_depends) {
@@ -192,7 +196,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
           // Case 1.a)
           new_scan = std::make_shared<ScanAllByLabelPropertyRange>(
               scan.input(), scan.output_symbol_, scan.label_, scan.property_,
-              scan.lower_bound_, std::experimental::nullopt, scan.graph_view_);
+              scan.property_name_, scan.lower_bound_,
+              std::experimental::nullopt, scan.graph_view_);
         } else {
           // Case 1.b)
           new_scan = std::make_shared<ScanAllByLabel>(
@@ -231,8 +236,8 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
       auto ident = storage_->Create<Identifier>(
           scan.output_symbol_.name(), scan.output_symbol_.user_declared());
       (*symbol_table_)[*ident] = scan.output_symbol_;
-      auto prop_lookup =
-          storage_->Create<PropertyLookup>(ident, "", scan.property_);
+      auto prop_lookup = storage_->Create<PropertyLookup>(
+          ident, storage_->GetPropertyIx(scan.property_name_));
       auto prop_equal =
           storage_->Create<EqualOperator>(prop_lookup, scan.expression_);
       auto parent = std::make_shared<Filter>(subtree, prop_equal);
@@ -1630,9 +1635,12 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
 
 }  // namespace
 
-DistributedPlan MakeDistributedPlan(const LogicalOperator &original_plan,
-                                    const SymbolTable &symbol_table,
-                                    std::atomic<int64_t> &next_plan_id) {
+DistributedPlan MakeDistributedPlan(
+    const AstStorage &ast_storage, const LogicalOperator &original_plan,
+    const SymbolTable &symbol_table, std::atomic<int64_t> &next_plan_id,
+    // TODO: Remove this variable when we remove creating a `PropertyLookup`
+    // expression during distributed planning.
+    const std::vector<storage::Property> &properties_by_ix) {
   DistributedPlan distributed_plan;
   // If we will generate multiple worker plans, we will need to increment the
   // next_plan_id for each one.

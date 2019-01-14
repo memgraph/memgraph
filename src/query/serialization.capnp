@@ -17,11 +17,6 @@ struct TypedValueVectorCompare {
   ordering @0 :List(Ast.Ordering);
 }
 
-struct EvaluationContext {
-  timestamp @0 : Int64;
-  params @1 : Utils.Map(Utils.BoxInt64, Storage.PropertyValue);
-}
-
 struct TypedValue {
   union {
     nullType @0 :Void;

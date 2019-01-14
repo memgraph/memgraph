@@ -152,7 +152,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
 }  // namespace
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
-                               const Symbol &symbol, storage::Property property,
+                               const Symbol &symbol, PropertyIx property,
                                Expression *value)
     : symbol_(symbol), property_(property), value_(value) {
   UsedSymbolsCollector collector(symbol_table);
@@ -162,7 +162,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
 
 PropertyFilter::PropertyFilter(
     const SymbolTable &symbol_table, const Symbol &symbol,
-    storage::Property property,
+    PropertyIx property,
     const std::experimental::optional<PropertyFilter::Bound> &lower_bound,
     const std::experimental::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
@@ -189,7 +189,7 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
-void Filters::EraseLabelFilter(const Symbol &symbol, storage::Label label) {
+void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label) {
   for (auto filter_it = all_filters_.begin();
        filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
@@ -282,7 +282,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
                              collector.symbols_};
       // Store a PropertyFilter on the value of the property.
       filter_info.property_filter.emplace(
-          symbol_table, symbol, prop_pair.first.second, prop_pair.second);
+          symbol_table, symbol, prop_pair.first, prop_pair.second);
       all_filters_.emplace_back(filter_info);
     }
   };

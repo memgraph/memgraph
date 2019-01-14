@@ -48,17 +48,24 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     frame[symbol] = value;
     return id;
   }
+
+  template <class TExpression>
+  auto Eval(TExpression *expr) {
+    ctx.properties = NamesToProperties(storage.properties_, dba.get());
+    ctx.labels = NamesToLabels(storage.labels_, dba.get());
+    return expr->Accept(eval);
+  }
 };
 
 TEST_F(ExpressionEvaluatorTest, OrOperator) {
   auto *op =
       storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true),
                                  storage.Create<PrimitiveLiteral>(false));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), true);
   op = storage.Create<OrOperator>(storage.Create<PrimitiveLiteral>(true),
                                   storage.Create<PrimitiveLiteral>(true));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
 }
 
@@ -66,11 +73,11 @@ TEST_F(ExpressionEvaluatorTest, XorOperator) {
   auto *op =
       storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true),
                                   storage.Create<PrimitiveLiteral>(false));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), true);
   op = storage.Create<XorOperator>(storage.Create<PrimitiveLiteral>(true),
                                    storage.Create<PrimitiveLiteral>(true));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), false);
 }
 
@@ -78,11 +85,11 @@ TEST_F(ExpressionEvaluatorTest, AndOperator) {
   auto *op =
       storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(true),
                                   storage.Create<PrimitiveLiteral>(true));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), true);
   op = storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false),
                                    storage.Create<PrimitiveLiteral>(true));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), false);
 }
 
@@ -91,7 +98,7 @@ TEST_F(ExpressionEvaluatorTest, AndOperatorShortCircuit) {
     auto *op =
         storage.Create<AndOperator>(storage.Create<PrimitiveLiteral>(false),
                                     storage.Create<PrimitiveLiteral>(5));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
   {
@@ -102,7 +109,7 @@ TEST_F(ExpressionEvaluatorTest, AndOperatorShortCircuit) {
     // raise due to `5`. This differs from neo4j, where they evaluate both
     // sides and return `false` without checking for type of the first
     // expression.
-    EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
 }
 
@@ -112,20 +119,20 @@ TEST_F(ExpressionEvaluatorTest, AndOperatorNull) {
     auto *op = storage.Create<AndOperator>(
         storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(5));
-    EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
   {
     auto *op = storage.Create<AndOperator>(
         storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(true));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     auto *op = storage.Create<AndOperator>(
         storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(false));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     ASSERT_TRUE(value.IsBool());
     EXPECT_EQ(value.ValueBool(), false);
   }
@@ -134,21 +141,21 @@ TEST_F(ExpressionEvaluatorTest, AndOperatorNull) {
 TEST_F(ExpressionEvaluatorTest, AdditionOperator) {
   auto *op = storage.Create<AdditionOperator>(
       storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueInt(), 5);
 }
 
 TEST_F(ExpressionEvaluatorTest, SubtractionOperator) {
   auto *op = storage.Create<SubtractionOperator>(
       storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueInt(), -1);
 }
 
 TEST_F(ExpressionEvaluatorTest, MultiplicationOperator) {
   auto *op = storage.Create<MultiplicationOperator>(
       storage.Create<PrimitiveLiteral>(2), storage.Create<PrimitiveLiteral>(3));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueInt(), 6);
 }
 
@@ -156,14 +163,14 @@ TEST_F(ExpressionEvaluatorTest, DivisionOperator) {
   auto *op =
       storage.Create<DivisionOperator>(storage.Create<PrimitiveLiteral>(50),
                                        storage.Create<PrimitiveLiteral>(10));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueInt(), 5);
 }
 
 TEST_F(ExpressionEvaluatorTest, ModOperator) {
   auto *op = storage.Create<ModOperator>(storage.Create<PrimitiveLiteral>(65),
                                          storage.Create<PrimitiveLiteral>(10));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueInt(), 5);
 }
 
@@ -171,15 +178,15 @@ TEST_F(ExpressionEvaluatorTest, EqualOperator) {
   auto *op =
       storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(10),
                                     storage.Create<PrimitiveLiteral>(15));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), false);
   op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(15),
                                      storage.Create<PrimitiveLiteral>(15));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
   op = storage.Create<EqualOperator>(storage.Create<PrimitiveLiteral>(20),
                                      storage.Create<PrimitiveLiteral>(15));
-  auto val3 = op->Accept(eval);
+  auto val3 = Eval(op);
   ASSERT_EQ(val3.ValueBool(), false);
 }
 
@@ -187,30 +194,30 @@ TEST_F(ExpressionEvaluatorTest, NotEqualOperator) {
   auto *op =
       storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(10),
                                        storage.Create<PrimitiveLiteral>(15));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), true);
   op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(15),
                                         storage.Create<PrimitiveLiteral>(15));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), false);
   op = storage.Create<NotEqualOperator>(storage.Create<PrimitiveLiteral>(20),
                                         storage.Create<PrimitiveLiteral>(15));
-  auto val3 = op->Accept(eval);
+  auto val3 = Eval(op);
   ASSERT_EQ(val3.ValueBool(), true);
 }
 
 TEST_F(ExpressionEvaluatorTest, LessOperator) {
   auto *op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(10),
                                           storage.Create<PrimitiveLiteral>(15));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), true);
   op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(15),
                                     storage.Create<PrimitiveLiteral>(15));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), false);
   op = storage.Create<LessOperator>(storage.Create<PrimitiveLiteral>(20),
                                     storage.Create<PrimitiveLiteral>(15));
-  auto val3 = op->Accept(eval);
+  auto val3 = Eval(op);
   ASSERT_EQ(val3.ValueBool(), false);
 }
 
@@ -218,15 +225,15 @@ TEST_F(ExpressionEvaluatorTest, GreaterOperator) {
   auto *op =
       storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(10),
                                       storage.Create<PrimitiveLiteral>(15));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), false);
   op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(15),
                                        storage.Create<PrimitiveLiteral>(15));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), false);
   op = storage.Create<GreaterOperator>(storage.Create<PrimitiveLiteral>(20),
                                        storage.Create<PrimitiveLiteral>(15));
-  auto val3 = op->Accept(eval);
+  auto val3 = Eval(op);
   ASSERT_EQ(val3.ValueBool(), true);
 }
 
@@ -234,15 +241,15 @@ TEST_F(ExpressionEvaluatorTest, LessEqualOperator) {
   auto *op =
       storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(10),
                                         storage.Create<PrimitiveLiteral>(15));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), true);
   op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(15),
                                          storage.Create<PrimitiveLiteral>(15));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
   op = storage.Create<LessEqualOperator>(storage.Create<PrimitiveLiteral>(20),
                                          storage.Create<PrimitiveLiteral>(15));
-  auto val3 = op->Accept(eval);
+  auto val3 = Eval(op);
   ASSERT_EQ(val3.ValueBool(), false);
 }
 
@@ -250,17 +257,17 @@ TEST_F(ExpressionEvaluatorTest, GreaterEqualOperator) {
   auto *op = storage.Create<GreaterEqualOperator>(
       storage.Create<PrimitiveLiteral>(10),
       storage.Create<PrimitiveLiteral>(15));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), false);
   op = storage.Create<GreaterEqualOperator>(
       storage.Create<PrimitiveLiteral>(15),
       storage.Create<PrimitiveLiteral>(15));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
   op = storage.Create<GreaterEqualOperator>(
       storage.Create<PrimitiveLiteral>(20),
       storage.Create<PrimitiveLiteral>(15));
-  auto val3 = op->Accept(eval);
+  auto val3 = Eval(op);
   ASSERT_EQ(val3.ValueBool(), true);
 }
 
@@ -272,14 +279,14 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
     // Element exists in list.
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>(2), list_literal);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueBool(), true);
   }
   {
     // Element doesn't exist in list.
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>("x"), list_literal);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
   {
@@ -290,7 +297,7 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
     // Element doesn't exist in list with null element.
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>("x"), list_literal);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
@@ -298,14 +305,14 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>("x"),
         storage.Create<PrimitiveLiteral>(PropertyValue::Null));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Null literal.
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>(PropertyValue::Null), list_literal);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
@@ -313,7 +320,7 @@ TEST_F(ExpressionEvaluatorTest, InListOperator) {
     auto *op = storage.Create<InListOperator>(
         storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<ListLiteral>(std::vector<Expression *>()));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_FALSE(value.ValueBool());
   }
 }
@@ -327,28 +334,28 @@ TEST_F(ExpressionEvaluatorTest, ListIndexing) {
     // Legal indexing.
     auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(2));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueInt(), 3);
   }
   {
     // Out of bounds indexing.
     auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(4));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Out of bounds indexing with negative bound.
     auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-100));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Legal indexing with negative index.
     auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-2));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueInt(), 3);
   }
   {
@@ -356,51 +363,48 @@ TEST_F(ExpressionEvaluatorTest, ListIndexing) {
     auto *op = storage.Create<SubscriptOperator>(
         storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(-2));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Indexing with incompatible type.
     auto *op = storage.Create<SubscriptOperator>(
         list_literal, storage.Create<PrimitiveLiteral>("bla"));
-    EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
 }
 
 TEST_F(ExpressionEvaluatorTest, MapIndexing) {
-  auto *map_literal = storage.Create<MapLiteral>(
-      std::unordered_map<std::pair<std::string, storage::Property>,
-                         Expression *>{{std::make_pair("a", dba->Property("a")),
-                                        storage.Create<PrimitiveLiteral>(1)},
-                                       {std::make_pair("b", dba->Property("b")),
-                                        storage.Create<PrimitiveLiteral>(2)},
-                                       {std::make_pair("c", dba->Property("c")),
-                                        storage.Create<PrimitiveLiteral>(3)}});
+  auto *map_literal =
+      storage.Create<MapLiteral>(std::unordered_map<PropertyIx, Expression *>{
+          {storage.GetPropertyIx("a"), storage.Create<PrimitiveLiteral>(1)},
+          {storage.GetPropertyIx("b"), storage.Create<PrimitiveLiteral>(2)},
+          {storage.GetPropertyIx("c"), storage.Create<PrimitiveLiteral>(3)}});
   {
     // Legal indexing.
     auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>("b"));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueInt(), 2);
   }
   {
     // Legal indexing, non-existing key.
     auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>("z"));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
   {
     // Wrong key type.
     auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>(42));
-    EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
   {
     // Indexing with Null.
     auto *op = storage.Create<SubscriptOperator>(
         map_literal, storage.Create<PrimitiveLiteral>(PropertyValue::Null));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
 }
@@ -419,46 +423,46 @@ TEST_F(ExpressionEvaluatorTest, VertexAndEdgeIndexing) {
     // Legal indexing.
     auto *op1 = storage.Create<SubscriptOperator>(
         vertex_id, storage.Create<PrimitiveLiteral>("prop"));
-    auto value1 = op1->Accept(eval);
+    auto value1 = Eval(op1);
     EXPECT_EQ(value1.ValueInt(), 42);
 
     auto *op2 = storage.Create<SubscriptOperator>(
         edge_id, storage.Create<PrimitiveLiteral>("prop"));
-    auto value2 = op2->Accept(eval);
+    auto value2 = Eval(op2);
     EXPECT_EQ(value2.ValueInt(), 43);
   }
   {
     // Legal indexing, non-existing key.
     auto *op1 = storage.Create<SubscriptOperator>(
         vertex_id, storage.Create<PrimitiveLiteral>("blah"));
-    auto value1 = op1->Accept(eval);
+    auto value1 = Eval(op1);
     EXPECT_TRUE(value1.IsNull());
 
     auto *op2 = storage.Create<SubscriptOperator>(
         edge_id, storage.Create<PrimitiveLiteral>("blah"));
-    auto value2 = op2->Accept(eval);
+    auto value2 = Eval(op2);
     EXPECT_TRUE(value2.IsNull());
   }
   {
     // Wrong key type.
     auto *op1 = storage.Create<SubscriptOperator>(
         vertex_id, storage.Create<PrimitiveLiteral>(1));
-    EXPECT_THROW(op1->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op1), QueryRuntimeException);
 
     auto *op2 = storage.Create<SubscriptOperator>(
         edge_id, storage.Create<PrimitiveLiteral>(1));
-    EXPECT_THROW(op2->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op2), QueryRuntimeException);
   }
   {
     // Indexing with Null.
     auto *op1 = storage.Create<SubscriptOperator>(
         vertex_id, storage.Create<PrimitiveLiteral>(PropertyValue::Null));
-    auto value1 = op1->Accept(eval);
+    auto value1 = Eval(op1);
     EXPECT_TRUE(value1.IsNull());
 
     auto *op2 = storage.Create<SubscriptOperator>(
         edge_id, storage.Create<PrimitiveLiteral>(PropertyValue::Null));
-    auto value2 = op2->Accept(eval);
+    auto value2 = Eval(op2);
     EXPECT_TRUE(value2.IsNull());
   }
 }
@@ -481,7 +485,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(2),
         storage.Create<PrimitiveLiteral>(4));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_THAT(extract_ints(value), ElementsAre(3, 4));
   }
   {
@@ -489,7 +493,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(2),
         storage.Create<PrimitiveLiteral>(-1));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_THAT(extract_ints(value), ElementsAre(3));
   }
   {
@@ -497,7 +501,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(2),
         storage.Create<PrimitiveLiteral>(-4));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_THAT(extract_ints(value), ElementsAre());
   }
   {
@@ -505,21 +509,21 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-100),
         storage.Create<PrimitiveLiteral>(10));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_THAT(extract_ints(value), ElementsAre(1, 2, 3, 4));
   }
   {
     // Lower bound undefined.
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, nullptr, storage.Create<PrimitiveLiteral>(3));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_THAT(extract_ints(value), ElementsAre(1, 2, 3));
   }
   {
     // Upper bound undefined.
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-2), nullptr);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_THAT(extract_ints(value), ElementsAre(3, 4));
   }
   {
@@ -527,21 +531,21 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>("mirko"));
-    EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
   {
     // List of illegal type.
     auto *op = storage.Create<ListSlicingOperator>(
         storage.Create<PrimitiveLiteral>("a"),
         storage.Create<PrimitiveLiteral>(-2), nullptr);
-    EXPECT_THROW(op->Accept(eval), QueryRuntimeException);
+    EXPECT_THROW(Eval(op), QueryRuntimeException);
   }
   {
     // Null value list with undefined upper bound.
     auto *op = storage.Create<ListSlicingOperator>(
         storage.Create<PrimitiveLiteral>(PropertyValue::Null),
         storage.Create<PrimitiveLiteral>(-2), nullptr);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
     ;
   }
@@ -550,7 +554,7 @@ TEST_F(ExpressionEvaluatorTest, ListSlicingOperator) {
     auto *op = storage.Create<ListSlicingOperator>(
         list_literal, storage.Create<PrimitiveLiteral>(-2),
         storage.Create<PrimitiveLiteral>(PropertyValue::Null));
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
     ;
   }
@@ -565,7 +569,7 @@ TEST_F(ExpressionEvaluatorTest, IfOperator) {
                                       storage.Create<PrimitiveLiteral>(2));
     auto *op = storage.Create<IfOperator>(condition_true, then_expression,
                                           else_expression);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     ASSERT_EQ(value.ValueInt(), 10);
   }
   {
@@ -574,7 +578,7 @@ TEST_F(ExpressionEvaluatorTest, IfOperator) {
                                       storage.Create<PrimitiveLiteral>(3));
     auto *op = storage.Create<IfOperator>(condition_false, then_expression,
                                           else_expression);
-    auto value = op->Accept(eval);
+    auto value = Eval(op);
     ASSERT_EQ(value.ValueInt(), 20);
   }
   {
@@ -583,39 +587,39 @@ TEST_F(ExpressionEvaluatorTest, IfOperator) {
                                          storage.Create<PrimitiveLiteral>(3));
     auto *op = storage.Create<IfOperator>(condition_exception, then_expression,
                                           else_expression);
-    ASSERT_THROW(op->Accept(eval), QueryRuntimeException);
+    ASSERT_THROW(Eval(op), QueryRuntimeException);
   }
 }
 
 TEST_F(ExpressionEvaluatorTest, NotOperator) {
   auto *op =
       storage.Create<NotOperator>(storage.Create<PrimitiveLiteral>(false));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueBool(), true);
 }
 
 TEST_F(ExpressionEvaluatorTest, UnaryPlusOperator) {
   auto *op =
       storage.Create<UnaryPlusOperator>(storage.Create<PrimitiveLiteral>(5));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueInt(), 5);
 }
 
 TEST_F(ExpressionEvaluatorTest, UnaryMinusOperator) {
   auto *op =
       storage.Create<UnaryMinusOperator>(storage.Create<PrimitiveLiteral>(5));
-  auto value = op->Accept(eval);
+  auto value = Eval(op);
   ASSERT_EQ(value.ValueInt(), -5);
 }
 
 TEST_F(ExpressionEvaluatorTest, IsNullOperator) {
   auto *op =
       storage.Create<IsNullOperator>(storage.Create<PrimitiveLiteral>(1));
-  auto val1 = op->Accept(eval);
+  auto val1 = Eval(op);
   ASSERT_EQ(val1.ValueBool(), false);
   op = storage.Create<IsNullOperator>(
       storage.Create<PrimitiveLiteral>(PropertyValue::Null));
-  auto val2 = op->Accept(eval);
+  auto val2 = Eval(op);
   ASSERT_EQ(val2.ValueBool(), true);
 }
 
@@ -630,26 +634,26 @@ TEST_F(ExpressionEvaluatorTest, LabelsTest) {
   frame[node_symbol] = v1;
   {
     auto *op = storage.Create<LabelsTest>(
-        identifier,
-        std::vector<storage::Label>{dba->Label("DOG"), dba->Label("ANIMAL")});
-    auto value = op->Accept(eval);
+        identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"),
+                                         storage.GetLabelIx("ANIMAL")});
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueBool(), true);
   }
   {
     auto *op = storage.Create<LabelsTest>(
-        identifier,
-        std::vector<storage::Label>{dba->Label("DOG"), dba->Label("BAD_DOG"),
-                                    dba->Label("ANIMAL")});
-    auto value = op->Accept(eval);
+        identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"),
+                                         storage.GetLabelIx("BAD_DOG"),
+                                         storage.GetLabelIx("ANIMAL")});
+    auto value = Eval(op);
     EXPECT_EQ(value.ValueBool(), false);
   }
   {
     frame[node_symbol] = TypedValue::Null;
     auto *op = storage.Create<LabelsTest>(
-        identifier,
-        std::vector<storage::Label>{dba->Label("DOG"), dba->Label("BAD_DOG"),
-                                    dba->Label("ANIMAL")});
-    auto value = op->Accept(eval);
+        identifier, std::vector<LabelIx>{storage.GetLabelIx("DOG"),
+                                         storage.GetLabelIx("BAD_DOG"),
+                                         storage.GetLabelIx("ANIMAL")});
+    auto value = Eval(op);
     EXPECT_TRUE(value.IsNull());
   }
 }
@@ -660,7 +664,7 @@ TEST_F(ExpressionEvaluatorTest, Aggregation) {
   auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
   symbol_table[*aggr] = aggr_sym;
   frame[aggr_sym] = TypedValue(1);
-  auto value = aggr->Accept(eval);
+  auto value = Eval(aggr);
   EXPECT_EQ(value.ValueInt(), 1);
 }
 
@@ -669,7 +673,7 @@ TEST_F(ExpressionEvaluatorTest, ListLiteral) {
       std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1),
                                 storage.Create<PrimitiveLiteral>("bla"),
                                 storage.Create<PrimitiveLiteral>(true)});
-  TypedValue result = list_literal->Accept(eval);
+  TypedValue result = Eval(list_literal);
   ASSERT_TRUE(result.IsList());
   auto &result_elems = result.ValueList();
   ASSERT_EQ(3, result_elems.size());
@@ -684,7 +688,7 @@ TEST_F(ExpressionEvaluatorTest, ListLiteral) {
 TEST_F(ExpressionEvaluatorTest, ParameterLookup) {
   ctx.parameters.Add(0, 42);
   auto *param_lookup = storage.Create<ParameterLookup>(0);
-  auto value = param_lookup->Accept(eval);
+  auto value = Eval(param_lookup);
   ASSERT_TRUE(value.IsInt());
   EXPECT_EQ(value.ValueInt(), 42);
 }
@@ -697,7 +701,7 @@ TEST_F(ExpressionEvaluatorTest, All) {
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*all->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
-  auto value = all->Accept(eval);
+  auto value = Eval(all);
   ASSERT_TRUE(value.IsBool());
   EXPECT_FALSE(value.ValueBool());
 }
@@ -707,7 +711,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionAllNullList) {
   auto *all = ALL("x", LITERAL(PropertyValue::Null), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*all->identifier_] = x_sym;
-  auto value = all->Accept(eval);
+  auto value = Eval(all);
   EXPECT_TRUE(value.IsNull());
 }
 
@@ -716,7 +720,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*all->identifier_] = x_sym;
-  EXPECT_THROW(all->Accept(eval), QueryRuntimeException);
+  EXPECT_THROW(Eval(all), QueryRuntimeException);
 }
 
 TEST_F(ExpressionEvaluatorTest, FunctionSingle) {
@@ -727,7 +731,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingle) {
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*single->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
-  auto value = single->Accept(eval);
+  auto value = Eval(single);
   ASSERT_TRUE(value.IsBool());
   EXPECT_TRUE(value.ValueBool());
 }
@@ -740,7 +744,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingle2) {
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*single->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
-  auto value = single->Accept(eval);
+  auto value = Eval(single);
   ASSERT_TRUE(value.IsBool());
   EXPECT_FALSE(value.ValueBool());
 }
@@ -751,7 +755,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
       SINGLE("x", LITERAL(PropertyValue::Null), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*single->identifier_] = x_sym;
-  auto value = single->Accept(eval);
+  auto value = Eval(single);
   EXPECT_TRUE(value.IsNull());
 }
 
@@ -767,7 +771,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionReduce) {
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*reduce->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
-  auto value = reduce->Accept(eval);
+  auto value = Eval(reduce);
   ASSERT_TRUE(value.IsInt());
   EXPECT_EQ(value.ValueInt(), 3);
 }
@@ -781,7 +785,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtract) {
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*extract->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
-  auto value = extract->Accept(eval);
+  auto value = Eval(extract);
   EXPECT_TRUE(value.IsList());
   ;
   auto result = value.ValueList();
@@ -798,7 +802,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtractNull) {
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*extract->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
-  auto value = extract->Accept(eval);
+  auto value = Eval(extract);
   EXPECT_TRUE(value.IsNull());
 }
 
@@ -809,40 +813,37 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtractExceptions) {
   const auto x_sym = symbol_table.CreateSymbol("x", true);
   symbol_table[*extract->identifier_] = x_sym;
   symbol_table[*ident_x] = x_sym;
-  EXPECT_THROW(extract->Accept(eval), QueryRuntimeException);
+  EXPECT_THROW(Eval(extract), QueryRuntimeException);
 }
 
 TEST_F(ExpressionEvaluatorTest, Coalesce) {
   // coalesce()
-  EXPECT_THROW(COALESCE()->Accept(eval), QueryRuntimeException);
+  EXPECT_THROW(Eval(COALESCE()), QueryRuntimeException);
 
   // coalesce(null, null)
-  EXPECT_TRUE(COALESCE(LITERAL(TypedValue::Null), LITERAL(TypedValue::Null))
-                  ->Accept(eval)
-                  .IsNull());
+  EXPECT_TRUE(
+      Eval(COALESCE(LITERAL(TypedValue::Null), LITERAL(TypedValue::Null)))
+          .IsNull());
 
   // coalesce(null, 2, 3)
-  EXPECT_EQ(COALESCE(LITERAL(TypedValue::Null), LITERAL(2), LITERAL(3))
-                ->Accept(eval)
+  EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue::Null), LITERAL(2), LITERAL(3)))
                 .ValueInt(),
             2);
 
   // coalesce(null, 2, assert(false), 3)
-  EXPECT_EQ(COALESCE(LITERAL(TypedValue::Null), LITERAL(2),
-                     FN("ASSERT", LITERAL(false)), LITERAL(3))
-                ->Accept(eval)
+  EXPECT_EQ(Eval(COALESCE(LITERAL(TypedValue::Null), LITERAL(2),
+                          FN("ASSERT", LITERAL(false)), LITERAL(3)))
                 .ValueInt(),
             2);
 
   // (null, assert(false))
-  EXPECT_THROW(COALESCE(LITERAL(TypedValue::Null), FN("ASSERT", LITERAL(false)))
-                   ->Accept(eval),
-               QueryRuntimeException);
+  EXPECT_THROW(
+      Eval(COALESCE(LITERAL(TypedValue::Null), FN("ASSERT", LITERAL(false)))),
+      QueryRuntimeException);
 
   // coalesce([null, null])
-  EXPECT_FALSE(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{
-                            TypedValue::Null, TypedValue::Null})))
-                   ->Accept(eval)
+  EXPECT_FALSE(Eval(COALESCE(LITERAL(TypedValue(std::vector<TypedValue>{
+                        TypedValue::Null, TypedValue::Null}))))
                    .IsNull());
 }
 
@@ -858,8 +859,9 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
   void SetUp() { symbol_table[*identifier] = symbol; }
 
   auto Value(std::pair<std::string, storage::Property> property) {
-    auto *op = storage.Create<PropertyLookup>(identifier, property);
-    return op->Accept(eval);
+    auto *op = storage.Create<PropertyLookup>(
+        identifier, storage.GetPropertyIx(property.first));
+    return Eval(op);
   }
 };
 
@@ -915,7 +917,7 @@ class FunctionTest : public ExpressionEvaluatorTest {
       const std::string &function_name,
       const std::vector<Expression *> &expressions) {
     auto *op = storage.Create<Function>(function_name, expressions);
-    return op->Accept(eval);
+    return Eval(op);
   }
 
   TypedValue EvaluateFunction(const std::string &function_name,

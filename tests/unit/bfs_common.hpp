@@ -398,6 +398,10 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym,
                                    filter_expr});
 
+  context.evaluation_context_.properties =
+      query::NamesToProperties(storage.properties_, &dba);
+  context.evaluation_context_.labels =
+      query::NamesToLabels(storage.labels_, &dba);
   std::vector<std::vector<query::TypedValue>> results;
 
   // An exception should be thrown on one of the pulls.

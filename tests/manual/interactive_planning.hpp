@@ -23,7 +23,7 @@ struct Command {
   typedef std::vector<std::string> Args;
   // Function of this command
   std::function<void(database::GraphDbAccessor &, const query::SymbolTable &,
-                     PlansWithCost &, const Args &)>
+                     PlansWithCost &, const Args &, const query::AstStorage &)>
       function;
   // Number of arguments the function works with.
   int arg_count;
@@ -31,10 +31,11 @@ struct Command {
   std::string documentation;
 };
 
-#define DEFCOMMAND(Name)                                     \
-  void Name##Command(database::GraphDbAccessor &dba,         \
-                     const query::SymbolTable &symbol_table, \
-                     PlansWithCost &plans, const Command::Args &args)
+#define DEFCOMMAND(Name)                                              \
+  void Name##Command(database::GraphDbAccessor &dba,                  \
+                     const query::SymbolTable &symbol_table,          \
+                     PlansWithCost &plans, const Command::Args &args, \
+                     const query::AstStorage &ast_storage)
 
 void AddCommand(const std::string &name, const Command &command);
 

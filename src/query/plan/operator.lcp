@@ -777,6 +777,7 @@ given label.
 (lcp:define-class scan-all-by-label-property-range (scan-all)
   ((label "storage::Label" :scope :public)
    (property "storage::Property" :scope :public)
+   (property-name "std::string" :scope :public)
    (lower-bound "std::experimental::optional<Bound>" :scope :public
                 :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"
                 :slk-save #'slk-save-optional-bound
@@ -816,6 +817,7 @@ property value which is inside a range (inclusive or exlusive).
    ScanAllByLabelPropertyRange(const std::shared_ptr<LogicalOperator> &input,
                                Symbol output_symbol, storage::Label label,
                                storage::Property property,
+                               const std::string &property_name,
                                std::experimental::optional<Bound> lower_bound,
                                std::experimental::optional<Bound> upper_bound,
                                GraphView graph_view = GraphView::OLD);
@@ -829,6 +831,7 @@ property value which is inside a range (inclusive or exlusive).
 (lcp:define-class scan-all-by-label-property-value (scan-all)
   ((label "storage::Label" :scope :public)
    (property "storage::Property" :scope :public)
+   (property-name "std::string" :scope :public)
    (expression "Expression *" :scope :public
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")
@@ -857,6 +860,7 @@ property value.
    ScanAllByLabelPropertyValue(const std::shared_ptr<LogicalOperator> &input,
                                Symbol output_symbol, storage::Label label,
                                storage::Property property,
+                               const std::string &property_name,
                                Expression *expression,
                                GraphView graph_view = GraphView::OLD);
 
@@ -1386,6 +1390,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
           :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
+   (property "storage::Property" :scope :public)
    (lhs "PropertyLookup *" :scope :public
         :slk-save #'slk-save-ast-pointer
         :slk-load (slk-load-ast-pointer "PropertyLookup")
@@ -1406,7 +1411,8 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
    SetProperty() {}
 
    SetProperty(const std::shared_ptr<LogicalOperator> &input,
-               PropertyLookup *lhs, Expression *rhs);
+               storage::Property property, PropertyLookup *lhs,
+               Expression *rhs);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
@@ -1560,6 +1566,7 @@ It does NOT remove labels that are already set on that Vertex.")
           :slk-load #'slk-load-operator-pointer
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
+   (property "storage::Property" :scope :public)
    (lhs "PropertyLookup *" :scope :public
         :slk-save #'slk-save-ast-pointer
         :slk-load (slk-load-ast-pointer "PropertyLookup")
@@ -1572,7 +1579,7 @@ It does NOT remove labels that are already set on that Vertex.")
    RemoveProperty() {}
 
    RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
-                  PropertyLookup *lhs);
+                  storage::Property property, PropertyLookup *lhs);
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;

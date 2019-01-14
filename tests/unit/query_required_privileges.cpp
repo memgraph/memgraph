@@ -10,10 +10,10 @@ using namespace query;
 
 class FakeDbAccessor {};
 
-storage::EdgeType EDGE_TYPE(0);
-storage::Label LABEL_0(0);
-storage::Label LABEL_1(1);
-storage::Property PROP_0(0);
+const std::string EDGE_TYPE = "0";
+const std::string LABEL_0 = "label0";
+const std::string LABEL_1 = "label1";
+const std::string PROP_0 = "prop0";
 
 using ::testing::UnorderedElementsAre;
 
@@ -65,7 +65,8 @@ TEST_F(TestPrivilegeExtractor, MatchNodeSetLabels) {
 TEST_F(TestPrivilegeExtractor, MatchNodeSetProperty) {
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                   SET(PROPERTY_LOOKUP("n", {"prop", PROP_0}), LITERAL(42))));
+                   SET(PROPERTY_LOOKUP(storage.Create<Identifier>("n"), PROP_0),
+                       LITERAL(42))));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::SET));
@@ -88,16 +89,17 @@ TEST_F(TestPrivilegeExtractor, MatchNodeRemoveLabels) {
 }
 
 TEST_F(TestPrivilegeExtractor, MatchNodeRemoveProperty) {
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                         REMOVE(PROPERTY_LOOKUP("n", {"prop", PROP_0}))));
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      REMOVE(PROPERTY_LOOKUP(storage.Create<Identifier>("n"), PROP_0))));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::MATCH,
                                    AuthQuery::Privilege::REMOVE));
 }
 
 TEST_F(TestPrivilegeExtractor, CreateIndex) {
-  auto *query = CREATE_INDEX_ON(LABEL_0, PROP_0);
+  auto *query = CREATE_INDEX_ON(storage.GetLabelIx(LABEL_0),
+                                storage.GetPropertyIx(PROP_0));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::INDEX));
 }

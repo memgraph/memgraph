@@ -46,6 +46,9 @@ class DistributedLogicalPlan final : public LogicalPlan {
   const SymbolTable &GetSymbolTable() const override {
     return plan_.symbol_table;
   }
+  const AstStorage &GetAstStorage() const override {
+    return plan_.ast_storage;
+  }
 
  private:
   plan::DistributedPlan plan_;
@@ -61,19 +64,21 @@ DistributedInterpreter::DistributedInterpreter(database::Master *db)
 std::unique_ptr<LogicalPlan> DistributedInterpreter::MakeLogicalPlan(
     CypherQuery *query, AstStorage ast_storage, const Parameters &parameters,
     database::GraphDbAccessor *db_accessor) {
-  auto vertex_counts = plan::MakeVertexCountCache(*db_accessor);
+  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
 
   auto symbol_table = MakeSymbolTable(query);
 
-  auto planning_context = plan::MakePlanningContext(ast_storage, symbol_table,
-                                                    query, vertex_counts);
+  auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table,
+                                                    query, &vertex_counts);
 
   std::unique_ptr<plan::LogicalOperator> tmp_logical_plan;
   double cost;
   std::tie(tmp_logical_plan, cost) = plan::MakeLogicalPlan(
-      planning_context, parameters, FLAGS_query_cost_planner);
-  auto plan =
-      MakeDistributedPlan(*tmp_logical_plan, symbol_table, next_plan_id_);
+      &planning_context, parameters, FLAGS_query_cost_planner);
+  std::vector<storage::Property> properties_by_ix =
+      NamesToProperties(ast_storage.properties_, db_accessor);
+  auto plan = MakeDistributedPlan(ast_storage, *tmp_logical_plan, symbol_table,
+                                  next_plan_id_, properties_by_ix);
   VLOG(10) << "[Interpreter] Created plan for distributed execution "
            << next_plan_id_ - 1;
   return std::make_unique<DistributedLogicalPlan>(std::move(plan), cost,
@@ -85,10 +90,10 @@ Interpreter::Results DistributedInterpreter::operator()(
     const std::map<std::string, PropertyValue> &params,
     bool in_explicit_transaction) {
   AstStorage ast_storage;
-  Context execution_context(db_accessor);
+  Parameters parameters;
 
-  auto queries = StripAndParseQuery(query_string, &execution_context,
-                                    &ast_storage, &db_accessor, params);
+  auto queries = StripAndParseQuery(query_string, &parameters, &ast_storage,
+                                    &db_accessor, params);
   ParsedQuery &parsed_query = queries.second;
 
   if (auto *profile_query = dynamic_cast<ProfileQuery *>(parsed_query.query)) {

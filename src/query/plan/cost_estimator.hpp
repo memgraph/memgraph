@@ -65,18 +65,18 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
-  CostEstimator(const TDbAccessor &db_accessor, const Parameters &parameters)
+  CostEstimator(TDbAccessor *db_accessor, const Parameters &parameters)
       : db_accessor_(db_accessor), parameters(parameters) {}
 
   bool PostVisit(ScanAll &) override {
-    cardinality_ *= db_accessor_.VerticesCount();
+    cardinality_ *= db_accessor_->VerticesCount();
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::kScanAll);
     return true;
   }
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
-    cardinality_ *= db_accessor_.VerticesCount(scan_all_by_label.label_);
+    cardinality_ *= db_accessor_->VerticesCount(scan_all_by_label.label_);
     // ScanAll performs some work for every element that is produced
     IncrementCost(CostParam::kScanAllByLabel);
     return true;
@@ -90,13 +90,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double factor = 1.0;
     if (property_value)
       // get the exact influence based on ScanAll(label, property, value)
-      factor = db_accessor_.VerticesCount(
+      factor = db_accessor_->VerticesCount(
           logical_op.label_, logical_op.property_, property_value.value());
     else
       // estimate the influence as ScanAll(label, property) * filtering
-      factor = db_accessor_.VerticesCount(logical_op.label_,
-                                          logical_op.property_) *
-               CardParam::kFilter;
+      factor =
+          db_accessor_->VerticesCount(logical_op.label_, logical_op.property_) *
+          CardParam::kFilter;
 
     cardinality_ *= factor;
 
@@ -114,12 +114,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     int64_t factor = 1;
     if (upper || lower)
       // if we have either Bound<PropertyValue>, use the value index
-      factor = db_accessor_.VerticesCount(logical_op.label_,
-                                          logical_op.property_, lower, upper);
+      factor = db_accessor_->VerticesCount(logical_op.label_,
+                                           logical_op.property_, lower, upper);
     else
       // no values, but we still have the label
       factor =
-          db_accessor_.VerticesCount(logical_op.label_, logical_op.property_);
+          db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
 
     // if we failed to take either bound from the op into account, then apply
     // the filtering constant to the factor
@@ -197,7 +197,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   double cardinality_{1};
 
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
-  const TDbAccessor &db_accessor_;
+  TDbAccessor *db_accessor_;
   const Parameters &parameters;
 
   void IncrementCost(double param) { cost_ += param * cardinality_; }
@@ -231,7 +231,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
 /** Returns the estimated cost of the given plan. */
 template <class TDbAccessor>
-double EstimatePlanCost(const TDbAccessor &db, const Parameters &parameters,
+double EstimatePlanCost(TDbAccessor *db, const Parameters &parameters,
                         LogicalOperator &plan) {
   CostEstimator<TDbAccessor> estimator(db, parameters);
   plan.Accept(estimator);

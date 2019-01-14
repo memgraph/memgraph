@@ -38,7 +38,8 @@ class MatchReturnFixture : public testing::Test {
   template <typename TResult>
   std::vector<TResult> Results(std::shared_ptr<Produce> &op) {
     std::vector<TResult> res;
-    for (const auto &row : CollectProduce(op.get(), symbol_table, *dba_))
+    Context context = MakeContext(storage, symbol_table, dba_.get());
+    for (const auto &row : CollectProduce(*op, &context))
       res.emplace_back(row[0].Value<TResult>());
     return res;
   }
@@ -56,7 +57,8 @@ TEST_F(MatchReturnFixture, MatchReturn) {
     symbol_table[*output->expression_] = scan_all.sym_;
     symbol_table[*output] =
         symbol_table.CreateSymbol("named_expression_1", true);
-    return PullAll(produce, *dba_, symbol_table);
+    Context context = MakeContext(storage, symbol_table, dba_.get());
+    return PullAll(*produce, &context);
   };
 
   EXPECT_EQ(2, test_pull_count(GraphView::NEW));
@@ -111,8 +113,8 @@ TEST(QueryPlan, MatchReturnCartesian) {
   symbol_table[*return_m] =
       symbol_table.CreateSymbol("named_expression_2", true);
   auto produce = MakeProduce(m.op_, return_n, return_m);
-
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 4);
   // ensure the result ordering is OK:
   // "n" from the results is the same for the first two rows, while "m" isn't
@@ -138,7 +140,8 @@ TEST(QueryPlan, StandaloneReturn) {
   auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
 
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 1);
   EXPECT_EQ(results[0].size(), 1);
   EXPECT_EQ(results[0][0].Value<int64_t>(), 42);
@@ -176,8 +179,8 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(label);
-  n.node_->properties_[property] = LITERAL(42);
+  n.node_->labels_.emplace_back(storage.GetLabelIx(dba.LabelName(label)));
+  n.node_->properties_[storage.GetPropertyIx(property.first)] = LITERAL(42);
 
   // node filtering
   auto *filter_expr =
@@ -191,14 +194,15 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   auto produce = MakeProduce(node_filter, output);
 
-  EXPECT_EQ(1, PullAll(produce, dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(1, PullAll(*produce, &context));
 
   //  test that filtering works with old records
   v4.Reconstruct();
   v4.add_label(label);
-  EXPECT_EQ(1, PullAll(produce, dba, symbol_table));
+  EXPECT_EQ(1, PullAll(*produce, &context));
   dba.AdvanceCommand();
-  EXPECT_EQ(2, PullAll(produce, dba, symbol_table));
+  EXPECT_EQ(2, PullAll(*produce, &context));
 }
 
 TEST(QueryPlan, NodeFilterMultipleLabels) {
@@ -231,8 +235,8 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
 
   // make a scan all
   auto n = MakeScanAll(storage, symbol_table, "n");
-  n.node_->labels_.emplace_back(label1);
-  n.node_->labels_.emplace_back(label2);
+  n.node_->labels_.emplace_back(storage.GetLabelIx(dba->LabelName(label1)));
+  n.node_->labels_.emplace_back(storage.GetLabelIx(dba->LabelName(label2)));
 
   // node filtering
   auto *filter_expr =
@@ -247,7 +251,8 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = n.sym_;
 
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
 
@@ -286,7 +291,8 @@ TEST(QueryPlan, Cartesian) {
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
 
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 9);
   for (int i = 0; i < 3; ++i) {
     for (int j = 0; j < 3; ++j) {
@@ -320,8 +326,8 @@ TEST(QueryPlan, CartesianEmptySet) {
       std::make_shared<Cartesian>(n.op_, left_symbols, m.op_, right_symbols);
 
   auto produce = MakeProduce(cartesian_op, return_n, return_m);
-
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
 
@@ -368,8 +374,8 @@ TEST(QueryPlan, CartesianThreeWay) {
                                                     l.op_, l_symbols);
 
   auto produce = MakeProduce(cartesian_op_2, return_n, return_m, return_l);
-
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 27);
   int id = 0;
   for (int i = 0; i < 3; ++i) {
@@ -419,8 +425,8 @@ TEST_F(ExpandFixture, Expand) {
     symbol_table[*output] =
         symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_m.op_, output);
-
-    return PullAll(produce, *dba_, symbol_table);
+    Context context = MakeContext(storage, symbol_table, dba_.get());
+    return PullAll(*produce, &context);
   };
 
   // test that expand works well for both old and new graph state
@@ -456,7 +462,8 @@ TEST_F(ExpandFixture, ExpandPath) {
   auto produce = MakeProduce(path, output);
 
   std::vector<query::Path> expected_paths{{v1, r2, v3}, {v1, r1, v2}};
-  auto results = CollectProduce(produce.get(), symbol_table, *dba_);
+  Context context = MakeContext(storage, symbol_table, dba_.get());
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 2);
   std::vector<query::Path> results_paths;
   for (const auto &result : results)
@@ -546,9 +553,10 @@ class QueryPlanExpandVariable : public testing::Test {
       bool is_reverse = false) {
     auto n_from = MakeScanAll(storage, symbol_table, node_from, input_op);
     auto filter_op = std::make_shared<Filter>(
-        n_from.op_, storage.Create<query::LabelsTest>(
-                        n_from.node_->identifier_,
-                        std::vector<storage::Label>{labels[layer]}));
+        n_from.op_,
+        storage.Create<query::LabelsTest>(
+            n_from.node_->identifier_, std::vector<LabelIx>{storage.GetLabelIx(
+                                           dba_->LabelName(labels[layer]))}));
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
@@ -592,8 +600,7 @@ class QueryPlanExpandVariable : public testing::Test {
   auto GetResults(std::shared_ptr<LogicalOperator> input_op, Symbol symbol) {
     Frame frame(symbol_table.max_position());
     auto cursor = input_op->MakeCursor(*dba_);
-    Context context(*dba_);
-    context.symbol_table_ = symbol_table;
+    Context context = MakeContext(storage, symbol_table, dba_.get());
     std::vector<TResult> results;
     while (cursor->Pull(frame, context))
       results.emplace_back(frame[symbol].Value<TResult>());
@@ -710,8 +717,8 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessSingleAndVariableExpansion) {
     if (add_uniqueness_check) {
       auto last_symbol = symbols.back();
       symbols.pop_back();
-      last_op = std::make_shared<EdgeUniquenessFilter>(
-          last_op, last_symbol, symbols);
+      last_op =
+          std::make_shared<EdgeUniquenessFilter>(last_op, last_symbol, symbols);
     }
 
     return GetEdgeListSizes(last_op, var_length_sym);
@@ -741,8 +748,8 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
         AddMatch<ExpandVariable>(first, "n2", layer, direction, {}, lower,
                                  upper, e2, "m2", GraphView::OLD);
     if (add_uniqueness_check) {
-      last_op = std::make_shared<EdgeUniquenessFilter>(
-          last_op, e2, std::vector<Symbol>{e1});
+      last_op = std::make_shared<EdgeUniquenessFilter>(last_op, e2,
+                                                       std::vector<Symbol>{e1});
     }
 
     return GetEdgeListSizes(last_op, e2);
@@ -929,8 +936,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(dba);
     std::vector<ResultType> results;
-    Context context(dba);
-    context.symbol_table_ = symbol_table;
+    Context context = MakeContext(storage, symbol_table, &dba);
     while (cursor->Pull(frame, context)) {
       results.push_back(ResultType{std::vector<EdgeAccessor>(),
                                    frame[node_sym].Value<VertexAccessor>(),
@@ -1231,8 +1237,8 @@ TEST(QueryPlan, ExpandOptional) {
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
-
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(4, results.size());
   int v1_is_n_count = 0;
   for (auto &row : results) {
@@ -1268,8 +1274,8 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
-
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(1, results.size());
   EXPECT_EQ(results[0][0].type(), TypedValue::Type::Null);
 }
@@ -1298,7 +1304,8 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   symbol_table[*m_ne->expression_] = r_m.node_sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(r_m.op_, m_ne);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(0, results.size());
 }
 
@@ -1317,8 +1324,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   SymbolTable symbol_table;
   // OPTIONAL MATCH (n :missing)
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto label_missing = dba->Label("missing");
-  n.node_->labels_.emplace_back(label_missing);
+  auto label_missing = "missing";
+  n.node_->labels_.emplace_back(storage.GetLabelIx(label_missing));
 
   auto *filter_expr =
       storage.Create<LabelsTest>(n.node_->identifier_, n.node_->labels_);
@@ -1347,7 +1354,8 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   symbol_table[*m_ne->expression_] = m.sym_;
   symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
   auto produce = MakeProduce(expand, m_ne);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(0, results.size());
 }
 
@@ -1383,8 +1391,8 @@ TEST(QueryPlan, ExpandExistingNode) {
     symbol_table[*output] =
         symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(r_n.op_, output);
-
-    auto results = CollectProduce(produce.get(), symbol_table, *dba);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    auto results = CollectProduce(*produce, &context);
     EXPECT_EQ(results.size(), expected_result_count);
   };
 
@@ -1409,7 +1417,8 @@ TEST(QueryPlan, ExpandBothCycleEdgeCase) {
   auto r_ =
       MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                  EdgeAtom::Direction::BOTH, {}, "_", false, GraphView::OLD);
-  EXPECT_EQ(1, PullAll(r_.op_, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*r_.op_, &context));
 }
 
 TEST(QueryPlan, EdgeFilter) {
@@ -1458,8 +1467,9 @@ TEST(QueryPlan, EdgeFilter) {
     auto r_m = MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                           EdgeAtom::Direction::OUT, {edge_type}, "m", false,
                           GraphView::OLD);
-    r_m.edge_->edge_types_.push_back(edge_type);
-    r_m.edge_->properties_[prop] = LITERAL(42);
+    r_m.edge_->edge_types_.push_back(
+        storage.GetEdgeTypeIx(dba.EdgeTypeName(edge_type)));
+    r_m.edge_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
     auto *filter_expr =
         EQ(PROPERTY_LOOKUP(r_m.edge_->identifier_, prop), LITERAL(42));
     auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
@@ -1470,8 +1480,8 @@ TEST(QueryPlan, EdgeFilter) {
     symbol_table[*output] =
         symbol_table.CreateSymbol("named_expression_1", true);
     auto produce = MakeProduce(edge_filter, output);
-
-    return PullAll(produce, dba, symbol_table);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    return PullAll(*produce, &context);
   };
 
   EXPECT_EQ(1, test_filter());
@@ -1512,8 +1522,8 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
   // fill up the symbol table
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   symbol_table[*output->expression_] = r_m.node_sym_;
-
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
 }
 
@@ -1533,8 +1543,7 @@ TEST(QueryPlan, Filter) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto e =
-      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), property);
+  auto e = PROPERTY_LOOKUP("n", property);
   symbol_table[*e->expression_] = n.sym_;
   auto f = std::make_shared<Filter>(n.op_, e);
 
@@ -1543,8 +1552,8 @@ TEST(QueryPlan, Filter) {
   symbol_table[*output->expression_] = n.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
   auto produce = MakeProduce(f, output);
-
-  EXPECT_EQ(CollectProduce(produce.get(), symbol_table, dba).size(), 2);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(CollectProduce(*produce, &context).size(), 2);
 }
 
 TEST(QueryPlan, EdgeUniquenessFilter) {
@@ -1575,7 +1584,8 @@ TEST(QueryPlan, EdgeUniquenessFilter) {
     if (edge_uniqueness)
       last_op = std::make_shared<EdgeUniquenessFilter>(
           last_op, r2_n3.edge_sym_, std::vector<Symbol>{r1_n2.edge_sym_});
-    return PullAll(last_op, *dba, symbol_table);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    return PullAll(*last_op, &context);
   };
 
   EXPECT_EQ(2, check_expand_results(false));
@@ -1607,8 +1617,8 @@ TEST(QueryPlan, Distinct) {
     auto x_ne = NEXPR("x", x_expr);
     symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
     auto produce = MakeProduce(distinct, x_ne);
-
-    auto results = CollectProduce(produce.get(), symbol_table, *dba);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(output.size(), results.size());
     auto output_it = output.begin();
     for (const auto &row : results) {
@@ -1647,7 +1657,8 @@ TEST(QueryPlan, ScanAllByLabel) {
   auto produce = MakeProduce(scan_all_by_label.op_, output);
   symbol_table[*output->expression_] = scan_all_by_label.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
   auto result_row = results[0];
   ASSERT_EQ(result_row.size(), 1);
@@ -1685,14 +1696,15 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
     AstStorage storage;
     SymbolTable symbol_table;
     auto scan_all = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop,
+        storage, symbol_table, "n", label, prop, "prop",
         Bound{LITERAL(lower), lower_type}, Bound{LITERAL(upper), upper_type});
     // RETURN n
     auto output = NEXPR("n", IDENT("n"));
     auto produce = MakeProduce(scan_all.op_, output);
     symbol_table[*output->expression_] = scan_all.sym_;
     symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-    auto results = CollectProduce(produce.get(), symbol_table, *dba);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(results.size(), expected.size());
     for (size_t i = 0; i < expected.size(); i++) {
       TypedValue equal =
@@ -1746,14 +1758,15 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   // MATCH (n :label {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n",
-                                                  label, prop, LITERAL(42));
+  auto scan_all = MakeScanAllByLabelPropertyValue(
+      storage, symbol_table, "n", label, prop, "prop", LITERAL(42));
   // RETURN n
   auto output = NEXPR("n", IDENT("n"));
   auto produce = MakeProduce(scan_all.op_, output);
   symbol_table[*output->expression_] = scan_all.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
   const auto &row = results[0];
   ASSERT_EQ(row.size(), 1);
@@ -1786,9 +1799,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   auto *ident_m = IDENT("m");
   symbol_table[*ident_m] = scan_all.sym_;
   auto scan_index = MakeScanAllByLabelPropertyValue(
-      storage, symbol_table, "n", label, prop, ident_m, scan_all.op_);
-  EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
-               QueryRuntimeException);
+      storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
 }
 
 TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
@@ -1816,28 +1829,29 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   {
     // Lower bound isn't property value
     auto scan_index = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop,
+        storage, symbol_table, "n", label, prop, "prop",
         Bound{ident_m, Bound::Type::INCLUSIVE}, std::experimental::nullopt,
         scan_all.op_);
-    EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
-                 QueryRuntimeException);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Upper bound isn't property value
     auto scan_index = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop, std::experimental::nullopt,
-        Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
-                 QueryRuntimeException);
+        storage, symbol_table, "n", label, prop, "prop",
+        std::experimental::nullopt, Bound{ident_m, Bound::Type::INCLUSIVE},
+        scan_all.op_);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
   {
     // Both bounds aren't property value
     auto scan_index = MakeScanAllByLabelPropertyRange(
-        storage, symbol_table, "n", label, prop,
+        storage, symbol_table, "n", label, prop, "prop",
         Bound{ident_m, Bound::Type::INCLUSIVE},
         Bound{ident_m, Bound::Type::INCLUSIVE}, scan_all.op_);
-    EXPECT_THROW(PullAll(scan_index.op_, *dba, symbol_table),
-                 QueryRuntimeException);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_THROW(PullAll(*scan_index.op_, &context), QueryRuntimeException);
   }
 }
 
@@ -1863,14 +1877,16 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
   // MATCH (n :label {prop: 42})
   AstStorage storage;
   SymbolTable symbol_table;
-  auto scan_all = MakeScanAllByLabelPropertyValue(
-      storage, symbol_table, "n", label, prop, LITERAL(TypedValue::Null));
+  auto scan_all =
+      MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop,
+                                      "prop", LITERAL(TypedValue::Null));
   // RETURN n
   auto output = NEXPR("n", IDENT("n"));
   auto produce = MakeProduce(scan_all.op_, output);
   symbol_table[*output->expression_] = scan_all.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
 
@@ -1897,7 +1913,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   AstStorage storage;
   SymbolTable symbol_table;
   auto scan_all = MakeScanAllByLabelPropertyRange(
-      storage, symbol_table, "n", label, prop,
+      storage, symbol_table, "n", label, prop, "prop",
       Bound{LITERAL(TypedValue::Null), Bound::Type::INCLUSIVE},
       Bound{LITERAL(TypedValue::Null), Bound::Type::EXCLUSIVE});
   // RETURN n
@@ -1905,7 +1921,8 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
   auto produce = MakeProduce(scan_all.op_, output);
   symbol_table[*output->expression_] = scan_all.sym_;
   symbol_table[*output] = symbol_table.CreateSymbol("n", true);
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
 }
 
@@ -1935,10 +1952,11 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   symbol_table[*x_expr] = x;
 
   // MATCH (n :label {prop: x})
-  auto scan_all = MakeScanAllByLabelPropertyValue(storage, symbol_table, "n",
-                                                  label, prop, x_expr, unwind);
+  auto scan_all = MakeScanAllByLabelPropertyValue(
+      storage, symbol_table, "n", label, prop, "prop", x_expr, unwind);
 
-  EXPECT_EQ(PullAll(scan_all.op_, *dba, symbol_table), 1);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(PullAll(*scan_all.op_, &context), 1);
 }
 
 TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
@@ -1972,13 +1990,14 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     SymbolTable symbol_table;
     auto dba = db.Access();
     auto scan_all_by_label_property_value = MakeScanAllByLabelPropertyValue(
-        storage, symbol_table, "n", label, prop, LITERAL(prop_value));
+        storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
     auto output = NEXPR("n", IDENT("n"));
     auto produce = MakeProduce(scan_all_by_label_property_value.op_, output);
     symbol_table[*output->expression_] = scan_all_by_label_property_value.sym_;
     symbol_table[*output] =
         symbol_table.CreateSymbol("named_expression_1", true);
-    EXPECT_EQ(PullAll(produce, *dba, symbol_table), prop_count);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };
 
   // Make sure there are `vertex_count` results when using scan all
@@ -1988,8 +2007,7 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     auto dba_ptr = db.Access();
     auto &dba = *dba_ptr;
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto e = storage.Create<PropertyLookup>(storage.Create<Identifier>("n"),
-                                            std::make_pair("prop", prop));
+    auto e = PROPERTY_LOOKUP("n", std::make_pair("prop", prop));
     symbol_table[*e->expression_] = scan_all.sym_;
     auto filter =
         std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
@@ -1998,7 +2016,8 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     symbol_table[*output->expression_] = scan_all.sym_;
     symbol_table[*output] =
         symbol_table.CreateSymbol("named_expression_1", true);
-    EXPECT_EQ(PullAll(produce, dba, symbol_table), prop_count);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };
 
   count_with_index(prop_value1, vertex_prop_count);

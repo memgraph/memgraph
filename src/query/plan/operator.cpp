@@ -346,11 +346,13 @@ std::unique_ptr<Cursor> ScanAllByLabel::MakeCursor(
 ScanAllByLabelPropertyRange::ScanAllByLabelPropertyRange(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
     storage::Label label, storage::Property property,
+    const std::string &property_name,
     std::experimental::optional<Bound> lower_bound,
     std::experimental::optional<Bound> upper_bound, GraphView graph_view)
     : ScanAll(input, output_symbol, graph_view),
       label_(label),
       property_(property),
+      property_name_(property_name),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
   DCHECK(lower_bound_ || upper_bound_) << "Only one bound can be left out";
@@ -397,11 +399,13 @@ std::unique_ptr<Cursor> ScanAllByLabelPropertyRange::MakeCursor(
 
 ScanAllByLabelPropertyValue::ScanAllByLabelPropertyValue(
     const std::shared_ptr<LogicalOperator> &input, Symbol output_symbol,
-    storage::Label label, storage::Property property, Expression *expression,
+    storage::Label label, storage::Property property,
+    const std::string &property_name, Expression *expression,
     GraphView graph_view)
     : ScanAll(input, output_symbol, graph_view),
       label_(label),
       property_(property),
+      property_name_(property_name),
       expression_(expression) {
   DCHECK(expression) << "Expression is not optional.";
 }
@@ -1833,8 +1837,9 @@ void Delete::DeleteCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Delete::DeleteCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperty::SetProperty(const std::shared_ptr<LogicalOperator> &input,
-                         PropertyLookup *lhs, Expression *rhs)
-    : input_(input), lhs_(lhs), rhs_(rhs) {}
+                         storage::Property property, PropertyLookup *lhs,
+                         Expression *rhs)
+    : input_(input), property_(property), lhs_(lhs), rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetProperty)
 
@@ -1866,18 +1871,17 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
 
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
-      PropsSetChecked(&lhs.Value<VertexAccessor>(), self_.lhs_->property_, rhs);
+      PropsSetChecked(&lhs.Value<VertexAccessor>(), self_.property_, rhs);
       break;
     case TypedValue::Type::Edge:
-      PropsSetChecked(&lhs.Value<EdgeAccessor>(), self_.lhs_->property_, rhs);
+      PropsSetChecked(&lhs.Value<EdgeAccessor>(), self_.property_, rhs);
       break;
     case TypedValue::Type::Null:
       // Skip setting properties on Null (can occur in optional match).
       break;
     case TypedValue::Type::Map:
     // Semantically modifying a map makes sense, but it's not supported due
-    // to
-    // all the copying we do (when PropertyValue -> TypedValue and in
+    // to all the copying we do (when PropertyValue -> TypedValue and in
     // ExpressionEvaluator). So even though we set a map property here, that
     // is never visible to the user and it's not stored.
     // TODO: fix above described bug
@@ -2041,8 +2045,8 @@ void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
 void SetLabels::SetLabelsCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveProperty::RemoveProperty(const std::shared_ptr<LogicalOperator> &input,
-                               PropertyLookup *lhs)
-    : input_(input), lhs_(lhs) {}
+                               storage::Property property, PropertyLookup *lhs)
+    : input_(input), property_(property), lhs_(lhs) {}
 
 ACCEPT_WITH_INPUT(RemoveProperty)
 
@@ -2075,7 +2079,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
   switch (lhs.type()) {
     case TypedValue::Type::Vertex:
       try {
-        lhs.Value<VertexAccessor>().PropsErase(self_.lhs_->property_);
+        lhs.Value<VertexAccessor>().PropsErase(self_.property_);
       } catch (const RecordDeletedError &) {
         throw QueryRuntimeException(
             "Trying to remove properties from a deleted node.");
@@ -2083,7 +2087,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
       break;
     case TypedValue::Type::Edge:
       try {
-        lhs.Value<EdgeAccessor>().PropsErase(self_.lhs_->property_);
+        lhs.Value<EdgeAccessor>().PropsErase(self_.property_);
       } catch (const RecordDeletedError &) {
         throw QueryRuntimeException(
             "Trying to remove properties from a deleted edge.");

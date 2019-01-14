@@ -23,8 +23,9 @@ struct DistributedPlan {
 };
 
 /// Creates a `DistributedPlan` from a regular plan.
-DistributedPlan MakeDistributedPlan(const LogicalOperator &plan,
-                                    const SymbolTable &symbol_table,
-                                    std::atomic<int64_t> &next_plan_id);
+DistributedPlan MakeDistributedPlan(
+    const AstStorage &ast_storage, const LogicalOperator &plan,
+    const SymbolTable &symbol_table, std::atomic<int64_t> &next_plan_id,
+    const std::vector<storage::Property> &properties_by_ix);
 
 }  // namespace query::plan

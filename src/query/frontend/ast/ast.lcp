@@ -10,23 +10,7 @@
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/typed_value.hpp"
 #include "storage/common/types/property_value.hpp"
-#include "storage/common/types/types.hpp"
 #include "utils/typeinfo.hpp"
-
-// Hash function for the key in pattern atom property maps.
-namespace std {
-template <>
-struct hash<std::pair<std::string, storage::Property>> {
-  size_t operator()(
-      const std::pair<std::string, storage::Property> &pair) const {
-    return string_hash(pair.first) ^ property_hash(pair.second);
-  };
-
- private:
-  std::hash<std::string> string_hash{};
-  std::hash<storage::Property> property_hash{};
-};
-}  // namespace std
 
 namespace database {
 class GraphDbAccessor;
@@ -42,9 +26,6 @@ cpp<#
 (lcp:capnp-import 'utils "/utils/serialization.capnp")
 
 (lcp:capnp-type-conversion "PropertyValue" "Storage.PropertyValue")
-(lcp:capnp-type-conversion "storage::Label" "Storage.Label")
-(lcp:capnp-type-conversion "storage::EdgeType" "Storage.EdgeType")
-(lcp:capnp-type-conversion "storage::Property" "Storage.Property")
 (lcp:capnp-type-conversion "Symbol" "Symbol.Symbol")
 
 (defun slk-save-ast-pointer (member)
@@ -131,8 +112,8 @@ cpp<#
   for (size_t i = 0;
        i < size;
        ++i) {
-    std::pair<std::string, storage::Property> key;
-    slk::Load(&key, reader);
+    query::PropertyIx key;
+    slk::Load(&key, reader, storage);
     auto *value = query::LoadAstPointer<query::Expression>(storage, reader, loaded_uids);
     self->${member}.emplace(key, value);
   }
@@ -144,9 +125,7 @@ cpp<#
   size_t i = 0;
   for (const auto &entry : ${member}) {
     auto key_builder = entries_builder[i].initKey();
-    key_builder.setFirst(entry.first.first);
-    auto prop_id_builder = key_builder.initSecond();
-    storage::Save(entry.first.second, &prop_id_builder);
+    Save(entry.first, &key_builder);
     auto value_builder = entries_builder[i].initValue();
     Save(*entry.second, &value_builder, saved_uids);
     ++i;
@@ -156,13 +135,118 @@ cpp<#
 (defun load-property-map (reader member capnp-name)
   #>cpp
   for (const auto &entry : ${reader}.getEntries()) {
-    std::string prop_name = entry.getKey().getFirst();
-    storage::Property prop_id;
-    storage::Load(&prop_id, entry.getKey().getSecond());
-    ${member}.emplace(std::make_pair(prop_name, prop_id),
-                      static_cast<Expression *>(Load(storage, entry.getValue(), loaded_uids)));
+    PropertyIx prop;
+    Load(&prop, entry.getKey(), storage);
+    ${member}.emplace(prop, static_cast<Expression *>(
+                                Load(storage, entry.getValue(), loaded_uids)));
   }
   cpp<#)
+
+(defun capnp-load-name-ix (name-type)
+  (lambda (reader member capnp-name)
+    (declare (ignore capnp-name))
+    #>cpp
+    ${member} = storage->Get${name-type}Ix(self->name).ix;
+    cpp<#))
+
+(defun slk-load-name-ix (name-type)
+  (lambda (member)
+    #>cpp
+    self->${member} = storage->Get${name-type}Ix(self->name).ix;
+    cpp<#))
+
+;; The following index structs serve as a decoupling point of AST from
+;; concrete database types. All the names are collected in AstStorage, and can
+;; be indexed through these instances. This means that we can create a vector
+;; of concrete database types in the same order as all of the names and use the
+;; same index to get the correct behaviour. Additionally, each index is
+;; accompanied with the duplicated name found at the same index. The primary
+;; reason for this duplication is simplifying the Clone and serialization API.
+;; When an old index is being cloned or deserialized into a new AstStorage, we
+;; request the new `ix` from the new AstStorage for the same `name`. If we
+;; didn't do this, we would have to duplicate the old storage, which would
+;; require having access to that storage. This in turn would complicate the
+;; client code.
+(lcp:define-struct label-ix ()
+  ((name "std::string")
+   (ix :int64_t
+       :dont-save t
+       :slk-load (slk-load-name-ix "Label")
+       :capnp-init nil
+       :capnp-load (capnp-load-name-ix "Label")))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+              (:capnp :load-args '((storage "AstStorage *")))))
+
+(lcp:define-struct property-ix ()
+  ((name "std::string")
+   (ix :int64_t
+       :dont-save t
+       :slk-load (slk-load-name-ix "Property")
+       :capnp-init nil
+       :capnp-load (capnp-load-name-ix "Property")))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+              (:capnp :load-args '((storage "AstStorage *")))))
+
+(lcp:define-struct edge-type-ix ()
+  ((name "std::string")
+   (ix :int64_t
+       :dont-save t
+       :slk-load (slk-load-name-ix "EdgeType")
+       :capnp-init nil
+       :capnp-load (capnp-load-name-ix "EdgeType")))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+              (:capnp :load-args '((storage "AstStorage *")))))
+
+#>cpp
+inline bool operator==(const LabelIx &a, const LabelIx &b) {
+  return a.ix == b.ix && a.name == b.name;
+}
+
+inline bool operator!=(const LabelIx &a, const LabelIx &b) { return !(a == b); }
+
+inline bool operator==(const PropertyIx &a, const PropertyIx &b) {
+  return a.ix == b.ix && a.name == b.name;
+}
+
+inline bool operator!=(const PropertyIx &a, const PropertyIx &b) {
+  return !(a == b);
+}
+
+inline bool operator==(const EdgeTypeIx &a, const EdgeTypeIx &b) {
+  return a.ix == b.ix && a.name == b.name;
+}
+
+inline bool operator!=(const EdgeTypeIx &a, const EdgeTypeIx &b) {
+  return !(a == b);
+}
+cpp<#
+
+(lcp:pop-namespace) ;; namespace query
+
+#>cpp
+namespace std {
+
+template <>
+struct hash<query::LabelIx> {
+  size_t operator()(const query::LabelIx &label) const { return label.ix; }
+};
+
+template <>
+struct hash<query::PropertyIx> {
+  size_t operator()(const query::PropertyIx &prop) const { return prop.ix; }
+};
+
+template <>
+struct hash<query::EdgeTypeIx> {
+  size_t operator()(const query::EdgeTypeIx &edge_type) const {
+    return edge_type.ix;
+  }
+};
+
+}  // namespace std
+cpp<#
+
+(lcp:namespace query)
 
 #>cpp
 #define CLONE_BINARY_EXPRESSION                                              \
@@ -202,9 +286,37 @@ class AstStorage {
     return ptr;
   }
 
+  LabelIx GetLabelIx(const std::string &name) {
+    return LabelIx{name, FindOrAddName(name, &labels_)};
+  }
+
+  PropertyIx GetPropertyIx(const std::string &name) {
+    return PropertyIx{name, FindOrAddName(name, &properties_)};
+  }
+
+  EdgeTypeIx GetEdgeTypeIx(const std::string &name) {
+    return EdgeTypeIx{name, FindOrAddName(name, &edge_types_)};
+  }
+
+  std::vector<std::string> labels_;
+  std::vector<std::string> edge_types_;
+  std::vector<std::string> properties_;
+
   // Public only for serialization access
   std::vector<std::unique_ptr<Tree>> storage_;
   int max_existing_uid_ = -1;
+
+ private:
+  int64_t FindOrAddName(const std::string &name,
+                        std::vector<std::string> *names) {
+    for (int64_t i = 0; i < names->size(); ++i) {
+      if ((*names)[i] == name) {
+        return i;
+      }
+    }
+    names->push_back(name);
+    return names->size() - 1;
+  }
 };
 cpp<#
 
@@ -713,10 +825,10 @@ cpp<#
   (:serialize (:slk) (:capnp)))
 
 (lcp:define-class map-literal (base-literal)
-  ((elements "std::unordered_map<std::pair<std::string, storage::Property>, Expression *>"
+  ((elements "std::unordered_map<PropertyIx, Expression *>"
              :slk-save #'slk-save-property-map
              :slk-load #'slk-load-property-map
-             :capnp-type "Utils.Map(Utils.Pair(Text, Storage.Property), Tree)"
+             :capnp-type "Utils.Map(PropertyIx, Tree)"
              :capnp-save #'save-property-map
              :capnp-load #'load-property-map
              :scope :public))
@@ -736,8 +848,10 @@ cpp<#
 
     MapLiteral *Clone(AstStorage &storage) const override {
       auto *map = storage.Create<MapLiteral>();
-      for (auto pair : elements_)
-        map->elements_.emplace(pair.first, pair.second->Clone(storage));
+      for (auto pair : elements_) {
+        auto prop = storage.GetPropertyIx(pair.first.name);
+        map->elements_.emplace(prop, pair.second->Clone(storage));
+      }
       return map;
     }
     cpp<#)
@@ -745,8 +859,7 @@ cpp<#
     #>cpp
     explicit MapLiteral(int uid) : BaseLiteral(uid) {}
     MapLiteral(int uid,
-               const std::unordered_map<std::pair<std::string, storage::Property>,
-                                        Expression *> &elements)
+               const std::unordered_map<PropertyIx, Expression *> &elements)
         : BaseLiteral(uid), elements_(elements) {}
     cpp<#)
   (:private
@@ -789,8 +902,11 @@ cpp<#
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Expression *"))
-   (property-name "std::string" :scope :public)
-   (property "storage::Property" :scope :public))
+   (property "PropertyIx" :scope :public
+             :slk-load (lambda (member)
+                        #>cpp
+                        slk::Load(&self->${member}, reader, storage);
+                        cpp<#)))
   (:public
     #>cpp
     PropertyLookup() = default;
@@ -806,23 +922,15 @@ cpp<#
 
     PropertyLookup *Clone(AstStorage &storage) const override {
       return storage.Create<PropertyLookup>(expression_->Clone(storage),
-                                            property_name_, property_);
+                                            storage.GetPropertyIx(property_.name));
     }
     cpp<#)
   (:protected
     #>cpp
-    PropertyLookup(int uid, Expression *expression,
-                   const std::string &property_name, storage::Property property)
+    PropertyLookup(int uid, Expression *expression, PropertyIx property)
         : Expression(uid),
           expression_(expression),
-          property_name_(property_name),
           property_(property) {}
-    PropertyLookup(int uid, Expression *expression,
-                   const std::pair<std::string, storage::Property> &property)
-        : Expression(uid),
-          expression_(expression),
-          property_name_(property.first),
-          property_(property.second) {}
     cpp<#)
   (:private
     #>cpp
@@ -837,13 +945,23 @@ cpp<#
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Expression *"))
-   (labels "std::vector<storage::Label>" :scope :public
-           :capnp-save (lcp:capnp-save-vector
-                         "storage::capnp::Label"
-                         "storage::Label")
+   (labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
            :capnp-load (lcp:capnp-load-vector
-                         "storage::capnp::Label"
-                         "storage::Label")))
+                        "capnp::LabelIx" "LabelIx"
+                        "[storage](const auto &reader) {
+                           LabelIx ix;
+                           Load(&ix, reader, storage);
+                           return ix;
+                         }")))
   (:public
     #>cpp
     LabelsTest() = default;
@@ -858,13 +976,18 @@ cpp<#
     }
 
     LabelsTest *Clone(AstStorage &storage) const override {
-      return storage.Create<LabelsTest>(expression_->Clone(storage), labels_);
+      std::vector<LabelIx> new_labels;
+      new_labels.reserve(labels_.size());
+      for (const auto &label : labels_) {
+        new_labels.push_back(storage.GetLabelIx(label.name));
+      }
+      return storage.Create<LabelsTest>(expression_->Clone(storage), new_labels);
     }
     cpp<#)
   (:protected
     #>cpp
     LabelsTest(int uid, Expression *expression,
-               const std::vector<storage::Label> &labels)
+               const std::vector<LabelIx> &labels)
         : Expression(uid), expression_(expression), labels_(labels) {}
     cpp<#)
   (:private
@@ -1337,17 +1460,27 @@ cpp<#
               (:capnp :ignore-other-base-classes t)))
 
 (lcp:define-class node-atom (pattern-atom)
-  ((labels "std::vector<storage::Label>" :scope :public
-           :capnp-save (lcp:capnp-save-vector
-                         "storage::capnp::Label"
-                         "storage::Label")
+  ((labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
            :capnp-load (lcp:capnp-load-vector
-                         "storage::capnp::Label"
-                         "storage::Label"))
-   (properties "std::unordered_map<std::pair<std::string, storage::Property>, Expression *>"
+                        "capnp::LabelIx" "LabelIx"
+                        "[storage](const auto &reader) {
+                           LabelIx ix;
+                           Load(&ix, reader, storage);
+                           return ix;
+                         }"))
+   (properties "std::unordered_map<PropertyIx, Expression *>"
                :slk-save #'slk-save-property-map
                :slk-load #'slk-load-property-map
-               :capnp-type "Utils.Map(Utils.Pair(Text, Storage.Property), Tree)"
+               :capnp-type "Utils.Map(PropertyIx, Tree)"
                :capnp-save #'save-property-map
                :capnp-load #'load-property-map
                :scope :public))
@@ -1367,9 +1500,13 @@ cpp<#
 
     NodeAtom *Clone(AstStorage &storage) const override {
       auto *node_atom = storage.Create<NodeAtom>(identifier_->Clone(storage));
-      node_atom->labels_ = labels_;
+      node_atom->labels_.reserve(labels_.size());
+      for (const auto &label : labels_) {
+        node_atom->labels_.push_back(storage.GetLabelIx(label.name));
+      }
       for (auto property : properties_) {
-        node_atom->properties_[property.first] = property.second->Clone(storage);
+        auto prop = storage.GetPropertyIx(property.first.name);
+        node_atom->properties_[prop] = property.second->Clone(storage);
       }
       return node_atom;
     }
@@ -1387,18 +1524,28 @@ cpp<#
 (lcp:define-class edge-atom (pattern-atom)
   ((type "Type" :initval "Type::SINGLE" :scope :public)
    (direction "Direction" :initval "Direction::BOTH" :scope :public)
-   (edge-types "std::vector<storage::EdgeType>" :scope :public
-               :capnp-save (lcp:capnp-save-vector
-                             "storage::capnp::EdgeType"
-                             "storage::EdgeType")
+   (edge-types "std::vector<EdgeTypeIx>" :scope :public
+               :slk-load (lambda (member)
+                          #>cpp
+                          size_t size = 0;
+                          slk::Load(&size, reader);
+                          self->${member}.resize(size);
+                          for (size_t i = 0; i < size; ++i) {
+                            slk::Load(&self->${member}[i], reader, storage);
+                          }
+                          cpp<#)
                :capnp-load (lcp:capnp-load-vector
-                             "storage::capnp::EdgeType"
-                             "storage::EdgeType"))
-   (properties "std::unordered_map<std::pair<std::string, storage::Property>, Expression *>"
+                            "capnp::EdgeTypeIx" "EdgeTypeIx"
+                            "[storage](const auto &reader) {
+                               EdgeTypeIx ix;
+                               Load(&ix, reader, storage);
+                               return ix;
+                             }"))
+   (properties "std::unordered_map<PropertyIx, Expression *>"
                :scope :public
                :slk-save #'slk-save-property-map
                :slk-load #'slk-load-property-map
-               :capnp-type "Utils.Map(Utils.Pair(Text, Storage.Property), Tree)"
+               :capnp-type "Utils.Map(PropertyIx, Tree)"
                :capnp-save #'save-property-map
                :capnp-load #'load-property-map)
    (lower-bound "Expression *" :initval "nullptr" :scope :public
@@ -1505,9 +1652,13 @@ cpp<#
       auto *edge_atom = storage.Create<EdgeAtom>(identifier_->Clone(storage));
       edge_atom->direction_ = direction_;
       edge_atom->type_ = type_;
-      edge_atom->edge_types_ = edge_types_;
+      edge_atom->edge_types_.reserve(edge_types_.size());
+      for (const auto &edge_type : edge_types_) {
+        edge_atom->edge_types_.push_back(storage.GetEdgeTypeIx(edge_type.name));
+      }
       for (auto property : properties_) {
-        edge_atom->properties_[property.first] = property.second->Clone(storage);
+        auto prop = storage.GetPropertyIx(property.first.name);
+        edge_atom->properties_[prop] = property.second->Clone(storage);
       }
       edge_atom->lower_bound_ = CloneOpt(lower_bound_, storage);
       edge_atom->upper_bound_ = CloneOpt(upper_bound_, storage);
@@ -1541,7 +1692,7 @@ cpp<#
 
     // Creates an edge atom for a SINGLE expansion with the given .
     EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction,
-             const std::vector<storage::EdgeType> &edge_types)
+             const std::vector<EdgeTypeIx> &edge_types)
         : PatternAtom(uid, identifier),
           type_(type),
           direction_(direction),
@@ -1847,10 +1998,28 @@ cpp<#
 
 (lcp:define-class index-query (query)
   ((action "Action" :scope :public)
-   (label "storage::Label" :scope :public)
-   (properties "std::vector<storage::Property>" :scope :public
-               :capnp-save (lcp:capnp-save-vector "storage::capnp::Property" "storage::Property")
-               :capnp-load (lcp:capnp-load-vector "storage::capnp::Property" "storage::Property")))
+   (label "LabelIx" :scope :public
+          :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#))
+   (properties "std::vector<PropertyIx>" :scope :public
+               :slk-load (lambda (member)
+                          #>cpp
+                          size_t size = 0;
+                          slk::Load(&size, reader);
+                          self->${member}.resize(size);
+                          for (size_t i = 0; i < size; ++i) {
+                            slk::Load(&self->${member}[i], reader, storage);
+                          }
+                          cpp<#)
+               :capnp-load (lcp:capnp-load-vector
+                            "capnp::PropertyIx" "PropertyIx"
+                            "[storage](const auto &reader) {
+                               PropertyIx ix;
+                               Load(&ix, reader, storage);
+                               return ix;
+                             }")))
   (:public
    (lcp:define-enum action
        (create create-unique drop)
@@ -1862,14 +2031,20 @@ cpp<#
     DEFVISITABLE(QueryVisitor<void>);
 
     IndexQuery *Clone(AstStorage &storage) const override {
-      return storage.Create<IndexQuery>(action_, label_, properties_);
+      std::vector<PropertyIx> new_properties;
+      new_properties.reserve(properties_.size());
+      for (const auto &prop : properties_) {
+        new_properties.push_back(storage.GetPropertyIx(prop.name));
+      }
+      return storage.Create<IndexQuery>(action_, storage.GetLabelIx(label_.name),
+                                        new_properties);
     }
   cpp<#)
   (:protected
     #>cpp
     explicit IndexQuery(int uid) : Query(uid) {}
-    IndexQuery(int uid, Action action, storage::Label label,
-               std::vector<storage::Property> properties)
+    IndexQuery(int uid, Action action, LabelIx label,
+               std::vector<PropertyIx> properties)
         : Query(uid), action_(action), label_(label), properties_(properties) {}
     cpp<#)
   (:private
@@ -2330,13 +2505,23 @@ cpp<#
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Identifier *"))
-   (labels "std::vector<storage::Label>" :scope :public
-           :capnp-save (lcp:capnp-save-vector
-                         "storage::capnp::Label"
-                         "storage::Label")
+   (labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
            :capnp-load (lcp:capnp-load-vector
-                         "storage::capnp::Label"
-                         "storage::Label")))
+                        "capnp::LabelIx" "LabelIx"
+                        "[storage](const auto &reader) {
+                           LabelIx ix;
+                           Load(&ix, reader, storage);
+                           return ix;
+                         }")))
   (:public
     #>cpp
     SetLabels() = default;
@@ -2349,14 +2534,19 @@ cpp<#
     }
 
     SetLabels *Clone(AstStorage &storage) const override {
-      return storage.Create<SetLabels>(identifier_->Clone(storage), labels_);
+      std::vector<LabelIx> new_labels;
+      new_labels.reserve(labels_.size());
+      for (const auto &label : labels_) {
+        new_labels.push_back(storage.GetLabelIx(label.name));
+      }
+      return storage.Create<SetLabels>(identifier_->Clone(storage), new_labels);
     }
     cpp<#)
   (:protected
     #>cpp
     explicit SetLabels(int uid) : Clause(uid) {}
     SetLabels(int uid, Identifier *identifier,
-              const std::vector<storage::Label> &labels)
+              const std::vector<LabelIx> &labels)
         : Clause(uid), identifier_(identifier), labels_(labels) {}
     cpp<#)
   (:private
@@ -2406,13 +2596,23 @@ cpp<#
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Identifier *"))
-   (labels "std::vector<storage::Label>" :scope :public
-           :capnp-save (lcp:capnp-save-vector
-                         "storage::capnp::Label"
-                         "storage::Label")
+   (labels "std::vector<LabelIx>" :scope :public
+           :slk-load (lambda (member)
+                      #>cpp
+                      size_t size = 0;
+                      slk::Load(&size, reader);
+                      self->${member}.resize(size);
+                      for (size_t i = 0; i < size; ++i) {
+                        slk::Load(&self->${member}[i], reader, storage);
+                      }
+                      cpp<#)
            :capnp-load (lcp:capnp-load-vector
-                         "storage::capnp::Label"
-                         "storage::Label")))
+                        "capnp::LabelIx" "LabelIx"
+                        "[storage](const auto &reader) {
+                           LabelIx ix;
+                           Load(&ix, reader, storage);
+                           return ix;
+                         }")))
   (:public
     #>cpp
     RemoveLabels() = default;
@@ -2425,14 +2625,19 @@ cpp<#
     }
 
     RemoveLabels *Clone(AstStorage &storage) const override {
-      return storage.Create<RemoveLabels>(identifier_->Clone(storage), labels_);
+      std::vector<LabelIx> new_labels;
+      new_labels.reserve(labels_.size());
+      for (const auto &label : labels_) {
+        new_labels.push_back(storage.GetLabelIx(label.name));
+      }
+      return storage.Create<RemoveLabels>(identifier_->Clone(storage), new_labels);
     }
     cpp<#)
   (:protected
     #>cpp
     explicit RemoveLabels(int uid) : Clause(uid) {}
     RemoveLabels(int uid, Identifier *identifier,
-                 const std::vector<storage::Label> &labels)
+                 const std::vector<LabelIx> &labels)
         : Clause(uid), identifier_(identifier), labels_(labels) {}
     cpp<#)
   (:private

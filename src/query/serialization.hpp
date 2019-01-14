@@ -23,12 +23,6 @@ void LoadCapnpTypedValue(const capnp::TypedValue::Reader &reader,
                          database::GraphDbAccessor *dba,
                          distributed::DataManager *data_manager);
 
-void SaveEvaluationContext(const EvaluationContext &ctx,
-                           capnp::EvaluationContext::Builder *builder);
-
-void LoadEvaluationContext(const capnp::EvaluationContext::Reader &reader,
-                           EvaluationContext *ctx);
-
 void Save(const TypedValueVectorCompare &comparator,
           capnp::TypedValueVectorCompare::Builder *builder);
 
@@ -60,6 +54,15 @@ inline void Load(SymbolTable *symbol_table,
   }
 }
 
+void Save(const Parameters &parameters,
+          utils::capnp::Map<utils::capnp::BoxInt64,
+                            storage::capnp::PropertyValue>::Builder *builder);
+
+void Load(
+    Parameters *parameters,
+    const utils::capnp::Map<utils::capnp::BoxInt64,
+                            storage::capnp::PropertyValue>::Reader &reader);
+
 }  // namespace query
 
 namespace slk {
@@ -74,10 +77,6 @@ inline void Load(query::SymbolTable *symbol_table, slk::Reader *reader) {
   slk::Load(&symbol_table->position_, reader);
   slk::Load(&symbol_table->table_, reader);
 }
-
-void Save(const query::EvaluationContext &ctx, slk::Builder *builder);
-
-void Load(query::EvaluationContext *ctx, slk::Reader *reader);
 
 void Save(const query::TypedValue &value, slk::Builder *builder,
           storage::SendVersions versions, int16_t worker_id);
@@ -94,5 +93,9 @@ void Save(const query::TypedValueVectorCompare &comparator,
           slk::Builder *builder);
 
 void Load(query::TypedValueVectorCompare *comparator, slk::Reader *reader);
+
+void Save(const query::Parameters &parameters, slk::Builder *builder);
+
+void Load(query::Parameters *parameters, slk::Reader *reader);
 
 }  // namespace slk

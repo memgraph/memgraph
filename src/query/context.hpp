@@ -1,6 +1,5 @@
 #pragma once
 
-#include "antlr4-runtime.h"
 #include "database/graph_db_accessor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/parameters.hpp"
@@ -11,7 +10,33 @@ namespace query {
 struct EvaluationContext {
   int64_t timestamp{-1};
   Parameters parameters;
+  /// All properties indexable via PropertyIx
+  std::vector<storage::Property> properties;
+  /// All labels indexable via LabelIx
+  std::vector<storage::Label> labels;
 };
+
+inline std::vector<storage::Property> NamesToProperties(
+    const std::vector<std::string> &property_names,
+    database::GraphDbAccessor *dba) {
+  std::vector<storage::Property> properties;
+  properties.reserve(property_names.size());
+  for (const auto &name : property_names) {
+    properties.push_back(dba->Property(name));
+  }
+  return properties;
+}
+
+inline std::vector<storage::Label> NamesToLabels(
+    const std::vector<std::string> &label_names,
+    database::GraphDbAccessor *dba) {
+  std::vector<storage::Label> labels;
+  labels.reserve(label_names.size());
+  for (const auto &name : label_names) {
+    labels.push_back(dba->Label(name));
+  }
+  return labels;
+}
 
 class Context {
  public:
@@ -31,6 +56,9 @@ class Context {
   plan::ProfilingStats *stats_root_{nullptr};
 };
 
+// TODO: Move this to somewhere in query/frontend. Currently, frontend includes
+// this and therefore implicitly includes the whole database because of the
+// includes at the top of this file.
 struct ParsingContext {
   bool is_query_cached = false;
 };

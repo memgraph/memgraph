@@ -57,15 +57,15 @@ auto ToMap(const TypedValue &t) {
   return map;
 };
 
-std::string ToString(Expression *expr) {
+std::string ToString(const AstStorage &storage, Expression *expr) {
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  PrintExpression(storage, expr, &ss);
   return ss.str();
 }
 
-std::string ToString(NamedExpression *expr) {
+std::string ToString(const AstStorage &storage, NamedExpression *expr) {
   std::ostringstream ss;
-  PrintExpression(expr, &ss);
+  PrintExpression(storage, expr, &ss);
   return ss.str();
 }
 
@@ -121,15 +121,22 @@ auto GetOrderBy(T... exprs) {
 template <class TDbAccessor>
 auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba,
                        const std::string &name, storage::Property property) {
-  return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
-                                        dba.PropertyName(property), property);
+  return storage.Create<PropertyLookup>(
+      storage.Create<Identifier>(name),
+      storage.GetPropertyIx(dba.PropertyName(property)));
 }
 
 template <class TDbAccessor>
 auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
                        storage::Property property) {
-  return storage.Create<PropertyLookup>(expr, dba.PropertyName(property),
-                                        property);
+  return storage.Create<PropertyLookup>(
+      expr, storage.GetPropertyIx(dba.PropertyName(property)));
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       const std::string &property) {
+  return storage.Create<PropertyLookup>(expr, storage.GetPropertyIx(property));
 }
 
 template <class TDbAccessor>
@@ -137,15 +144,15 @@ auto GetPropertyLookup(
     AstStorage &storage, TDbAccessor &, const std::string &name,
     const std::pair<std::string, storage::Property> &prop_pair) {
   return storage.Create<PropertyLookup>(storage.Create<Identifier>(name),
-                                        prop_pair.first, prop_pair.second);
+                                        storage.GetPropertyIx(prop_pair.first));
 }
 
 template <class TDbAccessor>
 auto GetPropertyLookup(
     AstStorage &storage, TDbAccessor &, Expression *expr,
     const std::pair<std::string, storage::Property> &prop_pair) {
-  return storage.Create<PropertyLookup>(expr, prop_pair.first,
-                                        prop_pair.second);
+  return storage.Create<PropertyLookup>(expr,
+                                        storage.GetPropertyIx(prop_pair.first));
 }
 
 /// Create an EdgeAtom with given name, direction and edge_type.
@@ -153,9 +160,14 @@ auto GetPropertyLookup(
 /// Name is used to create the Identifier which is assigned to the edge.
 auto GetEdge(AstStorage &storage, const std::string &name,
              EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-             const std::vector<storage::EdgeType> &edge_types = {}) {
+             const std::vector<std::string> &edge_types = {}) {
+  std::vector<EdgeTypeIx> types;
+  types.reserve(edge_types.size());
+  for (const auto &type : edge_types) {
+    types.push_back(storage.GetEdgeTypeIx(type));
+  }
   return storage.Create<EdgeAtom>(storage.Create<Identifier>(name),
-                                  EdgeAtom::Type::SINGLE, dir, edge_types);
+                                  EdgeAtom::Type::SINGLE, dir, types);
 }
 
 /// Create a variable length expansion EdgeAtom with given name, direction and
@@ -165,15 +177,20 @@ auto GetEdge(AstStorage &storage, const std::string &name,
 auto GetEdgeVariable(AstStorage &storage, const std::string &name,
                      EdgeAtom::Type type = EdgeAtom::Type::DEPTH_FIRST,
                      EdgeAtom::Direction dir = EdgeAtom::Direction::BOTH,
-                     const std::vector<storage::EdgeType> &edge_types = {},
+                     const std::vector<std::string> &edge_types = {},
                      Identifier *flambda_inner_edge = nullptr,
                      Identifier *flambda_inner_node = nullptr,
                      Identifier *wlambda_inner_edge = nullptr,
                      Identifier *wlambda_inner_node = nullptr,
                      Expression *wlambda_expression = nullptr,
                      Identifier *total_weight = nullptr) {
+  std::vector<EdgeTypeIx> types;
+  types.reserve(edge_types.size());
+  for (const auto &type : edge_types) {
+    types.push_back(storage.GetEdgeTypeIx(type));
+  }
   auto r_val = storage.Create<EdgeAtom>(storage.Create<Identifier>(name), type,
-                                        dir, edge_types);
+                                        dir, types);
 
   r_val->filter_lambda_.inner_edge =
       flambda_inner_edge ? flambda_inner_edge
@@ -205,10 +222,10 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name,
 ///
 /// Name is used to create the Identifier which is assigned to the node.
 auto GetNode(AstStorage &storage, const std::string &name,
-             std::experimental::optional<storage::Label> label =
+             std::experimental::optional<std::string> label =
                  std::experimental::nullopt) {
   auto node = storage.Create<NodeAtom>(storage.Create<Identifier>(name));
-  if (label) node->labels_.emplace_back(*label);
+  if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
   return node;
 }
 
@@ -444,7 +461,12 @@ auto GetSet(AstStorage &storage, const std::string &name, Expression *expr,
 
 /// Create a set labels clause for given identifier name and labels.
 auto GetSet(AstStorage &storage, const std::string &name,
-            std::vector<storage::Label> labels) {
+            std::vector<std::string> label_names) {
+  std::vector<LabelIx> labels;
+  labels.reserve(label_names.size());
+  for (const auto &label : label_names) {
+    labels.push_back(storage.GetLabelIx(label));
+  }
   return storage.Create<SetLabels>(storage.Create<Identifier>(name), labels);
 }
 
@@ -455,7 +477,12 @@ auto GetRemove(AstStorage &storage, PropertyLookup *prop_lookup) {
 
 /// Create a remove labels clause for given identifier name and labels.
 auto GetRemove(AstStorage &storage, const std::string &name,
-               std::vector<storage::Label> labels) {
+               std::vector<std::string> label_names) {
+  std::vector<LabelIx> labels;
+  labels.reserve(label_names.size());
+  for (const auto &label : label_names) {
+    labels.push_back(storage.GetLabelIx(label));
+  }
   return storage.Create<RemoveLabels>(storage.Create<Identifier>(name), labels);
 }
 
@@ -513,10 +540,9 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define LIST(...)                     \
   storage.Create<query::ListLiteral>( \
       std::vector<query::Expression *>{__VA_ARGS__})
-#define MAP(...)                                                    \
-  storage.Create<query::MapLiteral>(                                \
-      std::unordered_map<std::pair<std::string, storage::Property>, \
-                         query::Expression *>{__VA_ARGS__})
+#define MAP(...)                     \
+  storage.Create<query::MapLiteral>( \
+      std::unordered_map<query::PropertyIx, query::Expression *>{__VA_ARGS__})
 #define PROPERTY_PAIR(property_name) \
   std::make_pair(property_name, dba.Property(property_name))
 #define PROPERTY_LOOKUP(...) \
@@ -557,7 +583,7 @@ auto GetMerge(AstStorage &storage, Pattern *pattern, OnMatch on_match,
 #define CREATE_INDEX_ON(label, property)          \
   storage.Create<query::IndexQuery>(              \
       query::IndexQuery::Action::CREATE, (label), \
-      std::vector<storage::Property>{(property)})
+      std::vector<query::PropertyIx>{(property)})
 #define QUERY(...) query::test_common::GetQuery(storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
   query::test_common::GetSingleQuery(storage.Create<SingleQuery>(), __VA_ARGS__)

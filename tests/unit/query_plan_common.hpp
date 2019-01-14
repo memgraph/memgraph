@@ -17,26 +17,33 @@ using namespace query::plan;
 
 using Bound = ScanAllByLabelPropertyRange::Bound;
 
+Context MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
+                    database::GraphDbAccessor *dba) {
+  Context context(*dba);
+  context.symbol_table_ = symbol_table;
+  context.evaluation_context_.properties =
+      NamesToProperties(storage.properties_, dba);
+  context.evaluation_context_.labels = NamesToLabels(storage.labels_, dba);
+  return context;
+}
+
 /** Helper function that collects all the results from the given Produce. */
-std::vector<std::vector<TypedValue>> CollectProduce(
-    Produce *produce, SymbolTable &symbol_table,
-    database::GraphDbAccessor &db_accessor) {
-  Frame frame(symbol_table.max_position());
+std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
+                                                    Context *context) {
+  Frame frame(context->symbol_table_.max_position());
 
   // top level node in the operator tree is a produce (return)
   // so stream out results
 
   // collect the symbols from the return clause
   std::vector<Symbol> symbols;
-  for (auto named_expression : produce->named_expressions_)
-    symbols.emplace_back(symbol_table[*named_expression]);
+  for (auto named_expression : produce.named_expressions_)
+    symbols.emplace_back(context->symbol_table_[*named_expression]);
 
-  Context context(db_accessor);
-  context.symbol_table_ = symbol_table;
   // stream out results
-  auto cursor = produce->MakeCursor(db_accessor);
+  auto cursor = produce.MakeCursor(context->db_accessor_);
   std::vector<std::vector<TypedValue>> results;
-  while (cursor->Pull(frame, context)) {
+  while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
     for (auto &symbol : symbols) values.emplace_back(frame[symbol]);
     results.emplace_back(values);
@@ -45,14 +52,11 @@ std::vector<std::vector<TypedValue>> CollectProduce(
   return results;
 }
 
-int PullAll(std::shared_ptr<LogicalOperator> logical_op,
-            database::GraphDbAccessor &db, SymbolTable &symbol_table) {
-  Frame frame(symbol_table.max_position());
-  auto cursor = logical_op->MakeCursor(db);
+int PullAll(const LogicalOperator &logical_op, Context *context) {
+  Frame frame(context->symbol_table_.max_position());
+  auto cursor = logical_op.MakeCursor(context->db_accessor_);
   int count = 0;
-  Context context(db);
-  context.symbol_table_ = symbol_table;
-  while (cursor->Pull(frame, context)) count++;
+  while (cursor->Pull(frame, *context)) count++;
   return count;
 }
 
@@ -114,6 +118,7 @@ ScanAllTuple MakeScanAllByLabel(
 ScanAllTuple MakeScanAllByLabelPropertyRange(
     AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
     storage::Label label, storage::Property property,
+    const std::string &property_name,
     std::experimental::optional<Bound> lower_bound,
     std::experimental::optional<Bound> upper_bound,
     std::shared_ptr<LogicalOperator> input = {nullptr},
@@ -122,7 +127,8 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   symbol_table[*node->identifier_] = symbol;
   auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(
-      input, symbol, label, property, lower_bound, upper_bound, graph_view);
+      input, symbol, label, property, property_name, lower_bound, upper_bound,
+      graph_view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -134,14 +140,15 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(
     AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
-    storage::Label label, storage::Property property, Expression *value,
+    storage::Label label, storage::Property property,
+    const std::string &property_name, Expression *value,
     std::shared_ptr<LogicalOperator> input = {nullptr},
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   symbol_table[*node->identifier_] = symbol;
   auto logical_op = std::make_shared<ScanAllByLabelPropertyValue>(
-      input, symbol, label, property, value, graph_view);
+      input, symbol, label, property, property_name, value, graph_view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 

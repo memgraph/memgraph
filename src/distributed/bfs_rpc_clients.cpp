@@ -25,7 +25,8 @@ std::unordered_map<int16_t, int64_t> BfsRpcClients::CreateBfsSubcursors(
       db_->WorkerId(), [&](int worker_id, auto &client) {
         auto res = client.template Call<CreateBfsSubcursorRpc>(
             dba->transaction_id(), direction, edge_types, filter_lambda,
-            symbol_table, evaluation_context);
+            symbol_table, evaluation_context.timestamp,
+            evaluation_context.parameters);
         return std::make_pair(worker_id, res.member);
       });
   std::unordered_map<int16_t, int64_t> subcursor_ids;

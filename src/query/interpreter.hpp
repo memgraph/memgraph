@@ -35,6 +35,7 @@ class LogicalPlan {
   virtual const plan::LogicalOperator &GetRoot() const = 0;
   virtual double GetCost() const = 0;
   virtual const SymbolTable &GetSymbolTable() const = 0;
+  virtual const AstStorage &GetAstStorage() const = 0;
 };
 
 class Interpreter {
@@ -46,6 +47,7 @@ class Interpreter {
     const auto &plan() const { return plan_->GetRoot(); }
     double cost() const { return plan_->GetCost(); }
     const auto &symbol_table() const { return plan_->GetSymbolTable(); }
+    const auto &ast_storage() const { return plan_->GetAstStorage(); }
 
     bool IsExpired() const {
       return cache_timer_.Elapsed() >
@@ -81,19 +83,33 @@ class Interpreter {
    */
   class Results {
     friend Interpreter;
-    Results(Context ctx, std::shared_ptr<CachedPlan> plan,
-            std::unique_ptr<query::plan::Cursor> cursor,
+    Results(database::GraphDbAccessor *db_accessor,
+            const query::Parameters &parameters,
+            std::shared_ptr<CachedPlan> plan,
             std::vector<Symbol> output_symbols, std::vector<std::string> header,
             std::map<std::string, TypedValue> summary,
-            std::vector<AuthQuery::Privilege> privileges)
-        : ctx_(std::move(ctx)),
+            std::vector<AuthQuery::Privilege> privileges,
+            bool is_profile_query = false)
+        : ctx_(*db_accessor),
           plan_(plan),
-          cursor_(std::move(cursor)),
-          frame_(ctx_.symbol_table_.max_position()),
+          cursor_(plan_->plan().MakeCursor(*db_accessor)),
+          frame_(plan_->symbol_table().max_position()),
           output_symbols_(output_symbols),
           header_(header),
           summary_(summary),
-          privileges_(std::move(privileges)) {}
+          privileges_(std::move(privileges)) {
+      ctx_.is_profile_query_ = is_profile_query;
+      ctx_.symbol_table_ = plan_->symbol_table();
+      ctx_.evaluation_context_.timestamp =
+          std::chrono::duration_cast<std::chrono::milliseconds>(
+              std::chrono::system_clock::now().time_since_epoch())
+              .count();
+      ctx_.evaluation_context_.parameters = parameters;
+      ctx_.evaluation_context_.properties =
+          NamesToProperties(plan_->ast_storage().properties_, db_accessor);
+      ctx_.evaluation_context_.labels =
+          NamesToLabels(plan_->ast_storage().labels_, db_accessor);
+    }
 
    public:
     Results(const Results &) = delete;
@@ -185,7 +201,7 @@ class Interpreter {
 
  protected:
   std::pair<StrippedQuery, ParsedQuery> StripAndParseQuery(
-      const std::string &, Context *, AstStorage *ast_storage,
+      const std::string &, Parameters *, AstStorage *ast_storage,
       database::GraphDbAccessor *,
       const std::map<std::string, PropertyValue> &);
 

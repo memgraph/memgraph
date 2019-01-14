@@ -51,11 +51,11 @@ TEST(QueryPlan, Accumulate) {
     auto n_p = PROPERTY_LOOKUP("n", prop);
     symbol_table[*n_p->expression_] = n.sym_;
     auto set_n_p =
-        std::make_shared<plan::SetProperty>(r_m.op_, n_p, ADD(n_p, one));
+        std::make_shared<plan::SetProperty>(r_m.op_, prop, n_p, ADD(n_p, one));
     auto m_p = PROPERTY_LOOKUP("m", prop);
     symbol_table[*m_p->expression_] = r_m.node_sym_;
     auto set_m_p =
-        std::make_shared<plan::SetProperty>(set_n_p, m_p, ADD(m_p, one));
+        std::make_shared<plan::SetProperty>(set_n_p, prop, m_p, ADD(m_p, one));
 
     std::shared_ptr<LogicalOperator> last_op = set_m_p;
     if (accumulate) {
@@ -68,7 +68,8 @@ TEST(QueryPlan, Accumulate) {
     auto m_p_ne = NEXPR("m.p", m_p);
     symbol_table[*m_p_ne] = symbol_table.CreateSymbol("m_p_ne", true);
     auto produce = MakeProduce(last_op, n_p_ne, m_p_ne);
-    auto results = CollectProduce(produce.get(), symbol_table, dba);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    auto results = CollectProduce(*produce, &context);
     std::vector<int> results_data;
     for (const auto &row : results)
       for (const auto &column : row)
@@ -97,7 +98,8 @@ TEST(QueryPlan, AccumulateAdvance) {
     auto accumulate = std::make_shared<Accumulate>(
         create, std::vector<Symbol>{node.symbol}, advance);
     auto match = MakeScanAll(storage, symbol_table, "m", accumulate);
-    EXPECT_EQ(advance ? 1 : 0, PullAll(match.op_, *dba, symbol_table));
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_EQ(advance ? 1 : 0, PullAll(*match.op_, &context));
   };
   check(false);
   check(true);
@@ -187,7 +189,8 @@ class QueryPlanAggregateOps : public ::testing::Test {
     auto produce =
         MakeAggregationProduce(n.op_, symbol_table, storage,
                                aggregation_expressions, ops, group_bys, {});
-    return CollectProduce(produce.get(), symbol_table, dba);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    return CollectProduce(*produce, &context);
   }
 };
 
@@ -330,7 +333,8 @@ TEST(QueryPlan, AggregateGroupByValues) {
       MakeAggregationProduce(n.op_, symbol_table, storage, {n_p},
                              {Aggregation::Op::COUNT}, {n_p}, {n.sym_});
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), group_by_vals.size() - 2);
   TypedValue::unordered_set result_group_bys;
   for (const auto &row : results) {
@@ -378,7 +382,8 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
                                         {Aggregation::Op::COUNT},
                                         {n_p1, n_p2, n_p3}, {n.sym_});
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2 * 3 * 5);
 }
 
@@ -394,7 +399,8 @@ TEST(QueryPlan, AggregateNoInput) {
 
   auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
                                         {Aggregation::Op::COUNT}, {}, {});
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(1, results[0].size());
   EXPECT_EQ(TypedValue::Type::Int, results[0][0].type());
@@ -427,7 +433,8 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   auto count = [&]() {
     auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p},
                                           {Aggregation::Op::COUNT}, {}, {});
-    auto results = CollectProduce(produce.get(), symbol_table, dba);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    auto results = CollectProduce(*produce, &context);
     if (results.size() == 0) return -1L;
     EXPECT_EQ(1, results.size());
     EXPECT_EQ(1, results[0].size());
@@ -487,7 +494,8 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
     auto produce = MakeAggregationProduce(n.op_, symbol_table, storage,
                                           {expression}, {aggr_op}, {}, {});
-    CollectProduce(produce.get(), symbol_table, dba);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    CollectProduce(*produce, &context);
   };
 
   // everything except for COUNT and COLLECT fails on a Vertex
@@ -545,7 +553,8 @@ TEST(QueryPlan, AggregateTypes) {
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
     auto produce = MakeAggregationProduce(n.op_, symbol_table, storage,
                                           {expression}, {aggr_op}, {}, {});
-    CollectProduce(produce.get(), symbol_table, dba);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    CollectProduce(*produce, &context);
   };
 
   // everything except for COUNT and COLLECT fails on a Vertex
@@ -602,7 +611,8 @@ TEST(QueryPlan, Unwind) {
   symbol_table[*y_ne] = symbol_table.CreateSymbol("y_ne", true);
   auto produce = MakeProduce(unwind_1, x_ne, y_ne);
 
-  auto results = CollectProduce(produce.get(), symbol_table, *dba);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(4, results.size());
   const std::vector<int> expected_x_card{3, 3, 3, 1};
   auto expected_x_card_it = expected_x_card.begin();

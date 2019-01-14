@@ -42,6 +42,7 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
   const plan::LogicalOperator &GetRoot() const override { return *root_; }
   double GetCost() const override { return cost_; }
   const SymbolTable &GetSymbolTable() const override { return symbol_table_; }
+  const AstStorage &GetAstStorage() const override { return storage_; }
 
  private:
   std::unique_ptr<plan::LogicalOperator> root_;
@@ -70,13 +71,19 @@ TypedValue EvaluateOptionalExpression(Expression *expression,
 }
 
 Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
-                         const EvaluationContext &evaluation_context,
+                         const Parameters &parameters,
                          database::GraphDbAccessor *db_accessor) {
   // Empty frame for evaluation of password expression. This is OK since
   // password should be either null or string literal and it's evaluation
   // should not depend on frame.
   Frame frame(0);
   SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
   ExpressionEvaluator evaluator(&frame, symbol_table, evaluation_context,
                                 db_accessor, GraphView::OLD);
 
@@ -355,12 +362,18 @@ Callback HandleAuthQuery(AuthQuery *auth_query, auth::Auth *auth,
 
 Callback HandleStreamQuery(StreamQuery *stream_query,
                            integrations::kafka::Streams *streams,
-                           const EvaluationContext &evaluation_context,
+                           const Parameters &parameters,
                            database::GraphDbAccessor *db_accessor) {
   // Empty frame and symbol table for evaluation of expressions. This is OK
   // since all expressions should be literals or parameter lookups.
   Frame frame(0);
   SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  evaluation_context.timestamp =
+      std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now().time_since_epoch())
+          .count();
+  evaluation_context.parameters = parameters;
   ExpressionEvaluator eval(&frame, symbol_table, evaluation_context,
                            db_accessor, GraphView::OLD);
 
@@ -513,8 +526,12 @@ Callback HandleIndexQuery(IndexQuery *index_query,
                           std::function<void()> invalidate_plan_cache,
                           database::GraphDbAccessor *db_accessor) {
   auto action = index_query->action_;
-  auto label = index_query->label_;
-  auto properties = index_query->properties_;
+  auto label = db_accessor->Label(index_query->label_.name);
+  std::vector<storage::Property> properties;
+  properties.reserve(index_query->properties_.size());
+  for (const auto &prop : index_query->properties_) {
+    properties.push_back(db_accessor->Property(prop.name));
+  }
 
   if (properties.size() > 1) {
     throw utils::NotYetImplemented("index on multiple properties");
@@ -574,12 +591,12 @@ Interpreter::Results Interpreter::operator()(
 
   AstStorage ast_storage;
   Context execution_context(db_accessor);
-  auto &evaluation_context = execution_context.evaluation_context_;
+  Parameters parameters;
   std::map<std::string, TypedValue> summary;
 
   utils::Timer parsing_timer;
-  auto queries = StripAndParseQuery(query_string, &execution_context,
-                                    &ast_storage, &db_accessor, params);
+  auto queries = StripAndParseQuery(query_string, &parameters, &ast_storage,
+                                    &db_accessor, params);
   StrippedQuery &stripped_query = queries.first;
   ParsedQuery &parsed_query = queries.second;
   auto parsing_time = parsing_timer.Elapsed();
@@ -600,15 +617,12 @@ Interpreter::Results Interpreter::operator()(
 
   if (auto *cypher_query = dynamic_cast<CypherQuery *>(parsed_query.query)) {
     plan = CypherQueryToPlan(stripped_query.hash(), cypher_query,
-                             std::move(ast_storage),
-                             evaluation_context.parameters, &db_accessor);
+                             std::move(ast_storage), parameters, &db_accessor);
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
     summary["cost_estimate"] = plan->cost();
 
-    execution_context.symbol_table_ = plan->symbol_table();
-    auto output_symbols =
-        plan->plan().OutputSymbols(execution_context.symbol_table_);
+    auto output_symbols = plan->plan().OutputSymbols(plan->symbol_table());
 
     std::vector<std::string> header;
     for (const auto &symbol : output_symbols) {
@@ -620,11 +634,8 @@ Interpreter::Results Interpreter::operator()(
                            .first);
     }
 
-    auto cursor = plan->plan().MakeCursor(db_accessor);
-
-    return Results(std::move(execution_context), plan, std::move(cursor),
-                   output_symbols, header, summary,
-                   parsed_query.required_privileges);
+    return Results(&db_accessor, parameters, plan, output_symbols, header,
+                   summary, parsed_query.required_privileges);
   }
 
   if (auto *explain_query = dynamic_cast<ExplainQuery *>(parsed_query.query)) {
@@ -636,9 +647,9 @@ Interpreter::Results Interpreter::operator()(
 
     auto cypher_query_hash =
         fnv(stripped_query.query().substr(kExplainQueryStart.size()));
-    std::shared_ptr<CachedPlan> cypher_query_plan = CypherQueryToPlan(
-        cypher_query_hash, explain_query->cypher_query_, std::move(ast_storage),
-        evaluation_context.parameters, &db_accessor);
+    std::shared_ptr<CachedPlan> cypher_query_plan =
+        CypherQueryToPlan(cypher_query_hash, explain_query->cypher_query_,
+                          std::move(ast_storage), parameters, &db_accessor);
 
     std::stringstream printed_plan;
     PrettyPrintPlan(db_accessor, &cypher_query_plan->plan(), &printed_plan);
@@ -649,27 +660,23 @@ Interpreter::Results Interpreter::operator()(
       printed_plan_rows.push_back(std::vector<TypedValue>{row});
     }
 
-    auto query_plan_symbol =
-        execution_context.symbol_table_.CreateSymbol("QUERY PLAN", false);
+    SymbolTable symbol_table;
+    auto query_plan_symbol = symbol_table.CreateSymbol("QUERY PLAN", false);
     std::vector<Symbol> output_symbols{query_plan_symbol};
-    std::vector<std::string> header{query_plan_symbol.name()};
 
     auto output_plan =
         std::make_unique<plan::OutputTable>(output_symbols, printed_plan_rows);
 
     plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-        std::move(output_plan), 0.0, AstStorage{},
-        execution_context.symbol_table_));
+        std::move(output_plan), 0.0, AstStorage{}, symbol_table));
 
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
 
-    execution_context.symbol_table_ = plan->symbol_table();
-    auto cursor = plan->plan().MakeCursor(db_accessor);
+    std::vector<std::string> header{query_plan_symbol.name()};
 
-    return Results(std::move(execution_context), plan, std::move(cursor),
-                   output_symbols, header, summary,
-                   parsed_query.required_privileges);
+    return Results(&db_accessor, parameters, plan, output_symbols, header,
+                   summary, parsed_query.required_privileges);
   }
 
   if (auto *profile_query = dynamic_cast<ProfileQuery *>(parsed_query.query)) {
@@ -689,22 +696,20 @@ Interpreter::Results Interpreter::operator()(
 
     auto cypher_query_hash =
         fnv(stripped_query.query().substr(kProfileQueryStart.size()));
-    auto cypher_query_plan = CypherQueryToPlan(
-        cypher_query_hash, profile_query->cypher_query_, std::move(ast_storage),
-        evaluation_context.parameters, &db_accessor);
+    auto cypher_query_plan =
+        CypherQueryToPlan(cypher_query_hash, profile_query->cypher_query_,
+                          std::move(ast_storage), parameters, &db_accessor);
 
     // Copy the symbol table and add our own symbols (used by the `OutputTable`
     // operator below)
-    execution_context.symbol_table_ = cypher_query_plan->symbol_table();
+    SymbolTable symbol_table(cypher_query_plan->symbol_table());
 
-    auto operator_symbol =
-        execution_context.symbol_table_.CreateSymbol("OPERATOR", false);
-    auto actual_hits_symbol =
-        execution_context.symbol_table_.CreateSymbol("ACTUAL HITS", false);
+    auto operator_symbol = symbol_table.CreateSymbol("OPERATOR", false);
+    auto actual_hits_symbol = symbol_table.CreateSymbol("ACTUAL HITS", false);
     auto relative_time_symbol =
-        execution_context.symbol_table_.CreateSymbol("RELATIVE TIME", false);
+        symbol_table.CreateSymbol("RELATIVE TIME", false);
     auto absolute_time_symbol =
-        execution_context.symbol_table_.CreateSymbol("ABSOLUTE TIME", false);
+        symbol_table.CreateSymbol("ABSOLUTE TIME", false);
 
     std::vector<Symbol> output_symbols = {operator_symbol, actual_hits_symbol,
                                           relative_time_symbol,
@@ -714,9 +719,9 @@ Interpreter::Results Interpreter::operator()(
         relative_time_symbol.name(), absolute_time_symbol.name()};
 
     auto output_plan = std::make_unique<plan::OutputTable>(
-        output_symbols,
-        [cypher_query_plan, &db_accessor](Frame *frame, Context *context) {
-          auto cursor = cypher_query_plan->plan().MakeCursor(db_accessor);
+        output_symbols, [cypher_query_plan](Frame *frame, Context *context) {
+          auto cursor =
+              cypher_query_plan->plan().MakeCursor(context->db_accessor_);
 
           // Pull everything to profile the execution
           utils::Timer timer;
@@ -726,18 +731,14 @@ Interpreter::Results Interpreter::operator()(
         });
 
     plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
-        std::move(output_plan), 0.0, AstStorage{},
-        execution_context.symbol_table_));
+        std::move(output_plan), 0.0, AstStorage{}, symbol_table));
 
     auto planning_time = planning_timer.Elapsed();
     summary["planning_time"] = planning_time.count();
 
-    execution_context.is_profile_query_ = true;
-    auto cursor = plan->plan().MakeCursor(db_accessor);
-
-    return Results(std::move(execution_context), plan, std::move(cursor),
-                   output_symbols, header, summary,
-                   parsed_query.required_privileges);
+    return Results(&db_accessor, parameters, plan, output_symbols, header,
+                   summary, parsed_query.required_privileges,
+                   /* is_profile_query */ true);
   }
 
   Callback callback;
@@ -758,40 +759,36 @@ Interpreter::Results Interpreter::operator()(
     if (in_explicit_transaction) {
       throw UserModificationInMulticommandTxException();
     }
-    callback =
-        HandleAuthQuery(auth_query, auth_, evaluation_context, &db_accessor);
+    callback = HandleAuthQuery(auth_query, auth_, parameters, &db_accessor);
   } else if (auto *stream_query =
                  dynamic_cast<StreamQuery *>(parsed_query.query)) {
     if (in_explicit_transaction) {
       throw StreamClauseInMulticommandTxException();
     }
-    callback = HandleStreamQuery(stream_query, kafka_streams_,
-                                 evaluation_context, &db_accessor);
+    callback = HandleStreamQuery(stream_query, kafka_streams_, parameters,
+                                 &db_accessor);
   } else {
     LOG(FATAL) << "Should not get here -- unknown query type!";
   }
 
+  SymbolTable symbol_table;
   std::vector<Symbol> output_symbols;
   for (const auto &column : callback.header) {
-    output_symbols.emplace_back(
-        execution_context.symbol_table_.CreateSymbol(column, "false"));
+    output_symbols.emplace_back(symbol_table.CreateSymbol(column, "false"));
   }
 
   plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
       std::make_unique<plan::OutputTable>(
           output_symbols,
           [fn = callback.fn](Frame *, Context *) { return fn(); }),
-      0.0, AstStorage{}, execution_context.symbol_table_));
+      0.0, AstStorage{}, symbol_table));
 
   auto planning_time = planning_timer.Elapsed();
   summary["planning_time"] = planning_time.count();
   summary["cost_estimate"] = 0.0;
 
-  auto cursor = plan->plan().MakeCursor(db_accessor);
-
-  return Results(std::move(execution_context), plan, std::move(cursor),
-                 output_symbols, callback.header, summary,
-                 parsed_query.required_privileges);
+  return Results(&db_accessor, parameters, plan, output_symbols,
+                 callback.header, summary, parsed_query.required_privileges);
 }
 
 std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
@@ -825,7 +822,7 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
       return std::make_unique<frontend::opencypher::Parser>(original_query);
     }();
     // Convert antlr4 AST into Memgraph AST.
-    frontend::CypherMainVisitor visitor(context, ast_storage, db_accessor);
+    frontend::CypherMainVisitor visitor(context, ast_storage);
     visitor.visit(parser->tree());
     return ParsedQuery{visitor.query(),
                        query::GetRequiredPrivileges(visitor.query())};
@@ -855,8 +852,7 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
     }();
     // Convert antlr4 AST into Memgraph AST.
     AstStorage cached_ast_storage;
-    frontend::CypherMainVisitor visitor(context, &cached_ast_storage,
-                                        db_accessor);
+    frontend::CypherMainVisitor visitor(context, &cached_ast_storage);
     visitor.visit(parser->tree());
     CachedQuery cached_query{std::move(cached_ast_storage), visitor.query(),
                              query::GetRequiredPrivileges(visitor.query())};
@@ -865,31 +861,28 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
         ast_cache_accessor.insert(stripped_query_hash, std::move(cached_query))
             .first;
   }
+  ast_storage->properties_ = ast_it->second.ast_storage.properties_;
+  ast_storage->labels_ = ast_it->second.ast_storage.labels_;
+  ast_storage->edge_types_ = ast_it->second.ast_storage.edge_types_;
   return ParsedQuery{ast_it->second.query->Clone(*ast_storage),
                      ast_it->second.required_privileges};
 }
 
 std::pair<StrippedQuery, Interpreter::ParsedQuery>
 Interpreter::StripAndParseQuery(
-    const std::string &query_string, Context *execution_context,
+    const std::string &query_string, Parameters *parameters,
     AstStorage *ast_storage, database::GraphDbAccessor *db_accessor,
     const std::map<std::string, PropertyValue> &params) {
   StrippedQuery stripped_query(query_string);
 
-  auto &evaluation_context = execution_context->evaluation_context_;
-  evaluation_context.timestamp =
-      std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::system_clock::now().time_since_epoch())
-          .count();
-
-  evaluation_context.parameters = stripped_query.literals();
+  *parameters = stripped_query.literals();
   for (const auto &param_pair : stripped_query.parameters()) {
     auto param_it = params.find(param_pair.second);
     if (param_it == params.end()) {
       throw query::UnprovidedParameterError("Parameter ${} not provided.",
                                             param_pair.second);
     }
-    evaluation_context.parameters.Add(param_pair.first, param_it->second);
+    parameters->Add(param_pair.first, param_it->second);
   }
 
   ParsingContext parsing_context;
@@ -904,15 +897,15 @@ Interpreter::StripAndParseQuery(
 std::unique_ptr<LogicalPlan> Interpreter::MakeLogicalPlan(
     CypherQuery *query, AstStorage ast_storage, const Parameters &parameters,
     database::GraphDbAccessor *db_accessor) {
-  auto vertex_counts = plan::MakeVertexCountCache(*db_accessor);
+  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
 
   auto symbol_table = MakeSymbolTable(query);
 
-  auto planning_context = plan::MakePlanningContext(ast_storage, symbol_table,
-                                                    query, vertex_counts);
+  auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table,
+                                                    query, &vertex_counts);
   std::unique_ptr<plan::LogicalOperator> root;
   double cost;
-  std::tie(root, cost) = plan::MakeLogicalPlan(planning_context, parameters,
+  std::tie(root, cost) = plan::MakeLogicalPlan(&planning_context, parameters,
                                                FLAGS_query_cost_planner);
   return std::make_unique<SingleNodeLogicalPlan>(
       std::move(root), cost, std::move(ast_storage), std::move(symbol_table));

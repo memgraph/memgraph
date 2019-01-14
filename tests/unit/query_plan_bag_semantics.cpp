@@ -31,23 +31,24 @@ TEST(QueryPlan, Skip) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Skip>(n.op_, LITERAL(2));
 
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(1, PullAll(*skip, &context));
 
   for (int i = 0; i < 10; ++i) dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(11, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(11, PullAll(*skip, &context));
 }
 
 TEST(QueryPlan, Limit) {
@@ -60,23 +61,24 @@ TEST(QueryPlan, Limit) {
   auto n = MakeScanAll(storage, symbol_table, "n1");
   auto skip = std::make_shared<plan::Limit>(n.op_, LITERAL(2));
 
-  EXPECT_EQ(0, PullAll(skip, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(0, PullAll(*skip, &context));
 
   dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(1, PullAll(*skip, &context));
 
   dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(2, PullAll(*skip, &context));
 
   dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(2, PullAll(*skip, &context));
 
   for (int i = 0; i < 10; ++i) dba->InsertVertex();
   dba->AdvanceCommand();
-  EXPECT_EQ(2, PullAll(skip, *dba, symbol_table));
+  EXPECT_EQ(2, PullAll(*skip, &context));
 }
 
 TEST(QueryPlan, CreateLimit) {
@@ -98,7 +100,8 @@ TEST(QueryPlan, CreateLimit) {
   auto c = std::make_shared<CreateNode>(n.op_, m);
   auto skip = std::make_shared<plan::Limit>(c, LITERAL(1));
 
-  EXPECT_EQ(1, PullAll(skip, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*skip, &context));
   dba->AdvanceCommand();
   EXPECT_EQ(3, CountIterable(dba->Vertices(false)));
 }
@@ -156,7 +159,8 @@ TEST(QueryPlan, OrderBy) {
     auto n_p_ne = NEXPR("n.p", n_p);
     symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.p", true);
     auto produce = MakeProduce(order_by, n_p_ne);
-    auto results = CollectProduce(produce.get(), symbol_table, dba);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(values.size(), results.size());
     for (int j = 0; j < results.size(); ++j)
       EXPECT_TRUE(TypedValue::BoolEqual{}(results[j][0], values[j]));
@@ -210,7 +214,8 @@ TEST(QueryPlan, OrderByMultiple) {
   auto n_p2_ne = NEXPR("n.p2", n_p2);
   symbol_table[*n_p2_ne] = symbol_table.CreateSymbol("n.p2", true);
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(N * N, results.size());
   for (int j = 0; j < N * N; ++j) {
     ASSERT_EQ(results[j][0].type(), TypedValue::Type::Int);
@@ -261,6 +266,7 @@ TEST(QueryPlan, OrderByExceptions) {
     auto order_by = std::make_shared<plan::OrderBy>(
         n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
         std::vector<Symbol>{});
-    EXPECT_THROW(PullAll(order_by, dba, symbol_table), QueryRuntimeException);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    EXPECT_THROW(PullAll(*order_by, &context), QueryRuntimeException);
   }
 }

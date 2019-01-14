@@ -67,16 +67,9 @@ cpp<#
                                     Load(&${member}, ${reader}, ast_storage, &loaded_ast_uids);
                                     cpp<#))
       (symbol-table "query::SymbolTable" :capnp-type "Query.SymbolTable")
-      (evaluation-context "query::EvaluationContext"
-                          :capnp-type "Query.EvaluationContext"
-                          :capnp-save (lambda (builder member capnp-name)
-                                        #>cpp
-                                        query::SaveEvaluationContext(${member}, &${builder});
-                                        cpp<#)
-                          :capnp-load (lambda (reader member capnp-name)
-                                        #>cpp
-                                        query::LoadEvaluationContext(${reader}, &${member});
-                                        cpp<#)))
+      (timestamp :int64_t)
+      (parameters "query::Parameters"
+                  :capnp-type "Utils.Map(Utils.BoxInt64, Storage.PropertyValue)"))
      (:serialize (:slk :load-args '((ast-storage "query::AstStorage *")))
                  (:capnp :load-args '((ast-storage "query::AstStorage *")))))
   (:response ((member :int64_t))))

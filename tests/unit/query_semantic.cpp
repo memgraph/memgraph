@@ -79,7 +79,7 @@ TEST_F(TestSymbolGenerator, MatchNodeUnboundReturn) {
 TEST_F(TestSymbolGenerator, CreatePropertyUnbound) {
   // AST with unbound variable in create: CREATE ({prop: x})
   auto node = NODE("anon");
-  node->properties_[PROPERTY_PAIR("prop")] = IDENT("x");
+  node->properties_[storage.GetPropertyIx("prop")] = IDENT("x");
   auto query_ast = QUERY(SINGLE_QUERY(CREATE(PATTERN(node))));
   EXPECT_THROW(query::MakeSymbolTable(query_ast), UnboundVariableError);
 }
@@ -130,7 +130,7 @@ TEST_F(TestSymbolGenerator, MatchCreateRedeclareNode) {
 TEST_F(TestSymbolGenerator, MatchCreateRedeclareEdge) {
   // AST with redeclaring a match edge variable in create:
   // MATCH (n) -[r]- (m) CREATE (n) -[r :relationship]-> (l)
-  auto relationship = dba.EdgeType("relationship");
+  auto relationship = "relationship";
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
       CREATE(PATTERN(NODE("n"),
@@ -160,10 +160,10 @@ TEST_F(TestSymbolGenerator, MatchCreateTypeMismatch) {
 TEST_F(TestSymbolGenerator, CreateMultipleEdgeType) {
   // Multiple edge relationship are not allowed when creating edges.
   // CREATE (n) -[r :rel1 | :rel2]-> (m)
-  auto rel1 = dba.EdgeType("rel1");
-  auto rel2 = dba.EdgeType("rel2");
+  auto rel1 = "rel1";
+  auto rel2 = "rel2";
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {rel1});
-  edge->edge_types_.emplace_back(rel2);
+  edge->edge_types_.emplace_back(storage.GetEdgeTypeIx(rel2));
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"), edge, NODE("m")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
 }
@@ -171,7 +171,7 @@ TEST_F(TestSymbolGenerator, CreateMultipleEdgeType) {
 TEST_F(TestSymbolGenerator, CreateBidirectionalEdge) {
   // Bidirectional relationships are not allowed when creating edges.
   // CREATE (n) -[r :rel1]- (m)
-  auto rel1 = dba.EdgeType("rel1");
+  auto rel1 = "rel1";
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", EdgeAtom::Direction::BOTH, {rel1}), NODE("m")))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
@@ -270,8 +270,8 @@ TEST_F(TestSymbolGenerator, MatchWithWhereUnbound) {
 
 TEST_F(TestSymbolGenerator, CreateMultiExpand) {
   // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
-  auto r_type = dba.EdgeType("r");
-  auto p_type = dba.EdgeType("p");
+  auto r_type = "r";
+  auto p_type = "p";
   auto node_n1 = NODE("n");
   auto edge_r = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
   auto node_m = NODE("m");
@@ -303,8 +303,8 @@ TEST_F(TestSymbolGenerator, CreateMultiExpand) {
 
 TEST_F(TestSymbolGenerator, MatchCreateExpandLabel) {
   // Test MATCH (n) CREATE (m) -[r :r]-> (n:label)
-  auto r_type = dba.EdgeType("r");
-  auto label = dba.Label("label");
+  auto r_type = "r";
+  auto label = "label";
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
@@ -314,9 +314,9 @@ TEST_F(TestSymbolGenerator, MatchCreateExpandLabel) {
 
 TEST_F(TestSymbolGenerator, CreateExpandProperty) {
   // Test CREATE (n) -[r :r]-> (n {prop: 42})
-  auto r_type = dba.EdgeType("r");
+  auto r_type = "r";
   auto n_prop = NODE("n");
-  n_prop->properties_[PROPERTY_PAIR("prop")] = LITERAL(42);
+  n_prop->properties_[storage.GetPropertyIx("prop")] = LITERAL(42);
   auto query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}), n_prop))));
   EXPECT_THROW(query::MakeSymbolTable(query), SemanticException);
@@ -365,7 +365,7 @@ TEST_F(TestSymbolGenerator, MatchPropCreateNodeProp) {
   auto node_n = NODE("n");
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  node_m->properties_[prop] = n_prop;
+  node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), CREATE(PATTERN(node_m))));
   auto symbol_table = query::MakeSymbolTable(query);
@@ -379,7 +379,7 @@ TEST_F(TestSymbolGenerator, MatchPropCreateNodeProp) {
 
 TEST_F(TestSymbolGenerator, CreateNodeEdge) {
   // Test CREATE (n), (n) -[r :r]-> (n)
-  auto r_type = dba.EdgeType("r");
+  auto r_type = "r";
   auto node_1 = NODE("n");
   auto node_2 = NODE("n");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
@@ -397,7 +397,7 @@ TEST_F(TestSymbolGenerator, CreateNodeEdge) {
 
 TEST_F(TestSymbolGenerator, MatchWithCreate) {
   // Test MATCH (n) WITH n AS m CREATE (m) -[r :r]-> (m)
-  auto r_type = dba.EdgeType("r");
+  auto r_type = "r";
   auto node_1 = NODE("n");
   auto node_2 = NODE("m");
   auto edge = EDGE("r", EdgeAtom::Direction::OUT, {r_type});
@@ -512,7 +512,7 @@ TEST_F(TestSymbolGenerator, MergeVariableError) {
 
 TEST_F(TestSymbolGenerator, MergeVariableErrorEdge) {
   // Test MATCH (n) -[r]- (m) MERGE (a) -[r :rel]- (b)
-  auto rel = dba.EdgeType("rel");
+  auto rel = "rel";
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
       MERGE(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::BOTH, {rel}),
@@ -531,7 +531,7 @@ TEST_F(TestSymbolGenerator, MergeEdgeWithoutType) {
 TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
   // Test MATCH (n) MERGE (n) -[r :rel]- (m) ON MATCH SET n.prop = 42
   //      ON CREATE SET m.prop = 42 RETURN r AS r
-  auto rel = dba.EdgeType("rel");
+  auto rel = "rel";
   auto prop = dba.Property("prop");
   auto match_n = NODE("n");
   auto merge_n = NODE("n");
@@ -600,10 +600,10 @@ TEST_F(TestSymbolGenerator, MatchCrossReferenceVariable) {
   auto prop = PROPERTY_PAIR("prop");
   auto node_n = NODE("n");
   auto m_prop = PROPERTY_LOOKUP("m", prop.second);
-  node_n->properties_[prop] = m_prop;
+  node_n->properties_[storage.GetPropertyIx(prop.first)] = m_prop;
   auto node_m = NODE("m");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  node_m->properties_[prop] = n_prop;
+  node_m->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
   auto ident_n = IDENT("n");
   auto as_n = AS("n");
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)),
@@ -661,8 +661,8 @@ TEST_F(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
 
 TEST_F(TestSymbolGenerator, MatchMergeExpandLabel) {
   // Test MATCH (n) MERGE (m) -[r :r]-> (n:label)
-  auto r_type = dba.EdgeType("r");
-  auto label = dba.Label("label");
+  auto r_type = "r";
+  auto label = "label";
   auto query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {r_type}),
@@ -675,7 +675,7 @@ TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   auto prop = PROPERTY_PAIR("prop");
   auto edge = EDGE("r");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  edge->properties_[prop] = n_prop;
+  edge->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
   auto node_n = NODE("n");
   auto query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n, edge, NODE("m"))), RETURN("r")));
@@ -768,7 +768,7 @@ TEST_F(TestSymbolGenerator, MatchPropertySameIdentifier) {
   auto prop = PROPERTY_PAIR("prop");
   auto node_n = NODE("n");
   auto n_prop = PROPERTY_LOOKUP("n", prop.second);
-  node_n->properties_[prop] = n_prop;
+  node_n->properties_[storage.GetPropertyIx(prop.first)] = n_prop;
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto n = symbol_table.at(*node_n->identifier_);
@@ -885,7 +885,7 @@ TEST_F(TestSymbolGenerator, MatchBfsReturn) {
   auto *n_prop = PROPERTY_LOOKUP("n", prop);
   auto *bfs = storage.Create<EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT,
-      std::vector<storage::EdgeType>{});
+      std::vector<EdgeTypeIx>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = r_prop;
@@ -991,7 +991,7 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
   auto *r_filter = PROPERTY_LOOKUP("r", filter);
   auto *shortest = storage.Create<EdgeAtom>(
       IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
-      EdgeAtom::Direction::OUT, std::vector<storage::EdgeType>{});
+      EdgeAtom::Direction::OUT, std::vector<EdgeTypeIx>{});
   {
     shortest->weight_lambda_.inner_edge = IDENT("r");
     shortest->weight_lambda_.inner_node = IDENT("n");

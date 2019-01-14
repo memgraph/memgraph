@@ -65,31 +65,32 @@ class DistributedQueryPlan : public DistributedGraphDbTest {
 
 TEST_F(DistributedQueryPlan, PullProduceRpc) {
   auto dba = master().Access();
-  Context ctx{*dba};
-  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator{symbol_table};
   AstStorage storage;
 
   // Query plan for: UNWIND [42, true, "bla", 1, 2] as x RETURN x
   using namespace query;
   auto list =
       LIST(LITERAL(42), LITERAL(true), LITERAL("bla"), LITERAL(1), LITERAL(2));
-  auto x = ctx.symbol_table_.CreateSymbol("x", true);
+  auto x = symbol_table.CreateSymbol("x", true);
   auto unwind = std::make_shared<plan::Unwind>(nullptr, list, x);
   auto x_expr = IDENT("x");
-  ctx.symbol_table_[*x_expr] = x;
+  symbol_table[*x_expr] = x;
   auto x_ne = NEXPR("x", x_expr);
-  ctx.symbol_table_[*x_ne] = ctx.symbol_table_.CreateSymbol("x_ne", true);
+  symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
   auto produce = MakeProduce(unwind, x_ne);
 
   // Test that the plan works locally.
-  auto results = CollectProduce(produce.get(), ctx.symbol_table_, *dba);
+  Context ctx = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &ctx);
   ASSERT_EQ(results.size(), 5);
 
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
 
   tx::CommandId command_id = dba->transaction().cid();
-  EvaluationContext evaluation_context;
+  auto &evaluation_context = ctx.evaluation_context_;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
                          GraphDbAccessor &dba, int worker_id) {
@@ -152,33 +153,33 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   }
 
   auto dba = master().Access();
-  Context ctx{*dba};
-  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator{symbol_table};
   AstStorage storage;
 
   // Query plan for: MATCH p = (n)-[r]->(m) return [n, r], m, p
   // Use this query to test graph elements are transferred correctly in
   // collections too.
-  auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
-  auto r_m = MakeDistributedExpand(storage, ctx.symbol_table_, n.op_, n.sym_,
-                                   "r", EdgeAtom::Direction::OUT, {}, "m",
-                                   false, GraphView::OLD);
-  auto p_sym = ctx.symbol_table_.CreateSymbol("p", true);
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeDistributedExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                                   EdgeAtom::Direction::OUT, {}, "m", false,
+                                   GraphView::OLD);
+  auto p_sym = symbol_table.CreateSymbol("p", true);
   auto p = std::make_shared<query::plan::ConstructNamedPath>(
       r_m.op_, p_sym,
       std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
   auto return_n = IDENT("n");
-  ctx.symbol_table_[*return_n] = n.sym_;
+  symbol_table[*return_n] = n.sym_;
   auto return_r = IDENT("r");
-  ctx.symbol_table_[*return_r] = r_m.edge_sym_;
+  symbol_table[*return_r] = r_m.edge_sym_;
   auto return_n_r = NEXPR("[n, r]", LIST(return_n, return_r));
-  ctx.symbol_table_[*return_n_r] = ctx.symbol_table_.CreateSymbol("", true);
+  symbol_table[*return_n_r] = symbol_table.CreateSymbol("", true);
   auto return_m = NEXPR("m", IDENT("m"));
-  ctx.symbol_table_[*return_m->expression_] = r_m.node_sym_;
-  ctx.symbol_table_[*return_m] = ctx.symbol_table_.CreateSymbol("", true);
+  symbol_table[*return_m->expression_] = r_m.node_sym_;
+  symbol_table[*return_m] = symbol_table.CreateSymbol("", true);
   auto return_p = NEXPR("p", IDENT("p"));
-  ctx.symbol_table_[*return_p->expression_] = p_sym;
-  ctx.symbol_table_[*return_p] = ctx.symbol_table_.CreateSymbol("", true);
+  symbol_table[*return_p->expression_] = p_sym;
+  symbol_table[*return_p] = symbol_table.CreateSymbol("", true);
   auto produce = MakeProduce(p, return_n_r, return_m, return_p);
 
   auto check_result = [prop](int worker_id,
@@ -201,14 +202,15 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   };
 
   // Test that the plan works locally.
-  auto results = CollectProduce(produce.get(), ctx.symbol_table_, *dba);
+  Context ctx = MakeContext(storage, symbol_table, dba.get());
+  auto results = CollectProduce(*produce, &ctx);
   check_result(0, results);
 
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
 
   tx::CommandId command_id = dba->transaction().cid();
-  EvaluationContext evaluation_context;
+  auto &evaluation_context = ctx.evaluation_context_;
   std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
                                      ctx.symbol_table_[*return_m], p_sym};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
@@ -232,24 +234,25 @@ TEST_F(DistributedQueryPlan, Synchronize) {
   // gets reconstructed.
   auto dba_ptr = master().Access();
   auto &dba = *dba_ptr;
-  Context ctx{dba};
-  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator{symbol_table};
   AstStorage storage;
   // MATCH
-  auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
-  auto r_m = MakeDistributedExpand(storage, ctx.symbol_table_, n.op_, n.sym_,
-                                   "r", EdgeAtom::Direction::BOTH, {}, "m",
-                                   false, GraphView::OLD);
+  auto n = MakeScanAll(storage, symbol_table, "n");
+  auto r_m = MakeDistributedExpand(storage, symbol_table, n.op_, n.sym_, "r",
+                                   EdgeAtom::Direction::BOTH, {}, "m", false,
+                                   GraphView::OLD);
 
   // SET
   auto literal = LITERAL(42);
   auto prop = PROPERTY_PAIR("prop");
   auto m_p = PROPERTY_LOOKUP("m", prop);
-  ctx.symbol_table_[*m_p->expression_] = r_m.node_sym_;
-  auto set_m_p = std::make_shared<plan::SetProperty>(r_m.op_, m_p, literal);
+  symbol_table[*m_p->expression_] = r_m.node_sym_;
+  auto set_m_p =
+      std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p, literal);
 
   const int plan_id = 42;
-  master().plan_dispatcher().DispatchPlan(plan_id, set_m_p, ctx.symbol_table_);
+  master().plan_dispatcher().DispatchPlan(plan_id, set_m_p, symbol_table);
 
   // Master-side PullRemote, Synchronize
   auto pull_remote = std::make_shared<query::plan::PullRemote>(
@@ -258,15 +261,14 @@ TEST_F(DistributedQueryPlan, Synchronize) {
       std::make_shared<query::plan::Synchronize>(set_m_p, pull_remote, true);
 
   // RETURN
-  auto n_p =
-      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), prop);
-  ctx.symbol_table_[*n_p->expression_] = n.sym_;
+  auto n_p = PROPERTY_LOOKUP("n", prop);
+  symbol_table[*n_p->expression_] = n.sym_;
   auto return_n_p = NEXPR("n.prop", n_p);
-  auto return_n_p_sym = ctx.symbol_table_.CreateSymbol("n.p", true);
-  ctx.symbol_table_[*return_n_p] = return_n_p_sym;
+  auto return_n_p_sym = symbol_table.CreateSymbol("n.p", true);
+  symbol_table[*return_n_p] = return_n_p_sym;
   auto produce = MakeProduce(synchronize, return_n_p);
-
-  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+  Context ctx = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &ctx);
   ASSERT_EQ(results.size(), 2);
   ASSERT_EQ(results[0].size(), 1);
   EXPECT_EQ(results[0][0].ValueInt(), 42);
@@ -279,19 +281,19 @@ TEST_F(DistributedQueryPlan, Synchronize) {
 TEST_F(DistributedQueryPlan, Create) {
   // Query: UNWIND range(0, 1000) as x CREATE ()
   auto dba = master().Access();
-  Context ctx{*dba};
-  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator{symbol_table};
   AstStorage storage;
   auto range = FN("range", LITERAL(0), LITERAL(1000));
-  auto x = ctx.symbol_table_.CreateSymbol("x", true);
+  auto x = symbol_table.CreateSymbol("x", true);
   auto unwind = std::make_shared<plan::Unwind>(nullptr, range, x);
   NodeCreationInfo node;
-  node.symbol = ctx.symbol_table_.CreateSymbol("n", true);
+  node.symbol = symbol_table.CreateSymbol("n", true);
   auto create =
       std::make_shared<query::plan::DistributedCreateNode>(unwind, node, true);
-  PullAll(create, *dba, ctx.symbol_table_);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  PullAll(*create, &context);
   dba->Commit();
-
   EXPECT_GT(VertexCount(master()), 200);
   EXPECT_GT(VertexCount(worker(1)), 200);
   EXPECT_GT(VertexCount(worker(2)), 200);
@@ -323,29 +325,30 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
 
   auto dba_ptr = master().Access();
   auto &dba = *dba_ptr;
-  Context ctx{dba};
-  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator{symbol_table};
   AstStorage storage;
 
   // Query plan for:  MATCH (n) RETURN n.prop ORDER BY n.prop;
-  auto n = MakeScanAll(storage, ctx.symbol_table_, "n");
+  auto n = MakeScanAll(storage, symbol_table, "n");
   auto n_p = PROPERTY_LOOKUP("n", prop);
-  ctx.symbol_table_[*n_p->expression_] = n.sym_;
+  symbol_table[*n_p->expression_] = n.sym_;
   auto order_by = std::make_shared<plan::OrderBy>(
       n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
       std::vector<Symbol>{n.sym_});
 
   const int plan_id = 42;
-  master().plan_dispatcher().DispatchPlan(plan_id, order_by, ctx.symbol_table_);
+  master().plan_dispatcher().DispatchPlan(plan_id, order_by, symbol_table);
 
   auto pull_remote_order_by = std::make_shared<plan::PullRemoteOrderBy>(
       order_by, plan_id, std::vector<SortItem>{{Ordering::ASC, n_p}},
       std::vector<Symbol>{n.sym_});
 
   auto n_p_ne = NEXPR("n.prop", n_p);
-  ctx.symbol_table_[*n_p_ne] = ctx.symbol_table_.CreateSymbol("n.prop", true);
+  symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.prop", true);
   auto produce = MakeProduce(pull_remote_order_by, n_p_ne);
-  auto results = CollectProduce(produce.get(), ctx.symbol_table_, dba);
+  Context ctx = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &ctx);
 
   ASSERT_EQ(results.size(), 300);
   for (int j = 0; j < 300; ++j) {
@@ -365,24 +368,26 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
   InsertVertex(worker(1));
 
   auto dba = master().Access();
-  Context ctx{*dba};
-  SymbolGenerator symbol_generator{ctx.symbol_table_};
+  SymbolTable symbol_table;
+  SymbolGenerator symbol_generator{symbol_table};
   AstStorage storage;
 
   // Make distributed plan for MATCH (n) RETURN n
-  auto scan_all = MakeScanAll(storage, ctx.symbol_table_, "n");
+  auto scan_all = MakeScanAll(storage, symbol_table, "n");
   auto output = NEXPR("n", IDENT("n"));
   auto produce = MakeProduce(scan_all.op_, output);
-  ctx.symbol_table_[*output->expression_] = scan_all.sym_;
-  ctx.symbol_table_[*output] =
-      ctx.symbol_table_.CreateSymbol("named_expression_1", true);
+  symbol_table[*output->expression_] = scan_all.sym_;
+  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
 
   const int plan_id = 42;
-  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
+  master().plan_dispatcher().DispatchPlan(plan_id, produce, symbol_table);
   tx::CommandId command_id = dba->transaction().cid();
 
   EvaluationContext evaluation_context;
-  std::vector<query::Symbol> symbols{ctx.symbol_table_[*output]};
+  evaluation_context.properties =
+      NamesToProperties(storage.properties_, dba.get());
+  evaluation_context.labels = NamesToLabels(storage.labels_, dba.get());
+  std::vector<query::Symbol> symbols{symbol_table[*output]};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols,
                       &dba]() {
     return master()
@@ -595,11 +600,11 @@ class CapnpPlanner {
  public:
   template <class TDbAccessor>
   CapnpPlanner(std::vector<SingleQueryPart> single_query_parts,
-               PlanningContext<TDbAccessor> &context) {
+               PlanningContext<TDbAccessor> context) {
     ::capnp::MallocMessageBuilder message;
     {
       auto original_plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
-          single_query_parts, context);
+          single_query_parts, &context);
       SavePlan(*original_plan, &message);
     }
     {
@@ -625,9 +630,10 @@ DistributedPlan MakeDistributedPlan(query::CypherQuery *query,
                                     query::AstStorage &storage) {
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TPlanner>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TPlanner>(&dba, storage, symbol_table, query);
   std::atomic<int64_t> next_plan_id{0};
-  return MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
+  return MakeDistributedPlan(storage, planner.plan(), symbol_table,
+                             next_plan_id, {});
 }
 
 void CheckDistributedPlan(DistributedPlan &distributed_plan,
@@ -651,11 +657,14 @@ void CheckDistributedPlan(DistributedPlan &distributed_plan,
   }
 }
 
-void CheckDistributedPlan(const LogicalOperator &plan,
-                          const SymbolTable &symbol_table,
-                          ExpectedDistributedPlan &expected_distributed_plan) {
+void CheckDistributedPlan(
+    const AstStorage &ast_storage, const LogicalOperator &plan,
+    const SymbolTable &symbol_table,
+    const std::vector<storage::Property> &properties_by_ix,
+    ExpectedDistributedPlan &expected_distributed_plan) {
   std::atomic<int64_t> next_plan_id{0};
-  auto distributed_plan = MakeDistributedPlan(plan, symbol_table, next_plan_id);
+  auto distributed_plan = MakeDistributedPlan(ast_storage, plan, symbol_table,
+                                              next_plan_id, properties_by_ix);
   EXPECT_EQ(next_plan_id - 1, distributed_plan.worker_plans.size());
   CheckDistributedPlan(distributed_plan, expected_distributed_plan);
 }
@@ -708,10 +717,9 @@ class Planner {
  public:
   template <class TDbAccessor>
   Planner(std::vector<SingleQueryPart> single_query_parts,
-          PlanningContext<TDbAccessor> &context) {
-    plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(single_query_parts,
-                                                            context);
-  }
+          PlanningContext<TDbAccessor> context)
+      : plan_(MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
+            single_query_parts, &context)) {}
 
   auto &plan() { return *plan_; }
 
@@ -733,12 +741,17 @@ TYPED_TEST(TestPlanner, MatchNodeReturn) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected =
       ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectProduce(), pull),
                         MakeCheckers(ExpectScanAll(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, CreateNodeReturn) {
@@ -750,13 +763,13 @@ TYPED_TEST(TestPlanner, CreateNodeReturn) {
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectDistributedCreateNode(true), ExpectSynchronize(false),
                    ExpectProduce()));
   std::atomic<int64_t> next_plan_id{0};
-  auto distributed_plan =
-      MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
+  auto distributed_plan = MakeDistributedPlan(storage, planner.plan(),
+                                              symbol_table, next_plan_id, {});
   CheckDistributedPlan(distributed_plan, expected);
 }
 
@@ -764,7 +777,7 @@ TYPED_TEST(TestPlanner, CreateExpand) {
   // Test CREATE (n) -[r :rel1]-> (m)
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("relationship");
+  auto relationship = "relationship";
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(
       NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   ExpectedDistributedPlan expected{
@@ -790,7 +803,7 @@ TYPED_TEST(TestPlanner, CreateNodeExpandNode) {
   // Test CREATE (n) -[r :rel]-> (m), (l)
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("rel");
+  auto relationship = "rel";
   auto *query = QUERY(SINGLE_QUERY(CREATE(
       PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")),
       PATTERN(NODE("l")))));
@@ -806,7 +819,7 @@ TYPED_TEST(TestPlanner, CreateNamedPattern) {
   // Test CREATE p = (n) -[r :rel]-> (m)
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("rel");
+  auto relationship = "rel";
   auto *query = QUERY(SINGLE_QUERY(CREATE(NAMED_PATTERN(
       "p", NODE("n"), EDGE("r", Direction::OUT, {relationship}), NODE("m")))));
   ExpectedDistributedPlan expected{
@@ -821,7 +834,7 @@ TYPED_TEST(TestPlanner, MatchCreateExpand) {
   // Test MATCH (n) CREATE (n) -[r :rel1]-> (m)
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("relationship");
+  auto relationship = "relationship";
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {relationship}),
@@ -837,45 +850,55 @@ TYPED_TEST(TestPlanner, MatchLabeledNodes) {
   // Test MATCH (n :label) RETURN n
   AstStorage storage;
   FakeDbAccessor dba;
-  auto label = dba.Label("label");
+  auto label = "label";
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query =
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", label))), RETURN(as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAllByLabel(), ExpectProduce(), pull),
       MakeCheckers(ExpectScanAllByLabel(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchPathReturn) {
   // Test MATCH (n) -[r :relationship]- (m) RETURN n
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("relationship");
+  auto relationship = "relationship";
   auto *as_n = NEXPR("n", IDENT("n"));
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"), EDGE("r", Direction::BOTH, {relationship}),
                     NODE("m"))),
       RETURN(as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected =
       ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                                      ExpectProduce(), pull),
                         MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                                      ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) RETURN p
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("relationship");
+  auto relationship = "relationship";
   auto *as_p = NEXPR("p", IDENT("p"));
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(NAMED_PATTERN("p", NODE("n"),
@@ -883,21 +906,26 @@ TYPED_TEST(TestPlanner, MatchNamedPatternReturn) {
                           NODE("m"))),
       RETURN(as_p)));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_p)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                    ExpectConstructNamedPath(), ExpectProduce(), pull),
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                    ExpectConstructNamedPath(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
   // Test MATCH p = (n) -[r :relationship]- (m) WHERE 2 = p RETURN p
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("relationship");
+  auto relationship = "relationship";
   auto *as_p = NEXPR("p", IDENT("p"));
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(NAMED_PATTERN("p", NODE("n"),
@@ -905,7 +933,7 @@ TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
                           NODE("m"))),
       WHERE(EQ(LITERAL(2), IDENT("p"))), RETURN(as_p)));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_p)});
   auto expected =
       ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
@@ -914,7 +942,12 @@ TYPED_TEST(TestPlanner, MatchNamedPatternWithPredicateReturn) {
                         MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                                      ExpectConstructNamedPath(), ExpectFilter(),
                                      ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
@@ -933,7 +966,7 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
   std::vector<Symbol> optional_symbols{get_symbol(pattern), get_symbol(node_n),
                                        get_symbol(edge), get_symbol(node_m)};
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   std::list<BaseOpChecker *> optional{
       new ExpectScanAll(), new ExpectDistributedExpand(),
       new ExpectConstructNamedPath(), new ExpectPullRemote(optional_symbols)};
@@ -942,7 +975,12 @@ TYPED_TEST(TestPlanner, OptionalMatchNamedPatternReturn) {
                    ExpectProduce()),
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                    ExpectConstructNamedPath()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWhereReturn) {
@@ -955,12 +993,17 @@ TYPED_TEST(TestPlanner, MatchWhereReturn) {
       MATCH(PATTERN(NODE("n"))),
       WHERE(LESS(PROPERTY_LOOKUP("n", property), LITERAL(42))), RETURN(as_n)));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectProduce(), pull),
       MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchDelete) {
@@ -979,7 +1022,7 @@ TYPED_TEST(TestPlanner, MatchNodeSet) {
   AstStorage storage;
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
-  auto label = dba.Label("label");
+  auto label = "label";
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                    SET(PROPERTY_LOOKUP("n", prop), LITERAL(42)),
                                    SET("n", IDENT("n")), SET("n", {label})));
@@ -996,7 +1039,7 @@ TYPED_TEST(TestPlanner, MatchRemove) {
   AstStorage storage;
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
-  auto label = dba.Label("label");
+  auto label = "label";
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                    REMOVE(PROPERTY_LOOKUP("n", prop)),
                                    REMOVE("n", {label})));
@@ -1024,7 +1067,7 @@ TYPED_TEST(TestPlanner, MultiMatch) {
       MATCH(PATTERN(node_j, edge_e, node_i, edge_f, node_h)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   auto get_symbol = [&symbol_table](const auto *atom_node) {
     return symbol_table.at(*atom_node->identifier_);
   };
@@ -1035,17 +1078,21 @@ TYPED_TEST(TestPlanner, MultiMatch) {
   ExpectPullRemote right_pull({get_symbol(node_j), get_symbol(edge_e),
                                get_symbol(node_i), get_symbol(edge_f),
                                get_symbol(node_h)});
-  auto right_cart = MakeCheckers(
-      ExpectScanAll(), ExpectDistributedExpand(), ExpectDistributedExpand(),
-      ExpectEdgeUniquenessFilter(), right_pull);
+  auto right_cart = MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
+                                 ExpectDistributedExpand(),
+                                 ExpectEdgeUniquenessFilter(), right_pull);
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectProduce()),
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand()),
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
-                   ExpectDistributedExpand(),
-                   ExpectEdgeUniquenessFilter()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+                   ExpectDistributedExpand(), ExpectEdgeUniquenessFilter()));
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MultiMatchSameStart) {
@@ -1059,14 +1106,19 @@ TYPED_TEST(TestPlanner, MultiMatchSameStart) {
   // MATCH clause.
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected =
       ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                                      ExpectProduce(), pull),
                         MakeCheckers(ExpectScanAll(), ExpectDistributedExpand(),
                                      ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWithReturn) {
@@ -1078,12 +1130,17 @@ TYPED_TEST(TestPlanner, MatchWithReturn) {
   // No accumulation since we only do reads.
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_new)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectProduce(), pull),
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
@@ -1097,21 +1154,26 @@ TYPED_TEST(TestPlanner, MatchWithWhereReturn) {
       WHERE(LESS(PROPERTY_LOOKUP("new", prop), LITERAL(42))), RETURN(as_new)));
   // No accumulation since we only do reads.
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_new)});
   auto expected =
       ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectProduce(),
                                      ExpectFilter(), ExpectProduce(), pull),
                         MakeCheckers(ExpectScanAll(), ExpectProduce(),
                                      ExpectFilter(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, CreateMultiExpand) {
   // Test CREATE (n) -[r :r]-> (m), (n) - [p :p]-> (l)
   FakeDbAccessor dba;
-  auto r = dba.EdgeType("r");
-  auto p = dba.EdgeType("p");
+  auto r = "r";
+  auto p = "p";
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(
       CREATE(PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r}), NODE("m")),
@@ -1136,10 +1198,10 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
       MATCH(PATTERN(NODE("n"))), RETURN(sum, AS("sum"), n_prop2, AS("group"))));
   auto aggr = ExpectAggregate({sum}, {n_prop2});
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   std::atomic<int64_t> next_plan_id{0};
-  auto distributed_plan =
-      MakeDistributedPlan(planner.plan(), symbol_table, next_plan_id);
+  auto distributed_plan = MakeDistributedPlan(storage, planner.plan(),
+                                              symbol_table, next_plan_id, {});
   auto merge_sum = SUM(IDENT("worker_sum"));
   auto master_aggr = ExpectMasterAggregate({merge_sum}, {n_prop2});
   ExpectPullRemote pull(
@@ -1154,7 +1216,7 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
 TYPED_TEST(TestPlanner, MatchWithCreate) {
   // Test MATCH (n) WITH n AS a CREATE (a) -[r :r]-> (b)
   FakeDbAccessor dba;
-  auto r_type = dba.EdgeType("r");
+  auto r_type = "r";
   AstStorage storage;
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), WITH("n", AS("a")),
@@ -1177,13 +1239,18 @@ TYPED_TEST(TestPlanner, MatchReturnSkipLimit) {
                          RETURN(as_n, SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected =
       ExpectDistributed(MakeCheckers(ExpectScanAll(), ExpectProduce(), pull,
                                      ExpectSkip(), ExpectLimit()),
                         MakeCheckers(ExpectScanAll(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
@@ -1196,13 +1263,18 @@ TYPED_TEST(TestPlanner, CreateWithSkipReturnLimit) {
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectedDistributedPlan expected{
       MakeCheckers(ExpectDistributedCreateNode(true), ExpectSynchronize(true),
                    ExpectProduce(), ExpectSkip(), ExpectProduce(),
                    ExpectLimit()),
       {}};
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
@@ -1215,14 +1287,19 @@ TYPED_TEST(TestPlanner, MatchReturnOrderBy) {
   auto ret = RETURN(as_m, ORDER_BY(PROPERTY_LOOKUP("n", prop)));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), ret));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemoteOrderBy pull_order_by(
       {symbol_table.at(*as_m), symbol_table.at(*node_n->identifier_)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectOrderBy(),
                    pull_order_by),
       MakeCheckers(ExpectScanAll(), ExpectProduce(), ExpectOrderBy()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
   // Even though last operator pulls and orders by `m` and `n`, we expect only
   // `m` as the output of the query execution.
   EXPECT_THAT(planner.plan().OutputSymbols(symbol_table),
@@ -1234,7 +1311,7 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   //      WITH n AS new ORDER BY new.prop, r.prop WHERE m.prop < 42
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
-  auto r_type = dba.EdgeType("r");
+  auto r_type = "r";
   AstStorage storage;
   auto ident_n = IDENT("n");
   auto new_prop = PROPERTY_LOOKUP("new", prop);
@@ -1252,12 +1329,17 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
       symbol_table.at(*r_prop->expression_),  // `r` in ORDER BY
       symbol_table.at(*m_prop->expression_),  // `m` in WHERE
   });
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectDistributedCreateNode(true),
                    ExpectDistributedCreateExpand(), ExpectSynchronize(true),
                    ExpectProduce(), ExpectOrderBy(), ExpectFilter()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, ReturnAddSumCountOrderBy) {
@@ -1284,12 +1366,17 @@ TYPED_TEST(TestPlanner, MatchUnwindReturn) {
                    RETURN(as_n, as_x)));
   auto symbol_table = query::MakeSymbolTable(query);
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n), symbol_table.at(*as_x)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectUnwind(), ExpectProduce(), pull),
       MakeCheckers(ExpectScanAll(), ExpectUnwind(), ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, ReturnDistinctOrderBySkipLimit) {
@@ -1315,14 +1402,19 @@ TYPED_TEST(TestPlanner, MatchWhereBeforeExpand) {
       WHERE(LESS(PROPERTY_LOOKUP("n", prop), LITERAL(42))), RETURN(as_n)));
   // We expect Filter to come immediately after ScanAll, since it only uses `n`.
   auto symbol_table = query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   ExpectPullRemote pull({symbol_table.at(*as_n)});
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectDistributedExpand(),
                    ExpectProduce(), pull),
       MakeCheckers(ExpectScanAll(), ExpectFilter(), ExpectDistributedExpand(),
                    ExpectProduce()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, FunctionAggregationReturn) {
@@ -1348,11 +1440,11 @@ TYPED_TEST(TestPlanner, FunctionWithoutArguments) {
 TYPED_TEST(TestPlanner, MatchBfs) {
   // Test MATCH (n) -[r:type *..10 (r, n|n)]-> (m) RETURN r
   FakeDbAccessor dba;
-  auto edge_type = dba.EdgeType("type");
   AstStorage storage;
+  auto edge_type = storage.GetEdgeTypeIx("type");
   auto *bfs = storage.Create<query::EdgeAtom>(
       IDENT("r"), query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT,
-      std::vector<storage::EdgeType>{edge_type});
+      std::vector<EdgeTypeIx>{edge_type});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = IDENT("n");
@@ -1433,20 +1525,25 @@ TYPED_TEST(TestPlanner, DistributedMatchCreateReturn) {
   auto symbol_table = query::MakeSymbolTable(query);
   auto acc = ExpectAccumulate({symbol_table.at(*ident_m)});
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   auto expected = ExpectDistributed(
       MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode(),
                    ExpectSynchronize({symbol_table.at(*ident_m)}),
                    ExpectProduce()),
       MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode()));
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianCreateExpand) {
   // Test MATCH (a), (b) CREATE (a)-[e:r]->(b) RETURN e
   AstStorage storage;
   FakeDbAccessor dba;
-  auto relationship = dba.EdgeType("r");
+  auto relationship = "r";
   auto *node_a = NODE("a");
   auto *node_b = NODE("b");
   auto *query = QUERY(SINGLE_QUERY(
@@ -1466,8 +1563,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateExpand) {
                    ExpectDistributedCreateExpand(), ExpectSynchronize(false),
                    ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianExpand) {
@@ -1493,8 +1595,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpand) {
       MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAll(), ExpectDistributedExpand()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianExpandToExisting) {
@@ -1515,8 +1622,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandToExisting) {
                    ExpectDistributedExpand(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianExpandFromExisting) {
@@ -1538,8 +1650,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianExpandFromExisting) {
                    ExpectDistributedExpand(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
@@ -1569,21 +1686,27 @@ TYPED_TEST(TestPlanner, DistributedCartesianFilter) {
       MakeCheckers(ExpectScanAll(), ExpectFilter()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByProperty) {
   // Test MATCH (a), (b :label) WHERE b.prop = a RETURN b
   AstStorage storage;
   FakeDbAccessor dba;
-  auto label = dba.Label("label");
+  auto label_name = "label";
+  auto label = dba.Label(label_name);
   auto prop = dba.Property("prop");
   // Set indexes so that lookup by property is preferred.
   dba.SetIndexCount(label, 1024);
   dba.SetIndexCount(label, prop, 0);
   auto *node_a = NODE("a");
-  auto *node_b = NODE("b", label);
+  auto *node_b = NODE("b", label_name);
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b)),
       WHERE(EQ(PROPERTY_LOOKUP("b", prop), IDENT("a"))), RETURN("b")));
@@ -1599,21 +1722,27 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByProperty) {
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByLowerBound) {
   // Test MATCH (a), (b :label) WHERE a < b.prop RETURN b
   AstStorage storage;
   FakeDbAccessor dba;
-  auto label = dba.Label("label");
+  auto label_name = "label";
+  auto label = dba.Label(label_name);
   auto prop = dba.Property("prop");
   // Set indexes so that lookup by property is preferred.
   dba.SetIndexCount(label, 1024);
   dba.SetIndexCount(label, prop, 0);
   auto *node_a = NODE("a");
-  auto *node_b = NODE("b", label);
+  auto *node_b = NODE("b", label_name);
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b)),
       WHERE(LESS(IDENT("a"), PROPERTY_LOOKUP("b", prop))), RETURN("b")));
@@ -1629,21 +1758,27 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByLowerBound) {
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByUpperBound) {
   // Test MATCH (a), (b :label) WHERE a > b.prop RETURN b
   AstStorage storage;
   FakeDbAccessor dba;
-  auto label = dba.Label("label");
+  auto label_name = "label";
+  auto label = dba.Label(label_name);
   auto prop = dba.Property("prop");
   // Set indexes so that lookup by property is preferred.
   dba.SetIndexCount(label, 1024);
   dba.SetIndexCount(label, prop, 0);
   auto *node_a = NODE("a");
-  auto *node_b = NODE("b", label);
+  auto *node_b = NODE("b", label_name);
   auto *query = QUERY(SINGLE_QUERY(
       MATCH(PATTERN(node_a), PATTERN(node_b)),
       WHERE(GREATER(IDENT("a"), PROPERTY_LOOKUP("b", prop))), RETURN("b")));
@@ -1659,8 +1794,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianIndexedScanByUpperBound) {
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
@@ -1669,6 +1809,7 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto prop = dba.Property("prop");
+  storage.GetPropertyIx("prop");
   // Set indexes so that lookup by property is preferred.
   dba.SetIndexCount(label, 1024);
   dba.SetIndexCount(label, prop, 0);
@@ -1683,7 +1824,7 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
   symbol_table[*upper_expr] = sym_a;
   auto upper_bound = utils::MakeBoundExclusive(upper_expr);
   auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
-      scan_a, sym_b, label, prop, lower_bound, upper_bound);
+      scan_a, sym_b, label, prop, "prop", lower_bound, upper_bound);
   auto ident_b = IDENT("b");
   symbol_table[*ident_b] = sym_b;
   auto as_b = NEXPR("b", ident_b);
@@ -1698,7 +1839,12 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
       MakeCheckers(ExpectDistributedCartesian(left_cart, right_cart),
                    ExpectFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAllByLabel()));
-  CheckDistributedPlan(*produce, symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, *produce, symbol_table, properties_by_ix,
+                       expected);
 }
 
 TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
@@ -1707,6 +1853,7 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto prop = dba.Property("prop");
+  storage.GetPropertyIx("prop");
   // Set indexes so that lookup by property is preferred.
   dba.SetIndexCount(label, 1024);
   dba.SetIndexCount(label, prop, 0);
@@ -1720,7 +1867,7 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
   symbol_table[*upper_expr] = sym_a;
   auto upper_bound = utils::MakeBoundExclusive(upper_expr);
   auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
-      scan_a, sym_b, label, prop, lower_bound, upper_bound);
+      scan_a, sym_b, label, prop, "prop", lower_bound, upper_bound);
   auto ident_b = IDENT("b");
   symbol_table[*ident_b] = sym_b;
   auto as_b = NEXPR("b", ident_b);
@@ -1739,7 +1886,12 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
       MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAllByLabelPropertyRange(
           label, prop, lower_bound, std::experimental::nullopt)));
-  CheckDistributedPlan(*produce, symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, *produce, symbol_table, properties_by_ix,
+                       expected);
 }
 
 TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
@@ -1748,6 +1900,7 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
   FakeDbAccessor dba;
   auto label = dba.Label("label");
   auto prop = dba.Property("prop");
+  storage.GetPropertyIx("prop");
   // Set indexes so that lookup by property is preferred.
   dba.SetIndexCount(label, 1024);
   dba.SetIndexCount(label, prop, 0);
@@ -1761,7 +1914,7 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
   query::Expression *upper_expr = LITERAL(42);
   auto upper_bound = utils::MakeBoundExclusive(upper_expr);
   auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
-      scan_a, sym_b, label, prop, lower_bound, upper_bound);
+      scan_a, sym_b, label, prop, "prop", lower_bound, upper_bound);
   auto ident_b = IDENT("b");
   symbol_table[*ident_b] = sym_b;
   auto as_b = NEXPR("b", ident_b);
@@ -1780,7 +1933,12 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
       MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAllByLabelPropertyRange(
           label, prop, std::experimental::nullopt, upper_bound)));
-  CheckDistributedPlan(*produce, symbol_table, expected);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, *produce, symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianProduce) {
@@ -1803,8 +1961,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianProduce) {
       MakeCheckers(ExpectScanAll(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianUnwind) {
@@ -1824,8 +1987,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianUnwind) {
                    ExpectUnwind(), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianMatchCreateNode) {
@@ -1849,8 +2017,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianMatchCreateNode) {
       MakeCheckers(ExpectScanAll(), ExpectDistributedCreateNode()),
       MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
@@ -1871,8 +2044,13 @@ TYPED_TEST(TestPlanner, DistributedCartesianCreateNode) {
                    ExpectProduce()),
       MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedOptionalExpand) {
@@ -1894,8 +2072,13 @@ TYPED_TEST(TestPlanner, DistributedOptionalExpand) {
       MakeCheckers(ExpectScanAll(), ExpectDistributedOptional(optional),
                    ExpectProduce()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedOptionalCartesian) {
@@ -1922,20 +2105,26 @@ TYPED_TEST(TestPlanner, DistributedOptionalCartesian) {
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()),
       MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedCartesianTransitiveDependency) {
   // Test MATCH (n:L)-[a]-(m:L)-[b]-(l:L) RETURN l;
   AstStorage storage;
   FakeDbAccessor dba;
-  auto label = dba.Label("L");
+  auto label_name = "L";
+  auto label = dba.Label(label_name);
   // Set indexes so that multiple scans and expanding to existing is preferred.
   dba.SetIndexCount(label, 1);
-  auto *node_n = NODE("n", label);
-  auto *node_m = NODE("m", label);
-  auto *node_l = NODE("l", label);
+  auto *node_n = NODE("n", label_name);
+  auto *node_m = NODE("m", label_name);
+  auto *node_l = NODE("l", label_name);
   auto *edge_a = EDGE("a");
   auto *edge_b = EDGE("b");
   auto *query = QUERY(SINGLE_QUERY(
@@ -1961,13 +2150,17 @@ TYPED_TEST(TestPlanner, DistributedCartesianTransitiveDependency) {
                    // This expand depends on the previous one.
                    ExpectDistributedExpand(),
                    // UniquenessFilter depends on both expands.
-                   ExpectEdgeUniquenessFilter(),
-                   ExpectProduce()),
+                   ExpectEdgeUniquenessFilter(), ExpectProduce()),
       MakeCheckers(ExpectScanAllByLabel()),
       MakeCheckers(ExpectScanAllByLabel()),
       MakeCheckers(ExpectScanAllByLabel()));
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TYPED_TEST(TestPlanner, DistributedOptionalScanExpandExisting) {
@@ -1989,8 +2182,13 @@ TYPED_TEST(TestPlanner, DistributedOptionalScanExpandExisting) {
                    ExpectDistributedOptional(optional), ExpectProduce()),
       MakeCheckers(ExpectScanAll()), MakeCheckers(ExpectScanAll()));
   FakeDbAccessor dba;
-  auto planner = MakePlanner<TypeParam>(dba, storage, symbol_table, query);
-  CheckDistributedPlan(planner.plan(), symbol_table, expected);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  std::vector<storage::Property> properties_by_ix;
+  for (const auto &prop : storage.properties_) {
+    properties_by_ix.push_back(dba.Property(prop));
+  }
+  CheckDistributedPlan(storage, planner.plan(), symbol_table, properties_by_ix,
+                       expected);
 }
 
 TEST(CapnpSerial, Union) {

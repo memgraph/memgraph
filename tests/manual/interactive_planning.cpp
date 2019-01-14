@@ -129,14 +129,18 @@ class Timer {
 // Dummy DbAccessor which forwards user input for various vertex counts.
 class InteractiveDbAccessor {
  public:
-  InteractiveDbAccessor(database::GraphDbAccessor &dba, int64_t vertices_count,
+  InteractiveDbAccessor(database::GraphDbAccessor *dba, int64_t vertices_count,
                         Timer &timer)
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
-  int64_t VerticesCount() const { return vertices_count_; }
+  auto Label(const std::string &name) { return dba_->Label(name); }
+  auto Property(const std::string &name) { return dba_->Property(name); }
+  auto EdgeType(const std::string &name) { return dba_->EdgeType(name); }
 
-  int64_t VerticesCount(storage::Label label_id) const {
-    auto label = dba_.LabelName(label_id);
+  int64_t VerticesCount() { return vertices_count_; }
+
+  int64_t VerticesCount(storage::Label label_id) {
+    auto label = dba_->LabelName(label_id);
     if (label_vertex_count_.find(label) == label_vertex_count_.end()) {
       label_vertex_count_[label] = ReadVertexCount("label '" + label + "'");
     }
@@ -144,9 +148,9 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(storage::Label label_id,
-                        storage::Property property_id) const {
-    auto label = dba_.LabelName(label_id);
-    auto property = dba_.PropertyName(property_id);
+                        storage::Property property_id) {
+    auto label = dba_->LabelName(label_id);
+    auto property = dba_->PropertyName(property_id);
     auto key = std::make_pair(label, property);
     if (label_property_vertex_count_.find(key) ==
         label_property_vertex_count_.end()) {
@@ -157,9 +161,9 @@ class InteractiveDbAccessor {
   }
 
   int64_t VerticesCount(storage::Label label_id, storage::Property property_id,
-                        const PropertyValue &value) const {
-    auto label = dba_.LabelName(label_id);
-    auto property = dba_.PropertyName(property_id);
+                        const PropertyValue &value) {
+    auto label = dba_->LabelName(label_id);
+    auto property = dba_->PropertyName(property_id);
     auto label_prop = std::make_pair(label, property);
     if (label_property_index_.find(label_prop) == label_property_index_.end()) {
       return 0;
@@ -178,10 +182,9 @@ class InteractiveDbAccessor {
   int64_t VerticesCount(
       storage::Label label_id, storage::Property property_id,
       const std::experimental::optional<utils::Bound<PropertyValue>> lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> upper)
-      const {
-    auto label = dba_.LabelName(label_id);
-    auto property = dba_.PropertyName(property_id);
+      const std::experimental::optional<utils::Bound<PropertyValue>> upper) {
+    auto label = dba_->LabelName(label_id);
+    auto property = dba_->PropertyName(property_id);
     std::stringstream range_string;
     if (lower) {
       range_string << (lower->IsInclusive() ? "[" : "(") << lower->value()
@@ -197,9 +200,9 @@ class InteractiveDbAccessor {
   }
 
   bool LabelPropertyIndexExists(storage::Label label_id,
-                                storage::Property property_id) const {
-    auto label = dba_.LabelName(label_id);
-    auto property = dba_.PropertyName(property_id);
+                                storage::Property property_id) {
+    auto label = dba_->LabelName(label_id);
+    auto property = dba_->PropertyName(property_id);
     auto key = std::make_pair(label, property);
     if (label_property_index_.find(key) == label_property_index_.end()) {
       bool resp = timer_.WithPause([&label, &property]() {
@@ -312,15 +315,14 @@ class InteractiveDbAccessor {
  private:
   typedef std::pair<std::string, std::string> LabelPropertyKey;
 
-  database::GraphDbAccessor &dba_;
+  database::GraphDbAccessor *dba_;
   int64_t vertices_count_;
   Timer &timer_;
-  mutable std::map<std::string, int64_t> label_vertex_count_;
-  mutable std::map<std::pair<std::string, std::string>, int64_t>
+  std::map<std::string, int64_t> label_vertex_count_;
+  std::map<std::pair<std::string, std::string>, int64_t>
       label_property_vertex_count_;
-  mutable std::map<std::pair<std::string, std::string>, bool>
-      label_property_index_;
-  mutable std::map<
+  std::map<std::pair<std::string, std::string>, bool> label_property_index_;
+  std::map<
       std::pair<std::string, std::string>,
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
                          query::TypedValue::BoolEqual>>
@@ -408,7 +410,8 @@ DEFCOMMAND(Help) {
 void ExaminePlans(
     database::GraphDbAccessor &dba, const query::SymbolTable &symbol_table,
     std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>,
-                          double>> &plans) {
+                          double>> &plans,
+    const query::AstStorage &ast) {
   while (true) {
     auto line = ReadLine("plan? ");
     if (!line || *line == "quit") break;
@@ -428,18 +431,17 @@ void ExaminePlans(
                 << " arguments" << std::endl;
       continue;
     }
-    command.function(dba, symbol_table, plans, args);
+    command.function(dba, symbol_table, plans, args, ast);
   }
 }
 
-query::Query *MakeAst(const std::string &query, query::AstStorage *storage,
-                      database::GraphDbAccessor &dba) {
+query::Query *MakeAst(const std::string &query, query::AstStorage *storage) {
   query::ParsingContext parsing_context;
   parsing_context.is_query_cached = false;
   // query -> AST
   auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);
   // AST -> high level tree
-  query::frontend::CypherMainVisitor visitor(parsing_context, storage, &dba);
+  query::frontend::CypherMainVisitor visitor(parsing_context, storage);
   visitor.visit(parser->tree());
   return visitor.query();
 }
@@ -448,24 +450,22 @@ query::Query *MakeAst(const std::string &query, query::AstStorage *storage,
 // order by cost.
 auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
                       query::SymbolTable &symbol_table,
-                      InteractiveDbAccessor &dba) {
+                      InteractiveDbAccessor *dba) {
   auto query_parts = query::plan::CollectQueryParts(symbol_table, ast, query);
   std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
       plans_with_cost;
-  auto ctx = query::plan::MakePlanningContext(ast, symbol_table, query, dba);
+  auto ctx = query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
   if (query_parts.query_parts.size() <= 0) {
     std::cerr << "Failed to extract query parts" << std::endl;
     std::exit(EXIT_FAILURE);
   }
   auto plans = query::plan::MakeLogicalPlanForSingleQuery<
       query::plan::VariableStartPlanner>(
-      query_parts.query_parts.at(0).single_query_parts, ctx);
+      query_parts.query_parts.at(0).single_query_parts, &ctx);
   query::Parameters parameters;
   for (auto plan : plans) {
-    query::plan::CostEstimator<InteractiveDbAccessor> estimator(dba,
-                                                                parameters);
-    plan->Accept(estimator);
-    plans_with_cost.emplace_back(std::move(plan), estimator.cost());
+    auto cost = query::plan::EstimatePlanCost(dba, parameters, *plan);
+    plans_with_cost.emplace_back(std::move(plan), cost);
   }
   std::stable_sort(
       plans_with_cost.begin(), plans_with_cost.end(),
@@ -482,7 +482,7 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
   }
   Timer planning_timer;
   InteractiveDbAccessor interactive_db(
-      *dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0,
+      dba, in_db_filename.empty() ? ReadInt("Vertices in DB: ") : 0,
       planning_timer);
   if (!in_db_filename.empty()) {
     std::ifstream db_file(in_db_filename);
@@ -495,7 +495,7 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
     try {
       query::AstStorage ast;
       auto *query =
-          dynamic_cast<query::CypherQuery *>(MakeAst(*line, &ast, *dba));
+          dynamic_cast<query::CypherQuery *>(MakeAst(*line, &ast));
       if (!query) {
         throw utils::BasicException(
             "Interactive planning is only avaialable for regular openCypher "
@@ -503,14 +503,14 @@ void RunInteractivePlanning(database::GraphDbAccessor *dba) {
       }
       auto symbol_table = query::MakeSymbolTable(query);
       planning_timer.Start();
-      auto plans = MakeLogicalPlans(query, ast, symbol_table, interactive_db);
+      auto plans = MakeLogicalPlans(query, ast, symbol_table, &interactive_db);
       auto planning_time = planning_timer.Elapsed();
       std::cout
           << "Planning took "
           << std::chrono::duration<double, std::milli>(planning_time).count()
           << "ms" << std::endl;
       std::cout << "Generated " << plans.size() << " plans" << std::endl;
-      ExaminePlans(*dba, symbol_table, plans);
+      ExaminePlans(*dba, symbol_table, plans, ast);
     } catch (const utils::BasicException &e) {
       std::cout << "Error: " << e.what() << std::endl;
     }

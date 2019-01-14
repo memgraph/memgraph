@@ -43,9 +43,8 @@ class ProduceRpcServer {
   class OngoingProduce {
    public:
     OngoingProduce(database::Worker *db, tx::TransactionId tx_id,
-                   std::shared_ptr<query::plan::LogicalOperator> op,
-                   query::SymbolTable symbol_table,
-                   query::EvaluationContext evaluation_context,
+                   const PlanConsumer::PlanPack &plan_pack, int64_t timestamp,
+                   const query::Parameters &parameters,
                    std::vector<query::Symbol> pull_symbols);
 
     /// Returns a vector of typed values (one for each `pull_symbol`), and an

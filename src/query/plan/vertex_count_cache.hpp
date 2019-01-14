@@ -15,54 +15,56 @@ namespace query::plan {
 template <class TDbAccessor>
 class VertexCountCache {
  public:
-  VertexCountCache(const TDbAccessor &db) : db_(db) {}
+  VertexCountCache(TDbAccessor *db) : db_(db) {}
 
-  int64_t VerticesCount() const {
-    if (!vertices_count_) vertices_count_ = db_.VerticesCount();
+  auto Label(const std::string &name) { return db_->Label(name); }
+  auto Property(const std::string &name) { return db_->Property(name); }
+  auto EdgeType(const std::string &name) { return db_->EdgeType(name); }
+
+  int64_t VerticesCount() {
+    if (!vertices_count_) vertices_count_ = db_->VerticesCount();
     return *vertices_count_;
   }
 
-  int64_t VerticesCount(storage::Label label) const {
+  int64_t VerticesCount(storage::Label label) {
     if (label_vertex_count_.find(label) == label_vertex_count_.end())
-      label_vertex_count_[label] = db_.VerticesCount(label);
+      label_vertex_count_[label] = db_->VerticesCount(label);
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::Label label,
-                        storage::Property property) const {
+  int64_t VerticesCount(storage::Label label, storage::Property property) {
     auto key = std::make_pair(label, property);
     if (label_property_vertex_count_.find(key) ==
         label_property_vertex_count_.end())
-      label_property_vertex_count_[key] = db_.VerticesCount(label, property);
+      label_property_vertex_count_[key] = db_->VerticesCount(label, property);
     return label_property_vertex_count_.at(key);
   }
 
   int64_t VerticesCount(storage::Label label, storage::Property property,
-                        const PropertyValue &value) const {
+                        const PropertyValue &value) {
     auto label_prop = std::make_pair(label, property);
     auto &value_vertex_count = property_value_vertex_count_[label_prop];
     if (value_vertex_count.find(value) == value_vertex_count.end())
-      value_vertex_count[value] = db_.VerticesCount(label, property, value);
+      value_vertex_count[value] = db_->VerticesCount(label, property, value);
     return value_vertex_count.at(value);
   }
 
   int64_t VerticesCount(
       storage::Label label, storage::Property property,
       const std::experimental::optional<utils::Bound<PropertyValue>> &lower,
-      const std::experimental::optional<utils::Bound<PropertyValue>> &upper)
-      const {
+      const std::experimental::optional<utils::Bound<PropertyValue>> &upper) {
     auto label_prop = std::make_pair(label, property);
     auto &bounds_vertex_count = property_bounds_vertex_count_[label_prop];
     BoundsKey bounds = std::make_pair(lower, upper);
     if (bounds_vertex_count.find(bounds) == bounds_vertex_count.end())
       bounds_vertex_count[bounds] =
-          db_.VerticesCount(label, property, lower, upper);
+          db_->VerticesCount(label, property, lower, upper);
     return bounds_vertex_count.at(bounds);
   }
 
   bool LabelPropertyIndexExists(storage::Label label,
-                                storage::Property property) const {
-    return db_.LabelPropertyIndexExists(label, property);
+                                storage::Property property) {
+    return db_->LabelPropertyIndexExists(label, property);
   }
 
  private:
@@ -109,18 +111,18 @@ class VertexCountCache {
     }
   };
 
-  const TDbAccessor &db_;
-  mutable std::experimental::optional<int64_t> vertices_count_;
-  mutable std::unordered_map<storage::Label, int64_t> label_vertex_count_;
-  mutable std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash>
+  TDbAccessor *db_;
+  std::experimental::optional<int64_t> vertices_count_;
+  std::unordered_map<storage::Label, int64_t> label_vertex_count_;
+  std::unordered_map<LabelPropertyKey, int64_t, LabelPropertyHash>
       label_property_vertex_count_;
-  mutable std::unordered_map<
+  std::unordered_map<
       LabelPropertyKey,
       std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
                          query::TypedValue::BoolEqual>,
       LabelPropertyHash>
       property_value_vertex_count_;
-  mutable std::unordered_map<
+  std::unordered_map<
       LabelPropertyKey,
       std::unordered_map<BoundsKey, int64_t, BoundsHash, BoundsEqual>,
       LabelPropertyHash>
@@ -128,7 +130,7 @@ class VertexCountCache {
 };
 
 template <class TDbAccessor>
-auto MakeVertexCountCache(const TDbAccessor &db) {
+auto MakeVertexCountCache(TDbAccessor *db) {
   return VertexCountCache<TDbAccessor>(db);
 }
 

@@ -270,14 +270,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue::Null;
       case TypedValue::Type::Vertex:
         return expression_result.Value<VertexAccessor>().PropsAt(
-            property_lookup.property_);
+            GetProperty(property_lookup.property_));
       case TypedValue::Type::Edge:
         return expression_result.Value<EdgeAccessor>().PropsAt(
-            property_lookup.property_);
+            GetProperty(property_lookup.property_));
       case TypedValue::Type::Map: {
         auto &map =
             expression_result.Value<std::map<std::string, TypedValue>>();
-        auto found = map.find(property_lookup.property_name_);
+        auto found = map.find(property_lookup.property_.name);
         if (found == map.end()) return TypedValue::Null;
         return found->second;
       }
@@ -295,7 +295,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       case TypedValue::Type::Vertex: {
         auto vertex = expression_result.Value<VertexAccessor>();
         for (const auto label : labels_test.labels_) {
-          if (!vertex.has_label(label)) {
+          if (!vertex.has_label(GetLabel(label))) {
             return false;
           }
         }
@@ -323,7 +323,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(MapLiteral &literal) override {
     std::map<std::string, TypedValue> result;
     for (const auto &pair : literal.elements_)
-      result.emplace(pair.first.first, pair.second->Accept(*this));
+      result.emplace(pair.first.name, pair.second->Accept(*this));
     return result;
   }
 
@@ -481,6 +481,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
  private:
+  storage::Property GetProperty(PropertyIx prop) {
+    return ctx_->properties[prop.ix];
+  }
+
+  storage::Label GetLabel(LabelIx label) {
+    return ctx_->labels[label.ix];
+  }
+
   // If the given TypedValue contains accessors, switch them to New or Old,
   // depending on use_new_ flag.
   void SwitchAccessors(TypedValue &value) {

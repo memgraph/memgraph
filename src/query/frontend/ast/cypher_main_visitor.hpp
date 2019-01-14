@@ -16,13 +16,11 @@ namespace query {
 namespace frontend {
 
 using antlropencypher::MemgraphCypher;
-using query::Context;
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:
-  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage,
-                             database::GraphDbAccessor *dba)
-      : context_(context), storage_(storage), dba_(dba) {}
+  explicit CypherMainVisitor(ParsingContext context, AstStorage *storage)
+      : context_(context), storage_(storage) {}
 
  private:
   Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1,
@@ -409,13 +407,13 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::NodePatternContext *ctx) override;
 
   /**
-   * @return vector<storage::Label>
+   * @return vector<LabelIx>
    */
   antlrcpp::Any visitNodeLabels(
       MemgraphCypher::NodeLabelsContext *ctx) override;
 
   /**
-   * @return unordered_map<storage::Property, Expression*>
+   * @return unordered_map<PropertyIx, Expression*>
    */
   antlrcpp::Any visitProperties(
       MemgraphCypher::PropertiesContext *ctx) override;
@@ -433,7 +431,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::ListLiteralContext *ctx) override;
 
   /**
-   * @return storage::Property
+   * @return PropertyIx
    */
   antlrcpp::Any visitPropertyKeyName(
       MemgraphCypher::PropertyKeyNameContext *ctx) override;
@@ -488,7 +486,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::RelationshipLambdaContext *ctx) override;
 
   /**
-   * @return vector<storage::EdgeType>
+   * @return vector<EdgeTypeIx>
    */
   antlrcpp::Any visitRelationshipTypes(
       MemgraphCypher::RelationshipTypesContext *ctx) override;
@@ -776,9 +774,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   const static std::string kAnonPrefix;
 
  private:
+  LabelIx AddLabel(const std::string &name);
+  PropertyIx AddProperty(const std::string &name);
+  EdgeTypeIx AddEdgeType(const std::string &name);
+
   ParsingContext context_;
   AstStorage *storage_;
-  database::GraphDbAccessor *dba_;
 
   // Set of identifiers from queries.
   std::unordered_set<std::string> users_identifiers;

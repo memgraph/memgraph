@@ -17,7 +17,10 @@ DEFCOMMAND(ShowDistributed) {
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
   const auto &plan = plans[plan_ix].first;
   std::atomic<int64_t> plan_id{0};
-  auto distributed_plan = MakeDistributedPlan(*plan, symbol_table, plan_id);
+  std::vector<storage::Property> properties_by_ix =
+      query::NamesToProperties(ast_storage.properties_, &dba);
+  auto distributed_plan = MakeDistributedPlan(ast_storage, *plan, symbol_table,
+                                              plan_id, properties_by_ix);
   {
     std::cout << "---- Master Plan ---- " << std::endl;
     query::plan::DistributedPrettyPrint(dba,

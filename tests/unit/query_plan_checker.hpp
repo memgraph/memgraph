@@ -341,10 +341,10 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&... rest) {
 }
 
 template <class TPlanner, class TDbAccessor>
-TPlanner MakePlanner(const TDbAccessor &dba, AstStorage &storage,
+TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage,
                      SymbolTable &symbol_table, CypherQuery *query) {
   auto planning_context =
-      MakePlanningContext(storage, symbol_table, query, dba);
+      MakePlanningContext(&storage, &symbol_table, query, dba);
   auto query_parts = CollectQueryParts(symbol_table, storage, query);
   auto single_query_parts = query_parts.query_parts.at(0).single_query_parts;
   return TPlanner(single_query_parts, planning_context);

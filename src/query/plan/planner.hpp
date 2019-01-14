@@ -36,9 +36,10 @@ namespace plan {
 template <template <class> class TPlanner, class TDbAccessor>
 auto MakeLogicalPlanForSingleQuery(
     std::vector<SingleQueryPart> single_query_parts,
-    PlanningContext<TDbAccessor> &context) {
-  context.bound_symbols.clear();
-  return TPlanner<decltype(context)>(context).Plan(single_query_parts);
+    PlanningContext<TDbAccessor> *context) {
+  context->bound_symbols.clear();
+  return TPlanner<PlanningContext<TDbAccessor>>(context).Plan(
+      single_query_parts);
 }
 
 /// Generates the LogicalOperator tree and returns the resulting plan.
@@ -50,11 +51,11 @@ auto MakeLogicalPlanForSingleQuery(
 /// @return pair consisting of the plan's first logical operator @c
 /// LogicalOperator and the estimated cost of that plan
 template <class TPlanningContext>
-auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
+auto MakeLogicalPlan(TPlanningContext *context, const Parameters &parameters,
                      bool use_variable_planner) {
-  auto query_parts = CollectQueryParts(context.symbol_table,
-                                       context.ast_storage, context.query);
-  auto &vertex_counts = context.db;
+  auto query_parts = CollectQueryParts(*context->symbol_table,
+                                       *context->ast_storage, context->query);
+  auto &vertex_counts = *context->db;
   double total_cost = 0;
   std::unique_ptr<LogicalOperator> last_op;
 
@@ -66,7 +67,7 @@ auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
       auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(
           query_part.single_query_parts, context);
       for (auto plan : plans) {
-        auto cost = EstimatePlanCost(vertex_counts, parameters, *plan);
+        auto cost = EstimatePlanCost(&vertex_counts, parameters, *plan);
         if (!op || cost < min_cost) {
           // Plans are generated lazily and the current plan will disappear, so
           // it's ok to move it.
@@ -77,7 +78,7 @@ auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
     } else {
       op = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
           query_part.single_query_parts, context);
-      min_cost = EstimatePlanCost(vertex_counts, parameters, *op);
+      min_cost = EstimatePlanCost(&vertex_counts, parameters, *op);
     }
 
     total_cost += min_cost;
@@ -86,7 +87,7 @@ auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
       std::shared_ptr<LogicalOperator> curr_op(std::move(op));
       std::shared_ptr<LogicalOperator> prev_op(std::move(last_op));
       last_op = std::unique_ptr<LogicalOperator>(
-          impl::GenUnion(*union_, prev_op, curr_op, context.symbol_table));
+          impl::GenUnion(*union_, prev_op, curr_op, *context->symbol_table));
     } else if (query_part.query_combinator) {
       throw utils::NotYetImplemented("query combinator");
     } else {
@@ -97,7 +98,7 @@ auto MakeLogicalPlan(TPlanningContext &context, const Parameters &parameters,
   if (query_parts.distinct) {
     std::shared_ptr<LogicalOperator> prev_op(std::move(last_op));
     last_op = std::make_unique<Distinct>(
-        prev_op, prev_op->OutputSymbols(context.symbol_table));
+        prev_op, prev_op->OutputSymbols(*context->symbol_table));
   }
 
   return std::make_pair(std::move(last_op), total_cost);

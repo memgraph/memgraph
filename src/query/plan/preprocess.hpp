@@ -80,15 +80,14 @@ class PropertyFilter {
  public:
   using Bound = ScanAllByLabelPropertyRange::Bound;
 
-  PropertyFilter(const SymbolTable &, const Symbol &, storage::Property,
-                 Expression *);
-  PropertyFilter(const SymbolTable &, const Symbol &, storage::Property,
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *);
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx,
                  const std::experimental::optional<Bound> &,
                  const std::experimental::optional<Bound> &);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
-  storage::Property property_;
+  PropertyIx property_;
   /// True if the same symbol is used in expressions for value or bounds.
   bool is_symbol_in_value_ = false;
   /// Expression which when evaluated produces the value a property must
@@ -113,7 +112,7 @@ struct FilterInfo {
   /// Set of used symbols by the filter @c expression.
   std::unordered_set<Symbol> used_symbols;
   /// Labels for Type::Label filtering.
-  std::vector<storage::Label> labels;
+  std::vector<LabelIx> labels;
   /// Property information for Type::Property filtering.
   std::experimental::optional<PropertyFilter> property_filter;
 };
@@ -144,7 +143,7 @@ class Filters {
   }
 
   auto FilteredLabels(const Symbol &symbol) const {
-    std::unordered_set<storage::Label> labels;
+    std::unordered_set<LabelIx> labels;
     for (const auto &filter : all_filters_) {
       if (filter.type == FilterInfo::Type::Label &&
           utils::Contains(filter.used_symbols, symbol)) {
@@ -162,7 +161,7 @@ class Filters {
   void EraseFilter(const FilterInfo &);
 
   // Remove a label filter for symbol; may invalidate iterators.
-  void EraseLabelFilter(const Symbol &, storage::Label);
+  void EraseLabelFilter(const Symbol &, LabelIx);
 
   // Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const {

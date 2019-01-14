@@ -12,9 +12,8 @@
 #include <utility>
 #include <vector>
 
-#include "glog/logging.h"
+#include <glog/logging.h>
 
-#include "database/graph_db.hpp"
 #include "query/common.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
@@ -87,10 +86,9 @@ antlrcpp::Any CypherMainVisitor::visitCreateIndex(
     MemgraphCypher::CreateIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE;
-  index_query->label_ = dba_->Label(ctx->labelName()->accept(this));
-  std::pair<std::string, storage::Property> name_key =
-      ctx->propertyKeyName()->accept(this);
-  index_query->properties_ = {name_key.second};
+  index_query->label_ = AddLabel(ctx->labelName()->accept(this));
+  PropertyIx name_key = ctx->propertyKeyName()->accept(this);
+  index_query->properties_ = {name_key};
   return index_query;
 }
 
@@ -98,12 +96,11 @@ antlrcpp::Any CypherMainVisitor::visitCreateUniqueIndex(
     MemgraphCypher::CreateUniqueIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::CREATE_UNIQUE;
-  index_query->label_ = dba_->Label(ctx->labelName()->accept(this));
+  index_query->label_ = AddLabel(ctx->labelName()->accept(this));
   index_query->properties_.reserve(ctx->propertyKeyName().size());
   for (const auto &prop_name : ctx->propertyKeyName()) {
-    std::pair<std::string, storage::Property> name_key =
-        prop_name->accept(this);
-    index_query->properties_.push_back(name_key.second);
+    PropertyIx name_key = prop_name->accept(this);
+    index_query->properties_.push_back(name_key);
   }
   return index_query;
 }
@@ -112,10 +109,9 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(
     MemgraphCypher::DropIndexContext *ctx) {
   auto *index_query = storage_->Create<IndexQuery>();
   index_query->action_ = IndexQuery::Action::DROP;
-  std::pair<std::string, storage::Property> key =
-      ctx->propertyKeyName()->accept(this);
-  index_query->properties_ = {key.second};
-  index_query->label_ = dba_->Label(ctx->labelName()->accept(this));
+  PropertyIx key = ctx->propertyKeyName()->accept(this);
+  index_query->properties_ = {key};
+  index_query->label_ = AddLabel(ctx->labelName()->accept(this));
   return index_query;
 }
 
@@ -746,24 +742,21 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(
     anonymous_identifiers.push_back(&node->identifier_);
   }
   if (ctx->nodeLabels()) {
-    node->labels_ =
-        ctx->nodeLabels()->accept(this).as<std::vector<storage::Label>>();
+    node->labels_ = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
   }
   if (ctx->properties()) {
-    node->properties_ =
-        ctx->properties()
-            ->accept(this)
-            .as<std::unordered_map<std::pair<std::string, storage::Property>,
-                                   Expression *>>();
+    node->properties_ = ctx->properties()
+                            ->accept(this)
+                            .as<std::unordered_map<PropertyIx, Expression *>>();
   }
   return node;
 }
 
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(
     MemgraphCypher::NodeLabelsContext *ctx) {
-  std::vector<storage::Label> labels;
+  std::vector<LabelIx> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    labels.push_back(dba_->Label(node_label->accept(this)));
+    labels.push_back(AddLabel(node_label->accept(this)));
   }
   return labels;
 }
@@ -783,11 +776,9 @@ antlrcpp::Any CypherMainVisitor::visitProperties(
 
 antlrcpp::Any CypherMainVisitor::visitMapLiteral(
     MemgraphCypher::MapLiteralContext *ctx) {
-  std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
-      map;
+  std::unordered_map<PropertyIx, Expression *> map;
   for (int i = 0; i < static_cast<int>(ctx->propertyKeyName().size()); ++i) {
-    std::pair<std::string, storage::Property> key =
-        ctx->propertyKeyName()[i]->accept(this);
+    PropertyIx key = ctx->propertyKeyName()[i]->accept(this);
     Expression *value = ctx->expression()[i]->accept(this);
     if (!map.insert({key, value}).second) {
       throw SemanticException("Same key can't appear twice in a map literal.");
@@ -806,8 +797,7 @@ antlrcpp::Any CypherMainVisitor::visitListLiteral(
 
 antlrcpp::Any CypherMainVisitor::visitPropertyKeyName(
     MemgraphCypher::PropertyKeyNameContext *ctx) {
-  const std::string key_name = visitChildren(ctx);
-  return std::make_pair(key_name, dba_->Property(key_name));
+  return AddProperty(visitChildren(ctx));
 }
 
 antlrcpp::Any CypherMainVisitor::visitSymbolicName(
@@ -930,7 +920,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
     edge->edge_types_ = ctx->relationshipDetail()
                             ->relationshipTypes()
                             ->accept(this)
-                            .as<std::vector<storage::EdgeType>>();
+                            .as<std::vector<EdgeTypeIx>>();
   }
 
   auto relationshipLambdas = relationshipDetail->relationshipLambda();
@@ -1009,8 +999,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(
       edge->properties_ =
           properties[0]
               ->accept(this)
-              .as<std::unordered_map<std::pair<std::string, storage::Property>,
-                                     Expression *>>();
+              .as<std::unordered_map<PropertyIx, Expression *>>();
       break;
     }
     default:
@@ -1035,9 +1024,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipLambda(
 
 antlrcpp::Any CypherMainVisitor::visitRelationshipTypes(
     MemgraphCypher::RelationshipTypesContext *ctx) {
-  std::vector<storage::EdgeType> types;
+  std::vector<EdgeTypeIx> types;
   for (auto *edge_type : ctx->relTypeName()) {
-    types.push_back(dba_->EdgeType(edge_type->accept(this)));
+    types.push_back(AddEdgeType(edge_type->accept(this)));
   }
   return types;
 }
@@ -1296,7 +1285,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(
   Expression *expression = ctx->expression2b()->accept(this);
   if (ctx->nodeLabels()) {
     auto labels =
-        ctx->nodeLabels()->accept(this).as<std::vector<storage::Label>>();
+        ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
     expression = storage_->Create<LabelsTest>(expression, labels);
   }
   return expression;
@@ -1306,9 +1295,8 @@ antlrcpp::Any CypherMainVisitor::visitExpression2b(
     MemgraphCypher::Expression2bContext *ctx) {
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
-    std::pair<std::string, storage::Property> key = lookup->accept(this);
-    auto property_lookup =
-        storage_->Create<PropertyLookup>(expression, key.first, key.second);
+    PropertyIx key = lookup->accept(this);
+    auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
     expression = property_lookup;
   }
   return expression;
@@ -1444,8 +1432,7 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(
     return static_cast<Expression *>(storage_->Create<MapLiteral>(
         ctx->mapLiteral()
             ->accept(this)
-            .as<std::unordered_map<std::pair<std::string, storage::Property>,
-                                   Expression *>>()));
+            .as<std::unordered_map<PropertyIx, Expression *>>()));
   }
   return visitChildren(ctx);
 }
@@ -1604,7 +1591,7 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(
   set_labels->identifier_ = storage_->Create<Identifier>(
       ctx->variable()->accept(this).as<std::string>());
   set_labels->labels_ =
-      ctx->nodeLabels()->accept(this).as<std::vector<storage::Label>>();
+      ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
   return static_cast<Clause *>(set_labels);
 }
 
@@ -1631,7 +1618,7 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(
   remove_labels->identifier_ = storage_->Create<Identifier>(
       ctx->variable()->accept(this).as<std::string>());
   remove_labels->labels_ =
-      ctx->nodeLabels()->accept(this).as<std::vector<storage::Label>>();
+      ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
   return static_cast<Clause *>(remove_labels);
 }
 
@@ -1639,9 +1626,9 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
     MemgraphCypher::PropertyExpressionContext *ctx) {
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
-    std::pair<std::string, storage::Property> key = lookup->accept(this);
+    PropertyIx key = lookup->accept(this);
     auto property_lookup =
-        storage_->Create<PropertyLookup>(expression, key.first, key.second);
+        storage_->Create<PropertyLookup>(expression, key);
     expression = property_lookup;
   }
   // It is guaranteed by grammar that there is at least one propertyLookup.
@@ -1720,6 +1707,18 @@ antlrcpp::Any CypherMainVisitor::visitFilterExpression(
     MemgraphCypher::FilterExpressionContext *) {
   LOG(FATAL) << "Should never be called. See documentation in hpp.";
   return 0;
+}
+
+LabelIx CypherMainVisitor::AddLabel(const std::string &name) {
+  return storage_->GetLabelIx(name);
+}
+
+PropertyIx CypherMainVisitor::AddProperty(const std::string &name) {
+  return storage_->GetPropertyIx(name);
+}
+
+EdgeTypeIx CypherMainVisitor::AddEdgeType(const std::string &name) {
+  return storage_->GetEdgeTypeIx(name);
 }
 
 }  // namespace query::frontend

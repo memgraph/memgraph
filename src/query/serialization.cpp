@@ -2,6 +2,7 @@
 
 #include "distributed/data_manager.hpp"
 #include "query/frontend/ast/ast_serialization.hpp"
+#include "utils/serialization.hpp"
 
 namespace query {
 
@@ -140,13 +141,12 @@ void LoadCapnpTypedValue(const capnp::TypedValue::Reader &reader,
   }
 }
 
-void SaveEvaluationContext(const EvaluationContext &ctx,
-                           capnp::EvaluationContext::Builder *builder) {
-  builder->setTimestamp(ctx.timestamp);
-  auto params_builder =
-      builder->initParams().initEntries(ctx.parameters.size());
+void Save(const Parameters &parameters,
+          utils::capnp::Map<utils::capnp::BoxInt64,
+                            storage::capnp::PropertyValue>::Builder *builder) {
+  auto params_builder = builder->initEntries(parameters.size());
   size_t i = 0;
-  for (auto &entry : ctx.parameters) {
+  for (auto &entry : parameters) {
     auto builder = params_builder[i];
     auto key_builder = builder.initKey();
     key_builder.setValue(entry.first);
@@ -156,13 +156,14 @@ void SaveEvaluationContext(const EvaluationContext &ctx,
   }
 }
 
-void LoadEvaluationContext(const capnp::EvaluationContext::Reader &reader,
-                           EvaluationContext *ctx) {
-  ctx->timestamp = reader.getTimestamp();
-  for (const auto &entry_reader : reader.getParams().getEntries()) {
+void Load(
+    Parameters *parameters,
+    const utils::capnp::Map<utils::capnp::BoxInt64,
+                            storage::capnp::PropertyValue>::Reader &reader) {
+  for (const auto &entry_reader : reader.getEntries()) {
     PropertyValue value;
     storage::LoadCapnpPropertyValue(entry_reader.getValue(), &value);
-    ctx->parameters.Add(entry_reader.getKey().getValue(), value);
+    parameters->Add(entry_reader.getKey().getValue(), value);
   }
 }
 
@@ -351,22 +352,20 @@ void Load(query::TypedValue *value, slk::Reader *reader,
   }
 }
 
-void Save(const query::EvaluationContext &ctx, slk::Builder *builder) {
-  slk::Save(ctx.timestamp, builder);
-  slk::Save(ctx.parameters.size(), builder);
-  for (auto &entry : ctx.parameters) {
+void Save(const query::Parameters &parameters, slk::Builder *builder) {
+  slk::Save(parameters.size(), builder);
+  for (auto &entry : parameters) {
     slk::Save(entry, builder);
   }
 }
 
-void Load(query::EvaluationContext *ctx, slk::Reader *reader) {
-  slk::Load(&ctx->timestamp, reader);
+void Load(query::Parameters *parameters, slk::Reader *reader) {
   size_t size = 0;
   slk::Load(&size, reader);
   for (size_t i = 0; i < size; ++i) {
     std::pair<int, PropertyValue> entry;
     slk::Load(&entry, reader);
-    ctx->parameters.Add(entry.first, entry.second);
+    parameters->Add(entry.first, entry.second);
   }
 }
 

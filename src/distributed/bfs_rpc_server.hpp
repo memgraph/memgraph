@@ -35,10 +35,16 @@ class BfsRpcServer {
         }
         dba = it->second.get();
       }
+      query::EvaluationContext evaluation_context;
+      evaluation_context.timestamp = req.timestamp;
+      evaluation_context.parameters = req.parameters;
+      evaluation_context.properties =
+          query::NamesToProperties(ast_storage->properties_, dba);
+      evaluation_context.labels =
+          query::NamesToLabels(ast_storage->labels_, dba);
       auto id = subcursor_storage_->Create(
           dba, req.direction, req.edge_types, std::move(req.symbol_table),
-          std::move(ast_storage), req.filter_lambda,
-          std::move(req.evaluation_context));
+          std::move(ast_storage), req.filter_lambda, evaluation_context);
       CreateBfsSubcursorRes res(id);
       Save(res, res_builder);
     });

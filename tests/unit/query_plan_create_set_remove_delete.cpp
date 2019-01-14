@@ -33,7 +33,8 @@ TEST(QueryPlan, CreateNodeWithAttributes) {
   node.properties.emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
-  PullAll(create, dba, symbol_table);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  PullAll(*create, &context);
   dba.AdvanceCommand();
 
   // count the number of vertices
@@ -79,7 +80,8 @@ TEST(QueryPlan, CreateReturn) {
   symbol_table[*named_expr_n->expression_] = node.symbol;
 
   auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(1, results.size());
   EXPECT_EQ(2, results[0].size());
   EXPECT_EQ(TypedValue::Type::Vertex, results[0][0].type());
@@ -130,7 +132,8 @@ TEST(QueryPlan, CreateExpand) {
     auto create_op = std::make_shared<CreateNode>(nullptr, n);
     auto create_expand =
         std::make_shared<CreateExpand>(m, r, create_op, n.symbol, cycle);
-    PullAll(create_expand, dba, symbol_table);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    PullAll(*create_expand, &context);
     dba.AdvanceCommand();
 
     EXPECT_EQ(CountIterable(dba.Vertices(false)) - before_v,
@@ -185,7 +188,8 @@ TEST(QueryPlan, MatchCreateNode) {
   auto create_node = std::make_shared<CreateNode>(n_scan_all.op_, m);
 
   EXPECT_EQ(CountIterable(dba->Vertices(false)), 3);
-  PullAll(create_node, *dba, symbol_table);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  PullAll(*create_node, &context);
   dba->AdvanceCommand();
   EXPECT_EQ(CountIterable(dba->Vertices(false)), 6);
 }
@@ -227,7 +231,8 @@ TEST(QueryPlan, MatchCreateExpand) {
 
     auto create_expand = std::make_shared<CreateExpand>(m, r, n_scan_all.op_,
                                                         n_scan_all.sym_, cycle);
-    PullAll(create_expand, *dba, symbol_table);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    PullAll(*create_expand, &context);
     dba->AdvanceCommand();
 
     EXPECT_EQ(CountIterable(dba->Vertices(false)) - before_v,
@@ -266,7 +271,8 @@ TEST(QueryPlan, Delete) {
     symbol_table[*n_get] = n.sym_;
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, false);
-    EXPECT_THROW(PullAll(delete_op, *dba, symbol_table), QueryRuntimeException);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_THROW(PullAll(*delete_op, &context), QueryRuntimeException);
     dba->AdvanceCommand();
     EXPECT_EQ(4, CountIterable(dba->Vertices(false)));
     EXPECT_EQ(6, CountIterable(dba->Edges(false)));
@@ -280,8 +286,7 @@ TEST(QueryPlan, Delete) {
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
-    Context context(*dba);
-    context.symbol_table_ = symbol_table;
+    Context context = MakeContext(storage, symbol_table, dba.get());
     delete_op->MakeCursor(*dba)->Pull(frame, context);
     dba->AdvanceCommand();
     EXPECT_EQ(3, CountIterable(dba->Vertices(false)));
@@ -298,7 +303,8 @@ TEST(QueryPlan, Delete) {
     symbol_table[*r_get] = r_m.edge_sym_;
     auto delete_op = std::make_shared<plan::Delete>(
         r_m.op_, std::vector<Expression *>{r_get}, false);
-    PullAll(delete_op, *dba, symbol_table);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    PullAll(*delete_op, &context);
     dba->AdvanceCommand();
     EXPECT_EQ(3, CountIterable(dba->Vertices(false)));
     EXPECT_EQ(0, CountIterable(dba->Edges(false)));
@@ -311,7 +317,8 @@ TEST(QueryPlan, Delete) {
     symbol_table[*n_get] = n.sym_;
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, false);
-    PullAll(delete_op, *dba, symbol_table);
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    PullAll(*delete_op, &context);
     dba->AdvanceCommand();
     EXPECT_EQ(0, CountIterable(dba->Vertices(false)));
     EXPECT_EQ(0, CountIterable(dba->Edges(false)));
@@ -359,7 +366,8 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
 
     auto delete_op = std::make_shared<plan::Delete>(
         r_m.op_, std::vector<Expression *>{n_get, r_get, m_get}, detach);
-    EXPECT_EQ(2, PullAll(delete_op, *dba, symbol_table));
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_EQ(2, PullAll(*delete_op, &context));
     dba->AdvanceCommand();
     EXPECT_EQ(0, CountIterable(dba->Vertices(false)));
     EXPECT_EQ(0, CountIterable(dba->Edges(false)));
@@ -395,14 +403,14 @@ TEST(QueryPlan, DeleteReturn) {
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, true);
 
-  auto prop_lookup =
-      storage.Create<PropertyLookup>(storage.Create<Identifier>("n"), prop);
+  auto prop_lookup = PROPERTY_LOOKUP("n", prop);
   symbol_table[*prop_lookup->expression_] = n.sym_;
   auto n_p = storage.Create<NamedExpression>("n", prop_lookup);
   symbol_table[*n_p] = symbol_table.CreateSymbol("bla", true);
   auto produce = MakeProduce(delete_op, n_p);
 
-  auto results = CollectProduce(produce.get(), symbol_table, dba);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(4, results.size());
   dba.AdvanceCommand();
   EXPECT_EQ(0, CountIterable(dba.Vertices(false)));
@@ -418,7 +426,8 @@ TEST(QueryPlan, DeleteNull) {
   auto once = std::make_shared<Once>();
   auto delete_op = std::make_shared<plan::Delete>(
       once, std::vector<Expression *>{LITERAL(TypedValue::Null)}, false);
-  EXPECT_EQ(1, PullAll(delete_op, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*delete_op, &context));
 }
 
 TEST(QueryPlan, DeleteAdvance) {
@@ -446,7 +455,8 @@ TEST(QueryPlan, DeleteAdvance) {
       n.op_, std::vector<Expression *>{n_get}, false);
   auto advance = std::make_shared<Accumulate>(
       delete_op, std::vector<Symbol>{n.sym_}, true);
-  EXPECT_THROW(PullAll(advance, *dba, symbol_table), ReconstructionException);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_THROW(PullAll(*advance, &context), ReconstructionException);
 }
 
 TEST(QueryPlan, SetProperty) {
@@ -481,12 +491,15 @@ TEST(QueryPlan, SetProperty) {
 
   auto n_p = PROPERTY_LOOKUP("n", prop1);
   symbol_table[*n_p->expression_] = n.sym_;
-  auto set_n_p = std::make_shared<plan::SetProperty>(r_m.op_, n_p, literal);
+  auto set_n_p =
+      std::make_shared<plan::SetProperty>(r_m.op_, prop1, n_p, literal);
 
   auto r_p = PROPERTY_LOOKUP("r", prop1);
   symbol_table[*r_p->expression_] = r_m.edge_sym_;
-  auto set_r_p = std::make_shared<plan::SetProperty>(set_n_p, r_p, literal);
-  EXPECT_EQ(2, PullAll(set_r_p, dba, symbol_table));
+  auto set_r_p =
+      std::make_shared<plan::SetProperty>(set_n_p, prop1, r_p, literal);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(2, PullAll(*set_r_p, &context));
   dba.AdvanceCommand();
 
   EXPECT_EQ(CountIterable(dba.Edges(false)), 2);
@@ -539,7 +552,8 @@ TEST(QueryPlan, SetProperties) {
         std::make_shared<plan::SetProperties>(r_m.op_, n.sym_, r_ident, op);
     auto set_m_to_r = std::make_shared<plan::SetProperties>(
         set_r_to_n, r_m.edge_sym_, m_ident, op);
-    EXPECT_EQ(1, PullAll(set_m_to_r, *dba, symbol_table));
+    Context context = MakeContext(storage, symbol_table, dba.get());
+    EXPECT_EQ(1, PullAll(*set_m_to_r, &context));
     dba->AdvanceCommand();
 
     EXPECT_EQ(CountIterable(dba->Edges(false)), 1);
@@ -589,7 +603,8 @@ TEST(QueryPlan, SetLabels) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_set = std::make_shared<plan::SetLabels>(
       n.op_, n.sym_, std::vector<storage::Label>{label2, label3});
-  EXPECT_EQ(2, PullAll(label_set, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(2, PullAll(*label_set, &context));
 
   for (VertexAccessor vertex : dba->Vertices(false)) {
     vertex.SwitchNew();
@@ -634,12 +649,13 @@ TEST(QueryPlan, RemoveProperty) {
 
   auto n_p = PROPERTY_LOOKUP("n", prop1);
   symbol_table[*n_p->expression_] = n.sym_;
-  auto set_n_p = std::make_shared<plan::RemoveProperty>(r_m.op_, n_p);
+  auto set_n_p = std::make_shared<plan::RemoveProperty>(r_m.op_, prop1, n_p);
 
   auto r_p = PROPERTY_LOOKUP("r", prop1);
   symbol_table[*r_p->expression_] = r_m.edge_sym_;
-  auto set_r_p = std::make_shared<plan::RemoveProperty>(set_n_p, r_p);
-  EXPECT_EQ(2, PullAll(set_r_p, dba, symbol_table));
+  auto set_r_p = std::make_shared<plan::RemoveProperty>(set_n_p, prop1, r_p);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(2, PullAll(*set_r_p, &context));
   dba.AdvanceCommand();
 
   EXPECT_EQ(CountIterable(dba.Edges(false)), 2);
@@ -675,7 +691,8 @@ TEST(QueryPlan, RemoveLabels) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto label_remove = std::make_shared<plan::RemoveLabels>(
       n.op_, n.sym_, std::vector<storage::Label>{label1, label2});
-  EXPECT_EQ(2, PullAll(label_remove, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(2, PullAll(*label_remove, &context));
 
   for (VertexAccessor vertex : dba->Vertices(false)) {
     vertex.SwitchNew();
@@ -706,20 +723,23 @@ TEST(QueryPlan, NodeFilterSet) {
   SymbolTable symbol_table;
   // MATCH (n {prop: 42}) -[r]- (m)
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  scan_all.node_->properties_[prop] = LITERAL(42);
+  scan_all.node_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto expand =
       MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r",
                  EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
   auto *filter_expr =
-      EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_, prop),
+      EQ(storage.Create<PropertyLookup>(scan_all.node_->identifier_,
+                                        storage.GetPropertyIx(prop.first)),
          LITERAL(42));
   auto node_filter = std::make_shared<Filter>(expand.op_, filter_expr);
   // SET n.prop = n.prop + 1
   auto set_prop = PROPERTY_LOOKUP("n", prop);
   symbol_table[*set_prop->expression_] = scan_all.sym_;
   auto add = ADD(set_prop, LITERAL(1));
-  auto set = std::make_shared<plan::SetProperty>(node_filter, set_prop, add);
-  EXPECT_EQ(2, PullAll(set, dba, symbol_table));
+  auto set = std::make_shared<plan::SetProperty>(node_filter, prop.second,
+                                                 set_prop, add);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(2, PullAll(*set, &context));
   dba.AdvanceCommand();
   v1.Reconstruct();
   auto prop_eq = v1.PropsAt(prop.second) == TypedValue(42 + 2);
@@ -747,7 +767,7 @@ TEST(QueryPlan, FilterRemove) {
   SymbolTable symbol_table;
   // MATCH (n) -[r]- (m) WHERE n.prop < 43
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  scan_all.node_->properties_[prop] = LITERAL(42);
+  scan_all.node_->properties_[storage.GetPropertyIx(prop.first)] = LITERAL(42);
   auto expand =
       MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r",
                  EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
@@ -758,8 +778,10 @@ TEST(QueryPlan, FilterRemove) {
   // REMOVE n.prop
   auto rem_prop = PROPERTY_LOOKUP("n", prop);
   symbol_table[*rem_prop->expression_] = scan_all.sym_;
-  auto rem = std::make_shared<plan::RemoveProperty>(filter, rem_prop);
-  EXPECT_EQ(2, PullAll(rem, dba, symbol_table));
+  auto rem =
+      std::make_shared<plan::RemoveProperty>(filter, prop.second, rem_prop);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(2, PullAll(*rem, &context));
   dba.AdvanceCommand();
   v1.Reconstruct();
   EXPECT_EQ(v1.PropsAt(prop.second).type(), PropertyValue::Type::Null);
@@ -782,7 +804,8 @@ TEST(QueryPlan, SetRemove) {
       scan_all.op_, scan_all.sym_, std::vector<storage::Label>{label1, label2});
   auto rem = std::make_shared<plan::RemoveLabels>(
       set, scan_all.sym_, std::vector<storage::Label>{label1, label2});
-  EXPECT_EQ(1, PullAll(rem, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*rem, &context));
   dba->AdvanceCommand();
   v.Reconstruct();
   EXPECT_FALSE(v.has_label(label1));
@@ -817,16 +840,18 @@ TEST(QueryPlan, Merge) {
                  EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
   auto m_p = PROPERTY_LOOKUP("m", prop);
   symbol_table[*m_p->expression_] = r_m.node_sym_;
-  auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, m_p, LITERAL(1));
+  auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p,
+                                                   LITERAL(1));
 
   // merge_create branch
   auto n_p = PROPERTY_LOOKUP("n", prop);
   symbol_table[*n_p->expression_] = n.sym_;
-  auto n_set = std::make_shared<plan::SetProperty>(std::make_shared<Once>(),
-                                                   n_p, LITERAL(2));
+  auto n_set = std::make_shared<plan::SetProperty>(
+      std::make_shared<Once>(), prop.second, n_p, LITERAL(2));
 
   auto merge = std::make_shared<plan::Merge>(n.op_, m_set, n_set);
-  ASSERT_EQ(3, PullAll(merge, dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, &dba);
+  ASSERT_EQ(3, PullAll(*merge, &context));
   dba.AdvanceCommand();
   v1.Reconstruct();
   v2.Reconstruct();
@@ -854,7 +879,8 @@ TEST(QueryPlan, MergeNoInput) {
   auto merge = std::make_shared<plan::Merge>(nullptr, create, create);
 
   EXPECT_EQ(0, CountIterable(dba->Vertices(false)));
-  EXPECT_EQ(1, PullAll(merge, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*merge, &context));
   dba->AdvanceCommand();
   EXPECT_EQ(1, CountIterable(dba->Vertices(false)));
 }
@@ -869,10 +895,12 @@ TEST(QueryPlan, SetPropertyOnNull) {
   auto prop = PROPERTY_PAIR("property");
   auto null = LITERAL(TypedValue::Null);
   auto literal = LITERAL(42);
-  auto n_prop = storage.Create<PropertyLookup>(null, prop);
+  auto n_prop = PROPERTY_LOOKUP(null, prop);
   auto once = std::make_shared<Once>();
-  auto set_op = std::make_shared<plan::SetProperty>(once, n_prop, literal);
-  EXPECT_EQ(1, PullAll(set_op, dba, symbol_table));
+  auto set_op =
+      std::make_shared<plan::SetProperty>(once, prop.second, n_prop, literal);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
 TEST(QueryPlan, SetPropertiesOnNull) {
@@ -889,7 +917,8 @@ TEST(QueryPlan, SetPropertiesOnNull) {
   auto set_op = std::make_shared<plan::SetProperties>(
       optional, n.sym_, n_ident, plan::SetProperties::Op::REPLACE);
   EXPECT_EQ(0, CountIterable(dba->Vertices(false)));
-  EXPECT_EQ(1, PullAll(set_op, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
 TEST(QueryPlan, SetLabelsOnNull) {
@@ -907,7 +936,8 @@ TEST(QueryPlan, SetLabelsOnNull) {
   auto set_op = std::make_shared<plan::SetLabels>(
       optional, n.sym_, std::vector<storage::Label>{label});
   EXPECT_EQ(0, CountIterable(dba->Vertices(false)));
-  EXPECT_EQ(1, PullAll(set_op, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*set_op, &context));
 }
 
 TEST(QueryPlan, RemovePropertyOnNull) {
@@ -919,10 +949,12 @@ TEST(QueryPlan, RemovePropertyOnNull) {
   SymbolTable symbol_table;
   auto prop = PROPERTY_PAIR("property");
   auto null = LITERAL(TypedValue::Null);
-  auto n_prop = storage.Create<PropertyLookup>(null, prop);
+  auto n_prop = PROPERTY_LOOKUP(null, prop);
   auto once = std::make_shared<Once>();
-  auto remove_op = std::make_shared<plan::RemoveProperty>(once, n_prop);
-  EXPECT_EQ(1, PullAll(remove_op, dba, symbol_table));
+  auto remove_op =
+      std::make_shared<plan::RemoveProperty>(once, prop.second, n_prop);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
 TEST(QueryPlan, RemoveLabelsOnNull) {
@@ -940,7 +972,8 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   auto remove_op = std::make_shared<plan::RemoveLabels>(
       optional, n.sym_, std::vector<storage::Label>{label});
   EXPECT_EQ(0, CountIterable(dba->Vertices(false)));
-  EXPECT_EQ(1, PullAll(remove_op, *dba, symbol_table));
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_EQ(1, PullAll(*remove_op, &context));
 }
 
 TEST(QueryPlan, DeleteSetProperty) {
@@ -962,9 +995,10 @@ TEST(QueryPlan, DeleteSetProperty) {
   auto prop = PROPERTY_PAIR("property");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   symbol_table[*n_prop->expression_] = n.sym_;
-  auto set_op =
-      std::make_shared<plan::SetProperty>(delete_op, n_prop, LITERAL(42));
-  EXPECT_THROW(PullAll(set_op, dba, symbol_table), QueryRuntimeException);
+  auto set_op = std::make_shared<plan::SetProperty>(delete_op, prop.second,
+                                                    n_prop, LITERAL(42));
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
 }
 
 TEST(QueryPlan, DeleteSetPropertiesFromMap) {
@@ -986,16 +1020,16 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
   auto prop = PROPERTY_PAIR("property");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   symbol_table[*n_prop->expression_] = n.sym_;
-  std::unordered_map<std::pair<std::string, storage::Property>, Expression *>
-      prop_map;
-  prop_map.emplace(prop, LITERAL(42));
+  std::unordered_map<PropertyIx, Expression *> prop_map;
+  prop_map.emplace(storage.GetPropertyIx(prop.first), LITERAL(42));
   auto *rhs = storage.Create<MapLiteral>(prop_map);
   symbol_table[*rhs] = n.sym_;
   for (auto op_type :
        {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op =
         std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
-    EXPECT_THROW(PullAll(set_op, dba, symbol_table), QueryRuntimeException);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
   }
 }
 
@@ -1027,7 +1061,8 @@ TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
        {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op =
         std::make_shared<plan::SetProperties>(delete_op, n.sym_, rhs, op_type);
-    EXPECT_THROW(PullAll(set_op, dba, symbol_table), QueryRuntimeException);
+    Context context = MakeContext(storage, symbol_table, &dba);
+    EXPECT_THROW(PullAll(*set_op, &context), QueryRuntimeException);
   }
 }
 
@@ -1048,7 +1083,8 @@ TEST(QueryPlan, DeleteRemoveLabels) {
       n.op_, std::vector<Expression *>{n_get}, false);
   std::vector<storage::Label> labels{dba->Label("label")};
   auto rem_op = std::make_shared<plan::RemoveLabels>(delete_op, n.sym_, labels);
-  EXPECT_THROW(PullAll(rem_op, *dba, symbol_table), QueryRuntimeException);
+  Context context = MakeContext(storage, symbol_table, dba.get());
+  EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }
 
 TEST(QueryPlan, DeleteRemoveProperty) {
@@ -1070,6 +1106,8 @@ TEST(QueryPlan, DeleteRemoveProperty) {
   auto prop = PROPERTY_PAIR("property");
   auto n_prop = PROPERTY_LOOKUP("n", prop);
   symbol_table[*n_prop->expression_] = n.sym_;
-  auto rem_op = std::make_shared<plan::RemoveProperty>(delete_op, n_prop);
-  EXPECT_THROW(PullAll(rem_op, dba, symbol_table), QueryRuntimeException);
+  auto rem_op =
+      std::make_shared<plan::RemoveProperty>(delete_op, prop.second, n_prop);
+  Context context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_THROW(PullAll(*rem_op, &context), QueryRuntimeException);
 }

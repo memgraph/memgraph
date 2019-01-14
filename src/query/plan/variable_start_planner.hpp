@@ -308,7 +308,7 @@ class VaryQueryPartMatching {
 template <class TPlanningContext>
 class VariableStartPlanner {
  private:
-  TPlanningContext &context_;
+  TPlanningContext *context_;
 
   // Generates different, equivalent query parts by taking different graph
   // matching routes for each query part.
@@ -325,18 +325,18 @@ class VariableStartPlanner {
   }
 
  public:
-  explicit VariableStartPlanner(TPlanningContext &context)
+  explicit VariableStartPlanner(TPlanningContext *context)
       : context_(context) {}
 
   /// @brief Generate multiple plans by varying the order of graph traversal.
   auto Plan(const std::vector<SingleQueryPart> &query_parts) {
     return iter::imap(
-        [context = &context_](const auto &alternative_query_parts) {
-          RuleBasedPlanner<TPlanningContext> rule_planner(*context);
+        [context = context_](const auto &alternative_query_parts) {
+          RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
           return rule_planner.Plan(alternative_query_parts);
         },
-        VaryQueryMatching(query_parts, context_.symbol_table));
+        VaryQueryMatching(query_parts, *context_->symbol_table));
   }
 
   /// @brief The result of plan generation is an iterable of roots to multiple

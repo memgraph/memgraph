@@ -20,15 +20,15 @@ struct PlanningContext {
   /// operators.
   ///
   /// Newly created AST nodes may be added to reference existing symbols.
-  SymbolTable &symbol_table;
+  SymbolTable *symbol_table{nullptr};
   /// @brief The storage is used to create new AST nodes for use in operators.
-  AstStorage &ast_storage;
+  AstStorage *ast_storage{nullptr};
   /// @brief Cypher query to be planned
-  CypherQuery *query;
+  CypherQuery *query{nullptr};
   /// @brief TDbAccessor, which may be used to get some information from the
   /// database to generate better plans. The accessor is required only to live
   /// long enough for the plan generation to finish.
-  const TDbAccessor &db;
+  TDbAccessor *db{nullptr};
   /// @brief Symbol set is used to differentiate cycles in pattern matching.
   /// During planning, symbols will be added as each operator produces values
   /// for them. This way, the operator can be correctly initialized whether to
@@ -39,8 +39,8 @@ struct PlanningContext {
 };
 
 template <class TDbAccessor>
-auto MakePlanningContext(AstStorage &ast_storage, SymbolTable &symbol_table,
-                         CypherQuery *query, const TDbAccessor &db) {
+auto MakePlanningContext(AstStorage *ast_storage, SymbolTable *symbol_table,
+                         CypherQuery *query, TDbAccessor *db) {
   return PlanningContext<TDbAccessor>{symbol_table, ast_storage, query, db};
 }
 
@@ -74,6 +74,47 @@ std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator>,
                                             const std::unordered_set<Symbol> &,
                                             Filters &, AstStorage &);
 
+/// Utility function for iterating pattern atoms and accumulating a result.
+///
+/// Each pattern is of the form `NodeAtom (, EdgeAtom, NodeAtom)*`. Therefore,
+/// the `base` function is called on the first `NodeAtom`, while the `collect`
+/// is called for the whole triplet. Result of the function is passed to the
+/// next call. Final result is returned.
+///
+/// Example usage of counting edge atoms in the pattern.
+///
+///    auto base = [](NodeAtom *first_node) { return 0; };
+///    auto collect = [](int accum, NodeAtom *prev_node, EdgeAtom *edge,
+///                      NodeAtom *node) {
+///      return accum + 1;
+///    };
+///    int edge_count = ReducePattern<int>(pattern, base, collect);
+///
+// TODO: It might be a good idea to move this somewhere else, for easier usage
+// in other files.
+template <typename T>
+auto ReducePattern(
+    Pattern &pattern, std::function<T(NodeAtom *)> base,
+    std::function<T(T, NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
+  DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
+  auto atoms_it = pattern.atoms_.begin();
+  auto current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
+  DCHECK(current_node) << "First pattern atom is not a node";
+  auto last_res = base(current_node);
+  // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
+  while (atoms_it != pattern.atoms_.end()) {
+    auto edge = dynamic_cast<EdgeAtom *>(*atoms_it++);
+    DCHECK(edge) << "Expected an edge atom in pattern.";
+    DCHECK(atoms_it != pattern.atoms_.end())
+        << "Edge atom should not end the pattern.";
+    auto prev_node = current_node;
+    current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
+    DCHECK(current_node) << "Expected a node atom in pattern.";
+    last_res = collect(std::move(last_res), prev_node, edge, current_node);
+  }
+  return last_res;
+}
+
 // For all given `named_paths` checks if all its symbols have been bound.
 // If so, it creates a logical operator for named path generation, binds its
 // symbol, removes that path from the collection of unhandled ones and returns
@@ -87,14 +128,6 @@ std::unique_ptr<LogicalOperator> GenReturn(
     Return &ret, std::unique_ptr<LogicalOperator> input_op,
     SymbolTable &symbol_table, bool is_write,
     const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage);
-
-std::unique_ptr<LogicalOperator> GenCreateForPattern(
-    Pattern &pattern, std::unique_ptr<LogicalOperator> input_op,
-    const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols);
-
-std::unique_ptr<LogicalOperator> HandleWriteClause(
-    Clause *clause, std::unique_ptr<LogicalOperator> &input_op,
-    const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols);
 
 std::unique_ptr<LogicalOperator> GenWith(
     With &with, std::unique_ptr<LogicalOperator> input_op,
@@ -122,23 +155,23 @@ Expression *BoolJoin(AstStorage &storage, Expression *expr1,
 template <class TPlanningContext>
 class RuleBasedPlanner {
  public:
-  explicit RuleBasedPlanner(TPlanningContext &context) : context_(context) {}
+  explicit RuleBasedPlanner(TPlanningContext *context) : context_(context) {}
 
   /// @brief The result of plan generation is the root of the generated operator
   /// tree.
   using PlanResult = std::unique_ptr<LogicalOperator>;
   /// @brief Generates the operator tree based on explicitly set rules.
   PlanResult Plan(const std::vector<SingleQueryPart> &query_parts) {
-    auto &context = context_;
+    auto &context = *context_;
     std::unique_ptr<LogicalOperator> input_op;
     // Set to true if a query command writes to the database.
     bool is_write = false;
     for (const auto &query_part : query_parts) {
-      MatchContext match_ctx{query_part.matching, context.symbol_table,
+      MatchContext match_ctx{query_part.matching, *context.symbol_table,
                              context.bound_symbols};
       input_op = PlanMatching(match_ctx, std::move(input_op));
       for (const auto &matching : query_part.optional_matching) {
-        MatchContext opt_ctx{matching, context.symbol_table,
+        MatchContext opt_ctx{matching, *context.symbol_table,
                              context.bound_symbols};
         auto match_op = PlanMatching(opt_ctx, nullptr);
         if (match_op) {
@@ -152,8 +185,8 @@ class RuleBasedPlanner {
             << "Unexpected Match in remaining clauses";
         if (auto *ret = dynamic_cast<Return *>(clause)) {
           input_op = impl::GenReturn(
-              *ret, std::move(input_op), context.symbol_table, is_write,
-              context.bound_symbols, context.ast_storage);
+              *ret, std::move(input_op), *context.symbol_table, is_write,
+              context.bound_symbols, *context.ast_storage);
         } else if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
           input_op = GenMerge(*merge, std::move(input_op),
                               query_part.merge_matching[merge_id++]);
@@ -162,18 +195,18 @@ class RuleBasedPlanner {
           is_write = true;
         } else if (auto *with = dynamic_cast<query::With *>(clause)) {
           input_op = impl::GenWith(*with, std::move(input_op),
-                                   context.symbol_table, is_write,
-                                   context.bound_symbols, context.ast_storage);
+                                   *context.symbol_table, is_write,
+                                   context.bound_symbols, *context.ast_storage);
           // WITH clause advances the command, so reset the flag.
           is_write = false;
-        } else if (auto op = impl::HandleWriteClause(clause, input_op,
-                                                     context.symbol_table,
-                                                     context.bound_symbols)) {
+        } else if (auto op = HandleWriteClause(clause, input_op,
+                                               *context.symbol_table,
+                                               context.bound_symbols)) {
           is_write = true;
           input_op = std::move(op);
         } else if (auto *unwind = dynamic_cast<query::Unwind *>(clause)) {
           const auto &symbol =
-              context.symbol_table.at(*unwind->named_expression_);
+              context.symbol_table->at(*unwind->named_expression_);
           context.bound_symbols.insert(symbol);
           input_op = std::make_unique<plan::Unwind>(
               std::move(input_op), unwind->named_expression_->expression_,
@@ -187,14 +220,163 @@ class RuleBasedPlanner {
   }
 
  private:
-  TPlanningContext &context_;
+  TPlanningContext *context_;
 
   struct LabelPropertyIndex {
-    storage::Label label;
+    LabelIx label;
     // FilterInfo with PropertyFilter.
     FilterInfo filter;
     int64_t vertex_count;
   };
+
+  storage::Label GetLabel(LabelIx label) {
+    return context_->db->Label(context_->ast_storage->labels_[label.ix]);
+  }
+
+  storage::Property GetProperty(PropertyIx prop) {
+    return context_->db->Property(context_->ast_storage->properties_[prop.ix]);
+  }
+
+  storage::EdgeType GetEdgeType(EdgeTypeIx edge_type) {
+    return context_->db->EdgeType(
+        context_->ast_storage->edge_types_[edge_type.ix]);
+  }
+
+  std::unique_ptr<LogicalOperator> GenCreate(
+      Create &create, std::unique_ptr<LogicalOperator> input_op,
+      const SymbolTable &symbol_table,
+      std::unordered_set<Symbol> &bound_symbols) {
+    auto last_op = std::move(input_op);
+    for (auto pattern : create.patterns_) {
+      last_op = GenCreateForPattern(*pattern, std::move(last_op), symbol_table,
+                                    bound_symbols);
+    }
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> GenCreateForPattern(
+      Pattern &pattern, std::unique_ptr<LogicalOperator> input_op,
+      const SymbolTable &symbol_table,
+      std::unordered_set<Symbol> &bound_symbols) {
+    auto node_to_creation_info = [&](const NodeAtom &node) {
+      const auto &node_symbol = symbol_table.at(*node.identifier_);
+      std::vector<storage::Label> labels;
+      labels.reserve(node.labels_.size());
+      for (const auto &label : node.labels_) {
+        labels.push_back(GetLabel(label));
+      }
+      std::vector<std::pair<storage::Property, Expression *>> properties;
+      properties.reserve(node.properties_.size());
+      for (const auto &kv : node.properties_) {
+        properties.push_back({GetProperty(kv.first), kv.second});
+      }
+      return NodeCreationInfo{node_symbol, labels, properties};
+    };
+
+    auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
+      const auto &node_symbol = symbol_table.at(*node->identifier_);
+      if (bound_symbols.insert(node_symbol).second) {
+        auto node_info = node_to_creation_info(*node);
+        return std::make_unique<CreateNode>(std::move(input_op), node_info);
+      } else {
+        return std::move(input_op);
+      }
+    };
+
+    auto collect = [&](std::unique_ptr<LogicalOperator> last_op,
+                       NodeAtom *prev_node, EdgeAtom *edge, NodeAtom *node) {
+      // Store the symbol from the first node as the input to CreateExpand.
+      const auto &input_symbol = symbol_table.at(*prev_node->identifier_);
+      // If the expand node was already bound, then we need to indicate this,
+      // so that CreateExpand only creates an edge.
+      bool node_existing = false;
+      if (!bound_symbols.insert(symbol_table.at(*node->identifier_)).second) {
+        node_existing = true;
+      }
+      const auto &edge_symbol = symbol_table.at(*edge->identifier_);
+      if (!bound_symbols.insert(edge_symbol).second) {
+        LOG(FATAL) << "Symbols used for created edges cannot be redeclared.";
+      }
+      auto node_info = node_to_creation_info(*node);
+      std::vector<std::pair<storage::Property, Expression *>> properties;
+      properties.reserve(edge->properties_.size());
+      for (const auto &kv : edge->properties_) {
+        properties.push_back({GetProperty(kv.first), kv.second});
+      }
+      CHECK(edge->edge_types_.size() == 1)
+          << "Creating an edge with a single type should be required by syntax";
+      EdgeCreationInfo edge_info{edge_symbol, properties,
+                                 GetEdgeType(edge->edge_types_[0]),
+                                 edge->direction_};
+      return std::make_unique<CreateExpand>(node_info, edge_info,
+                                            std::move(last_op), input_symbol,
+                                            node_existing);
+    };
+
+    auto last_op = impl::ReducePattern<std::unique_ptr<LogicalOperator>>(
+        pattern, base, collect);
+
+    // If the pattern is named, append the path constructing logical operator.
+    if (pattern.identifier_->user_declared_) {
+      std::vector<Symbol> path_elements;
+      for (const PatternAtom *atom : pattern.atoms_)
+        path_elements.emplace_back(symbol_table.at(*atom->identifier_));
+      last_op = std::make_unique<ConstructNamedPath>(
+          std::move(last_op), symbol_table.at(*pattern.identifier_),
+          path_elements);
+    }
+
+    return last_op;
+  }
+
+  // Generate an operator for a clause which writes to the database. Ownership
+  // of input_op is transferred to the newly created operator. If the clause
+  // isn't handled, returns nullptr and input_op is left as is.
+  std::unique_ptr<LogicalOperator> HandleWriteClause(
+      Clause *clause, std::unique_ptr<LogicalOperator> &input_op,
+      const SymbolTable &symbol_table,
+      std::unordered_set<Symbol> &bound_symbols) {
+    if (auto *create = dynamic_cast<Create *>(clause)) {
+      return GenCreate(*create, std::move(input_op), symbol_table,
+                       bound_symbols);
+    } else if (auto *del = dynamic_cast<query::Delete *>(clause)) {
+      return std::make_unique<plan::Delete>(std::move(input_op),
+                                            del->expressions_, del->detach_);
+    } else if (auto *set = dynamic_cast<query::SetProperty *>(clause)) {
+      return std::make_unique<plan::SetProperty>(
+          std::move(input_op), GetProperty(set->property_lookup_->property_),
+          set->property_lookup_, set->expression_);
+    } else if (auto *set = dynamic_cast<query::SetProperties *>(clause)) {
+      auto op = set->update_ ? plan::SetProperties::Op::UPDATE
+                             : plan::SetProperties::Op::REPLACE;
+      const auto &input_symbol = symbol_table.at(*set->identifier_);
+      return std::make_unique<plan::SetProperties>(
+          std::move(input_op), input_symbol, set->expression_, op);
+    } else if (auto *set = dynamic_cast<query::SetLabels *>(clause)) {
+      const auto &input_symbol = symbol_table.at(*set->identifier_);
+      std::vector<storage::Label> labels;
+      labels.reserve(set->labels_.size());
+      for (const auto &label : set->labels_) {
+        labels.push_back(GetLabel(label));
+      }
+      return std::make_unique<plan::SetLabels>(std::move(input_op),
+                                               input_symbol, labels);
+    } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause)) {
+      return std::make_unique<plan::RemoveProperty>(
+          std::move(input_op), GetProperty(rem->property_lookup_->property_),
+          rem->property_lookup_);
+    } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause)) {
+      const auto &input_symbol = symbol_table.at(*rem->identifier_);
+      std::vector<storage::Label> labels;
+      labels.reserve(rem->labels_.size());
+      for (const auto &label : rem->labels_) {
+        labels.push_back(GetLabel(label));
+      }
+      return std::make_unique<plan::RemoveLabels>(std::move(input_op),
+                                                  input_symbol, labels);
+    }
+    return nullptr;
+  }
 
   // Finds the label-property combination which has indexed the lowest amount of
   // vertices. If the index cannot be found, nullopt is returned.
@@ -213,8 +395,10 @@ class RuleBasedPlanner {
     for (const auto &label : filters.FilteredLabels(symbol)) {
       for (const auto &filter : filters.PropertyFilters(symbol)) {
         const auto &property = filter.property_filter->property_;
-        if (context_.db.LabelPropertyIndexExists(label, property)) {
-          int64_t vertex_count = context_.db.VerticesCount(label, property);
+        if (context_->db->LabelPropertyIndexExists(GetLabel(label),
+                                                   GetProperty(property))) {
+          int64_t vertex_count = context_->db->VerticesCount(
+              GetLabel(label), GetProperty(property));
           if (!found || vertex_count < found->vertex_count) {
             if (filter.property_filter->is_symbol_in_value_) {
               // Skip filter expressions which use the symbol whose property
@@ -234,15 +418,15 @@ class RuleBasedPlanner {
     return found;
   }
 
-  storage::Label FindBestLabelIndex(
-      const std::unordered_set<storage::Label> &labels) {
-    DCHECK(!labels.empty())
+  LabelIx FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
+    CHECK(!labels.empty())
         << "Trying to find the best label without any labels.";
-    return *std::min_element(labels.begin(), labels.end(),
-                             [this](const auto &label1, const auto &label2) {
-                               return context_.db.VerticesCount(label1) <
-                                      context_.db.VerticesCount(label2);
-                             });
+    return *std::min_element(
+        labels.begin(), labels.end(),
+        [this](const auto &label1, const auto &label2) {
+          return context_->db->VerticesCount(GetLabel(label1)) <
+                 context_->db->VerticesCount(GetLabel(label2));
+        });
   }
 
   // Creates a ScanAll by the best possible index for the `node_symbol`. Best
@@ -275,33 +459,35 @@ class RuleBasedPlanner {
       filters.EraseLabelFilter(node_symbol, found_index->label);
       if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
         return std::make_unique<ScanAllByLabelPropertyRange>(
-            std::move(last_op), node_symbol, found_index->label,
-            prop_filter.property_, prop_filter.lower_bound_,
-            prop_filter.upper_bound_, match_ctx.graph_view);
+            std::move(last_op), node_symbol, GetLabel(found_index->label),
+            GetProperty(prop_filter.property_), prop_filter.property_.name,
+            prop_filter.lower_bound_, prop_filter.upper_bound_,
+            match_ctx.graph_view);
       } else {
         DCHECK(prop_filter.value_) << "Property filter should either have "
                                       "bounds or a value expression.";
         return std::make_unique<ScanAllByLabelPropertyValue>(
-            std::move(last_op), node_symbol, found_index->label,
-            prop_filter.property_, prop_filter.value_, match_ctx.graph_view);
+            std::move(last_op), node_symbol, GetLabel(found_index->label),
+            GetProperty(prop_filter.property_), prop_filter.property_.name,
+            prop_filter.value_, match_ctx.graph_view);
       }
     }
     auto label = FindBestLabelIndex(labels);
     if (max_vertex_count &&
-        context_.db.VerticesCount(label) > *max_vertex_count) {
+        context_->db->VerticesCount(GetLabel(label)) > *max_vertex_count) {
       // Don't create an indexed lookup, since we have more labeled vertices
       // than the allowed count.
       return nullptr;
     }
     filters.EraseLabelFilter(node_symbol, label);
-    return std::make_unique<ScanAllByLabel>(std::move(last_op), node_symbol,
-                                            label, match_ctx.graph_view);
+    return std::make_unique<ScanAllByLabel>(
+        std::move(last_op), node_symbol, GetLabel(label), match_ctx.graph_view);
   }
 
   std::unique_ptr<LogicalOperator> PlanMatching(
       MatchContext &match_context, std::unique_ptr<LogicalOperator> input_op) {
     auto &bound_symbols = match_context.bound_symbols;
-    auto &storage = context_.ast_storage;
+    auto &storage = *context_->ast_storage;
     const auto &symbol_table = match_context.symbol_table;
     const auto &matching = match_context.matching;
     // Copy filters, because we will modify them as we generate Filters.
@@ -347,6 +533,11 @@ class RuleBasedPlanner {
         const auto &edge_symbol = symbol_table.at(*edge->identifier_);
         DCHECK(!utils::Contains(bound_symbols, edge_symbol))
             << "Existing edges are not supported";
+        std::vector<storage::EdgeType> edge_types;
+        edge_types.reserve(edge->edge_types_.size());
+        for (const auto &type : edge->edge_types_) {
+          edge_types.push_back(GetEdgeType(type));
+        }
         if (edge->IsVariable()) {
           std::experimental::optional<ExpansionLambda> weight_lambda;
           std::experimental::optional<Symbol> total_weight;
@@ -405,7 +596,7 @@ class RuleBasedPlanner {
           // TODO: Pass weight lambda.
           last_op = std::make_unique<ExpandVariable>(
               std::move(last_op), node1_symbol, node_symbol, edge_symbol,
-              edge->type_, expansion.direction, edge->edge_types_,
+              edge->type_, expansion.direction, edge_types,
               expansion.is_flipped, edge->lower_bound_, edge->upper_bound_,
               existing_node, filter_lambda, weight_lambda, total_weight,
               match_context.graph_view);
@@ -428,7 +619,7 @@ class RuleBasedPlanner {
           }
           last_op = std::make_unique<Expand>(
               std::move(last_op), node1_symbol, node_symbol, edge_symbol,
-              expansion.direction, edge->edge_types_, existing_node,
+              expansion.direction, edge_types, existing_node,
               match_context.graph_view);
         }
 
@@ -481,22 +672,22 @@ class RuleBasedPlanner {
                 const Matching &matching) {
     // Copy the bound symbol set, because we don't want to use the updated
     // version when generating the create part.
-    std::unordered_set<Symbol> bound_symbols_copy(context_.bound_symbols);
-    MatchContext match_ctx{matching, context_.symbol_table, bound_symbols_copy,
-                           GraphView::NEW};
+    std::unordered_set<Symbol> bound_symbols_copy(context_->bound_symbols);
+    MatchContext match_ctx{matching, *context_->symbol_table,
+                           bound_symbols_copy, GraphView::NEW};
     auto on_match = PlanMatching(match_ctx, nullptr);
     // Use the original bound_symbols, so we fill it with new symbols.
-    auto on_create = impl::GenCreateForPattern(*merge.pattern_, nullptr,
-                                               context_.symbol_table,
-                                               context_.bound_symbols);
+    auto on_create =
+        GenCreateForPattern(*merge.pattern_, nullptr, *context_->symbol_table,
+                            context_->bound_symbols);
     for (auto &set : merge.on_create_) {
-      on_create = impl::HandleWriteClause(set, on_create, context_.symbol_table,
-                                          context_.bound_symbols);
+      on_create = HandleWriteClause(set, on_create, *context_->symbol_table,
+                                    context_->bound_symbols);
       DCHECK(on_create) << "Expected SET in MERGE ... ON CREATE";
     }
     for (auto &set : merge.on_match_) {
-      on_match = impl::HandleWriteClause(set, on_match, context_.symbol_table,
-                                         context_.bound_symbols);
+      on_match = HandleWriteClause(set, on_match, *context_->symbol_table,
+                                   context_->bound_symbols);
       DCHECK(on_match) << "Expected SET in MERGE ... ON MATCH";
     }
     return std::make_unique<plan::Merge>(
