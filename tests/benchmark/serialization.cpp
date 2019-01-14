@@ -6,10 +6,9 @@
 #include <capnp/serialize.h>
 #include <kj/std/iostream.h>
 
-#include "query/frontend/semantic/symbol_serialization.capnp.h"
-#include "query/frontend/semantic/symbol.hpp"
-
 #include "communication/rpc/serialization.hpp"
+#include "query/frontend/semantic/symbol.hpp"
+#include "query/frontend/semantic/symbol_serialization.hpp"
 
 class SymbolVectorFixture : public benchmark::Fixture {
  protected:
@@ -96,66 +95,6 @@ BENCHMARK_REGISTER_F(SymbolVectorFixture, CapnpDeserial)
     ->RangeMultiplier(4)
     ->Range(4, 1 << 12)
     ->Unit(benchmark::kNanosecond);
-
-uint8_t Type2Int(query::Symbol::Type type) {
-  switch (type) {
-    case query::Symbol::Type::ANY:
-      return 1;
-    case query::Symbol::Type::VERTEX:
-      return 2;
-    case query::Symbol::Type::EDGE:
-      return 3;
-    case query::Symbol::Type::PATH:
-      return 4;
-    case query::Symbol::Type::NUMBER:
-      return 5;
-    case query::Symbol::Type::EDGE_LIST:
-      return 6;
-  }
-}
-
-query::Symbol::Type Int2Type(uint8_t value) {
-  switch (value) {
-    case 1:
-      return query::Symbol::Type::ANY;
-    case 2:
-      return query::Symbol::Type::VERTEX;
-    case 3:
-      return query::Symbol::Type::EDGE;
-    case 4:
-      return query::Symbol::Type::PATH;
-    case 5:
-      return query::Symbol::Type::NUMBER;
-    case 6:
-      return query::Symbol::Type::EDGE_LIST;
-  }
-  CHECK(false);
-}
-
-namespace slk {
-void Save(const query::Symbol &obj, slk::Builder *builder) {
-  Save(obj.name(), builder);
-  Save(obj.position(), builder);
-  Save(Type2Int(obj.type()), builder);
-  Save(obj.user_declared(), builder);
-  Save(obj.token_position(), builder);
-}
-
-void Load(query::Symbol *obj, slk::Reader *reader) {
-  std::string name;
-  Load(&name, reader);
-  int position = 0;
-  Load(&position, reader);
-  uint8_t type = 0;
-  Load(&type, reader);
-  bool user_declared = false;
-  Load(&user_declared, reader);
-  int token_position = 0;
-  Load(&token_position, reader);
-  *obj = query::Symbol(std::move(name), position, user_declared, Int2Type(type),
-                       token_position);
-}
-}  // namespace slk
 
 void SymbolVectorToCustom(const std::vector<query::Symbol> &symbols,
                           slk::Builder *builder) {
