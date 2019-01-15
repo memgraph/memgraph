@@ -171,8 +171,23 @@ bool PlanPrinter::PreVisit(query::plan::Optional &op) {
 PRE_VISIT(Unwind);
 PRE_VISIT(Distinct);
 
+bool PlanPrinter::PreVisit(query::plan::Union &op) {
+  WithPrintLn([&op](auto &out) {
+    out << "* Union {";
+    utils::PrintIterable(out, op.left_symbols_, ", ",
+                         [](auto &out, const auto &sym) { out << sym.name(); });
+    out << " : ";
+    utils::PrintIterable(out, op.right_symbols_, ", ",
+                         [](auto &out, const auto &sym) { out << sym.name(); });
+    out << "}";
+  });
+  Branch(*op.right_op_);
+  op.left_op_->Accept(*this);
+  return false;
+}
+
 bool PlanPrinter::Visit(query::plan::Once &op) {
-  // Ignore checking Once, it is implicitly at the end.
+  WithPrintLn([&op](auto &out) { out << "* Once"; });
   return true;
 }
 

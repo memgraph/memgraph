@@ -48,6 +48,7 @@ symbolicName : UnescapedSymbolicName
 query : cypherQuery
       | indexQuery
       | explainQuery
+      | profileQuery
       | authQuery
       | streamQuery
       ;

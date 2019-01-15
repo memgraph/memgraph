@@ -80,6 +80,25 @@ std::unique_ptr<LogicalPlan> DistributedInterpreter::MakeLogicalPlan(
                                                   plan_dispatcher_);
 }
 
+Interpreter::Results DistributedInterpreter::operator()(
+    const std::string &query_string, database::GraphDbAccessor &db_accessor,
+    const std::map<std::string, PropertyValue> &params,
+    bool in_explicit_transaction) {
+  AstStorage ast_storage;
+  Context execution_context(db_accessor);
+
+  auto queries = StripAndParseQuery(query_string, &execution_context,
+                                    &ast_storage, &db_accessor, params);
+  ParsedQuery &parsed_query = queries.second;
+
+  if (auto *profile_query = dynamic_cast<ProfileQuery *>(parsed_query.query)) {
+    throw utils::NotYetImplemented("PROFILE in a distributed query");
+  }
+
+  return Interpreter::operator()(query_string, db_accessor, params,
+                                 in_explicit_transaction);
+}
+
 void DistributedInterpreter::PrettyPrintPlan(
     const database::GraphDbAccessor &dba,
     const plan::LogicalOperator *plan_root, std::ostream *out) {

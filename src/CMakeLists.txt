@@ -38,6 +38,7 @@ set(mg_single_node_sources
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/pretty_print.cpp
+    query/plan/profile.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/repl.cpp
@@ -144,6 +145,7 @@ set(mg_distributed_sources
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/pretty_print.cpp
+    query/plan/profile.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/repl.cpp
@@ -272,6 +274,7 @@ set(mg_single_node_ha_sources
     query/plan/operator.cpp
     query/plan/preprocess.cpp
     query/plan/pretty_print.cpp
+    query/plan/profile.cpp
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/repl.cpp

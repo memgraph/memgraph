@@ -83,7 +83,14 @@ class TransactionEngine final {
       // Make a copy of the summary because the `Commit` call will destroy the
       // `results_` object.
       auto summary = results_->summary();
-      if (!in_explicit_transaction_) Commit();
+      if (!in_explicit_transaction_) {
+        if (results_->IsProfileQuery()) {
+          Abort();
+        } else {
+          Commit();
+        }
+      }
+
       return summary;
     } catch (const utils::BasicException &) {
       AbortCommand();

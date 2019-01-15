@@ -36,6 +36,17 @@ antlrcpp::Any CypherMainVisitor::visitExplainQuery(
   return explain_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitProfileQuery(
+    MemgraphCypher::ProfileQueryContext *ctx) {
+  CHECK(ctx->children.size() == 2)
+      << "ProfileQuery should have exactly two children!";
+  auto *cypher_query = ctx->children[1]->accept(this).as<CypherQuery *>();
+  auto *profile_query = storage_->Create<ProfileQuery>();
+  profile_query->cypher_query_ = cypher_query;
+  query_ = profile_query;
+  return profile_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(
     MemgraphCypher::CypherQueryContext *ctx) {
   auto *cypher_query = storage_->Create<CypherQuery>();

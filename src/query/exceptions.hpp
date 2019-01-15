@@ -69,6 +69,13 @@ class UnprovidedParameterError : public QueryException {
   using QueryException::QueryException;
 };
 
+class ProfileInMulticommandTxException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  ProfileInMulticommandTxException()
+      : QueryException("PROFILE not allowed in multicommand transactions.") {}
+};
+
 class IndexInMulticommandTxException : public QueryException {
  public:
   using QueryException::QueryException;

@@ -71,6 +71,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Limit &) override;
   bool PreVisit(OrderBy &) override;
   bool PreVisit(Distinct &) override;
+  bool PreVisit(Union &) override;
 
   bool PreVisit(Unwind &) override;
 
@@ -82,7 +83,7 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   void WithPrintLn(TFun fun) {
     *out_ << " ";
     for (int i = 0; i < depth_; ++i) {
-      *out_ << "|  ";
+      *out_ << "| ";
     }
     fun(*out_);
     *out_ << std::endl;

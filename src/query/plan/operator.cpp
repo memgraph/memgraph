@@ -26,6 +26,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/path.hpp"
+#include "query/plan/scoped_profile.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/hashing/fnv.hpp"
@@ -67,9 +68,20 @@ bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
   return result.Value<bool>();
 }
 
+template <typename T>
+uint64_t ComputeProfilingKey(const T *obj) {
+  static_assert(sizeof(T *) == sizeof(uint64_t));
+  return reinterpret_cast<uint64_t>(obj);
+}
+
 }  // namespace
 
-bool Once::OnceCursor::Pull(Frame &, Context &) {
+#define SCOPED_PROFILE_OP(name) \
+  ScopedProfile profile{ComputeProfilingKey(this), name, &context};
+
+bool Once::OnceCursor::Pull(Frame &, Context &context) {
+  SCOPED_PROFILE_OP("Once");
+
   if (!did_pull_) {
     did_pull_ = true;
     return true;
@@ -128,10 +140,13 @@ CreateNode::CreateNodeCursor::CreateNodeCursor(const CreateNode &self,
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool CreateNode::CreateNodeCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("CreateNode");
+
   if (input_cursor_->Pull(frame, context)) {
     CreateLocalVertex(self_.node_info_, &frame, context);
     return true;
   }
+
   return false;
 }
 
@@ -169,6 +184,8 @@ CreateExpand::CreateExpandCursor::CreateExpandCursor(
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("CreateExpand");
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // get the origin vertex
@@ -245,6 +262,8 @@ class ScanAllCursor : public Cursor {
         db_(db) {}
 
   bool Pull(Frame &frame, Context &context) override {
+    SCOPED_PROFILE_OP("ScanAll");
+
     if (db_.should_abort()) throw HintedAbortError();
 
     while (!vertices_ || vertices_it_.value() == vertices_.value().end()) {
@@ -450,6 +469,8 @@ Expand::ExpandCursor::ExpandCursor(const Expand &self,
     : self_(self), input_cursor_(self.input_->MakeCursor(db)), db_(db) {}
 
 bool Expand::ExpandCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Expand");
+
   // A helper function for expanding a node from an edge.
   auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
                                   EdgeAtom::Direction direction) {
@@ -657,6 +678,8 @@ class ExpandVariableCursor : public Cursor {
       : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
+    SCOPED_PROFILE_OP("ExpandVariable");
+
     ExpressionEvaluator evaluator(
         &frame, context.symbol_table_, context.evaluation_context_,
         &context.db_accessor_, self_.common_.graph_view);
@@ -901,6 +924,8 @@ class STShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, Context &context) override {
+    SCOPED_PROFILE_OP("STShortestPath");
+
     ExpressionEvaluator evaluator(&frame, context.symbol_table_,
                                   context.evaluation_context_,
                                   &context.db_accessor_, GraphView::OLD);
@@ -1135,6 +1160,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   }
 
   bool Pull(Frame &frame, Context &context) override {
+    SCOPED_PROFILE_OP("SingleSourceShortestPath");
+
     ExpressionEvaluator evaluator(&frame, context.symbol_table_,
                                   context.evaluation_context_,
                                   &context.db_accessor_, GraphView::OLD);
@@ -1287,6 +1314,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
+    SCOPED_PROFILE_OP("ExpandWeightedShortestPath");
+
     ExpressionEvaluator evaluator(
         &frame, context.symbol_table_, context.evaluation_context_,
         &context.db_accessor_, self_.common_.graph_view);
@@ -1547,6 +1576,8 @@ class ConstructNamedPathCursor : public Cursor {
       : self_(self), input_cursor_(self_.input()->MakeCursor(db)) {}
 
   bool Pull(Frame &frame, Context &context) override {
+    SCOPED_PROFILE_OP("ConstructNamedPath");
+
     if (!input_cursor_->Pull(frame, context)) return false;
 
     auto symbol_it = self_.path_elements_.begin();
@@ -1656,6 +1687,8 @@ Filter::FilterCursor::FilterCursor(const Filter &self,
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Filter");
+
   // Like all filters, newly set values should not affect filtering of old
   // nodes and edges.
   ExpressionEvaluator evaluator(&frame, context.symbol_table_,
@@ -1701,6 +1734,8 @@ Produce::ProduceCursor::ProduceCursor(const Produce &self,
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Produce::ProduceCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Produce");
+
   if (input_cursor_->Pull(frame, context)) {
     // Produce should always yield the latest results.
     ExpressionEvaluator evaluator(&frame, context.symbol_table_,
@@ -1708,6 +1743,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, Context &context) {
                                   &context.db_accessor_, GraphView::NEW);
     for (auto named_expr : self_.named_expressions_)
       named_expr->Accept(evaluator);
+
     return true;
   }
   return false;
@@ -1737,6 +1773,8 @@ Delete::DeleteCursor::DeleteCursor(const Delete &self,
     : self_(self), db_(db), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Delete::DeleteCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Delete");
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Delete should get the latest information, this way it is also possible
@@ -1815,6 +1853,8 @@ SetProperty::SetPropertyCursor::SetPropertyCursor(const SetProperty &self,
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool SetProperty::SetPropertyCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("SetProperty");
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Set, just like Create needs to see the latest changes.
@@ -1873,6 +1913,8 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("SetProperties");
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &lhs = frame[self_.input_symbol_];
@@ -1975,6 +2017,8 @@ SetLabels::SetLabelsCursor::SetLabelsCursor(const SetLabels &self,
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool SetLabels::SetLabelsCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("SetLabels");
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -2018,6 +2062,8 @@ RemoveProperty::RemovePropertyCursor::RemovePropertyCursor(
 
 bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame,
                                                 Context &context) {
+  SCOPED_PROFILE_OP("RemoveProperty");
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   // Remove, just like Delete needs to see the latest changes.
@@ -2081,6 +2127,8 @@ RemoveLabels::RemoveLabelsCursor::RemoveLabelsCursor(
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("RemoveLabels");
+
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue &vertex_value = frame[self_.input_symbol_];
@@ -2148,6 +2196,8 @@ bool ContainsSameEdge(const TypedValue &a, const TypedValue &b) {
 
 bool EdgeUniquenessFilter::EdgeUniquenessFilterCursor::Pull(
     Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("EdgeUniquenessFilter");
+
   auto expansion_ok = [&]() {
     TypedValue &expand_value = frame[self_.expand_symbol_];
     for (const auto &previous_symbol : self_.previous_symbols_) {
@@ -2193,6 +2243,8 @@ Accumulate::AccumulateCursor::AccumulateCursor(const Accumulate &self,
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool Accumulate::AccumulateCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Accumulate");
+
   // cache all the input
   if (!pulled_all_input_) {
     while (input_cursor_->Pull(frame, context)) {
@@ -2277,6 +2329,8 @@ TypedValue DefaultAggregationOpValue(const Aggregate::Element &element) {
 }  // namespace
 
 bool Aggregate::AggregateCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Aggregate");
+
   if (!pulled_all_input_) {
     ProcessAll(frame, context);
     pulled_all_input_ = true;
@@ -2539,6 +2593,8 @@ Skip::SkipCursor::SkipCursor(const Skip &self, database::GraphDbAccessor &db)
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Skip::SkipCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Skip");
+
   while (input_cursor_->Pull(frame, context)) {
     if (to_skip_ == -1) {
       // First successful pull from the input, evaluate the skip expression.
@@ -2597,6 +2653,8 @@ Limit::LimitCursor::LimitCursor(const Limit &self,
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool Limit::LimitCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Limit");
+
   // We need to evaluate the limit expression before the first input Pull
   // because it might be 0 and thereby we shouldn't Pull from input at all.
   // We can do this before Pulling from the input because the limit expression
@@ -2669,6 +2727,8 @@ OrderBy::OrderByCursor::OrderByCursor(const OrderBy &self,
     : self_(self), input_cursor_(self_.input_->MakeCursor(db)) {}
 
 bool OrderBy::OrderByCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("OrderBy");
+
   if (!did_pull_all_) {
     ExpressionEvaluator evaluator(&frame, context.symbol_table_,
                                   context.evaluation_context_,
@@ -2759,6 +2819,8 @@ Merge::MergeCursor::MergeCursor(const Merge &self,
       merge_create_cursor_(self.merge_create_->MakeCursor(db)) {}
 
 bool Merge::MergeCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Merge");
+
   while (true) {
     if (pull_input_) {
       if (input_cursor_->Pull(frame, context)) {
@@ -2841,6 +2903,8 @@ Optional::OptionalCursor::OptionalCursor(const Optional &self,
       optional_cursor_(self.optional_->MakeCursor(db)) {}
 
 bool Optional::OptionalCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Optional");
+
   while (true) {
     if (pull_input_) {
       if (input_cursor_->Pull(frame, context)) {
@@ -2912,6 +2976,8 @@ Unwind::UnwindCursor::UnwindCursor(const Unwind &self,
     : self_(self), db_(db), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool Unwind::UnwindCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Unwind");
+
   while (true) {
     if (db_.should_abort()) throw HintedAbortError();
     // if we reached the end of our list of values
@@ -2975,6 +3041,8 @@ Distinct::DistinctCursor::DistinctCursor(const Distinct &self,
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 bool Distinct::DistinctCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Distinct");
+
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
@@ -3034,6 +3102,8 @@ Union::UnionCursor::UnionCursor(const Union &self,
       right_cursor_(self.right_op_->MakeCursor(db)) {}
 
 bool Union::UnionCursor::Pull(Frame &frame, Context &context) {
+  SCOPED_PROFILE_OP("Union");
+
   std::unordered_map<std::string, TypedValue> results;
   if (left_cursor_->Pull(frame, context)) {
     // collect values from the left child
@@ -3097,6 +3167,8 @@ class CartesianCursor : public Cursor {
   }
 
   bool Pull(Frame &frame, Context &context) override {
+    SCOPED_PROFILE_OP("Cartesian");
+
     if (!cartesian_pull_initialized_) {
       // Pull all left_op frames.
       while (left_op_cursor_->Pull(frame, context)) {
@@ -3173,11 +3245,12 @@ std::unique_ptr<Cursor> Cartesian::MakeCursor(
 OutputTable::OutputTable(std::vector<Symbol> output_symbols,
                          std::vector<std::vector<TypedValue>> rows)
     : output_symbols_(std::move(output_symbols)),
-      callback_([rows]() { return rows; }) {}
+      callback_([rows](Frame *, Context *) { return rows; }) {}
 
 OutputTable::OutputTable(
     std::vector<Symbol> output_symbols,
-    std::function<std::vector<std::vector<TypedValue>>()> callback)
+    std::function<std::vector<std::vector<TypedValue>>(Frame *, Context *)>
+        callback)
     : output_symbols_(std::move(output_symbols)),
       callback_(std::move(callback)) {}
 
@@ -3189,7 +3262,7 @@ class OutputTableCursor : public Cursor {
 
   bool Pull(Frame &frame, Context &context) override {
     if (!pulled_) {
-      rows_ = self_.callback_();
+      rows_ = self_.callback_(&frame, &context);
       for (const auto &row : rows_) {
         CHECK(row.size() == self_.output_symbols_.size())
             << "Wrong number of columns in row!";

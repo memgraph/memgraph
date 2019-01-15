@@ -26,9 +26,12 @@ statement : query ;
 query : cypherQuery
       | indexQuery
       | explainQuery
+      | profileQuery
       ;
 
 explainQuery : EXPLAIN cypherQuery ;
+
+profileQuery : PROFILE cypherQuery ;
 
 cypherQuery : singleQuery ( cypherUnion )* ;
 
@@ -319,6 +322,7 @@ cypherKeyword : ALL
               | OPTIONAL
               | OR
               | ORDER
+              | PROFILE
               | REDUCE
               | REMOVE
               | RETURN

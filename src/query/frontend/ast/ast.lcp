@@ -1792,7 +1792,7 @@ cpp<#
                  :capnp-type "Tree" :capnp-init nil
                  :capnp-save #'save-ast-pointer
                  :capnp-load (load-ast-pointer "CypherQuery *")
-                 :documentation "CypherQuery to be explained."))
+                 :documentation "The CypherQuery to explain."))
   (:public
     #>cpp
     ExplainQuery() = default;
@@ -1813,6 +1813,36 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
+  (:serialize (:slk) (:capnp)))
+
+(lcp:define-class profile-query (query)
+  ((cypher-query "CypherQuery *"
+                 :initval "nullptr"
+                 :scope :public
+                 :slk-save #'slk-save-ast-pointer
+                 :slk-load (slk-load-ast-pointer "CypherQuery")
+                 :capnp-type "Tree"
+                 :capnp-init nil
+                 :capnp-save #'save-ast-pointer
+                 :capnp-load (load-ast-pointer "CypherQuery *")
+                 :documentation "The CypherQuery to profile."))
+  (:public
+   #>cpp
+   ProfileQuery() = default;
+
+   DEFVISITABLE(QueryVisitor<void>);
+
+   ProfileQuery *Clone(AstStorage &storage) const override {
+     auto *profile_query = storage.Create<ProfileQuery>();
+     profile_query->cypher_query_ = cypher_query_->Clone(storage);
+     return profile_query;
+   }
+   cpp<#)
+  (:private
+   #>cpp
+   explicit ProfileQuery(int uid) : Query(uid) {}
+   friend class AstStorage;
+   cpp<#)
   (:serialize (:slk) (:capnp)))
 
 (lcp:define-class index-query (query)

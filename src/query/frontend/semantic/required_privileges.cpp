@@ -16,15 +16,17 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     AddPrivilege(AuthQuery::Privilege::INDEX);
   }
 
-  void Visit(AuthQuery &) override {
-    AddPrivilege(AuthQuery::Privilege::AUTH);
-  }
+  void Visit(AuthQuery &) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
 
   void Visit(StreamQuery &) override {
     AddPrivilege(AuthQuery::Privilege::STREAM);
   }
 
   void Visit(ExplainQuery &query) override {
+    query.cypher_query_->Accept(*this);
+  }
+
+  void Visit(ProfileQuery &query) override {
     query.cypher_query_->Accept(*this);
   }
 

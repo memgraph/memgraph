@@ -39,6 +39,9 @@ target_link_libraries(${test_prefix}ring_buffer mg-single-node kvstore_dummy_lib
 add_benchmark(query/planner.cpp)
 target_link_libraries(${test_prefix}planner mg-single-node kvstore_dummy_lib)
 
+add_benchmark(query/profile.cpp)
+target_link_libraries(${test_prefix}profile mg-single-node kvstore_dummy_lib)
+
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-single-node kvstore_dummy_lib)
 

@@ -63,14 +63,18 @@ class Interpreter {
     std::vector<AuthQuery::Privilege> required_privileges;
   };
 
+  using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
+
+ public:
+  /**
+   * Wraps a `Query` that was created as a result of parsing a query string
+   * along with its privileges.
+   */
   struct ParsedQuery {
     Query *query;
     std::vector<AuthQuery::Privilege> required_privileges;
   };
 
-  using PlanCacheT = ConcurrentMap<HashType, std::shared_ptr<CachedPlan>>;
-
- public:
   /**
    * Encapsulates all what's necessary for the interpretation of a query
    * into a single object that can be pulled (into the given Stream).
@@ -142,6 +146,8 @@ class Interpreter {
       return privileges_;
     }
 
+    bool IsProfileQuery() const { return ctx_.is_profile_query_; }
+
    private:
     Context ctx_;
     std::shared_ptr<CachedPlan> plan_;
@@ -157,7 +163,7 @@ class Interpreter {
     std::vector<AuthQuery::Privilege> privileges_;
   };
 
-  Interpreter() = default;
+  Interpreter();
   Interpreter(const Interpreter &) = delete;
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
@@ -169,15 +175,20 @@ class Interpreter {
    * Generates an Results object for the parameters. The resulting object
    * can be Pulled with its results written to an arbitrary stream.
    */
-  Results operator()(const std::string &query,
-                     database::GraphDbAccessor &db_accessor,
-                     const std::map<std::string, PropertyValue> &params,
-                     bool in_explicit_transaction);
+  virtual Results operator()(const std::string &query,
+                             database::GraphDbAccessor &db_accessor,
+                             const std::map<std::string, PropertyValue> &params,
+                             bool in_explicit_transaction);
 
   auth::Auth *auth_ = nullptr;
   integrations::kafka::Streams *kafka_streams_ = nullptr;
 
  protected:
+  std::pair<StrippedQuery, ParsedQuery> StripAndParseQuery(
+      const std::string &, Context *, AstStorage *ast_storage,
+      database::GraphDbAccessor *,
+      const std::map<std::string, PropertyValue> &);
+
   // high level tree -> logical plan
   // AstStorage and SymbolTable may be modified during planning. The created
   // LogicalPlan must take ownership of AstStorage and SymbolTable.
@@ -198,6 +209,7 @@ class Interpreter {
   // developers introduce more bugs in each version. Fortunately, we have cache
   // so this lock probably won't impact performance much...
   utils::SpinLock antlr_lock_;
+  bool is_tsc_available_;
 
   // high level tree -> CachedPlan
   std::shared_ptr<CachedPlan> CypherQueryToPlan(

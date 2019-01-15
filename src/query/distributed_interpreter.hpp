@@ -16,6 +16,10 @@ class DistributedInterpreter final : public Interpreter {
  public:
   DistributedInterpreter(database::Master *db);
 
+  Results operator()(const std::string &, database::GraphDbAccessor &,
+                     const std::map<std::string, PropertyValue> &,
+                     bool in_explicit_transaction) override;
+
  private:
   std::unique_ptr<LogicalPlan> MakeLogicalPlan(
       CypherQuery *, AstStorage, const Parameters &,

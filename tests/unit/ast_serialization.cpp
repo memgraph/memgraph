@@ -2421,4 +2421,35 @@ TYPED_TEST(CypherMainVisitorTest, TestExplainStreamQuery) {
                SyntaxException);
 }
 
+TYPED_TEST(CypherMainVisitorTest, TestProfileRegularQuery) {
+  {
+    TypeParam ast_generator("PROFILE RETURN n");
+    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(ast_generator.query_));
+  }
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestProfileComplicatedQuery) {
+  {
+    TypeParam ast_generator(
+        "profile optional match (n) where n.hello = 5 "
+        "return n union optional match (n) where n.there = 10 "
+        "return n");
+    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(ast_generator.query_));
+  }
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestProfileProfileQuery) {
+  EXPECT_THROW(TypeParam ast_generator("PROFILE PROFILE RETURN n"),
+               SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestProfileAuthQuery) {
+  EXPECT_THROW(TypeParam ast_generator("PROFILE SHOW ROLES"), SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestProfileStreamQuery) {
+  EXPECT_THROW(TypeParam ast_generator("PROFILE SHOW STREAMS"),
+               SyntaxException);
+}
+
 }  // namespace

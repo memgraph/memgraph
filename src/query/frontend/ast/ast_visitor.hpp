@@ -63,6 +63,7 @@ class Merge;
 class Unwind;
 class AuthQuery;
 class ExplainQuery;
+class ProfileQuery;
 class IndexQuery;
 class StreamQuery;
 
@@ -107,7 +108,7 @@ class ExpressionVisitor
 
 template <class TResult>
 class QueryVisitor
-    : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, IndexQuery,
-                              AuthQuery, StreamQuery> {};
+    : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery,
+                              IndexQuery, AuthQuery, StreamQuery> {};
 
 }  // namespace query

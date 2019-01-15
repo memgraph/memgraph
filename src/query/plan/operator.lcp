@@ -158,7 +158,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
    /** Return @c Symbol vector where the query results will be stored.
     *
-    * Currently, outputs symbols are generated in @c Produce and @c Union
+    * Currently, output symbols are generated in @c Produce and @c Union
     * operators. @c Skip, @c Limit, @c OrderBy and @c Distinct propagate the
     * symbols from @c Produce (if it exists as input operator).
     *
@@ -1198,7 +1198,7 @@ pulled.")
                   :capnp-save (lcp:capnp-save-vector "::query::capnp::Symbol" "Symbol")
                   :capnp-load (lcp:capnp-load-vector "::query::capnp::Symbol" "Symbol")))
   (:documentation
-   "Constructs a named path from it's elements and places it on the frame.")
+   "Constructs a named path from its elements and places it on the frame.")
   (:public
    #>cpp
    ConstructNamedPath() {}
@@ -1285,7 +1285,7 @@ a boolean value.")
                       :capnp-load (load-ast-vector "NamedExpression *")))
   (:documentation
    "A logical operator that places an arbitrary number
-if named expressions on the frame (the logical operator
+of named expressions on the frame (the logical operator
 for the RETURN clause).
 
 Supports optional input. When the input is provided,
@@ -1340,8 +1340,8 @@ RETURN clause) the Produce's pull succeeds exactly once.")
                 :capnp-save (save-ast-vector "Expression *")
                 :capnp-load (load-ast-vector "Expression *"))
    (detach :bool :scope :public :documentation
-           "if the vertex should be detached before deletion if not detached,
-           and has connections, an error is raised ignored when deleting edges"))
+           "Whether the vertex should be detached before deletion. If not detached,
+           and has connections, an error is raised when deleting edges."))
   (:documentation
    "Operator for deleting vertices and edges.
 
@@ -1397,7 +1397,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *")))
   (:documentation
-   "Logical Op for setting a single property on a single vertex or edge.
+   "Logical operator for setting a single property on a single vertex or edge.
 
 The property value is an expression that must evaluate to some type that
 can be stored (a TypedValue that can be converted to PropertyValue).")
@@ -1448,10 +1448,10 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "Expression *"))
    (op "Op" :scope :public))
   (:documentation
-   "Logical op for setting the whole properties set on a vertex or an edge.
+   "Logical operator for setting the whole property set on a vertex or an edge.
 
-The value being set is an expression that must evaluate to a vertex, edge
-or map (literal or parameter).
+The value being set is an expression that must evaluate to a vertex, edge or
+map (literal or parameter).
 
 Supports setting (replacing the whole properties set with another) and
 updating.")
@@ -1462,7 +1462,7 @@ updating.")
 
 @c UPDATE means that the current property set is augmented with additional
 ones (existing props of the same name are replaced), while @c REPLACE means
-that the old props are discarded and replaced with new ones.")
+that the old properties are discarded and replaced with new ones.")
      (:serialize))
 
    #>cpp
@@ -1566,7 +1566,7 @@ It does NOT remove labels that are already set on that Vertex.")
         :capnp-type "Ast.Tree" :capnp-init nil
         :capnp-save #'save-ast-pointer :capnp-load (load-ast-pointer "PropertyLookup *")))
   (:documentation
-   "Logical op for removing a property from an edge or a vertex.")
+   "Logical operator for removing a property from an edge or a vertex.")
   (:public
    #>cpp
    RemoveProperty() {}
@@ -1721,23 +1721,23 @@ edge lists).")
    "Pulls everything from the input before passing it through.
 Optionally advances the command after accumulation and before emitting.
 
-On the first Pull from this Op's Cursor the input Cursor will be
-Pulled until it is empty. The results will be accumulated in the
-temporary cache. Once the input Cursor is empty, this Op's Cursor
-will start returning cached stuff from it's Pull.
+On the first Pull from this operator's Cursor the input Cursor will be Pulled
+until it is empty. The results will be accumulated in the temporary cache. Once
+the input Cursor is empty, this operator's Cursor will start returning cached
+stuff from its Pull.
 
 This technique is used for ensuring all the operations from the
-previous LogicalOp have been performed before exposing data
-to the next. A typical use-case is the `MATCH - SET - RETURN`
+previous logical operator have been performed before exposing data
+to the next. A typical use case is a `MATCH--SET--RETURN`
 query in which every SET iteration must be performed before
 RETURN starts iterating (see Memgraph Wiki for detailed reasoning).
 
-IMPORTANT: This Op does not cache all the results but only those
+IMPORTANT: This operator does not cache all the results but only those
 elements from the frame whose symbols (frame positions) it was given.
 All other frame positions will contain undefined junk after this
-op has executed, and should not be used.
+operator has executed, and should not be used.
 
-This op can also advance the command after the accumulation and
+This operator can also advance the command after the accumulation and
 before emitting. If the command gets advanced, every value that
 has been cached will be reconstructed before Pull returns.
 
@@ -1843,7 +1843,7 @@ Input data is grouped based on the given set of named
 expressions. Grouping is done on unique values.
 
 IMPORTANT:
-Ops taking their input from an aggregation are only
+Operators taking their input from an aggregation are only
 allowed to use frame values that are either aggregation
 outputs or group-by named-expressions. All other frame
 elements are in an undefined state after aggregation.")
@@ -1903,12 +1903,12 @@ elements are in an undefined state after aggregation.")
 
     private:
      // Data structure for a single aggregation cache.
-     // does NOT include the group-by values since those
+     // Does NOT include the group-by values since those
      // are a key in the aggregation map.
      // The vectors in an AggregationValue contain one element
      // for each aggregation in this LogicalOp.
      struct AggregationValue {
-       // how many input rows has been aggregated in respective
+       // how many input rows have been aggregated in respective
        // values_ element so far
        std::vector<int> counts_;
        // aggregated values. Initially Null (until at least one
@@ -2446,8 +2446,8 @@ This implementation maintains input ordering.")
    "A logical operator that applies UNION operator on inputs and places the
 result on the frame.
 
-This operator takes two inputs, a vector of symbols for the result, and
-vectors of symbols used  by each of the inputs.")
+This operator takes two inputs, a vector of symbols for the result, and vectors
+of symbols used by each of the inputs.")
   (:public
    #>cpp
    Union() {}
@@ -2530,14 +2530,16 @@ vectors of symbols used  by each of the inputs.")
 
 (lcp:define-class output-table (logical-operator)
   ((output-symbols "std::vector<Symbol>" :scope :public :dont-save t)
-   (callback "std::function<std::vector<std::vector<TypedValue>>()>"
+   (callback "std::function<std::vector<std::vector<TypedValue>>(Frame *, Context *)>"
              :scope :public :dont-save t))
   (:documentation "An operator that outputs a table, producing a single row on each pull")
   (:public
    #>cpp
    OutputTable() {}
-   OutputTable(std::vector<Symbol> output_symbols,
-               std::function<std::vector<std::vector<TypedValue>>()> callback);
+   OutputTable(
+       std::vector<Symbol> output_symbols,
+       std::function<std::vector<std::vector<TypedValue>>(Frame *, Context *)>
+           callback);
    OutputTable(std::vector<Symbol> output_symbols,
                std::vector<std::vector<TypedValue>> rows);
 
