@@ -6,6 +6,7 @@
 #include <glog/logging.h>
 
 #include "utils/skip_list.hpp"
+#include "utils/timer.hpp"
 
 TEST(SkipList, Int) {
   utils::SkipList<int64_t> list;
@@ -387,5 +388,224 @@ TEST(SkipList, Inception) {
         ASSERT_EQ(*it_inner, j + 1000 * i);
       }
     }
+  }
+}
+
+TEST(SkipList, FindEqualOrGreater) {
+  utils::SkipList<uint64_t> list;
+
+  {
+    auto acc = list.access();
+    for (uint64_t i = 1000; i < 2000; i += 2) {
+      auto ret = acc.insert(i);
+      ASSERT_NE(ret.first, acc.end());
+      ASSERT_EQ(*ret.first, i);
+      ASSERT_TRUE(ret.second);
+    }
+  }
+
+  {
+    auto acc = list.access();
+    for (uint64_t i = 0; i < 1000; ++i) {
+      auto it = acc.find_equal_or_greater(i);
+      ASSERT_NE(it, acc.end());
+      ASSERT_EQ(*it, 1000);
+    }
+    for (uint64_t i = 1000; i < 1999; ++i) {
+      auto it = acc.find_equal_or_greater(i);
+      ASSERT_NE(it, acc.end());
+      ASSERT_EQ(*it, i + (i % 2 == 0 ? 0 : 1));
+    }
+    for (uint64_t i = 1999; i < 3000; ++i) {
+      auto it = acc.find_equal_or_greater(i);
+      ASSERT_EQ(it, acc.end());
+    }
+  }
+}
+
+struct Counter {
+  int64_t key;
+  int64_t value;
+};
+
+bool operator==(const Counter &a, const Counter &b) {
+  return a.key == b.key && a.value == b.value;
+}
+bool operator<(const Counter &a, const Counter &b) {
+  if (a.key == b.key) return a.value < b.value;
+  return a.key < b.key;
+}
+bool operator==(const Counter &a, int64_t b) { return a.key == b; }
+bool operator<(const Counter &a, int64_t b) { return a.key < b; }
+
+TEST(SkipList, EstimateCount) {
+  utils::SkipList<Counter> list;
+
+  // 100k elements will yield an expected maximum height of 17
+  const int kMaxElements = 100;
+  const int kElementMembers = 1000;
+
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      for (int64_t j = 0; j < kElementMembers; ++j) {
+        auto ret = acc.insert({i, j});
+        ASSERT_NE(ret.first, acc.end());
+        ASSERT_EQ(ret.first->key, i);
+        ASSERT_EQ(ret.first->value, j);
+        ASSERT_TRUE(ret.second);
+      }
+    }
+  }
+
+  {
+    uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0,
+             delta_avg = 0;
+    auto acc = list.access();
+    utils::Timer timer;
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      uint64_t count = acc.estimate_count(i);
+      uint64_t delta = count >= kElementMembers ? count - kElementMembers
+                                                : kElementMembers - count;
+      delta_min = std::min(delta_min, delta);
+      delta_max = std::max(delta_max, delta);
+      delta_avg += delta;
+    }
+    auto duration = timer.Elapsed().count();
+
+    delta_avg /= kMaxElements;
+
+    std::cout << "Results for estimation from default layer:" << std::endl;
+    std::cout << "    min(delta) = " << delta_min << std::endl;
+    std::cout << "    avg(delta) = " << delta_avg << std::endl;
+    std::cout << "    max(delta) = " << delta_max << std::endl;
+    std::cout << "    duration   = " << duration << " s" << std::endl;
+  }
+
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      uint64_t count = acc.estimate_count(i, 1);
+      ASSERT_EQ(count, kElementMembers);
+    }
+  }
+}
+
+#define MAKE_RANGE_BOTH_DEFINED_TEST(lower, upper)                          \
+  {                                                                         \
+    for (int64_t i = 0; i < 10; ++i) {                                      \
+      for (int64_t j = 0; j < 10; ++j) {                                    \
+        auto acc = list.access();                                           \
+        uint64_t blocks = 0;                                                \
+        if (utils::BoundType::lower == utils::BoundType::EXCLUSIVE &&       \
+            utils::BoundType::upper == utils::BoundType::EXCLUSIVE) {       \
+          if (j > i) {                                                      \
+            blocks = j - i - 1;                                             \
+          }                                                                 \
+        } else {                                                            \
+          if (j >= i) {                                                     \
+            blocks = j - i;                                                 \
+            if (utils::BoundType::lower == utils::BoundType::INCLUSIVE &&   \
+                utils::BoundType::upper == utils::BoundType::INCLUSIVE) {   \
+              ++blocks;                                                     \
+            }                                                               \
+          }                                                                 \
+        }                                                                   \
+        uint64_t count = acc.estimate_range_count<int64_t>(                 \
+            {{i, utils::BoundType::lower}}, {{j, utils::BoundType::upper}}, \
+            1);                                                             \
+        ASSERT_EQ(count, kElementMembers *blocks);                          \
+      }                                                                     \
+    }                                                                       \
+  }
+
+#define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks) \
+  {                                                                     \
+    auto acc = list.access();                                           \
+    uint64_t count = acc.estimate_range_count<int64_t>(                 \
+        std::experimental::nullopt,                                     \
+        {{upper_value, utils::BoundType::upper_type}}, 1);              \
+    ASSERT_EQ(count, kElementMembers *blocks);                          \
+  }
+
+#define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks) \
+  {                                                                     \
+    auto acc = list.access();                                           \
+    uint64_t count = acc.estimate_range_count<int64_t>(                 \
+        {{lower_value, utils::BoundType::lower_type}},                  \
+        std::experimental::nullopt, 1);                                 \
+    ASSERT_EQ(count, kElementMembers *blocks);                          \
+  }
+
+TEST(SkipList, EstimateRangeCount) {
+  utils::SkipList<Counter> list;
+
+  // 100k elements will yield an expected maximum height of 17
+  const int kMaxElements = 100;
+  const int kElementMembers = 1000;
+
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      for (int64_t j = 0; j < kElementMembers; ++j) {
+        auto ret = acc.insert({i, j});
+        ASSERT_NE(ret.first, acc.end());
+        ASSERT_EQ(ret.first->key, i);
+        ASSERT_EQ(ret.first->value, j);
+        ASSERT_TRUE(ret.second);
+      }
+    }
+  }
+
+  {
+    uint64_t delta_min = std::numeric_limits<uint64_t>::max(), delta_max = 0,
+             delta_avg = 0;
+    auto acc = list.access();
+    utils::Timer timer;
+    for (int64_t i = 0; i < kMaxElements; ++i) {
+      uint64_t count = acc.estimate_range_count<int64_t>(
+          std::experimental::nullopt, {{i, utils::BoundType::INCLUSIVE}});
+      uint64_t must_have = kElementMembers * (i + 1);
+      uint64_t delta =
+          count >= must_have ? count - must_have : must_have - count;
+      delta_min = std::min(delta_min, delta);
+      delta_max = std::max(delta_max, delta);
+      delta_avg += delta;
+    }
+    auto duration = timer.Elapsed().count();
+
+    delta_avg /= kMaxElements;
+
+    std::cout << "Results for estimation from default layer:" << std::endl;
+    std::cout << "    min(delta) = " << delta_min << std::endl;
+    std::cout << "    avg(delta) = " << delta_avg << std::endl;
+    std::cout << "    max(delta) = " << delta_max << std::endl;
+    std::cout << "    duration   = " << duration << " s" << std::endl;
+  }
+
+  MAKE_RANGE_BOTH_DEFINED_TEST(INCLUSIVE, INCLUSIVE);
+  MAKE_RANGE_BOTH_DEFINED_TEST(INCLUSIVE, EXCLUSIVE);
+  MAKE_RANGE_BOTH_DEFINED_TEST(EXCLUSIVE, INCLUSIVE);
+  MAKE_RANGE_BOTH_DEFINED_TEST(EXCLUSIVE, EXCLUSIVE);
+
+  MAKE_RANGE_LOWER_INFINITY_TEST(10, INCLUSIVE, 11);
+  MAKE_RANGE_LOWER_INFINITY_TEST(10, EXCLUSIVE, 10);
+  MAKE_RANGE_LOWER_INFINITY_TEST(0, INCLUSIVE, 1);
+  MAKE_RANGE_LOWER_INFINITY_TEST(0, EXCLUSIVE, 0);
+  MAKE_RANGE_LOWER_INFINITY_TEST(-10, INCLUSIVE, 0);
+  MAKE_RANGE_LOWER_INFINITY_TEST(-10, EXCLUSIVE, 0);
+
+  MAKE_RANGE_UPPER_INFINITY_TEST(89, INCLUSIVE, 11);
+  MAKE_RANGE_UPPER_INFINITY_TEST(89, EXCLUSIVE, 10);
+  MAKE_RANGE_UPPER_INFINITY_TEST(99, INCLUSIVE, 1);
+  MAKE_RANGE_UPPER_INFINITY_TEST(99, EXCLUSIVE, 0);
+  MAKE_RANGE_UPPER_INFINITY_TEST(109, INCLUSIVE, 0);
+  MAKE_RANGE_UPPER_INFINITY_TEST(109, EXCLUSIVE, 0);
+
+  {
+    auto acc = list.access();
+    uint64_t count = acc.estimate_range_count<int64_t>(
+        std::experimental::nullopt, std::experimental::nullopt, 1);
+    ASSERT_EQ(count, kMaxElements * kElementMembers);
   }
 }

@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdlib>
+#include <experimental/optional>
 #include <limits>
 #include <mutex>
 #include <random>
@@ -10,6 +11,7 @@
 
 #include <glog/logging.h>
 
+#include "utils/bound.hpp"
 #include "utils/linux.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/spin_lock.hpp"
@@ -31,6 +33,13 @@ const uint64_t kSkipListMaxHeight = 32;
 /// level is determined empirically using benchmarks. A smaller height means
 /// that the garbage collection will be triggered more often.
 const uint64_t kSkipListGcHeightTrigger = 16;
+
+/// This is the highest layer that will be used by default for item count
+/// estimation. It was determined empirically using benchmarks to have an
+/// optimal trade-off between performance and accuracy. The function will have
+/// an expected maximum error of less than 20% when the key matches 100k
+/// elements.
+const int kSkipListCountEstimateDefaultLayer = 10;
 
 /// These variables define the storage sizes for the SkipListGc. The internal
 /// storage of the GC and the Stack storage used within the GC are all
@@ -596,6 +605,49 @@ class SkipList final {
       return skiplist_->template find(key);
     }
 
+    /// Finds the key or the first larger key in the list and returns an
+    /// iterator to the item.
+    ///
+    /// @return Iterator to the item in the list, will be equal to `end()` when
+    ///                  no items match the search
+    template <typename TKey>
+    Iterator find_equal_or_greater(const TKey &key) {
+      return skiplist_->template find_equal_or_greater(key);
+    }
+
+    /// Estimates the number of items that are contained in the list that are
+    /// identical to the key determined using the equality operator. The default
+    /// layer is chosen to optimize duration vs. precision. The lower the layer
+    /// used for estimation the higher the duration of the count operation. If
+    /// you set the maximum layer for estimation to 1 you will get an exact
+    /// count.
+    ///
+    /// @return uint64_t estimated count of identical items in the list
+    template <typename TKey>
+    uint64_t estimate_count(const TKey &key,
+                            int max_layer_for_estimation =
+                                kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_count(key, max_layer_for_estimation);
+    }
+
+    /// Estimates the number of items that are contained in the list that are
+    /// between the lower and upper bounds using the less and equality operator.
+    /// The default layer is chosen to optimize duration vs. precision. The
+    /// lower the layer used for estimation the higher the duration of the count
+    /// operation. If you set the maximum layer for estimation to 1 you will get
+    /// an exact count.
+    ///
+    /// @return uint64_t estimated count of items in the range in the list
+    template <typename TKey>
+    uint64_t estimate_range_count(
+        const std::experimental::optional<utils::Bound<TKey>> &lower,
+        const std::experimental::optional<utils::Bound<TKey>> &upper,
+        int max_layer_for_estimation =
+            kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_range_count(lower, upper,
+                                                      max_layer_for_estimation);
+    }
+
     /// Removes the key from the list.
     ///
     /// @return bool indicating whether the removal was successful
@@ -662,6 +714,28 @@ class SkipList final {
     template <typename TKey>
     ConstIterator find(const TKey &key) const {
       return skiplist_->template find(key);
+    }
+
+    template <typename TKey>
+    ConstIterator find_equal_or_greater(const TKey &key) const {
+      return skiplist_->template find_equal_or_greater(key);
+    }
+
+    template <typename TKey>
+    uint64_t estimate_count(const TKey &key,
+                            int max_layer_for_estimation =
+                                kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_count(key, max_layer_for_estimation);
+    }
+
+    template <typename TKey>
+    uint64_t estimate_range_count(
+        const std::experimental::optional<utils::Bound<TKey>> &lower,
+        const std::experimental::optional<utils::Bound<TKey>> &upper,
+        int max_layer_for_estimation =
+            kSkipListCountEstimateDefaultLayer) const {
+      return skiplist_->template estimate_range_count(lower, upper,
+                                                      max_layer_for_estimation);
     }
 
     uint64_t size() const { return skiplist_->size(); }
@@ -823,6 +897,121 @@ class SkipList final {
       return Iterator{succs[layer_found]};
     }
     return Iterator{nullptr};
+  }
+
+  template <typename TKey>
+  Iterator find_equal_or_greater(const TKey &key) const {
+    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    find_node(key, preds, succs);
+    if (succs[0] && succs[0]->fully_linked.load(std::memory_order_relaxed) &&
+        !succs[0]->marked.load(std::memory_order_relaxed)) {
+      return Iterator{succs[0]};
+    }
+    return Iterator{nullptr};
+  }
+
+  template <typename TKey>
+  uint64_t estimate_count(const TKey &key, int max_layer_for_estimation) const {
+    CHECK(max_layer_for_estimation >= 1 &&
+          max_layer_for_estimation <= kSkipListMaxHeight)
+        << "Invalid layer for SkipList count estimation!";
+
+    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    int layer_found = find_node(key, preds, succs);
+    if (layer_found == -1) {
+      return 0;
+    }
+
+    uint64_t count = 0;
+    TNode *pred = preds[layer_found];
+    for (int layer = std::min(layer_found, max_layer_for_estimation - 1);
+         layer >= 0; --layer) {
+      uint64_t nodes_traversed = 0;
+      TNode *curr = pred->nexts[layer].load(std::memory_order_relaxed);
+      while (curr != nullptr && curr->obj < key) {
+        pred = curr;
+        curr = pred->nexts[layer].load(std::memory_order_relaxed);
+      }
+      while (curr != nullptr && curr->obj == key) {
+        pred = curr;
+        curr = pred->nexts[layer].load(std::memory_order_relaxed);
+        ++nodes_traversed;
+      }
+      // Here we assume that the list is perfectly balanced and that each upper
+      // layer will have two times less items than the layer below it.
+      count += (1ULL << layer) * nodes_traversed;
+    }
+
+    return count;
+  }
+
+  template <typename TKey>
+  uint64_t estimate_range_count(
+      const std::experimental::optional<utils::Bound<TKey>> &lower,
+      const std::experimental::optional<utils::Bound<TKey>> &upper,
+      int max_layer_for_estimation) const {
+    CHECK(max_layer_for_estimation >= 1 &&
+          max_layer_for_estimation <= kSkipListMaxHeight)
+        << "Invalid layer for SkipList count estimation!";
+
+    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    int layer_found = -1;
+    if (lower) {
+      layer_found = find_node(lower->value(), preds, succs);
+    } else {
+      for (int i = 0; i < kSkipListMaxHeight; ++i) {
+        preds[i] = head_;
+      }
+      layer_found = kSkipListMaxHeight - 1;
+    }
+    if (layer_found == -1) {
+      return 0;
+    }
+
+    uint64_t count = 0;
+    TNode *pred = preds[layer_found];
+    for (int layer = std::min(layer_found, max_layer_for_estimation - 1);
+         layer >= 0; --layer) {
+      uint64_t nodes_traversed = 0;
+      TNode *curr = pred->nexts[layer].load(std::memory_order_relaxed);
+      if (lower) {
+        while (curr != nullptr && curr->obj < lower->value()) {
+          pred = curr;
+          curr = pred->nexts[layer].load(std::memory_order_relaxed);
+        }
+        if (lower->IsExclusive()) {
+          while (curr != nullptr && curr->obj == lower->value()) {
+            pred = curr;
+            curr = pred->nexts[layer].load(std::memory_order_relaxed);
+          }
+        }
+      }
+      if (upper) {
+        while (curr != nullptr && curr->obj < upper->value()) {
+          pred = curr;
+          curr = pred->nexts[layer].load(std::memory_order_relaxed);
+          ++nodes_traversed;
+        }
+        if (upper->IsInclusive()) {
+          while (curr != nullptr && curr->obj == upper->value()) {
+            pred = curr;
+            curr = pred->nexts[layer].load(std::memory_order_relaxed);
+            ++nodes_traversed;
+          }
+        }
+      } else {
+        while (curr != nullptr) {
+          pred = curr;
+          curr = pred->nexts[layer].load(std::memory_order_relaxed);
+          ++nodes_traversed;
+        }
+      }
+      // Here we assume that the list is perfectly balanced and that each upper
+      // layer will have two times less items than the layer below it.
+      count += (1ULL << layer) * nodes_traversed;
+    }
+
+    return count;
   }
 
   bool ok_to_delete(TNode *candidate, int layer_found) {
