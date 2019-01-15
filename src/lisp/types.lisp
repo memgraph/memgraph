@@ -244,11 +244,7 @@ documentation on `CPP-TYPE' members for function arguments."
                      (params cpp-type-type-params)
                      (args cpp-type-type-args))
         cpp-type
-      (format stream ":name ~S" name)
-      (format stream "~@[ ~{~@?~^ ~}~]"
-              `(,@(when ns `(":namespace ~S" ,ns))
-                ,@(when params `(":type-params ~S" ,params))
-                ,@(when args `(":type-args ~S" ,args)))))))
+      (format stream "~a" (cpp-type-decl cpp-type)))))
 
 (defgeneric cpp-type-name (cpp-type)
   (:documentation "Get C++ style type name from `CPP-TYPE' as a string."))
@@ -444,11 +440,10 @@ CPP-TYPE has no namespace, return an empty string."
            (format s "~{~A~^::~}" (enclosing-classes cpp-type))
            (cond
              ((cpp-type-type-args cpp-type)
-              (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name
+              (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-decl
                                                (cpp-type-type-args cpp-type))))
              ((and type-params (cpp-type-type-params cpp-type))
-              (format s "<~{~A~^, ~}>" (mapcar #'cpp-type-name
-                                               (cpp-type-type-params cpp-type)))))))))))
+              (format s "<~{~A~^, ~}>" (cpp-type-type-params cpp-type))))))))))
 
 (defvar *cpp-inner-types* nil
   "List of cpp types defined inside an enclosing class or struct")
