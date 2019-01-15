@@ -77,10 +77,8 @@ class RaftServer final : public RaftInterface {
   /// if such server doesn't exist.
   std::experimental::optional<uint16_t> VotedFor();
 
-  /// Retrieves the log entries from persistent storage. The log is 1-indexed
-  /// in order to be consistent with the paper. If the Log isn't present in
-  /// persistent storage, an empty Log will be created.
-  std::vector<LogEntry> Log();
+  /// Retrieves log size from persistent storage.
+  uint64_t LogSize();
 
   /// Append to the log a list of batched state deltasa that are ready to be
   /// replicated.
@@ -216,7 +214,9 @@ class RaftServer final : public RaftInterface {
   //   - uint64_t current_term -- latest term server has seen.
   //   - uint16_t voted_for    -- candidate_id that received vote in current
   //                              term (null if none).
-  //   - vector<LogEntry> log  -- log entries.
+  //   - uint64_t log_size     -- Number of stored entries within the log.
+  //   - vector<LogEntry> log  -- log entries. Each log entry is stored under
+  //                              a separate key within KVStore.
   //////////////////////////////////////////////////////////////////////////////
 
   storage::KVStore disk_storage_;
@@ -297,6 +297,11 @@ class RaftServer final : public RaftInterface {
   /// @return true if the current server's term lags behind.
   bool OutOfSync(uint64_t reply_term);
 
+  /// Retrieves a log entry from the log at a given index.
+  ///
+  /// @param index Index of the log entry to be retrieved.
+  LogEntry GetLogEntry(int index);
+
   /// Deletes log entries with indexes that are greater or equal to the given
   /// starting index.
   ///
@@ -325,12 +330,17 @@ class RaftServer final : public RaftInterface {
   void AppendLogEntries(uint64_t leader_commit_index, uint64_t starting_index,
                         const std::vector<LogEntry> &new_entries);
 
-  /// Serializes Raft log into `std::string`.
-  std::string SerializeLog(const std::vector<LogEntry> &log);
+  /// Generates the key under which the `LogEntry` with a given index should
+  /// be stored on our disk storage.
+  ///
+  /// @param index - Index of the `LogEntry` for which we generate the key.
+  std::string LogEntryKey(uint64_t index);
 
-  /// Deserializes Raft log from `std::string`.
-  std::vector<LogEntry> DeserializeLog(const std::string &serialized_log);
+  /// Serializes Raft log entry into `std::string`
+  std::string SerializeLogEntry(const LogEntry &log_entry);
 
+  /// Deserialized Raft log entry from `std::string`
+  LogEntry DeserializeLogEntry(const std::string &serialized_log_entry);
   void ResetReplicationLog();
 };
 }  // namespace raft

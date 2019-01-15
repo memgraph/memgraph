@@ -20,10 +20,7 @@ fi
 RESULTS="$DIR/.apollo_measurements"
 
 # Benchmark parameters
-# TODO(msantl): We're benchmarking with only 300 nodes because there is a O(n^2)
-# complexity in the current Raft implementation. Once we remove this bottleneck,
-# we can raise this number to test proper performance.
-NODES=300
+NODES=15000
 
 ## Startup
 declare -a HA_PIDS
