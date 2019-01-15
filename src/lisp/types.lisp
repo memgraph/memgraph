@@ -86,21 +86,22 @@
               encloses this type.")
    (enclosing-class :type (or null symbol string) :initarg :enclosing-class
                     :initform nil :accessor cpp-type-enclosing-class
-                    :documentation "A symbol that is a designator for the type
-                    of the enclosing class of this type, or NIL if the type has
-                    no enclosing class.")
+                    :documentation "A symbol or a string that is a designator
+                    for the type of the enclosing class of this type, or NIL if
+                    the type has no enclosing class.")
    (name :type (or symbol string) :initarg :name :reader cpp-type-base-name
          :documentation "Base name of this type.")
    (type-params :type list :initarg :type-params :initform nil
                 :reader cpp-type-type-params
-                :documentation "List of template parameters that are needed to
-                instantiate a concrete type.  For example, in `template
-                <TValue> class vector`, 'TValue' is type parameter.")
+                :documentation "A list of strings naming the template parameters
+                that are needed to instantiate a concrete type. For example, in
+                `template <TValue> class vector`, 'TValue' is the type
+                parameter.")
    (type-args :type list :initarg :type-args :initform nil
               :reader cpp-type-type-args
-              :documentation "List of `CPP-TYPE' instances that represent the
+              :documentation "A list of `CPP-TYPE' instances that represent the
               template type arguments used within the instantiation of the
-              template.  For example in `std::vector<int>`, 'int' is a template
+              template. For example in `std::vector<int>`, 'int' is a template
               type argument."))
   (:documentation "Base class for meta information on C++ types."))
 
@@ -209,6 +210,8 @@ documentation on `CPP-TYPE' members for function arguments."
   (check-type enclosing-class (or null symbol string))
   (check-type type-params list)
   (check-type type-args list)
+  (when (and type-params type-args)
+    (error "A CPP-TYPE can't have both of TYPE-PARAMS and TYPE-ARGS"))
   (let ((namespace (if (and namespace
                             (string= (string-trim +whitespace-chars+ (car namespace)) ""))
                        (cdr namespace)
@@ -420,7 +423,7 @@ CPP-TYPE has no namespace, return an empty string."
   (check-type cpp-type cpp-type)
   (flet ((enclosing-classes (cpp-type)
            (declare (type cpp-type cpp-type))
-           (let (enclosing)
+           (let ((enclosing '()))
              (loop
                 for class = cpp-type
                 then (find-cpp-class (cpp-type-enclosing-class class))

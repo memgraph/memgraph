@@ -12,9 +12,9 @@
   (is (lcp::parse-cpp-type-declaration type-decl) cpp-type
       :test #'lcp::cpp-type=))
 
-(defun decl-test (type-decl type &key (type-params t) (namespace t))
-  "Test whether the C++ type designated by TYPE prints as TYPE-DECL."
-  (is (lcp::cpp-type-decl type
+(defun decl-test (type-decl cpp-type &key (type-params t) (namespace t))
+  "Test whether the C++ type designated by CPP-TYPE prints as TYPE-DECL."
+  (is (lcp::cpp-type-decl cpp-type
                           :type-params type-params
                           :namespace namespace)
       type-decl))
@@ -93,7 +93,7 @@
 
     (decl-test "pair"
                (lcp::make-cpp-type
-                "pair" :type-params '("TIntegral1 TIntegral2"))
+                "pair" :type-params '("TIntegral1" "TIntegral2"))
                :type-params nil))
 
   (subtest "finding defined enums"
