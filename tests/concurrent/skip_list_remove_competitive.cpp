@@ -23,7 +23,7 @@ int main() {
 
   std::vector<std::thread> threads;
   for (int i = 0; i < kNumThreads; ++i) {
-    threads.push_back(std::thread([&list, &success, i] {
+    threads.push_back(std::thread([&list, &success] {
       for (uint64_t num = 0; num < kMaxNum; ++num) {
         auto acc = list.access();
         if (acc.remove(num)) {

@@ -187,7 +187,7 @@ bool PlanPrinter::PreVisit(query::plan::Union &op) {
 }
 
 bool PlanPrinter::Visit(query::plan::Once &op) {
-  WithPrintLn([&op](auto &out) { out << "* Once"; });
+  WithPrintLn([](auto &out) { out << "* Once"; });
   return true;
 }
 
