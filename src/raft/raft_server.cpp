@@ -246,6 +246,13 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   ++last_applied_;
   disk_storage_.Put(LogEntryKey(log_size), SerializeLogEntry(new_entry));
   disk_storage_.Put(kLogSizeKey, std::to_string(log_size + 1));
+
+  // Force issuing heartbeats
+  TimePoint now = Clock::now();
+  for (auto &peer_heartbeat : next_heartbeat_)
+    peer_heartbeat = now;
+
+  state_changed_.notify_all();
 }
 
 void RaftServer::Emplace(const database::StateDelta &delta) {

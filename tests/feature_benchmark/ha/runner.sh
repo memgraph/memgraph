@@ -20,7 +20,7 @@ fi
 RESULTS="$DIR/.apollo_measurements"
 
 # Benchmark parameters
-NODES=15000
+NODES=150000
 
 ## Startup
 declare -a HA_PIDS
