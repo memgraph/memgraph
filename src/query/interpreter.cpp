@@ -590,7 +590,6 @@ Interpreter::Results Interpreter::operator()(
 #endif
 
   AstStorage ast_storage;
-  Context execution_context(db_accessor);
   Parameters parameters;
   std::map<std::string, TypedValue> summary;
 
@@ -645,11 +644,36 @@ Interpreter::Results Interpreter::operator()(
         << "Expected stripped query to start with '" << kExplainQueryStart
         << "'";
 
-    auto cypher_query_hash =
-        fnv(stripped_query.query().substr(kExplainQueryStart.size()));
-    std::shared_ptr<CachedPlan> cypher_query_plan =
-        CypherQueryToPlan(cypher_query_hash, explain_query->cypher_query_,
-                          std::move(ast_storage), parameters, &db_accessor);
+    // We want to cache the Cypher query that appears within this "metaquery".
+    // However, we can't just use the hash of that Cypher query string (as the
+    // cache key) but then continue to use the AST that was constructed with the
+    // full string. The parameters within the AST are looked up using their
+    // token positions, which depend on the query string as they're computed at
+    // the time the query string is parsed. So, for example, if one first runs
+    // EXPLAIN (or PROFILE) on a Cypher query and *then* runs the same Cypher
+    // query standalone, the second execution will crash because the cached AST
+    // (constructed using the first query string but cached using the substring
+    // (equivalent to the second query string)) will use the old token
+    // positions. For that reason, we fully strip and parse the substring as
+    // well.
+    //
+    // Note that the stripped subquery string's hash will be equivalent to the
+    // hash of the stripped query as if it was run standalone. This guarantees
+    // that we will reuse any cached plans from before, rather than create a new
+    // one every time. This is important because the planner takes the values of
+    // the query parameters into account when planning and might produce a
+    // totally different plan if we were to create a new one right now. Doing so
+    // would result in discrepancies between the explained (or profiled) plan
+    // and the one that's executed when the query is ran standalone.
+    auto queries =
+        StripAndParseQuery(query_string.substr(kExplainQueryStart.size()),
+                           &parameters, &ast_storage, &db_accessor, params);
+    StrippedQuery &stripped_query = queries.first;
+    ParsedQuery &parsed_query = queries.second;
+
+    std::shared_ptr<CachedPlan> cypher_query_plan = CypherQueryToPlan(
+        stripped_query.hash(), dynamic_cast<CypherQuery *>(parsed_query.query),
+        std::move(ast_storage), parameters, &db_accessor);
 
     std::stringstream printed_plan;
     PrettyPrintPlan(db_accessor, &cypher_query_plan->plan(), &printed_plan);
@@ -694,11 +718,17 @@ Interpreter::Results Interpreter::operator()(
       throw QueryException("TSC support is missing for PROFILE");
     }
 
-    auto cypher_query_hash =
-        fnv(stripped_query.query().substr(kProfileQueryStart.size()));
-    auto cypher_query_plan =
-        CypherQueryToPlan(cypher_query_hash, profile_query->cypher_query_,
-                          std::move(ast_storage), parameters, &db_accessor);
+    // See the comment regarding the caching of Cypher queries within
+    // "metaqueries" for explain queries
+    auto queries =
+        StripAndParseQuery(query_string.substr(kProfileQueryStart.size()),
+                           &parameters, &ast_storage, &db_accessor, params);
+    StrippedQuery &stripped_query = queries.first;
+    ParsedQuery &parsed_query = queries.second;
+
+    auto cypher_query_plan = CypherQueryToPlan(
+        stripped_query.hash(), dynamic_cast<CypherQuery *>(parsed_query.query),
+        std::move(ast_storage), parameters, &db_accessor);
 
     // Copy the symbol table and add our own symbols (used by the `OutputTable`
     // operator below)
