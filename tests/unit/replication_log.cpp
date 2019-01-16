@@ -49,17 +49,18 @@ TEST(ReplicationLog, GarbageCollect) {
 
   rlog.garbage_collect_older(n);
 
-  for (int i = 1; i <= n; ++i) {
+  for (int i = 1; i < n; ++i) {
     EXPECT_FALSE(rlog.is_active(i));
     EXPECT_FALSE(rlog.is_replicated(i));
   }
 
-  for (int i = n + 1; i < 2 * n; ++i) {
+  for (int i = n; i < 2 * n; ++i) {
     EXPECT_FALSE(rlog.is_active(i));
     EXPECT_TRUE(rlog.is_replicated(i));
   }
 
   for (int i = 2 * n; i < 3 * n; ++i) {
     EXPECT_TRUE(rlog.is_active(i));
+    EXPECT_FALSE(rlog.is_replicated(i));
   }
 }

@@ -38,8 +38,10 @@ class ReplicationLog final {
   // Clears the replication log from bits associated with transactions with an
   // id lower than `id`.
   void garbage_collect_older(tx::TransactionId id) {
+    // We keep track of the valid prefix in order to avoid the `CHECK` inside
+    // the `DynamicBitset`.
+    valid_prefix = 2 * id;
     log.delete_prefix(2 * id);
-    valid_prefix = 2 * (id + 1);
   }
 
   class Info final {

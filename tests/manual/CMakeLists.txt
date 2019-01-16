@@ -54,6 +54,9 @@ target_link_libraries(${test_prefix}generate_snapshot mg-distributed kvstore_dum
 add_manual_test(graph_500_generate_snapshot.cpp)
 target_link_libraries(${test_prefix}graph_500_generate_snapshot mg-distributed kvstore_dummy_lib)
 
+add_manual_test(ha_client.cpp)
+target_link_libraries(${test_prefix}ha_client mg-utils mg-communication)
+
 add_manual_test(kvstore_console.cpp)
 target_link_libraries(${test_prefix}kvstore_console kvstore_lib gflags glog)
 
