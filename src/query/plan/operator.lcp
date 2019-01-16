@@ -28,7 +28,7 @@ cpp<#
 (lcp:namespace query)
 
 #>cpp
-class Context;
+struct ExecutionContext;
 class ExpressionEvaluator;
 class Frame;
 class SymbolTable;
@@ -50,11 +50,11 @@ class Cursor {
   ///
   /// @param Frame May be read from or written to while performing the
   ///     iteration.
-  /// @param Context Used to get the position of symbols in frame and other
-  /// information.
+  /// @param ExecutionContext Used to get the position of symbols in frame and
+  ///     other information.
   ///
   /// @throws QueryRuntimeException if something went wrong with execution
-  virtual bool Pull(Frame &, Context &) = 0;
+  virtual bool Pull(Frame &, ExecutionContext &) = 0;
 
   /// Resets the Cursor to its initial state.
   virtual void Reset() = 0;
@@ -363,7 +363,7 @@ and false on every following Pull.")
    class OnceCursor : public Cursor {
     public:
      OnceCursor() {}
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -485,7 +485,7 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
    class CreateNodeCursor : public Cursor {
     public:
      CreateNodeCursor(const CreateNode &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -596,7 +596,7 @@ chained in cases when longer paths need creating.
    class CreateExpandCursor : public Cursor {
     public:
      CreateExpandCursor(const CreateExpand &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -606,7 +606,7 @@ chained in cases when longer paths need creating.
      const std::unique_ptr<Cursor> input_cursor_;
 
      // Get the existing node (if existing_node_ == true), or create a new node
-     VertexAccessor &OtherVertex(Frame &frame, Context &context);
+     VertexAccessor &OtherVertex(Frame &frame, ExecutionContext &context);
 
      /**
       * Helper function for creating an edge and adding it
@@ -963,7 +963,7 @@ pulled.")
    class ExpandCursor : public Cursor {
     public:
      ExpandCursor(const Expand &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -986,7 +986,7 @@ pulled.")
      std::experimental::optional<OutEdgeT> out_edges_;
      std::experimental::optional<OutEdgeIteratorT> out_edges_it_;
 
-     bool InitEdges(Frame &, Context &);
+     bool InitEdges(Frame &, ExecutionContext &);
    };
    cpp<#)
   (:serialize (:slk) (:capnp)))
@@ -1264,7 +1264,7 @@ a boolean value.")
    class FilterCursor : public Cursor {
     public:
      FilterCursor(const Filter &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1320,7 +1320,7 @@ RETURN clause) the Produce's pull succeeds exactly once.")
    class ProduceCursor : public Cursor {
     public:
      ProduceCursor(const Produce &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1372,7 +1372,7 @@ Has a flag for using DETACH DELETE when deleting vertices.")
    class DeleteCursor : public Cursor {
     public:
      DeleteCursor(const Delete &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1429,7 +1429,7 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
    class SetPropertyCursor : public Cursor {
     public:
      SetPropertyCursor(const SetProperty &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1493,7 +1493,7 @@ that the old properties are discarded and replaced with new ones.")
     public:
      SetPropertiesCursor(const SetProperties &self,
                          database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1549,7 +1549,7 @@ It does NOT remove labels that are already set on that Vertex.")
    class SetLabelsCursor : public Cursor {
     public:
      SetLabelsCursor(const SetLabels &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1597,7 +1597,7 @@ It does NOT remove labels that are already set on that Vertex.")
     public:
      RemovePropertyCursor(const RemoveProperty &self,
                           database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1644,7 +1644,7 @@ If a label does not exist on a Vertex, nothing happens.")
    class RemoveLabelsCursor : public Cursor {
     public:
      RemoveLabelsCursor(const RemoveLabels &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1703,7 +1703,7 @@ edge lists).")
     public:
      EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &self,
                                 database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1773,7 +1773,7 @@ has been cached will be reconstructed before Pull returns.
    class AccumulateCursor : public Cursor {
     public:
      AccumulateCursor(const Accumulate &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1904,7 +1904,7 @@ elements are in an undefined state after aggregation.")
    class AggregateCursor : public Cursor {
     public:
      AggregateCursor(const Aggregate &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -1953,7 +1953,7 @@ elements are in an undefined state after aggregation.")
       * cache cardinality depends on number of
       * aggregation results, and not on the number of inputs.
       */
-     void ProcessAll(Frame &, Context &);
+     void ProcessAll(Frame &, ExecutionContext &);
 
      /**
       * Performs a single accumulation.
@@ -2028,7 +2028,7 @@ operator's implementation does not expect this.")
    class SkipCursor : public Cursor {
     public:
      SkipCursor(const Skip &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2091,7 +2091,7 @@ input should be performed).")
    class LimitCursor : public Cursor {
     public:
      LimitCursor(const Limit &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2158,7 +2158,7 @@ are valid for usage after the OrderBy operator.")
    class OrderByCursor : public Cursor {
     public:
      OrderByCursor(const OrderBy &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2232,7 +2232,7 @@ documentation.")
    class MergeCursor : public Cursor {
     public:
      MergeCursor(const Merge &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2295,7 +2295,7 @@ and returns true, once.")
    class OptionalCursor : public Cursor {
     public:
      OptionalCursor(const Optional &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2354,7 +2354,7 @@ Input is optional (unwind can be the first clause in a query).")
    class UnwindCursor : public Cursor {
     public:
      UnwindCursor(const Unwind &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2410,7 +2410,7 @@ This implementation maintains input ordering.")
     public:
      DistinctCursor(const Distinct &self, database::GraphDbAccessor &db);
 
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2479,7 +2479,7 @@ of symbols used by each of the inputs.")
    class UnionCursor : public Cursor {
     public:
      UnionCursor(const Union &self, database::GraphDbAccessor &db);
-     bool Pull(Frame &, Context &) override;
+     bool Pull(Frame &, ExecutionContext &) override;
      void Shutdown() override;
      void Reset() override;
 
@@ -2537,7 +2537,7 @@ of symbols used by each of the inputs.")
 
 (lcp:define-class output-table (logical-operator)
   ((output-symbols "std::vector<Symbol>" :scope :public :dont-save t)
-   (callback "std::function<std::vector<std::vector<TypedValue>>(Frame *, Context *)>"
+   (callback "std::function<std::vector<std::vector<TypedValue>>(Frame *, ExecutionContext *)>"
              :scope :public :dont-save t))
   (:documentation "An operator that outputs a table, producing a single row on each pull")
   (:public
@@ -2545,7 +2545,7 @@ of symbols used by each of the inputs.")
    OutputTable() {}
    OutputTable(
        std::vector<Symbol> output_symbols,
-       std::function<std::vector<std::vector<TypedValue>>(Frame *, Context *)>
+       std::function<std::vector<std::vector<TypedValue>>(Frame *, ExecutionContext *)>
            callback);
    OutputTable(std::vector<Symbol> output_symbols,
                std::vector<std::vector<TypedValue>> rows);

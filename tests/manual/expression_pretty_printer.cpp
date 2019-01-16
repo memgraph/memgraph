@@ -13,7 +13,7 @@ std::string AssembleQueryString(const std::string &expression_string) {
 
 query::Query *ParseQuery(const std::string &query_string,
                          query::AstStorage *ast_storage) {
-  query::ParsingContext context;
+  query::frontend::ParsingContext context;
   query::frontend::opencypher::Parser parser(query_string);
   query::frontend::CypherMainVisitor visitor(context, ast_storage);
 

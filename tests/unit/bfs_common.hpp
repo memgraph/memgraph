@@ -138,7 +138,7 @@ class Yield : public query::plan::LogicalOperator {
         : self_(self),
           input_cursor_(std::move(input_cursor)),
           pull_index_(self_->values_.size()) {}
-    bool Pull(query::Frame &frame, query::Context &context) override {
+    bool Pull(query::Frame &frame, query::ExecutionContext &context) override {
       if (pull_index_ == self_->values_.size()) {
         if (!input_cursor_->Pull(frame, context)) return false;
         pull_index_ = 0;
@@ -155,6 +155,7 @@ class Yield : public query::plan::LogicalOperator {
     }
 
     void Shutdown() override {}
+
    private:
     const Yield *self_;
     std::unique_ptr<query::plan::Cursor> input_cursor_;
@@ -163,12 +164,12 @@ class Yield : public query::plan::LogicalOperator {
 };
 
 std::vector<std::vector<query::TypedValue>> PullResults(
-    query::plan::LogicalOperator *last_op, query::Context *context,
+    query::plan::LogicalOperator *last_op, query::ExecutionContext *context,
     std::vector<query::Symbol> output_symbols) {
-  auto cursor = last_op->MakeCursor(context->db_accessor_);
+  auto cursor = last_op->MakeCursor(*context->db_accessor);
   std::vector<std::vector<query::TypedValue>> output;
   {
-    query::Frame frame(context->symbol_table_.max_position());
+    query::Frame frame(context->symbol_table.max_position());
     while (cursor->Pull(frame, *context)) {
       output.emplace_back();
       for (const auto &symbol : output_symbols) {
@@ -208,8 +209,7 @@ class Database {
       bool existing_node, query::Expression *lower_bound,
       query::Expression *upper_bound,
       const query::plan::ExpansionLambda &filter_lambda) = 0;
-  virtual std::pair<std::vector<VertexAddress>,
-                    std::vector<EdgeAddress>>
+  virtual std::pair<std::vector<VertexAddress>, std::vector<EdgeAddress>>
   BuildGraph(database::GraphDbAccessor *dba,
              const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
@@ -220,8 +220,8 @@ class Database {
 // Returns an operator that yields vertices given by their address. We will also
 // include query::TypedValue::Null to account for the optional match case.
 std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
-    database::GraphDbAccessor *dba,
-    std::vector<VertexAddress> vertices, query::Symbol symbol,
+    database::GraphDbAccessor *dba, std::vector<VertexAddress> vertices,
+    query::Symbol symbol,
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
   frames.push_back(std::vector<query::TypedValue>{query::TypedValue::Null});
@@ -235,8 +235,7 @@ std::unique_ptr<query::plan::LogicalOperator> YieldVertices(
 
 // Returns an operator that yields edges and vertices given by their address.
 std::unique_ptr<query::plan::LogicalOperator> YieldEntities(
-    database::GraphDbAccessor *dba,
-    std::vector<VertexAddress> vertices,
+    database::GraphDbAccessor *dba, std::vector<VertexAddress> vertices,
     std::vector<EdgeAddress> edges, query::Symbol symbol,
     std::shared_ptr<query::plan::LogicalOperator> input_op) {
   std::vector<std::vector<query::TypedValue>> frames;
@@ -308,22 +307,22 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
   auto dba_ptr = db->Access();
   auto &dba = *dba_ptr;
   query::AstStorage storage;
-  query::Context context(*dba_ptr);
+  query::ExecutionContext context{dba_ptr.get()};
   query::Symbol blocked_sym =
-      context.symbol_table_.CreateSymbol("blocked", true);
-  query::Symbol source_sym = context.symbol_table_.CreateSymbol("source", true);
-  query::Symbol sink_sym = context.symbol_table_.CreateSymbol("sink", true);
-  query::Symbol edges_sym = context.symbol_table_.CreateSymbol("edges", true);
+      context.symbol_table.CreateSymbol("blocked", true);
+  query::Symbol source_sym = context.symbol_table.CreateSymbol("source", true);
+  query::Symbol sink_sym = context.symbol_table.CreateSymbol("sink", true);
+  query::Symbol edges_sym = context.symbol_table.CreateSymbol("edges", true);
   query::Symbol inner_node_sym =
-      context.symbol_table_.CreateSymbol("inner_node", true);
+      context.symbol_table.CreateSymbol("inner_node", true);
   query::Symbol inner_edge_sym =
-      context.symbol_table_.CreateSymbol("inner_edge", true);
+      context.symbol_table.CreateSymbol("inner_edge", true);
   query::Identifier *blocked = IDENT("blocked");
   query::Identifier *inner_node = IDENT("inner_node");
   query::Identifier *inner_edge = IDENT("inner_edge");
-  context.symbol_table_[*blocked] = blocked_sym;
-  context.symbol_table_[*inner_node] = inner_node_sym;
-  context.symbol_table_[*inner_edge] = inner_edge_sym;
+  context.symbol_table[*blocked] = blocked_sym;
+  context.symbol_table[*inner_node] = inner_node_sym;
+  context.symbol_table[*inner_edge] = inner_edge_sym;
 
   std::vector<VertexAddress> vertices;
   std::vector<EdgeAddress> edges;
@@ -368,7 +367,7 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
               {VertexAccessor(vertices[5], *dba_ptr)}});
       filter_expr = NEQ(PROPERTY_LOOKUP(inner_node, PROPERTY_PAIR("id")),
                         PARAMETER_LOOKUP(0));
-      context.evaluation_context_.parameters.Add(0, 5);
+      context.evaluation_context.parameters.Add(0, 5);
       break;
     case FilterLambdaType::ERROR:
       // Evaluate to 42 for vertex #5 which is on worker 1.
@@ -398,9 +397,9 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       query::plan::ExpansionLambda{inner_edge_sym, inner_node_sym,
                                    filter_expr});
 
-  context.evaluation_context_.properties =
+  context.evaluation_context.properties =
       query::NamesToProperties(storage.properties_, &dba);
-  context.evaluation_context_.labels =
+  context.evaluation_context.labels =
       query::NamesToLabels(storage.labels_, &dba);
   std::vector<std::vector<query::TypedValue>> results;
 

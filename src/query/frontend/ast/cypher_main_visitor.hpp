@@ -4,10 +4,9 @@
 #include <unordered_set>
 #include <utility>
 
-#include "antlr4-runtime.h"
-#include "glog/logging.h"
+#include <antlr4-runtime.h>
+#include <glog/logging.h>
 
-#include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #include "utils/exceptions.hpp"
@@ -16,6 +15,10 @@ namespace query {
 namespace frontend {
 
 using antlropencypher::MemgraphCypher;
+
+struct ParsingContext {
+  bool is_query_cached = false;
+};
 
 class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
  public:

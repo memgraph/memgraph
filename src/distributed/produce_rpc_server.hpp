@@ -60,7 +60,7 @@ class ProduceRpcServer {
 
    private:
     std::unique_ptr<database::GraphDbAccessor> dba_;
-    query::Context context_;
+    query::ExecutionContext context_;
     std::vector<query::Symbol> pull_symbols_;
     query::Frame frame_;
     PullState cursor_state_{PullState::CURSOR_IN_PROGRESS};

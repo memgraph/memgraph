@@ -82,16 +82,16 @@ TEST_F(DistributedQueryPlan, PullProduceRpc) {
   auto produce = MakeProduce(unwind, x_ne);
 
   // Test that the plan works locally.
-  Context ctx = MakeContext(storage, symbol_table, dba.get());
+  auto ctx = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &ctx);
   ASSERT_EQ(results.size(), 5);
 
   const int plan_id = 42;
-  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
+  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table);
 
   tx::CommandId command_id = dba->transaction().cid();
-  auto &evaluation_context = ctx.evaluation_context_;
-  std::vector<query::Symbol> symbols{ctx.symbol_table_[*x_ne]};
+  auto &evaluation_context = ctx.evaluation_context;
+  std::vector<query::Symbol> symbols{ctx.symbol_table[*x_ne]};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
                          GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(&dba, worker_id, plan_id, command_id,
@@ -202,17 +202,17 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   };
 
   // Test that the plan works locally.
-  Context ctx = MakeContext(storage, symbol_table, dba.get());
+  auto ctx = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &ctx);
   check_result(0, results);
 
   const int plan_id = 42;
-  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table_);
+  master().plan_dispatcher().DispatchPlan(plan_id, produce, ctx.symbol_table);
 
   tx::CommandId command_id = dba->transaction().cid();
-  auto &evaluation_context = ctx.evaluation_context_;
-  std::vector<query::Symbol> symbols{ctx.symbol_table_[*return_n_r],
-                                     ctx.symbol_table_[*return_m], p_sym};
+  auto &evaluation_context = ctx.evaluation_context;
+  std::vector<query::Symbol> symbols{ctx.symbol_table[*return_n_r],
+                                     ctx.symbol_table[*return_m], p_sym};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
                          GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(&dba, worker_id, plan_id, command_id,
@@ -267,7 +267,7 @@ TEST_F(DistributedQueryPlan, Synchronize) {
   auto return_n_p_sym = symbol_table.CreateSymbol("n.p", true);
   symbol_table[*return_n_p] = return_n_p_sym;
   auto produce = MakeProduce(synchronize, return_n_p);
-  Context ctx = MakeContext(storage, symbol_table, &dba);
+  auto ctx = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &ctx);
   ASSERT_EQ(results.size(), 2);
   ASSERT_EQ(results[0].size(), 1);
@@ -291,7 +291,7 @@ TEST_F(DistributedQueryPlan, Create) {
   node.symbol = symbol_table.CreateSymbol("n", true);
   auto create =
       std::make_shared<query::plan::DistributedCreateNode>(unwind, node, true);
-  Context context = MakeContext(storage, symbol_table, dba.get());
+  auto context = MakeContext(storage, symbol_table, dba.get());
   PullAll(*create, &context);
   dba->Commit();
   EXPECT_GT(VertexCount(master()), 200);
@@ -347,7 +347,7 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
   auto n_p_ne = NEXPR("n.prop", n_p);
   symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.prop", true);
   auto produce = MakeProduce(pull_remote_order_by, n_p_ne);
-  Context ctx = MakeContext(storage, symbol_table, &dba);
+  auto ctx = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &ctx);
 
   ASSERT_EQ(results.size(), 300);

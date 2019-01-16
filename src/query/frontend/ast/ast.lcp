@@ -264,7 +264,6 @@ cpp<#
         expression_->Clone(storage));                                        \
   }
 
-class Context;
 class Tree;
 
 // It would be better to call this AstTree, but we already have a class Tree,

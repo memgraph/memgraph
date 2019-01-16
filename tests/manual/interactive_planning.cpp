@@ -436,7 +436,7 @@ void ExaminePlans(
 }
 
 query::Query *MakeAst(const std::string &query, query::AstStorage *storage) {
-  query::ParsingContext parsing_context;
+  query::frontend::ParsingContext parsing_context;
   parsing_context.is_query_cached = false;
   // query -> AST
   auto parser = std::make_unique<query::frontend::opencypher::Parser>(query);

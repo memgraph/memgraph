@@ -72,7 +72,7 @@ void CheckPlansProduce(
   for (const auto &plan : plans) {
     auto *produce = dynamic_cast<Produce *>(plan.get());
     ASSERT_TRUE(produce);
-    Context context = MakeContext(storage, symbol_table, dba);
+    auto context = MakeContext(storage, symbol_table, dba);
     auto results = CollectProduce(*produce, &context);
     check(results);
   }

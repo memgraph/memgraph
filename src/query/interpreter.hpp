@@ -7,6 +7,7 @@
 #include "database/graph_db_accessor.hpp"
 #include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
@@ -90,7 +91,7 @@ class Interpreter {
             std::map<std::string, TypedValue> summary,
             std::vector<AuthQuery::Privilege> privileges,
             bool is_profile_query = false)
-        : ctx_(*db_accessor),
+        : ctx_{db_accessor},
           plan_(plan),
           cursor_(plan_->plan().MakeCursor(*db_accessor)),
           frame_(plan_->symbol_table().max_position()),
@@ -98,16 +99,16 @@ class Interpreter {
           header_(header),
           summary_(summary),
           privileges_(std::move(privileges)) {
-      ctx_.is_profile_query_ = is_profile_query;
-      ctx_.symbol_table_ = plan_->symbol_table();
-      ctx_.evaluation_context_.timestamp =
+      ctx_.is_profile_query = is_profile_query;
+      ctx_.symbol_table = plan_->symbol_table();
+      ctx_.evaluation_context.timestamp =
           std::chrono::duration_cast<std::chrono::milliseconds>(
               std::chrono::system_clock::now().time_since_epoch())
               .count();
-      ctx_.evaluation_context_.parameters = parameters;
-      ctx_.evaluation_context_.properties =
+      ctx_.evaluation_context.parameters = parameters;
+      ctx_.evaluation_context.properties =
           NamesToProperties(plan_->ast_storage().properties_, db_accessor);
-      ctx_.evaluation_context_.labels =
+      ctx_.evaluation_context.labels =
           NamesToLabels(plan_->ast_storage().labels_, db_accessor);
     }
 
@@ -162,10 +163,10 @@ class Interpreter {
       return privileges_;
     }
 
-    bool IsProfileQuery() const { return ctx_.is_profile_query_; }
+    bool IsProfileQuery() const { return ctx_.is_profile_query; }
 
    private:
-    Context ctx_;
+    ExecutionContext ctx_;
     std::shared_ptr<CachedPlan> plan_;
     std::unique_ptr<query::plan::Cursor> cursor_;
     Frame frame_;
@@ -235,7 +236,8 @@ class Interpreter {
   // stripped query -> high level tree
   ParsedQuery ParseQuery(const std::string &stripped_query,
                          const std::string &original_query,
-                         const ParsingContext &context, AstStorage *ast_storage,
+                         const frontend::ParsingContext &context,
+                         AstStorage *ast_storage,
                          database::GraphDbAccessor *db_accessor);
 };
 

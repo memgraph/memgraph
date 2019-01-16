@@ -11,21 +11,21 @@ namespace plan {
 
 /**
  * A RAII class used for profiling logical operators. Instances of this class
- * update the profiling data stored within the `Context` object and build up a
- * tree of `ProfilingStats` instances. The structure of the `ProfilingStats`
+ * update the profiling data stored within the `ExecutionContext` object and build
+ * up a tree of `ProfilingStats` instances. The structure of the `ProfilingStats`
  * tree depends on the `LogicalOperator`s that were executed.
  */
 class ScopedProfile {
  public:
   ScopedProfile(uint64_t key, const char *name,
-                query::Context *context) noexcept
+                query::ExecutionContext *context) noexcept
       : context_(context) {
-    if (UNLIKELY(context_->is_profile_query_)) {
-      root_ = context_->stats_root_;
+    if (UNLIKELY(context_->is_profile_query)) {
+      root_ = context_->stats_root;
 
       // Are we the root logical operator?
       if (!root_) {
-        stats_ = &context_->stats_;
+        stats_ = &context_->stats;
         stats_->key = key;
         stats_->name = name;
       } else {
@@ -45,23 +45,23 @@ class ScopedProfile {
         }
       }
 
-      context_->stats_root_ = stats_;
+      context_->stats_root = stats_;
       stats_->actual_hits++;
       start_time_ = utils::ReadTSC();
     }
   }
 
   ~ScopedProfile() noexcept {
-    if (UNLIKELY(context_->is_profile_query_)) {
+    if (UNLIKELY(context_->is_profile_query)) {
       stats_->num_cycles += utils::ReadTSC() - start_time_;
 
       // Restore the old root ("pop")
-      context_->stats_root_ = root_;
+      context_->stats_root = root_;
     }
   }
 
  private:
-  query::Context *context_;
+  query::ExecutionContext *context_;
   ProfilingStats *root_;
   ProfilingStats *stats_;
   unsigned long long start_time_;

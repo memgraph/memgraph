@@ -15,16 +15,16 @@ ProduceRpcServer::OngoingProduce::OngoingProduce(
     const query::Parameters &parameters,
     std::vector<query::Symbol> pull_symbols)
     : dba_(db->Access(tx_id)),
-      context_(*dba_),
+      context_{dba_.get()},
       pull_symbols_(std::move(pull_symbols)),
       frame_(plan_pack.symbol_table.max_position()),
       cursor_(plan_pack.plan->MakeCursor(*dba_)) {
-  context_.symbol_table_ = plan_pack.symbol_table;
-  context_.evaluation_context_.timestamp = timestamp;
-  context_.evaluation_context_.parameters = parameters;
-  context_.evaluation_context_.properties =
+  context_.symbol_table = plan_pack.symbol_table;
+  context_.evaluation_context.timestamp = timestamp;
+  context_.evaluation_context.parameters = parameters;
+  context_.evaluation_context.properties =
       query::NamesToProperties(plan_pack.storage.properties_, dba_.get());
-  context_.evaluation_context_.labels =
+  context_.evaluation_context.labels =
       query::NamesToLabels(plan_pack.storage.labels_, dba_.get());
 }
 

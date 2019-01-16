@@ -749,15 +749,16 @@ Interpreter::Results Interpreter::operator()(
         relative_time_symbol.name(), absolute_time_symbol.name()};
 
     auto output_plan = std::make_unique<plan::OutputTable>(
-        output_symbols, [cypher_query_plan](Frame *frame, Context *context) {
+        output_symbols,
+        [cypher_query_plan](Frame *frame, ExecutionContext *context) {
           auto cursor =
-              cypher_query_plan->plan().MakeCursor(context->db_accessor_);
+              cypher_query_plan->plan().MakeCursor(*context->db_accessor);
 
           // Pull everything to profile the execution
           utils::Timer timer;
           while (cursor->Pull(*frame, *context)) continue;
 
-          return FormatProfilingStats(context->stats_, timer.Elapsed());
+          return FormatProfilingStats(context->stats, timer.Elapsed());
         });
 
     plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
@@ -810,7 +811,7 @@ Interpreter::Results Interpreter::operator()(
   plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(
       std::make_unique<plan::OutputTable>(
           output_symbols,
-          [fn = callback.fn](Frame *, Context *) { return fn(); }),
+          [fn = callback.fn](Frame *, ExecutionContext *) { return fn(); }),
       0.0, AstStorage{}, symbol_table));
 
   auto planning_time = planning_timer.Elapsed();
@@ -842,7 +843,7 @@ std::shared_ptr<Interpreter::CachedPlan> Interpreter::CypherQueryToPlan(
 
 Interpreter::ParsedQuery Interpreter::ParseQuery(
     const std::string &stripped_query, const std::string &original_query,
-    const ParsingContext &context, AstStorage *ast_storage,
+    const frontend::ParsingContext &context, AstStorage *ast_storage,
     database::GraphDbAccessor *db_accessor) {
   if (!context.is_query_cached) {
     // Parse original query into antlr4 AST.
@@ -915,7 +916,7 @@ Interpreter::StripAndParseQuery(
     parameters->Add(param_pair.first, param_it->second);
   }
 
-  ParsingContext parsing_context;
+  frontend::ParsingContext parsing_context;
   parsing_context.is_query_cached = true;
 
   auto parsed_query = ParseQuery(stripped_query.query(), query_string,

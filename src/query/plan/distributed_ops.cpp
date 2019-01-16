@@ -31,7 +31,8 @@ namespace query::plan {
 
 // Create a vertex on this GraphDb and return it. Defined in operator.cpp
 VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info,
-                                  Frame *frame, const Context &context);
+                                  Frame *frame,
+                                  const ExecutionContext &context);
 
 bool PullRemote::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   auto *distributed_visitor =
@@ -231,9 +232,9 @@ class RemotePuller {
     worker_ids_.erase(std::find(worker_ids_.begin(), worker_ids_.end(), 0));
   }
 
-  void Initialize(Context &context) {
+  void Initialize(ExecutionContext &context) {
     if (!remote_pulls_initialized_) {
-      VLOG(10) << "[RemotePuller] [" << context.db_accessor_.transaction_id()
+      VLOG(10) << "[RemotePuller] [" << context.db_accessor->transaction_id()
                << "] [" << plan_id_ << "] [" << command_id_ << "] initialized";
       for (auto &worker_id : worker_ids_) {
         UpdatePullForWorker(worker_id, context);
@@ -242,12 +243,12 @@ class RemotePuller {
     }
   }
 
-  void Update(Context &context) {
+  void Update(ExecutionContext &context) {
     // If we don't have results for a worker, check if his remote pull
     // finished and save results locally.
 
     auto move_frames = [this, &context](int worker_id, auto remote_results) {
-      VLOG(10) << "[RemotePuller] [" << context.db_accessor_.transaction_id()
+      VLOG(10) << "[RemotePuller] [" << context.db_accessor->transaction_id()
                << "] [" << plan_id_ << "] [" << command_id_
                << "] received results from " << worker_id;
       remote_results_[worker_id] = std::move(remote_results.frames);
@@ -271,7 +272,7 @@ class RemotePuller {
       switch (remote_results.pull_state) {
         case distributed::PullState::CURSOR_EXHAUSTED:
           VLOG(10) << "[RemotePuller] ["
-                   << context.db_accessor_.transaction_id() << "] [" << plan_id_
+                   << context.db_accessor->transaction_id() << "] [" << plan_id_
                    << "] [" << command_id_ << "] cursor exhausted from "
                    << worker_id;
           move_frames(worker_id, remote_results);
@@ -279,7 +280,7 @@ class RemotePuller {
           break;
         case distributed::PullState::CURSOR_IN_PROGRESS:
           VLOG(10) << "[RemotePuller] ["
-                   << context.db_accessor_.transaction_id() << "] [" << plan_id_
+                   << context.db_accessor->transaction_id() << "] [" << plan_id_
                    << "] [" << command_id_ << "] cursor in progress from "
                    << worker_id;
           move_frames(worker_id, remote_results);
@@ -380,10 +381,10 @@ class RemotePuller {
   std::vector<int> worker_ids_;
   bool remote_pulls_initialized_ = false;
 
-  void UpdatePullForWorker(int worker_id, Context &context) {
+  void UpdatePullForWorker(int worker_id, const ExecutionContext &context) {
     remote_pulls_[worker_id] =
         pull_clients_->Pull(&db_, worker_id, plan_id_, command_id_,
-                            context.evaluation_context_, symbols_, false);
+                            context.evaluation_context, symbols_, false);
   }
 };
 
@@ -398,13 +399,13 @@ class PullRemoteCursor : public Cursor {
             &dynamic_cast<database::Master *>(&db.db())->pull_clients(), db,
             self.symbols_, self.plan_id_, command_id_) {}
 
-  bool Pull(Frame &frame, Context &context) override {
-    if (context.db_accessor_.should_abort()) throw HintedAbortError();
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    if (context.db_accessor->should_abort()) throw HintedAbortError();
     remote_puller_.Initialize(context);
 
     bool have_remote_results = false;
     while (!have_remote_results && remote_puller_.WorkerCount() > 0) {
-      if (context.db_accessor_.should_abort()) throw HintedAbortError();
+      if (context.db_accessor->should_abort()) throw HintedAbortError();
       remote_puller_.Update(context);
 
       // Get locally stored results from workers in a round-robin fasion.
@@ -431,14 +432,14 @@ class PullRemoteCursor : public Cursor {
         // local results.
         if (input_cursor_ && input_cursor_->Pull(frame, context)) {
           VLOG(10) << "[PullRemoteCursor] ["
-                   << context.db_accessor_.transaction_id() << "] ["
+                   << context.db_accessor->transaction_id() << "] ["
                    << self_.plan_id_ << "] [" << command_id_
                    << "] producing local results ";
           return true;
         }
 
         VLOG(10) << "[PullRemoteCursor] ["
-                 << context.db_accessor_.transaction_id() << "] ["
+                 << context.db_accessor->transaction_id() << "] ["
                  << self_.plan_id_ << "] [" << command_id_
                  << "] no results available, sleeping ";
         // If there aren't any local/remote results available, sleep.
@@ -451,7 +452,7 @@ class PullRemoteCursor : public Cursor {
     if (!have_remote_results) {
       if (input_cursor_ && input_cursor_->Pull(frame, context)) {
         VLOG(10) << "[PullRemoteCursor] ["
-                 << context.db_accessor_.transaction_id() << "] ["
+                 << context.db_accessor->transaction_id() << "] ["
                  << self_.plan_id_ << "] [" << command_id_
                  << "] producing local results ";
         return true;
@@ -462,7 +463,7 @@ class PullRemoteCursor : public Cursor {
     {
       int worker_id = remote_puller_.GetWorkerId(last_pulled_worker_id_index_);
       VLOG(10) << "[PullRemoteCursor] ["
-               << context.db_accessor_.transaction_id() << "] ["
+               << context.db_accessor->transaction_id() << "] ["
                << self_.plan_id_ << "] [" << command_id_
                << "] producing results from worker " << worker_id;
       auto result = remote_puller_.PopResultFromWorker(worker_id);
@@ -513,7 +514,7 @@ class SynchronizeCursor : public Cursor {
             // TODO: Pass in a Master GraphDb.
             dynamic_cast<database::Master *>(&db.db())->WorkerId()) {}
 
-  bool Pull(Frame &frame, Context &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     if (!initial_pull_done_) {
       InitialPull(frame, context);
       initial_pull_done_ = true;
@@ -521,7 +522,7 @@ class SynchronizeCursor : public Cursor {
     // Yield local stuff while available.
     if (!local_frames_.empty()) {
       VLOG(10) << "[SynchronizeCursor] ["
-               << context.db_accessor_.transaction_id()
+               << context.db_accessor->transaction_id()
                << "] producing local results";
       auto &result = local_frames_.back();
       for (size_t i = 0; i < frame.elems().size(); ++i) {
@@ -537,7 +538,7 @@ class SynchronizeCursor : public Cursor {
     // We're out of local stuff, yield from pull_remote if available.
     if (pull_remote_cursor_ && pull_remote_cursor_->Pull(frame, context)) {
       VLOG(10) << "[SynchronizeCursor] ["
-               << context.db_accessor_.transaction_id()
+               << context.db_accessor->transaction_id()
                << "] producing remote results";
       return true;
     }
@@ -569,8 +570,8 @@ class SynchronizeCursor : public Cursor {
   tx::CommandId command_id_;
   int master_id_;
 
-  void InitialPull(Frame &frame, Context &context) {
-    VLOG(10) << "[SynchronizeCursor] [" << context.db_accessor_.transaction_id()
+  void InitialPull(Frame &frame, ExecutionContext &context) {
+    VLOG(10) << "[SynchronizeCursor] [" << context.db_accessor->transaction_id()
              << "] initial pull";
 
     // Tell all workers to accumulate, only if there is a remote pull.
@@ -579,8 +580,8 @@ class SynchronizeCursor : public Cursor {
       for (auto worker_id : pull_clients_->GetWorkerIds()) {
         if (worker_id == master_id_) continue;
         worker_accumulations.emplace_back(pull_clients_->Pull(
-            &context.db_accessor_, worker_id, self_.pull_remote_->plan_id_,
-            command_id_, context.evaluation_context_,
+            context.db_accessor, worker_id, self_.pull_remote_->plan_id_,
+            command_id_, context.evaluation_context,
             self_.pull_remote_->symbols_, true, 0));
       }
     }
@@ -627,11 +628,11 @@ class SynchronizeCursor : public Cursor {
     }
 
     if (self_.advance_command_) {
-      context.db_accessor_.AdvanceCommand();
+      context.db_accessor->AdvanceCommand();
     }
 
     // Make all the workers apply their deltas.
-    auto tx_id = context.db_accessor_.transaction_id();
+    auto tx_id = context.db_accessor->transaction_id();
     auto apply_futures = updates_clients_->UpdateApplyAll(master_id_, tx_id);
     updates_server_->Apply(tx_id);
     for (auto &future : apply_futures) {
@@ -672,11 +673,11 @@ class PullRemoteOrderByCursor : public Cursor {
             &dynamic_cast<database::Master *>(&db.db())->pull_clients(), db,
             self.symbols_, self.plan_id_, command_id_) {}
 
-  bool Pull(Frame &frame, Context &context) override {
-    if (context.db_accessor_.should_abort()) throw HintedAbortError();
-    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                  context.evaluation_context_,
-                                  &context.db_accessor_, GraphView::OLD);
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    if (context.db_accessor->should_abort()) throw HintedAbortError();
+    ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor, GraphView::OLD);
 
     auto evaluate_result = [this, &evaluator]() {
       std::vector<TypedValue> order_by;
@@ -696,7 +697,7 @@ class PullRemoteOrderByCursor : public Cursor {
 
     if (!merge_initialized_) {
       VLOG(10) << "[PullRemoteOrderBy] ["
-               << context.db_accessor_.transaction_id() << "] ["
+               << context.db_accessor->transaction_id() << "] ["
                << self_.plan_id_ << "] [" << command_id_ << "] initialize";
       remote_puller_.Initialize(context);
       missing_results_from_ = remote_puller_.Workers();
@@ -719,7 +720,7 @@ class PullRemoteOrderByCursor : public Cursor {
     }
 
     while (!missing_results_from_.empty()) {
-      if (context.db_accessor_.should_abort()) throw HintedAbortError();
+      if (context.db_accessor->should_abort()) throw HintedAbortError();
       remote_puller_.Update(context);
 
       bool has_all_result = true;
@@ -733,7 +734,7 @@ class PullRemoteOrderByCursor : public Cursor {
 
       if (!has_all_result) {
         VLOG(10) << "[PullRemoteOrderByCursor] ["
-                 << context.db_accessor_.transaction_id() << "] ["
+                 << context.db_accessor->transaction_id() << "] ["
                  << self_.plan_id_ << "] [" << command_id_
                  << "] missing results, sleep";
         // If we don't have results from all workers, sleep before continuing.
@@ -766,14 +767,14 @@ class PullRemoteOrderByCursor : public Cursor {
 
     if (result_it->worker_id) {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
-               << context.db_accessor_.transaction_id() << "] ["
+               << context.db_accessor->transaction_id() << "] ["
                << self_.plan_id_ << "] [" << command_id_
                << "] producing results from worker "
                << result_it->worker_id.value();
       missing_results_from_.push_back(result_it->worker_id.value());
     } else {
       VLOG(10) << "[PullRemoteOrderByCursor] ["
-               << context.db_accessor_.transaction_id() << "] ["
+               << context.db_accessor->transaction_id() << "] ["
                << self_.plan_id_ << "] [" << command_id_
                << "] producing local results";
       missing_master_result_ = true;
@@ -820,7 +821,7 @@ class DistributedExpandCursor : public query::plan::Cursor {
                           database::GraphDbAccessor *db)
       : input_cursor_(self->input()->MakeCursor(*db)), self_(self) {}
 
-  bool Pull(Frame &frame, Context &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     // A helper function for expanding a node from an edge.
     auto pull_node = [this, &frame](const EdgeAccessor &new_edge,
                                     EdgeAtom::Direction direction) {
@@ -863,7 +864,7 @@ class DistributedExpandCursor : public query::plan::Cursor {
     };
 
     while (true) {
-      if (context.db_accessor_.should_abort()) throw HintedAbortError();
+      if (context.db_accessor->should_abort()) throw HintedAbortError();
       // Try to get any remote edges we may have available first. If we yielded
       // all of the local edges first, we may accumulate large amounts of future
       // edges.
@@ -966,7 +967,7 @@ class DistributedExpandCursor : public query::plan::Cursor {
     last_frame_.clear();
   }
 
-  bool InitEdges(Frame &frame, Context &context) {
+  bool InitEdges(Frame &frame, ExecutionContext &context) {
     // Input Vertex could be null if it is created by a failed optional match.
     // In those cases we skip that input pull and continue with the next.
     while (true) {
@@ -1079,20 +1080,20 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     pull_pos_ = subcursor_ids_.end();
   }
 
-  bool Pull(Frame &frame, Context &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     if (!subcursors_initialized_) {
-      InitSubcursors(&context.db_accessor_, context.symbol_table_,
-                     context.evaluation_context_);
+      InitSubcursors(context.db_accessor, context.symbol_table,
+                     context.evaluation_context);
       subcursors_initialized_ = true;
     }
 
     // Evaluator for the filtering condition and expansion depth.
     ExpressionEvaluator evaluator(
-        &frame, context.symbol_table_, context.evaluation_context_,
-        &context.db_accessor_, self_.common_.graph_view);
+        &frame, context.symbol_table, context.evaluation_context,
+        context.db_accessor, self_.common_.graph_view);
 
     while (true) {
-      if (context.db_accessor_.should_abort()) throw HintedAbortError();
+      if (context.db_accessor->should_abort()) throw HintedAbortError();
       TypedValue last_vertex;
 
       if (!skip_rest_) {
@@ -1254,8 +1255,8 @@ int RandomWorkerId(const database::DistributedGraphDb &db) {
 // Creates a vertex on the GraphDb with the given worker_id. Can be this worker.
 VertexAccessor &CreateVertexOnWorker(int worker_id,
                                      const NodeCreationInfo &node_info,
-                                     Frame &frame, Context &context) {
-  auto &dba = context.db_accessor_;
+                                     Frame &frame, ExecutionContext &context) {
+  auto &dba = *context.db_accessor;
 
   auto *distributed_db =
       dynamic_cast<database::DistributedGraphDb *>(&dba.db());
@@ -1268,9 +1269,9 @@ VertexAccessor &CreateVertexOnWorker(int worker_id,
 
   // Evaluator should use the latest accessors, as modified in this query, when
   // setting properties on new nodes.
-  ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                context.evaluation_context_,
-                                &context.db_accessor_, GraphView::NEW);
+  ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                context.evaluation_context, context.db_accessor,
+                                GraphView::NEW);
   for (auto &kv : node_info.properties) {
     auto value = kv.second->Accept(evaluator);
     if (!value.IsPropertyValue()) {
@@ -1299,7 +1300,7 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
     CHECK(db_);
   }
 
-  bool Pull(Frame &frame, Context &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     if (input_cursor_->Pull(frame, context)) {
       if (on_random_worker_) {
         CreateVertexOnWorker(RandomWorkerId(*db_), node_info_, frame, context);
@@ -1333,7 +1334,7 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
     CHECK(db_);
   }
 
-  bool Pull(Frame &frame, Context &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     if (!input_cursor_->Pull(frame, context)) return false;
 
     // get the origin vertex
@@ -1343,9 +1344,9 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
 
     // Similarly to CreateNode, newly created edges and nodes should use the
     // latest accesors.
-    ExpressionEvaluator evaluator(&frame, context.symbol_table_,
-                                  context.evaluation_context_,
-                                  &context.db_accessor_, GraphView::NEW);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor, GraphView::NEW);
     // E.g. we pickup new properties: `CREATE (n {p: 42}) -[:r {ep: n.p}]-> ()`
     v1.SwitchNew();
 
@@ -1353,21 +1354,21 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
     auto &v2 = OtherVertex(v1.GlobalAddress().worker_id(), frame, context);
     v2.SwitchNew();
 
-    auto *dba = &context.db_accessor_;
+    auto *dba = context.db_accessor;
     // create an edge between the two nodes
     switch (self_->edge_info_.direction) {
       case EdgeAtom::Direction::IN:
-        CreateEdge(&v2, &v1, &frame, context.symbol_table_, &evaluator, dba);
+        CreateEdge(&v2, &v1, &frame, context.symbol_table, &evaluator, dba);
         break;
       case EdgeAtom::Direction::OUT:
-        CreateEdge(&v1, &v2, &frame, context.symbol_table_, &evaluator, dba);
+        CreateEdge(&v1, &v2, &frame, context.symbol_table, &evaluator, dba);
         break;
       case EdgeAtom::Direction::BOTH:
         // in the case of an undirected CreateExpand we choose an arbitrary
         // direction. this is used in the MERGE clause
         // it is not allowed in the CREATE clause, and the semantic
         // checker needs to ensure it doesn't reach this point
-        CreateEdge(&v1, &v2, &frame, context.symbol_table_, &evaluator, dba);
+        CreateEdge(&v1, &v2, &frame, context.symbol_table, &evaluator, dba);
     }
 
     return true;
@@ -1377,7 +1378,8 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
 
   void Reset() override { input_cursor_->Reset(); }
 
-  VertexAccessor &OtherVertex(int worker_id, Frame &frame, Context &context) {
+  VertexAccessor &OtherVertex(int worker_id, Frame &frame,
+                              ExecutionContext &context) {
     if (self_->existing_node_) {
       const auto &dest_node_symbol = self_->node_info_.symbol;
       TypedValue &dest_node_value = frame[dest_node_symbol];

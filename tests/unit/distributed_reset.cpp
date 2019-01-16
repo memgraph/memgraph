@@ -19,7 +19,7 @@ TEST_F(DistributedReset, ResetTest) {
   master().plan_dispatcher().DispatchPlan(42, once, symbol_table);
   auto dba = master().Access();
   query::Frame frame(0);
-  query::Context context(*dba);
+  query::ExecutionContext context{dba.get()};
   auto pull_remote_cursor = pull_remote->MakeCursor(*dba);
 
   for (int i = 0; i < 3; ++i) {

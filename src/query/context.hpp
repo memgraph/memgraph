@@ -38,29 +38,13 @@ inline std::vector<storage::Label> NamesToLabels(
   return labels;
 }
 
-class Context {
- public:
-  Context(const Context &) = delete;
-  Context &operator=(const Context &) = delete;
-  Context(Context &&) = default;
-  Context &operator=(Context &&) = default;
-
-  explicit Context(database::GraphDbAccessor &db_accessor)
-      : db_accessor_(db_accessor) {}
-
-  database::GraphDbAccessor &db_accessor_;
-  SymbolTable symbol_table_;
-  EvaluationContext evaluation_context_;
-  bool is_profile_query_{false};
-  plan::ProfilingStats stats_;
-  plan::ProfilingStats *stats_root_{nullptr};
-};
-
-// TODO: Move this to somewhere in query/frontend. Currently, frontend includes
-// this and therefore implicitly includes the whole database because of the
-// includes at the top of this file.
-struct ParsingContext {
-  bool is_query_cached = false;
+struct ExecutionContext {
+  database::GraphDbAccessor *db_accessor{nullptr};
+  SymbolTable symbol_table;
+  EvaluationContext evaluation_context;
+  bool is_profile_query{false};
+  plan::ProfilingStats stats;
+  plan::ProfilingStats *stats_root{nullptr};
 };
 
 }  // namespace query

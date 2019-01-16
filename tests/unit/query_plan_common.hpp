@@ -17,20 +17,21 @@ using namespace query::plan;
 
 using Bound = ScanAllByLabelPropertyRange::Bound;
 
-Context MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
-                    database::GraphDbAccessor *dba) {
-  Context context(*dba);
-  context.symbol_table_ = symbol_table;
-  context.evaluation_context_.properties =
+ExecutionContext MakeContext(const AstStorage &storage,
+                             const SymbolTable &symbol_table,
+                             database::GraphDbAccessor *dba) {
+  ExecutionContext context{dba};
+  context.symbol_table = symbol_table;
+  context.evaluation_context.properties =
       NamesToProperties(storage.properties_, dba);
-  context.evaluation_context_.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
   return context;
 }
 
 /** Helper function that collects all the results from the given Produce. */
 std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
-                                                    Context *context) {
-  Frame frame(context->symbol_table_.max_position());
+                                                    ExecutionContext *context) {
+  Frame frame(context->symbol_table.max_position());
 
   // top level node in the operator tree is a produce (return)
   // so stream out results
@@ -38,10 +39,10 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
   // collect the symbols from the return clause
   std::vector<Symbol> symbols;
   for (auto named_expression : produce.named_expressions_)
-    symbols.emplace_back(context->symbol_table_[*named_expression]);
+    symbols.emplace_back(context->symbol_table[*named_expression]);
 
   // stream out results
-  auto cursor = produce.MakeCursor(context->db_accessor_);
+  auto cursor = produce.MakeCursor(*context->db_accessor);
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
@@ -52,9 +53,9 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
   return results;
 }
 
-int PullAll(const LogicalOperator &logical_op, Context *context) {
-  Frame frame(context->symbol_table_.max_position());
-  auto cursor = logical_op.MakeCursor(context->db_accessor_);
+int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
+  Frame frame(context->symbol_table.max_position());
+  auto cursor = logical_op.MakeCursor(*context->db_accessor);
   int count = 0;
   while (cursor->Pull(frame, *context)) count++;
   return count;
