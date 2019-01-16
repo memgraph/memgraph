@@ -1,5 +1,7 @@
 #include "query/frontend/ast/pretty_print.hpp"
 
+#include <type_traits>
+
 #include "query/frontend/ast/ast.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
@@ -10,8 +12,7 @@ namespace {
 
 class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
  public:
-  ExpressionPrettyPrinter(const AstStorage *storage, std::ostream *out)
-      : storage_(storage), out_(out) {}
+  explicit ExpressionPrettyPrinter(std::ostream *out);
 
   // Unary operators
   void Visit(NotOperator &op) override;
@@ -57,78 +58,65 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(NamedExpression &op) override;
 
  private:
-  const AstStorage *storage_;
   std::ostream *out_;
-
-  // Declare all of the different `PrintObject` overloads upfront since they're
-  // mutually recursive. Without this, overload resolution depends on the
-  // ordering of the overloads within the source, which is quite fragile.
-
-  template <typename T>
-  void PrintObject(std::ostream *out, const T &arg);
-
-  void PrintObject(std::ostream *out, const std::string &str);
-
-  void PrintObject(std::ostream *out, Aggregation::Op op);
-
-  void PrintObject(std::ostream *out, Expression *expr);
-
-  void PrintObject(std::ostream *out, const PropertyValue &value);
-
-  template <typename T>
-  void PrintObject(std::ostream *out, const std::vector<T> &vec);
-
-  template <typename K, typename V>
-  void PrintObject(std::ostream *out, const std::map<K, V> &map);
-
-  template <typename T>
-  void PrintOperatorArgs(std::ostream *out, const T &arg) {
-    *out << " ";
-    PrintObject(out, arg);
-    *out << ")";
-  }
-
-  template <typename T, typename... Ts>
-  void PrintOperatorArgs(std::ostream *out, const T &arg, const Ts &... args) {
-    *out << " ";
-    PrintObject(out, arg);
-    PrintOperatorArgs(out, args...);
-  }
-
-  template <typename... Ts>
-  void PrintOperator(std::ostream *out, const std::string &name,
-                     const Ts &... args) {
-    *out << "(" << name;
-    PrintOperatorArgs(out, args...);
-  }
 };
 
+// Declare all of the different `PrintObject` overloads upfront since they're
+// mutually recursive. Without this, overload resolution depends on the ordering
+// of the overloads within the source, which is quite fragile.
+
 template <typename T>
-void ExpressionPrettyPrinter::PrintObject(std::ostream *out, const T &arg) {
+void PrintObject(std::ostream *out, const T &arg);
+
+void PrintObject(std::ostream *out, const std::string &str);
+
+void PrintObject(std::ostream *out, Aggregation::Op op);
+
+void PrintObject(std::ostream *out, Expression *expr);
+
+void PrintObject(std::ostream *out, Identifier *expr);
+
+void PrintObject(std::ostream *out, const PropertyValue &value);
+
+template <typename T>
+void PrintObject(std::ostream *out, const std::vector<T> &vec);
+
+template <typename K, typename V>
+void PrintObject(std::ostream *out, const std::map<K, V> &map);
+
+template <typename T>
+void PrintObject(std::ostream *out, const T &arg) {
+  static_assert(
+      !std::is_convertible<T, Expression *>::value,
+      "This overload shouldn't be called with pointers convertible "
+      "to Expression *. This means your other PrintObject overloads aren't "
+      "being called for certain AST nodes when they should (or perhaps such "
+      "overloads don't exist yet).");
   *out << arg;
 }
 
-void ExpressionPrettyPrinter::PrintObject(std::ostream *out,
-                                          const std::string &str) {
+void PrintObject(std::ostream *out, const std::string &str) {
   *out << utils::Escape(str);
 }
 
-void ExpressionPrettyPrinter::PrintObject(std::ostream *out,
-                                          Aggregation::Op op) {
+void PrintObject(std::ostream *out, Aggregation::Op op) {
   *out << Aggregation::OpToString(op);
 }
 
-void ExpressionPrettyPrinter::PrintObject(std::ostream *out, Expression *expr) {
+void PrintObject(std::ostream *out, Expression *expr) {
   if (expr) {
-    ExpressionPrettyPrinter printer{storage_, out};
+    ExpressionPrettyPrinter printer{out};
     expr->Accept(printer);
   } else {
     *out << "<null>";
   }
 }
 
-void ExpressionPrettyPrinter::PrintObject(std::ostream *out,
-                                          const PropertyValue &value) {
+void PrintObject(std::ostream *out, Identifier *expr) {
+  PrintObject(out, static_cast<Expression *>(expr));
+}
+
+void PrintObject(std::ostream *out, const PropertyValue &value) {
   switch (value.type()) {
     case PropertyValue::Type::Null:
       *out << "null";
@@ -161,26 +149,48 @@ void ExpressionPrettyPrinter::PrintObject(std::ostream *out,
 }
 
 template <typename T>
-void ExpressionPrettyPrinter::PrintObject(std::ostream *out,
-                                          const std::vector<T> &vec) {
+void PrintObject(std::ostream *out, const std::vector<T> &vec) {
   *out << "[";
-  utils::PrintIterable(*out, vec, ", ", [this](auto &stream, const auto &item) {
-    this->PrintObject(&stream, item);
+  utils::PrintIterable(*out, vec, ", ", [](auto &stream, const auto &item) {
+    PrintObject(&stream, item);
   });
   *out << "]";
 }
 
 template <typename K, typename V>
-void ExpressionPrettyPrinter::PrintObject(std::ostream *out,
-                                          const std::map<K, V> &map) {
+void PrintObject(std::ostream *out, const std::map<K, V> &map) {
   *out << "{";
-  utils::PrintIterable(*out, map, ", ", [this](auto &stream, const auto &item) {
-    this->PrintObject(&stream, item.first);
+  utils::PrintIterable(*out, map, ", ", [](auto &stream, const auto &item) {
+    PrintObject(&stream, item.first);
     stream << ": ";
-    this->PrintObject(&stream, item.second);
+    PrintObject(&stream, item.second);
   });
   *out << "}";
 }
+
+template <typename T>
+void PrintOperatorArgs(std::ostream *out, const T &arg) {
+  *out << " ";
+  PrintObject(out, arg);
+  *out << ")";
+}
+
+template <typename T, typename... Ts>
+void PrintOperatorArgs(std::ostream *out, const T &arg, const Ts &... args) {
+  *out << " ";
+  PrintObject(out, arg);
+  PrintOperatorArgs(out, args...);
+}
+
+template <typename... Ts>
+void PrintOperator(std::ostream *out, const std::string &name,
+                   const Ts &... args) {
+  *out << "(" << name;
+  PrintOperatorArgs(out, args...);
+}
+
+ExpressionPrettyPrinter::ExpressionPrettyPrinter(std::ostream *out)
+    : out_(out) {}
 
 #define UNARY_OPERATOR_VISIT(OP_NODE, OP_STR)        \
   void ExpressionPrettyPrinter::Visit(OP_NODE &op) { \
@@ -235,7 +245,7 @@ void ExpressionPrettyPrinter::Visit(ListLiteral &op) {
 void ExpressionPrettyPrinter::Visit(MapLiteral &op) {
   std::map<std::string, Expression *> map;
   for (const auto &kv : op.elements_) {
-    map[storage_->properties_[kv.first.ix]] = kv.second;
+    map[kv.first.name] = kv.second;
   }
   PrintObject(out_, map);
 }
@@ -284,8 +294,7 @@ void ExpressionPrettyPrinter::Visit(PrimitiveLiteral &op) {
 }
 
 void ExpressionPrettyPrinter::Visit(PropertyLookup &op) {
-  const auto &prop_name = storage_->properties_[op.property_.ix];
-  PrintOperator(out_, "PropertyLookup", op.expression_, prop_name);
+  PrintOperator(out_, "PropertyLookup", op.expression_, op.property_.name);
 }
 
 void ExpressionPrettyPrinter::Visit(ParameterLookup &op) {
@@ -298,15 +307,13 @@ void ExpressionPrettyPrinter::Visit(NamedExpression &op) {
 
 }  // namespace
 
-void PrintExpression(const AstStorage &storage, Expression *expr,
-                     std::ostream *out) {
-  ExpressionPrettyPrinter printer{&storage, out};
+void PrintExpression(Expression *expr, std::ostream *out) {
+  ExpressionPrettyPrinter printer{out};
   expr->Accept(printer);
 }
 
-void PrintExpression(const AstStorage &storage, NamedExpression *expr,
-                     std::ostream *out) {
-  ExpressionPrettyPrinter printer{&storage, out};
+void PrintExpression(NamedExpression *expr, std::ostream *out) {
+  ExpressionPrettyPrinter printer{out};
   expr->Accept(printer);
 }
 

@@ -57,15 +57,15 @@ auto ToMap(const TypedValue &t) {
   return map;
 };
 
-std::string ToString(const AstStorage &storage, Expression *expr) {
+std::string ToString(Expression *expr) {
   std::ostringstream ss;
-  PrintExpression(storage, expr, &ss);
+  PrintExpression(expr, &ss);
   return ss.str();
 }
 
-std::string ToString(const AstStorage &storage, NamedExpression *expr) {
+std::string ToString(NamedExpression *expr) {
   std::ostringstream ss;
-  PrintExpression(storage, expr, &ss);
+  PrintExpression(expr, &ss);
   return ss.str();
 }
 
