@@ -41,6 +41,7 @@ do
     --coordination_config_file="coordination.json" \
     --raft_config_file="raft.json" \
     --port $((7686 + $server_id)) \
+    --db-recover-on-startup=false \
     --durability_directory=dur$server_id &
   HA_PIDS[$server_id]=$!
   wait_for_server $((7686 + $server_id))

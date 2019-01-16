@@ -2,5 +2,5 @@
   "election_timeout_min": 350,
   "election_timeout_max": 700,
   "heartbeat_interval": 100,
-  "replicate_timeout": 100
+  "log_size_snapshot_threshold": 100000
 }

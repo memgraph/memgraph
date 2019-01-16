@@ -44,9 +44,6 @@ struct Config {
   // Durability flags.
   std::string durability_directory;
   bool db_recover_on_startup;
-  int snapshot_cycle_sec;
-  int snapshot_max_retained;
-  int snapshot_on_exit;
 
   // Misc flags.
   int gc_cycle_sec;
@@ -118,9 +115,6 @@ class GraphDb {
   database::Counters &counters();
   void CollectGarbage();
 
-  /// Makes a snapshot from the visibility of the given accessor
-  bool MakeSnapshot(GraphDbAccessor &accessor);
-
   /// Releases the storage object safely and creates a new object, resets the tx
   /// engine.
   ///
@@ -149,15 +143,11 @@ class GraphDb {
     }
   }
 
- private:
-  void NoOpCreate(void);
-
  protected:
   Stat stat_;
 
   std::atomic<bool> is_accepting_transactions_{true};
 
-  std::unique_ptr<utils::Scheduler> snapshot_creator_;
   utils::Scheduler transaction_killer_;
 
   Config config_;
@@ -171,12 +161,12 @@ class GraphDb {
   raft::RaftServer raft_server_{
       config_.server_id,
       config_.durability_directory,
+      config_.db_recover_on_startup,
       raft::Config::LoadFromFile(config_.raft_config_file),
       &coordination_,
       &delta_applier_,
-      [this]() { this->Reset(); },
-      [this]() { this->NoOpCreate(); },
-  };
+      this};
+
   tx::Engine tx_engine_{&raft_server_};
   std::unique_ptr<StorageGc> storage_gc_ = std::make_unique<StorageGc>(
       *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);

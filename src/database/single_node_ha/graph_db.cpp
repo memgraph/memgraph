@@ -6,12 +6,9 @@
 
 #include "database/single_node_ha/counters.hpp"
 #include "database/single_node_ha/graph_db_accessor.hpp"
-#include "durability/single_node_ha/paths.hpp"
-#include "durability/single_node_ha/snapshooter.hpp"
 #include "storage/single_node_ha/concurrent_id_mapper.hpp"
 #include "storage/single_node_ha/storage_gc.hpp"
 #include "transactions/single_node_ha/engine.hpp"
-#include "utils/file.hpp"
 
 namespace database {
 
@@ -45,17 +42,11 @@ GraphDb::~GraphDb() {}
 bool GraphDb::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
   bool ret =
       coordination_.AwaitShutdown([this, &call_before_shutdown]() -> bool {
-        snapshot_creator_ = nullptr;
         is_accepting_transactions_ = false;
         tx_engine_.LocalForEachActiveTransaction(
             [](auto &t) { t.set_should_abort(); });
 
         call_before_shutdown();
-
-        if (config_.snapshot_on_exit) {
-          auto dba = this->Access();
-          MakeSnapshot(*dba);
-        }
 
         return true;
       });
@@ -108,18 +99,6 @@ database::Counters &GraphDb::counters() { return counters_; }
 
 void GraphDb::CollectGarbage() { storage_gc_->CollectGarbage(); }
 
-bool GraphDb::MakeSnapshot(GraphDbAccessor &accessor) {
-  const bool status = durability::MakeSnapshot(
-      *this, accessor, fs::path(config_.durability_directory),
-      config_.snapshot_max_retained);
-  if (status) {
-    LOG(INFO) << "Snapshot created successfully.";
-  } else {
-    LOG(ERROR) << "Snapshot creation failed!";
-  }
-  return status;
-}
-
 void GraphDb::Reset() {
   // Release gc scheduler to stop it from touching storage.
   storage_gc_ = nullptr;
@@ -131,12 +110,6 @@ void GraphDb::Reset() {
 
   storage_gc_ = std::make_unique<StorageGc>(
       *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);
-}
-
-void GraphDb::NoOpCreate(void) {
-  auto dba = this->Access();
-  raft()->Emplace(database::StateDelta::NoOp(dba->transaction_id()));
-  dba->Commit();
 }
 
 }  // namespace database

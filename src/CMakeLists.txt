@@ -257,6 +257,7 @@ set(mg_single_node_ha_sources
     durability/single_node_ha/state_delta.cpp
     durability/single_node_ha/paths.cpp
     durability/single_node_ha/snapshooter.cpp
+    durability/single_node_ha/recovery.cpp
     glue/auth.cpp
     glue/communication.cpp
     raft/coordination.cpp

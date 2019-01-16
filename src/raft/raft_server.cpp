@@ -1,44 +1,70 @@
 #include "raft/raft_server.hpp"
 
 #include <kj/std/iostream.h>
+#include <chrono>
 #include <experimental/filesystem>
 #include <memory>
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <glog/logging.h>
 
+#include "database/graph_db_accessor.hpp"
+#include "durability/single_node_ha/recovery.hpp"
+#include "durability/single_node_ha/snapshooter.hpp"
 #include "raft/exceptions.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/serialization.hpp"
+#include "utils/string.hpp"
+#include "utils/thread.hpp"
 
 namespace raft {
 
+using namespace std::literals::chrono_literals;
 namespace fs = std::experimental::filesystem;
 
 const std::string kCurrentTermKey = "current_term";
 const std::string kVotedForKey = "voted_for";
 const std::string kLogSizeKey = "log_size";
 const std::string kLogEntryPrefix = "log_entry_";
+const std::string kSnapshotMetadataKey = "snapshot_metadata";
 const std::string kRaftDir = "raft";
+const std::chrono::duration<int64_t> kSnapshotPeriod = 1s;
 
 RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
-                       const Config &config, Coordination *coordination,
+                       bool db_recover_on_startup, const Config &config,
+                       Coordination *coordination,
                        database::StateDeltaApplier *delta_applier,
-                       std::function<void(void)> reset_callback,
-                       std::function<void(void)> no_op_create_callback)
+                       database::GraphDb *db)
     : config_(config),
       coordination_(coordination),
       delta_applier_(delta_applier),
+      db_(db),
       rlog_(std::make_unique<ReplicationLog>()),
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
+      durability_dir_(durability_dir),
+      db_recover_on_startup_(db_recover_on_startup),
       commit_index_(0),
       last_applied_(0),
-      disk_storage_(fs::path(durability_dir) / kRaftDir),
-      reset_callback_(reset_callback),
-      no_op_create_callback_(no_op_create_callback) {}
+      disk_storage_(fs::path(durability_dir) / kRaftDir) {}
 
 void RaftServer::Start() {
+  if (db_recover_on_startup_) {
+    auto snapshot_metadata = GetSnapshotMetadata();
+    if (snapshot_metadata) {
+      RecoverSnapshot();
+
+      last_applied_ = snapshot_metadata->second;
+      commit_index_ = snapshot_metadata->second;
+    }
+  } else {
+    // We need to clear persisted data if we don't want any recovery.
+    disk_storage_.DeletePrefix("");
+    durability::RemoveAllSnapshots(durability_dir_);
+  }
+
   // Persistent storage initialization
   if (LogSize() == 0) {
     UpdateTerm(0);
@@ -102,8 +128,8 @@ void RaftServer::Start() {
     Load(&req, req_reader);
 
     // [Raft paper 5.1]
-    // "If a server recieves a request with a stale term,
-    // it rejects the request"
+    // "If a server receives a request with a stale term, it rejects the
+    // request"
     uint64_t current_term = CurrentTerm();
     if (req.term < current_term) {
       AppendEntriesRes res(false, current_term);
@@ -111,40 +137,16 @@ void RaftServer::Start() {
       return;
     }
 
-    // [Raft paper figure 2]
-    // If RPC request or response contains term T > currentTerm,
-    // set currentTerm = T and convert to follower.
-    if (req.term > current_term) {
-      UpdateTerm(req.term);
-      if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
-    }
-
-    // [Raft thesis 3.4]
-    // A server remains in follower state as long as it receives valid RPCs from
-    // a leader or candidate.
-    SetNextElectionTimePoint();
-    election_change_.notify_all();
-
-    // [Raft paper 5.3]
-    // "Once a follower learns that a log entry is committed, it applies
-    // the entry to its state machine (in log order)
-    while (req.leader_commit > last_applied_ && last_applied_ + 1 < LogSize()) {
-      ++last_applied_;
-      delta_applier_->Apply(GetLogEntry(last_applied_).deltas);
-    }
-
-    // respond positively to a heartbeat.
-    if (req.entries.empty()) {
-      AppendEntriesRes res(true, current_term);
-      Save(res, res_builder);
-      if (mode_ != Mode::FOLLOWER) {
-        Transition(Mode::FOLLOWER);
-      } else {
-        SetNextElectionTimePoint();
-        election_change_.notify_all();
-      }
-      return;
-    }
+    // Everything below is considered to be a valid RPC. This will ensure that
+    // after we finish processing the current request, the election timeout will
+    // be extended.
+    utils::OnScopeExit extend_election_timeout([this] {
+      // [Raft thesis 3.4]
+      // A server remains in follower state as long as it receives valid RPCs
+      // from a leader or candidate.
+      SetNextElectionTimePoint();
+      election_change_.notify_all();
+    });
 
     // [Raft paper 5.3]
     // "If a follower's log is inconsistent with the leader's, the
@@ -162,7 +164,32 @@ void RaftServer::Start() {
       return;
     }
 
+    // [Raft paper figure 2]
+    // If RPC request or response contains term T > currentTerm,
+    // set currentTerm = T and convert to follower.
+    if (req.term > current_term) {
+      UpdateTerm(req.term);
+      if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
+    }
+
     AppendLogEntries(req.leader_commit, req.prev_log_index + 1, req.entries);
+
+    // [Raft paper 5.3]
+    // "Once a follower learns that a log entry is committed, it applies
+    // the entry to its state machine (in log order)
+    while (req.leader_commit > last_applied_ && last_applied_ + 1 < LogSize()) {
+      ++last_applied_;
+      delta_applier_->Apply(GetLogEntry(last_applied_).deltas);
+    }
+
+    // Respond positively to a heartbeat.
+    if (req.entries.empty()) {
+      AppendEntriesRes res(true, current_term);
+      Save(res, res_builder);
+      if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
+      return;
+    }
+
     AppendEntriesRes res(true, current_term);
     Save(res, res_builder);
   });
@@ -178,6 +205,8 @@ void RaftServer::Start() {
   }
 
   no_op_issuer_thread_ = std::thread(&RaftServer::NoOpIssuerThreadMain, this);
+
+  snapshot_thread_ = std::thread(&RaftServer::SnapshotThread, this);
 }
 
 void RaftServer::Shutdown() {
@@ -196,6 +225,7 @@ void RaftServer::Shutdown() {
 
   if (election_thread_.joinable()) election_thread_.join();
   if (no_op_issuer_thread_.joinable()) no_op_issuer_thread_.join();
+  if (snapshot_thread_.joinable()) snapshot_thread_.join();
 }
 
 uint64_t RaftServer::CurrentTerm() {
@@ -219,6 +249,29 @@ uint64_t RaftServer::LogSize() {
     return 0;
   }
   return std::stoull(opt_value.value());
+}
+
+std::experimental::optional<std::pair<uint64_t, uint64_t>>
+RaftServer::GetSnapshotMetadata() {
+  auto opt_value = disk_storage_.Get(kSnapshotMetadataKey);
+  if (opt_value == std::experimental::nullopt) {
+    return std::experimental::nullopt;
+  }
+
+  auto value = utils::Split(opt_value.value(), " ");
+  if (value.size() != 2) {
+    LOG(WARNING) << "Malformed snapshot metdata";
+    return std::experimental::nullopt;
+  }
+  return std::make_pair(std::stoull(value[0]), std::stoull(value[1]));
+}
+
+void RaftServer::PersistSnapshotMetadata(uint64_t last_included_term,
+                                         uint64_t last_included_index) {
+  auto value = utils::Join(
+      {std::to_string(last_included_term), std::to_string(last_included_index)},
+      " ");
+  disk_storage_.Put(kSnapshotMetadataKey, value);
 }
 
 void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
@@ -306,7 +359,7 @@ void RaftServer::LogEntryBuffer::Disable() {
 }
 
 void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
-  std::lock_guard<std::mutex> guard(buffer_lock_);
+  std::unique_lock<std::mutex> lock(buffer_lock_);
   if (!enabled_) return;
 
   tx::TransactionId tx_id = delta.transaction_id;
@@ -317,7 +370,10 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
     std::vector<database::StateDelta> log(std::move(it->second));
     log.emplace_back(std::move(delta));
     logs_.erase(it);
+
+    lock.unlock();
     raft_server_->AppendToLog(tx_id, log);
+
   } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
     auto it = logs_.find(tx_id);
     CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
@@ -338,16 +394,21 @@ void RaftServer::Transition(const Mode &new_mode) {
       log_entry_buffer_.Disable();
 
       if (reset) {
-        VLOG(40) << "Reseting internal state";
-        // Temporaray freeze election timer while we do the reset.
+        VLOG(40) << "Resetting internal state";
+        // Temporary freeze election timer while we do the reset.
         next_election_ = TimePoint::max();
 
-        reset_callback_();
+        db_->Reset();
         ResetReplicationLog();
 
         // Re-apply raft log.
-        // TODO(msantl): Implement snapshot recovery also!
-        for (int i = 1; i <= commit_index_; ++i)
+        auto snapshot_metadata = GetSnapshotMetadata();
+        uint64_t starting_index = 1;
+        if (snapshot_metadata) {
+          RecoverSnapshot();
+          starting_index = snapshot_metadata->second + 1;
+        }
+        for (uint64_t i = starting_index; i <= commit_index_; ++i)
           delta_applier_->Apply(GetLogEntry(i).deltas);
         last_applied_ = commit_index_;
       }
@@ -569,6 +630,7 @@ void RaftServer::ElectionThreadMain() {
 }
 
 void RaftServer::PeerThreadMain(uint16_t peer_id) {
+  utils::ThreadSetName(fmt::format("RaftPeer{}", peer_id));
   std::unique_lock<std::mutex> lock(lock_);
 
   /* This loop will either call a function that issues an RPC or wait on the
@@ -667,6 +729,7 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
 }
 
 void RaftServer::NoOpIssuerThreadMain() {
+  utils::ThreadSetName(fmt::format("NoOpIssuer"));
   std::mutex m;
   auto lock = std::unique_lock<std::mutex>(m);
   while (!exiting_) {
@@ -674,7 +737,58 @@ void RaftServer::NoOpIssuerThreadMain() {
     // no_op_create_callback_ will create a new transaction that has a NO_OP
     // StateDelta. This will trigger the whole procedure of replicating logs
     // in our implementation of Raft.
-    if (!exiting_) no_op_create_callback_();
+    if (!exiting_) NoOpCreate();
+  }
+}
+
+void RaftServer::SnapshotThread() {
+  utils::ThreadSetName(fmt::format("RaftSnapshot"));
+  while (!exiting_) {
+    {
+      std::unique_lock<std::mutex> lock(lock_);
+
+      uint64_t uncompacted_log_size = LogSize();
+      auto snapshot_metadata = GetSnapshotMetadata();
+      if (snapshot_metadata) {
+        uncompacted_log_size -= snapshot_metadata->second;
+      }
+
+      // Compare the log size to the config
+      if (config_.log_size_snapshot_threshold < uncompacted_log_size) {
+        // Create a DB accessor for snapshot creation
+        std::unique_ptr<database::GraphDbAccessor> dba = db_->Access();
+        uint64_t current_term = CurrentTerm();
+        uint64_t last_applied = last_applied_;
+
+        lock.unlock();
+        bool status =
+            durability::MakeSnapshot(*db_, *dba, fs::path(durability_dir_));
+        lock.lock();
+
+        if (status) {
+          uint64_t log_compaction_start_index = 1;
+          if (snapshot_metadata) {
+            log_compaction_start_index = snapshot_metadata->second + 1;
+          }
+
+          PersistSnapshotMetadata(current_term, last_applied);
+
+          // Log compaction.
+          // TODO (msantl): In order to handle log compaction correctly, we need
+          // to be able to send snapshots over the wire and implement additional
+          // logic to handle log entries that were compacted into a snapshot.
+          // for (int i = log_compaction_start_index; i <= last_applied_; ++i) {
+          // disk_storage_.Delete(LogEntryKey(i));
+          // }
+        }
+
+        lock.unlock();
+        // Raft lock must be released when destroying dba object.
+        dba = nullptr;
+      }
+    }
+
+    std::this_thread::sleep_for(kSnapshotPeriod);
   }
 }
 
@@ -736,7 +850,8 @@ bool RaftServer::OutOfSync(uint64_t reply_term) {
 
 LogEntry RaftServer::GetLogEntry(int index) {
   auto opt_value = disk_storage_.Get(LogEntryKey(index));
-  DCHECK(opt_value != std::experimental::nullopt) << "Log index out of bounds.";
+  DCHECK(opt_value != std::experimental::nullopt)
+      << "Log index (" << index << ") out of bounds.";
   return DeserializeLogEntry(opt_value.value());
 }
 
@@ -823,6 +938,19 @@ LogEntry RaftServer::DeserializeLogEntry(
 void RaftServer::ResetReplicationLog() {
   rlog_ = nullptr;
   rlog_ = std::make_unique<ReplicationLog>();
+}
+
+void RaftServer::RecoverSnapshot() {
+  durability::RecoveryData recovery_data;
+  CHECK(durability::RecoverOnlySnapshot(durability_dir_, db_, &recovery_data))
+      << "Failed to recover from snapshot";
+  durability::RecoverIndexes(db_, recovery_data.indexes);
+}
+
+void RaftServer::NoOpCreate() {
+  auto dba = db_->Access();
+  Emplace(database::StateDelta::NoOp(dba->transaction_id()));
+  dba->Commit();
 }
 
 }  // namespace raft

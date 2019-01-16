@@ -19,6 +19,11 @@
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
 
+// Forward declaration
+namespace database {
+class GraphDb;
+}  // namespace database
+
 namespace raft {
 
 using Clock = std::chrono::system_clock;
@@ -50,16 +55,16 @@ class RaftServer final : public RaftInterface {
   ///
   /// @param server_id ID of the current server.
   /// @param durbility_dir directory for persisted data.
+  /// @param db_recover_on_startup flag indicating if recovery should happen at
+  ///                              startup.
   /// @param config raft configuration.
   /// @param coordination Abstraction for coordination between Raft servers.
   /// @param delta_applier Object which is able to apply state deltas to SM.
-  /// @param reset_callback Function that is called on each Leader->Follower
-  ///                       transition.
+  /// @param db The current DB object.
   RaftServer(uint16_t server_id, const std::string &durability_dir,
-             const Config &config, raft::Coordination *coordination,
-             database::StateDeltaApplier *delta_applier,
-             std::function<void(void)> reset_callback,
-             std::function<void(void)> no_op_create);
+             bool db_recover_on_startup, const Config &config,
+             raft::Coordination *coordination,
+             database::StateDeltaApplier *delta_applier, database::GraphDb *db);
 
   /// Starts the RPC servers and starts mechanisms inside Raft protocol.
   void Start();
@@ -79,6 +84,14 @@ class RaftServer final : public RaftInterface {
 
   /// Retrieves log size from persistent storage.
   uint64_t LogSize();
+
+  /// Retrieves persisted snapshot metadata or nullopt if not present.
+  std::experimental::optional<std::pair<uint64_t, uint64_t>>
+  GetSnapshotMetadata();
+
+  /// Persists snapshot metadata.
+  void PersistSnapshotMetadata(uint64_t last_included_term,
+                               uint64_t last_included_index);
 
   /// Append to the log a list of batched state deltasa that are ready to be
   /// replicated.
@@ -144,12 +157,16 @@ class RaftServer final : public RaftInterface {
   Config config_;                        ///< Raft config.
   Coordination *coordination_{nullptr};  ///< Cluster coordination.
   database::StateDeltaApplier *delta_applier_{nullptr};
+  database::GraphDb *db_{nullptr};
   std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
-  std::atomic<Mode> mode_;  ///< Server's current mode.
-  uint16_t server_id_;      ///< ID of the current server.
-  uint64_t commit_index_;   ///< Index of the highest known committed entry.
-  uint64_t last_applied_;   ///< Index of the highest applied entry to SM.
+  std::atomic<Mode> mode_;      ///< Server's current mode.
+  uint16_t server_id_;          ///< ID of the current server.
+  std::string durability_dir_;  ///< Durability directory.
+  bool db_recover_on_startup_;  ///< Flag indicating if recovery should happen
+                                ///< on startup.
+  uint64_t commit_index_;       ///< Index of the highest known committed entry.
+  uint64_t last_applied_;       ///< Index of the highest applied entry to SM.
 
   /// Raft log entry buffer.
   ///
@@ -166,6 +183,10 @@ class RaftServer final : public RaftInterface {
 
   std::thread no_op_issuer_thread_;  ///< Thread responsible for issuing no-op
                                      ///< command on leader change.
+
+  std::thread snapshot_thread_;  ///< Thread responsible for snapshot creation
+                                 ///< when log size reaches
+                                 ///< `log_size_snapshot_threshold`.
 
   std::condition_variable leader_changed_;  ///< Notifies the
                                             ///< no_op_issuer_thread that a new
@@ -221,12 +242,6 @@ class RaftServer final : public RaftInterface {
 
   storage::KVStore disk_storage_;
 
-  /// Callback that needs to be called to reset the db state.
-  std::function<void(void)> reset_callback_;
-
-  /// Callback that creates a new transaction with NO_OP StateDelta.
-  std::function<void(void)> no_op_create_callback_;
-
   /// Makes a transition to a new `raft::Mode`.
   ///
   /// throws InvalidTransitionException when transitioning between incompatible
@@ -265,6 +280,11 @@ class RaftServer final : public RaftInterface {
   /// force the Raft protocol to commit logs from previous terms that
   /// have been replicated on a majority of peers.
   void NoOpIssuerThreadMain();
+
+  /// Periodically checks if the Log size reached `log_size_snapshot_threshold`
+  /// parameter. If it has, then it performs log compaction and creates
+  /// snapshots.
+  void SnapshotThread();
 
   /// Sets the `TimePoint` for next election.
   void SetNextElectionTimePoint();
@@ -341,6 +361,14 @@ class RaftServer final : public RaftInterface {
 
   /// Deserialized Raft log entry from `std::string`
   LogEntry DeserializeLogEntry(const std::string &serialized_log_entry);
+
+  /// Resets the replication log used to indicate the replication status.
   void ResetReplicationLog();
+
+  /// Recovers the latest snapshot that exists in the durability directory.
+  void RecoverSnapshot();
+
+  /// Start a new transaction with a NO-OP StateDelta.
+  void NoOpCreate();
 };
 }  // namespace raft
