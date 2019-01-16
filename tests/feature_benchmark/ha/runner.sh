@@ -20,7 +20,7 @@ fi
 RESULTS="$DIR/.apollo_measurements"
 
 # Benchmark parameters
-NODES=150000
+DURATION=10
 
 ## Startup
 declare -a HA_PIDS
@@ -41,8 +41,7 @@ sleep 3
 # Start the memgraph process and wait for it to start.
 echo_info "Starting HA benchmark"
 $binary_dir/tests/feature_benchmark/ha/benchmark \
-    --query-count=$NODES \
-    --timeout=60 \
+    --duration=$DURATION \
     --output-file=$RESULTS &
 pid=$!
 
