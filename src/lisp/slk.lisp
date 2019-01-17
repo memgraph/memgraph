@@ -105,18 +105,6 @@ generation expects the declarations and definitions to be in `slk` namespace."
      "Load" :args (cons self-arg (cons reader-arg (load-extra-args cpp-class)))
      :type-params (lcp::cpp-type-type-params cpp-class))))
 
-(defun cpp-type-pointer-p (cpp-type)
-  (check-type cpp-type (or lcp::cpp-type string lcp::cpp-primitive-type-keywords))
-  (typecase cpp-type
-    (string (cpp-type-pointer-p (lcp::parse-cpp-type-declaration cpp-type)))
-    (lcp::cpp-type
-     (or
-      (string= "*" (lcp::cpp-type-name cpp-type))
-      (string= "shared_ptr" (lcp::cpp-type-name cpp-type))
-      ;; Note, we could forward to default slk::Load for unique_ptr and hope
-      ;; everything is alright w.r.t to inheritance.
-      (string= "unique_ptr" (lcp::cpp-type-name cpp-type))))))
-
 (defun save-members (cpp-class)
   "Generate code for saving members of CPP-CLASS.  Raise `SLK-ERROR' if the
 serializable member has no public access."
@@ -134,7 +122,7 @@ serializable member has no public access."
                                                  member-name))
                          s)))
           ;; TODO: Maybe support saving (but not loading) unique_ptr.
-          ((cpp-type-pointer-p (lcp::cpp-member-type member))
+          ((lcp::cpp-pointer-type-p (lcp::cpp-member-type member))
            (slk-error "Don't know how to save pointer '~A' in '~A'"
                       (lcp::cpp-member-type member)
                       (lcp::cpp-type-base-name cpp-class)))
@@ -164,7 +152,7 @@ serializable member has no public access."
              (write-line (lcp::cpp-code (funcall (lcp::cpp-member-slk-load member)
                                                  member-name))
                          s)))
-          ((cpp-type-pointer-p (lcp::cpp-member-type member))
+          ((lcp::cpp-pointer-type-p (lcp::cpp-member-type member))
            (slk-error "Don't know how to load pointer '~A' in '~A'"
                       (lcp::cpp-member-type member)
                       (lcp::cpp-type-base-name cpp-class)))

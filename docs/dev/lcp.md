@@ -23,6 +23,7 @@ Contents
     - [Defining an RPC](#defining-an-rpc)
     - [Cap'n Proto Serialization](#capnp-serial)
     - [SaveLoadKit Serialization](#slk-serial)
+    - [Object Cloning](#object-cloning)
 
 ## Running LCP
 
@@ -1014,3 +1015,237 @@ example:
   (:serialize (:slk)))
 ```
 
+### Object Cloning
+
+LCP supports automatic generation of cloning (deep copy) code for user-defined
+classes.
+
+A textbook example of an object that would require a deep copy functionality is
+a tree structure. The following class represents a node in the binary tree,
+carrying an integer value and having pointers to its two children:
+
+```lisp
+(lcp:define-class node ()
+  ((value :int32_t)
+   (left "std::unique_ptr<Node>")
+   (right "std::unique_ptr<Node>"))
+  (:clone :return-type (lambda (typename)
+                         #>cpp
+                         std::unique_ptr<${typename}>
+                         cpp<#)
+          :init-object (lambda (var typename)
+                         #>cpp
+                         auto ${var} = std::make_unique<${typename}>();
+                         cpp<#)))
+```
+
+The above will generate the following C++ class with a `Clone` function that
+can be used for making a deep copy of the binary tree structure:
+
+```cpp
+class Node {
+ public:
+  std::unique_ptr<Node> Clone() const {
+    auto object = std::make_unique<Node>();
+    object->value_ = value_;
+    object->left_ = left_ ? left_->Clone() : nullptr;
+    object->right_ = right_ ? right_->Clone() : nullptr;
+    return object;
+  }
+
+ private:
+  int32_t value_;
+  std::unique_ptr<Node> left_;
+  std::unique_ptr<Node> right_;
+};
+```
+
+To specify that a class is deep copyable, `:clone` class option must be passed.
+We have already seen two options that `:clone` accepts: `:return-type` and
+`:init-object`.
+
+`:return-type` expects a function that takes a single argument which is the C++
+type name of the class and produces C++ code, which is a valid C++ type
+delcaration. Here we used it to specify that `Clone` function should return a
+`std::unique_ptr` to the newly created `Node` to override the default behavior.
+When `:return-type` option is not provided and class `T` is a member of an
+inheritance hierarchy, `Clone` will return `std::unique_ptr<Base>`, where
+`Base` is the root of that hierarchy. If `T` is not a member of inheritance
+hierarchy, `Clone` will return `T` by default.
+
+`:init-object` expects a function that takes two arguments, first is a variable
+name, and the second one is the C++ type name of the class. It must produce C++
+code that initializes an object with the given name of the same type that
+`Clone` function returns.  Here we had to use it since we are overriding the
+default return value of `Clone`. Unless `:init-object` argument is provided, an
+object of type `T` will be instantiated with `auto object =
+std::make_unique<T>();` if `T` is a member of inheritance hierarchy, and `T
+object;` if it is not. As you can see, deep copyable objects must be default
+constructible.
+
+
+#### Single Inheritance
+
+LCP supports deep copying of classes with single inheritance. The root class
+will have a virtual `Clone` function that child classes will override. For
+example:
+
+```lisp
+(lcp:define-class base ()
+  ((member :int32_t))
+  (:clone))
+
+(lcp:define-class derived (base)
+  ((another-member :int32_t))
+  (:clone))
+```
+
+We get the following code:
+
+```cpp
+class Base {
+ public:
+  virtual std::unique_ptr<Base> Clone() const {
+    auto object = std::make_unique<Base>();
+    object->member_ = member_;
+    return object;
+  }
+
+ private:
+  int32_t member_;
+};
+
+class Derived : public Base {
+ public:
+  std::unique_ptr<Base> Clone() const override {
+    auto object = std::make_unique<Derived>();
+    object->member_ = member_;
+    object->another_member_ = another_member_;
+    return object;
+  }
+
+ private:
+  int32_t another_member_;
+};
+```
+
+Notice that the `Clone` function of derived class also returns
+`std::unique_ptr<Base>`, because C++ doesn't support return type covariance
+with smart pointers.
+
+#### Multiple Inheritance
+
+Deep copying of classes with multiple inheritance is *not* supported!
+
+Usually, multiple inheritance is used to satisfy some interface which doesn't
+carry data. In such cases, you can ignore the multiple inheritance by
+specifying `:ignore-other-base-classes` option. For example:
+
+```lisp
+(lcp:define-class derived (primary-base some-interface ...)
+  ...
+  (:clone :ignore-other-base-classes t))
+```
+
+The above will produce deep copying code as if `derived` is inheriting *only*
+from `primary-base`.
+
+#### Templated Types
+
+Deep copying of templated types is *not* supported!
+
+#### Custom Clone Hooks
+
+In cases when default deep copying code is not adequate, you may wish to
+provide your own. LCP provides `:clone` option that can be specified for each
+member.
+
+These hooks for custom copying expect a function with two arguments, `source`
+and `dest`, representing the member location in the cloned struct and member
+location in the new struct. This allows to have a more generic function which
+works with any member of some type. The return value of the function needs to
+be C++ code.
+
+It is also possible to specify that a member is cloned by copying by passing
+`:copy` instead of a function as an argument to `:clone`.
+
+```lisp
+(lcp:define-class my-class ()
+  ((callback "std::function<void(int, int)>"
+             :clone :copy)
+   (widget "Widget"
+           :clone (lambda (source dest)
+                   #>cpp
+                   ${dest} = WidgetFactory::Create(${source}.type());
+                   cpp<#)))
+  (:clone))
+```
+
+#### Additional Arguments to Generated Clone Function
+
+By default, `Clone` function takes no argument. In some cases we would like to
+accept additional arguments necessary to create a deep copy. Let's see how this
+is done in LCP using the `:args` option.
+
+`:args` expects a list of pairs. Each pair designates one argument. The first
+element of pair is the argument name and the second is the C++ type of that
+argument.
+
+One case where we want to pass additional arguments to `Clone` is when there is
+another object that owns all objects being cloned. For example, `AstStorage`
+owns all Memgraph AST nodes. For that reason, `Clone` function of all AST node
+types takes an `AstStorage \*` argument. Here's a snippet from the actual AST
+code:
+
+```lisp
+(lcp:define-class tree ()
+  ((uid :int32_t))
+  (:abstractp t)
+  ...
+  (:clone :return-type (lambda (typename)
+                         (format nil "~A*" typename))
+          :args '((storage "AstStorage *"))
+          :init-object (lambda (var typename)
+                         (format nil "~A* ~A = storage->Create<~A>();"
+                                 typename var typename))))
+
+(lcp:define-class expression (tree)
+  ()
+  (:abstractp t)
+  ...
+  (:clone))
+
+(lcp:define-class where (tree)
+  ((expression "Expression *" :initval "nullptr" :scope :public))
+  (:clone))
+```
+
+`:args` option is only passed to the root class in inheritance hierarchy. By
+default, the same extra arguments will be passed to all class members that are
+cloned using `Clone` metehod. The generated code is:
+
+```cpp
+class Tree {
+ public:
+  virtual Tree *Clone(AstStorage *storage) const = 0;
+ private:
+  int32_t uid_;
+};
+
+class Expression : public Tree {
+ public:
+  Expression *Clone(AstStorage *storage) const override = 0;
+};
+
+class Where : public Tree {
+ public:
+  Expression *expression_{nullptr};
+
+  Where *Clone(AstStorage *storage) const override {
+    Where *object = storage->Create<Where>();
+    object->uid_ = uid_;
+    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    return object;
+  }
+};
+```

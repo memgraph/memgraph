@@ -8,6 +8,7 @@
                (:file "types")
                (:file "code-gen")
                (:file "slk")
+               (:file "clone")
                (:file "lcp"))
   :in-order-to ((test-op (test-op "lcp/test"))))
 

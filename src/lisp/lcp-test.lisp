@@ -564,3 +564,379 @@
                  ((protected-member :int64_t :scope :protected)
                   (public-member :char))))
               'lcp.slk:slk-error)))
+
+(deftest "clone"
+  (subtest "no inheritance"
+    (undefine-cpp-types)
+    (let ((tree-class (lcp:define-class tree ()
+                        ((value :int32_t)
+                         (left "std::unique_ptr<Tree>")
+                         (right "std::unique_ptr<Tree>"))
+                        (:clone :return-type (lambda (typename)
+                                               (format nil "std::unique_ptr<~A>" typename))
+                                :init-object (lambda (var typename)
+                                               (format nil "auto ~A = std::make_unique<~A>();"
+                                                       var typename)))))
+          (forest-class (lcp:define-class forest ()
+                          ((name "std::string")
+                           (small-tree "std::unique_ptr<Tree>")
+                           (big-tree "std::unique_ptr<Tree>"))
+                          (:clone))))
+      (is-generated (lcp.clone:clone-function-definition-for-class tree-class)
+                    "std::unique_ptr<Tree> Clone() const {
+                       auto object = std::make_unique<Tree>();
+                       object->value_ = value_;
+                       object->left_ = left_ ? left_->Clone() : nullptr;
+                       object->right_ = right_ ? right_->Clone() : nullptr;
+                       return object;
+                     }")
+      (is-generated (lcp.clone:clone-function-definition-for-class forest-class)
+                    "Forest Clone() const {
+                       Forest object;
+                       object.name_ = name_;
+                       object.small_tree_ = small_tree_ ? small_tree_->Clone() : nullptr;
+                       object.big_tree_ = big_tree_ ? big_tree_->Clone() : nullptr;
+                       return object;
+                     }")))
+  (subtest "single inheritance"
+    (undefine-cpp-types)
+    ;; Simple case
+    (let ((base-class (lcp:define-class base ()
+                        ((int-member :int32_t)
+                         (string-member "std::string"))
+                        (:clone)))
+          (child-class (lcp:define-class child (base)
+                         ((another-int-member :int64_t))
+                         (:clone))))
+      (is-generated (lcp.clone:clone-function-definition-for-class base-class)
+                    "virtual std::unique_ptr<Base> Clone() const {
+                       auto object = std::make_unique<Base>();
+                       object->int_member_ = int_member_;
+                       object->string_member_ = string_member_;
+                       return object;
+                     }")
+      (is-generated (lcp.clone:clone-function-definition-for-class child-class)
+                    "std::unique_ptr<Base> Clone() const override {
+                       auto object = std::make_unique<Child>();
+                       object->int_member_ = int_member_;
+                       object->string_member_ = string_member_;
+                       object->another_int_member_ = another_int_member_;
+                       return object;
+                     }"))
+    (undefine-cpp-types)
+    ;; Abstract base class
+    (let ((base-class (lcp:define-class base ()
+                        ((int-member :int32_t)
+                         (string-member "std::string"))
+                        (:abstractp t)
+                        (:clone)))
+          (child-class (lcp:define-class child (base)
+                         ((another-int-member :int64_t))
+                         (:clone))))
+      (is-generated (lcp.clone:clone-function-definition-for-class base-class)
+                    "virtual std::unique_ptr<Base> Clone() const = 0;")
+      (is-generated (lcp.clone:clone-function-definition-for-class child-class)
+                    "std::unique_ptr<Base> Clone() const override {
+                       auto object = std::make_unique<Child>();
+                       object->int_member_ = int_member_;
+                       object->string_member_ = string_member_;
+                       object->another_int_member_ = another_int_member_;
+                       return object;
+                     }"))
+    (undefine-cpp-types)
+    ;; :return-type and :init-object propagation
+    (let ((base-class (lcp:define-class base ()
+                        ((int-member :int32_t)
+                         (string-member "std::string"))
+                        (:abstractp t)
+                        (:clone :return-type (lambda (typename)
+                                               (format nil "~A*" typename))
+                                :init-object (lambda (var typename)
+                                               (format nil "~A* ~A = GlobalFactory::Create();"
+                                                       typename var)))))
+          (child-class (lcp:define-class child (base)
+                         ((another-int-member :int64_t))
+                         (:clone))))
+      (is-generated (lcp.clone:clone-function-definition-for-class base-class)
+                    "virtual Base *Clone() const = 0;")
+      (is-generated (lcp.clone:clone-function-definition-for-class child-class)
+                    "Child *Clone() const override {
+                       Child *object = GlobalFactory::Create();
+                       object->int_member_ = int_member_;
+                       object->string_member_ = string_member_;
+                       object->another_int_member_ = another_int_member_;
+                       return object;
+                     }"))
+    (undefine-cpp-types)
+    ;; inheritance with :ignore-other-base-classes and :base
+    (let ((base-class (lcp:define-class base ("utils::TotalOrdering")
+                        ((int-member :int32_t)
+                         (string-member "std::string"))
+                        (:abstractp t)
+                        (:clone :base t
+                                :return-type (lambda (typename)
+                                               (format nil "~A*" typename))
+                                :init-object (lambda (var typename)
+                                               (format nil "~A* ~A = GlobalFactory::Create();"
+                                                       typename var)))))
+          (child-class (lcp:define-class child (base "utils::TotalOrdering" "utils::TotalOrdering")
+                         ((another-int-member :int64_t))
+                         (:clone :ignore-other-base-classes t))))
+      (is-generated (lcp.clone:clone-function-definition-for-class base-class)
+                    "virtual Base *Clone() const = 0;")
+      (is-generated (lcp.clone:clone-function-definition-for-class child-class)
+                    "Child *Clone() const override {
+                       Child *object = GlobalFactory::Create();
+                       object->int_member_ = int_member_;
+                       object->string_member_ = string_member_;
+                       object->another_int_member_ = another_int_member_;
+                       return object;
+                     }")))
+  (subtest "extra args"
+    (undefine-cpp-types)
+    ;; extra arguments are always passed when calling `Clone` function
+    (let ((expression-class (lcp:define-class expression ()
+                              ((lhs "Expression *")
+                               (rhs "Expression *"))
+                              (:abstractp t)
+                              (:clone :return-type (lambda (typename)
+                                                     (format nil "~A*" typename))
+                                      :init-object (lambda (var typename)
+                                                     (format nil "~A* ~A = storage->Create<~A>();"
+                                                             typename var typename))
+                                      :args '((storage "ExpressionStorage *")))))
+          (and-class (lcp:define-class and (expression)
+                       ()
+                       (:clone)))
+          (or-class (lcp:define-class or (expression)
+                      ()
+                      (:clone)))
+          (filter-class (lcp:define-class filter ()
+                          ((expressions "std::vector<Expression *>"))
+                          (:clone :args '((exp-storage "ExpressionStorage *"))))))
+      (is-generated (lcp.clone:clone-function-definition-for-class expression-class)
+                    "virtual Expression *Clone(ExpressionStorage *storage) const = 0;")
+      (is-generated (lcp.clone:clone-function-definition-for-class and-class)
+                    "And *Clone(ExpressionStorage *storage) const override {
+                       And *object = storage->Create<And>();
+                       object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+                       object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+                       return object;
+                     }")
+      (is-generated (lcp.clone:clone-function-definition-for-class or-class)
+                    "Or *Clone(ExpressionStorage *storage) const override {
+                       Or *object = storage->Create<Or>();
+                       object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+                       object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+                       return object;
+                     }")
+      (is-generated (lcp.clone:clone-function-definition-for-class filter-class)
+                    "Filter Clone(ExpressionStorage *exp_storage) const {
+                       Filter object;
+                       object.expressions_.resize(expressions_.size());
+                       for (auto i1 = 0; i1 < expressions_.size(); ++i1) {
+                         object.expressions_[i1] =
+                             expressions_[i1] ? expressions_[i1]->Clone(exp_storage) : nullptr;
+                       }
+                       return object;
+                     }")))
+  (subtest "unsupported"
+    ;; multiple inheritance
+    (undefine-cpp-types)
+    (lcp:define-class first-base ()
+      ((int-member :int32_t))
+      (:clone))
+    (lcp:define-class second-base ()
+      ((private-member :int32_t :scope :private))
+      (:clone))
+    (let ((child-class (lcp:define-class child (first-base second-base)
+                        ((name "std::string"))
+                        (:clone))))
+      (is-error (lcp.clone:clone-function-definition-for-class child-class)
+                'lcp.clone:clone-error))
+    ;; template classes
+    (undefine-cpp-types)
+    (let ((container-class (lcp:define-class (my-container t-element) ()
+                             ((data "TElement *")
+                              (size "size_t")))))
+      (is-error (lcp.clone:clone-function-definition-for-class container-class)
+                'lcp.clone:clone-error)))
+  (subtest "custom clone"
+    (undefine-cpp-types)
+    (let ((my-class (lcp:define-class my-class ()
+                      ((callback "std::function<void(int, int)>" :clone :copy)
+                       (click-counter :int32_t :clone nil)
+                       (widget "Widget"
+                               :clone (lambda (source dest)
+                                        #>cpp
+                                        ${dest} = WidgetFactory::Create(${source}.type());
+                                        cpp<#)))
+                      (:clone))))
+      (is-generated (lcp.clone:clone-function-definition-for-class my-class)
+                    "MyClass Clone() const {
+                       MyClass object;
+                       object.callback_ = callback_;
+                       object.widget_ = WidgetFactory::Create(widget_.type());
+                       return object;
+                     }")))
+  (subtest "types"
+    (undefine-cpp-types)
+    (macrolet ((single-member-test (member expected)
+                 (let ((class-sym (gensym)))
+                   `(let ((,class-sym (lcp:define-class my-class ()
+                                        (,member)
+                                        (:clone))))
+                      (is-generated (lcp.clone:clone-function-definition-for-class ,class-sym)
+                                    (format nil "MyClass Clone() const {
+                                                   MyClass object;
+                                                   ~A
+                                                   return object;
+                                                 }"
+                                            ,expected))))))
+      (lcp:define-class klondike ()
+        ()
+        (:clone))
+      (subtest "vector"
+        (single-member-test (member "std::vector<int32_t>")
+                            "object.member_ = member_;")
+        (single-member-test (member "std::vector<std::vector<int32_t>>")
+                            "object.member_ = member_;")
+        (single-member-test (member "std::vector<Klondike>")
+                            "object.member_.resize(member_.size());
+                             for (auto i1 = 0; i1 < member_.size(); ++i1) {
+                               object.member_[i1] = member_[i1].Clone();
+                             }")
+        (single-member-test (member "std::vector<std::vector<Klondike>>")
+                            "object.member_.resize(member_.size());
+                             for (auto i1 = 0; i1 < member_.size(); ++i1) {
+                               object.member_[i1].resize(member_[i1].size());
+                               for (auto i2 = 0; i2 < member_[i1].size(); ++i2) {
+                                 object.member_[i1][i2] = member_[i1][i2].Clone();
+                               }
+                             }"))
+      (subtest "optional"
+        (single-member-test (member "std::experimental::optional<int32_t>")
+                            "object.member_ = member_;")
+        (single-member-test (member "std::experimental::optional<Klondike>")
+                            "if (member_) {
+                               Klondike value1;
+                               value1 = (*member_).Clone();
+                               object.member_.emplace(std::move(value1));
+                             } else {
+                               object.member_ = std::experimental::nullopt;
+                             }"))
+      (subtest "unordered_map"
+        (single-member-test (member "std::unordered_map<int32_t, std::string>")
+                            "object.member_ = member_;")
+        (single-member-test (member "std::unordered_map<int32_t, std::unordered_map<int32_t, std::string>>")
+                            "object.member_ = member_;")
+        (single-member-test (member "std::unordered_map<int32_t, Klondike>")
+                            "for (const auto &kv1 : member_) {
+                               std::pair<int32_t, Klondike> entry1;
+                               {
+                                 int32_t first2;
+                                 first2 = kv1.first;
+                                 Klondike second2;
+                                 second2 = kv1.second.Clone();
+                                 entry1 = std::make_pair(std::move(first2), std::move(second2));
+                               }
+
+                               object.member_.emplace(std::move(entry1));
+                             }")
+        (single-member-test (member "std::unordered_map<int32_t, std::unordered_map<int32_t, Klondike>>")
+                            "for (const auto &kv1 : member_) {
+                               std::pair<int32_t, std::unordered_map<int32_t, Klondike>> entry1;
+                               {
+                                 int32_t first2;
+                                 first2 = kv1.first;
+                                 std::unordered_map<int32_t, Klondike> second2;
+                                 for (const auto &kv3 : kv1.second) {
+                                   std::pair<int32_t, Klondike> entry3;
+                                   {
+                                     int32_t first4;
+                                     first4 = kv3.first;
+                                     Klondike second4;
+                                     second4 = kv3.second.Clone();
+                                     entry3 = std::make_pair(std::move(first4), std::move(second4));
+                                   }
+
+                                   second2.emplace(std::move(entry3));
+                                 }
+                                 entry1 = std::make_pair(std::move(first2), std::move(second2));
+
+                               }
+
+                               object.member_.emplace(std::move(entry1));
+                             }")
+        (single-member-test (member "std::unordered_map<Klondike, Klondike>")
+                            "for (const auto &kv1 : member_) {
+                               std::pair<Klondike, Klondike> entry1;
+                               {
+                                 Klondike first2;
+                                 first2 = kv1.first.Clone();
+                                 Klondike second2;
+                                 second2 = kv1.second.Clone();
+                                 entry1 = std::make_pair(std::move(first2), std::move(second2));
+                               }
+
+                               object.member_.emplace(std::move(entry1));
+                             }"))
+      (subtest "pair"
+        (single-member-test (member "std::pair<int32_t, int32_t>")
+                            "object.member_ = member_;")
+        (single-member-test (member "std::pair<int32_t, Klondike>")
+                            "{
+                               int32_t first1;
+                               first1 = member_.first;
+                               Klondike second1;
+                               second1 = member_.second.Clone();
+                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                             }")
+        (single-member-test (member "std::pair<Klondike, int32_t>")
+                            "{
+                               Klondike first1;
+                               first1 = member_.first.Clone();
+                               int32_t second1;
+                               second1 = member_.second;
+                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                             }")
+        (single-member-test (member "std::pair<Klondike, Klondike>")
+                            "{
+                               Klondike first1;
+                               first1 = member_.first.Clone();
+                               Klondike second1;
+                               second1 = member_.second.Clone();
+                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                             }")
+        (single-member-test (member "std::pair<std::string, std::pair<int32_t, Klondike>>")
+                            "{
+                               std::string first1;
+                               first1 = member_.first;
+                               std::pair<int32_t, Klondike> second1;
+                               {
+                                 int32_t first2;
+                                 first2 = member_.second.first;
+                                 Klondike second2;
+                                 second2 = member_.second.second.Clone();
+                                 second1 = std::make_pair(std::move(first2), std::move(second2));
+                               }
+
+                               object.member_ = std::make_pair(std::move(first1), std::move(second1));
+                             }")
+        )
+      (subtest "pointers"
+        (single-member-test (member "Klondike *")
+                            "object.member_ = member_ ? member_->Clone() : nullptr;")
+        (single-member-test (member "std::unique_ptr<Klondike>")
+                            "object.member_ = member_ ? member_->Clone() : nullptr;")
+        (single-member-test (member "std::shared_ptr<Klondike>")
+                            "object.member_ = member_ ? member_->Clone() : nullptr;"))
+      (subtest "enum"
+        (lcp:define-enum enum '(val1 val2 val3))
+        (single-member-test (member "Enum")
+                            "object.member_ = member_;"))
+      (subtest "builtin c++ types"
+        (single-member-test (member :int32_t)
+                            "object.member_ = member_;")
+        (single-member-test (member :char)
+                            "object.member_ = member_;")))))

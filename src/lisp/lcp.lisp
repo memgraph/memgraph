@@ -96,7 +96,9 @@ NIL, returns a string."
             (format s "~%~{~A~%~}" (mapcar #'cpp-code (cpp-class-public cpp-class)))
             (format s "~{~%~A~}~%" (mapcar #'cpp-member-reader-definition reader-members))
             (format s "~{  ~%~A~}~%"
-                    (mapcar #'member-declaration (cpp-class-members-scoped :public)))))
+                    (mapcar #'member-declaration (cpp-class-members-scoped :public)))
+            (when (cpp-class-clone-opts cpp-class)
+              (format s "~%~A" (lcp.clone:clone-function-definition-for-class cpp-class)))))
         (when (or (cpp-class-protected cpp-class) (cpp-class-members-scoped :protected))
           (write-line " protected:" s)
           (format s "~{~A~%~}" (mapcar #'cpp-code (cpp-class-protected cpp-class)))
@@ -144,7 +146,7 @@ the function.  TYPE-PARAMS is a list of names for template argments"
 
 (defun cpp-method-declaration (class method-name
                                &key args (returns "void") (inline t) static
-                                 virtual const override)
+                                 virtual const override delete)
   "Generate a C++ method declaration as a string for the given METHOD-NAME on
 CLASS.  ARGS is a list of (variable type) arguments to method.  RETURNS is the
 return type of the function.  When INLINE is set to NIL, generates a
@@ -165,11 +167,12 @@ which generate the corresponding C++ keywords."
                                        (cpp-variable-name (first name-and-type))))
                                args)))
          (const (if const "const" ""))
-         (override (if (and override inline) "override" "")))
+         (override (if (and override inline) "override" ""))
+         (delete (if delete "= 0" "")))
     (raw-cpp-string
      #>cpp
      ${template} ${static/virtual}
-     ${returns} ${namespace}${method-name}(${args}) ${const} ${override}
+     ${returns} ${namespace}${method-name}(${args}) ${const} ${override} ${delete}
      cpp<#)))
 
 (defstruct cpp-list

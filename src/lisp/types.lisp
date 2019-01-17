@@ -139,7 +139,8 @@
   ;; May be a function which takes 1 argument, member-name.  It needs to
   ;; return C++ code.
   (slk-save nil :type (or null function) :read-only t)
-  (slk-load nil :type (or null function) :read-only t))
+  (slk-load nil :type (or null function) :read-only t)
+  (clone t :type (or boolean (eql :copy) function) :read-only t))
 
 (defstruct capnp-opts
   "Cap'n Proto serialization options for C++ class."
@@ -171,6 +172,15 @@
   ;; In case of multiple inheritance, pretend we only inherit the 1st base class.
   (ignore-other-base-classes nil :type boolean :read-only t))
 
+(defstruct clone-opts
+  "Cloning options for C++ class."
+  ;; Extra arguments to the generated clone function. List of (name cpp-type).
+  (args nil :read-only t)
+  (return-type nil :type (or null function) :read-only t)
+  (base nil :read-only t)
+  (ignore-other-base-classes nil :read-only t)
+  (init-object nil :read-only t))
+
 (defclass cpp-class (cpp-type)
   ((structp :type boolean :initarg :structp :initform nil
             :reader cpp-class-structp)
@@ -186,6 +196,8 @@
                :reader cpp-class-capnp-opts)
    (slk-opts :type (or null slk-opts) :initarg :slk-opts :initform nil
              :reader cpp-class-slk-opts)
+   (clone-opts :type (or null clone-opts) :initarg :clone-opts :initform nil
+               :reader cpp-class-clone-opts)
    (inner-types :initarg :inner-types :initform nil :reader cpp-class-inner-types)
    (abstractp :initarg :abstractp :initform nil :reader cpp-class-abstractp))
   (:documentation "Meta information on a C++ class (or struct)."))
@@ -269,6 +281,17 @@ documentation on `CPP-TYPE' members for function arguments."
 (defun cpp-primitive-type-p (type-decl)
   "Whether the C++ type designated by TYPE-DECL is a primitive type."
   (typep (cpp-type type-decl) 'cpp-primitive-type))
+
+(defun cpp-pointer-type-p (type-decl)
+  "Whether the C++ type designated by TYPE-DECL is a smart or raw pointer type."
+  (check-type type-decl (or lcp::cpp-type string lcp::cpp-primitive-type-keywords))
+  (typecase type-decl
+    (string (cpp-pointer-type-p (lcp::parse-cpp-type-declaration type-decl)))
+    (lcp::cpp-type
+     (or
+      (string= "*" (lcp::cpp-type-name type-decl))
+      (string= "shared_ptr" (lcp::cpp-type-name type-decl))
+      (string= "unique_ptr" (lcp::cpp-type-name type-decl))))))
 
 (defun parse-cpp-type-declaration (type-decl)
   "Parse C++ type from TYPE-DECL string and return CPP-TYPE.
@@ -579,6 +602,8 @@ Generates C++:
                                                 `(make-capnp-opts ,@(cdr (assoc :capnp serialize))))
                                  :slk-opts ,(when (assoc :slk serialize)
                                               `(make-slk-opts ,@(cdr (assoc :slk serialize))))
+                                 :clone-opts ,(when (assoc :clone options)
+                                                `(make-clone-opts ,@(cdr (assoc :clone options))))
                                  :abstractp ,abstractp
                                  :namespace (reverse *cpp-namespaces*)
                                  ;; Set inner types at the end. This works

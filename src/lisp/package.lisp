@@ -32,3 +32,8 @@
            #:save-function-definition-for-enum
            #:load-function-declaration-for-enum
            #:load-function-definition-for-enum))
+
+(defpackage #:lcp.clone
+  (:use #:cl)
+  (:export #:clone-error
+           #:clone-function-definition-for-class))
