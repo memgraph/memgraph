@@ -27,6 +27,10 @@ namespace {
 //
 // NAryTree
 
+/*
+ * A utility to help us imitate the traversal of a plan (and therefore the
+ * profiling statistics as well).
+ */
 struct NAryTree {
   NAryTree(int64_t id) : id(id) {}
 
@@ -51,6 +55,19 @@ std::unique_ptr<NAryTree> LiftTreeHelper(const std::vector<int64_t> &flattened,
   return node;
 }
 
+/*
+ * A utility that produces instances of `NAryTree` given its "flattened"
+ * (serialized) form. A node (without its children) is serialized as a sequence
+ * of integers: `<node-id> <node-num-children>`. A tree is serialized by
+ * serializing its root node and then recursively (depth-first) serializing its
+ * subtrees (children).
+ *
+ * As an example, here's the general form of the produced serialization,
+ * starting from some root node: `<root-id> <root-num-children>
+ * <root-child-1-id> <root-child-1-num-children> <root-child-1-child-1-id>
+ * <root-child-1-child-1-num-children> ... <root-child-2-id>
+ * <root-child-2-num-children> ...`.
+ */
 std::unique_ptr<NAryTree> LiftTree(const std::vector<int64_t> &flattened) {
   size_t index = 0;
   return LiftTreeHelper(flattened, &index);

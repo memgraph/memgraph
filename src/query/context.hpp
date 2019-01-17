@@ -43,6 +43,7 @@ struct ExecutionContext {
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
   bool is_profile_query{false};
+  std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
   plan::ProfilingStats *stats_root{nullptr};
 };

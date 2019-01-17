@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <vector>
 
+#include <json/json.hpp>
+
 #include "query/typed_value.hpp"
 
 namespace query {
@@ -20,8 +22,11 @@ struct ProfilingStats {
   std::vector<ProfilingStats> children;
 };
 
-std::vector<std::vector<TypedValue>> FormatProfilingStats(
+std::vector<std::vector<TypedValue>> ProfilingStatsToTable(
     const ProfilingStats &cumulative_stats, std::chrono::duration<double>);
+
+nlohmann::json ProfilingStatsToJson(const ProfilingStats &cumulative_stats,
+                                    std::chrono::duration<double>);
 
 }  // namespace plan
 }  // namespace query

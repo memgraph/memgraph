@@ -1,7 +1,8 @@
 #include "query/interpreter.hpp"
 
-#include <glog/logging.h>
 #include <limits>
+
+#include <glog/logging.h>
 
 #include "auth/auth.hpp"
 #include "glue/auth.hpp"
@@ -757,8 +758,11 @@ Interpreter::Results Interpreter::operator()(
           // Pull everything to profile the execution
           utils::Timer timer;
           while (cursor->Pull(*frame, *context)) continue;
+          auto execution_time = timer.Elapsed();
 
-          return FormatProfilingStats(context->stats, timer.Elapsed());
+          context->profile_execution_time = execution_time;
+
+          return ProfilingStatsToTable(context->stats, execution_time);
         });
 
     plan = std::make_shared<CachedPlan>(std::make_unique<SingleNodeLogicalPlan>(

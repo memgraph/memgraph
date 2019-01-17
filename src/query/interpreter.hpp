@@ -144,6 +144,13 @@ class Interpreter {
 
       if (!return_value) {
         summary_["plan_execution_time"] = execution_time_;
+
+        if (ctx_.is_profile_query) {
+          summary_["profile"] =
+              ProfilingStatsToJson(ctx_.stats, ctx_.profile_execution_time)
+                  .dump();
+        }
+
         cursor_->Shutdown();
       }
 

@@ -176,6 +176,9 @@ target_link_libraries(${test_prefix}query_expression_evaluator mg-single-node kv
 add_unit_test(query_pretty_print.cpp)
 target_link_libraries(${test_prefix}query_pretty_print mg-single-node kvstore_dummy_lib)
 
+add_unit_test(query_profile.cpp)
+target_link_libraries(${test_prefix}query_profile mg-single-node kvstore_dummy_lib)
+
 add_unit_test(query_plan_accumulate_aggregate.cpp)
 target_link_libraries(${test_prefix}query_plan_accumulate_aggregate mg-single-node kvstore_dummy_lib)
 
