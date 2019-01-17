@@ -81,7 +81,7 @@ class IndexInMulticommandTxException : public QueryException {
   using QueryException::QueryException;
   IndexInMulticommandTxException()
       : QueryException(
-            "CREATE INDEX not allowed in multicommand transactions.") {}
+            "Index manipulation not allowed in multicommand transactions.") {}
 };
 
 /**
