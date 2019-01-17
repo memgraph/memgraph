@@ -9,13 +9,13 @@
     - ../../../build_release/tests/feature_benchmark/kafka/benchmark # benchmark binary
   enable_network: true
 
-- name: feature_benchmark__ha
-  cd: ha
-  commands: ./runner.sh
-  infiles:
-    - runner.sh # runner script
-    - raft.json # raft configuration file
-    - coordination.json # coordination configuration file
-    - ../../../build_release/tests/feature_benchmark/ha/benchmark # benchmark binary
-    - ../../../build_release/memgraph_ha # memgraph binary
-  enable_network: true
+  #- name: feature_benchmark__ha
+  #  cd: ha
+  #  commands: ./runner.sh
+  #  infiles:
+  #    - runner.sh # runner script
+  #    - raft.json # raft configuration file
+  #    - coordination.json # coordination configuration file
+  #    - ../../../build_release/tests/feature_benchmark/ha/benchmark # benchmark binary
+  #    - ../../../build_release/memgraph_ha # memgraph binary
+  #  enable_network: true
