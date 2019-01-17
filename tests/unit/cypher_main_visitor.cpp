@@ -102,7 +102,7 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
   explicit OriginalAfterCloningAstGenerator(const std::string &query)
       : AstGenerator(query) {
     AstStorage storage;
-    query_->Clone(storage);
+    query_->Clone(&storage);
   }
 
   PropertyIx Prop(const std::string &prop_name) override {
@@ -126,9 +126,16 @@ class ClonedAstGenerator : public Base {
   explicit ClonedAstGenerator(const std::string &query) : Base(query) {
     ::frontend::opencypher::Parser parser(query);
     AstStorage tmp_storage;
+    {
+      // Add a label, property and edge type into temporary storage so
+      // indices have to change in cloned AST.
+      tmp_storage.GetLabelIx("jkfdklajfkdalsj");
+      tmp_storage.GetPropertyIx("fdjakfjdklfjdaslk");
+      tmp_storage.GetEdgeTypeIx("fdjkalfjdlkajfdkla");
+    }
     CypherMainVisitor visitor(context_, &tmp_storage);
     visitor.visit(parser.tree());
-    query_ = visitor.query()->Clone(ast_storage_);
+    query_ = visitor.query()->Clone(&ast_storage_);
   }
 
   PropertyIx Prop(const std::string &prop_name) override {
@@ -159,7 +166,7 @@ class CachedAstGenerator : public Base {
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage);
     visitor.visit(parser.tree());
-    query_ = visitor.query()->Clone(ast_storage_);
+    query_ = visitor.query()->Clone(&ast_storage_);
   }
 
   PropertyIx Prop(const std::string &prop_name) override {

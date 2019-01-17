@@ -142,6 +142,14 @@ cpp<#
   }
   cpp<#)
 
+(defun clone-property-map (source dest)
+  #>cpp
+  for (const auto &entry : ${source}) {
+    PropertyIx key = storage->GetPropertyIx(entry.first.name);
+    ${dest}[key] = entry.second->Clone(storage);
+  }
+  cpp<#)
+
 (defun capnp-load-name-ix (name-type)
   (lambda (reader member capnp-name)
     (declare (ignore capnp-name))
@@ -153,6 +161,15 @@ cpp<#
   (lambda (member)
     #>cpp
     self->${member} = storage->Get${name-type}Ix(self->name).ix;
+    cpp<#))
+
+(defun clone-name-ix-vector (name-type)
+  (lambda (source dest)
+    #>cpp
+    ${dest}.resize(${source}.size());
+    for (auto i = 0; i < ${dest}.size(); ++i) {
+      ${dest}[i] = storage->Get${name-type}Ix(${source}[i].name);
+    }
     cpp<#))
 
 ;; The following index structs serve as a decoupling point of AST from
@@ -249,20 +266,6 @@ cpp<#
 (lcp:namespace query)
 
 #>cpp
-#define CLONE_BINARY_EXPRESSION                                              \
-  auto Clone(AstStorage &storage) const->std::remove_const<                  \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
-    return storage.Create<                                                   \
-        std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
-        expression1_->Clone(storage), expression2_->Clone(storage));         \
-  }
-#define CLONE_UNARY_EXPRESSION                                               \
-  auto Clone(AstStorage &storage) const->std::remove_const<                  \
-      std::remove_pointer<decltype(this)>::type>::type *override {           \
-    return storage.Create<                                                   \
-        std::remove_cv<std::remove_reference<decltype(*this)>::type>::type>( \
-        expression_->Clone(storage));                                        \
-  }
 
 class Tree;
 
@@ -276,6 +279,15 @@ class AstStorage {
   AstStorage &operator=(const AstStorage &) = delete;
   AstStorage(AstStorage &&) = default;
   AstStorage &operator=(AstStorage &&) = default;
+
+  template <typename T>
+  T *Create() {
+    T *ptr = new T();
+    ptr->uid_ = ++max_existing_uid_;
+    std::unique_ptr<T> tmp(ptr);
+    storage_.emplace_back(std::move(tmp));
+    return ptr;
+  }
 
   template <typename T, typename... Args>
   T *Create(Args &&... args) {
@@ -326,8 +338,6 @@ cpp<#
     #>cpp
     Tree() = default;
     virtual ~Tree() {}
-
-    virtual Tree *Clone(AstStorage &storage) const = 0;
     cpp<#)
   (:private
     #>cpp
@@ -354,7 +364,13 @@ cpp<#
                               return;
                             }
                             saved_uids->push_back(self.uid_);
-                            cpp<#))))
+                            cpp<#)))
+  (:clone :return-type (lambda (typename)
+                         (format nil "~A*" typename))
+          :args '((storage "AstStorage *"))
+          :init-object (lambda (var typename)
+                         (format nil "~A* ~A = storage->Create<~A>();"
+                                 typename var typename))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Expressions
@@ -372,8 +388,6 @@ cpp<#
     using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
 
     Expression() = default;
-
-    Expression *Clone(AstStorage &storage) const override = 0;
     cpp<#)
   (:protected
     #>cpp
@@ -384,7 +398,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class where (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -405,10 +420,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Where *Clone(AstStorage &storage) const override {
-      return storage.Create<Where>(expression_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -420,7 +431,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class binary-operator (expression)
   ((expression1 "Expression *" :initval "nullptr" :scope :public
@@ -439,8 +451,6 @@ cpp<#
   (:public
     #>cpp
     BinaryOperator() = default;
-
-    BinaryOperator *Clone(AstStorage &storage) const override = 0;
     cpp<#)
   (:protected
     #>cpp
@@ -452,7 +462,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class unary-operator (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -465,8 +476,6 @@ cpp<#
   (:public
     #>cpp
     UnaryOperator() = default;
-
-    UnaryOperator *Clone(AstStorage &storage) const override = 0;
     cpp<#)
   (:protected
     #>cpp
@@ -478,7 +487,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (macrolet ((define-binary-operators ()
              `(lcp:cpp-list
@@ -502,7 +512,6 @@ cpp<#
                                 }
                                 return visitor.PostVisit(*this);
                               }
-                              CLONE_BINARY_EXPRESSION;
                               cpp<#))
                           (:protected
                             #>cpp
@@ -512,7 +521,8 @@ cpp<#
                             #>cpp
                             friend class AstStorage;
                             cpp<#)
-                          (:serialize (:slk) (:capnp)))))))
+                          (:serialize (:slk) (:capnp))
+                          (:clone))))))
   (define-binary-operators))
 
 (macrolet ((define-unary-operators ()
@@ -534,7 +544,6 @@ cpp<#
                                 }
                                 return visitor.PostVisit(*this);
                               }
-                              CLONE_UNARY_EXPRESSION;
                               cpp<#))
                           (:protected
                             #>cpp
@@ -544,7 +553,8 @@ cpp<#
                             #>cpp
                             friend class AstStorage;
                             cpp<#)
-                          (:serialize (:slk) (:capnp)))))))
+                          (:serialize (:slk) (:capnp))
+                          (:clone))))))
   (define-unary-operators))
 
 (lcp:define-class aggregation (binary-operator)
@@ -578,16 +588,11 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Aggregation *Clone(AstStorage &storage) const override {
-      return storage.Create<Aggregation>(
-          expression1_ ? expression1_->Clone(storage) : nullptr,
-          expression2_ ? expression2_->Clone(storage) : nullptr, op_);
-    }
     cpp<#)
   (:protected
     #>cpp
     // Use only for serialization.
+    Aggregation(int uid) : BinaryOperator(uid) {}
     Aggregation(int uid, Op op) : BinaryOperator(uid), op_(op) {}
 
     /// Aggregation's first expression is the value being aggregated. The second
@@ -606,7 +611,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class list-slicing-operator (expression)
   ((list "Expression *" :initval "nullptr" :scope :public
@@ -645,16 +651,11 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    ListSlicingOperator *Clone(AstStorage &storage) const override {
-      return storage.Create<ListSlicingOperator>(
-          list_->Clone(storage),
-          lower_bound_ ? lower_bound_->Clone(storage) : nullptr,
-          upper_bound_ ? upper_bound_->Clone(storage) : nullptr);
-    }
    cpp<#)
   (:protected
     #>cpp
+    explicit ListSlicingOperator(int uid) : Expression(uid) {}
+
     ListSlicingOperator(int uid, Expression *list, Expression *lower_bound,
                         Expression *upper_bound)
         : Expression(uid),
@@ -666,7 +667,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class if-operator (expression)
   ((condition "Expression *" :scope :public
@@ -701,15 +703,11 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    IfOperator *Clone(AstStorage &storage) const override {
-      return storage.Create<IfOperator>(condition_->Clone(storage),
-                                        then_expression_->Clone(storage),
-                                        else_expression_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
+    explicit IfOperator(int uid) : Expression(uid) {}
+
     IfOperator(int uid, Expression *condition, Expression *then_expression,
                Expression *else_expression)
         : Expression(uid),
@@ -721,7 +719,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class base-literal (expression)
   ()
@@ -729,8 +728,6 @@ cpp<#
   (:public
     #>cpp
     BaseLiteral() = default;
-
-    BaseLiteral *Clone(AstStorage &storage) const override = 0;
     cpp<#)
   (:protected
     #>cpp
@@ -740,7 +737,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class primitive-literal (base-literal)
   ((value "PropertyValue" :scope :public
@@ -761,10 +759,6 @@ cpp<#
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
     DEFVISITABLE(ExpressionVisitor<void>);
     DEFVISITABLE(HierarchicalTreeVisitor);
-
-    PrimitiveLiteral *Clone(AstStorage &storage) const override {
-      return storage.Create<PrimitiveLiteral>(value_, token_position_);
-    }
     cpp<#)
   (:private
     #>cpp
@@ -779,7 +773,8 @@ cpp<#
     PrimitiveLiteral(int uid, T value, int token_position)
         : BaseLiteral(uid), value_(value), token_position_(token_position) {}
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class list-literal (base-literal)
   ((elements "std::vector<Expression *>"
@@ -802,14 +797,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    ListLiteral *Clone(AstStorage &storage) const override {
-      auto *list = storage.Create<ListLiteral>();
-      for (auto *element : elements_) {
-        list->elements_.push_back(element->Clone(storage));
-      }
-      return list;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -821,7 +808,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class map-literal (base-literal)
   ((elements "std::unordered_map<PropertyIx, Expression *>"
@@ -830,6 +818,7 @@ cpp<#
              :capnp-type "Utils.Map(PropertyIx, Tree)"
              :capnp-save #'save-property-map
              :capnp-load #'load-property-map
+             :clone #'clone-property-map
              :scope :public))
   (:public
     #>cpp
@@ -844,15 +833,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    MapLiteral *Clone(AstStorage &storage) const override {
-      auto *map = storage.Create<MapLiteral>();
-      for (auto pair : elements_) {
-        auto prop = storage.GetPropertyIx(pair.first.name);
-        map->elements_.emplace(prop, pair.second->Clone(storage));
-      }
-      return map;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -865,7 +845,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class identifier (expression)
   ((name "std::string" :scope :public)
@@ -877,13 +858,11 @@ cpp<#
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
     DEFVISITABLE(ExpressionVisitor<void>);
     DEFVISITABLE(HierarchicalTreeVisitor);
-
-    Identifier *Clone(AstStorage &storage) const override {
-      return storage.Create<Identifier>(name_, user_declared_);
-    }
     cpp<#)
   (:protected
     #>cpp
+    Identifier(int uid) : Expression(uid) {}
+
     Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
     Identifier(int uid, const std::string &name, bool user_declared)
         : Expression(uid), name_(name), user_declared_(user_declared) {}
@@ -892,7 +871,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class property-lookup (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -905,7 +885,11 @@ cpp<#
              :slk-load (lambda (member)
                         #>cpp
                         slk::Load(&self->${member}, reader, storage);
-                        cpp<#)))
+                        cpp<#)
+             :clone (lambda (source dest)
+                      #>cpp
+                      ${dest} = storage->GetPropertyIx(${source}.name);
+                      cpp<#)))
   (:public
     #>cpp
     PropertyLookup() = default;
@@ -918,14 +902,10 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    PropertyLookup *Clone(AstStorage &storage) const override {
-      return storage.Create<PropertyLookup>(expression_->Clone(storage),
-                                            storage.GetPropertyIx(property_.name));
-    }
     cpp<#)
   (:protected
     #>cpp
+    PropertyLookup(int uid) : Expression(uid) {}
     PropertyLookup(int uid, Expression *expression, PropertyIx property)
         : Expression(uid),
           expression_(expression),
@@ -935,7 +915,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class labels-test (expression)
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -960,7 +941,8 @@ cpp<#
                            LabelIx ix;
                            Load(&ix, reader, storage);
                            return ix;
-                         }")))
+                         }")
+           :clone (clone-name-ix-vector "Label")))
   (:public
     #>cpp
     LabelsTest() = default;
@@ -973,18 +955,11 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    LabelsTest *Clone(AstStorage &storage) const override {
-      std::vector<LabelIx> new_labels;
-      new_labels.reserve(labels_.size());
-      for (const auto &label : labels_) {
-        new_labels.push_back(storage.GetLabelIx(label.name));
-      }
-      return storage.Create<LabelsTest>(expression_->Clone(storage), new_labels);
-    }
     cpp<#)
   (:protected
     #>cpp
+    LabelsTest(int uid) : Expression(uid) {}
+
     LabelsTest(int uid, Expression *expression,
                const std::vector<LabelIx> &labels)
         : Expression(uid), expression_(expression), labels_(labels) {}
@@ -993,7 +968,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class function (expression)
   ((arguments "std::vector<Expression *>"
@@ -1007,6 +983,7 @@ cpp<#
    (function "std::function<TypedValue(TypedValue *, int64_t, const EvaluationContext &, database::GraphDbAccessor *)>"
              :scope :public
              :dont-save t
+             :clone :copy
              :slk-load (lambda (member)
                         #>cpp
                         self->${member} = query::NameToFunction(self->function_name_);
@@ -1030,14 +1007,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Function *Clone(AstStorage &storage) const override {
-      std::vector<Expression *> arguments;
-      for (auto *argument : arguments_) {
-        arguments.push_back(argument->Clone(storage));
-      }
-      return storage.Create<Function>(function_name_, arguments);
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1056,7 +1025,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class reduce (expression)
   ((accumulator "Identifier *" :initval "nullptr" :scope :public
@@ -1108,13 +1078,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Reduce *Clone(AstStorage &storage) const override {
-      return storage.Create<Reduce>(
-          accumulator_->Clone(storage), initializer_->Clone(storage),
-          identifier_->Clone(storage), list_->Clone(storage),
-          expression_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1131,7 +1094,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class coalesce (expression)
   ((expressions "std::vector<Expression *>"
@@ -1156,25 +1120,19 @@ cpp<#
      }
      return visitor.PostVisit(*this);
    }
-
-   Coalesce *Clone(AstStorage &storage) const override {
-     std::vector<Expression *> expressions;
-     expressions.reserve(expressions_.size());
-     for (const auto &expr : expressions_) {
-       expressions.emplace_back(expr->Clone(storage));
-     }
-     return storage.Create<Coalesce>(std::move(expressions));
-   }
    cpp<#
    )
   (:private
    #>cpp
+   Coalesce(int uid) : Expression(uid_) {}
+
    Coalesce(int uid, const std::vector<Expression *> &expressions)
        : Expression(uid), expressions_(expressions) {}
 
    friend class AstStorage;
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class extract (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -1211,15 +1169,11 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Extract *Clone(AstStorage &storage) const override {
-      return storage.Create<Extract>(identifier_->Clone(storage),
-                                     list_->Clone(storage),
-                                     expression_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
+    Extract(int uid) : Expression(uid) {}
+
     Extract(int uid, Identifier *identifier, Expression *list,
             Expression *expression)
         : Expression(uid),
@@ -1231,7 +1185,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class all (expression)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -1265,15 +1220,11 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    All *Clone(AstStorage &storage) const override {
-      return storage.Create<All>(identifier_->Clone(storage),
-                                 list_expression_->Clone(storage),
-                                 where_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
+    All(int uid) : Expression(uid) {}
+
     All(int uid, Identifier *identifier, Expression *list_expression,
         Where *where)
         : Expression(uid),
@@ -1285,7 +1236,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 ;; TODO: This is pretty much copy pasted from All. Consider merging Reduce,
 ;; All, Any and Single into something like a higher-order function call which
@@ -1322,12 +1274,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Single *Clone(AstStorage &storage) const override {
-      return storage.Create<Single>(identifier_->Clone(storage),
-                                    list_expression_->Clone(storage),
-                                    where_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1342,7 +1288,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class parameter-lookup (expression)
   ((token-position :int32_t :initval -1 :scope :public
@@ -1354,10 +1301,6 @@ cpp<#
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
     DEFVISITABLE(ExpressionVisitor<void>);
     DEFVISITABLE(HierarchicalTreeVisitor);
-
-    ParameterLookup *Clone(AstStorage &storage) const override {
-      return storage.Create<ParameterLookup>(token_position_);
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1369,7 +1312,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class named-expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
                                          "::utils::Visitable<ExpressionVisitor<TypedValue>>"
@@ -1399,11 +1343,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    NamedExpression *Clone(AstStorage &storage) const override {
-      return storage.Create<NamedExpression>(name_, expression_->Clone(storage),
-                                             token_position_);
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1423,7 +1362,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; END Expressions
@@ -1442,8 +1382,6 @@ cpp<#
     using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     PatternAtom() = default;
-
-    PatternAtom *Clone(AstStorage &storage) const override = 0;
     cpp<#)
   (:protected
     #>cpp
@@ -1456,7 +1394,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class node-atom (pattern-atom)
   ((labels "std::vector<LabelIx>" :scope :public
@@ -1475,13 +1414,15 @@ cpp<#
                            LabelIx ix;
                            Load(&ix, reader, storage);
                            return ix;
-                         }"))
+                         }")
+           :clone (clone-name-ix-vector "Label"))
    (properties "std::unordered_map<PropertyIx, Expression *>"
                :slk-save #'slk-save-property-map
                :slk-load #'slk-load-property-map
                :capnp-type "Utils.Map(PropertyIx, Tree)"
                :capnp-save #'save-property-map
                :capnp-load #'load-property-map
+               :clone #'clone-property-map
                :scope :public))
   (:public
     #>cpp
@@ -1496,19 +1437,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    NodeAtom *Clone(AstStorage &storage) const override {
-      auto *node_atom = storage.Create<NodeAtom>(identifier_->Clone(storage));
-      node_atom->labels_.reserve(labels_.size());
-      for (const auto &label : labels_) {
-        node_atom->labels_.push_back(storage.GetLabelIx(label.name));
-      }
-      for (auto property : properties_) {
-        auto prop = storage.GetPropertyIx(property.first.name);
-        node_atom->properties_[prop] = property.second->Clone(storage);
-      }
-      return node_atom;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1518,7 +1446,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class edge-atom (pattern-atom)
   ((type "Type" :initval "Type::SINGLE" :scope :public)
@@ -1539,14 +1468,16 @@ cpp<#
                                EdgeTypeIx ix;
                                Load(&ix, reader, storage);
                                return ix;
-                             }"))
+                             }")
+               :clone (clone-name-ix-vector "EdgeType"))
    (properties "std::unordered_map<PropertyIx, Expression *>"
                :scope :public
                :slk-save #'slk-save-property-map
                :slk-load #'slk-load-property-map
                :capnp-type "Utils.Map(PropertyIx, Tree)"
                :capnp-save #'save-property-map
-               :capnp-load #'load-property-map)
+               :capnp-load #'load-property-map
+               :clone #'clone-property-map)
    (lower-bound "Expression *" :initval "nullptr" :scope :public
                 :slk-save #'slk-save-ast-pointer
                 :slk-load (slk-load-ast-pointer "Expression")
@@ -1624,7 +1555,8 @@ cpp<#
                   (:capnp
                    :save-args '((saved-uids "std::vector<int32_t> *"))
                    :load-args '((storage "AstStorage *")
-                                (loaded-uids "std::vector<int32_t> *")))))
+                                (loaded-uids "std::vector<int32_t> *"))))
+      (:clone :args '((storage "AstStorage *"))))
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
       if (visitor.PreVisit(*this)) {
@@ -1645,31 +1577,6 @@ cpp<#
         }
       }
       return visitor.PostVisit(*this);
-    }
-
-    EdgeAtom *Clone(AstStorage &storage) const override {
-      auto *edge_atom = storage.Create<EdgeAtom>(identifier_->Clone(storage));
-      edge_atom->direction_ = direction_;
-      edge_atom->type_ = type_;
-      edge_atom->edge_types_.reserve(edge_types_.size());
-      for (const auto &edge_type : edge_types_) {
-        edge_atom->edge_types_.push_back(storage.GetEdgeTypeIx(edge_type.name));
-      }
-      for (auto property : properties_) {
-        auto prop = storage.GetPropertyIx(property.first.name);
-        edge_atom->properties_[prop] = property.second->Clone(storage);
-      }
-      edge_atom->lower_bound_ = CloneOpt(lower_bound_, storage);
-      edge_atom->upper_bound_ = CloneOpt(upper_bound_, storage);
-      auto clone_lambda = [&storage](const auto &lambda) {
-        return Lambda{CloneOpt(lambda.inner_edge, storage),
-                      CloneOpt(lambda.inner_node, storage),
-                      CloneOpt(lambda.expression, storage)};
-      };
-      edge_atom->filter_lambda_ = clone_lambda(filter_lambda_);
-      edge_atom->weight_lambda_ = clone_lambda(weight_lambda_);
-      edge_atom->total_weight_ = CloneOpt(total_weight_, storage);
-      return edge_atom;
     }
 
     bool IsVariable() const {
@@ -1700,13 +1607,9 @@ cpp<#
   (:private
     #>cpp
     friend class AstStorage;
-
-    template <typename TPtr>
-    static TPtr *CloneOpt(TPtr *ptr, AstStorage &storage) {
-      return ptr ? ptr->Clone(storage) : nullptr;
-    }
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class pattern (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -1739,15 +1642,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Pattern *Clone(AstStorage &storage) const override {
-      auto *pattern = storage.Create<Pattern>();
-      pattern->identifier_ = identifier_->Clone(storage);
-      for (auto *atom : atoms_) {
-        pattern->atoms_.push_back(atom->Clone(storage));
-      }
-      return pattern;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1758,7 +1652,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class clause (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ()
@@ -1768,8 +1663,6 @@ cpp<#
     using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     Clause() = default;
-
-    Clause *Clone(AstStorage &storage) const override = 0;
     cpp<#)
   (:protected
     #>cpp
@@ -1780,7 +1673,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class single-query (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((clauses "std::vector<Clause *>"
@@ -1804,14 +1698,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    SingleQuery *Clone(AstStorage &storage) const override {
-      auto *single_query = storage.Create<SingleQuery>();
-      for (auto *clause : clauses_) {
-        single_query->clauses_.push_back(clause->Clone(storage));
-      }
-      return single_query;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1822,7 +1708,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class cypher-union (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
@@ -1846,13 +1733,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    CypherUnion *Clone(AstStorage &storage) const override {
-      auto cypher_union = storage.Create<CypherUnion>(distinct_);
-      cypher_union->single_query_ = single_query_->Clone(storage);
-      cypher_union->union_symbols_ = union_symbols_;
-      return cypher_union;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1870,7 +1750,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class query (tree "::utils::Visitable<QueryVisitor<void>>")
   ()
@@ -1880,8 +1761,6 @@ cpp<#
     using ::utils::Visitable<QueryVisitor<void>>::Accept;
 
     Query() = default;
-
-    virtual Query *Clone(AstStorage &storage) const = 0;
     cpp<#)
   (:protected
     #>cpp
@@ -1892,7 +1771,8 @@ cpp<#
     friend class AstStorage;
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
-              (:capnp :ignore-other-base-classes t)))
+              (:capnp :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t))
 
 (lcp:define-class cypher-query (query)
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
@@ -1915,15 +1795,6 @@ cpp<#
     CypherQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
-
-    CypherQuery *Clone(AstStorage &storage) const override {
-      auto *cypher_query = storage.Create<CypherQuery>();
-      cypher_query->single_query_ = single_query_->Clone(storage);
-      for (auto *cypher_union : cypher_unions_) {
-        cypher_query->cypher_unions_.push_back(cypher_union->Clone(storage));
-      }
-      return cypher_query;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1933,7 +1804,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class explain-query (query)
   ((cypher-query "CypherQuery *" :initval "nullptr" :scope :public
@@ -1948,12 +1820,6 @@ cpp<#
     ExplainQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
-
-    ExplainQuery *Clone(AstStorage &storage) const override {
-      auto *explain_query = storage.Create<ExplainQuery>();
-      explain_query->cypher_query_ = cypher_query_->Clone(storage);
-      return explain_query;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -1963,7 +1829,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class profile-query (query)
   ((cypher-query "CypherQuery *"
@@ -1981,19 +1848,14 @@ cpp<#
    ProfileQuery() = default;
 
    DEFVISITABLE(QueryVisitor<void>);
-
-   ProfileQuery *Clone(AstStorage &storage) const override {
-     auto *profile_query = storage.Create<ProfileQuery>();
-     profile_query->cypher_query_ = cypher_query_->Clone(storage);
-     return profile_query;
-   }
    cpp<#)
   (:private
    #>cpp
    explicit ProfileQuery(int uid) : Query(uid) {}
    friend class AstStorage;
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class index-query (query)
   ((action "Action" :scope :public)
@@ -2001,7 +1863,11 @@ cpp<#
           :slk-load (lambda (member)
                      #>cpp
                      slk::Load(&self->${member}, reader, storage);
-                     cpp<#))
+                     cpp<#)
+          :clone (lambda (source dest)
+                   #>cpp
+                   ${dest} = storage->GetLabelIx(${source}.name);
+                   cpp<#))
    (properties "std::vector<PropertyIx>" :scope :public
                :slk-load (lambda (member)
                           #>cpp
@@ -2018,7 +1884,8 @@ cpp<#
                                PropertyIx ix;
                                Load(&ix, reader, storage);
                                return ix;
-                             }")))
+                             }")
+               :clone (clone-name-ix-vector "Property")))
   (:public
    (lcp:define-enum action
        (create create-unique drop)
@@ -2028,16 +1895,6 @@ cpp<#
     IndexQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
-
-    IndexQuery *Clone(AstStorage &storage) const override {
-      std::vector<PropertyIx> new_properties;
-      new_properties.reserve(properties_.size());
-      for (const auto &prop : properties_) {
-        new_properties.push_back(storage.GetPropertyIx(prop.name));
-      }
-      return storage.Create<IndexQuery>(action_, storage.GetLabelIx(label_.name),
-                                        new_properties);
-    }
   cpp<#)
   (:protected
     #>cpp
@@ -2050,7 +1907,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class create (clause)
   ((patterns "std::vector<Pattern *>"
@@ -2072,14 +1930,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Create *Clone(AstStorage &storage) const override {
-      auto *create = storage.Create<Create>();
-      for (auto *pattern : patterns_) {
-        create->patterns_.push_back(pattern->Clone(storage));
-      }
-      return create;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2091,7 +1941,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class match (clause)
   ((patterns "std::vector<Pattern *>"
@@ -2127,15 +1978,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Match *Clone(AstStorage &storage) const override {
-      auto *match = storage.Create<Match>(optional_);
-      for (auto *pattern : patterns_) {
-        match->patterns_.push_back(pattern->Clone(storage));
-      }
-      match->where_ = where_ ? where_->Clone(storage) : nullptr;
-      return match;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2148,7 +1990,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-enum ordering
     (asc desc)
@@ -2156,7 +1999,7 @@ cpp<#
   (:serialize))
 
 (lcp:define-struct sort-item ()
-  ((ordering "Ordering")
+  ((ordering "Ordering" :scope :public)
    (expression "Expression *"
                :slk-save #'slk-save-ast-pointer
                :slk-load (slk-load-ast-pointer "Expression")
@@ -2169,7 +2012,8 @@ cpp<#
               (:capnp
                :save-args '((saved-uids "std::vector<int32_t> *"))
                :load-args '((storage "AstStorage *")
-                            (loaded-uids "std::vector<int32_t> *")))))
+                            (loaded-uids "std::vector<int32_t> *"))))
+  (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-struct return-body ()
   ((distinct :bool :initval "false"
@@ -2239,14 +2083,8 @@ cpp<#
               (:capnp
                :save-args '((saved-uids "std::vector<int32_t> *"))
                :load-args '((storage "AstStorage *")
-                            (loaded-uids "std::vector<int32_t> *")))))
-
-#>cpp
-// Deep copy ReturnBody.
-// TODO: Think about turning ReturnBody to class and making this
-// function class member.
-ReturnBody CloneReturnBody(AstStorage &storage, const ReturnBody &body);
-cpp<#
+                            (loaded-uids "std::vector<int32_t> *"))))
+  (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class return (clause)
   ((body "ReturnBody" :scope :public
@@ -2284,12 +2122,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Return *Clone(AstStorage &storage) const override {
-      auto *ret = storage.Create<Return>();
-      ret->body_ = CloneReturnBody(storage, body_);
-      return ret;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2300,7 +2132,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class with (clause)
   ((body "ReturnBody" :scope :public
@@ -2345,13 +2178,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    With *Clone(AstStorage &storage) const override {
-      auto *with = storage.Create<With>();
-      with->body_ = CloneReturnBody(storage, body_);
-      with->where_ = where_ ? where_->Clone(storage) : nullptr;
-      return with;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2363,7 +2189,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class delete (clause)
   ((expressions "std::vector<Expression *>"
@@ -2386,15 +2213,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Delete *Clone(AstStorage &storage) const override {
-      auto *del = storage.Create<Delete>();
-      for (auto *expression : expressions_) {
-        del->expressions_.push_back(expression->Clone(storage));
-      }
-      del->detach_ = detach_;
-      return del;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2406,7 +2224,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class set-property (clause)
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
@@ -2431,11 +2250,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    SetProperty *Clone(AstStorage &storage) const override {
-      return storage.Create<SetProperty>(property_lookup_->Clone(storage),
-                                         expression_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2449,7 +2263,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class set-properties (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -2475,11 +2290,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    SetProperties *Clone(AstStorage &storage) const override {
-      return storage.Create<SetProperties>(identifier_->Clone(storage),
-                                           expression_->Clone(storage), update_);
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2495,7 +2305,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class set-labels (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -2520,7 +2331,8 @@ cpp<#
                            LabelIx ix;
                            Load(&ix, reader, storage);
                            return ix;
-                         }")))
+                         }")
+           :clone (clone-name-ix-vector "Label")))
   (:public
     #>cpp
     SetLabels() = default;
@@ -2530,15 +2342,6 @@ cpp<#
         identifier_->Accept(visitor);
       }
       return visitor.PostVisit(*this);
-    }
-
-    SetLabels *Clone(AstStorage &storage) const override {
-      std::vector<LabelIx> new_labels;
-      new_labels.reserve(labels_.size());
-      for (const auto &label : labels_) {
-        new_labels.push_back(storage.GetLabelIx(label.name));
-      }
-      return storage.Create<SetLabels>(identifier_->Clone(storage), new_labels);
     }
     cpp<#)
   (:protected
@@ -2552,7 +2355,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class remove-property (clause)
   ((property-lookup "PropertyLookup *" :initval "nullptr" :scope :public
@@ -2571,10 +2375,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    RemoveProperty *Clone(AstStorage &storage) const override {
-      return storage.Create<RemoveProperty>(property_lookup_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2586,7 +2386,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class remove-labels (clause)
   ((identifier "Identifier *" :initval "nullptr" :scope :public
@@ -2611,7 +2412,8 @@ cpp<#
                            LabelIx ix;
                            Load(&ix, reader, storage);
                            return ix;
-                         }")))
+                         }")
+           :clone (clone-name-ix-vector "Label")))
   (:public
     #>cpp
     RemoveLabels() = default;
@@ -2621,15 +2423,6 @@ cpp<#
         identifier_->Accept(visitor);
       }
       return visitor.PostVisit(*this);
-    }
-
-    RemoveLabels *Clone(AstStorage &storage) const override {
-      std::vector<LabelIx> new_labels;
-      new_labels.reserve(labels_.size());
-      for (const auto &label : labels_) {
-        new_labels.push_back(storage.GetLabelIx(label.name));
-      }
-      return storage.Create<RemoveLabels>(identifier_->Clone(storage), new_labels);
     }
     cpp<#)
   (:protected
@@ -2643,7 +2436,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class merge (clause)
   ((pattern "Pattern *" :initval "nullptr" :scope :public
@@ -2692,18 +2486,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Merge *Clone(AstStorage &storage) const override {
-      auto *merge = storage.Create<Merge>();
-      merge->pattern_ = pattern_->Clone(storage);
-      for (auto *on_match : on_match_) {
-        merge->on_match_.push_back(on_match->Clone(storage));
-      }
-      for (auto *on_create : on_create_) {
-        merge->on_create_.push_back(on_create->Clone(storage));
-      }
-      return merge;
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2719,7 +2501,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class unwind (clause)
   ((named-expression "NamedExpression *" :initval "nullptr" :scope :public
@@ -2738,10 +2521,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-
-    Unwind *Clone(AstStorage &storage) const override {
-      return storage.Create<Unwind>(named_expression_->Clone(storage));
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2757,7 +2536,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class auth-query (query)
   ((action "Action" :scope :public)
@@ -2785,12 +2565,6 @@ cpp<#
     AuthQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
-
-    AuthQuery *Clone(AstStorage &storage) const override {
-      return storage.Create<AuthQuery>(
-          action_, user_, role_, user_or_role_,
-          password_ ? password_->Clone(storage) : nullptr, privileges_);
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2811,7 +2585,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 ;; TODO: Generate this via LCP
 #>cpp
@@ -2873,21 +2648,6 @@ cpp<#
     StreamQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
-
-    StreamQuery *Clone(AstStorage &storage) const override {
-      auto *stream_uri = stream_uri_ ? stream_uri_->Clone(storage) : nullptr;
-      auto *stream_topic = stream_topic_ ? stream_topic_->Clone(storage) : nullptr;
-      auto *transform_uri =
-          transform_uri_ ? transform_uri_->Clone(storage) : nullptr;
-      auto *batch_interval_in_ms =
-          batch_interval_in_ms_ ? batch_interval_in_ms_->Clone(storage) : nullptr;
-      auto *batch_size = batch_size_ ? batch_size_->Clone(storage) : nullptr;
-      auto *limit_batches =
-          limit_batches_ ? limit_batches_->Clone(storage) : nullptr;
-      return storage.Create<StreamQuery>(
-          action_, stream_name_, stream_uri, stream_topic, transform_uri,
-          batch_interval_in_ms, batch_size, limit_batches);
-    }
     cpp<#)
   (:protected
     #>cpp
@@ -2910,11 +2670,7 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
-
-#>cpp
-#undef CLONE_BINARY_EXPRESSION
-#undef CLONE_UNARY_EXPRESSION
-cpp<#
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:pop-namespace) ;; namespace query

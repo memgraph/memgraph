@@ -251,7 +251,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
         // Now handle the post-expansion filter.
         // Create a new identifier and a symbol which will be filled in All.
-        auto *identifier = atom->identifier_->Clone(storage);
+        auto *identifier = storage.Create<Identifier>(
+            atom->identifier_->name_, atom->identifier_->user_declared_);
         symbol_table[*identifier] =
             symbol_table.CreateSymbol(identifier->name_, false);
         // Create an equality expression and store it in all_filters_.

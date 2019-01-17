@@ -899,7 +899,7 @@ Interpreter::ParsedQuery Interpreter::ParseQuery(
   ast_storage->properties_ = ast_it->second.ast_storage.properties_;
   ast_storage->labels_ = ast_it->second.ast_storage.labels_;
   ast_storage->edge_types_ = ast_it->second.ast_storage.edge_types_;
-  return ParsedQuery{ast_it->second.query->Clone(*ast_storage),
+  return ParsedQuery{ast_it->second.query->Clone(ast_storage),
                      ast_it->second.required_privileges};
 }
 
