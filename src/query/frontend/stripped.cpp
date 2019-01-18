@@ -462,7 +462,7 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
   State state = State::OUT;
   int i = start;
   int len = original_.size();
-  // We need to remember at which position comment started because if we faile
+  // We need to remember at which position comment started because if we fail
   // to match comment finish we have a match until comment start position.
   int comment_position = -1;
   while (i < len) {
@@ -478,7 +478,11 @@ int StrippedQuery::MatchWhitespaceAndComments(int start) const {
       } else if (i + 1 < len && original_[i] == '/' &&
                  original_[i + 1] == '/') {
         comment_position = i;
-        state = State::IN_LINE_COMMENT;
+        if (i + 2 < len) {
+          // Special case for an empty line comment starting right at the end of
+          // the query.
+          state = State::IN_LINE_COMMENT;
+        }
         i += 2;
       } else {
         break;

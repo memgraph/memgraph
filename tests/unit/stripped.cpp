@@ -249,6 +249,20 @@ TEST(QueryStripper, LineComment4) {
   EXPECT_EQ(stripped.query(), "MaTch ( n : peropero ) return n / / komentar");
 }
 
+TEST(QueryStripper, LineComment5) {
+  {
+    StrippedQuery stripped("MaTch (n:peropero) return n//");
+    EXPECT_EQ(stripped.literals().size(), 0);
+    EXPECT_EQ(stripped.query(), "MaTch ( n : peropero ) return n");
+  }
+  {
+    StrippedQuery stripped("MATCH (n) MATCH (n)-[*bfs]->(m) RETURN n;\n//");
+    EXPECT_EQ(stripped.literals().size(), 0);
+    EXPECT_EQ(stripped.query(),
+              "MATCH ( n ) MATCH ( n ) - [ * bfs ] - > ( m ) RETURN n ;");
+  }
+}
+
 TEST(QueryStripper, Spaces) {
   StrippedQuery stripped(u8"RETURN \r\n\u202f\t\u2007  NuLl");
   EXPECT_EQ(stripped.literals().size(), 0);
