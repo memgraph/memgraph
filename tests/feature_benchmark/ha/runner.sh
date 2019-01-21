@@ -1,5 +1,15 @@
 #!/bin/bash
 
+## Helper functions
+
+function wait_for_server {
+    port=$1
+    while ! nc -z -w 1 127.0.0.1 $port; do
+        sleep 0.1
+    done
+    sleep 1
+}
+
 function echo_info { printf "\033[1;36m~~ $1 ~~\033[0m\n"; }
 function echo_success { printf "\033[1;32m~~ $1 ~~\033[0m\n\n"; }
 function echo_failure { printf "\033[1;31m~~ $1 ~~\033[0m\n\n"; }
@@ -33,10 +43,11 @@ do
     --port $((7686 + $server_id)) \
     --durability_directory=dur$server_id &
   HA_PIDS[$server_id]=$!
+  wait_for_server $((7686 + $server_id))
 done
 
 # Allow some time for leader election.
-sleep 3
+sleep 10
 
 # Start the memgraph process and wait for it to start.
 echo_info "Starting HA benchmark"
