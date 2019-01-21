@@ -121,7 +121,7 @@ bool GraphDb::MakeSnapshot(GraphDbAccessor &accessor) {
 }
 
 void GraphDb::Reset() {
-  // Release gc scheduler to stop it from touching storage
+  // Release gc scheduler to stop it from touching storage.
   storage_gc_ = nullptr;
   storage_ = std::make_unique<Storage>(config_.properties_on_disk);
 

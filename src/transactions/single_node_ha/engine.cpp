@@ -202,8 +202,6 @@ void Engine::Reset() {
     clog_ = nullptr;
     clog_ = std::make_unique<CommitLog>();
   }
-  // local_lock_graph_ should be empty because all transactions should've finish
-  // by now.
   accepting_transactions_.store(true);
 }
 
