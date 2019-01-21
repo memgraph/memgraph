@@ -332,7 +332,14 @@ class AstStorage {
 cpp<#
 
 (lcp:define-class tree ()
-  ((uid :int32_t :scope :public))
+  ((uid :int32_t :scope :public
+        :clone (lambda (source dest)
+                 #>cpp
+                 ${dest} = ${source};
+                 // TODO(mtomic): This is a hack. Adopting existing UIDs breaks everything
+                 // because `AstStorage` keeps a counter for generating when `Create` is called.
+                 storage->max_existing_uid_ = std::max(storage->max_existing_uid_, ${source});
+                 cpp<#)))
   (:abstractp t)
   (:public
     #>cpp

@@ -229,7 +229,9 @@ can serve as inputs to others and thus a sequence of operations is formed.")
          :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *")))
    (:capnp :base t
            :save-args '((helper "LogicalOperator::SaveHelper *"))
-           :load-args '((helper "LogicalOperator::LoadHelper *")))))
+           :load-args '((helper "LogicalOperator::LoadHelper *"))))
+  (:clone :args '((storage "AstStorage *"))
+          :base t))
 
 (defun slk-save-ast-pointer (member)
   #>cpp
@@ -371,7 +373,8 @@ and false on every following Pull.")
      bool did_pull_{false};
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (defun slk-save-properties (member)
   #>cpp
@@ -431,7 +434,8 @@ and false on every following Pull.")
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *")))
               (:capnp :save-args '((helper "LogicalOperator::SaveHelper *"))
-                      :load-args '((helper "LogicalOperator::LoadHelper *")))))
+                      :load-args '((helper "LogicalOperator::LoadHelper *"))))
+  (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -494,7 +498,8 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-struct edge-creation-info ()
   ((symbol "Symbol")
@@ -516,7 +521,8 @@ a preceeding `MATCH`), or multiple nodes (`MATCH ... CREATE` or
   (:serialize (:slk :save-args '((helper "query::plan::LogicalOperator::SaveHelper *"))
                     :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *")))
               (:capnp :save-args '((helper "LogicalOperator::SaveHelper *"))
-                      :load-args '((helper "LogicalOperator::LoadHelper *")))))
+                      :load-args '((helper "LogicalOperator::LoadHelper *"))))
+  (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class create-expand (logical-operator)
   ((node-info "NodeCreationInfo" :scope :public
@@ -621,7 +627,8 @@ chained in cases when longer paths need creating.
                      ExpressionEvaluator &evaluator);
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class scan-all (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -675,7 +682,8 @@ with a constructor argument.
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class scan-all-by-label (scan-all)
   ((label "storage::Label" :scope :public))
@@ -696,7 +704,8 @@ given label.
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (defun slk-save-optional-bound (member)
   #>cpp
@@ -774,20 +783,35 @@ given label.
                                       load-bound)
              reader member capnp-name)))
 
+(defun clone-optional-bound (source dest)
+  #>cpp
+  if (${source}) {
+    ${dest}.emplace(utils::Bound<Expression *>(
+                    ${source}->value()->Clone(storage),
+                    ${source}->type()));
+  } else {
+    ${dest} = std::experimental::nullopt;
+  }
+  cpp<#)
+
 (lcp:define-class scan-all-by-label-property-range (scan-all)
   ((label "storage::Label" :scope :public)
    (property "storage::Property" :scope :public)
    (property-name "std::string" :scope :public)
    (lower-bound "std::experimental::optional<Bound>" :scope :public
-                :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"
                 :slk-save #'slk-save-optional-bound
                 :slk-load #'slk-load-optional-bound
-                :capnp-save #'save-optional-bound :capnp-load #'load-optional-bound)
+                :capnp-save #'save-optional-bound
+                :capnp-load #'load-optional-bound
+                :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"
+                :clone #'clone-optional-bound)
    (upper-bound "std::experimental::optional<Bound>" :scope :public
                 :slk-save #'slk-save-optional-bound
                 :slk-load #'slk-load-optional-bound
-                :capnp-save #'save-optional-bound :capnp-load #'load-optional-bound
-                :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"))
+                :capnp-save #'save-optional-bound
+                :capnp-load #'load-optional-bound
+                :capnp-type "Utils.Optional(Utils.Bound(Ast.Tree))"
+                :clone #'clone-optional-bound))
   (:documentation
    "Behaves like @c ScanAll, but produces only vertices with given label and
 property value which is inside a range (inclusive or exlusive).
@@ -826,7 +850,8 @@ property value which is inside a range (inclusive or exlusive).
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class scan-all-by-label-property-value (scan-all)
   ((label "storage::Label" :scope :public)
@@ -868,7 +893,8 @@ property value.
    std::unique_ptr<Cursor> MakeCursor(
        database::GraphDbAccessor &db) const override;
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-struct expand-common ()
   (
@@ -989,7 +1015,8 @@ pulled.")
      bool InitEdges(Frame &, ExecutionContext &);
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-struct expansion-lambda ()
   ((inner-edge-symbol "Symbol" :documentation "Currently expanded edge symbol.")
@@ -1028,7 +1055,8 @@ pulled.")
               (:capnp
                :save-args '((saved-ast-uids "std::vector<int32_t> *"))
                :load-args '((ast-storage "AstStorage *")
-                            (loaded-ast-uids "std::vector<int32_t> *")))))
+                            (loaded-ast-uids "std::vector<int32_t> *"))))
+  (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class expand-variable (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1189,7 +1217,8 @@ pulled.")
    friend class ExpandVariableCursor;
    friend class ExpandWeightedShortestPathCursor;
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class construct-named-path (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1223,7 +1252,8 @@ pulled.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class filter (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1273,7 +1303,8 @@ a boolean value.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class produce (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1329,7 +1360,8 @@ RETURN clause) the Produce's pull succeeds exactly once.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class delete (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1382,7 +1414,8 @@ Has a flag for using DETACH DELETE when deleting vertices.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class set-property (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1438,7 +1471,8 @@ can be stored (a TypedValue that can be converted to PropertyValue).")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class set-properties (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1511,7 +1545,8 @@ that the old properties are discarded and replaced with new ones.")
      void Set(TRecordAccessor &record, const TypedValue &rhs) const;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class set-labels (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1558,7 +1593,8 @@ It does NOT remove labels that are already set on that Vertex.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class remove-property (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1606,7 +1642,8 @@ It does NOT remove labels that are already set on that Vertex.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class remove-labels (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1653,7 +1690,8 @@ If a label does not exist on a Vertex, nothing happens.")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class edge-uniqueness-filter (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1712,7 +1750,8 @@ edge lists).")
      const std::unique_ptr<Cursor> input_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class accumulate (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -1786,7 +1825,8 @@ has been cached will be reconstructed before Pull returns.
      bool pulled_all_input_{false};
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 #>cpp
 /**
@@ -1881,7 +1921,8 @@ elements are in an undefined state after aggregation.")
                        :load-args '((helper "query::plan::LogicalOperator::SlkLoadHelper *")))
                  (:capnp
                   :save-args '((helper "LogicalOperator::SaveHelper *"))
-                  :load-args '((helper "LogicalOperator::LoadHelper *")))))
+                  :load-args '((helper "LogicalOperator::LoadHelper *"))))
+     (:clone :args '((storage "AstStorage *"))))
    #>cpp
    Aggregate() = default;
    Aggregate(const std::shared_ptr<LogicalOperator> &input,
@@ -1981,7 +2022,8 @@ elements are in an undefined state after aggregation.")
      void EnsureOkForAvgSum(const TypedValue &value) const;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class skip (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2041,7 +2083,8 @@ operator's implementation does not expect this.")
      int skipped_{0};
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class limit (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2104,7 +2147,8 @@ input should be performed).")
      int pulled_{0};
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class order-by (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2176,7 +2220,8 @@ are valid for usage after the OrderBy operator.")
      decltype(cache_.begin()) cache_it_ = cache_.begin();
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class merge (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2249,7 +2294,8 @@ documentation.")
      bool pull_input_{true};
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class optional (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2311,7 +2357,8 @@ and returns true, once.")
      bool pull_input_{true};
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class unwind (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2368,7 +2415,8 @@ Input is optional (unwind can be the first clause in a query).")
      std::vector<TypedValue>::iterator input_value_it_ = input_value_.end();
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class distinct (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2427,7 +2475,8 @@ This implementation maintains input ordering.")
          seen_rows_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class union (logical-operator)
   ((left-op "std::shared_ptr<LogicalOperator>" :scope :public
@@ -2488,7 +2537,8 @@ of symbols used by each of the inputs.")
      const std::unique_ptr<Cursor> left_cursor_, right_cursor_;
    };
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 ;; TODO: We should probably output this operator in regular planner, not just
 ;; distributed planner.
@@ -2533,12 +2583,13 @@ of symbols used by each of the inputs.")
     std::shared_ptr<LogicalOperator> input() const override;
     void set_input(std::shared_ptr<LogicalOperator>) override;
     cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class output-table (logical-operator)
   ((output-symbols "std::vector<Symbol>" :scope :public :dont-save t)
    (callback "std::function<std::vector<std::vector<TypedValue>>(Frame *, ExecutionContext *)>"
-             :scope :public :dont-save t))
+             :scope :public :dont-save t :clone :copy))
   (:documentation "An operator that outputs a table, producing a single row on each pull")
   (:public
    #>cpp
@@ -2567,7 +2618,8 @@ of symbols used by each of the inputs.")
    std::shared_ptr<LogicalOperator> input() const override;
    void set_input(std::shared_ptr<LogicalOperator> input) override;
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:pop-namespace) ;; plan
 (lcp:pop-namespace) ;; query

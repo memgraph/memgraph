@@ -84,7 +84,8 @@ time on data transfer. It gives no guarantees on result order.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (defun slk-load-pull-remote (member)
   #>cpp
@@ -119,7 +120,16 @@ time on data transfer. It gives no guarantees on result order.")
                 :slk-save #'slk-save-operator-pointer
                 :slk-load #'slk-load-pull-remote
                 :capnp-save #'save-operator-pointer
-                :capnp-load #'load-pull-remote)
+                :capnp-load #'load-pull-remote
+                :clone (lambda (source dest)
+                         #>cpp
+                         if (${source}) {
+                           std::shared_ptr<LogicalOperator> tmp = ${source}->Clone(storage);
+                           ${dest} = std::static_pointer_cast<PullRemote>(tmp);
+                         } else {
+                           ${dest} = nullptr;
+                         }
+                         cpp<#))
    (advance-command :bool :initval "false" :scope :public))
   (:documentation
    "Operator used to synchronize stages of plan execution between the master and
@@ -164,7 +174,8 @@ Logic of the synchronize operator is:
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class pull-remote-order-by (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -209,7 +220,8 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class distributed-expand (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -242,7 +254,8 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class distributed-expand-bfs (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -312,7 +325,8 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class distributed-create-node (logical-operator)
   ((input "std::shared_ptr<LogicalOperator>" :scope :public
@@ -348,7 +362,8 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:define-class distributed-create-expand (logical-operator)
   ((node-info "NodeCreationInfo" :scope :public
@@ -395,7 +410,8 @@ by having only one result from each worker.")
      input_ = input;
    }
    cpp<#)
-  (:serialize (:slk) (:capnp)))
+  (:serialize (:slk) (:capnp))
+  (:clone))
 
 (lcp:pop-namespace) ;; plan
 (lcp:pop-namespace) ;; query

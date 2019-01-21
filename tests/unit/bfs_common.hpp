@@ -127,6 +127,11 @@ class Yield : public query::plan::LogicalOperator {
     LOG(FATAL) << "Please go away, visitor!";
   }
 
+  std::unique_ptr<LogicalOperator> Clone(
+      query::AstStorage *storage) const override {
+    LOG(FATAL) << "Don't clone Yield operator!";
+  }
+
   std::shared_ptr<query::plan::LogicalOperator> input_;
   std::vector<query::Symbol> modified_symbols_;
   std::vector<std::vector<query::TypedValue>> values_;

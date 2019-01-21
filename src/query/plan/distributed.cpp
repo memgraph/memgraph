@@ -18,18 +18,9 @@ namespace {
 
 std::pair<std::unique_ptr<LogicalOperator>, AstStorage> Clone(
     const LogicalOperator &original_plan) {
-  // TODO: Add a proper Clone method to LogicalOperator
-  ::capnp::MallocMessageBuilder message;
-  {
-    auto builder = message.initRoot<query::plan::capnp::LogicalOperator>();
-    LogicalOperator::SaveHelper helper;
-    Save(original_plan, &builder, &helper);
-  }
-  auto reader = message.getRoot<query::plan::capnp::LogicalOperator>();
-  std::unique_ptr<LogicalOperator> plan_copy;
-  LogicalOperator::LoadHelper helper;
-  Load(&plan_copy, reader, &helper);
-  return std::make_pair(std::move(plan_copy), std::move(helper.ast_storage));
+  AstStorage storage;
+  std::unique_ptr<LogicalOperator> root_copy = original_plan.Clone(&storage);
+  return std::make_pair(std::move(root_copy), std::move(storage));
 }
 
 int64_t AddWorkerPlan(DistributedPlan &distributed_plan,

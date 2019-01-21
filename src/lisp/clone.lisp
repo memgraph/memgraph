@@ -61,33 +61,54 @@ Usage example:
 (defun copy-object (source-name dest-name)
   (format nil "~A = ~A;" dest-name source-name))
 
+;; TODO: This could be a common function in types.lisp if it were improved
+;; a bit. It probably won't be necessary once we refactor LCP to use uniform
+;; type designators.
+(defun get-type (type-designator)
+  (ctypecase type-designator
+    (lcp::cpp-type type-designator)
+    (string (lcp::parse-cpp-type-declaration type-designator))
+    (symbol (lcp::cpp-type type-designator))))
+
 (defun clone-by-copy-p (object-type)
-  (cond
-    ((string= "vector" (lcp::cpp-type-name object-type))
-     (clone-by-copy-p (car (lcp::cpp-type-type-args object-type))))
-    ((string= "optional" (lcp::cpp-type-name object-type))
-     (clone-by-copy-p (car (lcp::cpp-type-type-args object-type))))
-    ((string= "unordered_map" (lcp::cpp-type-name object-type))
-     (and (clone-by-copy-p (first (lcp::cpp-type-type-args object-type)))
-          (clone-by-copy-p (second (lcp::cpp-type-type-args object-type)))))
-    ((string= "pair" (lcp::cpp-type-name object-type))
-     (and (clone-by-copy-p (first (lcp::cpp-type-type-args object-type)))
-          (clone-by-copy-p (second (lcp::cpp-type-type-args object-type)))))
-    ((lcp::cpp-type-type-args object-type) nil)
-    (t (or
-        (lcp::find-cpp-enum (lcp::cpp-type-name object-type))
-        (typep object-type 'lcp::cpp-primitive-type)
-        (string= "string" (lcp::cpp-type-name object-type))
-        (not (lcp::find-cpp-class (lcp::cpp-type-name object-type)))
-        (not (lcp::cpp-class-clone-opts
-              (lcp::find-cpp-class (lcp::cpp-type-name object-type))))))))
+  (let ((object-type (get-type object-type)))
+    (cond
+      ((string= "vector" (lcp::cpp-type-name object-type))
+       (clone-by-copy-p (car (lcp::cpp-type-type-args object-type))))
+      ((string= "optional" (lcp::cpp-type-name object-type))
+       (clone-by-copy-p (car (lcp::cpp-type-type-args object-type))))
+      ((string= "unordered_map" (lcp::cpp-type-name object-type))
+       (and (clone-by-copy-p (first (lcp::cpp-type-type-args object-type)))
+            (clone-by-copy-p (second (lcp::cpp-type-type-args object-type)))))
+      ((string= "pair" (lcp::cpp-type-name object-type))
+       (and (clone-by-copy-p (first (lcp::cpp-type-type-args object-type)))
+            (clone-by-copy-p (second (lcp::cpp-type-type-args object-type)))))
+      ((lcp::cpp-type-type-args object-type) nil)
+      ((or (lcp::find-cpp-enum (lcp::cpp-type-name object-type))
+           (typep object-type 'lcp::cpp-primitive-type)
+           (string= "string" (lcp::cpp-type-name object-type))
+           ;; TODO: We might want to forbid implicit copying of unknown types once
+           ;; there's a way to globally mark type as trivially copyable. Now it is
+           ;; too annoying to add (:clone :copy) option everywhere.
+           (not (lcp::find-cpp-class (lcp::cpp-type-name object-type))))
+       t)
+      (t
+       ;; We know now that we're dealing with a C++ class defined in
+       ;; LCP.  A class is cloneable by copy only if it doesn't have
+       ;; `Clone` function defined, all of its members are cloneable
+       ;; by copy and it is not a member of inheritance hierarchy.
+       (let ((cpp-class (lcp::find-cpp-class (lcp::cpp-type-name object-type))))
+         (assert cpp-class)
+         (and (not (lcp::cpp-class-clone-opts cpp-class))
+              (not (lcp::direct-subclasses-of cpp-class))
+              (not (lcp::cpp-class-super-classes cpp-class))
+              (every (lambda (member)
+                       (or (eq (lcp::cpp-member-clone member) :copy)
+                           (clone-by-copy-p (lcp::cpp-member-type member))))
+                     (lcp::cpp-class-members cpp-class))))))))
 
 (defun clone-object (object-type source-name dest-name &key args)
-  (let ((object-type
-         (ctypecase object-type
-           (lcp::cpp-type object-type)
-           (string (lcp::parse-cpp-type-declaration object-type))
-           (symbol (lcp::cpp-type object-type))))
+  (let ((object-type (get-type object-type))
         (arg-list (format nil "~{~A~^, ~}"
                           (mapcar (lambda (name-and-type)
                                     (lcp::cpp-variable-name (first name-and-type)))
@@ -115,9 +136,8 @@ Usage example:
       ((and (lcp::find-cpp-class (lcp::cpp-type-name object-type))
             (lcp::cpp-class-clone-opts (lcp::find-cpp-class (lcp::cpp-type-name object-type))))
        (format nil "~A = ~A.Clone(~A);" dest-name source-name arg-list))
-      (t
-       (format nil "static_assert(false, \"Don't know how to clone object of type ~A\");"
-               (lcp::cpp-type-decl object-type))))))
+      (t (clone-error "Don't know how to clone object of type ~A"
+                      (lcp::cpp-type-decl object-type))))))
 
 (defun clone-vector (elem-type source-name dest-name &key args)
   (with-vars ((loop-counter "i"))
