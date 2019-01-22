@@ -1,5 +1,12 @@
 # Change Log
 
+## v0.14.1
+
+### Bug Fixes and Other Changes
+
+* Fix bug in explicit transaction handling
+* Fix bug in edge filtering by edge type and destination
+
 ## v0.14.0
 
 ### Breaking Changes
