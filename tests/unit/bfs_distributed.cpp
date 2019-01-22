@@ -30,7 +30,7 @@ class DistributedDb : public Database {
       const ExpansionLambda &filter_lambda) override {
     return std::make_unique<DistributedExpandBfs>(
         input, source_sym, sink_sym, edge_sym, direction, edge_types,
-        existing_node, GraphView::OLD, lower_bound, upper_bound, filter_lambda);
+        existing_node, lower_bound, upper_bound, filter_lambda);
   }
 
   std::pair<std::vector<storage::VertexAddress>,

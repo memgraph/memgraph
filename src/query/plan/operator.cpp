@@ -454,8 +454,8 @@ Expand::Expand(const std::shared_ptr<LogicalOperator> &input,
                bool existing_node, GraphView graph_view)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
-      common_{node_symbol, edge_symbol,   direction,
-              edge_types,  existing_node, graph_view} {}
+      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      graph_view_(graph_view) {}
 
 ACCEPT_WITH_INPUT(Expand)
 
@@ -548,7 +548,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
 
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
     auto &vertex = vertex_value.Value<VertexAccessor>();
-    SwitchAccessor(vertex, self_.common_.graph_view);
+    SwitchAccessor(vertex, self_.graph_view_);
 
     auto direction = self_.common_.direction;
     if (direction == EdgeAtom::Direction::IN ||
@@ -601,11 +601,10 @@ ExpandVariable::ExpandVariable(
     Expression *lower_bound, Expression *upper_bound, bool existing_node,
     ExpansionLambda filter_lambda,
     std::experimental::optional<ExpansionLambda> weight_lambda,
-    std::experimental::optional<Symbol> total_weight, GraphView graph_view)
+    std::experimental::optional<Symbol> total_weight)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
-      common_{node_symbol, edge_symbol,   direction,
-              edge_types,  existing_node, graph_view},
+      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
       type_(type),
       is_reverse_(is_reverse),
       lower_bound_(lower_bound),
@@ -687,9 +686,9 @@ class ExpandVariableCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     SCOPED_PROFILE_OP("ExpandVariable");
 
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table, context.evaluation_context,
-        context.db_accessor, self_.common_.graph_view);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor, GraphView::OLD);
     while (true) {
       if (Expand(frame, context)) return true;
 
@@ -764,14 +763,12 @@ class ExpandVariableCursor : public Cursor {
 
       ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.Value<VertexAccessor>();
-      SwitchAccessor(vertex, self_.common_.graph_view);
+      SwitchAccessor(vertex, GraphView::OLD);
 
       // Evaluate the upper and lower bounds.
       ExpressionEvaluator evaluator(&frame, context.symbol_table,
-
                                     context.evaluation_context,
-                                    context.db_accessor,
-                                    self_.common_.graph_view);
+                                    context.db_accessor, GraphView::OLD);
       auto calc_bound = [&evaluator](auto &bound) {
         auto value = EvaluateInt(&evaluator, bound, "Variable expansion bound");
         if (value < 0)
@@ -785,7 +782,7 @@ class ExpandVariableCursor : public Cursor {
                                         : std::numeric_limits<int64_t>::max();
 
       if (upper_bound_ > 0) {
-        SwitchAccessor(vertex, self_.common_.graph_view);
+        SwitchAccessor(vertex, GraphView::OLD);
         edges_.emplace_back(ExpandFromVertex(vertex, self_.common_.direction,
                                              self_.common_.edge_types));
         edges_it_.emplace_back(edges_.back().begin());
@@ -830,9 +827,9 @@ class ExpandVariableCursor : public Cursor {
    * vertex and another Pull from the input cursor should be performed.
    */
   bool Expand(Frame &frame, ExecutionContext &context) {
-    ExpressionEvaluator evaluator(
-        &frame, context.symbol_table, context.evaluation_context,
-        context.db_accessor, self_.common_.graph_view);
+    ExpressionEvaluator evaluator(&frame, context.symbol_table,
+                                  context.evaluation_context,
+                                  context.db_accessor, GraphView::OLD);
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
@@ -902,7 +899,7 @@ class ExpandVariableCursor : public Cursor {
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
       if (upper_bound_ > static_cast<int64_t>(edges_.size())) {
-        SwitchAccessor(current_vertex, self_.common_.graph_view);
+        SwitchAccessor(current_vertex, GraphView::OLD);
         edges_.emplace_back(ExpandFromVertex(
             current_vertex, self_.common_.direction, self_.common_.edge_types));
         edges_it_.emplace_back(edges_.back().begin());
@@ -922,8 +919,6 @@ class STShortestPathCursor : public query::plan::Cursor {
   STShortestPathCursor(const ExpandVariable &self,
                        database::GraphDbAccessor &dba)
       : self_(self), input_cursor_(self_.input()->MakeCursor(dba)) {
-    CHECK(self_.common_.graph_view == GraphView::OLD)
-        << "ExpandVariable should only be planned with GraphView::OLD";
     CHECK(self_.common_.existing_node)
         << "s-t shortest path algorithm should only "
            "be used when `existing_node` flag is "
@@ -1157,8 +1152,6 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
   SingleSourceShortestPathCursor(const ExpandVariable &self,
                                  database::GraphDbAccessor &db)
       : self_(self), input_cursor_(self_.input()->MakeCursor(db)) {
-    CHECK(self_.common_.graph_view == GraphView::OLD)
-        << "ExpandVariable should only be planned with GraphView::OLD";
     CHECK(!self_.common_.existing_node)
         << "Single source shortest path algorithm "
            "should not be used when `existing_node` "
@@ -1325,7 +1318,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 
     ExpressionEvaluator evaluator(
         &frame, context.symbol_table, context.evaluation_context,
-        context.db_accessor, self_.common_.graph_view);
+        context.db_accessor, GraphView::OLD);
     auto create_state = [this](VertexAccessor vertex, int depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -1336,8 +1329,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     auto expand_pair = [this, &evaluator, &frame, &create_state](
                            EdgeAccessor edge, VertexAccessor vertex,
                            double weight, int depth) {
-      SwitchAccessor(edge, self_.common_.graph_view);
-      SwitchAccessor(vertex, self_.common_.graph_view);
+      SwitchAccessor(edge, GraphView::OLD);
+      SwitchAccessor(vertex, GraphView::OLD);
 
       if (self_.filter_lambda_.expression) {
         frame[self_.filter_lambda_.inner_edge_symbol] = edge;
@@ -1400,7 +1393,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           // Skip expansion for such nodes.
           if (node.IsNull()) continue;
         }
-        SwitchAccessor(vertex, self_.common_.graph_view);
+        SwitchAccessor(vertex, GraphView::OLD);
         if (self_.upper_bound_) {
           upper_bound_ =
               EvaluateInt(&evaluator, self_.upper_bound_,
@@ -2179,9 +2172,8 @@ std::vector<Symbol> EdgeUniquenessFilter::ModifiedSymbols(
   return input_->ModifiedSymbols(table);
 }
 
-EdgeUniquenessFilter::EdgeUniquenessFilterCursor::
-    EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &self,
-                                 database::GraphDbAccessor &db)
+EdgeUniquenessFilter::EdgeUniquenessFilterCursor::EdgeUniquenessFilterCursor(
+    const EdgeUniquenessFilter &self, database::GraphDbAccessor &db)
     : self_(self), input_cursor_(self.input_->MakeCursor(db)) {}
 
 namespace {

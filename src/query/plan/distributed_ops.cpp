@@ -115,8 +115,8 @@ DistributedExpand::DistributedExpand(
     GraphView graph_view)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
-      common_{node_symbol, edge_symbol,   direction,
-              edge_types,  existing_node, graph_view} {}
+      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
+      graph_view_(graph_view) {}
 
 DistributedExpand::DistributedExpand(
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
@@ -139,12 +139,11 @@ DistributedExpandBfs::DistributedExpandBfs(
     const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
     Symbol node_symbol, Symbol edge_symbol, EdgeAtom::Direction direction,
     const std::vector<storage::EdgeType> &edge_types, bool existing_node,
-    GraphView graph_view, Expression *lower_bound, Expression *upper_bound,
+    Expression *lower_bound, Expression *upper_bound,
     const ExpansionLambda &filter_lambda)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(input_symbol),
-      common_{node_symbol, edge_symbol,   direction,
-              edge_types,  existing_node, graph_view},
+      common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
       lower_bound_(lower_bound),
       upper_bound_(upper_bound),
       filter_lambda_(filter_lambda) {}
@@ -979,7 +978,7 @@ class DistributedExpandCursor : public query::plan::Cursor {
 
       ExpectType(self_->input_symbol_, vertex_value, TypedValue::Type::Vertex);
       auto &vertex = vertex_value.Value<VertexAccessor>();
-      SwitchAccessor(vertex, self_->common_.graph_view);
+      SwitchAccessor(vertex, self_->graph_view_);
 
       auto direction = self_->common_.direction;
       if (direction == EdgeAtom::Direction::IN ||
@@ -1058,10 +1057,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
  public:
   DistributedExpandBfsCursor(const DistributedExpandBfs &self,
                              database::GraphDbAccessor &db)
-      : self_(self), db_(db), input_cursor_(self_.input()->MakeCursor(db)) {
-    CHECK(self_.common_.graph_view == GraphView::OLD)
-        << "ExpandVariable should only be planned with GraphView::OLD";
-  }
+      : self_(self), db_(db), input_cursor_(self_.input()->MakeCursor(db)) {}
 
   void InitSubcursors(database::GraphDbAccessor *dba,
                       const query::SymbolTable &symbol_table,
@@ -1090,7 +1086,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
     // Evaluator for the filtering condition and expansion depth.
     ExpressionEvaluator evaluator(
         &frame, context.symbol_table, context.evaluation_context,
-        context.db_accessor, self_.common_.graph_view);
+        context.db_accessor, GraphView::OLD);
 
     while (true) {
       if (context.db_accessor->should_abort()) throw HintedAbortError();

@@ -178,7 +178,7 @@ TEST_F(QueryCostEstimator, ExpandVariable) {
       EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::IN,
       std::vector<storage::EdgeType>{}, false, nullptr, nullptr, false,
       ExpansionLambda{NextSymbol(), NextSymbol(), nullptr},
-      std::experimental::nullopt, std::experimental::nullopt, GraphView::OLD);
+      std::experimental::nullopt, std::experimental::nullopt);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 

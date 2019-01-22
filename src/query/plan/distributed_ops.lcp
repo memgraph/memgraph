@@ -230,7 +230,17 @@ by having only one result from each worker.")
           :capnp-save #'save-operator-pointer
           :capnp-load #'load-operator-pointer)
    (input-symbol "Symbol" :scope :public)
-   (common "ExpandCommon" :scope :public))
+   (common "ExpandCommon" :scope :public)
+   (graph-view "GraphView" :scope :public
+               :capnp-init nil
+               :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView"
+                                                "GraphView"
+                                                '(old new))
+               :capnp-load (lcp:capnp-load-enum "::query::capnp::GraphView"
+                                                "GraphView"
+                                                '(old new))
+               :documentation
+               "State from which the input node should get expanded."))
   (:documentation "Distributed version of Expand operator")
   (:public
    #>cpp
@@ -306,8 +316,8 @@ by having only one result from each worker.")
                         Symbol input_symbol, Symbol node_symbol,
                         Symbol edge_symbol, EdgeAtom::Direction direction,
                         const std::vector<storage::EdgeType> &edge_types,
-                        bool existing_node, GraphView graph_view,
-                        Expression *lower_bound, Expression *upper_bound,
+                        bool existing_node, Expression *lower_bound,
+                        Expression *upper_bound,
                         const ExpansionLambda &filter_lambda);
    DistributedExpandBfs(const std::shared_ptr<LogicalOperator> &input,
                         Symbol input_symbol, const ExpandCommon &common,

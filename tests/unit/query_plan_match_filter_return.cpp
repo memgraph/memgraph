@@ -567,6 +567,8 @@ class QueryPlanExpandVariable : public testing::Test {
       auto convert = [this](std::experimental::optional<size_t> bound) {
         return bound ? LITERAL(static_cast<int64_t>(bound.value())) : nullptr;
       };
+      CHECK(graph_view == GraphView::OLD)
+          << "ExpandVariable should only be planned with GraphView::OLD";
 
       return std::make_shared<ExpandVariable>(
           filter_op, n_from.sym_, n_to_sym, edge_sym,
@@ -575,7 +577,7 @@ class QueryPlanExpandVariable : public testing::Test {
           ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
                           symbol_table.CreateSymbol("inner_node", false),
                           nullptr},
-          std::experimental::nullopt, std::experimental::nullopt, graph_view);
+          std::experimental::nullopt, std::experimental::nullopt);
     } else
       return std::make_shared<Expand>(filter_op, n_from.sym_, n_to_sym,
                                       edge_sym, direction, edge_types, false,
@@ -761,39 +763,6 @@ TEST_F(QueryPlanExpandVariable, EdgeUniquenessTwoVariableExpansions) {
             (map_int{{2, 5 * 8}}));
 }
 
-TEST_F(QueryPlanExpandVariable, GraphState) {
-  auto test_expand = [&](GraphView graph_view,
-                         const std::vector<storage::EdgeType> &edge_types) {
-    auto e = Edge("r", EdgeAtom::Direction::OUT);
-    return GetEdgeListSizes(
-        AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT,
-                                 edge_types, 2, 2, e, "m", graph_view),
-        e);
-  };
-
-  auto new_edge_type = dba_->EdgeType("some_type");
-  // add two vertices branching out from the second layer
-  for (VertexAccessor &vertex : dba_->Vertices(true))
-    if (vertex.has_label(labels[1])) {
-      auto new_vertex = dba_->InsertVertex();
-      dba_->InsertEdge(vertex, new_vertex, new_edge_type);
-    }
-  ASSERT_EQ(CountIterable(dba_->Vertices(false)), 6);
-  ASSERT_EQ(CountIterable(dba_->Vertices(true)), 8);
-
-  EXPECT_EQ(test_expand(GraphView::OLD, {}), (map_int{{2, 8}}));
-  EXPECT_EQ(test_expand(GraphView::OLD, {new_edge_type}), (map_int{}));
-  EXPECT_EQ(test_expand(GraphView::NEW, {}), (map_int{{2, 12}}));
-  EXPECT_EQ(test_expand(GraphView::NEW, {edge_type}), (map_int{{2, 8}}));
-  EXPECT_EQ(test_expand(GraphView::NEW, {new_edge_type}), (map_int{}));
-  dba_->AdvanceCommand();
-  for (const auto graph_view : {GraphView::OLD, GraphView::NEW}) {
-    EXPECT_EQ(test_expand(graph_view, {}), (map_int{{2, 12}}));
-    EXPECT_EQ(test_expand(graph_view, {edge_type}), (map_int{{2, 8}}));
-    EXPECT_EQ(test_expand(graph_view, {new_edge_type}), (map_int{}));
-  }
-}
-
 TEST_F(QueryPlanExpandVariable, NamedPath) {
   auto e = Edge("r", EdgeAtom::Direction::OUT);
   auto expand =
@@ -900,7 +869,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   // vertex)
   auto ExpandWShortest(EdgeAtom::Direction direction,
                        std::experimental::optional<int> max_depth,
-                       Expression *where, GraphView graph_view = GraphView::OLD,
+                       Expression *where,
                        std::experimental::optional<int> node_id = 0,
                        ScanAllTuple *existing_node_input = nullptr) {
     // scan the nodes optionally filtering on property value
@@ -931,7 +900,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
         ExpansionLambda{filter_edge, filter_node, where},
         ExpansionLambda{weight_edge, weight_node,
                         PROPERTY_LOOKUP(ident_e, prop)},
-        total_weight, graph_view);
+        total_weight);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(dba);
@@ -1064,27 +1033,6 @@ TEST_F(QueryPlanExpandWeightedShortestPath, Where) {
   }
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, GraphState) {
-  auto ExpandSize = [this](GraphView graph_view) {
-    return ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
-                           graph_view)
-        .size();
-  };
-  EXPECT_EQ(ExpandSize(GraphView::OLD), 4);
-  EXPECT_EQ(ExpandSize(GraphView::NEW), 4);
-  auto new_vertex = dba.InsertVertex();
-  new_vertex.PropsSet(prop.second, 5);
-  auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
-  edge.PropsSet(prop.second, 2);
-  EXPECT_EQ(CountIterable(dba.Vertices(false)), 5);
-  EXPECT_EQ(CountIterable(dba.Vertices(true)), 6);
-  EXPECT_EQ(ExpandSize(GraphView::OLD), 4);
-  EXPECT_EQ(ExpandSize(GraphView::NEW), 5);
-  dba.AdvanceCommand();
-  EXPECT_EQ(ExpandSize(GraphView::OLD), 5);
-  EXPECT_EQ(ExpandSize(GraphView::NEW), 5);
-}
-
 TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
   auto ExpandPreceeding =
       [this](std::experimental::optional<int> preceeding_node_id) {
@@ -1101,7 +1049,7 @@ TEST_F(QueryPlanExpandWeightedShortestPath, ExistingNode) {
         }
 
         return ExpandWShortest(EdgeAtom::Direction::OUT, 1000, LITERAL(true),
-                               GraphView::OLD, std::experimental::nullopt, &n0);
+                               std::experimental::nullopt, &n0);
       };
 
   EXPECT_EQ(ExpandPreceeding(std::experimental::nullopt).size(), 20);
@@ -1127,27 +1075,6 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
     EXPECT_EQ(results[3].total_weight, 9);
   }
   {
-    auto new_vertex = dba.InsertVertex();
-    new_vertex.PropsSet(prop.second, 5);
-    auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
-    edge.PropsSet(prop.second, 2);
-
-    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true),
-                                   GraphView::NEW);
-
-    ASSERT_EQ(results.size(), 5);
-    EXPECT_EQ(GetProp(results[0].vertex), 2);
-    EXPECT_EQ(results[0].total_weight, 3);
-    EXPECT_EQ(GetProp(results[1].vertex), 1);
-    EXPECT_EQ(results[1].total_weight, 5);
-    EXPECT_EQ(GetProp(results[2].vertex), 3);
-    EXPECT_EQ(results[2].total_weight, 6);
-    EXPECT_EQ(GetProp(results[3].vertex), 4);
-    EXPECT_EQ(results[3].total_weight, 9);
-    EXPECT_EQ(GetProp(results[4].vertex), 5);
-    EXPECT_EQ(results[4].total_weight, 12);
-  }
-  {
     auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 2, LITERAL(true));
     ASSERT_EQ(results.size(), 4);
     EXPECT_EQ(GetProp(results[0].vertex), 2);
@@ -1169,33 +1096,52 @@ TEST_F(QueryPlanExpandWeightedShortestPath, UpperBound) {
     EXPECT_EQ(GetProp(results[2].vertex), 4);
     EXPECT_EQ(results[2].total_weight, 12);
   }
+  {
+    auto new_vertex = dba.InsertVertex();
+    new_vertex.PropsSet(prop.second, 5);
+    auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
+    edge.PropsSet(prop.second, 2);
+    dba.AdvanceCommand();
+
+    auto results = ExpandWShortest(EdgeAtom::Direction::BOTH, 3, LITERAL(true));
+
+    ASSERT_EQ(results.size(), 5);
+    EXPECT_EQ(GetProp(results[0].vertex), 2);
+    EXPECT_EQ(results[0].total_weight, 3);
+    EXPECT_EQ(GetProp(results[1].vertex), 1);
+    EXPECT_EQ(results[1].total_weight, 5);
+    EXPECT_EQ(GetProp(results[2].vertex), 3);
+    EXPECT_EQ(results[2].total_weight, 6);
+    EXPECT_EQ(GetProp(results[3].vertex), 4);
+    EXPECT_EQ(results[3].total_weight, 9);
+    EXPECT_EQ(GetProp(results[4].vertex), 5);
+    EXPECT_EQ(results[4].total_weight, 12);
+  }
 }
 
-TEST_F(QueryPlanExpandWeightedShortestPath, Exceptions) {
-  {
-    auto new_vertex = dba.InsertVertex();
-    new_vertex.PropsSet(prop.second, 5);
-    auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
-    edge.PropsSet(prop.second, "not a number");
-    EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
-                                 GraphView::NEW),
-                 QueryRuntimeException);
-  }
-  {
-    auto new_vertex = dba.InsertVertex();
-    new_vertex.PropsSet(prop.second, 5);
-    auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
-    edge.PropsSet(prop.second, -10);  // negative weight
-    EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true),
-                                 GraphView::NEW),
-                 QueryRuntimeException);
-  }
-  {
-    // negative upper bound
-    EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true),
-                                 GraphView::NEW),
-                 QueryRuntimeException);
-  }
+TEST_F(QueryPlanExpandWeightedShortestPath, NonNumericWeight) {
+  auto new_vertex = dba.InsertVertex();
+  new_vertex.PropsSet(prop.second, 5);
+  auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
+  edge.PropsSet(prop.second, "not a number");
+  dba.AdvanceCommand();
+  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
+               QueryRuntimeException);
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, NegativeWeight) {
+  auto new_vertex = dba.InsertVertex();
+  new_vertex.PropsSet(prop.second, 5);
+  auto edge = dba.InsertEdge(v[4], new_vertex, edge_type);
+  edge.PropsSet(prop.second, -10);  // negative weight
+  dba.AdvanceCommand();
+  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, 1000, LITERAL(true)),
+               QueryRuntimeException);
+}
+
+TEST_F(QueryPlanExpandWeightedShortestPath, NegativeUpperBound) {
+  EXPECT_THROW(ExpandWShortest(EdgeAtom::Direction::BOTH, -1, LITERAL(true)),
+               QueryRuntimeException);
 }
 
 TEST(QueryPlan, ExpandOptional) {

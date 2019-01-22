@@ -594,12 +594,13 @@ class RuleBasedPlanner {
           }
 
           // TODO: Pass weight lambda.
+          CHECK(match_context.graph_view == GraphView::OLD)
+              << "ExpandVariable should only be planned with GraphView::OLD";
           last_op = std::make_unique<ExpandVariable>(
               std::move(last_op), node1_symbol, node_symbol, edge_symbol,
               edge->type_, expansion.direction, edge_types,
               expansion.is_flipped, edge->lower_bound_, edge->upper_bound_,
-              existing_node, filter_lambda, weight_lambda, total_weight,
-              match_context.graph_view);
+              existing_node, filter_lambda, weight_lambda, total_weight);
         } else {
           if (!existing_node) {
             // Try to get better behaviour by creating an indexed scan and then

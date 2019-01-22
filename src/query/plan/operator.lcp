@@ -924,7 +924,17 @@ the given types are valid."
                :capnp-load (lcp:capnp-load-vector "::storage::capnp::EdgeType"
                                                   "storage::EdgeType"))
    (existing-node :bool :documentation "If the given node atom refer to a symbol
-that has already been expanded and should be just validated in the frame.")
+that has already been expanded and should be just validated in the frame."))
+  (:serialize (:slk) (:capnp)))
+
+(lcp:define-class expand (logical-operator)
+  ((input "std::shared_ptr<LogicalOperator>" :scope :public
+          :slk-save #'slk-save-operator-pointer
+          :slk-load #'slk-load-operator-pointer
+          :capnp-save #'save-operator-pointer
+          :capnp-load #'load-operator-pointer)
+   (input-symbol "Symbol" :scope :public)
+   (common "ExpandCommon" :scope :public)
    (graph-view "GraphView" :scope :public
                :capnp-init nil
                :capnp-save (lcp:capnp-save-enum "::query::capnp::GraphView"
@@ -935,16 +945,6 @@ that has already been expanded and should be just validated in the frame.")
                                                 '(old new))
                :documentation
                "State from which the input node should get expanded."))
-  (:serialize (:slk) (:capnp)))
-
-(lcp:define-class expand (logical-operator)
-  ((input "std::shared_ptr<LogicalOperator>" :scope :public
-          :slk-save #'slk-save-operator-pointer
-          :slk-load #'slk-load-operator-pointer
-          :capnp-save #'save-operator-pointer
-          :capnp-load #'load-operator-pointer)
-   (input-symbol "Symbol" :scope :public)
-   (common "ExpandCommon" :scope :public))
   (:documentation
    "Expansion operator. For a node existing in the frame it
 expands one edge and one node and places them on the frame.
@@ -1195,8 +1195,7 @@ pulled.")
                    Expression *upper_bound, bool existing_node,
                    ExpansionLambda filter_lambda,
                    std::experimental::optional<ExpansionLambda> weight_lambda,
-                   std::experimental::optional<Symbol> total_weight,
-                   GraphView graph_view);
+                   std::experimental::optional<Symbol> total_weight);
 
    bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
    std::unique_ptr<Cursor> MakeCursor(
