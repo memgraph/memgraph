@@ -135,7 +135,7 @@ std::unique_ptr<LogicalOperator> GenWith(
     std::unordered_set<Symbol> &bound_symbols, AstStorage &storage);
 
 std::unique_ptr<LogicalOperator> GenUnion(
-    CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
+    const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
     std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
 
 template <class TBoolOperator>

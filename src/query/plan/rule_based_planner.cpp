@@ -584,7 +584,7 @@ std::unique_ptr<LogicalOperator> GenWith(
 }
 
 std::unique_ptr<LogicalOperator> GenUnion(
-    CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
+    const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
     std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table) {
   return std::make_unique<Union>(left_op, right_op, cypher_union.union_symbols_,
                                  left_op->OutputSymbols(symbol_table),
