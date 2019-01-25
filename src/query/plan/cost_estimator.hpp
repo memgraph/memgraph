@@ -170,8 +170,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
     int unwind_value;
-    if (auto literal =
-            dynamic_cast<query::ListLiteral *>(unwind.input_expression_))
+    if (auto *literal =
+            utils::Downcast<query::ListLiteral>(unwind.input_expression_))
       unwind_value = literal->elements_.size();
     else
       unwind_value = MiscParam::kUnwindNoLiteral;
@@ -219,10 +219,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // return nullopt.
   std::experimental::optional<PropertyValue> ConstPropertyValue(
       const Expression *expression) {
-    if (auto *literal = dynamic_cast<const PrimitiveLiteral *>(expression)) {
+    if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
       return literal->value_;
     } else if (auto *param_lookup =
-                   dynamic_cast<const ParameterLookup *>(expression)) {
+                   utils::Downcast<const ParameterLookup>(expression)) {
       return parameters.AtTokenPosition(param_lookup->token_position_);
     }
     return std::experimental::nullopt;

@@ -13,17 +13,17 @@ void ForEachPattern(
     std::function<void(NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
   DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
   auto atoms_it = pattern.atoms_.begin();
-  auto current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
+  auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
   DCHECK(current_node) << "First pattern atom is not a node";
   base(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
-    auto edge = dynamic_cast<EdgeAtom *>(*atoms_it++);
+    auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
     DCHECK(edge) << "Expected an edge atom in pattern.";
     DCHECK(atoms_it != pattern.atoms_.end())
         << "Edge atom should not end the pattern.";
     auto prev_node = current_node;
-    current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
+    current_node = utils::Downcast<NodeAtom>(*atoms_it++);
     DCHECK(current_node) << "Expected a node atom in pattern.";
     collect(prev_node, edge, current_node);
   }
@@ -66,7 +66,7 @@ std::vector<Expansion> NormalizePatterns(
   };
   for (const auto &pattern : patterns) {
     if (pattern->atoms_.size() == 1U) {
-      auto *node = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
+      auto *node = utils::Downcast<NodeAtom>(pattern->atoms_[0]);
       DCHECK(node) << "First pattern atom is not a node";
       expansions.emplace_back(Expansion{node});
     } else {
@@ -139,7 +139,7 @@ auto SplitExpressionOnAnd(Expression *expression) {
   while (!pending_expressions.empty()) {
     auto *current_expression = pending_expressions.top();
     pending_expressions.pop();
-    if (auto *and_op = dynamic_cast<AndOperator *>(current_expression)) {
+    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
       pending_expressions.push(and_op->expression1_);
       pending_expressions.push(and_op->expression2_);
     } else {
@@ -332,8 +332,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
   };
   auto get_property_lookup = [](auto *maybe_lookup, auto *&prop_lookup,
                                 auto *&ident) -> bool {
-    return (prop_lookup = dynamic_cast<PropertyLookup *>(maybe_lookup)) &&
-           (ident = dynamic_cast<Identifier *>(prop_lookup->expression_));
+    return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
+           (ident = utils::Downcast<Identifier>(prop_lookup->expression_));
   };
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
@@ -379,19 +379,19 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
-  DCHECK(!dynamic_cast<AndOperator *>(expr))
+  DCHECK(!utils::IsSubtype(*expr, AndOperator::kType))
       << "Expected AndOperators have been split.";
-  if (auto *labels_test = dynamic_cast<LabelsTest *>(expr)) {
+  if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
-    if (dynamic_cast<Identifier *>(labels_test->expression_)) {
+    if (utils::Downcast<Identifier>(labels_test->expression_)) {
       auto filter = make_filter(FilterInfo::Type::Label);
       filter.labels = labels_test->labels_;
       all_filters_.emplace_back(filter);
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *eq = dynamic_cast<EqualOperator *>(expr)) {
+  } else if (auto *eq = utils::Downcast<EqualOperator>(expr)) {
     // Try to get property equality test from the top expressions.
     // Unfortunately, we cannot go deeper inside Equal, because chained equals
     // need not correspond to And. For example, `(n.prop = value) = false)`:
@@ -410,23 +410,23 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
       // No PropertyFilter was added, so just store a generic filter.
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *gt = dynamic_cast<GreaterOperator *>(expr)) {
+  } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {
     if (!add_prop_greater(gt->expression1_, gt->expression2_,
                           Bound::Type::EXCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *ge = dynamic_cast<GreaterEqualOperator *>(expr)) {
+  } else if (auto *ge = utils::Downcast<GreaterEqualOperator>(expr)) {
     if (!add_prop_greater(ge->expression1_, ge->expression2_,
                           Bound::Type::INCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *lt = dynamic_cast<LessOperator *>(expr)) {
+  } else if (auto *lt = utils::Downcast<LessOperator>(expr)) {
     // Like greater, but in reverse.
     if (!add_prop_greater(lt->expression2_, lt->expression1_,
                           Bound::Type::EXCLUSIVE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
-  } else if (auto *le = dynamic_cast<LessEqualOperator *>(expr)) {
+  } else if (auto *le = utils::Downcast<LessEqualOperator>(expr)) {
     // Like greater equal, but in reverse.
     if (!add_prop_greater(le->expression2_, le->expression1_,
                           Bound::Type::INCLUSIVE)) {
@@ -448,7 +448,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
   std::vector<SingleQueryPart> query_parts(1);
   auto *query_part = &query_parts.back();
   for (auto &clause : single_query->clauses_) {
-    if (auto *match = dynamic_cast<Match *>(clause)) {
+    if (auto *match = utils::Downcast<Match>(clause)) {
       if (match->optional_) {
         query_part->optional_matching.emplace_back(Matching{});
         AddMatching(*match, symbol_table, storage,
@@ -460,16 +460,16 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(
       }
     } else {
       query_part->remaining_clauses.push_back(clause);
-      if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
+      if (auto *merge = utils::Downcast<query::Merge>(clause)) {
         query_part->merge_matching.emplace_back(Matching{});
         AddMatching({merge->pattern_}, nullptr, symbol_table, storage,
                     query_part->merge_matching.back());
-      } else if (dynamic_cast<With *>(clause) ||
-                 dynamic_cast<query::Unwind *>(clause)) {
+      } else if (utils::IsSubtype(*clause, With::kType) ||
+                 utils::IsSubtype(*clause, query::Unwind::kType)) {
         // This query part is done, continue with a new one.
         query_parts.emplace_back(SingleQueryPart{});
         query_part = &query_parts.back();
-      } else if (dynamic_cast<Return *>(clause)) {
+      } else if (utils::IsSubtype(*clause, Return::kType)) {
         return query_parts;
       }
     }

@@ -167,12 +167,13 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
   bool has_optional_match = false;
 
   for (Clause *clause : single_query->clauses_) {
-    if (dynamic_cast<Unwind *>(clause)) {
+    const auto &clause_type = clause->GetTypeInfo();
+    if (utils::IsSubtype(clause_type, Unwind::kType)) {
       if (has_update || has_return) {
         throw SemanticException(
             "UNWIND can't be put after RETURN clause or after an update.");
       }
-    } else if (auto *match = dynamic_cast<Match *>(clause)) {
+    } else if (auto *match = utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException(
             "MATCH can't be put after RETURN clause or after an update.");
@@ -182,24 +183,24 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(
       } else if (has_optional_match) {
         throw SemanticException("MATCH can't be put after OPTIONAL MATCH.");
       }
-    } else if (dynamic_cast<Create *>(clause) ||
-               dynamic_cast<Delete *>(clause) ||
-               dynamic_cast<SetProperty *>(clause) ||
-               dynamic_cast<SetProperties *>(clause) ||
-               dynamic_cast<SetLabels *>(clause) ||
-               dynamic_cast<RemoveProperty *>(clause) ||
-               dynamic_cast<RemoveLabels *>(clause) ||
-               dynamic_cast<Merge *>(clause)) {
+    } else if (utils::IsSubtype(clause_type, Create::kType) ||
+               utils::IsSubtype(clause_type, Delete::kType) ||
+               utils::IsSubtype(clause_type, SetProperty::kType) ||
+               utils::IsSubtype(clause_type, SetProperties::kType) ||
+               utils::IsSubtype(clause_type, SetLabels::kType) ||
+               utils::IsSubtype(clause_type, RemoveProperty::kType) ||
+               utils::IsSubtype(clause_type, RemoveLabels::kType) ||
+               utils::IsSubtype(clause_type, Merge::kType)) {
       if (has_return) {
         throw SemanticException("Update clause can't be used after RETURN.");
       }
       has_update = true;
-    } else if (dynamic_cast<Return *>(clause)) {
+    } else if (utils::IsSubtype(clause_type, Return::kType)) {
       if (has_return) {
         throw SemanticException("There can only be one RETURN in a clause.");
       }
       has_return = true;
-    } else if (dynamic_cast<With *>(clause)) {
+    } else if (utils::IsSubtype(clause_type, With::kType)) {
       if (has_return) {
         throw SemanticException("RETURN can't be put before WITH.");
       }
@@ -701,12 +702,14 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(
     MemgraphCypher::ReturnItemContext *ctx) {
   auto *named_expr = storage_->Create<NamedExpression>();
   named_expr->expression_ = ctx->expression()->accept(this);
+  CHECK(named_expr->expression_);
   if (ctx->variable()) {
     named_expr->name_ =
         std::string(ctx->variable()->accept(this).as<std::string>());
     users_identifiers.insert(named_expr->name_);
   } else {
-    if (in_with_ && !dynamic_cast<Identifier *>(named_expr->expression_)) {
+    if (in_with_ &&
+        !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
       throw SemanticException("Only variables can be non-aliased in WITH.");
     }
     named_expr->name_ = std::string(ctx->getText());
@@ -1139,7 +1142,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression8(
   // First production is comparison operator.
   for (auto *child : partial_comparison_expressions) {
     operators.push_back(
-        dynamic_cast<antlr4::tree::TerminalNode *>(child->children[0])
+        static_cast<antlr4::tree::TerminalNode *>(child->children[0])
             ->getSymbol()
             ->getType());
   }
@@ -1627,12 +1630,11 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(
   Expression *expression = ctx->atom()->accept(this);
   for (auto *lookup : ctx->propertyLookup()) {
     PropertyIx key = lookup->accept(this);
-    auto property_lookup =
-        storage_->Create<PropertyLookup>(expression, key);
+    auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
     expression = property_lookup;
   }
   // It is guaranteed by grammar that there is at least one propertyLookup.
-  return dynamic_cast<PropertyLookup *>(expression);
+  return static_cast<PropertyLookup *>(expression);
 }
 
 antlrcpp::Any CypherMainVisitor::visitCaseExpression(

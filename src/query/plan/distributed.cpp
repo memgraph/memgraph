@@ -1026,7 +1026,7 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     optional_planner.lhs_optional_symbols_ =
         op.input()->ModifiedSymbols(optional_plan.symbol_table);
     optional_plan.master_plan->Accept(optional_planner);
-    CHECK(dynamic_cast<Produce *>(optional_plan.master_plan.get()));
+    CHECK(utils::IsSubtype(*optional_plan.master_plan.get(), Produce::kType));
     // Revert storage and symbol table
     distributed_plan_.ast_storage = std::move(optional_plan.ast_storage);
     distributed_plan_.symbol_table = std::move(optional_plan.symbol_table);

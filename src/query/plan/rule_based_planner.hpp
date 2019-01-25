@@ -98,17 +98,17 @@ auto ReducePattern(
     std::function<T(T, NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
   DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
   auto atoms_it = pattern.atoms_.begin();
-  auto current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
+  auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
   DCHECK(current_node) << "First pattern atom is not a node";
   auto last_res = base(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
-    auto edge = dynamic_cast<EdgeAtom *>(*atoms_it++);
+    auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
     DCHECK(edge) << "Expected an edge atom in pattern.";
     DCHECK(atoms_it != pattern.atoms_.end())
         << "Edge atom should not end the pattern.";
     auto prev_node = current_node;
-    current_node = dynamic_cast<NodeAtom *>(*atoms_it++);
+    current_node = utils::Downcast<NodeAtom>(*atoms_it++);
     DCHECK(current_node) << "Expected a node atom in pattern.";
     last_res = collect(std::move(last_res), prev_node, edge, current_node);
   }
@@ -180,20 +180,20 @@ class RuleBasedPlanner {
         }
       }
       int merge_id = 0;
-      for (auto &clause : query_part.remaining_clauses) {
-        DCHECK(!dynamic_cast<Match *>(clause))
+      for (auto *clause : query_part.remaining_clauses) {
+        DCHECK(!utils::IsSubtype(*clause, Match::kType))
             << "Unexpected Match in remaining clauses";
-        if (auto *ret = dynamic_cast<Return *>(clause)) {
+        if (auto *ret = utils::Downcast<Return>(clause)) {
           input_op = impl::GenReturn(
               *ret, std::move(input_op), *context.symbol_table, is_write,
               context.bound_symbols, *context.ast_storage);
-        } else if (auto *merge = dynamic_cast<query::Merge *>(clause)) {
+        } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
           input_op = GenMerge(*merge, std::move(input_op),
                               query_part.merge_matching[merge_id++]);
           // Treat MERGE clause as write, because we do not know if it will
           // create anything.
           is_write = true;
-        } else if (auto *with = dynamic_cast<query::With *>(clause)) {
+        } else if (auto *with = utils::Downcast<query::With>(clause)) {
           input_op = impl::GenWith(*with, std::move(input_op),
                                    *context.symbol_table, is_write,
                                    context.bound_symbols, *context.ast_storage);
@@ -204,7 +204,7 @@ class RuleBasedPlanner {
                                                context.bound_symbols)) {
           is_write = true;
           input_op = std::move(op);
-        } else if (auto *unwind = dynamic_cast<query::Unwind *>(clause)) {
+        } else if (auto *unwind = utils::Downcast<query::Unwind>(clause)) {
           const auto &symbol =
               context.symbol_table->at(*unwind->named_expression_);
           context.bound_symbols.insert(symbol);
@@ -336,23 +336,23 @@ class RuleBasedPlanner {
       Clause *clause, std::unique_ptr<LogicalOperator> &input_op,
       const SymbolTable &symbol_table,
       std::unordered_set<Symbol> &bound_symbols) {
-    if (auto *create = dynamic_cast<Create *>(clause)) {
+    if (auto *create = utils::Downcast<Create>(clause)) {
       return GenCreate(*create, std::move(input_op), symbol_table,
                        bound_symbols);
-    } else if (auto *del = dynamic_cast<query::Delete *>(clause)) {
+    } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
       return std::make_unique<plan::Delete>(std::move(input_op),
                                             del->expressions_, del->detach_);
-    } else if (auto *set = dynamic_cast<query::SetProperty *>(clause)) {
+    } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
       return std::make_unique<plan::SetProperty>(
           std::move(input_op), GetProperty(set->property_lookup_->property_),
           set->property_lookup_, set->expression_);
-    } else if (auto *set = dynamic_cast<query::SetProperties *>(clause)) {
+    } else if (auto *set = utils::Downcast<query::SetProperties>(clause)) {
       auto op = set->update_ ? plan::SetProperties::Op::UPDATE
                              : plan::SetProperties::Op::REPLACE;
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       return std::make_unique<plan::SetProperties>(
           std::move(input_op), input_symbol, set->expression_, op);
-    } else if (auto *set = dynamic_cast<query::SetLabels *>(clause)) {
+    } else if (auto *set = utils::Downcast<query::SetLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       std::vector<storage::Label> labels;
       labels.reserve(set->labels_.size());
@@ -361,11 +361,11 @@ class RuleBasedPlanner {
       }
       return std::make_unique<plan::SetLabels>(std::move(input_op),
                                                input_symbol, labels);
-    } else if (auto *rem = dynamic_cast<query::RemoveProperty *>(clause)) {
+    } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
       return std::make_unique<plan::RemoveProperty>(
           std::move(input_op), GetProperty(rem->property_lookup_->property_),
           rem->property_lookup_);
-    } else if (auto *rem = dynamic_cast<query::RemoveLabels *>(clause)) {
+    } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
       std::vector<storage::Label> labels;
       labels.reserve(rem->labels_.size());

@@ -34,7 +34,7 @@ TAst *LoadAstPointer(AstStorage *ast, slk::Reader *reader,
   if (!has_ptr) {
     return nullptr;
   }
-  auto *ret = dynamic_cast<TAst *>(Load(ast, reader, loaded_uids));
+  auto *ret = utils::Downcast<TAst>(Load(ast, reader, loaded_uids));
   if (!ret) {
     throw slk::SlkDecodeException("Loading unknown Ast node type");
   }

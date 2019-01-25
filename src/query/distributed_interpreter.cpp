@@ -143,7 +143,7 @@ Interpreter::Results DistributedInterpreter::operator()(
                                     &db_accessor, params);
   ParsedQuery &parsed_query = queries.second;
 
-  if (auto *profile_query = dynamic_cast<ProfileQuery *>(parsed_query.query)) {
+  if (utils::IsSubtype(*parsed_query.query, ProfileQuery::kType)) {
     throw utils::NotYetImplemented("PROFILE in a distributed query");
   }
 

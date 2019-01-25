@@ -356,7 +356,7 @@ bool SymbolGenerator::PreVisit(Extract &extract) {
 bool SymbolGenerator::PreVisit(Pattern &pattern) {
   scope_.in_pattern = true;
   if ((scope_.in_create || scope_.in_merge) && pattern.atoms_.size() == 1U) {
-    DCHECK(dynamic_cast<NodeAtom *>(pattern.atoms_[0]))
+    CHECK(utils::IsSubtype(*pattern.atoms_[0], NodeAtom::kType))
         << "Expected a single NodeAtom in Pattern";
     scope_.in_create_node = true;
   }

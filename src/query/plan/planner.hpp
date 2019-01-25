@@ -47,7 +47,7 @@ class PostProcessor final {
       std::unique_ptr<LogicalOperator> curr_op,
       std::unique_ptr<LogicalOperator> last_op, const Tree &combinator,
       TPlanningContext *context) {
-    if (const auto *union_ = dynamic_cast<const CypherUnion *>(&combinator)) {
+    if (const auto *union_ = utils::Downcast<const CypherUnion>(&combinator)) {
       return std::unique_ptr<LogicalOperator>(
           impl::GenUnion(*union_, std::move(last_op), std::move(curr_op),
                          *context->symbol_table));

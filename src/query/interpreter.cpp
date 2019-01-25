@@ -615,7 +615,7 @@ Interpreter::Results Interpreter::operator()(
   // we must ensure it lives during the whole interpretation.
   std::shared_ptr<CachedPlan> plan{nullptr};
 
-  if (auto *cypher_query = dynamic_cast<CypherQuery *>(parsed_query.query)) {
+  if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
     plan = CypherQueryToPlan(stripped_query.hash(), cypher_query,
                              std::move(ast_storage), parameters, &db_accessor);
     auto planning_time = planning_timer.Elapsed();
@@ -638,7 +638,7 @@ Interpreter::Results Interpreter::operator()(
                    summary, parsed_query.required_privileges);
   }
 
-  if (auto *explain_query = dynamic_cast<ExplainQuery *>(parsed_query.query)) {
+  if (utils::IsSubtype(*parsed_query.query, ExplainQuery::kType)) {
     const std::string kExplainQueryStart = "explain ";
     CHECK(utils::StartsWith(utils::ToLowerCase(stripped_query.query()),
                             kExplainQueryStart))
@@ -671,10 +671,12 @@ Interpreter::Results Interpreter::operator()(
                            &parameters, &ast_storage, &db_accessor, params);
     StrippedQuery &stripped_query = queries.first;
     ParsedQuery &parsed_query = queries.second;
-
-    std::shared_ptr<CachedPlan> cypher_query_plan = CypherQueryToPlan(
-        stripped_query.hash(), dynamic_cast<CypherQuery *>(parsed_query.query),
-        std::move(ast_storage), parameters, &db_accessor);
+    auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+    CHECK(cypher_query)
+        << "Cypher grammar should not allow other queries in EXPLAIN";
+    std::shared_ptr<CachedPlan> cypher_query_plan =
+        CypherQueryToPlan(stripped_query.hash(), cypher_query,
+                          std::move(ast_storage), parameters, &db_accessor);
 
     std::stringstream printed_plan;
     PrettyPrintPlan(db_accessor, &cypher_query_plan->plan(), &printed_plan);
@@ -704,7 +706,7 @@ Interpreter::Results Interpreter::operator()(
                    summary, parsed_query.required_privileges);
   }
 
-  if (auto *profile_query = dynamic_cast<ProfileQuery *>(parsed_query.query)) {
+  if (utils::IsSubtype(*parsed_query.query, ProfileQuery::kType)) {
     const std::string kProfileQueryStart = "profile ";
     CHECK(utils::StartsWith(utils::ToLowerCase(stripped_query.query()),
                             kProfileQueryStart))
@@ -726,10 +728,12 @@ Interpreter::Results Interpreter::operator()(
                            &parameters, &ast_storage, &db_accessor, params);
     StrippedQuery &stripped_query = queries.first;
     ParsedQuery &parsed_query = queries.second;
-
-    auto cypher_query_plan = CypherQueryToPlan(
-        stripped_query.hash(), dynamic_cast<CypherQuery *>(parsed_query.query),
-        std::move(ast_storage), parameters, &db_accessor);
+    auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+    CHECK(cypher_query)
+        << "Cypher grammar should not allow other queries in PROFILE";
+    auto cypher_query_plan =
+        CypherQueryToPlan(stripped_query.hash(), cypher_query,
+                          std::move(ast_storage), parameters, &db_accessor);
 
     // Copy the symbol table and add our own symbols (used by the `OutputTable`
     // operator below)
@@ -777,7 +781,7 @@ Interpreter::Results Interpreter::operator()(
   }
 
   Callback callback;
-  if (auto *index_query = dynamic_cast<IndexQuery *>(parsed_query.query)) {
+  if (auto *index_query = utils::Downcast<IndexQuery>(parsed_query.query)) {
     if (in_explicit_transaction) {
       throw IndexInMulticommandTxException();
     }
@@ -790,13 +794,14 @@ Interpreter::Results Interpreter::operator()(
     };
     callback =
         HandleIndexQuery(index_query, invalidate_plan_cache, &db_accessor);
-  } else if (auto *auth_query = dynamic_cast<AuthQuery *>(parsed_query.query)) {
+  } else if (auto *auth_query =
+                 utils::Downcast<AuthQuery>(parsed_query.query)) {
     if (in_explicit_transaction) {
       throw UserModificationInMulticommandTxException();
     }
     callback = HandleAuthQuery(auth_query, auth_, parameters, &db_accessor);
   } else if (auto *stream_query =
-                 dynamic_cast<StreamQuery *>(parsed_query.query)) {
+                 utils::Downcast<StreamQuery>(parsed_query.query)) {
     if (in_explicit_transaction) {
       throw StreamClauseInMulticommandTxException();
     }
