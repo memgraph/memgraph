@@ -351,6 +351,104 @@ class MyClass {
 };
 ```
 
+#### TypeInfo
+
+Defining a class or struct will also generate appropriate `utils::TypeInfo`
+instance. This instance will be stored as the `static const` member named
+`kType` and the class will also have a `GetTypeInfo` public member function,
+for getting `TypeInfo` on an instance. If a class is part of an inheritance
+hierarchy, then the `GetTypeInfo` will be `virtual`.
+
+This mechanism is a portable solution for Run Time Type Information in C++.
+Take a look at the documentation of `TypeInfo` in the codebase for additional
+information on what is provided with it.
+
+For example, defining a derived class:
+
+```lisp
+(lcp:define-class derived-class (base-class)
+  ((member :int64_t)))
+```
+
+Will generate:
+
+```cpp
+class DerivedClass : public BaseClass {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+ private:
+  int64_t member_;
+};
+```
+
+The generated `TypeInfo` object does not support multiple inheritance, and LCP
+will report an error if it tries to generate such information. Additionally,
+generating type information for template classes is not supported. In such a
+case you will need to write your own description by hand. There are also cases
+where you may want to tune the generation of type information.  These cases
+are described below.
+
+Sometimes, you may want to avoid having a virtual or overridden call by
+treating a derived type as if it is a base type for the purposes of
+`TypeInfo`. This can be done by passing the `:type-info :base t` class option.
+NOTE: This will potentially break some `TypeInfo` related functions, like
+`IsSubtype`. Therefore, this should only be used if the base type does not
+have a correctly set `TypeInfo` interface.
+
+The same example, but with the option enabled:
+
+```lisp
+(lcp:define-class derived-class (base-class)
+  ((member :int64_t))
+  (:type-info :base t))
+```
+
+Will generate:
+
+```cpp
+class DerivedClass : public BaseClass {
+ public:
+  static const utils::TypeInfo kType;
+  // Has no override because we pretend this is "base".
+  // Is not virtual because LCP didn't detect any class inheriting this one.
+  const utils::TypeInfo &GetTypeInfo() const { return kType; }
+
+ private:
+  int64_t member_;
+};
+```
+
+Similarly to `:base t`, when you have multiple inheritance but only want to
+track the primary class as super class, you can use the
+`:ignore-other-base-classes t` option. NOTE: Similarly to the `:base t`
+option, this should only be used if you know it won't break the use cases of
+`TypeInfo` for this class hierarchy.
+
+Again, the same example, but with `:ignore-other-base-classes t`:
+
+```lisp
+(lcp:define-class derived-class (base-class other-base-class)
+  ((member :int64_t))
+  (:type-info :ignore-other-base-classes t))
+```
+
+Will generate:
+
+```cpp
+class DerivedClass : public BaseClass, public OtherBaseClass {
+ public:
+  static const utils::TypeInfo kType;
+  // Overrides, because it's expected BaseClass has one. TypeInfo is set to
+  // track only BaseClass as super class.
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+ private:
+  int64_t member_;
+};
+```
+
 ### Defining an RPC
 
 In our codebase, we have implemented remote procedure calls. These are used

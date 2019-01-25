@@ -406,7 +406,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class where (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((expression "Expression *" :initval "nullptr" :scope :public
@@ -439,7 +440,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class binary-operator (expression)
   ((expression1 "Expression *" :initval "nullptr" :scope :public
@@ -1370,7 +1372,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; END Expressions
@@ -1402,7 +1405,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class node-atom (pattern-atom)
   ((labels "std::vector<LabelIx>" :scope :public
@@ -1660,7 +1664,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class clause (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ()
@@ -1681,7 +1686,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class single-query (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((clauses "std::vector<Clause *>"
@@ -1716,7 +1722,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class cypher-union (tree "::utils::Visitable<HierarchicalTreeVisitor>")
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public
@@ -1758,7 +1765,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class query (tree "::utils::Visitable<QueryVisitor<void>>")
   ()
@@ -1779,7 +1787,8 @@ cpp<#
     cpp<#)
   (:serialize (:slk :ignore-other-base-classes t)
               (:capnp :ignore-other-base-classes t))
-  (:clone :ignore-other-base-classes t))
+  (:clone :ignore-other-base-classes t)
+  (:type-info :ignore-other-base-classes t))
 
 (lcp:define-class cypher-query (query)
   ((single-query "SingleQuery *" :initval "nullptr" :scope :public

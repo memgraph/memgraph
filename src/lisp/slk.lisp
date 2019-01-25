@@ -222,7 +222,7 @@ CPP-CLASS.  Raise `SLK-ERROR' if a derived class has template parameters."
               (extra-args (mapcar (lambda (name-and-type)
                                     (lcp::cpp-variable-name (first name-and-type)))
                                   (save-extra-args cpp-class))))
-          (format s "if (const auto *~A_derived = dynamic_cast<const ~A *>(&self)) {
+          (format s "if (const auto *~A_derived = utils::Downcast<const ~A>(&self)) {
                        return slk::Save(*~A_derived, builder~{, ~A~}); }~%"
                   derived-var derived-class derived-var extra-args))))))
 
@@ -299,10 +299,9 @@ C++ constructs, mostly related to templates."
     ;; We are assuming that the generated code is called only in cases when we
     ;; really have this particular class instantiated and not any of the
     ;; derived ones.
-    ;; TODO: Add the following check when we have derived classes and
-    ;; virtual GetTypeInfo method.
     (when (lcp::direct-subclasses-of cpp-class)
-      (format s "// CHECK(self->GetTypeInfo() == ~A::kType);~%" (lcp::cpp-type-decl cpp-class)))
+      (format s "if (self->GetTypeInfo() != ~A::kType)~%" (lcp::cpp-type-decl cpp-class))
+      (write-line "throw slk::SlkDecodeException(\"Trying to load incorrect derived type!\");" s))
     (write-string (load-parents-recursively cpp-class) s)
     (write-string (load-members cpp-class) s)))
 

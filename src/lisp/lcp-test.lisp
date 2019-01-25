@@ -346,7 +346,7 @@
     ;; should generate the same code that follows.
     (let ((base-save-code
            "void Save(const Base &self, slk::Builder *builder) {
-              if (const auto *derived_derived = dynamic_cast<const Derived *>(&self)) {
+              if (const auto *derived_derived = utils::Downcast<const Derived>(&self)) {
                 return slk::Save(*derived_derived, builder);
               }
               slk::Save(Base::kType.id, builder);
@@ -372,7 +372,8 @@
             }")
           (base-load-code
            "void Load(Base *self, slk::Reader *reader) {
-              // CHECK(self->GetTypeInfo() == Base::kType);
+              if (self->GetTypeInfo() != Base::kType)
+                throw slk::SlkDecodeException(\"Trying to load incorrect derived type!\");
               slk::Load(&self->base_member, reader);
             }")
           (derived-save-code
@@ -445,7 +446,7 @@
                            ((derived-member :int64_t)))))
       (is-generated (lcp.slk:save-function-definition-for-class abstract-base-class)
                     "void Save(const AbstractBase &self, slk::Builder *builder) {
-                       if (const auto *derived_derived = dynamic_cast<const Derived *>(&self)) {
+                       if (const auto *derived_derived = utils::Downcast<const Derived>(&self)) {
                          return slk::Save(*derived_derived, builder);
                        }
                        LOG(FATAL) << \"`AbstractBase` is marked as an abstract class!\";
@@ -533,7 +534,7 @@
       (declare (ignore derived-class))
       (is-generated (lcp.slk:save-function-definition-for-class base-class)
                     "void Save(const Base &self, slk::Builder *builder, SaveArg extra_arg) {
-                       if (const auto *derived_derived = dynamic_cast<const Derived *>(&self)) {
+                       if (const auto *derived_derived = utils::Downcast<const Derived>(&self)) {
                          return slk::Save(*derived_derived, builder, extra_arg);
                        }
                        LOG(FATAL) << \"`Base` is marked as an abstract class!\";

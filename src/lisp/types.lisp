@@ -181,6 +181,11 @@
   (ignore-other-base-classes nil :read-only t)
   (init-object nil :read-only t))
 
+(defstruct type-info-opts
+  "Options for generating TypeInfo of C++ class."
+  (base nil :read-only t)
+  (ignore-other-base-classes nil :read-only t))
+
 (defclass cpp-class (cpp-type)
   ((structp :type boolean :initarg :structp :initform nil
             :reader cpp-class-structp)
@@ -198,6 +203,8 @@
              :reader cpp-class-slk-opts)
    (clone-opts :type (or null clone-opts) :initarg :clone-opts :initform nil
                :reader cpp-class-clone-opts)
+   (type-info-opts :type type-info-opts :initarg :type-info-opts :initform (make-type-info-opts)
+                   :reader cpp-class-type-info-opts)
    (inner-types :initarg :inner-types :initform nil :reader cpp-class-inner-types)
    (abstractp :initarg :abstractp :initform nil :reader cpp-class-abstractp))
   (:documentation "Meta information on a C++ class (or struct)."))
@@ -604,6 +611,8 @@ Generates C++:
                                               `(make-slk-opts ,@(cdr (assoc :slk serialize))))
                                  :clone-opts ,(when (assoc :clone options)
                                                 `(make-clone-opts ,@(cdr (assoc :clone options))))
+                                 :type-info-opts (make-type-info-opts ,@(when (assoc :type-info options)
+                                                                          (cdr (assoc :type-info options))))
                                  :abstractp ,abstractp
                                  :namespace (reverse *cpp-namespaces*)
                                  ;; Set inner types at the end. This works

@@ -61,6 +61,51 @@ NIL, returns a string."
   (format stream "template <~{class ~A~^,~^ ~}>"
           (mapcar #'cpp-type-name type-params)))
 
+(defun type-info-declaration-for-class (cpp-class)
+  (assert (and (not (cpp-type-type-params cpp-class))
+               (not (cpp-type-type-args cpp-class))))
+  (with-output-to-string (s)
+    (write-line "static const utils::TypeInfo kType;" s)
+    (let* ((type-info-basep (type-info-opts-base (cpp-class-type-info-opts cpp-class)))
+           (virtual (if (and (or type-info-basep (not (cpp-class-super-classes cpp-class)))
+                             (direct-subclasses-of cpp-class))
+                        "virtual"
+                        ""))
+           (override (if (and (not type-info-basep)
+                              (cpp-class-super-classes cpp-class))
+                         "override"
+                         "")))
+      (format s "~A const utils::TypeInfo &GetTypeInfo() const ~A { return kType; }"
+              virtual override))))
+
+(defun type-info-definition-for-class (cpp-class)
+  (assert (and (not (cpp-type-type-params cpp-class))
+               (not (cpp-type-type-args cpp-class))))
+  (with-output-to-string (s)
+    (let ((super-classes (when (not (type-info-opts-base (cpp-class-type-info-opts cpp-class)))
+                           (cpp-class-super-classes cpp-class))))
+      (when (type-info-opts-ignore-other-base-classes (cpp-class-type-info-opts cpp-class))
+        (setf super-classes (list (first super-classes))))
+      (when (> (length super-classes) 1)
+        (error "Unable to generate TypeInfo for class '~A' due to multiple inheritance!"
+               (cpp-type-base-name cpp-class)))
+      (flet ((get-super-type-info (super)
+               (let ((super-class (find-cpp-class super)))
+                 (format nil "&~A::kType"
+                         (if super-class
+                             (cpp-type-decl super-class)
+                             (cpp-type-name super))))))
+        (format s "const utils::TypeInfo ~A::kType{0x~XULL, \"~A\", ~A};~%"
+                (if *generating-cpp-impl-p*
+                    (cpp-type-name cpp-class)
+                    ;; Use full type declaration if class definition
+                    ;; isn't inside the .cpp file.
+                    (cpp-type-decl cpp-class))
+                ;; Use full type declaration for hash
+                (fnv1a64-hash-string (cpp-type-decl cpp-class))
+                (cpp-type-name cpp-class)
+                (if super-classes (get-super-type-info (first super-classes)) "nullptr"))))))
+
 (defun cpp-class-definition (cpp-class)
   "Get C++ definition of the CPP-CLASS as a string."
   (declare (type cpp-class cpp-class))
@@ -92,7 +137,7 @@ NIL, returns a string."
               (write-line " public:" s))
             (unless (cpp-type-type-params cpp-class)
               ;; Skip generating TypeInfo for template classes.
-              (write-line "static const utils::TypeInfo kType;" s))
+              (write-line (type-info-declaration-for-class cpp-class) s))
             (format s "~%~{~A~%~}" (mapcar #'cpp-code (cpp-class-public cpp-class)))
             (format s "~{~%~A~}~%" (mapcar #'cpp-member-reader-definition reader-members))
             (format s "~{  ~%~A~}~%"
@@ -112,16 +157,7 @@ NIL, returns a string."
       ;; Define the TypeInfo object.  Relies on the fact that *CPP-IMPL* is
       ;; processed later.
       (unless (cpp-type-type-params cpp-class)
-        (let ((typeinfo-def
-               (format nil "const utils::TypeInfo ~A::kType{0x~XULL, \"~a\"};~%"
-                       (if *generating-cpp-impl-p*
-                           (cpp-type-name cpp-class)
-                           ;; Use full type declaration if class definition
-                           ;; isn't inside the .cpp file.
-                           (cpp-type-decl cpp-class))
-                       ;; Use full type declaration for hash
-                       (fnv1a64-hash-string (cpp-type-decl cpp-class))
-                       (cpp-type-name cpp-class))))
+        (let ((typeinfo-def (type-info-definition-for-class cpp-class)))
           (if *generating-cpp-impl-p*
               (write-line typeinfo-def s)
               (in-impl typeinfo-def)))))))

@@ -1,3 +1,4 @@
+/// @file
 #pragma once
 
 #include <cstdint>
@@ -15,6 +16,9 @@ struct TypeInfo {
   uint64_t id;
   /// Pretty name of the type.
   const char *name;
+  /// `TypeInfo *` for superclass of this type.
+  /// Multiple inheritance is not supported.
+  const TypeInfo *superclass{nullptr};
 };
 
 inline bool operator==(const TypeInfo &a, const TypeInfo &b) {
@@ -34,6 +38,36 @@ inline bool operator>(const TypeInfo &a, const TypeInfo &b) {
 }
 inline bool operator>=(const TypeInfo &a, const TypeInfo &b) {
   return a.id >= b.id;
+}
+
+/// Return true if `a` is subtype or the same type as `b`.
+inline bool IsSubtype(const TypeInfo &a, const TypeInfo &b) {
+  if (a == b) return true;
+  const TypeInfo *super_a = a.superclass;
+  while (super_a) {
+    if (*super_a == b) return true;
+    super_a = super_a->superclass;
+  }
+  return false;
+}
+
+template <class T>
+bool IsSubtype(const T &a, const TypeInfo &b) {
+  return IsSubtype(a.GetTypeInfo(), b);
+}
+
+/// Downcast `a` to `TDerived` using static_cast.
+///
+/// If `a` is `nullptr` or `TBase` is not a subtype of `TDerived`, then a
+/// `nullptr` is returned.
+///
+/// This downcast is ill-formed if TBase is ambiguous, inaccessible, or virtual
+/// base (or a base of a virtual base) of TDerived.
+template <class TDerived, class TBase>
+TDerived *Downcast(TBase *a) {
+  if (!a) return nullptr;
+  if (IsSubtype(*a, TDerived::kType)) return static_cast<TDerived *>(a);
+  return nullptr;
 }
 
 }  // namespace utils

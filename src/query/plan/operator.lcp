@@ -230,6 +230,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
    (:capnp :base t
            :save-args '((helper "LogicalOperator::SaveHelper *"))
            :load-args '((helper "LogicalOperator::LoadHelper *"))))
+  (:type-info :base t)
   (:clone :args '((storage "AstStorage *"))
           :base t))
 
