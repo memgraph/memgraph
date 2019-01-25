@@ -223,6 +223,9 @@ class Interpreter {
   virtual void PrettyPrintPlan(const database::GraphDbAccessor &,
                                const plan::LogicalOperator *, std::ostream *);
 
+  virtual std::string PlanToJson(const database::GraphDbAccessor &,
+                                 const plan::LogicalOperator *);
+
  private:
   ConcurrentMap<HashType, CachedQuery> ast_cache_;
   PlanCacheT plan_cache_;

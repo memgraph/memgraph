@@ -85,6 +85,9 @@ target_link_libraries(${test_prefix}distributed_graph_db mg-distributed kvstore_
 add_unit_test(distributed_interpretation.cpp)
 target_link_libraries(${test_prefix}distributed_interpretation mg-distributed kvstore_dummy_lib)
 
+add_unit_test(distributed_plan_pretty_print.cpp)
+target_link_libraries(${test_prefix}distributed_plan_pretty_print mg-distributed kvstore_dummy_lib)
+
 add_unit_test(distributed_query_plan.cpp)
 target_link_libraries(${test_prefix}distributed_query_plan mg-distributed kvstore_dummy_lib)
 
@@ -172,6 +175,9 @@ target_link_libraries(${test_prefix}query_cost_estimator mg-single-node kvstore_
 
 add_unit_test(query_expression_evaluator.cpp)
 target_link_libraries(${test_prefix}query_expression_evaluator mg-single-node kvstore_dummy_lib)
+
+add_unit_test(plan_pretty_print.cpp)
+target_link_libraries(${test_prefix}plan_pretty_print mg-single-node kvstore_dummy_lib)
 
 add_unit_test(query_pretty_print.cpp)
 target_link_libraries(${test_prefix}query_pretty_print mg-single-node kvstore_dummy_lib)

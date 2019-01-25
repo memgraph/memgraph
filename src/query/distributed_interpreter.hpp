@@ -28,6 +28,9 @@ class DistributedInterpreter final : public Interpreter {
   void PrettyPrintPlan(const database::GraphDbAccessor &,
                        const plan::LogicalOperator *, std::ostream *) override;
 
+  std::string PlanToJson(const database::GraphDbAccessor &,
+                         const plan::LogicalOperator *) override;
+
   std::atomic<int64_t> next_plan_id_{0};
   distributed::PlanDispatcher *plan_dispatcher_{nullptr};
 };

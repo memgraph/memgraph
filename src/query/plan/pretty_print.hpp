@@ -3,6 +3,8 @@
 
 #include <iostream>
 
+#include <json/json.hpp>
+
 #include "query/plan/operator.hpp"
 
 namespace database {
@@ -25,6 +27,11 @@ inline void PrettyPrint(const database::GraphDbAccessor &dba,
                         const LogicalOperator *plan_root) {
   PrettyPrint(dba, plan_root, &std::cout);
 }
+
+/// Convert a `LogicalOperator` plan to a JSON representation.
+/// GraphDbAccessor is needed for resolving label and property names.
+nlohmann::json PlanToJson(const database::GraphDbAccessor &dba,
+                          const LogicalOperator *plan_root);
 
 class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
  public:
@@ -97,5 +104,115 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   const database::GraphDbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
 };
+
+namespace impl {
+
+std::string ToString(EdgeAtom::Direction dir);
+
+std::string ToString(EdgeAtom::Type type);
+
+std::string ToString(Ordering ord);
+
+nlohmann::json ToJson(Expression *expression);
+
+nlohmann::json ToJson(const utils::Bound<Expression *> &bound);
+
+nlohmann::json ToJson(const Symbol &symbol);
+
+nlohmann::json ToJson(storage::EdgeType edge_type,
+                      const database::GraphDbAccessor &dba);
+
+nlohmann::json ToJson(storage::Label label,
+                      const database::GraphDbAccessor &dba);
+
+nlohmann::json ToJson(storage::Property property,
+                      const database::GraphDbAccessor &dba);
+
+nlohmann::json ToJson(NamedExpression *nexpr);
+
+nlohmann::json ToJson(
+    const std::vector<std::pair<storage::Property, Expression *>> &properties,
+    const database::GraphDbAccessor &dba);
+
+nlohmann::json ToJson(const NodeCreationInfo &node_info,
+                      const database::GraphDbAccessor &dba);
+
+nlohmann::json ToJson(const EdgeCreationInfo &edge_info,
+                      const database::GraphDbAccessor &dba);
+
+nlohmann::json ToJson(const Aggregate::Element &elem);
+
+template <class T, class... Args>
+nlohmann::json ToJson(const std::vector<T> &items, Args &&... args) {
+  nlohmann::json json;
+  for (const auto &item : items) {
+    json.emplace_back(ToJson(item, std::forward<Args>(args)...));
+  }
+  return json;
+}
+
+class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
+ public:
+  PlanToJsonVisitor(const database::GraphDbAccessor *dba) : dba_(dba) {}
+
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool PreVisit(CreateNode &) override;
+  bool PreVisit(CreateExpand &) override;
+  bool PreVisit(Delete &) override;
+
+  bool PreVisit(SetProperty &) override;
+  bool PreVisit(SetProperties &) override;
+  bool PreVisit(SetLabels &) override;
+
+  bool PreVisit(RemoveProperty &) override;
+  bool PreVisit(RemoveLabels &) override;
+
+  bool PreVisit(Expand &) override;
+  bool PreVisit(ExpandVariable &) override;
+
+  bool PreVisit(ConstructNamedPath &) override;
+
+  bool PreVisit(Merge &) override;
+  bool PreVisit(Optional &) override;
+
+  bool PreVisit(Filter &) override;
+  bool PreVisit(EdgeUniquenessFilter &) override;
+  bool PreVisit(Cartesian &) override;
+
+  bool PreVisit(ScanAll &) override;
+  bool PreVisit(ScanAllByLabel &) override;
+  bool PreVisit(ScanAllByLabelPropertyRange &) override;
+  bool PreVisit(ScanAllByLabelPropertyValue &) override;
+
+  bool PreVisit(Produce &) override;
+  bool PreVisit(Accumulate &) override;
+  bool PreVisit(Aggregate &) override;
+  bool PreVisit(Skip &) override;
+  bool PreVisit(Limit &) override;
+  bool PreVisit(OrderBy &) override;
+  bool PreVisit(Distinct &) override;
+  bool PreVisit(Union &) override;
+
+  bool PreVisit(Unwind &) override;
+
+  bool Visit(Once &) override;
+
+  nlohmann::json output() { return output_; }
+
+ protected:
+  nlohmann::json output_;
+  const database::GraphDbAccessor *dba_;
+
+  nlohmann::json PopOutput() {
+    nlohmann::json tmp;
+    tmp.swap(output_);
+    return tmp;
+  }
+};
+
+}  // namespace impl
 
 }  // namespace query::plan

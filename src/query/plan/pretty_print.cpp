@@ -1,6 +1,8 @@
 #include "query/plan/pretty_print.hpp"
 
 #include "database/graph_db_accessor.hpp"
+#include "query/frontend/ast/pretty_print.hpp"
+#include "utils/string.hpp"
 
 namespace query::plan {
 
@@ -227,5 +229,583 @@ void PrettyPrint(const database::GraphDbAccessor &dba,
   // FIXME(mtomic): We should make visitors that take const arguments.
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
+
+nlohmann::json PlanToJson(const database::GraphDbAccessor &dba,
+                          const LogicalOperator *plan_root) {
+  impl::PlanToJsonVisitor visitor(&dba);
+  // FIXME(mtomic): We should make visitors that take const arguments.
+  const_cast<LogicalOperator *>(plan_root)->Accept(visitor);
+  return visitor.output();
+}
+
+namespace impl {
+
+///////////////////////////////////////////////////////////////////////////////
+//
+// PlanToJsonVisitor implementation
+//
+// The JSON formatted plan is consumed (or will be) by Memgraph Lab, and
+// therefore should not be changed before synchronizing with whoever is
+// maintaining Memgraph Lab. Hopefully, one day integration tests will exist and
+// there will be no need to be super careful.
+
+using nlohmann::json;
+
+//////////////////////////// HELPER FUNCTIONS /////////////////////////////////
+// TODO: It would be nice to have enum->string functions auto-generated.
+std::string ToString(EdgeAtom::Direction dir) {
+  switch (dir) {
+    case EdgeAtom::Direction::BOTH:
+      return "both";
+    case EdgeAtom::Direction::IN:
+      return "in";
+    case EdgeAtom::Direction::OUT:
+      return "out";
+  }
+}
+
+std::string ToString(EdgeAtom::Type type) {
+  switch (type) {
+    case EdgeAtom::Type::BREADTH_FIRST:
+      return "bfs";
+    case EdgeAtom::Type::DEPTH_FIRST:
+      return "dfs";
+    case EdgeAtom::Type::WEIGHTED_SHORTEST_PATH:
+      return "wsp";
+    case EdgeAtom::Type::SINGLE:
+      return "single";
+  }
+}
+
+std::string ToString(Ordering ord) {
+  switch (ord) {
+    case Ordering::ASC:
+      return "asc";
+    case Ordering::DESC:
+      return "desc";
+  }
+}
+
+json ToJson(Expression *expression) {
+  std::stringstream sstr;
+  PrintExpression(expression, &sstr);
+  return sstr.str();
+}
+
+json ToJson(const utils::Bound<Expression *> &bound) {
+  json json;
+  switch (bound.type()) {
+    case utils::BoundType::INCLUSIVE:
+      json["type"] = "inclusive";
+      break;
+    case utils::BoundType::EXCLUSIVE:
+      json["type"] = "exclusive";
+      break;
+  }
+
+  json["value"] = ToJson(bound.value());
+
+  return json;
+}
+
+json ToJson(const Symbol &symbol) { return symbol.name(); }
+
+json ToJson(storage::EdgeType edge_type, const database::GraphDbAccessor &dba) {
+  return dba.EdgeTypeName(edge_type);
+}
+
+json ToJson(storage::Label label, const database::GraphDbAccessor &dba) {
+  return dba.LabelName(label);
+}
+
+json ToJson(storage::Property property, const database::GraphDbAccessor &dba) {
+  return dba.PropertyName(property);
+}
+
+json ToJson(NamedExpression *nexpr) {
+  json json;
+  json["expression"] = ToJson(nexpr->expression_);
+  json["name"] = nexpr->name_;
+  return json;
+}
+
+json ToJson(
+    const std::vector<std::pair<storage::Property, Expression *>> &properties,
+    const database::GraphDbAccessor &dba) {
+  json json;
+  for (const auto &prop_pair : properties) {
+    json.emplace(ToJson(prop_pair.first, dba), ToJson(prop_pair.second));
+  }
+  return json;
+}
+
+json ToJson(const NodeCreationInfo &node_info,
+            const database::GraphDbAccessor &dba) {
+  json self;
+  self["symbol"] = ToJson(node_info.symbol);
+  self["labels"] = ToJson(node_info.labels, dba);
+  self["properties"] = ToJson(node_info.properties, dba);
+  return self;
+}
+
+json ToJson(const EdgeCreationInfo &edge_info,
+            const database::GraphDbAccessor &dba) {
+  json self;
+  self["symbol"] = ToJson(edge_info.symbol);
+  self["properties"] = ToJson(edge_info.properties, dba);
+  self["edge_type"] = ToJson(edge_info.edge_type, dba);
+  self["direction"] = ToString(edge_info.direction);
+  return self;
+}
+
+json ToJson(const Aggregate::Element &elem) {
+  json json;
+  json["value"] = ToJson(elem.value);
+  if (elem.key) {
+    json["key"] = ToJson(elem.key);
+  }
+  json["op"] = utils::ToLowerCase(Aggregation::OpToString(elem.op));
+  json["output_symbol"] = ToJson(elem.output_sym);
+  return json;
+}
+////////////////////////// END HELPER FUNCTIONS ////////////////////////////////
+
+bool PlanToJsonVisitor::Visit(Once &) {
+  json self;
+  self["name"] = "Once";
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAll &op) {
+  json self;
+  self["name"] = "ScanAll";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByLabel &op) {
+  json self;
+  self["name"] = "ScanAllByLabel";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyRange &op) {
+  json self;
+  self["name"] = "ScanAllByLabelPropertyRange";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lower_bound"] = op.lower_bound_ ? ToJson(*op.lower_bound_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(*op.upper_bound_) : json();
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByLabelPropertyValue &op) {
+  json self;
+  self["name"] = "ScanAllByLabelPropertyValue";
+  self["label"] = ToJson(op.label_, *dba_);
+  self["property"] = ToJson(op.property_, *dba_);
+  self["expression"] = ToJson(op.expression_);
+  self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(CreateNode &op) {
+  json self;
+  self["name"] = "CreateNode";
+  self["node_info"] = ToJson(op.node_info_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(CreateExpand &op) {
+  json self;
+  self["name"] = "CreateExpand";
+  self["input_symbol"] = ToJson(op.input_symbol_);
+  self["node_info"] = ToJson(op.node_info_, *dba_);
+  self["edge_info"] = ToJson(op.edge_info_, *dba_);
+  self["existing_node"] = op.existing_node_;
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Expand &op) {
+  json self;
+  self["name"] = "Expand";
+  self["input_symbol"] = ToJson(op.input_symbol_);
+  self["node_symbol"] = ToJson(op.common_.node_symbol);
+  self["edge_symbol"] = ToJson(op.common_.edge_symbol);
+  self["edge_types"] = ToJson(op.common_.edge_types, *dba_);
+  self["direction"] = ToString(op.common_.direction);
+  self["existing_node"] = op.common_.existing_node;
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ExpandVariable &op) {
+  json self;
+  self["name"] = "ExpandVariable";
+  self["input_symbol"] = ToJson(op.input_symbol_);
+  self["node_symbol"] = ToJson(op.common_.node_symbol);
+  self["edge_symbol"] = ToJson(op.common_.edge_symbol);
+  self["edge_types"] = ToJson(op.common_.edge_types, *dba_);
+  self["direction"] = ToString(op.common_.direction);
+  self["type"] = ToString(op.type_);
+  self["is_reverse"] = op.is_reverse_;
+  self["lower_bound"] = op.lower_bound_ ? ToJson(op.lower_bound_) : json();
+  self["upper_bound"] = op.upper_bound_ ? ToJson(op.upper_bound_) : json();
+  self["existing_node"] = op.common_.existing_node;
+
+  self["filter_lambda"] = op.filter_lambda_.expression
+                              ? ToJson(op.filter_lambda_.expression)
+                              : json();
+
+  if (op.type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH) {
+    self["weight_lambda"] = ToJson(op.weight_lambda_->expression);
+    self["total_weight_symbol"] = ToJson(*op.total_weight_);
+  }
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ConstructNamedPath &op) {
+  json self;
+  self["name"] = "ConstructNamedPath";
+  self["path_symbol"] = ToJson(op.path_symbol_);
+  self["path_elements"] = ToJson(op.path_elements_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Filter &op) {
+  json self;
+  self["name"] = "Filter";
+  self["expression"] = ToJson(op.expression_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Produce &op) {
+  json self;
+  self["name"] = "Produce";
+  self["named_expressions"] = ToJson(op.named_expressions_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Delete &op) {
+  json self;
+  self["name"] = "Delete";
+  self["expressions"] = ToJson(op.expressions_);
+  self["detach"] = op.detach_;
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(SetProperty &op) {
+  json self;
+  self["name"] = "SetProperty";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lhs"] = ToJson(op.lhs_);
+  self["rhs"] = ToJson(op.rhs_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(SetProperties &op) {
+  json self;
+  self["name"] = "SetProperties";
+  self["input_symbol"] = ToJson(op.input_symbol_);
+  self["rhs"] = ToJson(op.rhs_);
+
+  switch (op.op_) {
+    case SetProperties::Op::UPDATE:
+      self["op"] = "update";
+      break;
+    case SetProperties::Op::REPLACE:
+      self["op"] = "replace";
+      break;
+  }
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(SetLabels &op) {
+  json self;
+  self["name"] = "SetLabels";
+  self["input_symbol"] = ToJson(op.input_symbol_);
+  self["labels"] = ToJson(op.labels_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(RemoveProperty &op) {
+  json self;
+  self["name"] = "RemoveProperty";
+  self["property"] = ToJson(op.property_, *dba_);
+  self["lhs"] = ToJson(op.lhs_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(RemoveLabels &op) {
+  json self;
+  self["name"] = "RemoveLabels";
+  self["input_symbol"] = ToJson(op.input_symbol_);
+  self["labels"] = ToJson(op.labels_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(EdgeUniquenessFilter &op) {
+  json self;
+  self["name"] = "EdgeUniquenessFilter";
+  self["expand_symbol"] = ToJson(op.expand_symbol_);
+  self["previous_symbols"] = ToJson(op.previous_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Accumulate &op) {
+  json self;
+  self["name"] = "Accumulate";
+  self["symbols"] = ToJson(op.symbols_);
+  self["advance_command"] = op.advance_command_;
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Aggregate &op) {
+  json self;
+  self["name"] = "Aggregate";
+  self["aggregations"] = ToJson(op.aggregations_);
+  self["group_by"] = ToJson(op.group_by_);
+  self["remember"] = ToJson(op.remember_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Skip &op) {
+  json self;
+  self["name"] = "Skip";
+  self["expression"] = ToJson(op.expression_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Limit &op) {
+  json self;
+  self["name"] = "Limit";
+  self["expression"] = ToJson(op.expression_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(OrderBy &op) {
+  json self;
+  self["name"] = "OrderBy";
+
+  for (auto i = 0; i < op.order_by_.size(); ++i) {
+    json json;
+    json["ordering"] = ToString(op.compare_.ordering_[i]);
+    json["expression"] = ToJson(op.order_by_[i]);
+    self["order_by"].push_back(json);
+  }
+  self["output_symbols"] = ToJson(op.output_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Merge &op) {
+  json self;
+  self["name"] = "Merge";
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.merge_match_->Accept(*this);
+  self["merge_match"] = PopOutput();
+
+  op.merge_create_->Accept(*this);
+  self["merge_create"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Optional &op) {
+  json self;
+  self["name"] = "Optional";
+  self["optional_symbols"] = ToJson(op.optional_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  op.optional_->Accept(*this);
+  self["optional"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Unwind &op) {
+  json self;
+  self["name"] = "Unwind";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+  self["input_expression"] = ToJson(op.input_expression_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Distinct &op) {
+  json self;
+  self["name"] = "Distinct";
+  self["value_symbols"] = ToJson(op.value_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Union &op) {
+  json self;
+  self["name"] = "Union";
+  self["union_symbols"] = ToJson(op.union_symbols_);
+  self["left_symbols"] = ToJson(op.left_symbols_);
+  self["right_symbols"] = ToJson(op.right_symbols_);
+
+  op.left_op_->Accept(*this);
+  self["left_op"] = PopOutput();
+
+  op.right_op_->Accept(*this);
+  self["right_op"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Cartesian &op) {
+  json self;
+  self["name"] = "Cartesian";
+  self["left_symbols"] = ToJson(op.left_symbols_);
+  self["right_symbols"] = ToJson(op.right_symbols_);
+
+  op.left_op_->Accept(*this);
+  self["left_op"] = PopOutput();
+
+  op.right_op_->Accept(*this);
+  self["right_op"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+}  // namespace impl
 
 }  // namespace query::plan

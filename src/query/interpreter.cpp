@@ -61,6 +61,11 @@ void Interpreter::PrettyPrintPlan(const database::GraphDbAccessor &dba,
   plan::PrettyPrint(dba, plan_root, out);
 }
 
+std::string Interpreter::PlanToJson(const database::GraphDbAccessor &dba,
+                                    const plan::LogicalOperator *plan_root) {
+  return plan::PlanToJson(dba, plan_root).dump();
+}
+
 struct Callback {
   std::vector<std::string> header;
   std::function<std::vector<std::vector<TypedValue>>()> fn;
@@ -686,6 +691,8 @@ Interpreter::Results Interpreter::operator()(
          utils::Split(utils::RTrim(printed_plan.str()), "\n")) {
       printed_plan_rows.push_back(std::vector<TypedValue>{row});
     }
+
+    summary["explain"] = PlanToJson(db_accessor, &cypher_query_plan->plan());
 
     SymbolTable symbol_table;
     auto query_plan_symbol = symbol_table.CreateSymbol("QUERY PLAN", false);

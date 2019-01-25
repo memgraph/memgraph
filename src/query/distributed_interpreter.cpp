@@ -157,4 +157,10 @@ void DistributedInterpreter::PrettyPrintPlan(
   plan::DistributedPrettyPrint(dba, plan_root, out);
 }
 
+std::string DistributedInterpreter::PlanToJson(
+    const database::GraphDbAccessor &dba,
+    const plan::LogicalOperator *plan_root) {
+  return plan::DistributedPlanToJson(dba, plan_root).dump();
+}
+
 }  // namespace query

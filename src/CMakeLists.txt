@@ -27,8 +27,8 @@ set(mg_single_node_sources
     glue/auth.cpp
     glue/communication.cpp
     query/common.cpp
-    query/frontend/ast/pretty_print.cpp
     query/frontend/ast/cypher_main_visitor.cpp
+    query/frontend/ast/pretty_print.cpp
     query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp
     query/frontend/stripped.cpp
@@ -263,6 +263,7 @@ set(mg_single_node_ha_sources
     raft/raft_server.cpp
     query/common.cpp
     query/frontend/ast/cypher_main_visitor.cpp
+    query/frontend/ast/pretty_print.cpp
     query/frontend/semantic/required_privileges.cpp
     query/frontend/semantic/symbol_generator.cpp
     query/frontend/stripped.cpp
