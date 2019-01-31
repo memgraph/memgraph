@@ -3,6 +3,7 @@
 #pragma once
 
 #include <atomic>
+#include <experimental/filesystem>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
@@ -15,6 +16,7 @@
 #include "raft/raft_interface.hpp"
 #include "raft/raft_rpc_messages.hpp"
 #include "raft/replication_log.hpp"
+#include "raft/snapshot_metadata.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
 #include "utils/scheduler.hpp"
@@ -86,12 +88,12 @@ class RaftServer final : public RaftInterface {
   uint64_t LogSize();
 
   /// Retrieves persisted snapshot metadata or nullopt if not present.
-  std::experimental::optional<std::pair<uint64_t, uint64_t>>
-  GetSnapshotMetadata();
+  /// Snapshot metadata is a triplet consisting of the last included term, last
+  /// last included log entry index and the snapshot filename.
+  std::experimental::optional<SnapshotMetadata> GetSnapshotMetadata();
 
   /// Persists snapshot metadata.
-  void PersistSnapshotMetadata(uint64_t last_included_term,
-                               uint64_t last_included_index);
+  void PersistSnapshotMetadata(const SnapshotMetadata &snapshot_metadata);
 
   /// Append to the log a list of batched state deltasa that are ready to be
   /// replicated.
@@ -148,7 +150,8 @@ class RaftServer final : public RaftInterface {
     RaftServer *raft_server_{nullptr};
   };
 
-  mutable std::mutex lock_;  ///< Guards all internal state.
+  mutable std::mutex lock_;           ///< Guards all internal state.
+  mutable std::mutex snapshot_lock_;  ///< Guards snapshot creation and removal.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on all servers
@@ -160,9 +163,10 @@ class RaftServer final : public RaftInterface {
   database::GraphDb *db_{nullptr};
   std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
-  std::atomic<Mode> mode_;      ///< Server's current mode.
-  uint16_t server_id_;          ///< ID of the current server.
-  std::string durability_dir_;  ///< Durability directory.
+  std::atomic<Mode> mode_;  ///< Server's current mode.
+  uint16_t server_id_;      ///< ID of the current server.
+  std::experimental::filesystem::path
+      durability_dir_;          ///< Durability directory.
   bool db_recover_on_startup_;  ///< Flag indicating if recovery should happen
                                 ///< on startup.
   uint64_t commit_index_;       ///< Index of the highest known committed entry.
@@ -192,7 +196,7 @@ class RaftServer final : public RaftInterface {
                                             ///< no_op_issuer_thread that a new
                                             ///< leader has been elected.
 
-  bool exiting_ = false;  ///< True on server shutdown.
+  bool exiting_{false};  ///< True on server shutdown.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on followers and candidates
@@ -254,17 +258,34 @@ class RaftServer final : public RaftInterface {
   /// Tries to advance the commit index on a leader.
   void AdvanceCommitIndex();
 
-  /// Recovers from persistent storage. This function should be called from
-  /// the constructor before the server starts with normal operation.
-  void Recover();
-
-  /// Sends Entries to peer. This function should only be called in leader
-  /// mode.
+  /// Decides whether to send Log Entires or Snapshot to the given peer.
   ///
   /// @param peer_id ID of the peer which receives entries.
   /// @param lock Lock from the peer thread (released while waiting for
   ///             response)
-  void SendEntries(uint16_t peer_id, std::unique_lock<std::mutex> &lock);
+  void SendEntries(uint16_t peer_id, std::unique_lock<std::mutex> *lock);
+
+  /// Sends Log Entries to peer. This function should only be called in leader
+  /// mode.
+  ///
+  /// @param peer_id ID of the peer which receives entries.
+  /// @param snapshot_metadata metadata of the last snapshot, if any.
+  /// @param lock Lock from the peer thread (released while waiting for
+  ///             response)
+  void SendLogEntries(
+      uint16_t peer_id,
+      const std::experimental::optional<SnapshotMetadata> &snapshot_metadata,
+      std::unique_lock<std::mutex> *lock);
+
+  /// Send Snapshot to peer. This function should only be called in leader
+  /// mode.
+  ///
+  /// @param peer_id ID of the peer which receives entries.
+  /// @param snapshot_metadata metadata of the snapshot to send.
+  /// @param lock Lock from the peer thread (released while waiting for
+  ///             response)
+  void SendSnapshot(uint16_t peer_id, const SnapshotMetadata &snapshot_metadata,
+                    std::unique_lock<std::mutex> *lock);
 
   /// Main function of the `election_thread_`. It is responsible for
   /// transition to CANDIDATE mode when election timeout elapses.
@@ -365,8 +386,8 @@ class RaftServer final : public RaftInterface {
   /// Resets the replication log used to indicate the replication status.
   void ResetReplicationLog();
 
-  /// Recovers the latest snapshot that exists in the durability directory.
-  void RecoverSnapshot();
+  /// Recovers the given snapshot if it exists in the durability directory.
+  void RecoverSnapshot(const std::string &snapshot_filename);
 
   /// Start a new transaction with a NO-OP StateDelta.
   void NoOpCreate();

@@ -2,7 +2,7 @@
 
 #include <kj/std/iostream.h>
 #include <chrono>
-#include <experimental/filesystem>
+#include <iostream>
 #include <memory>
 
 #include <fmt/format.h>
@@ -10,13 +10,13 @@
 #include <glog/logging.h>
 
 #include "database/graph_db_accessor.hpp"
+#include "durability/single_node_ha/paths.hpp"
 #include "durability/single_node_ha/recovery.hpp"
 #include "durability/single_node_ha/snapshooter.hpp"
 #include "raft/exceptions.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/serialization.hpp"
-#include "utils/string.hpp"
 #include "utils/thread.hpp"
 
 namespace raft {
@@ -44,7 +44,7 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       rlog_(std::make_unique<ReplicationLog>()),
       mode_(Mode::FOLLOWER),
       server_id_(server_id),
-      durability_dir_(durability_dir),
+      durability_dir_(fs::path(durability_dir)),
       db_recover_on_startup_(db_recover_on_startup),
       commit_index_(0),
       last_applied_(0),
@@ -54,14 +54,15 @@ void RaftServer::Start() {
   if (db_recover_on_startup_) {
     auto snapshot_metadata = GetSnapshotMetadata();
     if (snapshot_metadata) {
-      RecoverSnapshot();
+      RecoverSnapshot(snapshot_metadata->snapshot_filename);
 
-      last_applied_ = snapshot_metadata->second;
-      commit_index_ = snapshot_metadata->second;
+      last_applied_ = snapshot_metadata->last_included_index;
+      commit_index_ = snapshot_metadata->last_included_index;
     }
   } else {
     // We need to clear persisted data if we don't want any recovery.
     disk_storage_.DeletePrefix("");
+    disk_storage_.Put(kLogSizeKey, "0");
     durability::RemoveAllSnapshots(durability_dir_);
   }
 
@@ -131,7 +132,7 @@ void RaftServer::Start() {
     // "If a server receives a request with a stale term, it rejects the
     // request"
     uint64_t current_term = CurrentTerm();
-    if (req.term < current_term) {
+    if (exiting_ || req.term < current_term) {
       AppendEntriesRes res(false, current_term);
       Save(res, res_builder);
       return;
@@ -157,11 +158,29 @@ void RaftServer::Start() {
     //     term, then they store the same command.
     //   - If two entries in different logs have the same index and term,
     //     then the logs are identical in all preceding entries.
-    if (LogSize() <= req.prev_log_index ||
-        GetLogEntry(req.prev_log_index).term != req.prev_log_term) {
+    auto snapshot_metadata = GetSnapshotMetadata();
+
+    if (snapshot_metadata &&
+        snapshot_metadata->last_included_index == req.prev_log_index) {
+      if (req.prev_log_term != snapshot_metadata->last_included_term) {
+        AppendEntriesRes res(false, current_term);
+        Save(res, res_builder);
+        return;
+      }
+    } else if (snapshot_metadata &&
+               snapshot_metadata->last_included_index > req.prev_log_index) {
+      LOG(ERROR) << "Received entries that are already commited and have been "
+                    "compacted";
       AppendEntriesRes res(false, current_term);
       Save(res, res_builder);
       return;
+    } else {
+      if (LogSize() <= req.prev_log_index ||
+          GetLogEntry(req.prev_log_index).term != req.prev_log_term) {
+        AppendEntriesRes res(false, current_term);
+        Save(res, res_builder);
+        return;
+      }
     }
 
     // [Raft paper figure 2]
@@ -193,6 +212,92 @@ void RaftServer::Start() {
     AppendEntriesRes res(true, current_term);
     Save(res, res_builder);
   });
+
+  coordination_->Register<InstallSnapshotRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        // Acquire snapshot lock.
+        std::lock_guard<std::mutex> snapshot_guard(snapshot_lock_);
+        std::lock_guard<std::mutex> guard(lock_);
+
+        InstallSnapshotReq req;
+        Load(&req, req_reader);
+
+        uint64_t current_term = CurrentTerm();
+        if (exiting_ || req.term < current_term) {
+          InstallSnapshotRes res(current_term);
+          Save(res, res_builder);
+          return;
+        }
+
+        // Check if the current state matches the one in snapshot
+        if (req.snapshot_metadata.last_included_index == last_applied_ &&
+            req.snapshot_metadata.last_included_term == current_term) {
+          InstallSnapshotRes res(current_term);
+          Save(res, res_builder);
+          return;
+        }
+
+        VLOG(40) << "[InstallSnapshotRpc] Starting.";
+
+        if (req.term > current_term) {
+          VLOG(40) << "[InstallSnapshotRpc] Updating term.";
+          UpdateTerm(req.term);
+          if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
+        }
+
+        utils::OnScopeExit extend_election_timeout([this] {
+          SetNextElectionTimePoint();
+          election_change_.notify_all();
+        });
+
+        // Temporary freeze election timer while we handle the snapshot.
+        next_election_ = TimePoint::max();
+
+        VLOG(40) << "[InstallSnapshotRpc] Remove all snapshots.";
+        // Remove all previous snapshots
+        durability::RemoveAllSnapshots(durability_dir_);
+
+        const auto snapshot_path = durability::MakeSnapshotPath(
+            durability_dir_, req.snapshot_metadata.snapshot_filename);
+
+        // Save snapshot file
+        {
+          VLOG(40) << "[InstallSnapshotRpc] Saving received snapshot.";
+          std::ofstream output_stream;
+          output_stream.open(snapshot_path, std::ios::out | std::ios::binary);
+          output_stream.write(req.data.get(), req.size);
+          output_stream.flush();
+          output_stream.close();
+        }
+
+        // Discard the all logs. We keep the one at index 0.
+        VLOG(40) << "[InstallSnapshotRpc] Discarding logs.";
+        uint64_t log_size = LogSize();
+        for (uint64_t i = 1; i < log_size; ++i)
+          disk_storage_.Delete(LogEntryKey(i));
+
+        // Reset the database.
+        VLOG(40) << "[InstallSnapshotRpc] Reset database.";
+        db_->Reset();
+
+        // Apply the snapshot.
+        VLOG(40) << "[InstallSnapshotRpc] Recover from received snapshot.";
+        RecoverSnapshot(req.snapshot_metadata.snapshot_filename);
+
+        VLOG(40) << "[InstallSnapshotRpc] Persist snapshot metadata.";
+        PersistSnapshotMetadata(req.snapshot_metadata);
+
+        // Update the state to match the one from snapshot.
+        VLOG(40) << "[InstallSnapshotRpc] Update Raft state.";
+        last_applied_ = req.snapshot_metadata.last_included_index;
+        commit_index_ = req.snapshot_metadata.last_included_index;
+        disk_storage_.Put(
+            kLogSizeKey,
+            std::to_string(req.snapshot_metadata.last_included_index + 1));
+
+        InstallSnapshotRes res(CurrentTerm());
+        Save(res, res_builder);
+      });
 
   // start threads
 
@@ -251,27 +356,41 @@ uint64_t RaftServer::LogSize() {
   return std::stoull(opt_value.value());
 }
 
-std::experimental::optional<std::pair<uint64_t, uint64_t>>
+std::experimental::optional<SnapshotMetadata>
 RaftServer::GetSnapshotMetadata() {
   auto opt_value = disk_storage_.Get(kSnapshotMetadataKey);
   if (opt_value == std::experimental::nullopt) {
     return std::experimental::nullopt;
   }
 
-  auto value = utils::Split(opt_value.value(), " ");
-  if (value.size() != 2) {
-    LOG(WARNING) << "Malformed snapshot metdata";
-    return std::experimental::nullopt;
-  }
-  return std::make_pair(std::stoull(value[0]), std::stoull(value[1]));
+  ::capnp::MallocMessageBuilder message;
+  std::stringstream stream(std::ios_base::in | std::ios_base::out |
+                           std::ios_base::binary);
+  kj::std::StdInputStream std_stream(stream);
+  kj::BufferedInputStreamWrapper buffered_stream(std_stream);
+  stream << *opt_value;
+  readMessageCopy(buffered_stream, message);
+  capnp::SnapshotMetadata::Reader reader =
+      message.getRoot<capnp::SnapshotMetadata>().asReader();
+  SnapshotMetadata deserialized;
+  Load(&deserialized, reader);
+  return std::experimental::make_optional(deserialized);
 }
 
-void RaftServer::PersistSnapshotMetadata(uint64_t last_included_term,
-                                         uint64_t last_included_index) {
-  auto value = utils::Join(
-      {std::to_string(last_included_term), std::to_string(last_included_index)},
-      " ");
-  disk_storage_.Put(kSnapshotMetadataKey, value);
+void RaftServer::PersistSnapshotMetadata(
+    const SnapshotMetadata &snapshot_metadata) {
+  std::stringstream stream(std::ios_base::in | std::ios_base::out |
+                           std::ios_base::binary);
+  {
+    ::capnp::MallocMessageBuilder message;
+    capnp::SnapshotMetadata::Builder builder =
+        message.initRoot<capnp::SnapshotMetadata>();
+    Save(snapshot_metadata, &builder);
+    kj::std::StdOutputStream std_stream(stream);
+    kj::BufferedOutputStreamWrapper buffered_stream(std_stream);
+    writeMessage(buffered_stream, message);
+  }
+  disk_storage_.Put(kSnapshotMetadataKey, stream.str());
 }
 
 void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
@@ -289,13 +408,9 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   }
 
   uint64_t log_size = LogSize();
-  DCHECK(last_applied_ == log_size - 1) << "Everything from the leaders log "
-                                           "should be applied into our state "
-                                           "machine";
   rlog_->set_active(tx_id);
   LogEntry new_entry(CurrentTerm(), deltas);
 
-  ++last_applied_;
   disk_storage_.Put(LogEntryKey(log_size), SerializeLogEntry(new_entry));
   disk_storage_.Put(kLogSizeKey, std::to_string(log_size + 1));
 
@@ -402,14 +517,17 @@ void RaftServer::Transition(const Mode &new_mode) {
         ResetReplicationLog();
 
         // Re-apply raft log.
-        auto snapshot_metadata = GetSnapshotMetadata();
         uint64_t starting_index = 1;
+        auto snapshot_metadata = GetSnapshotMetadata();
         if (snapshot_metadata) {
-          RecoverSnapshot();
-          starting_index = snapshot_metadata->second + 1;
+          RecoverSnapshot(snapshot_metadata->snapshot_filename);
+          starting_index = snapshot_metadata->last_included_index + 1;
         }
-        for (uint64_t i = starting_index; i <= commit_index_; ++i)
+
+        for (uint64_t i = starting_index; i <= commit_index_; ++i) {
           delta_applier_->Apply(GetLogEntry(i).deltas);
+        }
+
         last_applied_ = commit_index_;
       }
 
@@ -538,17 +656,35 @@ void RaftServer::AdvanceCommitIndex() {
   }
 
   commit_index_ = new_commit_index;
-}
-
-void RaftServer::Recover() {
-  throw utils::NotYetImplemented("RaftServer Recover");
+  last_applied_ = new_commit_index;
 }
 
 void RaftServer::SendEntries(uint16_t peer_id,
-                             std::unique_lock<std::mutex> &lock) {
+                             std::unique_lock<std::mutex> *lock) {
+  auto snapshot_metadata = GetSnapshotMetadata();
+
+  if (snapshot_metadata &&
+      snapshot_metadata->last_included_index >= next_index_[peer_id]) {
+    SendSnapshot(peer_id, *snapshot_metadata, lock);
+  } else {
+    SendLogEntries(peer_id, snapshot_metadata, lock);
+  }
+}
+
+void RaftServer::SendLogEntries(
+    uint16_t peer_id,
+    const std::experimental::optional<SnapshotMetadata> &snapshot_metadata,
+    std::unique_lock<std::mutex> *lock) {
   uint64_t request_term = CurrentTerm();
   uint64_t request_prev_log_index = next_index_[peer_id] - 1;
-  uint64_t request_prev_log_term = GetLogEntry(next_index_[peer_id] - 1).term;
+  uint64_t request_prev_log_term;
+
+  if (snapshot_metadata &&
+      snapshot_metadata->last_included_index == next_index_[peer_id] - 1) {
+    request_prev_log_term = snapshot_metadata->last_included_term;
+  } else {
+    request_prev_log_term = GetLogEntry(next_index_[peer_id] - 1).term;
+  }
 
   std::vector<LogEntry> request_entries;
   if (next_index_[peer_id] <= LogSize() - 1)
@@ -572,9 +708,9 @@ void RaftServer::SendEntries(uint16_t peer_id,
 
   VLOG(40) << "Entries size: " << request_entries.size();
 
-  lock.unlock();  // Release lock while waiting for response.
+  lock->unlock();  // Release lock while waiting for response.
   auto reply = peer_future.get();
-  lock.lock();
+  lock->lock();
 
   if (unreachable_peer) {
     next_heartbeat_[peer_id] = Clock::now() + config_.heartbeat_interval;
@@ -612,6 +748,76 @@ void RaftServer::SendEntries(uint16_t peer_id,
     next_index_[peer_id] = match_index_[peer_id] + 1;
     next_heartbeat_[peer_id] = Clock::now() + config_.heartbeat_interval;
   }
+
+  state_changed_.notify_all();
+}
+
+void RaftServer::SendSnapshot(uint16_t peer_id,
+                              const SnapshotMetadata &snapshot_metadata,
+                              std::unique_lock<std::mutex> *lock) {
+  uint64_t request_term = CurrentTerm();
+  uint32_t snapshot_size = 0;
+  std::unique_ptr<char[]> snapshot;
+
+  {
+    const auto snapshot_path = durability::MakeSnapshotPath(
+        durability_dir_, snapshot_metadata.snapshot_filename);
+
+    std::ifstream input_stream;
+    input_stream.open(snapshot_path, std::ios::in | std::ios::binary);
+    input_stream.seekg(0, std::ios::end);
+    snapshot_size = input_stream.tellg();
+
+    snapshot.reset(new char[snapshot_size]);
+
+    input_stream.seekg(0, std::ios::beg);
+    input_stream.read(snapshot.get(), snapshot_size);
+    input_stream.close();
+  }
+
+  VLOG(40) << "Snapshot size: " << snapshot_size << " bytes.";
+
+  bool unreachable_peer = false;
+  auto peer_future = coordination_->ExecuteOnWorker<InstallSnapshotRes>(
+      peer_id, [&](int worker_id, auto &client) {
+        try {
+          auto res = client.template Call<InstallSnapshotRpc>(
+              server_id_, request_term, snapshot_metadata, std::move(snapshot),
+              snapshot_size);
+          return res;
+        } catch (...) {
+          unreachable_peer = true;
+          return InstallSnapshotRes(request_term);
+        }
+      });
+
+  lock->unlock();
+  auto reply = peer_future.get();
+  lock->lock();
+
+  if (unreachable_peer) {
+    next_heartbeat_[peer_id] = Clock::now() + config_.heartbeat_interval;
+    return;
+  }
+
+  if (CurrentTerm() != request_term || exiting_) {
+    return;
+  }
+
+  if (OutOfSync(reply.term)) {
+    state_changed_.notify_all();
+    return;
+  }
+
+  if (reply.term != CurrentTerm()) {
+    VLOG(40) << "Server " << server_id_
+             << ": Ignoring stale InstallSnapshotRpc reply from " << peer_id;
+    return;
+  }
+
+  match_index_[peer_id] = snapshot_metadata.last_included_index;
+  next_index_[peer_id] = snapshot_metadata.last_included_index + 1;
+  next_heartbeat_[peer_id] = Clock::now() + config_.heartbeat_interval;
 
   state_changed_.notify_all();
 }
@@ -713,9 +919,9 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
         case Mode::LEADER: {
           if (now >= next_heartbeat_[peer_id]) {
             VLOG(40) << "Server " << server_id_
-                     << ": Send AppendEntries RPC to server " << peer_id
+                     << ": Sending Entries RPC to server " << peer_id
                      << " (Term: " << CurrentTerm() << ")";
-            SendEntries(peer_id, lock);
+            SendEntries(peer_id, &lock);
             continue;
           }
           wait_until = next_heartbeat_[peer_id];
@@ -743,43 +949,59 @@ void RaftServer::NoOpIssuerThreadMain() {
 
 void RaftServer::SnapshotThread() {
   utils::ThreadSetName(fmt::format("RaftSnapshot"));
-  while (!exiting_) {
-    {
-      std::unique_lock<std::mutex> lock(lock_);
+  if (config_.log_size_snapshot_threshold == -1) return;
 
-      uint64_t uncompacted_log_size = LogSize();
+  while (true) {
+    {
+      // Acquire snapshot lock before we acquire the Raft lock. This should
+      // avoid the situation where we release the lock to start writing a
+      // snapshot but the `InstallSnapshotRpc` deletes it and we write wrong
+      // metadata.
+      std::lock_guard<std::mutex> snapshot_guard(snapshot_lock_);
+      std::unique_lock<std::mutex> lock(lock_);
+      if (exiting_) break;
+
+      uint64_t committed_log_size = last_applied_;
       auto snapshot_metadata = GetSnapshotMetadata();
       if (snapshot_metadata) {
-        uncompacted_log_size -= snapshot_metadata->second;
+        committed_log_size -= snapshot_metadata->last_included_index;
       }
 
       // Compare the log size to the config
-      if (config_.log_size_snapshot_threshold < uncompacted_log_size) {
+      if (config_.log_size_snapshot_threshold < committed_log_size) {
+        VLOG(40) << "[LogCompaction] Starting log compaction.";
         // Create a DB accessor for snapshot creation
         std::unique_ptr<database::GraphDbAccessor> dba = db_->Access();
-        uint64_t current_term = CurrentTerm();
-        uint64_t last_applied = last_applied_;
+        uint64_t last_included_term = GetLogEntry(last_applied_).term;
+        uint64_t last_included_index = last_applied_;
+        std::string snapshot_filename =
+            durability::GetSnapshotFilename(dba->transaction_id());
 
         lock.unlock();
-        bool status =
-            durability::MakeSnapshot(*db_, *dba, fs::path(durability_dir_));
+        VLOG(40) << "[LogCompaction] Creating snapshot.";
+        bool status = durability::MakeSnapshot(*db_, *dba, durability_dir_,
+                                               snapshot_filename);
         lock.lock();
 
         if (status) {
           uint64_t log_compaction_start_index = 1;
           if (snapshot_metadata) {
-            log_compaction_start_index = snapshot_metadata->second + 1;
+            log_compaction_start_index =
+                snapshot_metadata->last_included_index + 1;
           }
 
-          PersistSnapshotMetadata(current_term, last_applied);
+          VLOG(40) << "[LogCompaction] Persisting snapshot metadata";
+          PersistSnapshotMetadata(
+              {last_included_term, last_included_index, snapshot_filename});
 
           // Log compaction.
-          // TODO (msantl): In order to handle log compaction correctly, we need
-          // to be able to send snapshots over the wire and implement additional
-          // logic to handle log entries that were compacted into a snapshot.
-          // for (int i = log_compaction_start_index; i <= last_applied_; ++i) {
-          // disk_storage_.Delete(LogEntryKey(i));
-          // }
+          VLOG(40) << "[LogCompaction] Compacting log from "
+                   << log_compaction_start_index << " to "
+                   << last_included_index;
+          for (int i = log_compaction_start_index; i <= last_included_index;
+               ++i) {
+            disk_storage_.Delete(LogEntryKey(i));
+          }
         }
 
         lock.unlock();
@@ -817,6 +1039,11 @@ bool RaftServer::HasMajortyVote() {
 std::pair<uint64_t, uint64_t> RaftServer::LastEntryData() {
   uint64_t log_size = LogSize();
   if (log_size == 0) return {0, 0};
+  auto snapshot_metadata = GetSnapshotMetadata();
+  if (snapshot_metadata &&
+      snapshot_metadata->last_included_index == log_size - 1) {
+    return {log_size, snapshot_metadata->last_included_term};
+  }
   return {log_size, GetLogEntry(log_size - 1).term};
 }
 
@@ -940,10 +1167,12 @@ void RaftServer::ResetReplicationLog() {
   rlog_ = std::make_unique<ReplicationLog>();
 }
 
-void RaftServer::RecoverSnapshot() {
+void RaftServer::RecoverSnapshot(const std::string &snapshot_filename) {
   durability::RecoveryData recovery_data;
-  CHECK(durability::RecoverOnlySnapshot(durability_dir_, db_, &recovery_data))
-      << "Failed to recover from snapshot";
+  bool recovery = durability::RecoverSnapshot(
+      db_, &recovery_data, durability_dir_, snapshot_filename);
+
+  CHECK(recovery);
   durability::RecoverIndexes(db_, recovery_data.indexes);
 }
 

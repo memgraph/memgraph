@@ -39,19 +39,13 @@ void GraphDb::Start() {
 
 GraphDb::~GraphDb() {}
 
-bool GraphDb::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
-  bool ret =
-      coordination_.AwaitShutdown([this, &call_before_shutdown]() -> bool {
-        is_accepting_transactions_ = false;
-        tx_engine_.LocalForEachActiveTransaction(
-            [](auto &t) { t.set_should_abort(); });
+void GraphDb::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
+  coordination_.AwaitShutdown([this, &call_before_shutdown]() {
+    tx_engine_.LocalForEachActiveTransaction(
+        [](auto &t) { t.set_should_abort(); });
 
-        call_before_shutdown();
-
-        return true;
-      });
-
-  return ret;
+    call_before_shutdown();
+  });
 }
 
 void GraphDb::Shutdown() {

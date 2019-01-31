@@ -32,7 +32,7 @@ RESULTS="$DIR/.apollo_measurements"
 # Benchmark parameters
 DURATION=10
 
-## Startup
+# Startup
 declare -a HA_PIDS
 
 for server_id in 1 2 3

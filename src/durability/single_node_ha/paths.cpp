@@ -14,13 +14,16 @@ namespace durability {
 
 namespace fs = std::experimental::filesystem;
 
-fs::path MakeSnapshotPath(const fs::path &durability_dir,
-                          tx::TransactionId tx_id) {
+std::string GetSnapshotFilename(tx::TransactionId tx_id) {
   std::string date_str =
       utils::Timestamp(utils::Timestamp::Now())
           .ToString("{:04d}_{:02d}_{:02d}__{:02d}_{:02d}_{:02d}_{:05d}");
-  auto file_name = date_str + "_tx_" + std::to_string(tx_id);
-  return durability_dir / kSnapshotDir / file_name;
+  return date_str + "_tx_" + std::to_string(tx_id);
+}
+
+fs::path MakeSnapshotPath(const fs::path &durability_dir,
+                          const std::string &snapshot_filename) {
+  return durability_dir / kSnapshotDir / snapshot_filename;
 }
 
 std::experimental::optional<tx::TransactionId>

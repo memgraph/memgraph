@@ -68,8 +68,8 @@ class Coordination final {
   template <typename TResult>
   auto ExecuteOnWorker(
       int worker_id,
-      std::function<TResult(int worker_id, communication::rpc::ClientPool &)>
-          execute) {
+      const std::function<TResult(int worker_id,
+                                  communication::rpc::ClientPool &)> &execute) {
     auto client_pool = GetClientPool(worker_id);
     return thread_pool_.Run(execute, worker_id, std::ref(*client_pool));
   }
@@ -79,8 +79,8 @@ class Coordination final {
   template <typename TResult>
   auto ExecuteOnWorkers(
       int skip_worker_id,
-      std::function<TResult(int worker_id, communication::rpc::ClientPool &)>
-          execute) {
+      const std::function<TResult(int worker_id,
+                                  communication::rpc::ClientPool &)> &execute) {
     std::vector<std::future<TResult>> futures;
     for (auto &worker_id : GetWorkerIds()) {
       if (worker_id == skip_worker_id) continue;
@@ -112,8 +112,7 @@ class Coordination final {
   /// Starts the coordination and its servers.
   bool Start();
 
-  bool AwaitShutdown(std::function<bool(void)> call_before_shutdown =
-                         []() -> bool { return true; });
+  void AwaitShutdown(std::function<void(void)> call_before_shutdown);
 
   /// Hints that the coordination should start shutting down the whole cluster.
   void Shutdown();

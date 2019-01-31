@@ -19,7 +19,7 @@ struct Config {
   std::chrono::milliseconds election_timeout_min;
   std::chrono::milliseconds election_timeout_max;
   std::chrono::milliseconds heartbeat_interval;
-  uint64_t log_size_snapshot_threshold;
+  int64_t log_size_snapshot_threshold;
 
   static Config LoadFromFile(const std::string &raft_config_file) {
     if (!std::experimental::filesystem::exists(raft_config_file))

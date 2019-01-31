@@ -305,6 +305,8 @@ add_lcp_single_node_ha(raft/raft_rpc_messages.lcp CAPNP_SCHEMA @0xa6c29b4287233b
 add_capnp_single_node_ha(raft/raft_rpc_messages.capnp)
 add_lcp_single_node_ha(raft/log_entry.lcp CAPNP_SCHEMA @0x96c07fe13850c22a)
 add_capnp_single_node_ha(raft/log_entry.capnp)
+add_lcp_single_node_ha(raft/snapshot_metadata.lcp CAPNP_SCHEMA @0xaa08e34991680f6c)
+add_capnp_single_node_ha(raft/snapshot_metadata.capnp)
 
 add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_single_node_ha_files})
 

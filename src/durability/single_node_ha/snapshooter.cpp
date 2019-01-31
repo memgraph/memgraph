@@ -94,10 +94,11 @@ void RemoveOldSnapshots(const fs::path &snapshot_dir, uint16_t keep) {
 }  // namespace
 
 bool MakeSnapshot(database::GraphDb &db, database::GraphDbAccessor &dba,
-                  const fs::path &durability_dir) {
+                  const fs::path &durability_dir,
+                  const std::string &snapshot_filename) {
   if (!utils::EnsureDir(durability_dir / kSnapshotDir)) return false;
   const auto snapshot_file =
-      MakeSnapshotPath(durability_dir, dba.transaction_id());
+      MakeSnapshotPath(durability_dir, snapshot_filename);
   if (fs::exists(snapshot_file)) return false;
   if (Encode(snapshot_file, db, dba)) {
     // Only keep the latest snapshot.

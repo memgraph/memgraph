@@ -96,22 +96,19 @@ bool Coordination::Start() {
   return true;
 }
 
-bool Coordination::AwaitShutdown(
-    std::function<bool(void)> call_before_shutdown) {
+void Coordination::AwaitShutdown(
+    std::function<void(void)> call_before_shutdown) {
   // Wait for a shutdown notification.
   while (alive_) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
 
   // Call the before shutdown callback.
-  bool ret = call_before_shutdown();
+  call_before_shutdown();
 
   // Shutdown our RPC server.
   server_.Shutdown();
   server_.AwaitShutdown();
-
-  // Return `true` if the `call_before_shutdown` succeeded.
-  return ret;
 }
 
 void Coordination::Shutdown() { alive_.store(false); }

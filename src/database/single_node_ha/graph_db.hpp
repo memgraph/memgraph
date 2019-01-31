@@ -96,7 +96,7 @@ class GraphDb {
   GraphDb &operator=(GraphDb &&) = delete;
 
   void Start();
-  bool AwaitShutdown(std::function<void(void)> call_before_shutdown);
+  void AwaitShutdown(std::function<void(void)> call_before_shutdown);
   void Shutdown();
 
   /// Create a new accessor by starting a new transaction.
@@ -122,9 +122,6 @@ class GraphDb {
   /// might end up with some stale transactions on the leader.
   void Reset();
 
-  /// When this is false, no new transactions should be created.
-  bool is_accepting_transactions() const { return is_accepting_transactions_; }
-
   /// Get live view of storage stats. Gets updated on RefreshStat.
   const Stat &GetStat() const { return stat_; }
 
@@ -145,8 +142,6 @@ class GraphDb {
 
  protected:
   Stat stat_;
-
-  std::atomic<bool> is_accepting_transactions_{true};
 
   utils::Scheduler transaction_killer_;
 

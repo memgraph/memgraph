@@ -147,26 +147,24 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
 
 }  // anonymous namespace
 
-bool RecoverOnlySnapshot(const fs::path &durability_dir, database::GraphDb *db,
-                         RecoveryData *recovery_data) {
-  // Attempt to recover from snapshot files in reverse order (from newest
-  // backwards).
+bool RecoverSnapshot(database::GraphDb *db, RecoveryData *recovery_data,
+                     const fs::path &durability_dir,
+                     const std::string &snapshot_filename) {
   const auto snapshot_dir = durability_dir / kSnapshotDir;
-  std::vector<fs::path> snapshot_files;
-
-  if (fs::exists(snapshot_dir) && fs::is_directory(snapshot_dir))
-    for (auto &file : fs::directory_iterator(snapshot_dir))
-      snapshot_files.emplace_back(file);
-
-  if (snapshot_files.size() != 1) {
-    LOG(WARNING) << "Expected only one snapshot file for recovery!";
+  if (!fs::exists(snapshot_dir) || !fs::is_directory(snapshot_dir)) {
+    LOG(WARNING) << "Missing snapshot directory!";
     return false;
   }
 
-  auto snapshot_file = *snapshot_files.begin();
-  LOG(INFO) << "Starting snapshot recovery from: " << snapshot_file;
-  if (!RecoverSnapshot(snapshot_file, db, recovery_data)) {
-    LOG(WARNING) << "Snapshot recovery failed";
+  const auto snapshot = snapshot_dir / snapshot_filename;
+  if (!fs::exists(snapshot)) {
+    LOG(WARNING) << "Missing snapshot file!";
+    return false;
+  }
+
+  LOG(INFO) << "Starting snapshot recovery from: " << snapshot;
+  if (!RecoverSnapshot(snapshot, db, recovery_data)) {
+    LOG(WARNING) << "Snapshot recovery failed.";
     return false;
   }
 

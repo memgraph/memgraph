@@ -44,17 +44,20 @@ bool ReadSnapshotSummary(HashedFileReader &buffer, int64_t &vertex_count,
                          int64_t &edge_count, uint64_t &hash);
 
 /**
- * Recovers database from the latest possible snapshot. If recovering fails,
- * false is returned and db_accessor aborts transaction, else true is returned
- * and transaction is commited.
+ * Recovers database from the given snapshot. If recovering fails, false is
+ * returned and db_accessor aborts transaction, else true is returned and
+ * transaction is commited.
  *
- * @param durability_dir - Path to durability directory.
  * @param db - The database to recover into.
+ * @param recovery_data - Struct that will contain additional recovery data.
+ * @param durability_dir - Path to durability directory.
+ * @param snapshot_filename - Snapshot filename.
  * @return - recovery info
  */
-bool RecoverOnlySnapshot(
-    const std::experimental::filesystem::path &durability_dir,
-    database::GraphDb *db, durability::RecoveryData *recovery_data);
+bool RecoverSnapshot(database::GraphDb *db,
+                     durability::RecoveryData *recovery_data,
+                     const std::experimental::filesystem::path &durability_dir,
+                     const std::string &snapshot_filename);
 
 void RecoverIndexes(database::GraphDb *db,
                     const std::vector<IndexRecoveryData> &indexes);

@@ -1,18 +1,21 @@
 #>cpp
 #pragma once
 
+#include <cstring>
 #include <vector>
 
 #include "communication/rpc/messages.hpp"
 #include "raft/log_entry.hpp"
 #include "raft/raft_rpc_messages.capnp.h"
+#include "raft/snapshot_metadata.hpp"
 cpp<#
 
 (lcp:namespace raft)
 
 (lcp:capnp-namespace "raft")
 
-(lcp:capnp-import 'raft "/raft/log_entry.capnp")
+(lcp:capnp-import 'log "/raft/log_entry.capnp")
+(lcp:capnp-import 'snap "/raft/snapshot_metadata.capnp")
 
 (lcp:define-rpc request-vote
   (:request
@@ -31,9 +34,52 @@ cpp<#
      (term :uint64_t)
      (prev-log-index :uint64_t)
      (prev-log-term :uint64_t)
-     (entries "std::vector<raft::LogEntry>" :capnp-type "List(Raft.LogEntry)")))
+     (entries "std::vector<raft::LogEntry>" :capnp-type "List(Log.LogEntry)")))
   (:response
     ((success :bool)
      (term :uint64_t))))
+
+(lcp:define-rpc install-snapshot
+  (:request
+    ((leader-id :uint16_t)
+     (term :uint64_t)
+     (snapshot-metadata "raft::SnapshotMetadata" :capnp-type "Snap.SnapshotMetadata")
+     (data "std::unique_ptr<char[]>"
+           :initarg :move
+					 :capnp-type "Data"
+					 :capnp-init nil
+           :capnp-save (lambda (builder member capnp-name)
+                         #>cpp
+                         auto data_builder = ${builder}->initData(self.size);
+                         memcpy(data_builder.begin(), ${member}.get(), self.size);
+                         cpp<#)
+					 :slk-save (lambda (member)
+                         #>cpp
+                         slk::Save(self.size, builder);
+                         for (uint32_t i = 0; i < self.size; ++i) {
+                           slk::Save(self.data[i], builder);
+                         }
+                         cpp<#)
+           :capnp-load (lambda (reader member capnp-name)
+                         (declare (ignore capnp-name))
+                         #>cpp
+                         auto data_reader = ${reader}.getData();
+                         self->size = data_reader.size();
+                         ${member}.reset(new char[self->size]);
+                         memcpy(${member}.get(), data_reader.begin(), self->size);
+                         cpp<#)
+           :slk-load (lambda (member)
+                         #>cpp
+                         slk::Load(&self->size, reader);
+                         self->data.reset(new char[self->size]);
+                         for (uint32_t i = 0; i < self->size; ++i) {
+                           uint8_t curr;
+                           slk::Load(&curr, reader);
+                           self->data[i] = curr;
+                         }
+                         cpp<#))
+     (size :uint32_t :dont-save t)))
+  (:response
+    ((term :uint64_t))))
 
 (lcp:pop-namespace) ;; raft
