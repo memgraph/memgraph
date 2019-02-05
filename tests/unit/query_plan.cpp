@@ -44,8 +44,11 @@ class Planner {
   template <class TDbAccessor>
   Planner(std::vector<SingleQueryPart> single_query_parts,
           PlanningContext<TDbAccessor> context) {
+    query::Parameters parameters;
+    PostProcessor post_processor(parameters);
     plan_ = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(single_query_parts,
                                                             &context);
+    plan_ = post_processor.Rewrite(std::move(plan_), &context);
   }
 
   auto &plan() { return *plan_; }

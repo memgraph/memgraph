@@ -15,7 +15,7 @@ DEFCOMMAND(ShowDistributed) {
   std::stringstream ss(args[0]);
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
-  const auto &plan = plans[plan_ix].first;
+  const auto &plan = plans[plan_ix].final_plan;
   std::atomic<int64_t> plan_id{0};
   std::vector<storage::Property> properties_by_ix =
       query::NamesToProperties(ast_storage.properties_, &dba);

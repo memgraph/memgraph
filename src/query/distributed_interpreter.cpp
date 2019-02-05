@@ -73,7 +73,8 @@ class DistributedPostProcessor final {
   template <class TPlanningContext>
   plan::DistributedPlan Rewrite(std::unique_ptr<plan::LogicalOperator> plan,
                                 TPlanningContext *context) {
-    original_plan_ = std::move(plan);
+    plan::PostProcessor post_processor(parameters_);
+    original_plan_ = post_processor.Rewrite(std::move(plan), context);
     const auto &property_names = context->ast_storage->properties_;
     std::vector<storage::Property> properties_by_ix;
     properties_by_ix.reserve(property_names.size());

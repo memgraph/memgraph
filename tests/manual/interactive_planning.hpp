@@ -13,10 +13,18 @@ namespace database {
 class GraphDbAccessor;
 }
 
-// Shorthand for a vector of pairs (logical_plan, cost).
-typedef std::vector<
-    std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
-    PlansWithCost;
+struct InteractivePlan {
+  // Original plan after going only through the RuleBasedPlanner.
+  std::unique_ptr<query::plan::LogicalOperator> unoptimized_plan;
+  // Storage for the AST used in unoptimized_plan
+  query::AstStorage ast_storage;
+  // Final plan after being rewritten and optimized.
+  std::unique_ptr<query::plan::LogicalOperator> final_plan;
+  // Cost of the final plan.
+  double cost;
+};
+
+typedef std::vector<InteractivePlan> PlansWithCost;
 
 // Encapsulates a consoles command function.
 struct Command {

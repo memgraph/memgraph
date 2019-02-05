@@ -365,10 +365,9 @@ DEFCOMMAND(Top) {
   if (ss.fail() || !ss.eof()) return;
   n_plans = std::min(static_cast<int64_t>(plans.size()), n_plans);
   for (int64_t i = 0; i < n_plans; ++i) {
-    auto &plan_pair = plans[i];
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
-    std::cout << "cost: " << plan_pair.second << std::endl;
-    query::plan::PrettyPrint(dba, plan_pair.first.get());
+    std::cout << "cost: " << plans[i].cost << std::endl;
+    query::plan::PrettyPrint(dba, plans[i].final_plan.get());
     std::cout << std::endl;
   }
 }
@@ -378,9 +377,18 @@ DEFCOMMAND(Show) {
   std::stringstream ss(args[0]);
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
-  const auto &plan = plans[plan_ix].first;
-  auto cost = plans[plan_ix].second;
+  const auto &plan = plans[plan_ix].final_plan;
+  auto cost = plans[plan_ix].cost;
   std::cout << "Plan cost: " << cost << std::endl;
+  query::plan::PrettyPrint(dba, plan.get());
+}
+
+DEFCOMMAND(ShowUnoptimized) {
+  int64_t plan_ix = 0;
+  std::stringstream ss(args[0]);
+  ss >> plan_ix;
+  if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
+  const auto &plan = plans[plan_ix].unoptimized_plan;
   query::plan::PrettyPrint(dba, plan.get());
 }
 
@@ -389,6 +397,9 @@ DEFCOMMAND(Help);
 std::map<std::string, Command> commands = {
     {"top", {TopCommand, 1, "Show top N plans"}},
     {"show", {ShowCommand, 1, "Show the Nth plan"}},
+    {"show-unoptimized",
+     {ShowUnoptimizedCommand, 1,
+      "Show the Nth plan in its original, unoptimized form"}},
     {"help", {HelpCommand, 0, "Show available commands"}},
 };
 
@@ -407,11 +418,10 @@ DEFCOMMAND(Help) {
   }
 }
 
-void ExaminePlans(
-    database::GraphDbAccessor &dba, const query::SymbolTable &symbol_table,
-    std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>,
-                          double>> &plans,
-    const query::AstStorage &ast) {
+void ExaminePlans(database::GraphDbAccessor &dba,
+                  const query::SymbolTable &symbol_table,
+                  std::vector<InteractivePlan> &plans,
+                  const query::AstStorage &ast) {
   while (true) {
     auto line = ReadLine("plan? ");
     if (!line || *line == "quit") break;
@@ -446,31 +456,36 @@ query::Query *MakeAst(const std::string &query, query::AstStorage *storage) {
   return visitor.query();
 }
 
-// Returns a list of pairs (plan, estimated cost), sorted in the ascending
-// order by cost.
+// Returns a list of InteractivePlan instances, sorted in the ascending order by
+// cost.
 auto MakeLogicalPlans(query::CypherQuery *query, query::AstStorage &ast,
                       query::SymbolTable &symbol_table,
                       InteractiveDbAccessor *dba) {
   auto query_parts = query::plan::CollectQueryParts(symbol_table, ast, query);
-  std::vector<std::pair<std::unique_ptr<query::plan::LogicalOperator>, double>>
-      plans_with_cost;
+  std::vector<InteractivePlan> interactive_plans;
   auto ctx = query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
   if (query_parts.query_parts.size() <= 0) {
     std::cerr << "Failed to extract query parts" << std::endl;
     std::exit(EXIT_FAILURE);
   }
+  query::Parameters parameters;
+  query::plan::PostProcessor post_process(parameters);
   auto plans = query::plan::MakeLogicalPlanForSingleQuery<
       query::plan::VariableStartPlanner>(
       query_parts.query_parts.at(0).single_query_parts, &ctx);
-  query::Parameters parameters;
   for (auto plan : plans) {
-    auto cost = query::plan::EstimatePlanCost(dba, parameters, *plan);
-    plans_with_cost.emplace_back(std::move(plan), cost);
+    query::AstStorage ast_copy;
+    auto unoptimized_plan = plan->Clone(&ast_copy);
+    auto rewritten_plan = post_process.Rewrite(std::move(plan), &ctx);
+    double cost = post_process.EstimatePlanCost(rewritten_plan, dba);
+    interactive_plans.push_back(
+        InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy),
+                        std::move(rewritten_plan), cost});
   }
   std::stable_sort(
-      plans_with_cost.begin(), plans_with_cost.end(),
-      [](const auto &a, const auto &b) { return a.second < b.second; });
-  return plans_with_cost;
+      interactive_plans.begin(), interactive_plans.end(),
+      [](const auto &a, const auto &b) { return a.cost < b.cost; });
+  return interactive_plans;
 }
 
 void RunInteractivePlanning(database::GraphDbAccessor *dba) {

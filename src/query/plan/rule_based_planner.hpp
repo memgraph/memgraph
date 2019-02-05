@@ -9,8 +9,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 
-DECLARE_int64(query_vertex_count_to_expand_existing);
-
 namespace query::plan {
 
 /// @brief Context which contains variables commonly used during planning.
@@ -222,24 +220,16 @@ class RuleBasedPlanner {
  private:
   TPlanningContext *context_;
 
-  struct LabelPropertyIndex {
-    LabelIx label;
-    // FilterInfo with PropertyFilter.
-    FilterInfo filter;
-    int64_t vertex_count;
-  };
-
   storage::Label GetLabel(LabelIx label) {
-    return context_->db->Label(context_->ast_storage->labels_[label.ix]);
+    return context_->db->Label(label.name);
   }
 
   storage::Property GetProperty(PropertyIx prop) {
-    return context_->db->Property(context_->ast_storage->properties_[prop.ix]);
+    return context_->db->Property(prop.name);
   }
 
   storage::EdgeType GetEdgeType(EdgeTypeIx edge_type) {
-    return context_->db->EdgeType(
-        context_->ast_storage->edge_types_[edge_type.ix]);
+    return context_->db->EdgeType(edge_type.name);
   }
 
   std::unique_ptr<LogicalOperator> GenCreate(
@@ -378,112 +368,6 @@ class RuleBasedPlanner {
     return nullptr;
   }
 
-  // Finds the label-property combination which has indexed the lowest amount of
-  // vertices. If the index cannot be found, nullopt is returned.
-  std::experimental::optional<LabelPropertyIndex> FindBestLabelPropertyIndex(
-      const Symbol &symbol, const Filters &filters,
-      const std::unordered_set<Symbol> &bound_symbols) {
-    auto are_bound = [&bound_symbols](const auto &used_symbols) {
-      for (const auto &used_symbol : used_symbols) {
-        if (!utils::Contains(bound_symbols, used_symbol)) {
-          return false;
-        }
-      }
-      return true;
-    };
-    std::experimental::optional<LabelPropertyIndex> found;
-    for (const auto &label : filters.FilteredLabels(symbol)) {
-      for (const auto &filter : filters.PropertyFilters(symbol)) {
-        const auto &property = filter.property_filter->property_;
-        if (context_->db->LabelPropertyIndexExists(GetLabel(label),
-                                                   GetProperty(property))) {
-          int64_t vertex_count = context_->db->VerticesCount(
-              GetLabel(label), GetProperty(property));
-          if (!found || vertex_count < found->vertex_count) {
-            if (filter.property_filter->is_symbol_in_value_) {
-              // Skip filter expressions which use the symbol whose property
-              // we are looking up. We cannot scan by such expressions. For
-              // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`,
-              // so we cannot scan `n` by property index.
-              continue;
-            }
-            if (are_bound(filter.used_symbols)) {
-              // Take the property filter which uses bound symbols.
-              found = LabelPropertyIndex{label, filter, vertex_count};
-            }
-          }
-        }
-      }
-    }
-    return found;
-  }
-
-  LabelIx FindBestLabelIndex(const std::unordered_set<LabelIx> &labels) {
-    CHECK(!labels.empty())
-        << "Trying to find the best label without any labels.";
-    return *std::min_element(
-        labels.begin(), labels.end(),
-        [this](const auto &label1, const auto &label2) {
-          return context_->db->VerticesCount(GetLabel(label1)) <
-                 context_->db->VerticesCount(GetLabel(label2));
-        });
-  }
-
-  // Creates a ScanAll by the best possible index for the `node_symbol`. Best
-  // index is defined as the index with least number of vertices. If the node
-  // does not have at least a label, no indexed lookup can be created and
-  // `nullptr` is returned. The operator is chained after `last_op`. Optional
-  // `max_vertex_count` controls, whether no operator should be created if the
-  // vertex count in the best index exceeds this number. In such a case,
-  // `nullptr` is returned and `last_op` is not chained.
-  std::unique_ptr<ScanAll> GenScanByIndex(
-      std::unique_ptr<LogicalOperator> &last_op, const Symbol &node_symbol,
-      const MatchContext &match_ctx, Filters &filters,
-      const std::experimental::optional<int64_t> &max_vertex_count =
-          std::experimental::nullopt) {
-    const auto labels = filters.FilteredLabels(node_symbol);
-    if (labels.empty()) {
-      // Without labels, we cannot generated any indexed ScanAll.
-      return nullptr;
-    }
-    // First, try to see if we can use label+property index. If not, use just
-    // the label index (which ought to exist).
-    auto found_index = FindBestLabelPropertyIndex(node_symbol, filters,
-                                                  match_ctx.bound_symbols);
-    if (found_index &&
-        // Use label+property index if we satisfy max_vertex_count.
-        (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
-      // Copy the property filter and then erase it from filters.
-      const auto prop_filter = *found_index->filter.property_filter;
-      filters.EraseFilter(found_index->filter);
-      filters.EraseLabelFilter(node_symbol, found_index->label);
-      if (prop_filter.lower_bound_ || prop_filter.upper_bound_) {
-        return std::make_unique<ScanAllByLabelPropertyRange>(
-            std::move(last_op), node_symbol, GetLabel(found_index->label),
-            GetProperty(prop_filter.property_), prop_filter.property_.name,
-            prop_filter.lower_bound_, prop_filter.upper_bound_,
-            match_ctx.graph_view);
-      } else {
-        DCHECK(prop_filter.value_) << "Property filter should either have "
-                                      "bounds or a value expression.";
-        return std::make_unique<ScanAllByLabelPropertyValue>(
-            std::move(last_op), node_symbol, GetLabel(found_index->label),
-            GetProperty(prop_filter.property_), prop_filter.property_.name,
-            prop_filter.value_, match_ctx.graph_view);
-      }
-    }
-    auto label = FindBestLabelIndex(labels);
-    if (max_vertex_count &&
-        context_->db->VerticesCount(GetLabel(label)) > *max_vertex_count) {
-      // Don't create an indexed lookup, since we have more labeled vertices
-      // than the allowed count.
-      return nullptr;
-    }
-    filters.EraseLabelFilter(node_symbol, label);
-    return std::make_unique<ScanAllByLabel>(
-        std::move(last_op), node_symbol, GetLabel(label), match_ctx.graph_view);
-  }
-
   std::unique_ptr<LogicalOperator> PlanMatching(
       MatchContext &match_context, std::unique_ptr<LogicalOperator> input_op) {
     auto &bound_symbols = match_context.bound_symbols;
@@ -503,16 +387,8 @@ class RuleBasedPlanner {
       const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
       if (bound_symbols.insert(node1_symbol).second) {
         // We have just bound this symbol, so generate ScanAll which fills it.
-        if (auto indexed_scan =
-                GenScanByIndex(last_op, node1_symbol, match_context, filters)) {
-          // First, try to get an indexed scan.
-          last_op = std::move(indexed_scan);
-        } else {
-          // If indexed scan is not possible, we can only generate ScanAll of
-          // everything.
-          last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol,
-                                              match_context.graph_view);
-        }
+        last_op = std::make_unique<ScanAll>(std::move(last_op), node1_symbol,
+                                            match_context.graph_view);
         match_context.new_symbols.emplace_back(node1_symbol);
         last_op = impl::GenFilters(std::move(last_op), bound_symbols, filters,
                                    storage);
@@ -602,22 +478,6 @@ class RuleBasedPlanner {
               expansion.is_flipped, edge->lower_bound_, edge->upper_bound_,
               existing_node, filter_lambda, weight_lambda, total_weight);
         } else {
-          if (!existing_node) {
-            // Try to get better behaviour by creating an indexed scan and then
-            // expanding into existing, instead of letting the Expand iterate
-            // over all the edges.
-            // Currently, just use the maximum vertex count flag, below which we
-            // want to replace Expand with index ScanAll + Expand into existing.
-            // It would be better to somehow test whether the input vertex
-            // degree is larger than the destination vertex index count.
-            auto indexed_scan =
-                GenScanByIndex(last_op, node_symbol, match_context, filters,
-                               FLAGS_query_vertex_count_to_expand_existing);
-            if (indexed_scan) {
-              last_op = std::move(indexed_scan);
-              existing_node = true;
-            }
-          }
           last_op = std::make_unique<Expand>(
               std::move(last_op), node1_symbol, node_symbol, edge_symbol,
               expansion.direction, edge_types, existing_node,

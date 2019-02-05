@@ -121,7 +121,7 @@ struct FilterInfo {
 ///
 /// Info is stored as a list of FilterInfo objects corresponding to all filter
 /// expressions that should be generated.
-class Filters {
+class Filters final {
  public:
   using iterator = std::vector<FilterInfo>::iterator;
   using const_iterator = std::vector<FilterInfo>::const_iterator;
@@ -147,7 +147,7 @@ class Filters {
     for (const auto &filter : all_filters_) {
       if (filter.type == FilterInfo::Type::Label &&
           utils::Contains(filter.used_symbols, symbol)) {
-        DCHECK(filter.used_symbols.size() == 1U)
+        CHECK(filter.used_symbols.size() == 1U)
             << "Expected a single used symbol for label filter";
         labels.insert(filter.labels.begin(), filter.labels.end());
       }
@@ -155,15 +155,18 @@ class Filters {
     return labels;
   }
 
-  // Remove a filter; may invalidate iterators.
-  // Removal is done by comparing only the expression, so that multiple
-  // FilterInfo objects using the same original expression are removed.
+  /// Remove a filter; may invalidate iterators.
+  /// Removal is done by comparing only the expression, so that multiple
+  /// FilterInfo objects using the same original expression are removed.
   void EraseFilter(const FilterInfo &);
 
-  // Remove a label filter for symbol; may invalidate iterators.
-  void EraseLabelFilter(const Symbol &, LabelIx);
+  /// Remove a label filter for symbol; may invalidate iterators.
+  /// If removed_filters is not nullptr, fills the vector with original
+  /// `Expression *` which are now completely removed.
+  void EraseLabelFilter(const Symbol &, LabelIx,
+                        std::vector<Expression *> *removed_filters = nullptr);
 
-  // Returns a vector of FilterInfo for properties.
+  /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const {
     std::vector<FilterInfo> filters;
     for (const auto &filter : all_filters_) {
@@ -181,12 +184,20 @@ class Filters {
   /// for found labels, properties and edge types. The generated expressions are
   /// stored.
   void CollectPatternFilters(Pattern &, SymbolTable &, AstStorage &);
+
   /// Collects filtering information from a where expression.
   ///
   /// Takes the where expression and stores it, then analyzes the expression for
   /// additional information. The additional information is used to populate
   /// label filters and property filters, so that indexed scanning can use it.
   void CollectWhereFilter(Where &, const SymbolTable &);
+
+  /// Collects filtering information from an expression.
+  ///
+  /// Takes the where expression and stores it, then analyzes the expression for
+  /// additional information. The additional information is used to populate
+  /// label filters and property filters, so that indexed scanning can use it.
+  void CollectFilterExpression(Expression *, const SymbolTable &);
 
  private:
   void AnalyzeAndStoreFilter(Expression *, const SymbolTable &);

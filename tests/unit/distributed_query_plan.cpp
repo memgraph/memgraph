@@ -594,8 +594,12 @@ class CapnpPlanner {
                PlanningContext<TDbAccessor> context) {
     ::capnp::MallocMessageBuilder message;
     {
+      query::Parameters parameters;
+      PostProcessor post_processor(parameters);
       auto original_plan = MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
           single_query_parts, &context);
+      original_plan =
+          post_processor.Rewrite(std::move(original_plan), &context);
       SavePlan(*original_plan, &message);
     }
     {
@@ -710,7 +714,11 @@ class Planner {
   Planner(std::vector<SingleQueryPart> single_query_parts,
           PlanningContext<TDbAccessor> context)
       : plan_(MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(
-            single_query_parts, &context)) {}
+            single_query_parts, &context)) {
+        query::Parameters parameters;
+        PostProcessor post_processor(parameters);
+        plan_ = post_processor.Rewrite(std::move(plan_), &context);
+      }
 
   auto &plan() { return *plan_; }
 

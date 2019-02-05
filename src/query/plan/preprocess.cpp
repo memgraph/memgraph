@@ -188,7 +188,8 @@ void Filters::EraseFilter(const FilterInfo &filter) {
                      all_filters_.end());
 }
 
-void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label) {
+void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label,
+                               std::vector<Expression *> *removed_filters) {
   for (auto filter_it = all_filters_.begin();
        filter_it != all_filters_.end();) {
     if (filter_it->type != FilterInfo::Type::Label) {
@@ -210,6 +211,9 @@ void Filters::EraseLabelFilter(const Symbol &symbol, LabelIx label) {
         << "Didn't expect duplicated labels";
     if (filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
+      if (removed_filters) {
+        removed_filters->push_back(filter_it->expression);
+      }
       filter_it = all_filters_.erase(filter_it);
     } else {
       ++filter_it;
@@ -315,8 +319,15 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
 // information for potential property and label indexing.
 void Filters::CollectWhereFilter(Where &where,
                                  const SymbolTable &symbol_table) {
-  auto where_filters = SplitExpressionOnAnd(where.expression_);
-  for (const auto &filter : where_filters) {
+  CollectFilterExpression(where.expression_, symbol_table);
+}
+
+// Adds the expression to `all_filters_` and collects additional
+// information for potential property and label indexing.
+void Filters::CollectFilterExpression(Expression *expr,
+                                      const SymbolTable &symbol_table) {
+  auto filters = SplitExpressionOnAnd(expr);
+  for (const auto &filter : filters) {
     AnalyzeAndStoreFilter(filter, symbol_table);
   }
 }

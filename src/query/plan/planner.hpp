@@ -10,6 +10,7 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
+#include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/variable_start_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"
@@ -33,7 +34,8 @@ class PostProcessor final {
   template <class TPlanningContext>
   std::unique_ptr<LogicalOperator> Rewrite(
       std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
-    return plan;
+    return RewriteWithIndexLookup(std::move(plan), *context->symbol_table,
+                                  context->db);
   }
 
   template <class TVertexCounts>
