@@ -52,11 +52,10 @@ TEST_F(MatchReturnFixture, MatchReturn) {
   auto test_pull_count = [&](GraphView graph_view) {
     auto scan_all =
         MakeScanAll(storage, symbol_table, "n", nullptr, graph_view);
-    auto output = NEXPR("n", IDENT("n"));
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    symbol_table[*output->expression_] = scan_all.sym_;
-    symbol_table[*output] =
-        symbol_table.CreateSymbol("named_expression_1", true);
     auto context = MakeContext(storage, symbol_table, dba_.get());
     return PullAll(*produce, &context);
   };
@@ -78,9 +77,9 @@ TEST_F(MatchReturnFixture, MatchReturnPath) {
   Symbol path_sym = symbol_table.CreateSymbol("path", true);
   auto make_path = std::make_shared<ConstructNamedPath>(
       scan_all.op_, path_sym, std::vector<Symbol>{scan_all.sym_});
-  auto output = NEXPR("path", IDENT("path"));
-  symbol_table[*output->expression_] = path_sym;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
+  auto output =
+      NEXPR("path", IDENT("path")->MapTo(path_sym))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(make_path, output);
   auto results = Results<query::Path>(produce);
   ASSERT_EQ(results.size(), 2);
@@ -104,14 +103,12 @@ TEST(QueryPlan, MatchReturnCartesian) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m", n.op_);
-  auto return_n = NEXPR("n", IDENT("n"));
-  symbol_table[*return_n->expression_] = n.sym_;
-  symbol_table[*return_n] =
-      symbol_table.CreateSymbol("named_expression_1", true);
-  auto return_m = NEXPR("m", IDENT("m"));
-  symbol_table[*return_m->expression_] = m.sym_;
-  symbol_table[*return_m] =
-      symbol_table.CreateSymbol("named_expression_2", true);
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
   auto produce = MakeProduce(m.op_, return_n, return_m);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
@@ -138,7 +135,7 @@ TEST(QueryPlan, StandaloneReturn) {
 
   auto output = NEXPR("n", LITERAL(42));
   auto produce = MakeProduce(std::shared_ptr<LogicalOperator>(nullptr), output);
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
+  output->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
 
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
@@ -189,9 +186,9 @@ TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
 
   // make a named expression and a produce
-  auto output = NEXPR("x", IDENT("n"));
-  symbol_table[*output->expression_] = n.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
+  auto output =
+      NEXPR("x", IDENT("n")->MapTo(n.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
 
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -244,12 +241,10 @@ TEST(QueryPlan, NodeFilterMultipleLabels) {
   auto node_filter = std::make_shared<Filter>(n.op_, filter_expr);
 
   // make a named expression and a produce
-  auto output = NEXPR("n", IDENT("n"));
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(node_filter, output);
-
-  // fill up the symbol table
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
-  symbol_table[*output->expression_] = n.sym_;
 
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
@@ -275,14 +270,12 @@ TEST(QueryPlan, Cartesian) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_n = NEXPR("n", IDENT("n"));
-  symbol_table[*return_n->expression_] = n.sym_;
-  symbol_table[*return_n] =
-      symbol_table.CreateSymbol("named_expression_1", true);
-  auto return_m = NEXPR("m", IDENT("m"));
-  symbol_table[*return_m->expression_] = m.sym_;
-  symbol_table[*return_m] =
-      symbol_table.CreateSymbol("named_expression_2", true);
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
 
   std::vector<Symbol> left_symbols{n.sym_};
   std::vector<Symbol> right_symbols{m.sym_};
@@ -311,14 +304,12 @@ TEST(QueryPlan, CartesianEmptySet) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m");
-  auto return_n = NEXPR("n", IDENT("n"));
-  symbol_table[*return_n->expression_] = n.sym_;
-  symbol_table[*return_n] =
-      symbol_table.CreateSymbol("named_expression_1", true);
-  auto return_m = NEXPR("m", IDENT("m"));
-  symbol_table[*return_m->expression_] = m.sym_;
-  symbol_table[*return_m] =
-      symbol_table.CreateSymbol("named_expression_2", true);
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
 
   std::vector<Symbol> left_symbols{n.sym_};
   std::vector<Symbol> right_symbols{m.sym_};
@@ -350,18 +341,15 @@ TEST(QueryPlan, CartesianThreeWay) {
   auto n = MakeScanAll(storage, symbol_table, "n");
   auto m = MakeScanAll(storage, symbol_table, "m");
   auto l = MakeScanAll(storage, symbol_table, "l");
-  auto return_n = NEXPR("n", IDENT("n"));
-  symbol_table[*return_n->expression_] = n.sym_;
-  symbol_table[*return_n] =
-      symbol_table.CreateSymbol("named_expression_1", true);
-  auto return_m = NEXPR("m", IDENT("m"));
-  symbol_table[*return_m->expression_] = m.sym_;
-  symbol_table[*return_m] =
-      symbol_table.CreateSymbol("named_expression_2", true);
-  auto return_l = NEXPR("l", IDENT("l"));
-  symbol_table[*return_l->expression_] = l.sym_;
-  symbol_table[*return_l] =
-      symbol_table.CreateSymbol("named_expression_3", true);
+  auto return_n =
+      NEXPR("n", IDENT("n")->MapTo(n.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
+  auto return_m =
+      NEXPR("m", IDENT("m")->MapTo(m.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_2", true));
+  auto return_l =
+      NEXPR("l", IDENT("l")->MapTo(l.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_3", true));
 
   std::vector<Symbol> n_symbols{n.sym_};
   std::vector<Symbol> m_symbols{m.sym_};
@@ -420,10 +408,9 @@ TEST_F(ExpandFixture, Expand) {
                           {}, "m", false, graph_view);
 
     // make a named expression and a produce
-    auto output = NEXPR("m", IDENT("m"));
-    symbol_table[*output->expression_] = r_m.node_sym_;
-    symbol_table[*output] =
-        symbol_table.CreateSymbol("named_expression_1", true);
+    auto output =
+        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_m.op_, output);
     auto context = MakeContext(storage, symbol_table, dba_.get());
     return PullAll(*produce, &context);
@@ -456,9 +443,9 @@ TEST_F(ExpandFixture, ExpandPath) {
   auto path = std::make_shared<ConstructNamedPath>(
       r_m.op_, path_sym,
       std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
-  auto output = NEXPR("m", IDENT("m"));
-  symbol_table[*output->expression_] = path_sym;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
+  auto output =
+      NEXPR("path", IDENT("path")->MapTo(path_sym))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(path, output);
 
   std::vector<query::Path> expected_paths{{v1, r2, v3}, {v1, r1, v2}};
@@ -560,7 +547,7 @@ class QueryPlanExpandVariable : public testing::Test {
 
     auto n_to = NODE(node_to);
     auto n_to_sym = symbol_table.CreateSymbol(node_to, true);
-    symbol_table[*n_to->identifier_] = n_to_sym;
+    n_to->identifier_->MapTo(n_to_sym);
 
     if (std::is_same<TExpansionOperator, ExpandVariable>::value) {
       // convert optional ints to optional expressions
@@ -588,7 +575,7 @@ class QueryPlanExpandVariable : public testing::Test {
   auto Edge(const std::string &identifier, EdgeAtom::Direction direction) {
     auto edge = EDGE(identifier, direction);
     auto edge_sym = symbol_table.CreateSymbol(identifier, true);
-    symbol_table[*edge->identifier_] = edge_sym;
+    edge->identifier_->MapTo(edge_sym);
     return edge_sym;
   }
 
@@ -769,8 +756,8 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
       AddMatch<ExpandVariable>(nullptr, "n", 0, EdgeAtom::Direction::OUT, {}, 2,
                                2, e, "m", GraphView::OLD);
   auto find_symbol = [this](const std::string &name) {
-    for (const auto &pos_sym : symbol_table.table())
-      if (pos_sym.second.name() == name) return pos_sym.second;
+    for (const auto &sym : symbol_table.table())
+      if (sym.name() == name) return sym;
     throw std::runtime_error("Symbol not found");
   };
 
@@ -884,7 +871,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     }
 
     auto ident_e = IDENT("e");
-    symbol_table[*ident_e] = weight_edge;
+    ident_e->MapTo(weight_edge);
 
     // expand wshortest
     auto node_sym = existing_node_input
@@ -929,7 +916,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
 
   Expression *PropNe(Symbol symbol, int value) {
     auto ident = IDENT("inner_element");
-    symbol_table[*ident] = symbol;
+    ident->MapTo(symbol);
     return NEQ(PROPERTY_LOOKUP(ident, prop), LITERAL(value));
   }
 };
@@ -1173,15 +1160,12 @@ TEST(QueryPlan, ExpandOptional) {
       n.op_, r_m.op_, std::vector<Symbol>{r_m.edge_sym_, r_m.node_sym_});
 
   // RETURN n, r, m
-  auto n_ne = NEXPR("n", IDENT("n"));
-  symbol_table[*n_ne->expression_] = n.sym_;
-  symbol_table[*n_ne] = symbol_table.CreateSymbol("n", true);
-  auto r_ne = NEXPR("r", IDENT("r"));
-  symbol_table[*r_ne->expression_] = r_m.edge_sym_;
-  symbol_table[*r_ne] = symbol_table.CreateSymbol("r", true);
-  auto m_ne = NEXPR("m", IDENT("m"));
-  symbol_table[*m_ne->expression_] = r_m.node_sym_;
-  symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
+  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_))
+                  ->MapTo(symbol_table.CreateSymbol("n", true));
+  auto r_ne = NEXPR("r", IDENT("r")->MapTo(r_m.edge_sym_))
+                  ->MapTo(symbol_table.CreateSymbol("r", true));
+  auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+                  ->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(optional, n_ne, r_ne, m_ne);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
@@ -1214,9 +1198,8 @@ TEST(QueryPlan, OptionalMatchEmptyDB) {
   // OPTIONAL MATCH (n)
   auto n = MakeScanAll(storage, symbol_table, "n");
   // RETURN n
-  auto n_ne = NEXPR("n", IDENT("n"));
-  symbol_table[*n_ne->expression_] = n.sym_;
-  symbol_table[*n_ne] = symbol_table.CreateSymbol("n", true);
+  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_))
+                  ->MapTo(symbol_table.CreateSymbol("n", true));
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto produce = MakeProduce(optional, n_ne);
@@ -1236,19 +1219,17 @@ TEST(QueryPlan, OptionalMatchEmptyDBExpandFromNode) {
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   // WITH n
-  auto n_ne = NEXPR("n", IDENT("n"));
-  symbol_table[*n_ne->expression_] = n.sym_;
+  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_));
   auto with_n_sym = symbol_table.CreateSymbol("n", true);
-  symbol_table[*n_ne] = with_n_sym;
+  n_ne->MapTo(with_n_sym);
   auto with = MakeProduce(optional, n_ne);
   // MATCH (n) -[r]-> (m)
   auto r_m =
       MakeExpand(storage, symbol_table, with, with_n_sym, "r",
                  EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
   // RETURN m
-  auto m_ne = NEXPR("m", IDENT("m"));
-  symbol_table[*m_ne->expression_] = r_m.node_sym_;
-  symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
+  auto m_ne = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+                  ->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(r_m.op_, m_ne);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
@@ -1279,26 +1260,24 @@ TEST(QueryPlan, OptionalMatchThenExpandToMissingNode) {
   auto optional = std::make_shared<plan::Optional>(nullptr, node_filter,
                                                    std::vector<Symbol>{n.sym_});
   // WITH n
-  auto n_ne = NEXPR("n", IDENT("n"));
-  symbol_table[*n_ne->expression_] = n.sym_;
+  auto n_ne = NEXPR("n", IDENT("n")->MapTo(n.sym_));
   auto with_n_sym = symbol_table.CreateSymbol("n", true);
-  symbol_table[*n_ne] = with_n_sym;
+  n_ne->MapTo(with_n_sym);
   auto with = MakeProduce(optional, n_ne);
   // MATCH (m) -[r]-> (n)
   auto m = MakeScanAll(storage, symbol_table, "m", with);
   auto edge_direction = EdgeAtom::Direction::OUT;
   auto edge = EDGE("r", edge_direction);
   auto edge_sym = symbol_table.CreateSymbol("r", true);
-  symbol_table[*edge->identifier_] = edge_sym;
+  edge->identifier_->MapTo(edge_sym);
   auto node = NODE("n");
-  symbol_table[*node->identifier_] = with_n_sym;
+  node->identifier_->MapTo(with_n_sym);
   auto expand = std::make_shared<plan::Expand>(
       m.op_, m.sym_, with_n_sym, edge_sym, edge_direction,
       std::vector<storage::EdgeType>{}, true, GraphView::OLD);
   // RETURN m
-  auto m_ne = NEXPR("m", IDENT("m"));
-  symbol_table[*m_ne->expression_] = m.sym_;
-  symbol_table[*m_ne] = symbol_table.CreateSymbol("m", true);
+  auto m_ne = NEXPR("m", IDENT("m")->MapTo(m.sym_))
+                  ->MapTo(symbol_table.CreateSymbol("m", true));
   auto produce = MakeProduce(expand, m_ne);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
@@ -1332,10 +1311,9 @@ TEST(QueryPlan, ExpandExistingNode) {
           std::vector<storage::EdgeType>{}, with_existing, GraphView::OLD);
 
     // make a named expression and a produce
-    auto output = NEXPR("n", IDENT("n"));
-    symbol_table[*output->expression_] = n.sym_;
-    symbol_table[*output] =
-        symbol_table.CreateSymbol("named_expression_1", true);
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(n.sym_))
+            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(r_n.op_, output);
     auto context = MakeContext(storage, symbol_table, dba.get());
     auto results = CollectProduce(*produce, &context);
@@ -1421,10 +1399,9 @@ TEST(QueryPlan, EdgeFilter) {
     auto edge_filter = std::make_shared<Filter>(r_m.op_, filter_expr);
 
     // make a named expression and a produce
-    auto output = NEXPR("m", IDENT("m"));
-    symbol_table[*output->expression_] = r_m.node_sym_;
-    symbol_table[*output] =
-        symbol_table.CreateSymbol("named_expression_1", true);
+    auto output =
+        NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(edge_filter, output);
     auto context = MakeContext(storage, symbol_table, &dba);
     return PullAll(*produce, &context);
@@ -1462,12 +1439,10 @@ TEST(QueryPlan, EdgeFilterMultipleTypes) {
                         GraphView::OLD);
 
   // make a named expression and a produce
-  auto output = NEXPR("m", IDENT("m"));
+  auto output =
+      NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(r_m.op_, output);
-
-  // fill up the symbol table
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
-  symbol_table[*output->expression_] = r_m.node_sym_;
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
@@ -1489,14 +1464,12 @@ TEST(QueryPlan, Filter) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto e = PROPERTY_LOOKUP("n", property);
-  symbol_table[*e->expression_] = n.sym_;
+  auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), property);
   auto f = std::make_shared<Filter>(n.op_, e);
 
   auto output =
-      storage.Create<NamedExpression>("x", storage.Create<Identifier>("n"));
-  symbol_table[*output->expression_] = n.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
+      NEXPR("x", IDENT("n")->MapTo(n.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(f, output);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(CollectProduce(*produce, &context).size(), 2);
@@ -1555,13 +1528,13 @@ TEST(QueryPlan, Distinct) {
     auto x = symbol_table.CreateSymbol("x", true);
     auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
     auto x_expr = IDENT("x");
-    symbol_table[*x_expr] = x;
+    x_expr->MapTo(x);
 
     auto distinct =
         std::make_shared<plan::Distinct>(unwind, std::vector<Symbol>{x});
 
     auto x_ne = NEXPR("x", x_expr);
-    symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
+    x_ne->MapTo(symbol_table.CreateSymbol("x_ne", true));
     auto produce = MakeProduce(distinct, x_ne);
     auto context = MakeContext(storage, symbol_table, dba.get());
     auto results = CollectProduce(*produce, &context);
@@ -1599,10 +1572,9 @@ TEST(QueryPlan, ScanAllByLabel) {
   auto scan_all_by_label =
       MakeScanAllByLabel(storage, symbol_table, "n", label);
   // RETURN n
-  auto output = NEXPR("n", IDENT("n"));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all_by_label.sym_))
+                    ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all_by_label.op_, output);
-  symbol_table[*output->expression_] = scan_all_by_label.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
@@ -1645,10 +1617,9 @@ TEST(QueryPlan, ScanAllByLabelProperty) {
         storage, symbol_table, "n", label, prop, "prop",
         Bound{LITERAL(lower), lower_type}, Bound{LITERAL(upper), upper_type});
     // RETURN n
-    auto output = NEXPR("n", IDENT("n"));
+    auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+                      ->MapTo(symbol_table.CreateSymbol("n", true));
     auto produce = MakeProduce(scan_all.op_, output);
-    symbol_table[*output->expression_] = scan_all.sym_;
-    symbol_table[*output] = symbol_table.CreateSymbol("n", true);
     auto context = MakeContext(storage, symbol_table, dba.get());
     auto results = CollectProduce(*produce, &context);
     ASSERT_EQ(results.size(), expected.size());
@@ -1707,10 +1678,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
   auto scan_all = MakeScanAllByLabelPropertyValue(
       storage, symbol_table, "n", label, prop, "prop", LITERAL(42));
   // RETURN n
-  auto output = NEXPR("n", IDENT("n"));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+                    ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
   ASSERT_EQ(results.size(), 1);
@@ -1743,7 +1713,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
   SymbolTable symbol_table;
   auto scan_all = MakeScanAll(storage, symbol_table, "m");
   auto *ident_m = IDENT("m");
-  symbol_table[*ident_m] = scan_all.sym_;
+  ident_m->MapTo(scan_all.sym_);
   auto scan_index = MakeScanAllByLabelPropertyValue(
       storage, symbol_table, "n", label, prop, "prop", ident_m, scan_all.op_);
   auto context = MakeContext(storage, symbol_table, dba.get());
@@ -1771,7 +1741,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
   SymbolTable symbol_table;
   auto scan_all = MakeScanAll(storage, symbol_table, "m");
   auto *ident_m = IDENT("m");
-  symbol_table[*ident_m] = scan_all.sym_;
+  ident_m->MapTo(scan_all.sym_);
   {
     // Lower bound isn't property value
     auto scan_index = MakeScanAllByLabelPropertyRange(
@@ -1827,10 +1797,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
       MakeScanAllByLabelPropertyValue(storage, symbol_table, "n", label, prop,
                                       "prop", LITERAL(TypedValue::Null));
   // RETURN n
-  auto output = NEXPR("n", IDENT("n"));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+                    ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
@@ -1863,10 +1832,9 @@ TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
       Bound{LITERAL(TypedValue::Null), Bound::Type::INCLUSIVE},
       Bound{LITERAL(TypedValue::Null), Bound::Type::EXCLUSIVE});
   // RETURN n
-  auto output = NEXPR("n", IDENT("n"));
+  auto output = NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+                    ->MapTo(symbol_table.CreateSymbol("n", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("n", true);
   auto context = MakeContext(storage, symbol_table, dba.get());
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 0);
@@ -1895,7 +1863,7 @@ TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
   auto x_expr = IDENT("x");
-  symbol_table[*x_expr] = x;
+  x_expr->MapTo(x);
 
   // MATCH (n :label {prop: x})
   auto scan_all = MakeScanAllByLabelPropertyValue(
@@ -1937,11 +1905,10 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     auto dba = db.Access();
     auto scan_all_by_label_property_value = MakeScanAllByLabelPropertyValue(
         storage, symbol_table, "n", label, prop, "prop", LITERAL(prop_value));
-    auto output = NEXPR("n", IDENT("n"));
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all_by_label_property_value.sym_))
+            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(scan_all_by_label_property_value.op_, output);
-    symbol_table[*output->expression_] = scan_all_by_label_property_value.sym_;
-    symbol_table[*output] =
-        symbol_table.CreateSymbol("named_expression_1", true);
     auto context = MakeContext(storage, symbol_table, dba.get());
     EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };
@@ -1953,15 +1920,14 @@ TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     auto dba_ptr = db.Access();
     auto &dba = *dba_ptr;
     auto scan_all = MakeScanAll(storage, symbol_table, "n");
-    auto e = PROPERTY_LOOKUP("n", std::make_pair("prop", prop));
-    symbol_table[*e->expression_] = scan_all.sym_;
+    auto e = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_),
+                             std::make_pair("prop", prop));
     auto filter =
         std::make_shared<Filter>(scan_all.op_, EQ(e, LITERAL(prop_value)));
-    auto output = NEXPR("n", IDENT("n"));
+    auto output =
+        NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+            ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
     auto produce = MakeProduce(filter, output);
-    symbol_table[*output->expression_] = scan_all.sym_;
-    symbol_table[*output] =
-        symbol_table.CreateSymbol("named_expression_1", true);
     auto context = MakeContext(storage, symbol_table, &dba);
     EXPECT_EQ(PullAll(*produce, &context), prop_count);
   };

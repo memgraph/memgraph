@@ -322,12 +322,9 @@ void BfsTest(Database *db, int lower_bound, int upper_bound,
       context.symbol_table.CreateSymbol("inner_node", true);
   query::Symbol inner_edge_sym =
       context.symbol_table.CreateSymbol("inner_edge", true);
-  query::Identifier *blocked = IDENT("blocked");
-  query::Identifier *inner_node = IDENT("inner_node");
-  query::Identifier *inner_edge = IDENT("inner_edge");
-  context.symbol_table[*blocked] = blocked_sym;
-  context.symbol_table[*inner_node] = inner_node_sym;
-  context.symbol_table[*inner_edge] = inner_edge_sym;
+  query::Identifier *blocked = IDENT("blocked")->MapTo(blocked_sym);
+  query::Identifier *inner_node = IDENT("inner_node")->MapTo(inner_node_sym);
+  query::Identifier *inner_edge = IDENT("inner_edge")->MapTo(inner_edge_sym);
 
   std::vector<VertexAddress> vertices;
   std::vector<EdgeAddress> edges;

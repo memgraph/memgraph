@@ -48,12 +48,10 @@ TEST(QueryPlan, Accumulate) {
                    EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
 
     auto one = LITERAL(1);
-    auto n_p = PROPERTY_LOOKUP("n", prop);
-    symbol_table[*n_p->expression_] = n.sym_;
+    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
     auto set_n_p =
         std::make_shared<plan::SetProperty>(r_m.op_, prop, n_p, ADD(n_p, one));
-    auto m_p = PROPERTY_LOOKUP("m", prop);
-    symbol_table[*m_p->expression_] = r_m.node_sym_;
+    auto m_p = PROPERTY_LOOKUP(IDENT("m")->MapTo(r_m.node_sym_), prop);
     auto set_m_p =
         std::make_shared<plan::SetProperty>(set_n_p, prop, m_p, ADD(m_p, one));
 
@@ -63,10 +61,10 @@ TEST(QueryPlan, Accumulate) {
           last_op, std::vector<Symbol>{n.sym_, r_m.node_sym_});
     }
 
-    auto n_p_ne = NEXPR("n.p", n_p);
-    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n_p_ne", true);
-    auto m_p_ne = NEXPR("m.p", m_p);
-    symbol_table[*m_p_ne] = symbol_table.CreateSymbol("m_p_ne", true);
+    auto n_p_ne =
+        NEXPR("n.p", n_p)->MapTo(symbol_table.CreateSymbol("n_p_ne", true));
+    auto m_p_ne =
+        NEXPR("m.p", m_p)->MapTo(symbol_table.CreateSymbol("m_p_ne", true));
     auto produce = MakeProduce(last_op, n_p_ne, m_p_ne);
     auto context = MakeContext(storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
@@ -119,27 +117,25 @@ std::shared_ptr<Produce> MakeAggregationProduce(
   for (auto aggr_op : aggr_ops) {
     // TODO change this from using IDENT to using AGGREGATION
     // once AGGREGATION is handled properly in ExpressionEvaluation
-    auto named_expr = NEXPR("", IDENT("aggregation"));
+    auto aggr_sym = symbol_table.CreateSymbol("aggregation", true);
+    auto named_expr =
+        NEXPR("", IDENT("aggregation")->MapTo(aggr_sym))
+            ->MapTo(symbol_table.CreateSymbol("named_expression", true));
     named_expressions.push_back(named_expr);
-    symbol_table[*named_expr->expression_] =
-        symbol_table.CreateSymbol("aggregation", true);
-    symbol_table[*named_expr] =
-        symbol_table.CreateSymbol("named_expression", true);
     // the key expression is only used in COLLECT_MAP
     Expression *key_expr_ptr =
         aggr_op == Aggregation::Op::COLLECT_MAP ? LITERAL("key") : nullptr;
     aggregates.emplace_back(
-        Aggregate::Element{*aggr_inputs_it++, key_expr_ptr, aggr_op,
-                           symbol_table[*named_expr->expression_]});
+        Aggregate::Element{*aggr_inputs_it++, key_expr_ptr, aggr_op, aggr_sym});
   }
 
   // Produce will also evaluate group_by expressions and return them after the
   // aggregations.
   for (auto group_by_expr : group_by_exprs) {
-    auto named_expr = NEXPR("", group_by_expr);
+    auto named_expr =
+        NEXPR("", group_by_expr)
+            ->MapTo(symbol_table.CreateSymbol("named_expression", true));
     named_expressions.push_back(named_expr);
-    symbol_table[*named_expr] =
-        symbol_table.CreateSymbol("named_expression", true);
   }
   auto aggregation =
       std::make_shared<Aggregate>(input, aggregates, group_by_exprs, remember);
@@ -179,8 +175,7 @@ class QueryPlanAggregateOps : public ::testing::Test {
                               Aggregation::Op::COLLECT_MAP}) {
     // match all nodes and perform aggregations
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_p = PROPERTY_LOOKUP("n", prop);
-    symbol_table[*n_p->expression_] = n.sym_;
+    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
 
     std::vector<Expression *> aggregation_expressions(ops.size(), n_p);
     std::vector<Expression *> group_bys;
@@ -326,8 +321,7 @@ TEST(QueryPlan, AggregateGroupByValues) {
 
   // match all nodes and perform aggregations
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_p = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_p->expression_] = n.sym_;
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
 
   auto produce =
       MakeAggregationProduce(n.op_, symbol_table, storage, {n_p},
@@ -371,12 +365,9 @@ TEST(QueryPlan, AggregateMultipleGroupBy) {
 
   // match all nodes and perform aggregations
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_p1 = PROPERTY_LOOKUP("n", prop1);
-  auto n_p2 = PROPERTY_LOOKUP("n", prop2);
-  auto n_p3 = PROPERTY_LOOKUP("n", prop3);
-  symbol_table[*n_p1->expression_] = n.sym_;
-  symbol_table[*n_p2->expression_] = n.sym_;
-  symbol_table[*n_p3->expression_] = n.sym_;
+  auto n_p1 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
+  auto n_p2 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop2);
+  auto n_p3 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop3);
 
   auto produce = MakeAggregationProduce(n.op_, symbol_table, storage, {n_p1},
                                         {Aggregation::Op::COUNT},
@@ -394,9 +385,6 @@ TEST(QueryPlan, AggregateNoInput) {
   SymbolTable symbol_table;
 
   auto two = LITERAL(2);
-  auto output = NEXPR("two", IDENT("two"));
-  symbol_table[*output->expression_] = symbol_table.CreateSymbol("two", true);
-
   auto produce = MakeAggregationProduce(nullptr, symbol_table, storage, {two},
                                         {Aggregation::Op::COUNT}, {}, {});
   auto context = MakeContext(storage, symbol_table, dba.get());
@@ -425,8 +413,7 @@ TEST(QueryPlan, AggregateCountEdgeCases) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_p = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_p->expression_] = n.sym_;
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
 
   // returns -1 when there are no results
   // otherwise returns MATCH (n) RETURN count(n.prop)
@@ -485,10 +472,8 @@ TEST(QueryPlan, AggregateFirstValueTypes) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_prop_string = PROPERTY_LOOKUP("n", prop_string);
-  symbol_table[*n_prop_string->expression_] = n.sym_;
-  auto n_prop_int = PROPERTY_LOOKUP("n", prop_int);
-  symbol_table[*n_prop_int->expression_] = n.sym_;
+  auto n_prop_string = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop_string);
+  auto n_prop_int = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop_int);
   auto n_id = n_prop_string->expression_;
 
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
@@ -545,10 +530,8 @@ TEST(QueryPlan, AggregateTypes) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_p1 = PROPERTY_LOOKUP("n", p1);
-  symbol_table[*n_p1->expression_] = n.sym_;
-  auto n_p2 = PROPERTY_LOOKUP("n", p2);
-  symbol_table[*n_p2->expression_] = n.sym_;
+  auto n_p1 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p1);
+  auto n_p2 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p2);
 
   auto aggregate = [&](Expression *expression, Aggregation::Op aggr_op) {
     auto produce = MakeAggregationProduce(n.op_, symbol_table, storage,
@@ -599,16 +582,14 @@ TEST(QueryPlan, Unwind) {
 
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind_0 = std::make_shared<plan::Unwind>(nullptr, input_expr, x);
-  auto x_expr = IDENT("x");
-  symbol_table[*x_expr] = x;
+  auto x_expr = IDENT("x")->MapTo(x);
   auto y = symbol_table.CreateSymbol("y", true);
   auto unwind_1 = std::make_shared<plan::Unwind>(unwind_0, x_expr, y);
 
-  auto x_ne = NEXPR("x", x_expr);
-  symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
-  auto y_ne = NEXPR("y", IDENT("y"));
-  symbol_table[*y_ne->expression_] = y;
-  symbol_table[*y_ne] = symbol_table.CreateSymbol("y_ne", true);
+  auto x_ne =
+      NEXPR("x", x_expr)->MapTo(symbol_table.CreateSymbol("x_ne", true));
+  auto y_ne = NEXPR("y", IDENT("y")->MapTo(y))
+                  ->MapTo(symbol_table.CreateSymbol("y_ne", true));
   auto produce = MakeProduce(unwind_1, x_ne, y_ne);
 
   auto context = MakeContext(storage, symbol_table, dba.get());

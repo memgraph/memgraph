@@ -15,26 +15,22 @@ cpp<#
 
 #>cpp
 /// Primary function for saving Ast nodes via SLK.
-void SaveAstPointer(const Tree *ast, slk::Builder *builder,
-                    std::vector<int32_t> *saved_uids);
+void SaveAstPointer(const Tree *ast, slk::Builder *builder);
 
-Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree,
-           std::vector<int32_t> *loaded_uids);
+Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree);
 
-Tree *Load(AstStorage *ast, slk::Reader *reader,
-           std::vector<int32_t> *loaded_uids);
+Tree *Load(AstStorage *ast, slk::Reader *reader);
 
 /// Primary function for loading Ast nodes via SLK.
 template <class TAst>
-TAst *LoadAstPointer(AstStorage *ast, slk::Reader *reader,
-                     std::vector<int32_t> *loaded_uids) {
+TAst *LoadAstPointer(AstStorage *ast, slk::Reader *reader) {
   static_assert(std::is_base_of<query::Tree, TAst>::value);
   bool has_ptr = false;
   slk::Load(&has_ptr, reader);
   if (!has_ptr) {
     return nullptr;
   }
-  auto *ret = utils::Downcast<TAst>(Load(ast, reader, loaded_uids));
+  auto *ret = utils::Downcast<TAst>(Load(ast, reader));
   if (!ret) {
     throw slk::SlkDecodeException("Loading unknown Ast node type");
   }
@@ -44,58 +40,25 @@ cpp<#
 
 (lcp:in-impl
   #>cpp
-  void SaveAstPointer(const Tree *ast, slk::Builder *builder,
-                      std::vector<int32_t> *saved_uids) {
+  void SaveAstPointer(const Tree *ast, slk::Builder *builder) {
     slk::Save(static_cast<bool>(ast), builder);
     if (!ast) {
       return;
     }
-    slk::Save(ast->uid_, builder);
-    if (utils::Contains(*saved_uids, ast->uid_)) {
-      return;
-    }
-    slk::Save(*ast, builder, saved_uids);
-    CHECK(!utils::Contains(*saved_uids, ast->uid_)) << "Serializing cyclic AST";
-    saved_uids->push_back(ast->uid_);
+    slk::Save(*ast, builder);
   }
 
-  Tree *Load(AstStorage *ast, slk::Reader *reader,
-             std::vector<int32_t> *loaded_uids) {
-    // Check if element already deserialized and if yes, return existing
-    // element from storage.
-    int32_t uid;
-    slk::Load(&uid, reader);
-    if (utils::Contains(*loaded_uids, uid)) {
-      auto found = std::find_if(ast->storage_.begin(), ast->storage_.end(),
-                                [&](const auto &n) { return n->uid_ == uid; });
-      CHECK(found != ast->storage_.end());
-      return found->get();
-    }
+  Tree *Load(AstStorage *ast, slk::Reader *reader) {
     std::unique_ptr<Tree> root;
-    slk::ConstructAndLoad(&root, reader, ast, loaded_uids);
-    root->uid_ = uid;
+    slk::ConstructAndLoad(&root, reader, ast);
     ast->storage_.emplace_back(std::move(root));
-    loaded_uids->push_back(uid);
-    ast->max_existing_uid_ = std::max(ast->max_existing_uid_, uid);
     return ast->storage_.back().get();
   }
 
-  Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree,
-             std::vector<int> *loaded_uids) {
-    // Check if element already deserialized and if yes, return existing
-    // element from storage.
-    auto uid = tree.getUid();
-    if (utils::Contains(*loaded_uids, uid)) {
-      auto found = std::find_if(ast->storage_.begin(), ast->storage_.end(),
-                                [&](const auto &n) { return n->uid_ == uid; });
-      CHECK(found != ast->storage_.end());
-      return found->get();
-    }
+  Tree *Load(AstStorage *ast, const capnp::Tree::Reader &tree) {
     std::unique_ptr<Tree> root;
-    ::query::Load(&root, tree, ast, loaded_uids);
+    ::query::Load(&root, tree, ast);
     ast->storage_.emplace_back(std::move(root));
-    loaded_uids->emplace_back(uid);
-    ast->max_existing_uid_ = std::max(ast->max_existing_uid_, uid);
     return ast->storage_.back().get();
   }
   cpp<#)

@@ -45,26 +45,14 @@ cpp<#
                   :capnp-load (lcp:capnp-load-vector "::storage::capnp::EdgeType"
                                                      "storage::EdgeType"))
       (filter-lambda "query::plan::ExpansionLambda"
-                     :slk-save (lambda (member)
-                                 #>cpp
-                                 std::vector<int32_t> saved_ast_uids;
-                                 slk::Save(self.${member}, builder, &saved_ast_uids);
-                                 cpp<#)
                      :slk-load (lambda (member)
                                  #>cpp
-                                 std::vector<int32_t> loaded_ast_uids;
-                                 slk::Load(&self->${member}, reader, ast_storage, &loaded_ast_uids);
+                                 slk::Load(&self->${member}, reader, ast_storage);
                                  cpp<#)
                      :capnp-type "DistOps.ExpansionLambda"
-                     :capnp-save (lambda (builder member capnp-name)
-                                   #>cpp
-                                   std::vector<int> saved_ast_uids;
-                                   Save(${member}, &${builder}, &saved_ast_uids);
-                                   cpp<#)
                      :capnp-load (lambda (reader member capnp-name)
                                     #>cpp
-                                    std::vector<int> loaded_ast_uids;
-                                    Load(&${member}, ${reader}, ast_storage, &loaded_ast_uids);
+                                    Load(&${member}, ${reader}, ast_storage);
                                     cpp<#))
       (symbol-table "query::SymbolTable" :capnp-type "Query.SymbolTable")
       (timestamp :int64_t)

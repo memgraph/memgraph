@@ -7,6 +7,7 @@
 #include "query/serialization.capnp.h"
 #include "query/typed_value.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
+#include "utils/serialization.hpp"
 
 namespace distributed {
 class DataManager;
@@ -31,27 +32,20 @@ void Load(TypedValueVectorCompare *comparator,
 
 inline void Save(const SymbolTable &symbol_table,
                  capnp::SymbolTable::Builder *builder) {
-  builder->setPosition(symbol_table.max_position());
   auto list_builder = builder->initTable(symbol_table.table().size());
-  size_t i = 0;
-  for (const auto &entry : symbol_table.table()) {
-    auto entry_builder = list_builder[i++];
-    entry_builder.setKey(entry.first);
-    auto sym_builder = entry_builder.initVal();
-    Save(entry.second, &sym_builder);
-  }
+  utils::SaveVector<capnp::Symbol, Symbol>(
+      symbol_table.table(), &list_builder,
+      [](auto *builder, const auto &symbol) { Save(symbol, builder); });
 }
 
 inline void Load(SymbolTable *symbol_table,
                  const capnp::SymbolTable::Reader &reader) {
-  symbol_table->position_ = reader.getPosition();
-  symbol_table->table_.clear();
-  for (const auto &entry_reader : reader.getTable()) {
-    int key = entry_reader.getKey();
-    Symbol val;
-    Load(&val, entry_reader.getVal());
-    symbol_table->table_[key] = val;
-  }
+  utils::LoadVector<capnp::Symbol, Symbol>(
+      &symbol_table->table_, reader.getTable(), [](const auto &reader) {
+        Symbol val;
+        Load(&val, reader);
+        return val;
+      });
 }
 
 void Save(const Parameters &parameters,
@@ -69,12 +63,10 @@ namespace slk {
 
 inline void Save(const query::SymbolTable &symbol_table,
                  slk::Builder *builder) {
-  slk::Save(symbol_table.position_, builder);
   slk::Save(symbol_table.table_, builder);
 }
 
 inline void Load(query::SymbolTable *symbol_table, slk::Reader *reader) {
-  slk::Load(&symbol_table->position_, reader);
   slk::Load(&symbol_table->table_, reader);
 }
 

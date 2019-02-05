@@ -30,19 +30,20 @@ TEST_F(TestSymbolGenerator, MatchNodeReturn) {
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
   auto pattern = match->patterns_[0];
-  auto pattern_sym = symbol_table[*pattern->identifier_];
+  auto pattern_sym = symbol_table.at(*pattern->identifier_);
   EXPECT_EQ(pattern_sym.type(), Symbol::Type::PATH);
   EXPECT_FALSE(pattern_sym.user_declared());
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
-  auto node_sym = symbol_table[*node_atom->identifier_];
+  auto node_sym = symbol_table.at(*node_atom->identifier_);
   EXPECT_EQ(node_sym.name(), "node_atom_1");
   EXPECT_EQ(node_sym.type(), Symbol::Type::VERTEX);
   auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
-  auto column_sym = symbol_table[*named_expr];
+  auto column_sym = symbol_table.at(*named_expr);
   EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
-  auto ret_sym = symbol_table[*named_expr->expression_];
+  auto ret_sym =
+      symbol_table.at(*dynamic_cast<Identifier *>(named_expr->expression_));
   EXPECT_EQ(node_sym, ret_sym);
 }
 
@@ -55,7 +56,7 @@ TEST_F(TestSymbolGenerator, MatchNamedPattern) {
   EXPECT_EQ(symbol_table.max_position(), 3);
   auto match = dynamic_cast<Match *>(query_ast->single_query_->clauses_[0]);
   auto pattern = match->patterns_[0];
-  auto pattern_sym = symbol_table[*pattern->identifier_];
+  auto pattern_sym = symbol_table.at(*pattern->identifier_);
   EXPECT_EQ(pattern_sym.type(), Symbol::Type::PATH);
   EXPECT_EQ(pattern_sym.name(), "p");
   EXPECT_TRUE(pattern_sym.user_declared());
@@ -93,15 +94,16 @@ TEST_F(TestSymbolGenerator, CreateNodeReturn) {
   auto create = dynamic_cast<Create *>(query_ast->single_query_->clauses_[0]);
   auto pattern = create->patterns_[0];
   auto node_atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
-  auto node_sym = symbol_table[*node_atom->identifier_];
+  auto node_sym = symbol_table.at(*node_atom->identifier_);
   EXPECT_EQ(node_sym.name(), "n");
   EXPECT_EQ(node_sym.type(), Symbol::Type::VERTEX);
   auto ret = dynamic_cast<Return *>(query_ast->single_query_->clauses_[1]);
   auto named_expr = ret->body_.named_expressions[0];
-  auto column_sym = symbol_table[*named_expr];
+  auto column_sym = symbol_table.at(*named_expr);
   EXPECT_EQ(node_sym.name(), column_sym.name());
   EXPECT_NE(node_sym, column_sym);
-  auto ret_sym = symbol_table[*named_expr->expression_];
+  auto ret_sym =
+      symbol_table.at(*dynamic_cast<Identifier *>(named_expr->expression_));
   EXPECT_EQ(node_sym, ret_sym);
 }
 
@@ -255,7 +257,7 @@ TEST_F(TestSymbolGenerator, MatchWithWhere) {
   EXPECT_EQ(node_symbol, old);
   auto with_n = symbol_table.at(*with_as_n);
   EXPECT_NE(old, with_n);
-  auto n = symbol_table.at(*n_prop->expression_);
+  auto n = symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_));
   EXPECT_EQ(n, with_n);
 }
 
@@ -372,7 +374,8 @@ TEST_F(TestSymbolGenerator, MatchPropCreateNodeProp) {
   // symbols: pattern * 2, `node_n`, `node_m`
   EXPECT_EQ(symbol_table.max_position(), 4);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  EXPECT_EQ(n,
+            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
   auto m = symbol_table.at(*node_m->identifier_);
   EXPECT_NE(n, m);
 }
@@ -551,7 +554,8 @@ TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
   EXPECT_EQ(symbol_table.max_position(), 6);
   auto n = symbol_table.at(*match_n->identifier_);
   EXPECT_EQ(n, symbol_table.at(*merge_n->identifier_));
-  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  EXPECT_EQ(n,
+            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
   auto r = symbol_table.at(*edge_r->identifier_);
   EXPECT_NE(r, n);
   EXPECT_EQ(r, symbol_table.at(*ident_r));
@@ -560,7 +564,8 @@ TEST_F(TestSymbolGenerator, MergeOnMatchOnCreate) {
   EXPECT_NE(m, n);
   EXPECT_NE(m, r);
   EXPECT_NE(m, symbol_table.at(*as_r));
-  EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
+  EXPECT_EQ(m,
+            symbol_table.at(*dynamic_cast<Identifier *>(m_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, WithUnwindRedeclareReturn) {
@@ -586,7 +591,8 @@ TEST_F(TestSymbolGenerator, WithUnwindReturn) {
   // Symbols for: `list`, `elem`, `AS list`, `AS elem`
   EXPECT_EQ(symbol_table.max_position(), 4);
   const auto &list = symbol_table.at(*with_as_list);
-  EXPECT_EQ(list, symbol_table.at(*unwind->named_expression_->expression_));
+  EXPECT_EQ(list, symbol_table.at(*dynamic_cast<Identifier *>(
+                      unwind->named_expression_->expression_)));
   const auto &elem = symbol_table.at(*unwind->named_expression_);
   EXPECT_NE(list, elem);
   EXPECT_EQ(list, symbol_table.at(*ret_list));
@@ -612,11 +618,13 @@ TEST_F(TestSymbolGenerator, MatchCrossReferenceVariable) {
   // Symbols for pattern * 2, `n`, `m` and `AS n`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  EXPECT_EQ(n,
+            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
   EXPECT_EQ(n, symbol_table.at(*ident_n));
   EXPECT_NE(n, symbol_table.at(*as_n));
   auto m = symbol_table.at(*node_m->identifier_);
-  EXPECT_EQ(m, symbol_table.at(*m_prop->expression_));
+  EXPECT_EQ(m,
+            symbol_table.at(*dynamic_cast<Identifier *>(m_prop->expression_)));
   EXPECT_NE(n, m);
   EXPECT_NE(m, symbol_table.at(*as_n));
 }
@@ -638,7 +646,8 @@ TEST_F(TestSymbolGenerator, MatchWithAsteriskReturnAsterisk) {
   // Symbols for pattern, `n`, `e`, `m`, `AS n.prop`.
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  EXPECT_EQ(n,
+            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, MatchReturnAsteriskSameResult) {
@@ -683,7 +692,8 @@ TEST_F(TestSymbolGenerator, MatchEdgeWithIdentifierInProperty) {
   // Symbols for pattern, `n`, `r`, `m` and implicit in RETURN `r AS r`
   EXPECT_EQ(symbol_table.max_position(), 5);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  EXPECT_EQ(n,
+            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
@@ -701,7 +711,8 @@ TEST_F(TestSymbolGenerator, MatchVariablePathUsingIdentifier) {
   // implicit in RETURN `r AS r`
   EXPECT_EQ(symbol_table.max_position(), 9);
   auto l = symbol_table.at(*node_l->identifier_);
-  EXPECT_EQ(l, symbol_table.at(*l_prop->expression_));
+  EXPECT_EQ(l,
+            symbol_table.at(*dynamic_cast<Identifier *>(l_prop->expression_)));
   auto r = symbol_table.at(*edge->identifier_);
   EXPECT_EQ(r.type(), Symbol::Type::EDGE_LIST);
 }
@@ -772,7 +783,8 @@ TEST_F(TestSymbolGenerator, MatchPropertySameIdentifier) {
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n)), RETURN("n")));
   auto symbol_table = query::MakeSymbolTable(query);
   auto n = symbol_table.at(*node_n->identifier_);
-  EXPECT_EQ(n, symbol_table.at(*n_prop->expression_));
+  EXPECT_EQ(n,
+            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, WithReturnAll) {
@@ -901,12 +913,12 @@ TEST_F(TestSymbolGenerator, MatchBfsReturn) {
             symbol_table.at(*bfs->filter_lambda_.inner_edge));
   EXPECT_TRUE(symbol_table.at(*bfs->filter_lambda_.inner_edge).user_declared());
   EXPECT_EQ(symbol_table.at(*bfs->filter_lambda_.inner_edge),
-            symbol_table.at(*r_prop->expression_));
+            symbol_table.at(*dynamic_cast<Identifier *>(r_prop->expression_)));
   EXPECT_NE(symbol_table.at(*node_n->identifier_),
             symbol_table.at(*bfs->filter_lambda_.inner_node));
   EXPECT_TRUE(symbol_table.at(*bfs->filter_lambda_.inner_node).user_declared());
   EXPECT_EQ(symbol_table.at(*node_n->identifier_),
-            symbol_table.at(*n_prop->expression_));
+            symbol_table.at(*dynamic_cast<Identifier *>(n_prop->expression_)));
 }
 
 TEST_F(TestSymbolGenerator, MatchBfsUsesEdgeSymbolError) {
@@ -935,7 +947,8 @@ TEST_F(TestSymbolGenerator, MatchBfsUsesPreviousOuterSymbol) {
       QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, bfs, NODE("m"))), RETURN("r")));
   auto symbol_table = query::MakeSymbolTable(query);
   EXPECT_EQ(symbol_table.at(*node_a->identifier_),
-            symbol_table.at(*bfs->filter_lambda_.expression));
+            symbol_table.at(
+                *dynamic_cast<Identifier *>(bfs->filter_lambda_.expression)));
 }
 
 TEST_F(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
@@ -971,12 +984,11 @@ TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   // `AS res` and the auto-generated path name symbol.
   EXPECT_EQ(symbol_table.max_position(), 7);
   // All symbols except `AS res` are anonymously generated.
-  for (const auto &id_and_symbol : symbol_table.table()) {
-    const auto &symbol = id_and_symbol.second;
+  for (const auto &symbol : symbol_table.table()) {
     if (symbol.name() == "res") {
       EXPECT_TRUE(symbol.user_declared());
     } else {
-      EXPECT_FALSE(id_and_symbol.second.user_declared());
+      EXPECT_FALSE(symbol.user_declared());
     }
   }
 }
@@ -1017,14 +1029,16 @@ TEST_F(TestSymbolGenerator, MatchWShortestReturn) {
             symbol_table.at(*shortest->filter_lambda_.inner_edge));
   EXPECT_TRUE(
       symbol_table.at(*shortest->filter_lambda_.inner_edge).user_declared());
-  EXPECT_EQ(symbol_table.at(*shortest->weight_lambda_.inner_edge),
-            symbol_table.at(*r_weight->expression_));
+  EXPECT_EQ(
+      symbol_table.at(*shortest->weight_lambda_.inner_edge),
+      symbol_table.at(*dynamic_cast<Identifier *>(r_weight->expression_)));
   EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_edge),
             symbol_table.at(*shortest->filter_lambda_.inner_edge));
   EXPECT_NE(symbol_table.at(*shortest->weight_lambda_.inner_node),
             symbol_table.at(*shortest->filter_lambda_.inner_node));
-  EXPECT_EQ(symbol_table.at(*shortest->filter_lambda_.inner_edge),
-            symbol_table.at(*r_filter->expression_));
+  EXPECT_EQ(
+      symbol_table.at(*shortest->filter_lambda_.inner_edge),
+      symbol_table.at(*dynamic_cast<Identifier *>(r_filter->expression_)));
   EXPECT_TRUE(
       symbol_table.at(*shortest->filter_lambda_.inner_node).user_declared());
 }

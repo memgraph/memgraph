@@ -43,11 +43,5 @@ struct TypedValue {
 }
 
 struct SymbolTable {
-  position @0 :Int32;
-  table @1 :List(Entry);
-
-  struct Entry {
-    key @0 :Int32;
-    val @1 :Sem.Symbol;
-  }
+  table @0 :List(Sem.Symbol);
 }

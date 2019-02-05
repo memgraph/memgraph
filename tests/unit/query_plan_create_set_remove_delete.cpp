@@ -69,15 +69,13 @@ TEST(QueryPlan, CreateReturn) {
   node.properties.emplace_back(property.second, LITERAL(42));
 
   auto create = std::make_shared<CreateNode>(nullptr, node);
-  auto named_expr_n = NEXPR("n", IDENT("n"));
-  symbol_table[*named_expr_n] = symbol_table.CreateSymbol("named_expr_n", true);
-  symbol_table[*named_expr_n->expression_] = node.symbol;
-  auto prop_lookup = PROPERTY_LOOKUP("n", property);
-  symbol_table[*prop_lookup->expression_] = node.symbol;
-  auto named_expr_n_p = NEXPR("n", prop_lookup);
-  symbol_table[*named_expr_n_p] =
-      symbol_table.CreateSymbol("named_expr_n_p", true);
-  symbol_table[*named_expr_n->expression_] = node.symbol;
+  auto named_expr_n =
+      NEXPR("n", IDENT("n")->MapTo(node.symbol))
+          ->MapTo(symbol_table.CreateSymbol("named_expr_n", true));
+  auto prop_lookup = PROPERTY_LOOKUP(IDENT("n")->MapTo(node.symbol), property);
+  auto named_expr_n_p =
+      NEXPR("n", prop_lookup)
+          ->MapTo(symbol_table.CreateSymbol("named_expr_n_p", true));
 
   auto produce = MakeProduce(create, named_expr_n, named_expr_n_p);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -267,8 +265,7 @@ TEST(QueryPlan, Delete) {
   // attempt to delete a vertex, and fail
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n");
-    symbol_table[*n_get] = n.sym_;
+    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, false);
     auto context = MakeContext(storage, symbol_table, dba.get());
@@ -281,8 +278,7 @@ TEST(QueryPlan, Delete) {
   // detach delete a single vertex
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n");
-    symbol_table[*n_get] = n.sym_;
+    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, true);
     Frame frame(symbol_table.max_position());
@@ -299,8 +295,7 @@ TEST(QueryPlan, Delete) {
     auto r_m =
         MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                    EdgeAtom::Direction::OUT, {}, "m", false, GraphView::NEW);
-    auto r_get = storage.Create<Identifier>("r");
-    symbol_table[*r_get] = r_m.edge_sym_;
+    auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         r_m.op_, std::vector<Expression *>{r_get}, false);
     auto context = MakeContext(storage, symbol_table, dba.get());
@@ -313,8 +308,7 @@ TEST(QueryPlan, Delete) {
   // delete all remaining vertices
   {
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_get = storage.Create<Identifier>("n");
-    symbol_table[*n_get] = n.sym_;
+    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
     auto delete_op = std::make_shared<plan::Delete>(
         n.op_, std::vector<Expression *>{n_get}, false);
     auto context = MakeContext(storage, symbol_table, dba.get());
@@ -357,12 +351,9 @@ TEST(QueryPlan, DeleteTwiceDeleteBlockingEdge) {
                    EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
 
     // getter expressions for deletion
-    auto n_get = storage.Create<Identifier>("n");
-    symbol_table[*n_get] = n.sym_;
-    auto r_get = storage.Create<Identifier>("r");
-    symbol_table[*r_get] = r_m.edge_sym_;
-    auto m_get = storage.Create<Identifier>("m");
-    symbol_table[*m_get] = r_m.node_sym_;
+    auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
+    auto r_get = storage.Create<Identifier>("r")->MapTo(r_m.edge_sym_);
+    auto m_get = storage.Create<Identifier>("m")->MapTo(r_m.node_sym_);
 
     auto delete_op = std::make_shared<plan::Delete>(
         r_m.op_, std::vector<Expression *>{n_get, r_get, m_get}, detach);
@@ -398,15 +389,13 @@ TEST(QueryPlan, DeleteReturn) {
 
   auto n = MakeScanAll(storage, symbol_table, "n");
 
-  auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = n.sym_;
+  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, true);
 
-  auto prop_lookup = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*prop_lookup->expression_] = n.sym_;
-  auto n_p = storage.Create<NamedExpression>("n", prop_lookup);
-  symbol_table[*n_p] = symbol_table.CreateSymbol("bla", true);
+  auto prop_lookup = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+  auto n_p = storage.Create<NamedExpression>("n", prop_lookup)
+                 ->MapTo(symbol_table.CreateSymbol("bla", true));
   auto produce = MakeProduce(delete_op, n_p);
 
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -449,8 +438,7 @@ TEST(QueryPlan, DeleteAdvance) {
   SymbolTable symbol_table;
 
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = n.sym_;
+  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
   auto advance = std::make_shared<Accumulate>(
@@ -489,13 +477,11 @@ TEST(QueryPlan, SetProperty) {
   auto prop1 = dba.Property("prop1");
   auto literal = LITERAL(42);
 
-  auto n_p = PROPERTY_LOOKUP("n", prop1);
-  symbol_table[*n_p->expression_] = n.sym_;
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
   auto set_n_p =
       std::make_shared<plan::SetProperty>(r_m.op_, prop1, n_p, literal);
 
-  auto r_p = PROPERTY_LOOKUP("r", prop1);
-  symbol_table[*r_p->expression_] = r_m.edge_sym_;
+  auto r_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(r_m.edge_sym_), prop1);
   auto set_r_p =
       std::make_shared<plan::SetProperty>(set_n_p, prop1, r_p, literal);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -544,10 +530,8 @@ TEST(QueryPlan, SetProperties) {
                      : plan::SetProperties::Op::REPLACE;
 
     // set properties on r to n, and on r to m
-    auto r_ident = IDENT("r");
-    symbol_table[*r_ident] = r_m.edge_sym_;
-    auto m_ident = IDENT("m");
-    symbol_table[*m_ident] = r_m.node_sym_;
+    auto r_ident = IDENT("r")->MapTo(r_m.edge_sym_);
+    auto m_ident = IDENT("m")->MapTo(r_m.node_sym_);
     auto set_r_to_n =
         std::make_shared<plan::SetProperties>(r_m.op_, n.sym_, r_ident, op);
     auto set_m_to_r = std::make_shared<plan::SetProperties>(
@@ -647,12 +631,10 @@ TEST(QueryPlan, RemoveProperty) {
       MakeExpand(storage, symbol_table, n.op_, n.sym_, "r",
                  EdgeAtom::Direction::OUT, {}, "m", false, GraphView::OLD);
 
-  auto n_p = PROPERTY_LOOKUP("n", prop1);
-  symbol_table[*n_p->expression_] = n.sym_;
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop1);
   auto set_n_p = std::make_shared<plan::RemoveProperty>(r_m.op_, prop1, n_p);
 
-  auto r_p = PROPERTY_LOOKUP("r", prop1);
-  symbol_table[*r_p->expression_] = r_m.edge_sym_;
+  auto r_p = PROPERTY_LOOKUP(IDENT("r")->MapTo(r_m.edge_sym_), prop1);
   auto set_r_p = std::make_shared<plan::RemoveProperty>(set_n_p, prop1, r_p);
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(2, PullAll(*set_r_p, &context));
@@ -733,8 +715,7 @@ TEST(QueryPlan, NodeFilterSet) {
          LITERAL(42));
   auto node_filter = std::make_shared<Filter>(expand.op_, filter_expr);
   // SET n.prop = n.prop + 1
-  auto set_prop = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*set_prop->expression_] = scan_all.sym_;
+  auto set_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto add = ADD(set_prop, LITERAL(1));
   auto set = std::make_shared<plan::SetProperty>(node_filter, prop.second,
                                                  set_prop, add);
@@ -771,13 +752,11 @@ TEST(QueryPlan, FilterRemove) {
   auto expand =
       MakeExpand(storage, symbol_table, scan_all.op_, scan_all.sym_, "r",
                  EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
-  auto filter_prop = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*filter_prop->expression_] = scan_all.sym_;
+  auto filter_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto filter =
       std::make_shared<Filter>(expand.op_, LESS(filter_prop, LITERAL(43)));
   // REMOVE n.prop
-  auto rem_prop = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*rem_prop->expression_] = scan_all.sym_;
+  auto rem_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(scan_all.sym_), prop);
   auto rem =
       std::make_shared<plan::RemoveProperty>(filter, prop.second, rem_prop);
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -838,14 +817,12 @@ TEST(QueryPlan, Merge) {
   auto r_m =
       MakeExpand(storage, symbol_table, std::make_shared<Once>(), n.sym_, "r",
                  EdgeAtom::Direction::BOTH, {}, "m", false, GraphView::OLD);
-  auto m_p = PROPERTY_LOOKUP("m", prop);
-  symbol_table[*m_p->expression_] = r_m.node_sym_;
+  auto m_p = PROPERTY_LOOKUP(IDENT("m")->MapTo(r_m.node_sym_), prop);
   auto m_set = std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p,
                                                    LITERAL(1));
 
   // merge_create branch
-  auto n_p = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_p->expression_] = n.sym_;
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
   auto n_set = std::make_shared<plan::SetProperty>(
       std::make_shared<Once>(), prop.second, n_p, LITERAL(2));
 
@@ -910,8 +887,7 @@ TEST(QueryPlan, SetPropertiesOnNull) {
   AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_ident = IDENT("n");
-  symbol_table[*n_ident] = n.sym_;
+  auto n_ident = IDENT("n")->MapTo(n.sym_);
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetProperties>(
@@ -929,8 +905,6 @@ TEST(QueryPlan, SetLabelsOnNull) {
   AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_ident = IDENT("n");
-  symbol_table[*n_ident] = n.sym_;
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto set_op = std::make_shared<plan::SetLabels>(
@@ -965,8 +939,6 @@ TEST(QueryPlan, RemoveLabelsOnNull) {
   AstStorage storage;
   SymbolTable symbol_table;
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_ident = IDENT("n");
-  symbol_table[*n_ident] = n.sym_;
   auto optional = std::make_shared<plan::Optional>(nullptr, n.op_,
                                                    std::vector<Symbol>{n.sym_});
   auto remove_op = std::make_shared<plan::RemoveLabels>(
@@ -988,13 +960,11 @@ TEST(QueryPlan, DeleteSetProperty) {
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n.property = 42
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = n.sym_;
+  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
   auto prop = PROPERTY_PAIR("property");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_prop->expression_] = n.sym_;
+  auto n_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
   auto set_op = std::make_shared<plan::SetProperty>(delete_op, prop.second,
                                                     n_prop, LITERAL(42));
   auto context = MakeContext(storage, symbol_table, &dba);
@@ -1013,17 +983,13 @@ TEST(QueryPlan, DeleteSetPropertiesFromMap) {
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = {property: 42}
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = n.sym_;
+  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
   auto prop = PROPERTY_PAIR("property");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_prop->expression_] = n.sym_;
   std::unordered_map<PropertyIx, Expression *> prop_map;
   prop_map.emplace(storage.GetPropertyIx(prop.first), LITERAL(42));
   auto *rhs = storage.Create<MapLiteral>(prop_map);
-  symbol_table[*rhs] = n.sym_;
   for (auto op_type :
        {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op =
@@ -1048,15 +1014,10 @@ TEST(QueryPlan, DeleteSetPropertiesFromVertex) {
   SymbolTable symbol_table;
   // MATCH (n) DELETE n SET n = n
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = n.sym_;
+  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
-  auto prop = PROPERTY_PAIR("property");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_prop->expression_] = n.sym_;
-  auto *rhs = IDENT("n");
-  symbol_table[*rhs] = n.sym_;
+  auto *rhs = IDENT("n")->MapTo(n.sym_);
   for (auto op_type :
        {plan::SetProperties::Op::REPLACE, plan::SetProperties::Op::UPDATE}) {
     auto set_op =
@@ -1077,8 +1038,7 @@ TEST(QueryPlan, DeleteRemoveLabels) {
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n :label
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = n.sym_;
+  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
   std::vector<storage::Label> labels{dba->Label("label")};
@@ -1099,13 +1059,11 @@ TEST(QueryPlan, DeleteRemoveProperty) {
   SymbolTable symbol_table;
   // MATCH (n) DELETE n REMOVE n.property
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_get = storage.Create<Identifier>("n");
-  symbol_table[*n_get] = n.sym_;
+  auto n_get = storage.Create<Identifier>("n")->MapTo(n.sym_);
   auto delete_op = std::make_shared<plan::Delete>(
       n.op_, std::vector<Expression *>{n_get}, false);
   auto prop = PROPERTY_PAIR("property");
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_prop->expression_] = n.sym_;
+  auto n_prop = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
   auto rem_op =
       std::make_shared<plan::RemoveProperty>(delete_op, prop.second, n_prop);
   auto context = MakeContext(storage, symbol_table, &dba);

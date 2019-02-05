@@ -44,7 +44,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
                                         const TypedValue &value) {
     auto id = storage.Create<Identifier>(name, true);
     auto symbol = symbol_table.CreateSymbol(name, true);
-    symbol_table[*id] = symbol;
+    id->MapTo(symbol);
     frame[symbol] = value;
     return id;
   }
@@ -630,7 +630,7 @@ TEST_F(ExpressionEvaluatorTest, LabelsTest) {
   v1.add_label(dba->Label("NICE_DOG"));
   auto *identifier = storage.Create<Identifier>("n");
   auto node_symbol = symbol_table.CreateSymbol("n", true);
-  symbol_table[*identifier] = node_symbol;
+  identifier->MapTo(node_symbol);
   frame[node_symbol] = v1;
   {
     auto *op = storage.Create<LabelsTest>(
@@ -662,7 +662,7 @@ TEST_F(ExpressionEvaluatorTest, Aggregation) {
   auto aggr = storage.Create<Aggregation>(storage.Create<PrimitiveLiteral>(42),
                                           nullptr, Aggregation::Op::COUNT);
   auto aggr_sym = symbol_table.CreateSymbol("aggr", true);
-  symbol_table[*aggr] = aggr_sym;
+  aggr->MapTo(aggr_sym);
   frame[aggr_sym] = TypedValue(1);
   auto value = Eval(aggr);
   EXPECT_EQ(value.ValueInt(), 1);
@@ -699,8 +699,8 @@ TEST_F(ExpressionEvaluatorTest, All) {
   auto *all =
       ALL("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*all->identifier_] = x_sym;
-  symbol_table[*ident_x] = x_sym;
+  all->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
   auto value = Eval(all);
   ASSERT_TRUE(value.IsBool());
   EXPECT_FALSE(value.ValueBool());
@@ -710,7 +710,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionAllNullList) {
   AstStorage storage;
   auto *all = ALL("x", LITERAL(PropertyValue::Null), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*all->identifier_] = x_sym;
+  all->identifier_->MapTo(x_sym);
   auto value = Eval(all);
   EXPECT_TRUE(value.IsNull());
 }
@@ -719,7 +719,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionAllWhereWrongType) {
   AstStorage storage;
   auto *all = ALL("x", LIST(LITERAL(1)), WHERE(LITERAL(2)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*all->identifier_] = x_sym;
+  all->identifier_->MapTo(x_sym);
   EXPECT_THROW(Eval(all), QueryRuntimeException);
 }
 
@@ -729,8 +729,8 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingle) {
   auto *single =
       SINGLE("x", LIST(LITERAL(1), LITERAL(2)), WHERE(EQ(ident_x, LITERAL(1))));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*single->identifier_] = x_sym;
-  symbol_table[*ident_x] = x_sym;
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
   auto value = Eval(single);
   ASSERT_TRUE(value.IsBool());
   EXPECT_TRUE(value.ValueBool());
@@ -742,8 +742,8 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingle2) {
   auto *single = SINGLE("x", LIST(LITERAL(1), LITERAL(2)),
                         WHERE(GREATER(ident_x, LITERAL(0))));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*single->identifier_] = x_sym;
-  symbol_table[*ident_x] = x_sym;
+  single->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
   auto value = Eval(single);
   ASSERT_TRUE(value.IsBool());
   EXPECT_FALSE(value.ValueBool());
@@ -754,7 +754,7 @@ TEST_F(ExpressionEvaluatorTest, FunctionSingleNullList) {
   auto *single =
       SINGLE("x", LITERAL(PropertyValue::Null), WHERE(LITERAL(true)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*single->identifier_] = x_sym;
+  single->identifier_->MapTo(x_sym);
   auto value = Eval(single);
   EXPECT_TRUE(value.IsNull());
 }
@@ -766,11 +766,11 @@ TEST_F(ExpressionEvaluatorTest, FunctionReduce) {
   auto *reduce = REDUCE("sum", LITERAL(0), "x", LIST(LITERAL(1), LITERAL(2)),
                         ADD(ident_sum, ident_x));
   const auto sum_sym = symbol_table.CreateSymbol("sum", true);
-  symbol_table[*reduce->accumulator_] = sum_sym;
-  symbol_table[*ident_sum] = sum_sym;
+  reduce->accumulator_->MapTo(sum_sym);
+  ident_sum->MapTo(sum_sym);
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*reduce->identifier_] = x_sym;
-  symbol_table[*ident_x] = x_sym;
+  reduce->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
   auto value = Eval(reduce);
   ASSERT_TRUE(value.IsInt());
   EXPECT_EQ(value.ValueInt(), 3);
@@ -783,8 +783,8 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtract) {
       EXTRACT("x", LIST(LITERAL(1), LITERAL(2), LITERAL(PropertyValue::Null)),
               ADD(ident_x, LITERAL(1)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*extract->identifier_] = x_sym;
-  symbol_table[*ident_x] = x_sym;
+  extract->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
   auto value = Eval(extract);
   EXPECT_TRUE(value.IsList());
   ;
@@ -800,8 +800,8 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtractNull) {
   auto *extract =
       EXTRACT("x", LITERAL(PropertyValue::Null), ADD(ident_x, LITERAL(1)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*extract->identifier_] = x_sym;
-  symbol_table[*ident_x] = x_sym;
+  extract->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
   auto value = Eval(extract);
   EXPECT_TRUE(value.IsNull());
 }
@@ -811,8 +811,8 @@ TEST_F(ExpressionEvaluatorTest, FunctionExtractExceptions) {
   auto *ident_x = IDENT("x");
   auto *extract = EXTRACT("x", LITERAL("bla"), ADD(ident_x, LITERAL(1)));
   const auto x_sym = symbol_table.CreateSymbol("x", true);
-  symbol_table[*extract->identifier_] = x_sym;
-  symbol_table[*ident_x] = x_sym;
+  extract->identifier_->MapTo(x_sym);
+  ident_x->MapTo(x_sym);
   EXPECT_THROW(Eval(extract), QueryRuntimeException);
 }
 
@@ -853,10 +853,10 @@ class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
       std::make_pair("age", dba->Property("age"));
   std::pair<std::string, storage::Property> prop_height =
       std::make_pair("height", dba->Property("height"));
-  Expression *identifier = storage.Create<Identifier>("element");
+  Identifier *identifier = storage.Create<Identifier>("element");
   Symbol symbol = symbol_table.CreateSymbol("element", true);
 
-  void SetUp() { symbol_table[*identifier] = symbol; }
+  void SetUp() { identifier->MapTo(symbol); }
 
   auto Value(std::pair<std::string, storage::Property> property) {
     auto *op = storage.Create<PropertyLookup>(
@@ -905,7 +905,7 @@ class FunctionTest : public ExpressionEvaluatorTest {
       auto *ident =
           storage.Create<Identifier>("arg_" + std::to_string(i), true);
       auto sym = symbol_table.CreateSymbol("arg_" + std::to_string(i), true);
-      symbol_table[*ident] = sym;
+      ident->MapTo(sym);
       frame[sym] = tvs[i];
       expressions.push_back(ident);
     }

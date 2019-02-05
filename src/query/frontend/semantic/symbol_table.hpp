@@ -11,25 +11,32 @@ namespace query {
 class SymbolTable final {
  public:
   SymbolTable() {}
-  Symbol CreateSymbol(const std::string &name, bool user_declared,
-                      Symbol::Type type = Symbol::Type::ANY,
-                      int32_t token_position = -1) {
-    int32_t position = position_++;
-    return Symbol(name, position, user_declared, type, token_position);
+  const Symbol &CreateSymbol(const std::string &name, bool user_declared,
+                             Symbol::Type type = Symbol::Type::ANY,
+                             int32_t token_position = -1) {
+    CHECK(table_.size() <= std::numeric_limits<int32_t>::max())
+        << "SymbolTable size doesn't fit into 32-bit integer!";
+    int32_t position = static_cast<int32_t>(table_.size());
+    table_.emplace_back(name, position, user_declared, type, token_position);
+    return table_.back();
   }
 
-  auto &operator[](const Tree &tree) { return table_[tree.uid_]; }
-
-  Symbol &at(const Tree &tree) { return table_.at(tree.uid_); }
-  const Symbol &at(const Tree &tree) const { return table_.at(tree.uid_); }
+  const Symbol &at(const Identifier &ident) const {
+    return table_.at(ident.symbol_pos_);
+  }
+  const Symbol &at(const NamedExpression &nexpr) const {
+    return table_.at(nexpr.symbol_pos_);
+  }
+  const Symbol &at(const Aggregation &aggr) const {
+    return table_.at(aggr.symbol_pos_);
+  }
 
   // TODO: Remove these since members are public
-  int32_t max_position() const { return position_; }
+  int32_t max_position() const { return static_cast<int32_t>(table_.size()); }
 
   const auto &table() const { return table_; }
 
-  int32_t position_{0};
-  std::map<int32_t, Symbol> table_;
+  std::vector<Symbol> table_;
 };
 
 }  // namespace query

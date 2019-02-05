@@ -86,15 +86,13 @@ class CapnpAstGenerator : public Base {
     {
       query::capnp::Tree::Builder builder =
           message.initRoot<query::capnp::Tree>();
-      std::vector<int> saved_uids;
-      Save(*visitor.query(), &builder, &saved_uids);
+      Save(*visitor.query(), &builder);
     }
 
     {
       const query::capnp::Tree::Reader reader =
           message.getRoot<query::capnp::Tree>();
-      std::vector<int> loaded_uids;
-      query_ = dynamic_cast<Query *>(Load(&storage_, reader, &loaded_uids));
+      query_ = dynamic_cast<Query *>(Load(&storage_, reader));
     }
   }
 
@@ -124,14 +122,12 @@ class SlkAstGenerator : public Base {
 
     slk::Builder builder;
     {
-      std::vector<int32_t> saved_uids;
-      SaveAstPointer(visitor.query(), &builder, &saved_uids);
+      SaveAstPointer(visitor.query(), &builder);
     }
 
     {
       slk::Reader reader(builder.data(), builder.size());
-      std::vector<int32_t> loaded_uids;
-      query_ = LoadAstPointer<Query>(&storage_, &reader, &loaded_uids);
+      query_ = LoadAstPointer<Query>(&storage_, &reader);
     }
   }
 

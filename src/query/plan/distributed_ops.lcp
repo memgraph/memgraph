@@ -291,22 +291,14 @@ by having only one result from each worker.")
                 :capnp-load (load-ast-pointer "Expression *"))
    (filter-lambda "ExpansionLambda" :scope :public
                   :documentation "Filter that must be satisfied for expansion to succeed."
-                  :slk-save (lambda (member)
-                              #>cpp
-                              slk::Save(self.${member}, builder, &helper->saved_ast_uids);
-                              cpp<#)
                   :slk-load (lambda (member)
                               #>cpp
-                              slk::Load(&self->${member}, reader, &helper->ast_storage, &helper->loaded_ast_uids);
+                              slk::Load(&self->${member}, reader, &helper->ast_storage);
                               cpp<#)
                   :capnp-type "ExpansionLambda"
-                  :capnp-save (lambda (builder member capnp-name)
-                                #>cpp
-                                Save(${member}, &${builder}, &helper->saved_ast_uids);
-                                cpp<#)
                   :capnp-load (lambda (reader member capnp-name)
                                 #>cpp
-                                Load(&${member}, ${reader}, &helper->ast_storage, &helper->loaded_ast_uids);
+                                Load(&${member}, ${reader}, &helper->ast_storage);
                                 cpp<#)))
   (:documentation "BFS expansion operator suited for distributed execution.")
   (:public

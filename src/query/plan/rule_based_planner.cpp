@@ -370,10 +370,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       if (!symbol.user_declared()) {
         continue;
       }
-      auto *ident = storage_.Create<Identifier>(symbol.name());
-      symbol_table_[*ident] = symbol;
-      auto *named_expr = storage_.Create<NamedExpression>(symbol.name(), ident);
-      symbol_table_[*named_expr] = symbol;
+      auto *ident = storage_.Create<Identifier>(symbol.name())->MapTo(symbol);
+      auto *named_expr =
+          storage_.Create<NamedExpression>(symbol.name(), ident)->MapTo(symbol);
       // Fill output expressions and symbols with expanded identifiers.
       named_expressions_.emplace_back(named_expr);
       output_symbols_.emplace_back(symbol);

@@ -151,13 +151,12 @@ TEST(QueryPlan, OrderBy) {
 
     // order by and collect results
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_p = PROPERTY_LOOKUP("n", prop);
-    symbol_table[*n_p->expression_] = n.sym_;
+    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
     auto order_by = std::make_shared<plan::OrderBy>(
         n.op_, std::vector<SortItem>{{order_value_pair.first, n_p}},
         std::vector<Symbol>{n.sym_});
-    auto n_p_ne = NEXPR("n.p", n_p);
-    symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.p", true);
+    auto n_p_ne =
+        NEXPR("n.p", n_p)->MapTo(symbol_table.CreateSymbol("n.p", true));
     auto produce = MakeProduce(order_by, n_p_ne);
     auto context = MakeContext(storage, symbol_table, &dba);
     auto results = CollectProduce(*produce, &context);
@@ -194,10 +193,8 @@ TEST(QueryPlan, OrderByMultiple) {
 
   // order by and collect results
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_p1 = PROPERTY_LOOKUP("n", p1);
-  symbol_table[*n_p1->expression_] = n.sym_;
-  auto n_p2 = PROPERTY_LOOKUP("n", p2);
-  symbol_table[*n_p2->expression_] = n.sym_;
+  auto n_p1 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p1);
+  auto n_p2 = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), p2);
   // order the results so we get
   // (p1: 0, p2: N-1)
   // (p1: 0, p2: N-2)
@@ -209,10 +206,10 @@ TEST(QueryPlan, OrderByMultiple) {
                                                       {Ordering::DESC, n_p2},
                                                   },
                                                   std::vector<Symbol>{n.sym_});
-  auto n_p1_ne = NEXPR("n.p1", n_p1);
-  symbol_table[*n_p1_ne] = symbol_table.CreateSymbol("n.p1", true);
-  auto n_p2_ne = NEXPR("n.p2", n_p2);
-  symbol_table[*n_p2_ne] = symbol_table.CreateSymbol("n.p2", true);
+  auto n_p1_ne =
+      NEXPR("n.p1", n_p1)->MapTo(symbol_table.CreateSymbol("n.p1", true));
+  auto n_p2_ne =
+      NEXPR("n.p2", n_p2)->MapTo(symbol_table.CreateSymbol("n.p2", true));
   auto produce = MakeProduce(order_by, n_p1_ne, n_p2_ne);
   auto context = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &context);
@@ -261,8 +258,7 @@ TEST(QueryPlan, OrderByExceptions) {
 
     // order by and expect an exception
     auto n = MakeScanAll(storage, symbol_table, "n");
-    auto n_p = PROPERTY_LOOKUP("n", prop);
-    symbol_table[*n_p->expression_] = n.sym_;
+    auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
     auto order_by = std::make_shared<plan::OrderBy>(
         n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
         std::vector<Symbol>{});

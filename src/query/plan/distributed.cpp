@@ -127,9 +127,10 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
     //      a) Extract to ScanAllByLabel + Filter x2
 
     auto make_prop_lookup = [&]() {
-      auto ident = storage_->Create<Identifier>(
-          scan.output_symbol_.name(), scan.output_symbol_.user_declared());
-      (*symbol_table_)[*ident] = scan.output_symbol_;
+      auto ident = storage_
+                       ->Create<Identifier>(scan.output_symbol_.name(),
+                                            scan.output_symbol_.user_declared())
+                       ->MapTo(scan.output_symbol_);
       // TODO: When this extraction of a filter is removed, also remove
       // property_name from ScanAll operators.
       return storage_->Create<PropertyLookup>(
@@ -224,9 +225,10 @@ class IndependentSubtreeFinder : public DistributedOperatorVisitor {
       // Split to ScanAllByLabel + Filter on property
       auto subtree = std::make_shared<ScanAllByLabel>(
           scan.input(), scan.output_symbol_, scan.label_, scan.graph_view_);
-      auto ident = storage_->Create<Identifier>(
-          scan.output_symbol_.name(), scan.output_symbol_.user_declared());
-      (*symbol_table_)[*ident] = scan.output_symbol_;
+      auto ident = storage_
+                       ->Create<Identifier>(scan.output_symbol_.name(),
+                                            scan.output_symbol_.user_declared())
+                       ->MapTo(scan.output_symbol_);
       auto prop_lookup = storage_->Create<PropertyLookup>(
           ident, storage_->GetPropertyIx(scan.property_name_));
       auto prop_equal =
@@ -1259,20 +1261,21 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
     }
     auto make_ident = [this](const auto &symbol) {
       auto *ident =
-          distributed_plan_.ast_storage.Create<Identifier>(symbol.name());
-      distributed_plan_.symbol_table[*ident] = symbol;
+          distributed_plan_.ast_storage.Create<Identifier>(symbol.name())
+              ->MapTo(symbol);
       return ident;
     };
     auto make_named_expr = [&](const auto &in_sym, const auto &out_sym) {
-      auto *nexpr = distributed_plan_.ast_storage.Create<NamedExpression>(
-          out_sym.name(), make_ident(in_sym));
-      distributed_plan_.symbol_table[*nexpr] = out_sym;
+      auto *nexpr =
+          distributed_plan_.ast_storage
+              .Create<NamedExpression>(out_sym.name(), make_ident(in_sym))
+              ->MapTo(out_sym);
       return nexpr;
     };
     auto make_merge_aggregation = [&](auto op, const auto &worker_sym) {
       auto *worker_ident = make_ident(worker_sym);
       auto merge_name = Aggregation::OpToString(op) +
-                        std::to_string(worker_ident->uid_) + "<-" +
+                        std::to_string(worker_ident->symbol_pos_) + "<-" +
                         worker_sym.name();
       auto merge_sym = distributed_plan_.symbol_table.CreateSymbol(
           merge_name, false, Symbol::Type::NUMBER);
@@ -1338,9 +1341,10 @@ class DistributedPlanner : public HierarchicalLogicalOperatorVisitor {
           auto *div_expr =
               distributed_plan_.ast_storage.Create<DivisionOperator>(
                   master_sum_ident, to_float);
-          auto *as_avg = distributed_plan_.ast_storage.Create<NamedExpression>(
-              aggr.output_sym.name(), div_expr);
-          distributed_plan_.symbol_table[*as_avg] = aggr.output_sym;
+          auto *as_avg =
+              distributed_plan_.ast_storage
+                  .Create<NamedExpression>(aggr.output_sym.name(), div_expr)
+                  ->MapTo(aggr.output_sym);
           produce_exprs.emplace_back(as_avg);
           break;
         }

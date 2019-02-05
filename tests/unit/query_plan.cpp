@@ -330,9 +330,9 @@ TYPED_TEST(TestPlanner, MatchMultiPatternSameExpandStart) {
   // We expect the second pattern to generate only an Expand. Another
   // ScanAll would be redundant, as it would generate the nodes obtained from
   // expansion. Additionally, a uniqueness filter is expected.
-  CheckPlan<TypeParam>(
-      query, storage, ExpectScanAll(), ExpectExpand(), ExpectExpand(),
-      ExpectEdgeUniquenessFilter(), ExpectProduce());
+  CheckPlan<TypeParam>(query, storage, ExpectScanAll(), ExpectExpand(),
+                       ExpectExpand(), ExpectEdgeUniquenessFilter(),
+                       ExpectProduce());
 }
 
 TYPED_TEST(TestPlanner, MultiMatch) {
@@ -456,12 +456,13 @@ TYPED_TEST(TestPlanner, CreateWithSum) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto ident_n = IDENT("n");
+  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
   auto sum = SUM(n_prop);
   auto query =
       QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), WITH(sum, AS("sum"))));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
+  auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   // We expect both the accumulation and aggregation because the part before
@@ -522,13 +523,14 @@ TYPED_TEST(TestPlanner, CreateReturnSumSkipLimit) {
   FakeDbAccessor dba;
   auto prop = dba.Property("prop");
   AstStorage storage;
-  auto n_prop = PROPERTY_LOOKUP("n", prop);
+  auto ident_n = IDENT("n");
+  auto n_prop = PROPERTY_LOOKUP(ident_n, prop);
   auto sum = SUM(n_prop);
   auto query = QUERY(
       SINGLE_QUERY(CREATE(PATTERN(NODE("n"))),
                    RETURN(sum, AS("s"), SKIP(LITERAL(2)), LIMIT(LITERAL(1)))));
   auto symbol_table = query::MakeSymbolTable(query);
-  auto acc = ExpectAccumulate({symbol_table.at(*n_prop->expression_)});
+  auto acc = ExpectAccumulate({symbol_table.at(*ident_n)});
   auto aggr = ExpectAggregate({sum}, {});
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(), acc, aggr,
@@ -558,9 +560,11 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   auto r_type = "r";
   AstStorage storage;
   auto ident_n = IDENT("n");
+  auto ident_r = IDENT("r");
+  auto ident_m = IDENT("m");
   auto new_prop = PROPERTY_LOOKUP("new", prop);
-  auto r_prop = PROPERTY_LOOKUP("r", prop);
-  auto m_prop = PROPERTY_LOOKUP("m", prop);
+  auto r_prop = PROPERTY_LOOKUP(ident_r, prop);
+  auto m_prop = PROPERTY_LOOKUP(ident_m, prop);
   auto query = QUERY(SINGLE_QUERY(
       CREATE(
           PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}), NODE("m"))),
@@ -569,9 +573,9 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   auto symbol_table = query::MakeSymbolTable(query);
   // Since this is a write query, we expect to accumulate to old used symbols.
   auto acc = ExpectAccumulate({
-      symbol_table.at(*ident_n),              // `n` in WITH
-      symbol_table.at(*r_prop->expression_),  // `r` in ORDER BY
-      symbol_table.at(*m_prop->expression_),  // `m` in WHERE
+      symbol_table.at(*ident_n),  // `n` in WITH
+      symbol_table.at(*ident_r),  // `r` in ORDER BY
+      symbol_table.at(*ident_m),  // `m` in WHERE
   });
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   CheckPlan(planner.plan(), symbol_table, ExpectCreateNode(),

@@ -161,8 +161,7 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
 }
 
 PropertyFilter::PropertyFilter(
-    const SymbolTable &symbol_table, const Symbol &symbol,
-    PropertyIx property,
+    const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
     const std::experimental::optional<PropertyFilter::Bound> &lower_bound,
     const std::experimental::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
@@ -251,10 +250,12 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
         collector.symbols_.insert(symbol);  // PropertyLookup uses the symbol.
         // Now handle the post-expansion filter.
         // Create a new identifier and a symbol which will be filled in All.
-        auto *identifier = storage.Create<Identifier>(
-            atom->identifier_->name_, atom->identifier_->user_declared_);
-        symbol_table[*identifier] =
-            symbol_table.CreateSymbol(identifier->name_, false);
+        auto *identifier =
+            storage
+                .Create<Identifier>(atom->identifier_->name_,
+                                    atom->identifier_->user_declared_)
+                ->MapTo(
+                    symbol_table.CreateSymbol(atom->identifier_->name_, false));
         // Create an equality expression and store it in all_filters_.
         auto *property_lookup =
             storage.Create<PropertyLookup>(identifier, prop_pair.first);
@@ -282,8 +283,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       FilterInfo filter_info{FilterInfo::Type::Property, prop_equal,
                              collector.symbols_};
       // Store a PropertyFilter on the value of the property.
-      filter_info.property_filter.emplace(
-          symbol_table, symbol, prop_pair.first, prop_pair.second);
+      filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first,
+                                          prop_pair.second);
       all_filters_.emplace_back(filter_info);
     }
   };

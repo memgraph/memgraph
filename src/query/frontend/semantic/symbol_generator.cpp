@@ -51,7 +51,8 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
       user_symbols.emplace_back(sym_pair.second);
     }
     if (user_symbols.empty()) {
-      throw SemanticException("There are no variables in scope to use for '*'.");
+      throw SemanticException(
+          "There are no variables in scope to use for '*'.");
     }
   }
   // WITH/RETURN clause removes declarations of all the previous variables and
@@ -79,8 +80,8 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
     }
     // An improvement would be to infer the type of the expression, so that the
     // new symbol would have a more specific type.
-    symbol_table_[*named_expr] = CreateSymbol(name, true, Symbol::Type::ANY,
-                                              named_expr->token_position_);
+    named_expr->MapTo(CreateSymbol(name, true, Symbol::Type::ANY,
+                                   named_expr->token_position_));
   }
   scope_.in_order_by = true;
   for (const auto &order_pair : body.order_by) {
@@ -198,7 +199,7 @@ bool SymbolGenerator::PostVisit(Unwind &unwind) {
   if (HasSymbol(name)) {
     throw RedeclareVariableError(name);
   }
-  symbol_table_[*unwind.named_expression_] = CreateSymbol(name, true);
+  unwind.named_expression_->MapTo(CreateSymbol(name, true));
   return true;
 }
 
@@ -212,7 +213,7 @@ bool SymbolGenerator::PostVisit(Match &) {
   // reference symbols out of bind order.
   for (auto &ident : scope_.identifiers_in_match) {
     if (!HasSymbol(ident->name_)) throw UnboundVariableError(ident->name_);
-    symbol_table_[*ident] = scope_.symbols[ident->name_];
+    ident->MapTo(scope_.symbols[ident->name_]);
   }
   scope_.identifiers_in_match.clear();
   return true;
@@ -270,7 +271,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     if (!HasSymbol(ident.name_)) throw UnboundVariableError(ident.name_);
     symbol = scope_.symbols[ident.name_];
   }
-  symbol_table_[ident] = symbol;
+  ident.MapTo(symbol);
   return true;
 }
 
@@ -302,9 +303,8 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
   auto aggr_name =
-      Aggregation::OpToString(aggr.op_) + std::to_string(aggr.uid_);
-  symbol_table_[aggr] =
-      symbol_table_.CreateSymbol(aggr_name, false, Symbol::Type::NUMBER);
+      Aggregation::OpToString(aggr.op_) + std::to_string(aggr.symbol_pos_);
+  aggr.MapTo(CreateSymbol(aggr_name, false, Symbol::Type::NUMBER));
   scope_.in_aggregation = true;
   scope_.has_aggregation = true;
   return true;
@@ -435,12 +435,12 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     } else {
       // Create inner symbols, but don't bind them in scope, since they are to
       // be used in the missing filter expression.
-      const auto *inner_edge = edge_atom.filter_lambda_.inner_edge;
-      symbol_table_[*inner_edge] = symbol_table_.CreateSymbol(
-          inner_edge->name_, inner_edge->user_declared_, Symbol::Type::EDGE);
-      const auto *inner_node = edge_atom.filter_lambda_.inner_node;
-      symbol_table_[*inner_node] = symbol_table_.CreateSymbol(
-          inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX);
+      auto *inner_edge = edge_atom.filter_lambda_.inner_edge;
+      inner_edge->MapTo(symbol_table_.CreateSymbol(
+          inner_edge->name_, inner_edge->user_declared_, Symbol::Type::EDGE));
+      auto *inner_node = edge_atom.filter_lambda_.inner_node;
+      inner_node->MapTo(symbol_table_.CreateSymbol(
+          inner_node->name_, inner_node->user_declared_, Symbol::Type::VERTEX));
     }
     if (edge_atom.weight_lambda_.expression) {
       VisitWithIdentifiers(edge_atom.weight_lambda_.expression,
@@ -456,9 +456,9 @@ bool SymbolGenerator::PreVisit(EdgeAtom &edge_atom) {
     if (HasSymbol(edge_atom.total_weight_->name_)) {
       throw RedeclareVariableError(edge_atom.total_weight_->name_);
     }
-    symbol_table_[*edge_atom.total_weight_] = GetOrCreateSymbol(
+    edge_atom.total_weight_->MapTo(GetOrCreateSymbol(
         edge_atom.total_weight_->name_, edge_atom.total_weight_->user_declared_,
-        Symbol::Type::NUMBER);
+        Symbol::Type::NUMBER));
   }
   return false;
 }
@@ -480,8 +480,8 @@ void SymbolGenerator::VisitWithIdentifiers(
     if (prev_symbol_it != scope_.symbols.end()) {
       prev_symbol = prev_symbol_it->second;
     }
-    symbol_table_[*identifier] =
-        CreateSymbol(identifier->name_, identifier->user_declared_);
+    identifier->MapTo(
+        CreateSymbol(identifier->name_, identifier->user_declared_));
     prev_symbols.emplace_back(prev_symbol, identifier);
   }
   // Visit the expression with the new symbols bound.

@@ -45,11 +45,11 @@ ExpandTuple MakeDistributedExpand(
     GraphView graph_view) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
-  symbol_table[*edge->identifier_] = edge_sym;
+  edge->identifier_->MapTo(edge_sym);
 
   auto node = NODE(node_identifier);
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
-  symbol_table[*node->identifier_] = node_sym;
+  node->identifier_->MapTo(node_sym);
 
   auto op = std::make_shared<DistributedExpand>(input, input_symbol, node_sym,
                                                 edge_sym, direction, edge_types,
@@ -75,10 +75,9 @@ TEST_F(DistributedQueryPlan, PullProduceRpc) {
       LIST(LITERAL(42), LITERAL(true), LITERAL("bla"), LITERAL(1), LITERAL(2));
   auto x = symbol_table.CreateSymbol("x", true);
   auto unwind = std::make_shared<plan::Unwind>(nullptr, list, x);
-  auto x_expr = IDENT("x");
-  symbol_table[*x_expr] = x;
-  auto x_ne = NEXPR("x", x_expr);
-  symbol_table[*x_ne] = symbol_table.CreateSymbol("x_ne", true);
+  auto x_expr = IDENT("x")->MapTo(x);
+  auto x_ne =
+      NEXPR("x", x_expr)->MapTo(symbol_table.CreateSymbol("x_ne", true));
   auto produce = MakeProduce(unwind, x_ne);
 
   // Test that the plan works locally.
@@ -91,7 +90,7 @@ TEST_F(DistributedQueryPlan, PullProduceRpc) {
 
   tx::CommandId command_id = dba->transaction().cid();
   auto &evaluation_context = ctx.evaluation_context;
-  std::vector<query::Symbol> symbols{ctx.symbol_table[*x_ne]};
+  std::vector<query::Symbol> symbols{ctx.symbol_table.at(*x_ne)};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
                          GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(&dba, worker_id, plan_id, command_id,
@@ -168,18 +167,14 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
   auto p = std::make_shared<query::plan::ConstructNamedPath>(
       r_m.op_, p_sym,
       std::vector<Symbol>{n.sym_, r_m.edge_sym_, r_m.node_sym_});
-  auto return_n = IDENT("n");
-  symbol_table[*return_n] = n.sym_;
-  auto return_r = IDENT("r");
-  symbol_table[*return_r] = r_m.edge_sym_;
-  auto return_n_r = NEXPR("[n, r]", LIST(return_n, return_r));
-  symbol_table[*return_n_r] = symbol_table.CreateSymbol("", true);
-  auto return_m = NEXPR("m", IDENT("m"));
-  symbol_table[*return_m->expression_] = r_m.node_sym_;
-  symbol_table[*return_m] = symbol_table.CreateSymbol("", true);
-  auto return_p = NEXPR("p", IDENT("p"));
-  symbol_table[*return_p->expression_] = p_sym;
-  symbol_table[*return_p] = symbol_table.CreateSymbol("", true);
+  auto return_n = IDENT("n")->MapTo(n.sym_);
+  auto return_r = IDENT("r")->MapTo(r_m.edge_sym_);
+  auto return_n_r = NEXPR("[n, r]", LIST(return_n, return_r))
+                        ->MapTo(symbol_table.CreateSymbol("", true));
+  auto return_m = NEXPR("m", IDENT("m")->MapTo(r_m.node_sym_))
+                      ->MapTo(symbol_table.CreateSymbol("", true));
+  auto return_p = NEXPR("p", IDENT("p")->MapTo(p_sym))
+                      ->MapTo(symbol_table.CreateSymbol("", true));
   auto produce = MakeProduce(p, return_n_r, return_m, return_p);
 
   auto check_result = [prop](int worker_id,
@@ -211,8 +206,8 @@ TEST_F(DistributedQueryPlan, PullProduceRpcWithGraphElements) {
 
   tx::CommandId command_id = dba->transaction().cid();
   auto &evaluation_context = ctx.evaluation_context;
-  std::vector<query::Symbol> symbols{ctx.symbol_table[*return_n_r],
-                                     ctx.symbol_table[*return_m], p_sym};
+  std::vector<query::Symbol> symbols{ctx.symbol_table.at(*return_n_r),
+                                     ctx.symbol_table.at(*return_m), p_sym};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols](
                          GraphDbAccessor &dba, int worker_id) {
     return master().pull_clients().Pull(&dba, worker_id, plan_id, command_id,
@@ -246,8 +241,7 @@ TEST_F(DistributedQueryPlan, Synchronize) {
   // SET
   auto literal = LITERAL(42);
   auto prop = PROPERTY_PAIR("prop");
-  auto m_p = PROPERTY_LOOKUP("m", prop);
-  symbol_table[*m_p->expression_] = r_m.node_sym_;
+  auto m_p = PROPERTY_LOOKUP(IDENT("m")->MapTo(r_m.node_sym_), prop);
   auto set_m_p =
       std::make_shared<plan::SetProperty>(r_m.op_, prop.second, m_p, literal);
 
@@ -261,11 +255,9 @@ TEST_F(DistributedQueryPlan, Synchronize) {
       std::make_shared<query::plan::Synchronize>(set_m_p, pull_remote, true);
 
   // RETURN
-  auto n_p = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_p->expression_] = n.sym_;
-  auto return_n_p = NEXPR("n.prop", n_p);
-  auto return_n_p_sym = symbol_table.CreateSymbol("n.p", true);
-  symbol_table[*return_n_p] = return_n_p_sym;
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
+  auto return_n_p =
+      NEXPR("n.prop", n_p)->MapTo(symbol_table.CreateSymbol("n.p", true));
   auto produce = MakeProduce(synchronize, return_n_p);
   auto ctx = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &ctx);
@@ -331,8 +323,7 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
 
   // Query plan for:  MATCH (n) RETURN n.prop ORDER BY n.prop;
   auto n = MakeScanAll(storage, symbol_table, "n");
-  auto n_p = PROPERTY_LOOKUP("n", prop);
-  symbol_table[*n_p->expression_] = n.sym_;
+  auto n_p = PROPERTY_LOOKUP(IDENT("n")->MapTo(n.sym_), prop);
   auto order_by = std::make_shared<plan::OrderBy>(
       n.op_, std::vector<SortItem>{{Ordering::ASC, n_p}},
       std::vector<Symbol>{n.sym_});
@@ -344,8 +335,8 @@ TEST_F(DistributedQueryPlan, PullRemoteOrderBy) {
       order_by, plan_id, std::vector<SortItem>{{Ordering::ASC, n_p}},
       std::vector<Symbol>{n.sym_});
 
-  auto n_p_ne = NEXPR("n.prop", n_p);
-  symbol_table[*n_p_ne] = symbol_table.CreateSymbol("n.prop", true);
+  auto n_p_ne =
+      NEXPR("n.prop", n_p)->MapTo(symbol_table.CreateSymbol("n.prop", true));
   auto produce = MakeProduce(pull_remote_order_by, n_p_ne);
   auto ctx = MakeContext(storage, symbol_table, &dba);
   auto results = CollectProduce(*produce, &ctx);
@@ -374,10 +365,10 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
 
   // Make distributed plan for MATCH (n) RETURN n
   auto scan_all = MakeScanAll(storage, symbol_table, "n");
-  auto output = NEXPR("n", IDENT("n"));
+  auto output =
+      NEXPR("n", IDENT("n")->MapTo(scan_all.sym_))
+          ->MapTo(symbol_table.CreateSymbol("named_expression_1", true));
   auto produce = MakeProduce(scan_all.op_, output);
-  symbol_table[*output->expression_] = scan_all.sym_;
-  symbol_table[*output] = symbol_table.CreateSymbol("named_expression_1", true);
 
   const int plan_id = 42;
   master().plan_dispatcher().DispatchPlan(plan_id, produce, symbol_table);
@@ -387,7 +378,7 @@ TEST_F(DistributedTransactionTimeout, Timeout) {
   evaluation_context.properties =
       NamesToProperties(storage.properties_, dba.get());
   evaluation_context.labels = NamesToLabels(storage.labels_, dba.get());
-  std::vector<query::Symbol> symbols{symbol_table[*output]};
+  std::vector<query::Symbol> symbols{symbol_table.at(*output)};
   auto remote_pull = [this, &command_id, &evaluation_context, &symbols,
                       &dba]() {
     return master()
@@ -1205,7 +1196,8 @@ TYPED_TEST(TestPlanner, MatchReturnSum) {
   auto merge_sum = SUM(IDENT("worker_sum"));
   auto master_aggr = ExpectMasterAggregate({merge_sum}, {n_prop2});
   ExpectPullRemote pull(
-      {symbol_table.at(*sum), symbol_table.at(*n_prop2->expression_)});
+      {symbol_table.at(*sum),
+       symbol_table.at(*dynamic_cast<Identifier *>(n_prop2->expression_))});
   auto expected =
       ExpectDistributed(MakeCheckers(ExpectScanAll(), aggr, pull, master_aggr,
                                      ExpectProduce(), ExpectProduce()),
@@ -1314,9 +1306,11 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   auto r_type = "r";
   AstStorage storage;
   auto ident_n = IDENT("n");
+  auto ident_r = IDENT("r");
+  auto ident_m = IDENT("m");
   auto new_prop = PROPERTY_LOOKUP("new", prop);
-  auto r_prop = PROPERTY_LOOKUP("r", prop);
-  auto m_prop = PROPERTY_LOOKUP("m", prop);
+  auto r_prop = PROPERTY_LOOKUP(ident_r, prop);
+  auto m_prop = PROPERTY_LOOKUP(ident_m, prop);
   auto query = QUERY(SINGLE_QUERY(
       CREATE(
           PATTERN(NODE("n"), EDGE("r", Direction::OUT, {r_type}), NODE("m"))),
@@ -1325,9 +1319,9 @@ TYPED_TEST(TestPlanner, CreateWithOrderByWhere) {
   auto symbol_table = query::MakeSymbolTable(query);
   // Since this is a write query, we expect to accumulate to old used symbols.
   auto acc = ExpectAccumulate({
-      symbol_table.at(*ident_n),              // `n` in WITH
-      symbol_table.at(*r_prop->expression_),  // `r` in ORDER BY
-      symbol_table.at(*m_prop->expression_),  // `m` in WHERE
+      symbol_table.at(*ident_n),  // `n` in WITH
+      symbol_table.at(*ident_r),  // `r` in ORDER BY
+      symbol_table.at(*ident_m),  // `m` in WHERE
   });
   auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
   auto expected = ExpectDistributed(
@@ -1480,8 +1474,8 @@ TYPED_TEST(TestPlanner, DistributedAvg) {
     auto worker_aggr_op = std::dynamic_pointer_cast<Aggregate>(worker_plan);
     ASSERT_TRUE(worker_aggr_op);
     ASSERT_EQ(worker_aggr_op->aggregations_.size(), 2U);
-    symbol_table[*worker_sum] = worker_aggr_op->aggregations_[0].output_sym;
-    symbol_table[*worker_count] = worker_aggr_op->aggregations_[1].output_sym;
+    worker_sum->MapTo(worker_aggr_op->aggregations_[0].output_sym);
+    worker_count->MapTo(worker_aggr_op->aggregations_[1].output_sym);
   }
   auto worker_aggr = ExpectAggregate({worker_sum, worker_count}, {});
   auto merge_sum = SUM(IDENT("worker_sum"));
@@ -1817,16 +1811,13 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByBothBounds) {
   auto sym_a = symbol_table.CreateSymbol("a", true);
   auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
   auto sym_b = symbol_table.CreateSymbol("b", true);
-  query::Expression *lower_expr = IDENT("a");
-  symbol_table[*lower_expr] = sym_a;
+  query::Expression *lower_expr = IDENT("a")->MapTo(sym_a);
   auto lower_bound = utils::MakeBoundExclusive(lower_expr);
-  query::Expression *upper_expr = IDENT("a");
-  symbol_table[*upper_expr] = sym_a;
+  query::Expression *upper_expr = IDENT("a")->MapTo(sym_a);
   auto upper_bound = utils::MakeBoundExclusive(upper_expr);
   auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
       scan_a, sym_b, label, prop, "prop", lower_bound, upper_bound);
-  auto ident_b = IDENT("b");
-  symbol_table[*ident_b] = sym_b;
+  auto ident_b = IDENT("b")->MapTo(sym_b);
   auto as_b = NEXPR("b", ident_b);
   auto produce = std::make_shared<Produce>(
       scan_b, std::vector<query::NamedExpression *>{as_b});
@@ -1863,13 +1854,11 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByLowerWithBothBounds) {
   auto sym_b = symbol_table.CreateSymbol("b", true);
   query::Expression *lower_expr = LITERAL(42);
   auto lower_bound = utils::MakeBoundExclusive(lower_expr);
-  query::Expression *upper_expr = IDENT("a");
-  symbol_table[*upper_expr] = sym_a;
+  query::Expression *upper_expr = IDENT("a")->MapTo(sym_a);
   auto upper_bound = utils::MakeBoundExclusive(upper_expr);
   auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
       scan_a, sym_b, label, prop, "prop", lower_bound, upper_bound);
-  auto ident_b = IDENT("b");
-  symbol_table[*ident_b] = sym_b;
+  auto ident_b = IDENT("b")->MapTo(sym_b);
   auto as_b = NEXPR("b", ident_b);
   auto produce = std::make_shared<Produce>(
       scan_b, std::vector<query::NamedExpression *>{as_b});
@@ -1908,15 +1897,13 @@ TEST(TestPlanner, DistributedCartesianIndexedScanByUpperWithBothBounds) {
   auto sym_a = symbol_table.CreateSymbol("a", true);
   auto scan_a = std::make_shared<ScanAll>(nullptr, sym_a);
   auto sym_b = symbol_table.CreateSymbol("b", true);
-  query::Expression *lower_expr = IDENT("a");
-  symbol_table[*lower_expr] = sym_a;
+  query::Expression *lower_expr = IDENT("a")->MapTo(sym_a);
   auto lower_bound = utils::MakeBoundExclusive(lower_expr);
   query::Expression *upper_expr = LITERAL(42);
   auto upper_bound = utils::MakeBoundExclusive(upper_expr);
   auto scan_b = std::make_shared<ScanAllByLabelPropertyRange>(
       scan_a, sym_b, label, prop, "prop", lower_bound, upper_bound);
-  auto ident_b = IDENT("b");
-  symbol_table[*ident_b] = sym_b;
+  auto ident_b = IDENT("b")->MapTo(sym_b);
   auto as_b = NEXPR("b", ident_b);
   auto produce = std::make_shared<Produce>(
       scan_b, std::vector<query::NamedExpression *>{as_b});

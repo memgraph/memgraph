@@ -30,20 +30,20 @@ cpp<#
 
 (defun slk-save-ast-pointer (member)
   #>cpp
-  query::SaveAstPointer(self.${member}, builder, saved_uids);
+  query::SaveAstPointer(self.${member}, builder);
   cpp<#)
 
 (defun slk-load-ast-pointer (type)
   (lambda (member)
     #>cpp
-    self->${member} = query::LoadAstPointer<query::${type}>(storage, reader, loaded_uids);
+    self->${member} = query::LoadAstPointer<query::${type}>(storage, reader);
     cpp<#))
 
 (defun save-ast-pointer (builder member capnp-name)
   #>cpp
   if (${member}) {
     auto ${capnp-name}_builder = ${builder}->init${capnp-name}();
-    Save(*${member}, &${capnp-name}_builder, saved_uids);
+    Save(*${member}, &${capnp-name}_builder);
   }
   cpp<#)
 
@@ -52,7 +52,7 @@ cpp<#
     #>cpp
     if (${reader}.has${capnp-name}()) {
       ${member} = static_cast<${type}>(
-          Load(storage, ${reader}.get${capnp-name}(), loaded_uids));
+          Load(storage, ${reader}.get${capnp-name}()));
     } else {
       ${member} = nullptr;
     }
@@ -63,7 +63,7 @@ cpp<#
   size_t size = self.${member}.size();
   slk::Save(size, builder);
   for (const auto *val : self.${member}) {
-    query::SaveAstPointer(val, builder, saved_uids);
+    query::SaveAstPointer(val, builder);
   }
   cpp<#)
 
@@ -76,22 +76,22 @@ cpp<#
     for (size_t i = 0;
          i < size;
          ++i) {
-      self->${member}[i] = query::LoadAstPointer<query::${type}>(storage, reader, loaded_uids);
+      self->${member}[i] = query::LoadAstPointer<query::${type}>(storage, reader);
     }
     cpp<#))
 
 (defun save-ast-vector (type)
   (lcp:capnp-save-vector "capnp::Tree" type
-                         "[saved_uids](auto *builder, const auto &val) {
-                            Save(*val, builder, saved_uids);
+                         "[](auto *builder, const auto &val) {
+                            Save(*val, builder);
                           }"))
 
 (defun load-ast-vector (type)
   (lcp:capnp-load-vector "capnp::Tree" type
                          (format
                            nil
-                           "[storage, loaded_uids](const auto &reader) {
-                              return static_cast<~A>(Load(storage, reader, loaded_uids));
+                           "[storage](const auto &reader) {
+                              return static_cast<~A>(Load(storage, reader));
                             }"
                             type)))
 
@@ -101,7 +101,7 @@ cpp<#
   slk::Save(size, builder);
   for (const auto &entry : self.${member}) {
     slk::Save(entry.first, builder);
-    query::SaveAstPointer(entry.second, builder, saved_uids);
+    query::SaveAstPointer(entry.second, builder);
   }
   cpp<#)
 
@@ -114,7 +114,7 @@ cpp<#
        ++i) {
     query::PropertyIx key;
     slk::Load(&key, reader, storage);
-    auto *value = query::LoadAstPointer<query::Expression>(storage, reader, loaded_uids);
+    auto *value = query::LoadAstPointer<query::Expression>(storage, reader);
     self->${member}.emplace(key, value);
   }
   cpp<#)
@@ -127,7 +127,7 @@ cpp<#
     auto key_builder = entries_builder[i].initKey();
     Save(entry.first, &key_builder);
     auto value_builder = entries_builder[i].initValue();
-    Save(*entry.second, &value_builder, saved_uids);
+    Save(*entry.second, &value_builder);
     ++i;
   }
   cpp<#)
@@ -138,7 +138,7 @@ cpp<#
     PropertyIx prop;
     Load(&prop, entry.getKey(), storage);
     ${member}.emplace(prop, static_cast<Expression *>(
-                                Load(storage, entry.getValue(), loaded_uids)));
+                                Load(storage, entry.getValue())));
   }
   cpp<#)
 
@@ -280,18 +280,9 @@ class AstStorage {
   AstStorage(AstStorage &&) = default;
   AstStorage &operator=(AstStorage &&) = default;
 
-  template <typename T>
-  T *Create() {
-    T *ptr = new T();
-    ptr->uid_ = ++max_existing_uid_;
-    std::unique_ptr<T> tmp(ptr);
-    storage_.emplace_back(std::move(tmp));
-    return ptr;
-  }
-
   template <typename T, typename... Args>
   T *Create(Args &&... args) {
-    T *ptr = new T(++max_existing_uid_, std::forward<Args>(args)...);
+    T *ptr = new T(std::forward<Args>(args)...);
     std::unique_ptr<T> tmp(ptr);
     storage_.emplace_back(std::move(tmp));
     return ptr;
@@ -315,7 +306,6 @@ class AstStorage {
 
   // Public only for serialization access
   std::vector<std::unique_ptr<Tree>> storage_;
-  int max_existing_uid_ = -1;
 
  private:
   int64_t FindOrAddName(const std::string &name,
@@ -332,14 +322,7 @@ class AstStorage {
 cpp<#
 
 (lcp:define-class tree ()
-  ((uid :int32_t :scope :public
-        :clone (lambda (source dest)
-                 #>cpp
-                 ${dest} = ${source};
-                 // TODO(mtomic): This is a hack. Adopting existing UIDs breaks everything
-                 // because `AstStorage` keeps a counter for generating when `Create` is called.
-                 storage->max_existing_uid_ = std::max(storage->max_existing_uid_, ${source});
-                 cpp<#)))
+  ()
   (:abstractp t)
   (:public
     #>cpp
@@ -350,28 +333,8 @@ cpp<#
     #>cpp
     friend class AstStorage;
     cpp<#)
-  (:protected
-    #>cpp
-    explicit Tree(int uid) : uid_(uid) {}
-    cpp<#)
-  (:serialize (:slk :save-args '((saved-uids "std::vector<int32_t> *"))
-                    :load-args '((storage "query::AstStorage *")
-                                 (loaded-uids "std::vector<int32_t> *")))
-              (:capnp
-               :save-args '((saved-uids "std::vector<int32_t> *"))
-               :load-args '((storage "AstStorage *")
-                            (loaded-uids "std::vector<int32_t> *"))
-               :post-save (lambda (builder)
-                            (declare (ignore builder))
-                            ;; This is a bit hacky because it relies on the fact that parent class
-                            ;; serialization is inlined so we can short-circuit and avoid serializing
-                            ;; the derived class.
-                            #>cpp
-                            if (utils::Contains(*saved_uids, self.uid_)) {
-                              return;
-                            }
-                            saved_uids->push_back(self.uid_);
-                            cpp<#)))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+              (:capnp :load-args '((storage "AstStorage *"))))
   (:clone :return-type (lambda (typename)
                          (format nil "~A*" typename))
           :args '((storage "AstStorage *"))
@@ -395,10 +358,6 @@ cpp<#
     using ::utils::Visitable<ExpressionVisitor<void>>::Accept;
 
     Expression() = default;
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit Expression(int uid) : Tree(uid) {}
     cpp<#)
   (:private
     #>cpp
@@ -431,8 +390,7 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Where(int uid) : Tree(uid) {}
-    Where(int uid, Expression *expression) : Tree(uid), expression_(expression) {}
+    explicit Where(Expression *expression) : expression_(expression) {}
     cpp<#)
   (:private
     #>cpp
@@ -463,9 +421,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit BinaryOperator(int uid) : Expression(uid) {}
-    BinaryOperator(int uid, Expression *expression1, Expression *expression2)
-        : Expression(uid), expression1_(expression1), expression2_(expression2) {}
+    BinaryOperator(Expression *expression1, Expression *expression2)
+        : expression1_(expression1), expression2_(expression2) {}
     cpp<#)
   (:private
     #>cpp
@@ -488,9 +445,7 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit UnaryOperator(int uid) : Expression(uid) {}
-    UnaryOperator(int uid, Expression *expression)
-        : Expression(uid), expression_(expression) {}
+    explicit UnaryOperator(Expression *expression) : expression_(expression) {}
     cpp<#)
   (:private
     #>cpp
@@ -567,7 +522,9 @@ cpp<#
   (define-unary-operators))
 
 (lcp:define-class aggregation (binary-operator)
-  ((op "Op" :scope :public))
+  ((op "Op" :scope :public)
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this Aggregation is mapped to."))
   (:public
     (lcp:define-enum op
       (count min max sum avg collect-list collect-map)
@@ -597,17 +554,21 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
+
+    Aggregation *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
     cpp<#)
   (:protected
     #>cpp
     // Use only for serialization.
-    Aggregation(int uid) : BinaryOperator(uid) {}
-    Aggregation(int uid, Op op) : BinaryOperator(uid), op_(op) {}
+    explicit Aggregation(Op op) : op_(op) {}
 
     /// Aggregation's first expression is the value being aggregated. The second
     /// expression is the key used only in COLLECT_MAP.
-    Aggregation(int uid, Expression *expression1, Expression *expression2, Op op)
-        : BinaryOperator(uid, expression1, expression2), op_(op) {
+    Aggregation(Expression *expression1, Expression *expression2, Op op)
+        : BinaryOperator(expression1, expression2), op_(op) {
       // COUNT without expression denotes COUNT(*) in cypher.
       DCHECK(expression1 || op == Aggregation::Op::COUNT)
           << "All aggregations, except COUNT require expression";
@@ -663,14 +624,9 @@ cpp<#
    cpp<#)
   (:protected
     #>cpp
-    explicit ListSlicingOperator(int uid) : Expression(uid) {}
-
-    ListSlicingOperator(int uid, Expression *list, Expression *lower_bound,
+    ListSlicingOperator(Expression *list, Expression *lower_bound,
                         Expression *upper_bound)
-        : Expression(uid),
-          list_(list),
-          lower_bound_(lower_bound),
-          upper_bound_(upper_bound) {}
+        : list_(list), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
     cpp<#)
   (:private
     #>cpp
@@ -715,12 +671,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit IfOperator(int uid) : Expression(uid) {}
-
-    IfOperator(int uid, Expression *condition, Expression *then_expression,
+    IfOperator(Expression *condition, Expression *then_expression,
                Expression *else_expression)
-        : Expression(uid),
-          condition_(condition),
+        : condition_(condition),
           then_expression_(then_expression),
           else_expression_(else_expression) {}
     cpp<#)
@@ -737,10 +690,6 @@ cpp<#
   (:public
     #>cpp
     BaseLiteral() = default;
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit BaseLiteral(int uid) : Expression(uid) {}
     cpp<#)
   (:private
     #>cpp
@@ -775,12 +724,11 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit PrimitiveLiteral(int uid) : BaseLiteral(uid) {}
     template <typename T>
-    PrimitiveLiteral(int uid, T value) : BaseLiteral(uid), value_(value) {}
+    explicit PrimitiveLiteral(T value) : value_(value) {}
     template <typename T>
-    PrimitiveLiteral(int uid, T value, int token_position)
-        : BaseLiteral(uid), value_(value), token_position_(token_position) {}
+    PrimitiveLiteral(T value, int token_position)
+        : value_(value), token_position_(token_position) {}
     cpp<#)
   (:serialize (:slk) (:capnp))
   (:clone))
@@ -809,9 +757,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit ListLiteral(int uid) : BaseLiteral(uid) {}
-    ListLiteral(int uid, const std::vector<Expression *> &elements)
-        : BaseLiteral(uid), elements_(elements) {}
+    explicit ListLiteral(const std::vector<Expression *> &elements)
+        : elements_(elements) {}
     cpp<#)
   (:private
     #>cpp
@@ -845,10 +792,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit MapLiteral(int uid) : BaseLiteral(uid) {}
-    MapLiteral(int uid,
-               const std::unordered_map<PropertyIx, Expression *> &elements)
-        : BaseLiteral(uid), elements_(elements) {}
+    explicit MapLiteral(
+        const std::unordered_map<PropertyIx, Expression *> &elements)
+        : elements_(elements) {}
     cpp<#)
   (:private
     #>cpp
@@ -859,7 +805,9 @@ cpp<#
 
 (lcp:define-class identifier (expression)
   ((name "std::string" :scope :public)
-   (user-declared :bool :initval "true" :scope :public))
+   (user-declared :bool :initval "true" :scope :public)
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this Identifier is mapped to."))
   (:public
     #>cpp
     Identifier() = default;
@@ -867,14 +815,17 @@ cpp<#
     DEFVISITABLE(ExpressionVisitor<TypedValue>);
     DEFVISITABLE(ExpressionVisitor<void>);
     DEFVISITABLE(HierarchicalTreeVisitor);
+
+    Identifier *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
     cpp<#)
   (:protected
     #>cpp
-    Identifier(int uid) : Expression(uid) {}
-
-    Identifier(int uid, const std::string &name) : Expression(uid), name_(name) {}
-    Identifier(int uid, const std::string &name, bool user_declared)
-        : Expression(uid), name_(name), user_declared_(user_declared) {}
+    explicit Identifier(const std::string &name) : name_(name) {}
+    Identifier(const std::string &name, bool user_declared)
+        : name_(name), user_declared_(user_declared) {}
     cpp<#)
   (:private
     #>cpp
@@ -914,11 +865,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    PropertyLookup(int uid) : Expression(uid) {}
-    PropertyLookup(int uid, Expression *expression, PropertyIx property)
-        : Expression(uid),
-          expression_(expression),
-          property_(property) {}
+    PropertyLookup(Expression *expression, PropertyIx property)
+        : expression_(expression), property_(property) {}
     cpp<#)
   (:private
     #>cpp
@@ -967,11 +915,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    LabelsTest(int uid) : Expression(uid) {}
-
-    LabelsTest(int uid, Expression *expression,
-               const std::vector<LabelIx> &labels)
-        : Expression(uid), expression_(expression), labels_(labels) {}
+    LabelsTest(Expression *expression, const std::vector<LabelIx> &labels)
+        : expression_(expression), labels_(labels) {}
     cpp<#)
   (:private
     #>cpp
@@ -1019,12 +964,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Function(int uid) : Expression(uid) {}
-
-    Function(int uid, const std::string &function_name,
+    Function(const std::string &function_name,
              const std::vector<Expression *> &arguments)
-        : Expression(uid),
-          arguments_(arguments),
+        : arguments_(arguments),
           function_name_(function_name),
           function_(NameToFunction(function_name_)) {
       DCHECK(function_) << "Unexpected missing function: " << function_name_;
@@ -1090,10 +1032,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    Reduce(int uid, Identifier *accumulator, Expression *initializer,
-           Identifier *identifier, Expression *list, Expression *expression)
-        : Expression(uid),
-          accumulator_(accumulator),
+    Reduce(Identifier *accumulator, Expression *initializer, Identifier *identifier,
+           Expression *list, Expression *expression)
+        : accumulator_(accumulator),
           initializer_(initializer),
           identifier_(identifier),
           list_(list),
@@ -1133,10 +1074,8 @@ cpp<#
    )
   (:private
    #>cpp
-   Coalesce(int uid) : Expression(uid_) {}
-
-   Coalesce(int uid, const std::vector<Expression *> &expressions)
-       : Expression(uid), expressions_(expressions) {}
+   explicit Coalesce(const std::vector<Expression *> &expressions)
+       : expressions_(expressions) {}
 
    friend class AstStorage;
    cpp<#)
@@ -1181,14 +1120,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    Extract(int uid) : Expression(uid) {}
-
-    Extract(int uid, Identifier *identifier, Expression *list,
-            Expression *expression)
-        : Expression(uid),
-          identifier_(identifier),
-          list_(list),
-          expression_(expression) {}
+    Extract(Identifier *identifier, Expression *list, Expression *expression)
+        : identifier_(identifier), list_(list), expression_(expression) {}
     cpp<#)
   (:private
     #>cpp
@@ -1232,12 +1165,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    All(int uid) : Expression(uid) {}
-
-    All(int uid, Identifier *identifier, Expression *list_expression,
-        Where *where)
-        : Expression(uid),
-          identifier_(identifier),
+    All(Identifier *identifier, Expression *list_expression, Where *where)
+        : identifier_(identifier),
           list_expression_(list_expression),
           where_(where) {}
     cpp<#)
@@ -1286,10 +1215,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    Single(int uid, Identifier *identifier, Expression *list_expression,
-           Where *where)
-        : Expression(uid),
-          identifier_(identifier),
+    Single(Identifier *identifier, Expression *list_expression, Where *where)
+        : identifier_(identifier),
           list_expression_(list_expression),
           where_(where) {}
     cpp<#)
@@ -1313,9 +1240,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit ParameterLookup(int uid) : Expression(uid) {}
-    ParameterLookup(int uid, int token_position)
-        : Expression(uid), token_position_(token_position) {}
+    explicit ParameterLookup(int token_position)
+        : token_position_(token_position) {}
     cpp<#)
   (:private
     #>cpp
@@ -1335,7 +1261,9 @@ cpp<#
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Expression *"))
    (token-position :int32_t :initval -1 :scope :public
-                   :documentation "This field contains token position of first token in named expression used to create name_. If NamedExpression object is not created from query or it is aliased leave this value at -1."))
+                   :documentation "This field contains token position of first token in named expression used to create name_. If NamedExpression object is not created from query or it is aliased leave this value at -1.")
+   (symbol-pos :int32_t :initval -1 :scope :public
+               :documentation "Symbol table position of the symbol this NamedExpression is mapped to."))
   (:public
     #>cpp
     using ::utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
@@ -1352,19 +1280,20 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
+
+    NamedExpression *MapTo(const Symbol &symbol) {
+      symbol_pos_ = symbol.position();
+      return this;
+    }
     cpp<#)
   (:protected
     #>cpp
-    explicit NamedExpression(int uid) : Tree(uid) {}
-    NamedExpression(int uid, const std::string &name) : Tree(uid), name_(name) {}
-    NamedExpression(int uid, const std::string &name, Expression *expression)
-        : Tree(uid), name_(name), expression_(expression) {}
-    NamedExpression(int uid, const std::string &name, Expression *expression,
+    explicit NamedExpression(const std::string &name) : name_(name) {}
+    NamedExpression(const std::string &name, Expression *expression)
+        : name_(name), expression_(expression) {}
+    NamedExpression(const std::string &name, Expression *expression,
                     int token_position)
-        : Tree(uid),
-          name_(name),
-          expression_(expression),
-          token_position_(token_position) {}
+        : name_(name), expression_(expression), token_position_(token_position) {}
     cpp<#)
   (:private
     #>cpp
@@ -1395,9 +1324,7 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit PatternAtom(int uid) : Tree(uid) {}
-    PatternAtom(int uid, Identifier *identifier)
-        : Tree(uid), identifier_(identifier) {}
+    explicit PatternAtom(Identifier *identifier) : identifier_(identifier) {}
     cpp<#)
   (:private
     #>cpp
@@ -1505,23 +1432,15 @@ cpp<#
                 :documentation "Evaluated to upper bound in variable length expands.")
    (filter-lambda "Lambda" :scope :public
                   :documentation "Filter lambda for variable length expands. Can have an empty expression, but identifiers must be valid, because an optimization pass may inline other expressions into this lambda."
-                  :slk-save (lambda (member)
-                              #>cpp
-                              slk::Save(self.${member}, builder, saved_uids);
-                              cpp<#)
                   :slk-load (lambda (member)
                               #>cpp
-                              slk::Load(&self->${member}, reader, storage, loaded_uids);
+                              slk::Load(&self->${member}, reader, storage);
                               cpp<#))
    (weight-lambda "Lambda" :scope :public
                   :documentation "Used in weighted shortest path. It must have valid expressions and identifiers. In all other expand types, it is empty."
-                  :slk-save (lambda (member)
-                              #>cpp
-                              slk::Save(self.${member}, builder, saved_uids);
-                              cpp<#)
                   :slk-load (lambda (member)
                               #>cpp
-                              slk::Load(&self->${member}, reader, storage, loaded_uids);
+                              slk::Load(&self->${member}, reader, storage);
                               cpp<#))
    (total-weight "Identifier *" :initval "nullptr" :scope :public
                  :slk-save #'slk-save-ast-pointer
@@ -1560,13 +1479,8 @@ cpp<#
                    :capnp-load (load-ast-pointer "Expression *")
                    :documentation "Evaluates the result of the lambda."))
       (:documentation "Lambda for use in filtering or weight calculation during variable expand.")
-      (:serialize (:slk :save-args '((saved-uids "std::vector<int32_t> *"))
-                        :load-args '((storage "query::AstStorage *")
-                                     (loaded-uids "std::vector<int32_t> *")))
-                  (:capnp
-                   :save-args '((saved-uids "std::vector<int32_t> *"))
-                   :load-args '((storage "AstStorage *")
-                                (loaded-uids "std::vector<int32_t> *"))))
+      (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+                  (:capnp :load-args '((storage "AstStorage *"))))
       (:clone :args '((storage "AstStorage *"))))
     #>cpp
     bool Accept(HierarchicalTreeVisitor &visitor) override {
@@ -1604,13 +1518,13 @@ cpp<#
   (:protected
     #>cpp
     using PatternAtom::PatternAtom;
-    EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction)
-        : PatternAtom(uid, identifier), type_(type), direction_(direction) {}
+    EdgeAtom(Identifier *identifier, Type type, Direction direction)
+        : PatternAtom(identifier), type_(type), direction_(direction) {}
 
     // Creates an edge atom for a SINGLE expansion with the given .
-    EdgeAtom(int uid, Identifier *identifier, Type type, Direction direction,
+    EdgeAtom(Identifier *identifier, Type type, Direction direction,
              const std::vector<EdgeTypeIx> &edge_types)
-        : PatternAtom(uid, identifier),
+        : PatternAtom(identifier),
           type_(type),
           direction_(direction),
           edge_types_(edge_types) {}
@@ -1654,10 +1568,6 @@ cpp<#
       return visitor.PostVisit(*this);
     }
     cpp<#)
-  (:protected
-    #>cpp
-    explicit Pattern(int uid) : Tree(uid) {}
-    cpp<#)
   (:private
     #>cpp
     friend class AstStorage;
@@ -1675,10 +1585,6 @@ cpp<#
     using ::utils::Visitable<HierarchicalTreeVisitor>::Accept;
 
     Clause() = default;
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit Clause(int uid) : Tree(uid) {}
     cpp<#)
   (:private
     #>cpp
@@ -1711,10 +1617,6 @@ cpp<#
       }
       return visitor.PostVisit(*this);
     }
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit SingleQuery(int uid) : Tree(uid) {}
     cpp<#)
   (:private
     #>cpp
@@ -1750,12 +1652,10 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit CypherUnion(int uid) : Tree(uid) {}
-    CypherUnion(int uid, bool distinct) : Tree(uid), distinct_(distinct) {}
-    CypherUnion(int uid, bool distinct, SingleQuery *single_query,
+    explicit CypherUnion(bool distinct) : distinct_(distinct) {}
+    CypherUnion(bool distinct, SingleQuery *single_query,
                 std::vector<Symbol> union_symbols)
-        : Tree(uid),
-          single_query_(single_query),
+        : single_query_(single_query),
           distinct_(distinct),
           union_symbols_(union_symbols) {}
     cpp<#)
@@ -1776,10 +1676,6 @@ cpp<#
     using ::utils::Visitable<QueryVisitor<void>>::Accept;
 
     Query() = default;
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit Query(int uid) : Tree(uid) {}
     cpp<#)
   (:private
     #>cpp
@@ -1812,10 +1708,6 @@ cpp<#
 
     DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
-  (:protected
-    #>cpp
-    explicit CypherQuery(int uid) : Query(uid) {}
-    cpp<#)
   (:private
     #>cpp
     friend class AstStorage;
@@ -1836,10 +1728,6 @@ cpp<#
     ExplainQuery() = default;
 
     DEFVISITABLE(QueryVisitor<void>);
-    cpp<#)
-  (:protected
-    #>cpp
-    explicit ExplainQuery(int uid) : Query(uid) {}
     cpp<#)
   (:private
     #>cpp
@@ -1867,7 +1755,6 @@ cpp<#
    cpp<#)
   (:private
    #>cpp
-   explicit ProfileQuery(int uid) : Query(uid) {}
    friend class AstStorage;
    cpp<#)
   (:serialize (:slk) (:capnp))
@@ -1914,10 +1801,8 @@ cpp<#
   cpp<#)
   (:protected
     #>cpp
-    explicit IndexQuery(int uid) : Query(uid) {}
-    IndexQuery(int uid, Action action, LabelIx label,
-               std::vector<PropertyIx> properties)
-        : Query(uid), action_(action), label_(label), properties_(properties) {}
+    IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
+        : action_(action), label_(label), properties_(properties) {}
     cpp<#)
   (:private
     #>cpp
@@ -1949,9 +1834,7 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Create(int uid) : Clause(uid) {}
-    Create(int uid, std::vector<Pattern *> patterns)
-        : Clause(uid), patterns_(patterns) {}
+    explicit Create(std::vector<Pattern *> patterns) : patterns_(patterns) {}
     cpp<#)
   (:private
     #>cpp
@@ -1997,10 +1880,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Match(int uid) : Clause(uid) {}
-    Match(int uid, bool optional) : Clause(uid), optional_(optional) {}
-    Match(int uid, bool optional, Where *where, std::vector<Pattern *> patterns)
-        : Clause(uid), patterns_(patterns), where_(where), optional_(optional) {}
+    explicit Match(bool optional) : optional_(optional) {}
+    Match(bool optional, Where *where, std::vector<Pattern *> patterns)
+        : patterns_(patterns), where_(where), optional_(optional) {}
     cpp<#)
   (:private
     #>cpp
@@ -2022,13 +1904,8 @@ cpp<#
                :capnp-type "Tree" :capnp-init nil
                :capnp-save #'save-ast-pointer
                :capnp-load (load-ast-pointer "Expression *")))
-  (:serialize (:slk :save-args '((saved-uids "std::vector<int32_t> *"))
-                    :load-args '((storage "query::AstStorage *")
-                                 (loaded-uids "std::vector<int32_t> *")))
-              (:capnp
-               :save-args '((saved-uids "std::vector<int32_t> *"))
-               :load-args '((storage "AstStorage *")
-                            (loaded-uids "std::vector<int32_t> *"))))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+              (:capnp :load-args '((storage "AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-struct return-body ()
@@ -2044,14 +1921,6 @@ cpp<#
                       :capnp-load (load-ast-vector "NamedExpression *")
                       :documentation "Expressions which are used to produce results.")
    (order-by "std::vector<SortItem>"
-             :slk-save (lambda (member)
-                         #>cpp
-                         size_t size = self.${member}.size();
-                         slk::Save(size, builder);
-                         for (const auto &v : self.${member}) {
-                           slk::Save(v, builder, saved_uids);
-                         }
-                         cpp<#)
              :slk-load (lambda (member)
                          #>cpp
                          size_t size = 0;
@@ -2060,21 +1929,15 @@ cpp<#
                          for (size_t i = 0;
                               i < size;
                               ++i) {
-                           slk::Load(&self->${member}[i], reader, storage, loaded_uids);
+                           slk::Load(&self->${member}[i], reader, storage);
                          }
                          cpp<#)
-             :capnp-save (lcp:capnp-save-vector
-                           "capnp::SortItem"
-                           "SortItem"
-                           "[saved_uids](auto *builder, const auto &val) {
-                              Save(val, builder, saved_uids);
-                            }")
              :capnp-load (lcp:capnp-load-vector
                            "capnp::SortItem"
                            "SortItem"
-                           "[storage, loaded_uids](const auto &reader) {
+                           "[storage](const auto &reader) {
                              SortItem val;
-                             Load(&val, reader, storage, loaded_uids);
+                             Load(&val, reader, storage);
                              return val;
                             }")
              :documentation "Expressions used for ordering the results.")
@@ -2093,24 +1956,15 @@ cpp<#
           :capnp-load (load-ast-pointer "Expression *")
           :documentation "Optional expression on how many results to produce."))
   (:documentation "Contents common to @c Return and @c With clauses.")
-  (:serialize (:slk :save-args '((saved-uids "std::vector<int32_t> *"))
-                    :load-args '((storage "query::AstStorage *")
-                                 (loaded-uids "std::vector<int32_t> *")))
-              (:capnp
-               :save-args '((saved-uids "std::vector<int32_t> *"))
-               :load-args '((storage "AstStorage *")
-                            (loaded-uids "std::vector<int32_t> *"))))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+              (:capnp :load-args '((storage "AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class return (clause)
   ((body "ReturnBody" :scope :public
-         :slk-save (lambda (member)
-                     #>cpp
-                     slk::Save(self.${member}, builder, saved_uids);
-                     cpp<#)
          :slk-load (lambda (member)
                      #>cpp
-                     slk::Load(&self->${member}, reader, storage, loaded_uids);
+                     slk::Load(&self->${member}, reader, storage);
                      cpp<#)))
   (:public
     #>cpp
@@ -2141,8 +1995,7 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Return(int uid) : Clause(uid) {}
-    Return(int uid, ReturnBody &body) : Clause(uid), body_(body) {}
+    explicit Return(ReturnBody &body) : body_(body) {}
     cpp<#)
   (:private
     #>cpp
@@ -2153,13 +2006,9 @@ cpp<#
 
 (lcp:define-class with (clause)
   ((body "ReturnBody" :scope :public
-         :slk-save (lambda (member)
-                     #>cpp
-                     slk::Save(self.${member}, builder, saved_uids);
-                     cpp<#)
          :slk-load (lambda (member)
                      #>cpp
-                     slk::Load(&self->${member}, reader, storage, loaded_uids);
+                     slk::Load(&self->${member}, reader, storage);
                      cpp<#))
    (where "Where *" :initval "nullptr" :scope :public
           :slk-save #'slk-save-ast-pointer
@@ -2197,9 +2046,7 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit With(int uid) : Clause(uid) {}
-    With(int uid, ReturnBody &body, Where *where)
-        : Clause(uid), body_(body), where_(where) {}
+    With(ReturnBody &body, Where *where) : body_(body), where_(where) {}
     cpp<#)
   (:private
     #>cpp
@@ -2232,9 +2079,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Delete(int uid) : Clause(uid) {}
-    Delete(int uid, bool detach, std::vector<Expression *> expressions)
-        : Clause(uid), expressions_(expressions), detach_(detach) {}
+    Delete(bool detach, std::vector<Expression *> expressions)
+        : expressions_(expressions), detach_(detach) {}
     cpp<#)
   (:private
     #>cpp
@@ -2269,11 +2115,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit SetProperty(int uid) : Clause(uid) {}
-    SetProperty(int uid, PropertyLookup *property_lookup, Expression *expression)
-        : Clause(uid),
-          property_lookup_(property_lookup),
-          expression_(expression) {}
+    SetProperty(PropertyLookup *property_lookup, Expression *expression)
+        : property_lookup_(property_lookup), expression_(expression) {}
     cpp<#)
   (:private
     #>cpp
@@ -2309,13 +2152,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit SetProperties(int uid) : Clause(uid) {}
-    SetProperties(int uid, Identifier *identifier, Expression *expression,
+    SetProperties(Identifier *identifier, Expression *expression,
                   bool update = false)
-        : Clause(uid),
-          identifier_(identifier),
-          expression_(expression),
-          update_(update) {}
+        : identifier_(identifier), expression_(expression), update_(update) {}
     cpp<#)
   (:private
     #>cpp
@@ -2362,10 +2201,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit SetLabels(int uid) : Clause(uid) {}
-    SetLabels(int uid, Identifier *identifier,
-              const std::vector<LabelIx> &labels)
-        : Clause(uid), identifier_(identifier), labels_(labels) {}
+    SetLabels(Identifier *identifier, const std::vector<LabelIx> &labels)
+        : identifier_(identifier), labels_(labels) {}
     cpp<#)
   (:private
     #>cpp
@@ -2394,9 +2231,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit RemoveProperty(int uid) : Clause(uid) {}
-    RemoveProperty(int uid, PropertyLookup *property_lookup)
-        : Clause(uid), property_lookup_(property_lookup) {}
+    explicit RemoveProperty(PropertyLookup *property_lookup)
+        : property_lookup_(property_lookup) {}
     cpp<#)
   (:private
     #>cpp
@@ -2443,10 +2279,8 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit RemoveLabels(int uid) : Clause(uid) {}
-    RemoveLabels(int uid, Identifier *identifier,
-                 const std::vector<LabelIx> &labels)
-        : Clause(uid), identifier_(identifier), labels_(labels) {}
+    RemoveLabels(Identifier *identifier, const std::vector<LabelIx> &labels)
+        : identifier_(identifier), labels_(labels) {}
     cpp<#)
   (:private
     #>cpp
@@ -2505,13 +2339,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Merge(int uid) : Clause(uid) {}
-    Merge(int uid, Pattern *pattern, std::vector<Clause *> on_match,
+    Merge(Pattern *pattern, std::vector<Clause *> on_match,
           std::vector<Clause *> on_create)
-        : Clause(uid),
-          pattern_(pattern),
-          on_match_(on_match),
-          on_create_(on_create) {}
+        : pattern_(pattern), on_match_(on_match), on_create_(on_create) {}
     cpp<#)
   (:private
     #>cpp
@@ -2540,12 +2370,9 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit Unwind(int uid) : Clause(uid) {}
-
-    Unwind(int uid, NamedExpression *named_expression)
-        : Clause(uid), named_expression_(named_expression) {
-      DCHECK(named_expression)
-          << "Unwind cannot take nullptr for named_expression";
+    explicit Unwind(NamedExpression *named_expression)
+        : named_expression_(named_expression) {
+      DCHECK(named_expression) << "Unwind cannot take nullptr for named_expression";
     }
     cpp<#)
   (:private
@@ -2584,13 +2411,10 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    explicit AuthQuery(int uid) : Query(uid) {}
-
-    explicit AuthQuery(int uid, Action action, std::string user, std::string role,
-                       std::string user_or_role, Expression *password,
-                       std::vector<Privilege> privileges)
-        : Query(uid),
-          action_(action),
+    AuthQuery(Action action, std::string user, std::string role,
+              std::string user_or_role, Expression *password,
+              std::vector<Privilege> privileges)
+        : action_(action),
           user_(user),
           role_(role),
           user_or_role_(user_or_role),
@@ -2667,13 +2491,11 @@ cpp<#
     cpp<#)
   (:protected
     #>cpp
-    StreamQuery(int uid) : Query(uid) {}
-    StreamQuery(int uid, Action action, std::string stream_name,
-                Expression *stream_uri, Expression *stream_topic,
-                Expression *transform_uri, Expression *batch_interval_in_ms,
-                Expression *batch_size, Expression *limit_batches)
-        : Query(uid),
-          action_(action),
+    StreamQuery(Action action, std::string stream_name, Expression *stream_uri,
+                Expression *stream_topic, Expression *transform_uri,
+                Expression *batch_interval_in_ms, Expression *batch_size,
+                Expression *limit_batches)
+        : action_(action),
           stream_name_(std::move(stream_name)),
           stream_uri_(stream_uri),
           stream_topic_(stream_topic),

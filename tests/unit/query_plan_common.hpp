@@ -39,7 +39,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce,
   // collect the symbols from the return clause
   std::vector<Symbol> symbols;
   for (auto named_expression : produce.named_expressions_)
-    symbols.emplace_back(context->symbol_table[*named_expression]);
+    symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
   auto cursor = produce.MakeCursor(*context->db_accessor);
@@ -86,7 +86,7 @@ ScanAllTuple MakeScanAll(AstStorage &storage, SymbolTable &symbol_table,
                          GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
-  symbol_table[*node->identifier_] = symbol;
+  node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<ScanAll>(input, symbol, graph_view);
   return ScanAllTuple{node, logical_op, symbol};
 }
@@ -104,7 +104,7 @@ ScanAllTuple MakeScanAllByLabel(
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
-  symbol_table[*node->identifier_] = symbol;
+  node->identifier_->MapTo(symbol);
   auto logical_op =
       std::make_shared<ScanAllByLabel>(input, symbol, label, graph_view);
   return ScanAllTuple{node, logical_op, symbol};
@@ -126,7 +126,7 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
-  symbol_table[*node->identifier_] = symbol;
+  node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(
       input, symbol, label, property, property_name, lower_bound, upper_bound,
       graph_view);
@@ -147,7 +147,7 @@ ScanAllTuple MakeScanAllByLabelPropertyValue(
     GraphView graph_view = GraphView::OLD) {
   auto node = NODE(identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
-  symbol_table[*node->identifier_] = symbol;
+  node->identifier_->MapTo(symbol);
   auto logical_op = std::make_shared<ScanAllByLabelPropertyValue>(
       input, symbol, label, property, property_name, value, graph_view);
   return ScanAllTuple{node, logical_op, symbol};
@@ -170,11 +170,11 @@ ExpandTuple MakeExpand(AstStorage &storage, SymbolTable &symbol_table,
                        GraphView graph_view) {
   auto edge = EDGE(edge_identifier, direction);
   auto edge_sym = symbol_table.CreateSymbol(edge_identifier, true);
-  symbol_table[*edge->identifier_] = edge_sym;
+  edge->identifier_->MapTo(edge_sym);
 
   auto node = NODE(node_identifier);
   auto node_sym = symbol_table.CreateSymbol(node_identifier, true);
-  symbol_table[*node->identifier_] = node_sym;
+  node->identifier_->MapTo(node_sym);
 
   auto op = std::make_shared<Expand>(input, input_symbol, node_sym, edge_sym,
                                      direction, edge_types, existing_node,

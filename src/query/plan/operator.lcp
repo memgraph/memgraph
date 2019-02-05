@@ -206,20 +206,17 @@ can serve as inputs to others and thus a sequence of operations is formed.")
    virtual void set_input(std::shared_ptr<LogicalOperator>) = 0;
 
    struct SaveHelper {
-     std::vector<int32_t> saved_ast_uids;
      std::vector<LogicalOperator *> saved_ops;
    };
 
    struct LoadHelper {
      AstStorage ast_storage;
-     std::vector<int32_t> loaded_ast_uids;
      std::vector<std::pair<uint64_t, std::shared_ptr<LogicalOperator>>>
          loaded_ops;
    };
 
    struct SlkLoadHelper {
      AstStorage ast_storage;
-     std::vector<int32_t> loaded_ast_uids;
      std::vector<std::shared_ptr<LogicalOperator>> loaded_ops;
    };
    cpp<#)
@@ -236,21 +233,21 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
 (defun slk-save-ast-pointer (member)
   #>cpp
-  query::SaveAstPointer(self.${member}, builder, &helper->saved_ast_uids);
+  query::SaveAstPointer(self.${member}, builder);
   cpp<#)
 
 (defun slk-load-ast-pointer (type)
   (lambda (member)
     #>cpp
     self->${member} = query::LoadAstPointer<query::${type}>(
-        &helper->ast_storage, reader, &helper->loaded_ast_uids);
+        &helper->ast_storage, reader);
     cpp<#))
 
 (defun save-ast-pointer (builder member capnp-name)
   #>cpp
   if (${member}) {
     auto ${capnp-name}_builder = ${builder}->init${capnp-name}();
-    Save(*${member}, &${capnp-name}_builder, &helper->saved_ast_uids);
+    Save(*${member}, &${capnp-name}_builder);
   }
   cpp<#)
 
@@ -259,8 +256,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
     #>cpp
     if (${reader}.has${capnp-name}()) {
       ${member} = static_cast<${ast-type}>(Load(&helper->ast_storage,
-                                           ${reader}.get${capnp-name}(),
-                                           &helper->loaded_ast_uids));
+                                           ${reader}.get${capnp-name}()));
     } else {
       ${member} = nullptr;
     }
@@ -271,7 +267,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
   size_t size = self.${member}.size();
   slk::Save(size, builder);
   for (const auto *val : self.${member}) {
-    query::SaveAstPointer(val, builder, &helper->saved_ast_uids);
+    query::SaveAstPointer(val, builder);
   }
   cpp<#)
 
@@ -285,14 +281,14 @@ can serve as inputs to others and thus a sequence of operations is formed.")
          i < size;
          ++i) {
       self->${member}[i] = query::LoadAstPointer<query::${type}>(
-          &helper->ast_storage, reader, &helper->loaded_ast_uids);
+          &helper->ast_storage, reader);
     }
     cpp<#))
 
 (defun save-ast-vector (ast-type)
   (lcp:capnp-save-vector "::query::capnp::Tree" ast-type
                          "[helper](auto *builder, const auto &val) {
-                            Save(*val, builder, &helper->saved_ast_uids);
+                            Save(*val, builder);
                           }"))
 
 (defun load-ast-vector (ast-type)
@@ -300,8 +296,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
                          (format
                           nil
                           "[helper](const auto &reader) {
-                             return static_cast<~A>(Load(&helper->ast_storage, reader,
-                                                         &helper->loaded_ast_uids));
+                             return static_cast<~A>(Load(&helper->ast_storage, reader));
                            }"
                            ast-type)))
 
@@ -383,7 +378,7 @@ and false on every following Pull.")
   slk::Save(size, builder);
   for (const auto &kv : self.${member}) {
     slk::Save(kv.first, builder);
-    query::SaveAstPointer(kv.second, builder, &helper->saved_ast_uids);
+    query::SaveAstPointer(kv.second, builder);
   }
   cpp<#)
 
@@ -396,7 +391,7 @@ and false on every following Pull.")
     storage::Property prop;
     slk::Load(&prop, reader);
     auto *expr = query::LoadAstPointer<query::Expression>(
-        &helper->ast_storage, reader, &helper->loaded_ast_uids);
+        &helper->ast_storage, reader);
     self->${member}[i] = {prop, expr};
   }
   cpp<#)
@@ -407,7 +402,7 @@ and false on every following Pull.")
     auto prop_builder = ${builder}[i].initFirst();
     storage::Save(${member}[i].first, &prop_builder);
     auto expr_builder = ${builder}[i].initSecond();
-    Save(*${member}[i].second, &expr_builder, &helper->saved_ast_uids);
+    Save(*${member}[i].second, &expr_builder);
   }
   cpp<#)
 
@@ -418,7 +413,7 @@ and false on every following Pull.")
     storage::Property prop;
     storage::Load(&prop, prop_reader);
     auto *expr = static_cast<Expression *>(Load(
-        &helper->ast_storage, pair_reader.getSecond(), &helper->loaded_ast_uids));
+        &helper->ast_storage, pair_reader.getSecond()));
     ${member}.emplace_back(prop, expr);
   }
   cpp<#)
@@ -725,7 +720,7 @@ given label.
       break;
   }
   slk::Save(bound_type, builder);
-  query::SaveAstPointer(bound.value(), builder, &helper->saved_ast_uids);
+  query::SaveAstPointer(bound.value(), builder);
   cpp<#)
 
 (defun slk-load-optional-bound (member)
@@ -750,7 +745,7 @@ given label.
       throw slk::SlkDecodeException("Loading unknown BoundType");
   }
   auto *value = query::LoadAstPointer<query::Expression>(
-      &helper->ast_storage, reader, &helper->loaded_ast_uids);
+      &helper->ast_storage, reader);
   self->${member}.emplace(utils::Bound<query::Expression *>(value, bound_type));
   cpp<#)
 
@@ -761,7 +756,7 @@ given label.
                             ::utils::capnp::Bound<::query::capnp::Tree>::Type::INCLUSIVE :
                             ::utils::capnp::Bound<::query::capnp::Tree>::Type::EXCLUSIVE);
            auto value_builder = builder->initValue();
-           Save(*bound.value(), &value_builder, &helper->saved_ast_uids);
+           Save(*bound.value(), &value_builder);
          }"))
     (funcall (lcp:capnp-save-optional "::utils::capnp::Bound<::query::capnp::Tree>"
                                       "utils::Bound<Expression *>"
@@ -776,7 +771,7 @@ given label.
                              ? utils::BoundType::INCLUSIVE
                              : utils::BoundType::EXCLUSIVE;
              auto *value = static_cast<Expression *>(
-                 Load(&helper->ast_storage, reader.getValue(), &helper->loaded_ast_uids));
+                 Load(&helper->ast_storage, reader.getValue()));
              return utils::Bound<Expression *>(value, type);
            }"))
     (funcall (lcp:capnp-load-optional "::utils::capnp::Bound<::query::capnp::Tree>"
@@ -1023,40 +1018,25 @@ pulled.")
   ((inner-edge-symbol "Symbol" :documentation "Currently expanded edge symbol.")
    (inner-node-symbol "Symbol" :documentation "Currently expanded node symbol.")
    (expression "Expression *" :documentation "Expression used in lambda during expansion."
-               :slk-save (lambda (member)
-                           #>cpp
-                           query::SaveAstPointer(self.${member}, builder, saved_ast_uids);
-                           cpp<#)
+               :slk-save #'slk-save-ast-pointer
                :slk-load (lambda (member)
                            #>cpp
                            self->${member} = query::LoadAstPointer<query::Expression>(
-                               ast_storage, reader, loaded_ast_uids);
+                               ast_storage, reader);
                            cpp<#)
                :capnp-type "Ast.Tree" :capnp-init nil
-               :capnp-save (lambda (builder member capnp-name)
-                             #>cpp
-                             if (${member}) {
-                               auto ${capnp-name}_builder = ${builder}->init${capnp-name}();
-                               Save(*${member}, &${capnp-name}_builder, saved_ast_uids);
-                             }
-                             cpp<#)
+               :capnp-save #'save-ast-pointer
                :capnp-load (lambda (reader member capnp-name)
                              #>cpp
                              if (${reader}.has${capnp-name}()) {
                                ${member} = static_cast<Expression *>(Load(ast_storage,
-                                                                     ${reader}.get${capnp-name}(),
-                                                                     loaded_ast_uids));
+                                                                     ${reader}.get${capnp-name}()));
                              } else {
                                ${member} = nullptr;
                              }
                              cpp<#)))
-  (:serialize (:slk :save-args '((saved-ast-uids "std::vector<int32_t> *"))
-                    :load-args '((ast-storage "query::AstStorage *")
-                                 (loaded-ast-uids "std::vector<int32_t> *")))
-              (:capnp
-               :save-args '((saved-ast-uids "std::vector<int32_t> *"))
-               :load-args '((ast-storage "AstStorage *")
-                            (loaded-ast-uids "std::vector<int32_t> *"))))
+  (:serialize (:slk :load-args '((ast-storage "query::AstStorage *")))
+              (:capnp :load-args '((ast-storage "AstStorage *"))))
   (:clone :args '((storage "AstStorage *"))))
 
 (lcp:define-class expand-variable (logical-operator)
@@ -1089,31 +1069,15 @@ pulled.")
                 :documentation "Optional upper bound of the variable length expansion, defaults are (1, inf)")
    (filter-lambda "ExpansionLambda"
                   :scope :public
-                  :slk-save (lambda (member)
-                              #>cpp
-                              slk::Save(self.${member}, builder, &helper->saved_ast_uids);
-                              cpp<#)
                   :slk-load (lambda (member)
                               #>cpp
-                              slk::Load(&self->${member}, reader, &helper->ast_storage, &helper->loaded_ast_uids);
+                              slk::Load(&self->${member}, reader, &helper->ast_storage);
                               cpp<#)
-                  :capnp-save (lambda (builder member capnp-name)
-                                #>cpp
-                                Save(${member}, &${builder}, &helper->saved_ast_uids);
-                                cpp<#)
                   :capnp-load (lambda (reader member capnp-name)
                                 #>cpp
-                                Load(&${member}, ${reader}, &helper->ast_storage, &helper->loaded_ast_uids);
+                                Load(&${member}, ${reader}, &helper->ast_storage);
                                 cpp<#))
    (weight-lambda "std::experimental::optional<ExpansionLambda>" :scope :public
-                  :slk-save (lambda (member)
-                              #>cpp
-                              slk::Save(static_cast<bool>(self.${member}), builder);
-                              if (!self.${member}) {
-                                return;
-                              }
-                              slk::Save(*self.${member}, builder, &helper->saved_ast_uids);
-                              cpp<#)
                   :slk-load (lambda (member)
                               #>cpp
                               bool has_value;
@@ -1123,19 +1087,17 @@ pulled.")
                                 return;
                               }
                               query::plan::ExpansionLambda lambda;
-                              slk::Load(&lambda, reader, &helper->ast_storage, &helper->loaded_ast_uids);
+                              slk::Load(&lambda, reader, &helper->ast_storage);
                               self->${member}.emplace(lambda);
                               cpp<#)
                   :capnp-save (lcp:capnp-save-optional
-                               "capnp::ExpansionLambda" "ExpansionLambda"
-                               "[helper](auto *builder, const auto &val) {
-                                  Save(val, builder, &helper->saved_ast_uids);
-                                }")
+                                "capnp::ExpansionLambda"
+                                "ExpansionLambda")
                   :capnp-load (lcp:capnp-load-optional
                                "capnp::ExpansionLambda" "ExpansionLambda"
                                "[helper](const auto &reader) {
                                   ExpansionLambda val;
-                                  Load(&val, reader, &helper->ast_storage, &helper->loaded_ast_uids);
+                                  Load(&val, reader, &helper->ast_storage);
                                   return val;
                                 }"))
    (total-weight "std::experimental::optional<Symbol>" :scope :public
