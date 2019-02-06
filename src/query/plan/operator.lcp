@@ -287,7 +287,7 @@ can serve as inputs to others and thus a sequence of operations is formed.")
 
 (defun save-ast-vector (ast-type)
   (lcp:capnp-save-vector "::query::capnp::Tree" ast-type
-                         "[helper](auto *builder, const auto &val) {
+                         "[](auto *builder, const auto &val) {
                             Save(*val, builder);
                           }"))
 
@@ -751,7 +751,7 @@ given label.
 
 (defun save-optional-bound (builder member capnp-name)
   (let ((save-bound
-         "[helper](auto *builder, const auto &bound) {
+         "[](auto *builder, const auto &bound) {
            builder->setType(bound.type() == utils::BoundType::INCLUSIVE ?
                             ::utils::capnp::Bound<::query::capnp::Tree>::Type::INCLUSIVE :
                             ::utils::capnp::Bound<::query::capnp::Tree>::Type::EXCLUSIVE);
