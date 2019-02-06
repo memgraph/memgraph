@@ -233,7 +233,8 @@ add_custom_target(generate_capnp DEPENDS generate_lcp_distributed ${generated_ca
 
 set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
-    mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-auth mg-stats)
+    mg-utils mg-io mg-io-serialization mg-integrations-kafka mg-requests
+    mg-communication mg-auth mg-stats)
 
 # STATIC library used by memgraph executables
 add_library(mg-distributed STATIC ${mg_distributed_sources})
