@@ -74,18 +74,17 @@ class RaftServer final : public RaftInterface {
   /// Stops all threads responsible for the Raft protocol.
   void Shutdown();
 
-  /// Retrieves the current term from persistent storage.
-  ///
-  /// @throws MissingPersistentDataException
-  uint64_t CurrentTerm();
+  /// Setter for the current term. It updates the persistent storage as well
+  /// as its in-memory copy.
+  void SetCurrentTerm(uint64_t new_current_term);
 
-  /// Retrieves the ID of the server this server has voted for in
-  /// the current term from persistent storage. Returns std::nullopt
-  /// if such server doesn't exist.
-  std::experimental::optional<uint16_t> VotedFor();
+  /// Setter for `voted for` member. It updates the persistent storage as well
+  /// as its in-memory copy.
+  void SetVotedFor(std::experimental::optional<uint16_t> new_voted_for);
 
-  /// Retrieves log size from persistent storage.
-  uint64_t LogSize();
+  /// Setter for `log size` member. It updates the persistent storage as well
+  /// as its in-memory copy.
+  void SetLogSize(uint64_t new_log_size);
 
   /// Retrieves persisted snapshot metadata or nullopt if not present.
   /// Snapshot metadata is a triplet consisting of the last included term, last
@@ -246,14 +245,23 @@ class RaftServer final : public RaftInterface {
 
   storage::KVStore disk_storage_;
 
+  std::experimental::optional<uint16_t> voted_for_;
+
+  uint64_t current_term_;
+  uint64_t log_size_;
+
+  /// Recovers persistent data from disk and stores its in-memory copies
+  /// that insure faster read-only operations. This method should be called
+  /// on start-up. If parts of persistent data are missing, the method won't
+  /// make a copy of that data, i.e. no exception is thrown and the caller
+  /// should check whether persistent data actually exists.
+  void RecoverPersistentData();
+
   /// Makes a transition to a new `raft::Mode`.
   ///
   /// throws InvalidTransitionException when transitioning between incompatible
   ///                                   `raft::Mode`s.
   void Transition(const raft::Mode &new_mode);
-
-  /// Updates the current term.
-  void UpdateTerm(uint64_t new_term);
 
   /// Tries to advance the commit index on a leader.
   void AdvanceCommitIndex();
