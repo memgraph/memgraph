@@ -18,7 +18,7 @@ add_macro_benchmark(clients/pokec_client.cpp)
 target_link_libraries(${test_prefix}pokec_client mg-communication mg-io mg-utils mg-stats json)
 
 add_macro_benchmark(clients/graph_500_bfs.cpp)
-target_link_libraries(${test_prefix}graph_500_bfs mg-communication mg-io mg-utils mg-stats json)
+target_link_libraries(${test_prefix}graph_500_bfs mg-communication mg-comm-rpc mg-io mg-utils mg-stats json)
 
 add_macro_benchmark(clients/bfs_pokec_client.cpp)
 target_link_libraries(${test_prefix}bfs_pokec_client mg-communication mg-io mg-utils mg-stats json)
@@ -27,4 +27,4 @@ add_macro_benchmark(clients/query_client.cpp)
 target_link_libraries(${test_prefix}query_client mg-communication mg-io mg-utils)
 
 add_macro_benchmark(clients/card_fraud_client.cpp)
-target_link_libraries(${test_prefix}card_fraud_client mg-communication mg-io mg-utils mg-stats json)
+target_link_libraries(${test_prefix}card_fraud_client mg-communication mg-comm-rpc mg-io mg-utils mg-stats json)
