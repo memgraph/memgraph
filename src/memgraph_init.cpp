@@ -7,7 +7,6 @@
 #include "glue/communication.hpp"
 #include "query/exceptions.hpp"
 #include "requests/requests.hpp"
-#include "stats/stats.hpp"
 #include "utils/signals.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/terminate_handler.hpp"
@@ -159,7 +158,6 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
 }
 
 int WithInit(int argc, char **argv,
-             const std::function<std::string()> &get_stats_prefix,
              const std::function<void()> &memgraph_main) {
   gflags::SetVersionString(version_string);
 
@@ -174,9 +172,6 @@ int WithInit(int argc, char **argv,
 
   // Unhandled exception handler init.
   std::set_terminate(&utils::TerminateHandler);
-
-  stats::InitStatsLogging(get_stats_prefix());
-  utils::OnScopeExit stop_stats([] { stats::StopStatsLogging(); });
 
   // Initialize the communication library.
   communication::Init();

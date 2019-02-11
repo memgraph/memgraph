@@ -144,7 +144,7 @@ add_unit_test(kvstore.cpp)
 target_link_libraries(${test_prefix}kvstore kvstore_lib glog)
 
 add_unit_test(metrics.cpp)
-target_link_libraries(${test_prefix}metrics mg-single-node kvstore_dummy_lib)
+target_link_libraries(${test_prefix}metrics mg-stats)
 
 add_unit_test(mvcc.cpp)
 target_link_libraries(${test_prefix}mvcc mg-single-node kvstore_dummy_lib)

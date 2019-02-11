@@ -66,7 +66,7 @@ set(MG_SINGLE_NODE_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags
     mg-utils mg-io mg-requests mg-communication)
 # These are enterprise subsystems
-set(MG_SINGLE_NODE_LIBS ${MG_SINGLE_NODE_LIBS} mg-integrations-kafka  mg-auth mg-stats)
+set(MG_SINGLE_NODE_LIBS ${MG_SINGLE_NODE_LIBS} mg-integrations-kafka mg-auth)
 
 if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_LIBS ltalloc)
@@ -236,7 +236,7 @@ add_custom_target(generate_capnp DEPENDS generate_lcp_distributed ${generated_ca
 set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
     mg-utils mg-io mg-io-serialization mg-integrations-kafka mg-requests
-    mg-communication mg-comm-rpc mg-auth mg-stats)
+    mg-communication mg-comm-rpc mg-auth)
 
 # STATIC library used by memgraph executables
 add_library(mg-distributed STATIC ${mg_distributed_sources})
@@ -325,7 +325,7 @@ add_custom_target(generate_capnp_single_node_ha DEPENDS generate_lcp_single_node
 set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
     mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-comm-rpc
-    mg-auth mg-stats)
+    mg-auth)
 
 if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_HA_LIBS ltalloc)

@@ -91,8 +91,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun);
 /// Run the Memgraph server.
 ///
 /// Sets up all the required state before running `memgraph_main` and does any
-/// required cleanup afterwards.  `get_stats_prefix` is used to obtain the
-/// prefix when logging Memgraph's statistics.
+/// required cleanup afterwards.
 ///
 /// Command line arguments and configuration files are read before calling any
 /// of the supplied functions. Therefore, you should use flags only from those
@@ -104,8 +103,7 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun);
 ///
 /// @code
 /// int main(int argc, char *argv[]) {
-///   auto get_stats_prefix = []() -> std::string { return "memgraph"; };
-///   return WithInit(argc, argv, get_stats_prefix, SingleNodeMain);
+///   return WithInit(argc, argv, SingleNodeMain);
 /// }
 /// @endcode
 ///
@@ -114,5 +112,4 @@ void InitSignalHandlers(const std::function<void()> &shutdown_fun);
 /// `InitSignalHandlers` with appropriate function to shutdown the server you
 /// started.
 int WithInit(int argc, char **argv,
-             const std::function<std::string()> &get_stats_prefix,
              const std::function<void()> &memgraph_main);

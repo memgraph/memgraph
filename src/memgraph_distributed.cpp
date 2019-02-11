@@ -136,15 +136,6 @@ void WorkerMain() {
 }
 
 int main(int argc, char **argv) {
-  auto get_stats_prefix = [&]() -> std::string {
-    if (FLAGS_master) {
-      return "master";
-    } else if (FLAGS_worker) {
-      return fmt::format("worker-{}", FLAGS_worker_id);
-    }
-    return "memgraph";
-  };
-
   auto memgraph_main = [&]() {
     CHECK(!(FLAGS_master && FLAGS_worker))
         << "Can't run Memgraph as worker and master at the same time!";
@@ -156,5 +147,5 @@ int main(int argc, char **argv) {
       WorkerMain();
   };
 
-  return WithInit(argc, argv, get_stats_prefix, memgraph_main);
+  return WithInit(argc, argv, memgraph_main);
 }

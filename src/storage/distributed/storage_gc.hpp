@@ -5,7 +5,6 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "storage/distributed/mvcc/version_list.hpp"
-#include "stats/metrics.hpp"
 #include "storage/distributed/deferred_deleter.hpp"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/garbage_collector.hpp"

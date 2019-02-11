@@ -5,7 +5,6 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "raft/raft_server.hpp"
-#include "stats/metrics.hpp"
 #include "storage/single_node_ha/deferred_deleter.hpp"
 #include "storage/single_node_ha/edge.hpp"
 #include "storage/single_node_ha/garbage_collector.hpp"

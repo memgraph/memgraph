@@ -104,5 +104,5 @@ void KafkaBenchmarkMain() {
 }
 
 int main(int argc, char **argv) {
-  return WithInit(argc, argv, []() { return "memgraph"; }, KafkaBenchmarkMain);
+  return WithInit(argc, argv, KafkaBenchmarkMain);
 }

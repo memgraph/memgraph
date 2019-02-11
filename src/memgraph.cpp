@@ -105,5 +105,5 @@ void SingleNodeMain() {
 }
 
 int main(int argc, char **argv) {
-  return WithInit(argc, argv, []() { return "memgraph"; }, SingleNodeMain);
+  return WithInit(argc, argv, SingleNodeMain);
 }
