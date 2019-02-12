@@ -9,3 +9,8 @@ for markdown_file in $(find $script_dir -name '*.md'); do
   sed -e 's/.md/.html/' $markdown_file | \
     pandoc -s -f markdown -t html -o $script_dir/html/$name.html
 done
+
+for dot_file in $(find $script_dir -name '*.dot'); do
+  name=$(basename -s .dot $dot_file)
+  dot -Tpng $dot_file -o $script_dir/html/$name.png
+done
