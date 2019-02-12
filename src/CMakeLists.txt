@@ -10,6 +10,7 @@ add_subdirectory(telemetry)
 add_subdirectory(communication)
 add_subdirectory(stats)
 add_subdirectory(auth)
+add_subdirectory(rpc)
 
 # ----------------------------------------------------------------------------
 # Memgraph Single Node
@@ -236,7 +237,7 @@ add_custom_target(generate_capnp DEPENDS generate_lcp_distributed ${generated_ca
 set(MG_DISTRIBUTED_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
     mg-utils mg-io mg-io-serialization mg-integrations-kafka mg-requests
-    mg-communication mg-comm-rpc mg-auth)
+    mg-communication mg-comm-rpc mg-auth mg-rpc)
 
 # STATIC library used by memgraph executables
 add_library(mg-distributed STATIC ${mg_distributed_sources})
@@ -325,7 +326,7 @@ add_custom_target(generate_capnp_single_node_ha DEPENDS generate_lcp_single_node
 set(MG_SINGLE_NODE_HA_LIBS stdc++fs Threads::Threads fmt cppitertools
     antlr_opencypher_parser_lib dl glog gflags capnp kj
     mg-utils mg-io mg-integrations-kafka mg-requests mg-communication mg-comm-rpc
-    mg-auth)
+    mg-auth mg-rpc)
 
 if (USE_LTALLOC)
   list(APPEND MG_SINGLE_NODE_HA_LIBS ltalloc)

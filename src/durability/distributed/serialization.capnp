@@ -1,7 +1,7 @@
 @0xb3d70bc0576218f3;
 
 using Cxx = import "/capnp/c++.capnp";
-using Utils = import "/utils/serialization.capnp";
+using Utils = import "/rpc/serialization.capnp";
 
 $Cxx.namespace("durability::capnp");
 

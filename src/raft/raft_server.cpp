@@ -16,7 +16,7 @@
 #include "raft/exceptions.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 #include "utils/thread.hpp"
 
 namespace raft {

@@ -13,7 +13,7 @@
 #include "query/serialization.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "transactions/type.hpp"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 cpp<#
 
 (lcp:in-impl
@@ -32,7 +32,7 @@ cpp<#
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
 (lcp:capnp-import 'sem "/query/frontend/semantic/symbol_serialization.capnp")
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::CommandId" "UInt32")
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")

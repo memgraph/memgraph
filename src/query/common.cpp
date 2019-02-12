@@ -8,7 +8,6 @@
 #include "glog/logging.h"
 
 #include "query/exceptions.hpp"
-#include "utils/serialization.hpp"
 #include "utils/string.hpp"
 
 namespace query {

@@ -7,7 +7,7 @@
 #include "query/serialization.capnp.h"
 #include "query/typed_value.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 
 namespace distributed {
 class DataManager;

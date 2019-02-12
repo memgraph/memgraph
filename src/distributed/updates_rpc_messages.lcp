@@ -11,7 +11,7 @@
 #include "storage/distributed/gid.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 #include "transactions/type.hpp"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 cpp<#
 
 (lcp:namespace distributed)
@@ -20,7 +20,7 @@ cpp<#
 
 (lcp:capnp-import 'db "/database/distributed/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::TransactionId" "UInt64")
 (lcp:capnp-type-conversion "gid::Gid" "UInt64")

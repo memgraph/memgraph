@@ -11,7 +11,7 @@
 #include "query/serialization.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 #include "transactions/type.hpp"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 cpp<#
 
 (lcp:namespace distributed)
@@ -22,7 +22,7 @@ cpp<#
 (lcp:capnp-import 'dist-ops "/query/plan/distributed_ops.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 
 (lcp:capnp-type-conversion "storage::EdgeAddress" "Storage.Address")
 (lcp:capnp-type-conversion "storage::VertexAddress" "Storage.Address")

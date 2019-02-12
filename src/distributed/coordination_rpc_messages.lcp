@@ -18,7 +18,7 @@ cpp<#
 
 (lcp:capnp-import 'dur "/durability/distributed/serialization.capnp")
 (lcp:capnp-import 'io "/io/network/endpoint.capnp")
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 
 (lcp:define-rpc register-worker
     (:request

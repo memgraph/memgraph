@@ -4,7 +4,7 @@
 #include "gtest/gtest.h"
 
 #include "capnp/message.h"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 
 using std::experimental::optional;
 using std::string_literals::operator""s;

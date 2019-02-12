@@ -3,7 +3,7 @@
 
 #include "communication/rpc/messages.hpp"
 #include "stats/stats_rpc_messages.capnp.h"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 #include "utils/timestamp.hpp"
 cpp<#
 
@@ -11,7 +11,7 @@ cpp<#
 
 (lcp:capnp-namespace "stats")
 
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 
 (lcp:define-rpc stats
     (:request

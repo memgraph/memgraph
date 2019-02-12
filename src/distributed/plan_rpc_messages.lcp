@@ -13,7 +13,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 (lcp:capnp-import 'plan "/query/plan/distributed_ops.capnp")
 (lcp:capnp-import 'query "/query/serialization.capnp")
 

@@ -17,7 +17,7 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 
 (lcp:define-struct tx-gid-pair ()

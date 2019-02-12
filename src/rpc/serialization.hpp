@@ -7,7 +7,7 @@
 #include <glog/logging.h>
 
 #include "utils/algorithm.hpp"
-#include "utils/serialization.capnp.h"
+#include "rpc/serialization.capnp.h"
 
 namespace utils {
 

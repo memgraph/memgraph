@@ -123,7 +123,7 @@ cpp<#
 
 (lcp:capnp-namespace "query::plan")
 
-(lcp:capnp-import 'utils "/utils/serialization.capnp")
+(lcp:capnp-import 'utils "/rpc/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 (lcp:capnp-import 'ast "/query/frontend/ast/ast_serialization.capnp")
 (lcp:capnp-import 'semantic "/query/frontend/semantic/symbol_serialization.capnp")

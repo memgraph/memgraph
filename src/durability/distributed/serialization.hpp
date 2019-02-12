@@ -3,7 +3,7 @@
 #include "communication/rpc/serialization.hpp"
 #include "durability/distributed/recovery.hpp"
 #include "durability/distributed/serialization.capnp.h"
-#include "utils/serialization.hpp"
+#include "rpc/serialization.hpp"
 
 namespace durability {
 
