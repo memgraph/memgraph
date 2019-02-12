@@ -195,7 +195,7 @@ class RaftServer final : public RaftInterface {
                                             ///< no_op_issuer_thread that a new
                                             ///< leader has been elected.
 
-  bool exiting_{false};  ///< True on server shutdown.
+  std::atomic<bool> exiting_{false};  ///< True on server shutdown.
 
   //////////////////////////////////////////////////////////////////////////////
   // volatile state on followers and candidates

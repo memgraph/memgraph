@@ -444,7 +444,7 @@ void RaftServer::GarbageCollectReplicationLog(const tx::TransactionId &tx_id) {
   rlog_->garbage_collect_older(tx_id);
 }
 
-bool RaftServer::IsLeader() { return mode_ == Mode::LEADER; }
+bool RaftServer::IsLeader() { return !exiting_ && mode_ == Mode::LEADER; }
 
 RaftServer::LogEntryBuffer::LogEntryBuffer(RaftServer *raft_server)
     : raft_server_(raft_server) {
@@ -930,6 +930,7 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
       }
     }
 
+    if (exiting_) break;
     state_changed_.wait_until(lock, wait_until);
   }
 }

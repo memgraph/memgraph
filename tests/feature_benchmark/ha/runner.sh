@@ -63,7 +63,7 @@ code=$?
 # Shutdown
 for server_id in 1 2 3
 do
-  kill -9 ${HA_PIDS[$server_id]}
+  kill -15 ${HA_PIDS[$server_id]}
 done
 
 # Cleanup

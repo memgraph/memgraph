@@ -30,7 +30,8 @@ Transaction *Engine::BeginBlocking(
   {
     std::lock_guard<utils::SpinLock> guard(lock_);
     if (!accepting_transactions_.load())
-      throw TransactionEngineError("Engine is not accepting new transactions");
+      throw TransactionEngineError(
+          "The transaction engine currently isn't accepting new transactions.");
 
     // Block the engine from accepting new transactions.
     accepting_transactions_.store(false);

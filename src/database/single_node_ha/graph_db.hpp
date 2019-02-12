@@ -89,7 +89,6 @@ class GraphDbAccessor;
 class GraphDb {
  public:
   explicit GraphDb(Config config = Config());
-  ~GraphDb();
 
   GraphDb(const GraphDb &) = delete;
   GraphDb(GraphDb &&) = delete;

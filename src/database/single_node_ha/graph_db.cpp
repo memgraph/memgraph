@@ -37,19 +37,18 @@ void GraphDb::Start() {
   }
 }
 
-GraphDb::~GraphDb() {}
-
 void GraphDb::AwaitShutdown(std::function<void(void)> call_before_shutdown) {
   coordination_.AwaitShutdown([this, &call_before_shutdown]() {
     tx_engine_.LocalForEachActiveTransaction(
         [](auto &t) { t.set_should_abort(); });
 
     call_before_shutdown();
+
+    raft_server_.Shutdown();
   });
 }
 
 void GraphDb::Shutdown() {
-  raft_server_.Shutdown();
   coordination_.Shutdown();
 }
 
@@ -96,12 +95,12 @@ void GraphDb::CollectGarbage() { storage_gc_->CollectGarbage(); }
 void GraphDb::Reset() {
   // Release gc scheduler to stop it from touching storage.
   storage_gc_ = nullptr;
-  storage_ = std::make_unique<Storage>(config_.properties_on_disk);
 
   // This will make all active transactions to abort and reset the internal
   // state.
   tx_engine_.Reset();
 
+  storage_ = std::make_unique<Storage>(config_.properties_on_disk);
   storage_gc_ = std::make_unique<StorageGc>(
       *storage_, tx_engine_, &raft_server_, config_.gc_cycle_sec);
 }
