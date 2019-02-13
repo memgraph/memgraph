@@ -1,0 +1,11 @@
+#!/bin/bash
+
+script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+mkdir -p $script_dir/html
+
+for markdown_file in $(find $script_dir -name '*.md'); do
+  name=$(basename -s .md $markdown_file)
+  sed -e 's/.md/.html/' $markdown_file | \
+    pandoc -s -f markdown -t html -o $script_dir/html/$name.html
+done
