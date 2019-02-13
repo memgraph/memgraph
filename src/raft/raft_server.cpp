@@ -982,6 +982,10 @@ void RaftServer::SnapshotThread() {
         VLOG(40) << "[LogCompaction] Creating snapshot.";
         bool status = durability::MakeSnapshot(*db_, *dba, durability_dir_,
                                                snapshot_filename);
+
+        // Raft lock must be released when destroying dba object.
+        dba = nullptr;
+
         lock.lock();
 
         if (status) {
@@ -1004,11 +1008,7 @@ void RaftServer::SnapshotThread() {
             disk_storage_.Delete(LogEntryKey(i));
           }
         }
-
-        lock.unlock();
-        // Raft lock must be released when destroying dba object.
-        dba = nullptr;
-      }
+     }
     }
 
     std::this_thread::sleep_for(kSnapshotPeriod);
