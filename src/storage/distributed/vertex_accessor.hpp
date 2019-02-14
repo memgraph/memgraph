@@ -50,15 +50,6 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
   }
 
  public:
-  /** Like RecordAccessor::Impl with addition of Vertex specific methods. */
-  class Impl : public RecordAccessor<Vertex>::Impl {
-   public:
-    virtual void AddLabel(const VertexAccessor &va,
-                          const storage::Label &label) = 0;
-    virtual void RemoveLabel(const VertexAccessor &va,
-                             const storage::Label &label) = 0;
-  };
-
   VertexAccessor(VertexAddress address, database::GraphDbAccessor &db_accessor);
 
   /** Returns the number of outgoing edges. */
@@ -154,9 +145,6 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * this operation should always be accompanied by the removal of the edge from
    * the outgoing edges on the other side and edge deletion. */
   void RemoveInEdge(storage::EdgeAddress edge);
-
- private:
-  Impl *impl_{nullptr};
 };
 
 std::ostream &operator<<(std::ostream &, const VertexAccessor &);

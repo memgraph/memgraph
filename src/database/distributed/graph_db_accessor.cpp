@@ -32,6 +32,18 @@ GraphDbAccessor::~GraphDbAccessor() {
   }
 }
 
+int16_t GraphDbAccessor::worker_id() const {
+  return db_.WorkerId();
+}
+
+distributed::DataManager &GraphDbAccessor::data_manager() {
+  return db_.data_manager();
+}
+
+distributed::UpdatesRpcClients &GraphDbAccessor::updates_clients() {
+  return db_.updates_clients();
+}
+
 tx::TransactionId GraphDbAccessor::transaction_id() const {
   return transaction_.id_;
 }

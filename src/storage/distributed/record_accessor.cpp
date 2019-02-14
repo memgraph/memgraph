@@ -3,6 +3,8 @@
 #include <glog/logging.h>
 
 #include "database/distributed/graph_db_accessor.hpp"
+#include "distributed/data_manager.hpp"
+#include "distributed/updates_rpc_clients.hpp"
 #include "durability/distributed/state_delta.hpp"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/vertex.hpp"
@@ -11,10 +13,8 @@ using database::StateDelta;
 
 template <typename TRecord>
 RecordAccessor<TRecord>::RecordAccessor(AddressT address,
-                                        database::GraphDbAccessor &db_accessor,
-                                        Impl *impl)
-    : impl_(impl),
-      db_accessor_(&db_accessor),
+                                        database::GraphDbAccessor &db_accessor)
+    : db_accessor_(&db_accessor),
       address_(db_accessor.db().storage().LocalizedAddressIfPossible(address)) {
 }
 
@@ -107,7 +107,9 @@ typename RecordAccessor<TRecord>::AddressT RecordAccessor<TRecord>::address()
 template <typename TRecord>
 typename RecordAccessor<TRecord>::AddressT
 RecordAccessor<TRecord>::GlobalAddress() const {
-  return impl_->GlobalAddress(*this);
+  return is_local() ? storage::Address<mvcc::VersionList<TRecord>>(
+                          gid(), db_accessor_->worker_id())
+                    : address();
 }
 
 template <typename TRecord>
@@ -138,7 +140,18 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
-  impl_->SetOldNew(*this, &old_, &new_);
+  auto &dba = db_accessor();
+  if (is_local()) {
+    address().local()->find_set_old_new(dba.transaction(), &old_, &new_);
+  } else {
+    // It's not possible that we have a global address for a graph element
+    // that's local, because that is resolved in the constructor.
+    // TODO in write queries it's possible the command has been advanced and
+    // we need to invalidate the Cache and really get the latest stuff.
+    // But only do that after the command has been advanced.
+    dba.data_manager().template FindSetOldNew<TRecord>(
+        dba.transaction_id(), address().worker_id(), gid(), &old_, &new_);
+  }
   current_ = old_ ? old_ : new_;
   return old_ != nullptr || new_ != nullptr;
 }
@@ -160,14 +173,34 @@ TRecord &RecordAccessor<TRecord>::update() const {
 
   if (new_) return *new_;
 
-  new_ = impl_->FindNew(*this);
+  if (address().is_local()) {
+    new_ = address().local()->update(dba.transaction());
+  } else {
+    new_ = dba.data_manager().template FindNew<TRecord>(dba.transaction_id(),
+                                                         address().gid());
+  }
+
   DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
   return *new_;
 }
 
 template <typename TRecord>
 int64_t RecordAccessor<TRecord>::CypherId() const {
-  return impl_->CypherId(*this);
+  auto &dba = db_accessor();
+  if (is_local()) return address().local()->cypher_id();
+  // Fetch data from the cache.
+  //
+  // NOTE: This part is executed when we need to migrate
+  // a vertex and it has edges that don't belong to it. A machine that owns
+  // the vertex still need to figure out what is the cypher_id for each
+  // remote edge because the machine has to initiate remote edge creation
+  // and for that call it has to know the remote cypher_ids.
+  // TODO (buda): If we save cypher_id similar/next to edge_type we would save
+  // a network call.
+  return db_accessor_->data_manager()
+      .template Find<TRecord>(dba.transaction().id_, address().worker_id(),
+                              gid())
+      .cypher_id;
 }
 
 template <typename TRecord>
@@ -184,7 +217,26 @@ const TRecord &RecordAccessor<TRecord>::current() const {
 template <typename TRecord>
 void RecordAccessor<TRecord>::ProcessDelta(
     const database::StateDelta &delta) const {
-  impl_->ProcessDelta(*this, delta);
+  if (is_local()) {
+    db_accessor().wal().Emplace(delta);
+  } else {
+    SendDelta(delta);
+  }
+}
+
+template <typename TRecord>
+void RecordAccessor<TRecord>::SendDelta(
+    const database::StateDelta &delta) const {
+  auto result =
+      db_accessor_->updates_clients().Update(address().worker_id(), delta);
+  switch (result) {
+    case distributed::UpdateResult::DONE:
+      break;
+    default:
+      // Update methods sends UpdateRpc to UpdatesRpcServer, server
+      // appends delta to list and returns UpdateResult::DONE
+      LOG(FATAL) << "Update should always return DONE";
+  }
 }
 
 template class RecordAccessor<Vertex>;

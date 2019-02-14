@@ -20,6 +20,12 @@
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
 
+namespace distributed {
+class DataManager;
+class UpdatesRpcClients;
+
+} // namespace distributed
+
 namespace database {
 
 /** Thrown when inserting in an index with constraint. */
@@ -74,8 +80,9 @@ class GraphDbAccessor {
   GraphDbAccessor &operator=(const GraphDbAccessor &other) = delete;
   GraphDbAccessor &operator=(GraphDbAccessor &&other) = delete;
 
-  virtual ::VertexAccessor::Impl *GetVertexImpl() = 0;
-  virtual ::RecordAccessor<Edge>::Impl *GetEdgeImpl() = 0;
+  int16_t worker_id() const;
+  distributed::DataManager &data_manager();
+  distributed::UpdatesRpcClients &updates_clients();
 
   /**
    * Creates a new Vertex and returns an accessor to it. If the ID is
