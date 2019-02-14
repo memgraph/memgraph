@@ -18,6 +18,8 @@
 using namespace distributed;
 using namespace std::literals::chrono_literals;
 
+namespace fs = std::experimental::filesystem;
+
 const int kWorkerCount = 5;
 const std::string kLocal = "127.0.0.1";
 

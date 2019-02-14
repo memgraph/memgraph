@@ -12,7 +12,8 @@ struct KVStore::impl {
   rocksdb::Options options;
 };
 
-KVStore::KVStore(fs::path storage) : pimpl_(std::make_unique<impl>()) {
+KVStore::KVStore(std::experimental::filesystem::path storage)
+    : pimpl_(std::make_unique<impl>()) {
   pimpl_->storage = storage;
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " +

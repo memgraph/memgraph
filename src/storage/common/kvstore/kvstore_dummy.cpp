@@ -8,7 +8,7 @@ namespace storage {
 
 struct KVStore::impl {};
 
-KVStore::KVStore(fs::path storage) {}
+KVStore::KVStore(std::experimental::filesystem::path storage) {}
 
 KVStore::~KVStore() {}
 

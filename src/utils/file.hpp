@@ -2,222 +2,99 @@
  * @file
  *
  * This file contains utilities for operations with files. Other than utility
- * funtions, a `File` class is provided which wraps a system file handle.
+ * functions, a `File` class is provided which emulates a `fstream`.
  */
 #pragma once
 
 #include <experimental/filesystem>
-#include <experimental/optional>
-#include <fstream>
-
-namespace fs = std::experimental::filesystem;
 
 namespace utils {
 
-// Higher level utility operations follow.
+/// Reads all lines from the file specified by path. If the file doesn't exist
+/// or there is an access error the function returns an empty list.
+std::vector<std::string> ReadLines(
+    const std::experimental::filesystem::path &path) noexcept;
 
-/**
- * Loads all file paths in the specified directory. Optionally
- * the paths are filtered by extension.
- *
- * NOTE: the call isn't recursive
- *
- * @param directory a path to directory that will be scanned in order to find
- *                  all paths
- * @param extension paths will be filtered by this extension
- *
- * @return std::vector of paths founded in the directory
- */
-std::vector<fs::path> LoadFilePaths(const fs::path &directory,
-                                    const std::string &extension = "");
+/// Ensures that the given directory either exists after this call. If the
+/// directory didn't exist prior to the call it is created, if it existed prior
+/// to the call it is left as is.
+bool EnsureDir(const std::experimental::filesystem::path &dir) noexcept;
 
-// TODO: add error checking
-/**
- * Reads all lines from the file specified by path.
- *
- * @param path file path.
- * @return vector of all lines from the file.
- */
-std::vector<std::string> ReadLines(const fs::path &path);
+/// Calls `EnsureDir` and terminates the program if the call failed. It prints
+/// an error message for which directory the ensuring failed.
+void EnsureDirOrDie(const std::experimental::filesystem::path &dir);
 
-/**
- * Writes text into the file specified by path.
- *
- * @param text content which will be written in the file.
- * @param path a path to the file.
- */
-void Write(const std::string &text, const fs::path &path);
+/// Deletes everything from the given directory including the directory.
+bool DeleteDir(const std::experimental::filesystem::path &dir) noexcept;
 
-/**
- * Esures that the given dir either exists or is succsefully created.
- */
-bool EnsureDir(const std::experimental::filesystem::path &dir);
-
-/**
- * Ensures the given directory exists and is ready for use. Creates
- * the directory if it doesn't exist.
- */
-void CheckDir(const std::string &dir);
-
-/**
- * Deletes everything from the given dir including the dir.
- */
-bool DeleteDir(const std::experimental::filesystem::path &dir);
-
-/**
- * Copies the file from src to dst.
- */
+/// Copies the file from `src` to `dst`.
 bool CopyFile(const std::experimental::filesystem::path &src,
-              const std::experimental::filesystem::path &dst);
+              const std::experimental::filesystem::path &dst) noexcept;
 
-// End higher level operations.
-
-// Lower level wrappers around C system calls follow.
-
-/**
- * Thin wrapper around system file handle.
- */
-class File {
+/// This class implements a file handler that is used for mission critical files
+/// that need to be written and synced to permanent storage. Typical usage for
+/// this class is in implementation of write-ahead logging or anything similar
+/// that requires that data that is written *must* be stored in permanent
+/// storage.
+///
+/// If any of the methods fails with a critical error *they will crash* the
+/// whole program. The reasoning is that if you have some data that is mission
+/// critical to be written to permanent storage and you fail in doing so you
+/// aren't safe to continue your operation. The errors that can occur are mainly
+/// EIO (unrecoverable underlying storage error) or ENOSPC (the underlying
+/// storage has no more space).
+///
+/// The typical usage for this class when writing data to the file is that you
+/// call `Write` as many times as necessary to write one logical part of your
+/// data and only then you call `Sync`. For the write-ahead log example that
+/// would mean that you call `Write` until you write a whole single state delta
+/// and only after that you call `Sync` to ensure that the whole delta was
+/// written to permanent storage.
+///
+/// This class *isn't* thread safe. It is implemented as a wrapper around low
+/// level system calls used for file manipulation.
+class LogFile {
  public:
-  /** Constructs an empty file handle. */
-  File();
+  LogFile() = default;
+  ~LogFile();
 
-  /**
-   * Take ownership of the given system file handle.
-   *
-   * @param fd   System file handle.
-   * @param path Pathname naming the file, used only for error handling.
-   */
-  File(int fd, fs::path path);
+  LogFile(const LogFile &) = delete;
+  LogFile &operator=(const LogFile &) = delete;
 
-  File(File &&);
-  File &operator=(File &&);
+  LogFile(LogFile &&other);
+  LogFile &operator=(LogFile &&other);
 
-  File(const File &) = delete;
-  File &operator=(const File &) = delete;
+  /// This method opens a new file used for writing. If the file doesn't exist
+  /// it is created and if the file exists data is appended to the file to
+  /// ensure that no data is ever lost. Files are created with a restrictive
+  /// permission mask (0640). On failure and misuse it crashes the program.
+  void Open(const std::experimental::filesystem::path &path);
 
-  /**
-   * Closes the underlying file handle.
-   *
-   * @throws std::system_error
-   */
-  ~File();
+  /// Returns a boolean indicating whether a file is opened.
+  bool IsOpen() const;
 
-  /** Gets the path to the underlying file. */
-  fs::path Path() const;
+  /// Returns the path to the currently opened file. If a file isn't opened the
+  /// path is empty.
+  const std::experimental::filesystem::path &path() const;
 
-  /** Gets the underlying file handle. */
-  int Handle() const;
+  /// Writes data to the currently opened file. On failure and misuse it crashes
+  /// the program.
+  void Write(const char *data, size_t size);
+  void Write(const uint8_t *data, size_t size);
+  void Write(const std::string &data);
 
-  /** Checks if there's an underlying file handle. */
-  bool Empty() const;
+  /// Syncs currently pending data to the currently opened file. On failure
+  /// and misuse it crashes the program.
+  void Sync();
 
-  /**
-   * Closes the underlying file handle.
-   *
-   * Wrapper around `close` system call (see `man 2 close`). File will
-   * be empty after the call returns. You may call Close multiple times, all
-   * calls after the first one are no-op.
-   *
-   * @throws std::system_error
-   */
+  /// Closes the currently opened file. It doesn't perform a `Sync` on the
+  /// file. On failure and misuse it crashes the program.
   void Close();
 
  private:
-  int fd_;
-  fs::path path_;
-
-  void Release();
+  int fd_{-1};
+  size_t written_since_last_sync_{0};
+  std::experimental::filesystem::path path_;
 };
-
-/**
- * Opens a file descriptor.
- * Wrapper around `open` system call (see `man 2 open`).
- *
- * @param  path  Pathname naming the file.
- * @param  flags Opening flags.
- * @param  mode  File mode bits to apply for creation of new file.
- * @return File descriptor referring to the opened file.
- *
- * @throws std::system_error
- */
-File OpenFile(const fs::path &path, int flags, ::mode_t mode = 0666);
-
-/**
- * Same as OpenFile, but returns `nullopt` instead of throwing an exception.
- */
-std::experimental::optional<File> TryOpenFile(const fs::path &path, int flags,
-                                              ::mode_t mode = 0666);
-
-/** Calls File::Close */
-inline void Close(File &file) { file.Close(); }
-
-/**
- * Opens a file descriptor for a file inside a directory.
- * Wrapper around `openat` system call (see `man 2 openat`).
- *
- * @param  dir   Directory file descriptor.
- * @param  path  Pathname naming the file.
- * @param  flags Opening flags.
- * @param  mode  File mode bits to apply for creation of new file.
- * @return File descriptor referring to the opened file.
- *
- * @throws std::system_error
- */
-File OpenFile(const File &dir, const fs::path &path, int flags,
-              ::mode_t mode = 0666);
-
-/**
- * Same as OpenFile, but returns `nullopt` instead of throwing an exception.
- */
-std::experimental::optional<File> TryOpenFile(const File &dir,
-                                              const fs::path &path, int flags,
-                                              ::mode_t mode = 0666);
-
-/**
- * Synchronizes file with the underlying storage device.
- * Wrapper around `fsync` system call (see `man 2 fsync`).
- *
- * @param file File descriptor referring to the file to be synchronized.
- *
- * @throws std::system_error
- */
-void Fsync(const File &file);
-
-/**
- * Moves a file from one directory to another.
- *
- * Wrapper around `renameat` system call (see `man 2 renameat`).
- *
- * @param dir1  Source directory.
- * @param path1 Pathname naming the source file.
- * @param dir2  Destination directory.
- * @param path2 Pathname naming the destination file.
- *
- * @throws std::system_error
- */
-void Rename(const File &dir1, const fs::path &path1, const File &dir2,
-            const fs::path &path2);
-
-/**
- * Synchronizes directory with the underlying storage device.
- *
- * @param path Pathname naming the directory.
- *
- * @throws std::system_error
- */
-void SyncDir(const fs::path &path);
-
-/**
- * Opens a directory, creating it if it doesn't exist.
- *
- * @param  path Pathname naming the directory.
- * @return File descriptor referring to the opened directory.
- *
- * @throws std::system_error
- */
-File OpenDir(const fs::path &path);
-
-// End lower level wrappers.
 
 }  // namespace utils

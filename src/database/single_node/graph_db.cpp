@@ -17,7 +17,8 @@
 namespace database {
 
 GraphDb::GraphDb(Config config) : config_(config) {
-  if (config_.durability_enabled) utils::CheckDir(config_.durability_directory);
+  if (config_.durability_enabled)
+    utils::EnsureDirOrDie(config_.durability_directory);
 
   // Durability recovery.
   if (config_.db_recover_on_startup) {
@@ -135,9 +136,9 @@ database::Counters &GraphDb::counters() { return counters_; }
 void GraphDb::CollectGarbage() { storage_gc_->CollectGarbage(); }
 
 bool GraphDb::MakeSnapshot(GraphDbAccessor &accessor) {
-  const bool status = durability::MakeSnapshot(
-      *this, accessor, fs::path(config_.durability_directory),
-      config_.snapshot_max_retained);
+  const bool status =
+      durability::MakeSnapshot(*this, accessor, config_.durability_directory,
+                               config_.snapshot_max_retained);
   if (status) {
     LOG(INFO) << "Snapshot created successfully.";
   } else {

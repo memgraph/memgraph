@@ -712,7 +712,7 @@ bool Master::MakeSnapshot(GraphDbAccessor &accessor) {
   // some tx_id visibility also exists on workers
   const bool status =
       durability::MakeSnapshot(*this, accessor, impl_->config_.worker_id,
-                               fs::path(impl_->config_.durability_directory),
+                               impl_->config_.durability_directory,
                                impl_->config_.snapshot_max_retained);
   if (status) {
     LOG(INFO) << "Snapshot created successfully.";
@@ -749,7 +749,7 @@ void Master::Start() {
   impl_->tx_engine_.StartTransactionalCacheCleanup();
 
   if (impl_->config_.durability_enabled)
-    utils::CheckDir(impl_->config_.durability_directory);
+    utils::EnsureDirOrDie(impl_->config_.durability_directory);
 
   // Durability recovery.
   {
@@ -1082,7 +1082,7 @@ bool Worker::MakeSnapshot(GraphDbAccessor &accessor) {
   // Makes a local snapshot from the visibility of accessor
   const bool status =
       durability::MakeSnapshot(*this, accessor, impl_->config_.worker_id,
-                               fs::path(impl_->config_.durability_directory),
+                               impl_->config_.durability_directory,
                                impl_->config_.snapshot_max_retained);
   if (status) {
     LOG(INFO) << "Snapshot created successfully.";
@@ -1130,7 +1130,7 @@ void Worker::Start() {
   impl_->tx_engine_.StartTransactionalCacheCleanup();
 
   if (impl_->config_.durability_enabled)
-    utils::CheckDir(impl_->config_.durability_directory);
+    utils::EnsureDirOrDie(impl_->config_.durability_directory);
 
   // Durability recovery. We need to check this flag for workers that are added
   // after the "main" cluster recovery.

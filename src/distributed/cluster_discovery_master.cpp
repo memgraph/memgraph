@@ -26,9 +26,7 @@ ClusterDiscoveryMaster::ClusterDiscoveryMaster(
     io::network::Endpoint worker_endpoint(endpoint.address(), req.port);
 
     // Create and find out what is our durability directory.
-    CHECK(utils::EnsureDir(durability_directory_))
-        << "Couldn't create durability directory '" << durability_directory_
-        << "'!";
+    utils::EnsureDirOrDie(durability_directory_);
     auto full_durability_directory =
         std::experimental::filesystem::canonical(durability_directory_);
 

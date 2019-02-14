@@ -22,9 +22,7 @@ ClusterDiscoveryWorker::ClusterDiscoveryWorker(WorkerCoordination *coordination)
 void ClusterDiscoveryWorker::RegisterWorker(
     int worker_id, const std::string &durability_directory) {
   // Create and find out what is our durability directory.
-  CHECK(utils::EnsureDir(durability_directory))
-      << "Couldn't create durability directory '" << durability_directory
-      << "'!";
+  utils::EnsureDirOrDie(durability_directory);
   auto full_durability_directory =
       std::experimental::filesystem::canonical(durability_directory);
 

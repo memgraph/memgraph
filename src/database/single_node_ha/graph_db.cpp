@@ -15,7 +15,7 @@ namespace database {
 GraphDb::GraphDb(Config config) : config_(config) {}
 
 void GraphDb::Start() {
-  utils::CheckDir(config_.durability_directory);
+  utils::EnsureDirOrDie(config_.durability_directory);
   raft_server_.Start();
   CHECK(coordination_.Start()) << "Couldn't start coordination!";
 

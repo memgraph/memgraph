@@ -83,9 +83,9 @@ bool ContainsDurabilityFiles(const fs::path &durability_dir) {
 
 void MoveToBackup(const fs::path &durability_dir) {
   auto backup_dir = durability_dir / kBackupDir;
-  utils::CheckDir(backup_dir);
-  utils::CheckDir(backup_dir / kSnapshotDir);
-  utils::CheckDir(backup_dir / kWalDir);
+  utils::EnsureDirOrDie(backup_dir);
+  utils::EnsureDirOrDie(backup_dir / kSnapshotDir);
+  utils::EnsureDirOrDie(backup_dir / kWalDir);
   for (const auto &durability_type : {kSnapshotDir, kWalDir}) {
     auto recovery_dir = durability_dir / durability_type;
     if (!fs::exists(recovery_dir) || !fs::is_directory(recovery_dir)) continue;

@@ -28,7 +28,7 @@ WriteAheadLog::WriteAheadLog(
       durability_enabled_(durability_enabled),
       synchronous_commit_(synchronous_commit) {
   if (durability_enabled_) {
-    utils::CheckDir(durability_dir);
+    utils::EnsureDirOrDie(durability_dir);
   }
 }
 

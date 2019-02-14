@@ -332,6 +332,9 @@ target_link_libraries(${test_prefix}utils_exceptions mg-utils)
 add_unit_test(utils_executor.cpp)
 target_link_libraries(${test_prefix}utils_executor mg-utils)
 
+add_unit_test(utils_file.cpp)
+target_link_libraries(${test_prefix}utils_file mg-utils)
+
 add_unit_test(utils_math.cpp)
 target_link_libraries(${test_prefix}utils_math mg-utils)
 
