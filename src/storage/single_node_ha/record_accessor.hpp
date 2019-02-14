@@ -8,7 +8,6 @@
 #include "storage/common/types/property_value_store.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/gid.hpp"
-#include "utils/total_ordering.hpp"
 
 namespace database {
 class GraphDbAccessor;
@@ -25,7 +24,7 @@ struct StateDelta;
  * @tparam TRecord Type of record (MVCC Version) of the accessor.
  */
 template <typename TRecord>
-class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
+class RecordAccessor {
  protected:
   /**
    * The database::GraphDbAccessor is friend to this accessor so it can
@@ -68,6 +67,10 @@ class RecordAccessor : public utils::TotalOrdering<RecordAccessor<TRecord>> {
   const PropertyValueStore &Properties() const;
 
   bool operator==(const RecordAccessor &other) const;
+
+  bool operator!=(const RecordAccessor &other) const {
+    return !(*this == other);
+  }
 
   /** Returns a GraphDB accessor of this record accessor. */
   database::GraphDbAccessor &db_accessor() const;
