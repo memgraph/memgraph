@@ -119,7 +119,7 @@ class GraphDbAccessor {
    * before deletion.
    * @return  If or not the vertex was deleted.
    */
-  virtual bool RemoveVertex(VertexAccessor &vertex_accessor,
+  bool RemoveVertex(VertexAccessor &vertex_accessor,
                             bool check_empty = true);
 
   /**
@@ -358,7 +358,7 @@ class GraphDbAccessor {
    * @param remove_in_edge If the edge should be removed from the its
    * destination side.
    */
-  virtual void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
+  void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
                           bool remove_in_edge = true);
 
   /**
@@ -657,7 +657,7 @@ class GraphDbAccessor {
    * Insert a new edge to `from` vertex and return the address.
    * Called from `InsertEdge` as the first step in edge insertion.
    * */
-  virtual storage::EdgeAddress InsertEdgeOnFrom(
+  storage::EdgeAddress InsertEdgeOnFrom(
       VertexAccessor *from, VertexAccessor *to,
       const storage::EdgeType &edge_type,
       const std::experimental::optional<gid::Gid> &requested_gid,
@@ -668,7 +668,7 @@ class GraphDbAccessor {
    * Called after `InsertEdgeOnFrom` in `InsertEdge`. The given `edge_address`
    * is from the created edge, returned by `InsertEdgeOnFrom`.
    */
-  virtual void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
+  void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
                               const storage::EdgeType &edge_type,
                               const storage::EdgeAddress &edge_address);
 

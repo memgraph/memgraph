@@ -40,105 +40,7 @@ namespace {
 //////////////////////////////////////////////////////////////////////
 // GraphDbAccessor implementations
 //////////////////////////////////////////////////////////////////////
-
-class DistributedAccessor : public GraphDbAccessor {
-  distributed::UpdatesRpcClients *updates_clients_{nullptr};
-  distributed::DataManager *data_manager_{nullptr};
-
- protected:
-  DistributedAccessor(GraphDb *db, tx::TransactionId tx_id)
-      : GraphDbAccessor(*db, tx_id),
-        updates_clients_(&db->updates_clients()),
-        data_manager_(&db->data_manager()) {}
-
-  explicit DistributedAccessor(GraphDb *db)
-      : GraphDbAccessor(*db),
-        updates_clients_(&db->updates_clients()),
-        data_manager_(&db->data_manager()) {}
-
- public:
-  bool RemoveVertex(VertexAccessor &vertex_accessor,
-                    bool check_empty = true) override {
-    if (!vertex_accessor.is_local()) {
-      auto address = vertex_accessor.address();
-      updates_clients_->RemoveVertex(address.worker_id(), transaction_id(),
-                                     address.gid(), check_empty);
-      // We can't know if we are going to be able to remove vertex until
-      // deferred updates on a remote worker are executed
-      return true;
-    }
-    return GraphDbAccessor::RemoveVertex(vertex_accessor, check_empty);
-  }
-
-  void RemoveEdge(EdgeAccessor &edge, bool remove_out_edge = true,
-                  bool remove_in_edge = true) override {
-    if (edge.is_local()) {
-      return GraphDbAccessor::RemoveEdge(edge, remove_out_edge, remove_in_edge);
-    }
-    auto edge_addr = edge.GlobalAddress();
-    auto from_addr = db().storage().GlobalizedAddress(edge.from_addr());
-    CHECK(edge_addr.worker_id() == from_addr.worker_id())
-        << "Edge and it's 'from' vertex not on the same worker";
-    auto to_addr = db().storage().GlobalizedAddress(edge.to_addr());
-    updates_clients_->RemoveEdge(transaction_id(), edge_addr.worker_id(),
-                                 edge_addr.gid(), from_addr.gid(), to_addr);
-    // Another RPC is necessary only if the first did not handle vertices on
-    // both sides.
-    if (edge_addr.worker_id() != to_addr.worker_id()) {
-      updates_clients_->RemoveInEdge(transaction_id(), to_addr.worker_id(),
-                                     to_addr.gid(), edge_addr);
-    }
-  }
-
-  storage::EdgeAddress InsertEdgeOnFrom(
-      VertexAccessor *from, VertexAccessor *to,
-      const storage::EdgeType &edge_type,
-      const std::experimental::optional<gid::Gid> &requested_gid,
-      const std::experimental::optional<int64_t> &cypher_id) override {
-    if (from->is_local()) {
-      return GraphDbAccessor::InsertEdgeOnFrom(from, to, edge_type,
-                                               requested_gid, cypher_id);
-    }
-    auto created_edge_info = updates_clients_->CreateEdge(
-        transaction_id(), *from, *to, edge_type, cypher_id);
-    auto edge_address = created_edge_info.edge_address;
-    auto *from_updated =
-        data_manager_->FindNew<Vertex>(transaction_id(), from->gid());
-    // Create an Edge and insert it into the Cache so we see it locally.
-    data_manager_->Emplace<Edge>(
-        transaction_id(), edge_address.gid(),
-        distributed::CachedRecordData<Edge>(
-            created_edge_info.cypher_id, nullptr,
-            std::make_unique<Edge>(from->address(), to->address(), edge_type)));
-    from_updated->out_.emplace(
-        db().storage().LocalizedAddressIfPossible(to->address()), edge_address,
-        edge_type);
-    return edge_address;
-  }
-
-  void InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
-                      const storage::EdgeType &edge_type,
-                      const storage::EdgeAddress &edge_address) override {
-    if (to->is_local()) {
-      return GraphDbAccessor::InsertEdgeOnTo(from, to, edge_type, edge_address);
-    }
-    // The RPC call for the `to` side is already handled if `from` is not
-    // local.
-    if (from->is_local() ||
-        from->address().worker_id() != to->address().worker_id()) {
-      updates_clients_->AddInEdge(
-          transaction_id(), *from,
-          db().storage().GlobalizedAddress(edge_address), *to, edge_type);
-    }
-    auto *to_updated =
-        data_manager_->FindNew<Vertex>(transaction_id(), to->gid());
-    to_updated->in_.emplace(
-        db().storage().LocalizedAddressIfPossible(from->address()),
-        edge_address, edge_type);
-  }
-};
-
-class MasterAccessor final : public DistributedAccessor {
+class MasterAccessor final : public GraphDbAccessor {
   distributed::Coordination *coordination_;
   distributed::PullRpcClients *pull_clients_;
   int worker_id_{0};
@@ -146,7 +48,7 @@ class MasterAccessor final : public DistributedAccessor {
  public:
   MasterAccessor(Master *db, distributed::Coordination *coordination,
                  distributed::PullRpcClients *pull_clients_)
-      : DistributedAccessor(db),
+      : GraphDbAccessor(*db),
         coordination_(coordination),
         pull_clients_(pull_clients_),
         worker_id_(db->WorkerId()) {}
@@ -154,7 +56,7 @@ class MasterAccessor final : public DistributedAccessor {
   MasterAccessor(Master *db, tx::TransactionId tx_id,
                  distributed::Coordination *coordination,
                  distributed::PullRpcClients *pull_clients_)
-      : DistributedAccessor(db, tx_id),
+      : GraphDbAccessor(*db, tx_id),
         coordination_(coordination),
         pull_clients_(pull_clients_),
         worker_id_(db->WorkerId()) {}
@@ -233,20 +135,20 @@ class MasterAccessor final : public DistributedAccessor {
 
   // TODO (mferencevic): Move this logic into the transaction engine.
   void AdvanceCommand() override {
-    DistributedAccessor::AdvanceCommand();
+    GraphDbAccessor::AdvanceCommand();
     auto tx_id = transaction_id();
     auto futures = pull_clients_->NotifyAllTransactionCommandAdvanced(tx_id);
     for (auto &future : futures) future.get();
   }
 };
 
-class WorkerAccessor final : public DistributedAccessor {
+class WorkerAccessor final : public GraphDbAccessor {
  public:
   explicit WorkerAccessor(Worker *db)
-      : DistributedAccessor(db) {}
+      : GraphDbAccessor(*db) {}
 
   WorkerAccessor(Worker *db, tx::TransactionId tx_id)
-      : DistributedAccessor(db, tx_id) {}
+      : GraphDbAccessor(*db, tx_id) {}
 
   void BuildIndex(storage::Label, storage::Property, bool) override {
     // TODO: Rethink BuildIndex API or inheritance. It's rather strange that a
