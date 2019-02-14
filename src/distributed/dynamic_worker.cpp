@@ -1,11 +1,11 @@
 #include "distributed/dynamic_worker.hpp"
 
-#include "database/distributed/distributed_graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "distributed/dynamic_worker_rpc_messages.hpp"
 
 namespace distributed {
 
-DynamicWorkerAddition::DynamicWorkerAddition(database::DistributedGraphDb *db,
+DynamicWorkerAddition::DynamicWorkerAddition(database::GraphDb *db,
                                              distributed::Coordination *coordination)
     : db_(db), coordination_(coordination) {
   coordination_->Register<DynamicWorkerRpc>(

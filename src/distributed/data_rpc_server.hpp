@@ -4,7 +4,7 @@
 #include "distributed/coordination.hpp"
 
 namespace database {
-class DistributedGraphDb;
+class GraphDb;
 }
 
 namespace distributed {
@@ -12,11 +12,11 @@ namespace distributed {
 /// Serves this worker's data to others.
 class DataRpcServer {
  public:
-  DataRpcServer(database::DistributedGraphDb *db,
+  DataRpcServer(database::GraphDb *db,
                 distributed::Coordination *coordination);
 
  private:
-  database::DistributedGraphDb *db_;
+  database::GraphDb *db_;
 };
 
 }  // namespace distributed

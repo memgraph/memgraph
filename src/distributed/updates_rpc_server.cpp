@@ -176,7 +176,7 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
   return UpdateResult::DONE;
 }
 
-UpdatesRpcServer::UpdatesRpcServer(database::DistributedGraphDb *db,
+UpdatesRpcServer::UpdatesRpcServer(database::GraphDb *db,
                                    distributed::Coordination *coordination)
     : db_(db) {
   coordination->Register<UpdateRpc>([this](const auto &req_reader,

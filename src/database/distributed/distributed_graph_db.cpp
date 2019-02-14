@@ -46,7 +46,7 @@ namespace {
 
 // RecordAccessor implementation is shared among different RecordAccessors to
 // avoid heap allocations. Therefore, we are constructing this implementation in
-// each DistributedGraphDb and pass it to DistributedAccessor.
+// each GraphDb and pass it to DistributedAccessor.
 template <class TRecord>
 class DistributedRecordAccessor final {
   // These should never be changed, because this implementation may be shared
@@ -260,7 +260,7 @@ class DistributedAccessor : public GraphDbAccessor {
   DistributedEdgeAccessor *edge_accessor_;
 
  protected:
-  DistributedAccessor(DistributedGraphDb *db, tx::TransactionId tx_id,
+  DistributedAccessor(GraphDb *db, tx::TransactionId tx_id,
                       DistributedVertexAccessor *vertex_accessor,
                       DistributedEdgeAccessor *edge_accessor)
       : GraphDbAccessor(*db, tx_id),
@@ -269,7 +269,7 @@ class DistributedAccessor : public GraphDbAccessor {
         vertex_accessor_(vertex_accessor),
         edge_accessor_(edge_accessor) {}
 
-  DistributedAccessor(DistributedGraphDb *db,
+  DistributedAccessor(GraphDb *db,
                       DistributedVertexAccessor *vertex_accessor,
                       DistributedEdgeAccessor *edge_accessor)
       : GraphDbAccessor(*db),
@@ -497,7 +497,7 @@ class WorkerAccessor final : public DistributedAccessor {
 class DistributedRecoveryTransactions
     : public durability::RecoveryTransactions {
  public:
-  explicit DistributedRecoveryTransactions(DistributedGraphDb *db) : db_(db) {}
+  explicit DistributedRecoveryTransactions(GraphDb *db) : db_(db) {}
 
   void Commit(const tx::TransactionId &tx_id) final {
     GetAccessor(tx_id)->Commit();
@@ -511,7 +511,7 @@ class DistributedRecoveryTransactions
  protected:
   virtual GraphDbAccessor *GetAccessor(const tx::TransactionId &tx_id) = 0;
 
-  DistributedGraphDb *db_;
+  GraphDb *db_;
   std::unordered_map<tx::TransactionId, std::unique_ptr<GraphDbAccessor>>
       accessors_;
 };
@@ -941,14 +941,12 @@ VertexAccessor InsertVertexIntoRemote(
     const std::vector<storage::Label> &labels,
     const std::unordered_map<storage::Property, PropertyValue> &properties,
     std::experimental::optional<int64_t> cypher_id) {
-  // TODO: Replace this with virtual call or some other mechanism.
-  auto *distributed_db =
-      dynamic_cast<database::DistributedGraphDb *>(&dba->db());
-  CHECK(distributed_db);
-  CHECK(worker_id != distributed_db->WorkerId())
+  auto *db = &dba->db();
+  CHECK(db);
+  CHECK(worker_id != db->WorkerId())
       << "Not allowed to call InsertVertexIntoRemote for local worker";
-  auto *updates_clients = &distributed_db->updates_clients();
-  auto *data_manager = &distributed_db->data_manager();
+  auto *updates_clients = &db->updates_clients();
+  auto *data_manager = &db->data_manager();
   CHECK(updates_clients && data_manager);
   auto created_vertex_info = updates_clients->CreateVertex(
       worker_id, dba->transaction_id(), labels, properties, cypher_id);

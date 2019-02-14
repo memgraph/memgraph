@@ -17,7 +17,7 @@ namespace distributed {
 /// subcursor storage.
 class BfsRpcServer {
  public:
-  BfsRpcServer(database::DistributedGraphDb *db,
+  BfsRpcServer(database::GraphDb *db,
                distributed::Coordination *coordination,
                BfsSubcursorStorage *subcursor_storage)
       : db_(db), subcursor_storage_(subcursor_storage) {
@@ -156,7 +156,7 @@ class BfsRpcServer {
   }
 
  private:
-  database::DistributedGraphDb *db_;
+  database::GraphDb *db_;
 
   std::mutex lock_;
   std::map<tx::TransactionId, std::unique_ptr<database::GraphDbAccessor>>

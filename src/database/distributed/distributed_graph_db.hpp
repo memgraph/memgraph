@@ -5,42 +5,8 @@
 #include "database/distributed/graph_db.hpp"
 #include "durability/distributed/version.hpp"
 
-namespace distributed {
-class BfsRpcServer;
-class BfsRpcClients;
-class DataRpcServer;
-class DataRpcClients;
-class PlanDispatcher;
-class PlanConsumer;
-class PullRpcClients;
-class ProduceRpcServer;
-class UpdatesRpcServer;
-class UpdatesRpcClients;
-class DataManager;
-class IndexRpcClients;
-}  // namespace distributed
-
 namespace database {
-
-namespace impl {
-class Master;
-class Worker;
-}  // namespace impl
-
-/// Abstract base class for concrete distributed versions of GraphDb
-class DistributedGraphDb : public GraphDb {
- public:
-  virtual int WorkerId() const = 0;
-  virtual std::vector<int> GetWorkerIds() const = 0;
-
-  virtual distributed::BfsRpcClients &bfs_subcursor_clients() = 0;
-  virtual distributed::DataRpcClients &data_clients() = 0;
-  virtual distributed::UpdatesRpcServer &updates_server() = 0;
-  virtual distributed::UpdatesRpcClients &updates_clients() = 0;
-  virtual distributed::DataManager &data_manager() = 0;
-};
-
-class Master final : public DistributedGraphDb {
+class Master final : public GraphDb {
  public:
   explicit Master(Config config = Config());
   ~Master();
@@ -88,7 +54,7 @@ class Master final : public DistributedGraphDb {
   std::unique_ptr<utils::Scheduler> snapshot_creator_;
 };
 
-class Worker final : public DistributedGraphDb {
+class Worker final : public GraphDb {
  public:
   explicit Worker(Config config = Config());
   ~Worker();

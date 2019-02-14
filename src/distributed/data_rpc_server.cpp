@@ -2,13 +2,13 @@
 
 #include <memory>
 
-#include "database/distributed/distributed_graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "database/distributed/graph_db_accessor.hpp"
 #include "distributed/data_rpc_messages.hpp"
 
 namespace distributed {
 
-DataRpcServer::DataRpcServer(database::DistributedGraphDb *db,
+DataRpcServer::DataRpcServer(database::GraphDb *db,
                              distributed::Coordination *coordination)
     : db_(db) {
   coordination->Register<VertexRpc>(

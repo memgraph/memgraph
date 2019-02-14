@@ -34,7 +34,7 @@ class UpdatesRpcServer {
   template <typename TRecordAccessor>
   class TransactionUpdates {
    public:
-    TransactionUpdates(database::DistributedGraphDb *db,
+    TransactionUpdates(database::GraphDb *db,
                        tx::TransactionId tx_id)
         : db_accessor_(db->Access(tx_id)) {}
 
@@ -75,7 +75,7 @@ class UpdatesRpcServer {
   };
 
  public:
-  UpdatesRpcServer(database::DistributedGraphDb *db,
+  UpdatesRpcServer(database::GraphDb *db,
                    distributed::Coordination *coordination);
 
   /// Applies all existsing updates for the given transaction ID. If there are
@@ -88,7 +88,7 @@ class UpdatesRpcServer {
   void ClearTransactionalCache(tx::TransactionId oldest_active);
 
  private:
-  database::DistributedGraphDb *db_;
+  database::GraphDb *db_;
 
   template <typename TAccessor>
   using MapT = ConcurrentMap<tx::TransactionId, TransactionUpdates<TAccessor>>;

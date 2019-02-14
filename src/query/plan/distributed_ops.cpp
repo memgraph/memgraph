@@ -1,6 +1,6 @@
 #include "query/plan/distributed_ops.hpp"
 
-#include "database/distributed/distributed_graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "distributed/bfs_rpc_clients.hpp"
 #include "distributed/pull_produce_rpc_messages.hpp"
 #include "distributed/pull_rpc_clients.hpp"
@@ -1062,11 +1062,9 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
   void InitSubcursors(database::GraphDbAccessor *dba,
                       const query::SymbolTable &symbol_table,
                       const EvaluationContext &evaluation_context) {
-    // TODO: Pass in a DistributedGraphDb.
-    if (auto *distributed_db =
-            dynamic_cast<database::DistributedGraphDb *>(&dba->db())) {
-      bfs_subcursor_clients_ = &distributed_db->bfs_subcursor_clients();
-    }
+    auto *db = &dba->db();
+    bfs_subcursor_clients_ = &db->bfs_subcursor_clients();
+
     CHECK(bfs_subcursor_clients_);
     subcursor_ids_ = bfs_subcursor_clients_->CreateBfsSubcursors(
         dba, self_.common_.direction, self_.common_.edge_types,
@@ -1240,7 +1238,7 @@ class DistributedExpandBfsCursor : public query::plan::Cursor {
 };
 
 // Returns a random worker id. Worker ID is obtained from the Db.
-int RandomWorkerId(const database::DistributedGraphDb &db) {
+int RandomWorkerId(const database::GraphDb &db) {
   thread_local std::mt19937 gen_{std::random_device{}()};
   thread_local std::uniform_int_distribution<int> rand_;
 
@@ -1254,9 +1252,8 @@ VertexAccessor &CreateVertexOnWorker(int worker_id,
                                      Frame &frame, ExecutionContext &context) {
   auto &dba = *context.db_accessor;
 
-  auto *distributed_db =
-      dynamic_cast<database::DistributedGraphDb *>(&dba.db());
-  int current_worker_id = distributed_db->WorkerId();
+  auto *db = &dba.db();
+  int current_worker_id = db->WorkerId();
 
   if (worker_id == current_worker_id)
     return CreateLocalVertex(node_info, &frame, context);
@@ -1289,8 +1286,7 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
   DistributedCreateNodeCursor(const DistributedCreateNode *self,
                               database::GraphDbAccessor *dba)
       : input_cursor_(self->input()->MakeCursor(*dba)),
-        // TODO: Replace this with some other mechanism
-        db_(dynamic_cast<database::DistributedGraphDb *>(&dba->db())),
+        db_(&dba->db()),
         node_info_(self->node_info_),
         on_random_worker_(self->on_random_worker_) {
     CHECK(db_);
@@ -1314,7 +1310,7 @@ class DistributedCreateNodeCursor : public query::plan::Cursor {
 
  private:
   std::unique_ptr<query::plan::Cursor> input_cursor_;
-  database::DistributedGraphDb *db_{nullptr};
+  database::GraphDb *db_{nullptr};
   NodeCreationInfo node_info_;
   bool on_random_worker_{false};
 };
@@ -1325,8 +1321,7 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
                                 database::GraphDbAccessor *dba)
       : input_cursor_(self->input()->MakeCursor(*dba)),
         self_(self),
-        // TODO: Replace this with some other mechanism
-        db_(dynamic_cast<database::DistributedGraphDb *>(&dba->db())) {
+        db_(&dba->db()) {
     CHECK(db_);
   }
 
@@ -1400,7 +1395,7 @@ class DistributedCreateExpandCursor : public query::plan::Cursor {
  private:
   std::unique_ptr<query::plan::Cursor> input_cursor_;
   const DistributedCreateExpand *self_{nullptr};
-  database::DistributedGraphDb *db_{nullptr};
+  database::GraphDb *db_{nullptr};
 };
 
 }  // namespace

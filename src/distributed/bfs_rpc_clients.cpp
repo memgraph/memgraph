@@ -1,12 +1,12 @@
 #include "bfs_rpc_clients.hpp"
 
-#include "database/distributed/distributed_graph_db.hpp"
+#include "database/distributed/graph_db.hpp"
 #include "distributed/bfs_rpc_messages.hpp"
 #include "distributed/data_manager.hpp"
 
 namespace distributed {
 
-BfsRpcClients::BfsRpcClients(database::DistributedGraphDb *db,
+BfsRpcClients::BfsRpcClients(database::GraphDb *db,
                              BfsSubcursorStorage *subcursor_storage,
                              Coordination *coordination,
                              DataManager *data_manager)

@@ -9,20 +9,20 @@
 #include "distributed/coordination.hpp"
 
 namespace database {
-class DistributedGraphDb;
+class GraphDb;
 }  // namespace database
 
 namespace distributed {
 class DynamicWorkerAddition final {
  public:
-  DynamicWorkerAddition(database::DistributedGraphDb *db,
+  DynamicWorkerAddition(database::GraphDb *db,
                         distributed::Coordination *coordination);
 
   /// Enable dynamic worker addition.
   void Enable();
 
  private:
-  database::DistributedGraphDb *db_{nullptr};
+  database::GraphDb *db_{nullptr};
   distributed::Coordination *coordination_;
 
   std::atomic<bool> enabled_{false};

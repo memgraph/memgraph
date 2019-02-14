@@ -290,7 +290,7 @@ class DistributedDetachDeleteTest : public DistributedGraphDbTest {
 
       std::vector<std::reference_wrapper<database::GraphDbAccessor>> dba{
           *dba0, *dba1, *dba2};
-      std::vector<database::DistributedGraphDb *> dbs{&master(), &worker(1),
+      std::vector<database::GraphDb *> dbs{&master(), &worker(1),
                                                       &worker(2)};
 
       auto &accessor = dba[i].get();

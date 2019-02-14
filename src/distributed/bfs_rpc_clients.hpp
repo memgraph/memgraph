@@ -6,7 +6,7 @@
 #include "transactions/transaction.hpp"
 
 namespace database {
-class DistributedGraphDb;
+class GraphDb;
 }
 
 namespace distributed {
@@ -21,7 +21,7 @@ class DataManager;
 /// directly.
 class BfsRpcClients {
  public:
-  BfsRpcClients(database::DistributedGraphDb *db,
+  BfsRpcClients(database::GraphDb *db,
                 BfsSubcursorStorage *subcursor_storage,
                 Coordination *coordination, DataManager *data_manager);
 
@@ -63,7 +63,7 @@ class BfsRpcClients {
       const std::vector<query::TypedValue> &frame);
 
  private:
-  database::DistributedGraphDb *db_;
+  database::GraphDb *db_;
   distributed::BfsSubcursorStorage *subcursor_storage_;
   distributed::Coordination *coordination_;
   distributed::DataManager *data_manager_;

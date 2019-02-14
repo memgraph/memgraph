@@ -17,7 +17,26 @@
 #include "transactions/distributed/engine.hpp"
 #include "utils/scheduler.hpp"
 
+namespace distributed {
+class BfsRpcServer;
+class BfsRpcClients;
+class DataRpcServer;
+class DataRpcClients;
+class PlanDispatcher;
+class PlanConsumer;
+class PullRpcClients;
+class ProduceRpcServer;
+class UpdatesRpcServer;
+class UpdatesRpcClients;
+class DataManager;
+class IndexRpcClients;
+}  // namespace distributed
+
 namespace database {
+namespace impl {
+class Master;
+class Worker;
+}  // namespace impl
 
 /// Database configuration. Initialized from flags, but modifiable.
 struct Config {
@@ -106,59 +125,19 @@ class GraphDb {
   /// recovery
   virtual void ReinitializeStorage() = 0;
 
+  virtual int WorkerId() const = 0;
+  virtual std::vector<int> GetWorkerIds() const = 0;
+
+  virtual distributed::BfsRpcClients &bfs_subcursor_clients() = 0;
+  virtual distributed::DataRpcClients &data_clients() = 0;
+  virtual distributed::UpdatesRpcServer &updates_server() = 0;
+  virtual distributed::UpdatesRpcClients &updates_clients() = 0;
+  virtual distributed::DataManager &data_manager() = 0;
+
   /// When this is false, no new transactions should be created.
   bool is_accepting_transactions() const { return is_accepting_transactions_; }
 
  protected:
   std::atomic<bool> is_accepting_transactions_{true};
 };
-
-namespace impl {
-class SingleNode;
-}  // namespace impl
-
-class SingleNode final : public GraphDb {
- public:
-  explicit SingleNode(Config config = Config());
-  ~SingleNode();
-
-  std::unique_ptr<GraphDbAccessor> Access() override;
-  std::unique_ptr<GraphDbAccessor> Access(tx::TransactionId) override;
-
-  Storage &storage() override;
-  durability::WriteAheadLog &wal() override;
-  tx::Engine &tx_engine() override;
-  storage::ConcurrentIdMapper<storage::Label> &label_mapper() override;
-  storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper() override;
-  storage::ConcurrentIdMapper<storage::Property> &property_mapper() override;
-  database::Counters &counters() override;
-  void CollectGarbage() override;
-
-  bool MakeSnapshot(GraphDbAccessor &accessor) override;
-  void ReinitializeStorage() override;
-
- private:
-  std::unique_ptr<impl::SingleNode> impl_;
-
-  std::unique_ptr<utils::Scheduler> snapshot_creator_;
-  utils::Scheduler transaction_killer_;
-};
-
-class SingleNodeRecoveryTransanctions final
-    : public durability::RecoveryTransactions {
- public:
-  explicit SingleNodeRecoveryTransanctions(SingleNode *db);
-  ~SingleNodeRecoveryTransanctions();
-
-  void Begin(const tx::TransactionId &tx_id) override;
-  void Abort(const tx::TransactionId &tx_id) override;
-  void Commit(const tx::TransactionId &tx_id) override;
-  void Apply(const database::StateDelta &delta) override;
-
- private:
-  SingleNode *db_;
-  std::unordered_map<tx::TransactionId, std::unique_ptr<GraphDbAccessor>>
-      accessors_;
-};
-
 }  // namespace database

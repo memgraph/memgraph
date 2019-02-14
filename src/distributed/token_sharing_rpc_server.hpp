@@ -6,7 +6,7 @@
 #include "distributed/dgp/partitioner.hpp"
 
 namespace database {
-class DistributedGraphDb;
+class GraphDb;
 };
 
 namespace distributed {
@@ -23,7 +23,7 @@ namespace distributed {
 /// step in the same time.
 class TokenSharingRpcServer {
  public:
-  TokenSharingRpcServer(database::DistributedGraphDb *db, int worker_id,
+  TokenSharingRpcServer(database::GraphDb *db, int worker_id,
                         distributed::Coordination *coordination)
       : worker_id_(worker_id), coordination_(coordination), dgp_(db) {
     coordination_->Register<distributed::TokenTransferRpc>(

@@ -10,7 +10,7 @@
 #include "storage/vertex_accessor.hpp"
 
 namespace database {
-class DistributedGraphDb;
+class GraphDb;
 class GraphDbAccessor;
 };  // namespace database
 
@@ -49,7 +49,7 @@ class Partitioner {
   /// The partitioner needs GraphDb because each partition step is a new
   /// database transactions (database accessor has to be created).
   /// TODO (buda): Consider passing GraphDbAccessor directly.
-  explicit Partitioner(database::DistributedGraphDb *db);
+  explicit Partitioner(database::GraphDb *db);
 
   Partitioner(const Partitioner &other) = delete;
   Partitioner(Partitioner &&other) = delete;
@@ -83,7 +83,7 @@ class Partitioner {
       const VertexAccessor &vertex) const;
 
  private:
-  database::DistributedGraphDb *db_{nullptr};
+  database::GraphDb *db_{nullptr};
 };
 
 }  // namespace distributed::dgp
