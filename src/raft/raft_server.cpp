@@ -717,7 +717,7 @@ void RaftServer::SendLogEntries(
     return;
   }
 
-  if (current_term_ != request_term || exiting_) {
+  if (current_term_ != request_term || mode_ != Mode::LEADER || exiting_) {
     return;
   }
 
@@ -800,7 +800,7 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
     return;
   }
 
-  if (current_term_ != request_term || exiting_) {
+  if (current_term_ != request_term || mode_ != Mode::LEADER || exiting_) {
     return;
   }
 

@@ -53,7 +53,7 @@
 
 - name: integration__ha_basic
   cd: ha/basic
-  commands: ./runner.py
+  commands: TIMEOUT=480 ./runner.py
   infiles:
     - runner.py # runner script
     - raft.json # raft configuration

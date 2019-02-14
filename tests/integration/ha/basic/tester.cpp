@@ -64,6 +64,7 @@ int main(int argc, char **argv) {
         // This one seems to be down, continue.
         continue;
       }
+      LOG(INFO) << "Current Raft cluster leader is " << i;
     }
     if (!successfull) {
       LOG(INFO) << "Couldn't find Raft cluster leader, retrying.";

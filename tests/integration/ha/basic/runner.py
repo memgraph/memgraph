@@ -19,10 +19,12 @@ from ha_test import HaTestBase
 class HaBasicTest(HaTestBase):
     def execute_step(self, step, expected_results):
         if step == "create":
+            print("Executing create query")
             client = subprocess.Popen([self.tester_binary, "--step", "create",
                 "--cluster_size", str(self.cluster_size)])
 
         elif step == "count":
+            print("Executing count query")
             client = subprocess.Popen([self.tester_binary, "--step", "count",
                 "--cluster_size", str(self.cluster_size), "--expected_results",
                 str(expected_results)])
@@ -33,6 +35,7 @@ class HaBasicTest(HaTestBase):
         try:
             code = client.wait(timeout=30)
         except subprocess.TimeoutExpired as e:
+            print("HA client timed out!")
             client.kill()
             return 1
 
@@ -55,9 +58,10 @@ class HaBasicTest(HaTestBase):
 
             # Kill workers.
             for worker_id in partition:
+                print("Killing worker {}".format(worker_id))
                 self.kill_worker(worker_id)
 
-            time.sleep(2) # allow some time for possible leader re-election
+            time.sleep(5) # allow some time for possible leader re-election
 
             if random.random() < 0.7:
                 assert self.execute_step("create", expected_results) == 0, \
@@ -69,7 +73,10 @@ class HaBasicTest(HaTestBase):
 
             # Bring workers back to life.
             for worker_id in partition:
+                print("Starting worker {}".format(worker_id))
                 self.start_worker(worker_id)
+
+            time.sleep(5) # allow some time for possible leader re-election
 
         # Check that no data was lost.
         assert self.execute_step("count", expected_results) == 0, \

@@ -30,12 +30,7 @@ class HaTestBase:
 
 
     def __del__(self):
-        for worker in self.workers:
-            if worker is None: continue
-            worker.kill()
-            worker.wait()
-        self.workers.clear()
-        self.coordination_config_file.close()
+        self.destroy_cluster()
 
 
     def start_cluster(self):
@@ -44,6 +39,15 @@ class HaTestBase:
 
         # allow some time for leader election
         time.sleep(5)
+
+
+    def destroy_cluster(self):
+        for worker in self.workers:
+            if worker is None: continue
+            worker.kill()
+            worker.wait()
+        self.workers.clear()
+        self.coordination_config_file.close()
 
 
     def kill_worker(self, worker_id):
