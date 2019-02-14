@@ -4,9 +4,9 @@
 
 #include "data_structures/concurrent/concurrent_map.hpp"
 #include "database/distributed/graph_db.hpp"
-#include "distributed/cache.hpp"
 #include "distributed/data_rpc_clients.hpp"
 #include "transactions/type.hpp"
+#include "utils/cache.hpp"
 
 class Vertex;
 class Edge;
@@ -32,7 +32,7 @@ struct CachedRecordData {
 /// Handles remote data caches for edges and vertices, per transaction.
 class DataManager {
   template <typename TRecord>
-  using CacheG = Cache<gid::Gid, CachedRecordData<TRecord>>;
+  using CacheG = utils::Cache<gid::Gid, CachedRecordData<TRecord>>;
 
   template <typename TRecord>
   using CacheT = ConcurrentMap<tx::TransactionId, CacheG<TRecord>>;

@@ -25,6 +25,9 @@ target_link_libraries(${test_prefix}ast_serialization mg-distributed kvstore_dum
 add_unit_test(bolt_encoder.cpp)
 target_link_libraries(${test_prefix}bolt_encoder mg-single-node kvstore_dummy_lib)
 
+add_unit_test(cache.cpp)
+target_link_libraries(${test_prefix}cache mg-distributed kvstore_dummy_lib)
+
 add_unit_test(concurrent_id_mapper_distributed.cpp)
 target_link_libraries(${test_prefix}concurrent_id_mapper_distributed mg-distributed kvstore_dummy_lib)
 
