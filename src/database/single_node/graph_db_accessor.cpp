@@ -184,7 +184,7 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
 
 void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
                                          const VertexAccessor &vertex_accessor,
-                                         const Vertex *const vertex) {
+                                         const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto *vlist_ptr = vertex_accessor.address();
 
@@ -194,17 +194,68 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
         "Node couldn't be updated due to index constraint violation!");
   }
   db_.storage().labels_index_.Update(label, vlist_ptr, vertex);
+
+  if (!db_.storage().existence_constraints_.CheckIfSatisfies(vertex)) {
+    throw IndexConstraintViolationException(
+        "Node couldn't be updated due to existence constraint violation!");
+  }
 }
 
 void GraphDbAccessor::UpdatePropertyIndex(
     storage::Property property, const RecordAccessor<Vertex> &vertex_accessor,
-    const Vertex *const vertex) {
+    const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   if (!db_.storage().label_property_index_.UpdateOnProperty(
           property, vertex_accessor.address(), vertex)) {
     throw IndexConstraintViolationException(
-        "Node couldn't be updated due to index constraint violation!");
+        "Node couldn't be updated due to existence constraint violation!");
   }
+}
+
+void GraphDbAccessor::UpdateOnPropertyRemove(storage::Property property,
+                            const Vertex *vertex,
+                            const RecordAccessor<Vertex> &accessor) {
+  if (!db_.storage().existence_constraints_.CheckIfSatisfies(vertex)) {
+    throw IndexConstraintViolationException(
+        "Node couldn't be updated due to existence constraint violation!");
+  }
+}
+
+void GraphDbAccessor::BuildExistenceConstraint(
+    storage::Label label, const std::vector<storage::Property> &properties) {
+  auto dba =
+      db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
+  ExistenceRule rule{label, properties};
+
+  for (auto v : dba->Vertices(false)) {
+    if (!CheckIfSatisfiesExistenceRule(v.GetOld(), rule)) {
+      throw IndexConstraintViolationException(
+          "Node couldn't be updated due to existence constraint violation!");
+    }
+  }
+
+  db_.storage().existence_constraints_.AddConstraint(rule);
+  // TODO
+  //wal().Emplace(database::StateDelta::BuildExistenceConstraint();
+  dba->Commit();
+}
+
+void GraphDbAccessor::DeleteExistenceConstraint(
+    storage::Label label, const std::vector<storage::Property> &properties) {
+  auto dba =
+      db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
+  ExistenceRule rule{label, properties};
+  db_.storage().existence_constraints_.RemoveConstraint(rule);
+  // TODO
+  //wal().Emplace(database::StateDelta::DeleteExistenceConstraint();
+  dba->Commit();
+}
+
+bool GraphDbAccessor::ExistenceConstraintExists(
+    storage::Label label,
+    const std::vector<storage::Property> &properties) const {
+  ExistenceRule rule{label, properties};
+  return db_.storage().existence_constraints_.Exists(rule);
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {

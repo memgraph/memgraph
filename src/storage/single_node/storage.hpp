@@ -8,6 +8,7 @@
 #include "storage/common/types/types.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "storage/single_node/edge.hpp"
+#include "storage/single_node/constraints/existence_constraints.hpp"
 #include "storage/single_node/indexes/key_index.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"
 #include "storage/single_node/vertex.hpp"
@@ -74,6 +75,9 @@ class Storage {
   // indexes
   KeyIndex<storage::Label, Vertex> labels_index_;
   LabelPropertyIndex label_property_index_;
+
+  // existence constraints
+  ExistenceConstraints existence_constraints_;
 
   std::vector<std::string> properties_on_disk_;
 

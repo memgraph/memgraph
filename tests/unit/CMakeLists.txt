@@ -128,6 +128,9 @@ target_link_libraries(${test_prefix}edges_distributed mg-distributed kvstore_dum
 add_unit_test(edges_single_node.cpp)
 target_link_libraries(${test_prefix}edges_single_node mg-single-node kvstore_dummy_lib)
 
+add_unit_test(existence_constraints.cpp)
+target_link_libraries(${test_prefix}existence_constraints mg-single-node kvstore_dummy_lib)
+
 add_unit_test(gid.cpp)
 target_link_libraries(${test_prefix}gid mg-distributed kvstore_dummy_lib)
 

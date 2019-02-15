@@ -48,7 +48,8 @@ void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
       StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                  dba.PropertyName(key), PropertyValue::Null);
   update().properties_.set(key, PropertyValue::Null);
-  db_accessor().wal().Emplace(delta);
+  dba.UpdateOnPropertyRemove(key, GetNew(), *this);
+  dba.wal().Emplace(delta);
 }
 
 template <>

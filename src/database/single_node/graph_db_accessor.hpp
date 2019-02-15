@@ -470,6 +470,26 @@ class GraphDbAccessor {
   }
 
   /**
+   * Creates new existence constraint.
+   */
+  void BuildExistenceConstraint(
+      storage::Label label, const std::vector<storage::Property> &properties);
+
+  /**
+   * Deletes existing existence constraint.
+   */
+  void DeleteExistenceConstraint(
+      storage::Label label, const std::vector<storage::Property> &properties);
+
+  /**
+   * Checks whether constraint exists.
+   */
+  bool ExistenceConstraintExists(
+      storage::Label label,
+      const std::vector<storage::Property> &properties) const;
+
+
+  /**
    * Return approximate number of all vertices in the database.
    * Note that this is always an over-estimate and never an under-estimate.
    */
@@ -638,6 +658,13 @@ class GraphDbAccessor {
 
   bool commited_{false};
   bool aborted_{false};
+
+  /**
+   * Notifies storage about change.
+   */
+  void UpdateOnPropertyRemove(storage::Property property,
+                              const Vertex *vertex,
+                              const RecordAccessor<Vertex> &accessor);
 
   /**
    * Insert this vertex into corresponding any label + 'property' index.
