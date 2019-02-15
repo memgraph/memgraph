@@ -45,6 +45,7 @@ TEST_F(DistributedDataExchangeTest, RemoteDataGetting) {
   {
     auto w1_dba = worker(1).Access(master_dba->transaction_id());
     VertexAccessor v1_in_w1{{v1_id, 0}, *w1_dba};
+    auto guard = storage::GetDataLock(v1_in_w1);
     EXPECT_NE(v1_in_w1.GetOld(), nullptr);
     EXPECT_EQ(v1_in_w1.GetNew(), nullptr);
     EXPECT_EQ(v1_in_w1.PropsAt(w1_dba->Property("p1")).Value<int64_t>(), 42);
@@ -54,6 +55,7 @@ TEST_F(DistributedDataExchangeTest, RemoteDataGetting) {
   {
     auto w2_dba = worker(2).Access(master_dba->transaction_id());
     VertexAccessor v2_in_w2{{v2_id, 0}, *w2_dba};
+    auto guard = storage::GetDataLock(v2_in_w2);
     EXPECT_NE(v2_in_w2.GetOld(), nullptr);
     EXPECT_EQ(v2_in_w2.GetNew(), nullptr);
     EXPECT_EQ(v2_in_w2.PropsAt(w2_dba->Property("p2")).Value<std::string>(),

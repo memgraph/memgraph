@@ -98,7 +98,7 @@ class RecordAccessor {
   RecordAccessor<TRecord> &SwitchNew();
 
   /** Returns the new record pointer. */
-  TRecord *GetNew() const { return new_; }
+  TRecord *GetNew() const;
 
   /**
    * Attempts to switch this accessor to use the latest version not updated by
@@ -111,7 +111,7 @@ class RecordAccessor {
   RecordAccessor<TRecord> &SwitchOld();
 
   /** Returns the old record pointer. */
-  TRecord *GetOld() const { return old_; }
+  TRecord *GetOld() const;
 
   /**
    * Reconstructs the internal state of the record accessor so it uses the
@@ -158,6 +158,19 @@ class RecordAccessor {
    */
   int64_t CypherId() const;
 
+  /**
+   * If accessor holds remote record, this method will hold remote data until
+   * released. This is needed for methods that return pointers.
+   * This method can be called multiple times.
+   */
+  void HoldCachedData() const;
+
+  /**
+   * If accessor holds remote record, this method will release remote data.
+   * This is needed for methods that return pointers.
+   */
+  void ReleaseCachedData() const;
+
  protected:
   /**
    * The database::GraphDbAccessor is friend to this accessor so it can
@@ -183,6 +196,7 @@ class RecordAccessor {
    * This pointer can be null if created by an accessor which lazily reads from
    * mvcc.
    */
+  // TODO (vkasljevic) remove this
   mutable TRecord *current_{nullptr};
 
   /** Returns the current version (either new_ or old_) set on this
@@ -196,6 +210,13 @@ class RecordAccessor {
   database::GraphDbAccessor *db_accessor_;
 
   AddressT address_;
+
+  struct Remote {
+    /* Keeps track of how many times HoldRemoteData was called. */
+    mutable unsigned short lock_counter{0};
+  };
+
+  Remote remote_;
 
   /**
    * Latest version which is visible to the current transaction+command

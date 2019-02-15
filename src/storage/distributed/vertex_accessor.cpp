@@ -20,6 +20,7 @@ void VertexAccessor::add_label(storage::Label label) {
   auto &dba = db_accessor();
   auto delta = database::StateDelta::AddLabel(dba.transaction_id(), gid(),
                                               label, dba.LabelName(label));
+  auto guard = storage::GetDataLock(*this);
   auto &vertex = update();
   // not a duplicate label, add it
   if (!utils::Contains(vertex.labels_, label)) {
@@ -37,7 +38,8 @@ void VertexAccessor::remove_label(storage::Label label) {
   auto &dba = db_accessor();
   auto delta = database::StateDelta::RemoveLabel(dba.transaction_id(), gid(),
                                                  label, dba.LabelName(label));
-  Vertex &vertex = update();
+  auto guard = storage::GetDataLock(*this);
+  auto &vertex = update();
   if (utils::Contains(vertex.labels_, label)) {
     auto &labels = vertex.labels_;
     auto found = std::find(labels.begin(), labels.end(), delta.label);
@@ -52,11 +54,13 @@ void VertexAccessor::remove_label(storage::Label label) {
 }
 
 bool VertexAccessor::has_label(storage::Label label) const {
+  auto guard = storage::GetDataLock(*this);
   auto &labels = this->current().labels_;
   return std::find(labels.begin(), labels.end(), label) != labels.end();
 }
 
-const std::vector<storage::Label> &VertexAccessor::labels() const {
+std::vector<storage::Label> VertexAccessor::labels() const {
+  auto guard = storage::GetDataLock(*this);
   return this->current().labels_;
 }
 
@@ -66,6 +70,7 @@ void VertexAccessor::RemoveOutEdge(storage::EdgeAddress edge) {
       dba.transaction_id(), gid(), dba.db().storage().GlobalizedAddress(edge));
 
   SwitchNew();
+  auto guard = storage::GetDataLock(*this);
   if (current().is_expired_by(dba.transaction())) return;
 
   update().out_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
@@ -78,6 +83,7 @@ void VertexAccessor::RemoveInEdge(storage::EdgeAddress edge) {
       dba.transaction_id(), gid(), dba.db().storage().GlobalizedAddress(edge));
 
   SwitchNew();
+  auto guard = storage::GetDataLock(*this);
   if (current().is_expired_by(dba.transaction())) return;
 
   update().in_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));

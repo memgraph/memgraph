@@ -241,6 +241,7 @@ void SaveRecordAccessor(const RecordAccessor<TRecord> &accessor,
   builder->setAddress(accessor.GlobalAddress().raw());
 
   bool reconstructed = false;
+  auto guard = storage::GetDataLock(accessor);
   if (!accessor.GetOld() && !accessor.GetNew()) {
     reconstructed = true;
     bool result = accessor.Reconstruct();

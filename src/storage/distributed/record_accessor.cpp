@@ -6,6 +6,7 @@
 #include "distributed/data_manager.hpp"
 #include "distributed/updates_rpc_clients.hpp"
 #include "durability/distributed/state_delta.hpp"
+#include "storage/distributed/cached_data_lock.hpp"
 #include "storage/distributed/edge.hpp"
 #include "storage/distributed/vertex.hpp"
 
@@ -20,6 +21,7 @@ RecordAccessor<TRecord>::RecordAccessor(AddressT address,
 
 template <typename TRecord>
 PropertyValue RecordAccessor<TRecord>::PropsAt(storage::Property key) const {
+  auto guard = storage::GetDataLock(*this);
   return current().properties_.at(key);
 }
 
@@ -29,6 +31,7 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   auto &dba = db_accessor();
   auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                           dba.PropertyName(key), value);
+  auto guard = storage::GetDataLock(*this);
   update().properties_.set(key, value);
   if (is_local()) {
     dba.UpdatePropertyIndex(key, *this, &update());
@@ -43,6 +46,7 @@ void RecordAccessor<Edge>::PropsSet(storage::Property key,
   auto delta = StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
                                         dba.PropertyName(key), value);
 
+  auto guard = storage::GetDataLock(*this);
   update().properties_.set(key, value);
   ProcessDelta(delta);
 }
@@ -53,6 +57,7 @@ void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
   auto delta =
       StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                  dba.PropertyName(key), PropertyValue::Null);
+  auto guard = storage::GetDataLock(*this);
   update().properties_.set(key, PropertyValue::Null);
   ProcessDelta(delta);
 }
@@ -63,6 +68,8 @@ void RecordAccessor<Edge>::PropsErase(storage::Property key) {
   auto delta =
       StateDelta::PropsSetEdge(dba.transaction_id(), gid(), key,
                                dba.PropertyName(key), PropertyValue::Null);
+
+  auto guard = storage::GetDataLock(*this);
   update().properties_.set(key, PropertyValue::Null);
   ProcessDelta(delta);
 }
@@ -70,6 +77,7 @@ void RecordAccessor<Edge>::PropsErase(storage::Property key) {
 template <typename TRecord>
 void RecordAccessor<TRecord>::PropsClear() {
   std::vector<storage::Property> to_remove;
+  auto guard = storage::GetDataLock(*this);
   for (const auto &kv : update().properties_) to_remove.emplace_back(kv.first);
   for (const auto &prop : to_remove) {
     PropsErase(prop);
@@ -78,6 +86,7 @@ void RecordAccessor<TRecord>::PropsClear() {
 
 template <typename TRecord>
 const PropertyValueStore &RecordAccessor<TRecord>::Properties() const {
+  auto guard = storage::GetDataLock(*this);
   return current().properties_;
 }
 
@@ -114,6 +123,7 @@ RecordAccessor<TRecord>::GlobalAddress() const {
 
 template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
+  auto guard = storage::GetDataLock(*this);
   if (is_local()) {
     if (!new_) {
       // if new_ is not set yet, look for it
@@ -133,14 +143,33 @@ RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
 }
 
 template <typename TRecord>
+TRecord *RecordAccessor<TRecord>::GetNew() const {
+  if (!is_local()) {
+    DCHECK(remote_.lock_counter > 0) << "Remote data is missing";
+  }
+
+  return new_;
+}
+
+template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
   current_ = old_ ? old_ : new_;
   return *this;
 }
 
 template <typename TRecord>
+TRecord *RecordAccessor<TRecord>::GetOld() const {
+  if (!is_local()) {
+    DCHECK(remote_.lock_counter > 0) << "Remote data is missing";
+  }
+
+  return old_;
+}
+
+template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
   auto &dba = db_accessor();
+  auto guard = storage::GetDataLock(*this);
   if (is_local()) {
     address().local()->find_set_old_new(dba.transaction(), &old_, &new_);
   } else {
@@ -159,6 +188,7 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
 template <typename TRecord>
 TRecord &RecordAccessor<TRecord>::update() const {
   auto &dba = db_accessor();
+  auto guard = storage::GetDataLock(*this);
   // Edges have lazily initialize mutable, versioned data (properties).
   if (std::is_same<TRecord, Edge>::value && current_ == nullptr) {
     bool reconstructed = Reconstruct();
@@ -204,7 +234,39 @@ int64_t RecordAccessor<TRecord>::CypherId() const {
 }
 
 template <typename TRecord>
+void RecordAccessor<TRecord>::HoldCachedData() const {
+  if (!is_local()) {
+    if (remote_.lock_counter == 0) {
+      // TODO (vkasljevic) uncomment once Remote has beed implemented
+      // remote_.data = db_accessor_->data_manager().template Find<TRecord>(
+      //     db_accessor_->transaction().id_, Address().worker_id(),
+      //     Address().gid(), remote_.has_updated);
+    }
+
+    ++remote_.lock_counter;
+    DCHECK(remote_.lock_counter <= 10000)
+        << "Something wrong with lock counter";
+  }
+}
+
+template <typename TRecord>
+void RecordAccessor<TRecord>::ReleaseCachedData() const {
+  if (!is_local()) {
+    DCHECK(remote_.lock_counter > 0) << "Lock should exist at this point";
+    --remote_.lock_counter;
+    if (remote_.lock_counter == 0) {
+      // TODO (vkasljevic) uncomment once Remote has beed implemented
+      // remote_.data = nullptr;
+    }
+  }
+}
+
+template <typename TRecord>
 const TRecord &RecordAccessor<TRecord>::current() const {
+  if (!is_local()) {
+    DCHECK(remote_.lock_counter > 0) << "Remote data is missing";
+  }
+
   // Edges have lazily initialize mutable, versioned data (properties).
   if (std::is_same<TRecord, Edge>::value && current_ == nullptr) {
     bool reconstructed = Reconstruct();

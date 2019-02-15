@@ -8,6 +8,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "storage/distributed/cached_data_lock.hpp"
 #include "storage/distributed/edge_accessor.hpp"
 #include "storage/distributed/record_accessor.hpp"
 #include "storage/distributed/vertex.hpp"
@@ -69,10 +70,12 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
   bool has_label(storage::Label label) const;
 
   /** Returns all the Labels of the Vertex. */
-  const std::vector<storage::Label> &labels() const;
+  // TODO (vkasljevic) add proxy for labels
+  std::vector<storage::Label> labels() const;
 
   /** Returns EdgeAccessors for all incoming edges. */
   auto in() const {
+    auto guard = storage::GetDataLock(*this);
     return MakeAccessorIterator(current().in_.begin(), current().in_.end(),
                                 false, address(), db_accessor());
   }
@@ -86,6 +89,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    */
   auto in(const VertexAccessor &dest,
           const std::vector<storage::EdgeType> *edge_types = nullptr) const {
+    // This is temporary
+    // TODO (vkasljevic) prepare iterators for lru cache
+    auto guard = storage::GetDataLock(*this);
     return MakeAccessorIterator(current().in_.begin(dest.address(), edge_types),
                                 current().in_.end(), false, address(),
                                 db_accessor());
@@ -98,6 +104,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto in(const std::vector<storage::EdgeType> *edge_types) const {
+    // This is temporary
+    // TODO (vkasljevic) prepare iterators for lru cache
+    auto guard = storage::GetDataLock(*this);
     return MakeAccessorIterator(
         current().in_.begin(std::experimental::nullopt, edge_types),
         current().in_.end(), false, address(), db_accessor());
@@ -105,6 +114,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
 
   /** Returns EdgeAccessors for all outgoing edges. */
   auto out() const {
+    // This is temporary
+    // TODO (vkasljevic) prepare iterators for lru cache
+    auto guard = storage::GetDataLock(*this);
     return MakeAccessorIterator(current().out_.begin(), current().out_.end(),
                                 true, address(), db_accessor());
   }
@@ -119,6 +131,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    */
   auto out(const VertexAccessor &dest,
            const std::vector<storage::EdgeType> *edge_types = nullptr) const {
+    // This is temporary
+    // TODO (vkasljevic) prepare iterators for lru cache
+    auto guard = storage::GetDataLock(*this);
     return MakeAccessorIterator(
         current().out_.begin(dest.address(), edge_types), current().out_.end(),
         true, address(), db_accessor());
@@ -131,6 +146,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   auto out(const std::vector<storage::EdgeType> *edge_types) const {
+    // This is temporary
+    // TODO (vkasljevic) prepare iterators for lru cache
+    auto guard = storage::GetDataLock(*this);
     return MakeAccessorIterator(
         current().out_.begin(std::experimental::nullopt, edge_types),
         current().out_.end(), true, address(), db_accessor());
