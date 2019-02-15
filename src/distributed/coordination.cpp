@@ -11,7 +11,6 @@ Coordination::Coordination(const io::network::Endpoint &worker_endpoint,
                            const io::network::Endpoint &master_endpoint,
                            int server_workers_count, int client_workers_count)
     : server_(worker_endpoint, server_workers_count),
-      worker_id_(worker_id),
       thread_pool_(client_workers_count, "RPC client") {
   if (worker_id != 0) {
     // The master is always worker 0.

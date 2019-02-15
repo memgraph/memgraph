@@ -861,7 +861,7 @@ TEST_F(Durability, ContainsDurabilityFilesSnapshot) {
   {
     database::GraphDb db{DbConfig()};
     auto dba = db.Access();
-    auto v0 = dba->InsertVertex();
+    dba->InsertVertex();
     MakeSnapshot(db);
   }
   ASSERT_TRUE(durability::ContainsDurabilityFiles(durability_dir_));
@@ -872,7 +872,7 @@ TEST_F(Durability, ContainsDurabilityFilesWal) {
   {
     database::GraphDb db{DbConfig(true, false)};
     auto dba = db.Access();
-    auto v0 = dba->InsertVertex();
+    dba->InsertVertex();
     dba->Commit();
     db.wal().Flush();
   }
@@ -884,7 +884,7 @@ TEST_F(Durability, MoveToBackupSnapshot) {
   {
     database::GraphDb db{DbConfig()};
     auto dba = db.Access();
-    auto v0 = dba->InsertVertex();
+    dba->InsertVertex();
     MakeSnapshot(db);
   }
 
@@ -898,7 +898,7 @@ TEST_F(Durability, MoveToBackupWal) {
   {
     database::GraphDb db{DbConfig(true, false)};
     auto dba = db.Access();
-    auto v0 = dba->InsertVertex();
+    dba->InsertVertex();
     dba->Commit();
     db.wal().Flush();
   }

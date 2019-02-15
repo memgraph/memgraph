@@ -102,7 +102,6 @@ class Coordination {
  private:
   std::unordered_map<int, io::network::Endpoint> workers_;
   mutable std::mutex lock_;
-  int worker_id_;
 
   std::unordered_map<int, communication::rpc::ClientPool> client_pools_;
   utils::ThreadPool thread_pool_;

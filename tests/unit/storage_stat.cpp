@@ -39,11 +39,11 @@ TEST_F(StatTest, CountTest2) {
   auto v2 = dba->InsertVertex();
   auto v3 = dba->InsertVertex();
   auto v4 = dba->InsertVertex();
-  auto e1 = dba->InsertEdge(v1, v2, type);
-  auto e2 = dba->InsertEdge(v2, v2, type);
-  auto e3 = dba->InsertEdge(v3, v2, type);
-  auto e4 = dba->InsertEdge(v4, v2, type);
-  auto e5 = dba->InsertEdge(v1, v3, type);
+  dba->InsertEdge(v1, v2, type);
+  dba->InsertEdge(v2, v2, type);
+  dba->InsertEdge(v3, v2, type);
+  dba->InsertEdge(v4, v2, type);
+  dba->InsertEdge(v1, v3, type);
 
   COMPARE(stat, 0, 0, 0);
   db_.RefreshStat();

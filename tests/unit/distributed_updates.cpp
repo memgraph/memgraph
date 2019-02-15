@@ -254,7 +254,7 @@ TEST_F(DistributedGraphDbSimpleUpdatesTest, DeleteVertexRemoteStillConnected) {
     auto dba0 = master().Access();
     auto dba1 = worker(1).Access(dba0->transaction_id());
     auto e_local = dba1->FindEdge(e_address.gid(), false);
-    auto v_local = dba1->FindVertex(v_address.gid(), false);
+    EXPECT_TRUE(dba1->FindVertexOptional(v_address.gid(), false));
     auto v_remote = VertexAccessor(v_address, *dba0);
 
     dba1->RemoveEdge(e_local);
