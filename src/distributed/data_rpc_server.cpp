@@ -14,21 +14,20 @@ DataRpcServer::DataRpcServer(database::GraphDb *db,
   coordination->Register<VertexRpc>(
       [this](const auto &req_reader, auto *res_builder) {
         auto dba = db_->Access(req_reader.getMember().getTxId());
-        auto vertex = dba->FindVertex(req_reader.getMember().getGid(), false);
-        CHECK(vertex.GetOld())
-            << "Old record must exist when sending vertex by RPC";
-        VertexRes response(vertex.CypherId(), vertex.GetOld(), db_->WorkerId());
+        auto vertex = dba->FindVertexRaw(req_reader.getMember().getGid());
+        VertexRes response(vertex.CypherId(), vertex.GetOld(),
+                           vertex.GetNew(), db_->WorkerId());
         Save(response, res_builder);
       });
 
-  coordination->Register<EdgeRpc>([this](const auto &req_reader,
-                                         auto *res_builder) {
-    auto dba = db_->Access(req_reader.getMember().getTxId());
-    auto edge = dba->FindEdge(req_reader.getMember().getGid(), false);
-    CHECK(edge.GetOld()) << "Old record must exist when sending edge by RPC";
-    EdgeRes response(edge.CypherId(), edge.GetOld(), db_->WorkerId());
-    Save(response, res_builder);
-  });
+  coordination->Register<EdgeRpc>(
+      [this](const auto &req_reader, auto *res_builder) {
+        auto dba = db_->Access(req_reader.getMember().getTxId());
+        auto edge = dba->FindEdgeRaw(req_reader.getMember().getGid());
+        EdgeRes response(edge.CypherId(), edge.GetOld(),
+                         edge.GetNew(), db_->WorkerId());
+        Save(response, res_builder);
+      });
 
   coordination->Register<VertexCountRpc>(
       [this](const auto &req_reader, auto *res_builder) {

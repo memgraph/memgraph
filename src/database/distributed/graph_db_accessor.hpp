@@ -145,6 +145,12 @@ class GraphDbAccessor {
       gid::Gid gid, bool current_state);
 
   /**
+   * Obtains the vertex accessor for given id without checking if the
+   * vertex is visible.
+   */
+  VertexAccessor FindVertexRaw(gid::Gid gid);
+
+  /**
    * Obtains the vertex for the given ID. If there is no vertex for the given
    * ID, or it's not visible to this accessor's transaction, MG is crashed
    * using a CHECK.
@@ -374,6 +380,12 @@ class GraphDbAccessor {
    */
   std::experimental::optional<EdgeAccessor> FindEdgeOptional(
       gid::Gid gid, bool current_state);
+
+  /**
+   * Obtains the edge accessor for the given id without checking if the edge
+   * is visible.
+   */
+  EdgeAccessor FindEdgeRaw(gid::Gid gid);
 
   /**
    * Obtains the edge for the given ID. If there is no edge for the given

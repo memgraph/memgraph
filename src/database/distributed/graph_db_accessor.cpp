@@ -96,11 +96,15 @@ VertexAccessor GraphDbAccessor::InsertVertex(
 
 std::experimental::optional<VertexAccessor> GraphDbAccessor::FindVertexOptional(
     gid::Gid gid, bool current_state) {
-  VertexAccessor record_accessor(
-      storage::VertexAddress(db_.storage().LocalAddress<Vertex>(gid)), *this);
+  auto record_accessor = FindVertexRaw(gid);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
+}
+
+VertexAccessor GraphDbAccessor::FindVertexRaw(gid::Gid gid) {
+  return VertexAccessor(
+      storage::VertexAddress(db_.storage().LocalAddress<Vertex>(gid)), *this);
 }
 
 VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
@@ -111,11 +115,15 @@ VertexAccessor GraphDbAccessor::FindVertex(gid::Gid gid, bool current_state) {
 
 std::experimental::optional<EdgeAccessor> GraphDbAccessor::FindEdgeOptional(
     gid::Gid gid, bool current_state) {
-  EdgeAccessor record_accessor(
-      storage::EdgeAddress(db_.storage().LocalAddress<Edge>(gid)), *this);
+  auto record_accessor = FindEdgeRaw(gid);
   if (!record_accessor.Visible(transaction(), current_state))
     return std::experimental::nullopt;
   return record_accessor;
+}
+
+EdgeAccessor GraphDbAccessor::FindEdgeRaw(gid::Gid gid) {
+  return EdgeAccessor(
+      storage::EdgeAddress(db_.storage().LocalAddress<Edge>(gid)), *this);
 }
 
 EdgeAccessor GraphDbAccessor::FindEdge(gid::Gid gid, bool current_state) {

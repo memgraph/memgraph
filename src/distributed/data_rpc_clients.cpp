@@ -12,20 +12,22 @@ template <>
 RemoteElementInfo<Edge> DataRpcClients::RemoteElement(int worker_id,
                                                       tx::TransactionId tx_id,
                                                       gid::Gid gid) {
-  auto response =
-      coordination_->GetClientPool(worker_id)->Call<EdgeRpc>(TxGidPair{tx_id, gid});
+  auto response = coordination_->GetClientPool(worker_id)->Call<EdgeRpc>(
+      TxGidPair{tx_id, gid});
   return RemoteElementInfo<Edge>(response.cypher_id,
-                                 std::move(response.edge_output));
+                                 std::move(response.edge_old_output),
+                                 std::move(response.edge_new_output));
 }
 
 template <>
 RemoteElementInfo<Vertex> DataRpcClients::RemoteElement(int worker_id,
                                                         tx::TransactionId tx_id,
                                                         gid::Gid gid) {
-  auto response =
-      coordination_->GetClientPool(worker_id)->Call<VertexRpc>(TxGidPair{tx_id, gid});
+  auto response = coordination_->GetClientPool(worker_id)->Call<VertexRpc>(
+      TxGidPair{tx_id, gid});
   return RemoteElementInfo<Vertex>(response.cypher_id,
-                                   std::move(response.vertex_output));
+                                   std::move(response.vertex_old_output),
+                                   std::move(response.vertex_new_output));
 }
 
 std::unordered_map<int, int64_t> DataRpcClients::VertexCounts(

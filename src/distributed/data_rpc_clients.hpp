@@ -25,11 +25,15 @@ struct RemoteElementInfo {
   RemoteElementInfo &operator=(const RemoteElementInfo &) = delete;
   RemoteElementInfo &operator=(RemoteElementInfo &&) = delete;
 
-  RemoteElementInfo(int64_t cypher_id, std::unique_ptr<TRecord> record_ptr)
-      : cypher_id(cypher_id), record_ptr(std::move(record_ptr)) {}
+  RemoteElementInfo(int64_t cypher_id, std::unique_ptr<TRecord> old_record_ptr,
+                    std::unique_ptr<TRecord> new_record_ptr)
+      : cypher_id(cypher_id),
+        old_record_ptr(std::move(old_record_ptr)),
+        new_record_ptr(std::move(new_record_ptr)) {}
 
   int64_t cypher_id;
-  std::unique_ptr<TRecord> record_ptr;
+  std::unique_ptr<TRecord> old_record_ptr;
+  std::unique_ptr<TRecord> new_record_ptr;
 };
 
 /// Provides access to other worker's data.

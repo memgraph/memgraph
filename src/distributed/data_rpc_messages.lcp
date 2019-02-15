@@ -29,65 +29,175 @@ cpp<#
     (:request ((member "TxGidPair")))
   (:response
    ((cypher-id :int64_t)
-    (vertex-input "const Vertex *"
+    (vertex-old-input "const Vertex *"
                   :capnp-type "Storage.Vertex"
+                  :capnp-init nil
                   :capnp-save
                   (lambda (builder member capnp-name)
                     (declare (ignore capnp-name))
                     #>cpp
-                    storage::SaveVertex(*${member}, &${builder}, self.worker_id);
+                    if (${member}) {
+                      auto my_builder = ${builder}->initVertexOldInput();
+                      storage::SaveVertex(*${member}, &my_builder, self.worker_id);
+                    }
                     cpp<#)
                   :slk-save
                   (lambda (member)
                     #>cpp
-                    slk::Save(*self.${member}, builder, self.worker_id);
+                    bool has_ptr = self.${member};
+                    slk::Save(has_ptr, builder);
+                    if (has_ptr) {
+                      slk::Save(*self.${member}, builder, self.worker_id);
+                    }
                     cpp<#)
                   :capnp-load
                   (lambda (reader member capnp-name)
                     (declare (ignore member capnp-name))
                     #>cpp
-                    self->vertex_output = storage::LoadVertex(${reader});
+                    if (${reader}.hasVertexOldInput()) {
+                      auto my_reader = ${reader}.getVertexOldInput();
+                      self->vertex_old_output = storage::LoadVertex(my_reader);
+                    }
                     cpp<#)
                   :slk-load
                   (lambda (member)
                     (declare (ignore member))
                     #>cpp
-                    self->vertex_output = std::make_unique<Vertex>();
-                    slk::Load(self->vertex_output.get(), reader);
+                    bool has_ptr;
+                    slk::Load(&has_ptr, reader);
+                    if (has_ptr) {
+                      self->vertex_old_output = std::make_unique<Vertex>();
+                      slk::Load(self->vertex_old_output.get(), reader);
+                    }
+                    cpp<#))
+    (vertex-new-input "const Vertex *"
+                  :capnp-type "Storage.Vertex"
+                  :capnp-init nil
+                  :capnp-save
+                  (lambda (builder member capnp-name)
+                    (declare (ignore capnp-name))
+                    #>cpp
+                    if (${member}) {
+                      auto my_builder = ${builder}->initVertexNewInput();
+                      storage::SaveVertex(*${member}, &my_builder, self.worker_id);
+                    }
+                    cpp<#)
+                  :slk-save
+                  (lambda (member)
+                    #>cpp
+                    bool has_ptr = self.${member};
+                    slk::Save(has_ptr, builder);
+                    if (has_ptr) {
+                      slk::Save(*self.${member}, builder, self.worker_id);
+                    }
+                    cpp<#)
+                  :capnp-load
+                  (lambda (reader member capnp-name)
+                    (declare (ignore member capnp-name))
+                    #>cpp
+                    if (${reader}.hasVertexNewInput()) {
+                      auto my_reader = ${reader}.getVertexNewInput();
+                      self->vertex_new_output = storage::LoadVertex(my_reader);
+                    }
+                    cpp<#)
+                  :slk-load
+                  (lambda (member)
+                    (declare (ignore member))
+                    #>cpp
+                    bool has_ptr;
+                    slk::Load(&has_ptr, reader);
+                    if (has_ptr) {
+                      self->vertex_new_output = std::make_unique<Vertex>();
+                      slk::Load(self->vertex_new_output.get(), reader);
+                    }
                     cpp<#))
     (worker-id :int64_t :dont-save t)
-    (vertex-output "std::unique_ptr<Vertex>" :initarg nil :dont-save t))))
+ (vertex-old-output "std::unique_ptr<Vertex>" :initarg nil :dont-save t)
+ (vertex-new-output "std::unique_ptr<Vertex>" :initarg nil :dont-save t))))
 
 (lcp:define-rpc edge
     (:request ((member "TxGidPair")))
   (:response
    ((cypher-id :int64_t)
-    (edge-input "const Edge *"
+    (edge-old-input "const Edge *"
                 :capnp-type "Storage.Edge"
+                :capnp-init nil
                 :capnp-save
                 (lambda (builder member capnp-name)
                   (declare (ignore capnp-name))
                   #>cpp
-                  storage::SaveEdge(*${member}, &${builder}, self.worker_id);
+                  if (${member}) {
+                    auto my_builder = ${builder}->initEdgeOldInput();
+                    storage::SaveEdge(*${member}, &my_builder, self.worker_id);
+                  }
                   cpp<#)
                 :slk-save
                 (lambda (member)
                   #>cpp
-                  slk::Save(*self.${member}, builder, self.worker_id);
+                  bool has_ptr = self.${member};
+                  slk::Save(has_ptr, builder);
+                  if (has_ptr) {
+                    slk::Save(*self.${member}, builder, self.worker_id);
+                  }
                   cpp<#)
                 :capnp-load
                 (lambda (reader member capnp-name)
                   (declare (ignore member capnp-name))
                   #>cpp
-                  self->edge_output = storage::LoadEdge(${reader});
+                  if (${reader}.hasEdgeOldInput()) {
+                    auto my_reader = ${reader}.getEdgeOldInput();
+                    self->edge_old_output = storage::LoadEdge(my_reader);
+                  }
                   cpp<#)
                 :slk-load
                 (lambda (member)
                   #>cpp
-                  slk::Load(&self->edge_output, reader);
+                  // slk::Load will read a bool which was explicity
+                  // saved in :slk::save and based on that read record
+                  // data
+                  slk::Load(&self->edge_old_output, reader);
+                  cpp<#))
+    (edge-new-input "const Edge *"
+                :capnp-type "Storage.Edge"
+                :capnp-init nil
+                :capnp-save
+                (lambda (builder member capnp-name)
+                  (declare (ignore capnp-name))
+                  #>cpp
+                  if (${member}) {
+                    auto my_builder = ${builder}->initEdgeNewInput();
+                    storage::SaveEdge(*${member}, &my_builder, self.worker_id);
+                  }
+                  cpp<#)
+                :slk-save
+                (lambda (member)
+                  #>cpp
+                  bool has_ptr = self.${member};
+                  slk::Save(has_ptr, builder);
+                  if (has_ptr) {
+                    slk::Save(*self.${member}, builder, self.worker_id);
+                  }
+                  cpp<#)
+                :capnp-load
+                (lambda (reader member capnp-name)
+                  (declare (ignore member capnp-name))
+                  #>cpp
+                  if (${reader}.hasEdgeNewInput()) {
+                    auto my_reader = ${reader}.getEdgeNewInput();
+                    self->edge_new_output = storage::LoadEdge(my_reader);
+                  }
+                  cpp<#)
+                :slk-load
+                (lambda (member)
+                  #>cpp
+                  // slk::Load will read a bool which was explicity
+                  // saved in :slk::save and based on that read record
+                  // data
+                  slk::Load(&self->edge_new_output, reader);
                   cpp<#))
     (worker-id :int64_t :dont-save t)
-    (edge-output "std::unique_ptr<Edge>" :initarg nil :dont-save t))))
+ (edge-old-output "std::unique_ptr<Edge>" :initarg nil :dont-save t)
+ (edge-new-output "std::unique_ptr<Edge>" :initarg nil :dont-save t))))
 
 (lcp:define-rpc vertex-count
     (:request ((member "tx::TransactionId" :capnp-type "UInt64")))

@@ -62,6 +62,7 @@ class DataManager {
   /// from the given transaction's ID and command ID, and caches it. Sets the
   /// given pointers to point to the fetched data. Analogue to
   /// mvcc::VersionList::find_set_old_new.
+  // TODO (vkasljevic) remove this and use Find instead
   template <typename TRecord>
   void FindSetOldNew(tx::TransactionId tx_id, int worker_id, gid::Gid gid,
                      TRecord **old_record, TRecord **new_record) {
@@ -79,7 +80,8 @@ class DataManager {
     }
 
     auto remote = data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
-    LocalizeAddresses(*remote.record_ptr);
+    if (remote.old_record_ptr) LocalizeAddresses(*remote.old_record_ptr);
+    if (remote.new_record_ptr) LocalizeAddresses(*remote.new_record_ptr);
 
     // This logic is a bit strange because we need to make sure that someone
     // else didn't get a response and updated the cache before we did and we
@@ -88,9 +90,9 @@ class DataManager {
     // FindSetOldNew
     std::lock_guard<std::mutex> guard(lock);
     auto it_pair = cache.emplace(
-        std::move(gid),
-        CachedRecordData<TRecord>(remote.cypher_id,
-                                  std::move(remote.record_ptr), nullptr));
+        std::move(gid), CachedRecordData<TRecord>(
+                            remote.cypher_id, std::move(remote.old_record_ptr),
+                            std::move(remote.new_record_ptr)));
 
     *old_record = it_pair.first->second.old_record.get();
     *new_record = it_pair.first->second.new_record.get();
@@ -110,12 +112,14 @@ class DataManager {
     } else {
       guard.unlock();
       auto remote = data_clients_.RemoteElement<TRecord>(worker_id, tx_id, gid);
-      LocalizeAddresses(*remote.record_ptr);
+      if (remote.old_record_ptr) LocalizeAddresses(*remote.old_record_ptr);
+      if (remote.new_record_ptr) LocalizeAddresses(*remote.new_record_ptr);
       guard.lock();
       return cache
           .emplace(std::move(gid),
-                   CachedRecordData<TRecord>(
-                       remote.cypher_id, std::move(remote.record_ptr), nullptr))
+                   CachedRecordData<TRecord>(remote.cypher_id,
+                                             std::move(remote.old_record_ptr),
+                                             std::move(remote.new_record_ptr)))
           .first->second;
     }
   }
