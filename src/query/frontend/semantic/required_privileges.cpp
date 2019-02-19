@@ -30,6 +30,19 @@ class PrivilegeExtractor : public QueryVisitor<void>,
     query.cypher_query_->Accept(*this);
   }
 
+  void Visit(InfoQuery &info_query) override {
+    switch (info_query.info_type_) {
+      case InfoQuery::InfoType::INDEX:
+        // TODO: This should be INDEX | STATS, but we don't have support for
+        // *or* with privileges.
+        AddPrivilege(AuthQuery::Privilege::INDEX);
+        break;
+      case InfoQuery::InfoType::STORAGE:
+        AddPrivilege(AuthQuery::Privilege::STATS);
+        break;
+    }
+  }
+
   void Visit(CypherQuery &query) override {
     query.single_query_->Accept(*this);
     for (auto *cypher_union : query.cypher_unions_) {

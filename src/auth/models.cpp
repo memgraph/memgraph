@@ -33,6 +33,8 @@ std::string PermissionToString(Permission permission) {
       return "REMOVE";
     case Permission::INDEX:
       return "INDEX";
+    case Permission::STATS:
+      return "STATS";
     case Permission::AUTH:
       return "AUTH";
     case Permission::STREAM:

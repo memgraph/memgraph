@@ -2109,12 +2109,7 @@ TYPED_TEST(CypherMainVisitorTest, RevokePrivilege) {
       {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
   check_auth_query<TypeParam>(
       "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE,
-      "", "", "user", {},
-      {AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
-       AuthQuery::Privilege::MATCH, AuthQuery::Privilege::MERGE,
-       AuthQuery::Privilege::SET, AuthQuery::Privilege::REMOVE,
-       AuthQuery::Privilege::INDEX, AuthQuery::Privilege::AUTH,
-       AuthQuery::Privilege::STREAM});
+      "", "", "user", {}, kPrivilegesAll);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ShowPrivileges) {

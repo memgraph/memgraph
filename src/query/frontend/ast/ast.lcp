@@ -2402,7 +2402,7 @@ cpp<#
          show-users-for-role)
       (:serialize))
     (lcp:define-enum privilege
-        (create delete match merge set remove index auth stream)
+        (create delete match merge set remove index stats auth stream)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2435,8 +2435,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
     AuthQuery::Privilege::MATCH,  AuthQuery::Privilege::MERGE,
     AuthQuery::Privilege::SET,    AuthQuery::Privilege::REMOVE,
-    AuthQuery::Privilege::INDEX,  AuthQuery::Privilege::AUTH,
-    AuthQuery::Privilege::STREAM};
+    AuthQuery::Privilege::INDEX,  AuthQuery::Privilege::STATS,
+    AuthQuery::Privilege::AUTH,   AuthQuery::Privilege::STREAM};
 cpp<#
 
 (lcp:define-class stream-query (query)
@@ -2507,6 +2507,19 @@ cpp<#
   (:private
     #>cpp
     friend class AstStorage;
+    cpp<#)
+  (:serialize (:slk) (:capnp))
+  (:clone))
+
+(lcp:define-class info-query (query)
+  ((info-type "InfoType" :scope :public))
+  (:public
+    (lcp:define-enum info-type
+        (storage index)
+      (:serialize))
+
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
     cpp<#)
   (:serialize (:slk) (:capnp))
   (:clone))

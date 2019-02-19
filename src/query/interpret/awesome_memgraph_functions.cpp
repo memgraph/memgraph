@@ -675,15 +675,6 @@ TypedValue CounterSet(TypedValue *args, int64_t nargs,
   return TypedValue::Null;
 }
 
-TypedValue IndexInfo(TypedValue *, int64_t nargs, const EvaluationContext &,
-                     database::GraphDbAccessor *dba) {
-  if (nargs != 0)
-    throw QueryRuntimeException("'indexInfo' requires no arguments.");
-
-  auto info = dba->IndexInfo();
-  return std::vector<TypedValue>(info.begin(), info.end());
-}
-
 #ifdef MG_DISTRIBUTED
 TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
                     database::GraphDbAccessor *) {
@@ -700,17 +691,6 @@ TypedValue WorkerId(TypedValue *args, int64_t nargs, const EvaluationContext &,
       throw QueryRuntimeException(
           "'workerId' argument must be a node or an edge.");
   }
-}
-#endif
-
-#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
-TypedValue StorageInfo(TypedValue *, int64_t nargs, const EvaluationContext &,
-                       database::GraphDbAccessor *dba) {
-  if (nargs != 0)
-    throw QueryRuntimeException("'storageInfo' requires no arguments.");
-
-  auto info = dba->StorageInfo();
-  return std::map<std::string, TypedValue>(info.begin(), info.end());
 }
 #endif
 
@@ -992,12 +972,8 @@ NameToFunction(const std::string &function_name) {
   if (function_name == "ASSERT") return Assert;
   if (function_name == "COUNTER") return Counter;
   if (function_name == "COUNTERSET") return CounterSet;
-  if (function_name == "INDEXINFO") return IndexInfo;
 #ifdef MG_DISTRIBUTED
   if (function_name == "WORKERID") return WorkerId;
-#endif
-#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
-  if (function_name == "STORAGEINFO") return StorageInfo;
 #endif
 
   return nullptr;

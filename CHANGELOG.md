@@ -1,5 +1,16 @@
 # Change Log
 
+## Next Release
+
+### Breaking Changes
+
+* `indexInfo()` function replaced with `SHOW INDEX INFO` syntax.
+
+### Major Features and Improvements
+
+* [Enterprise Ed.] Add new privilege, `STATS` for accessing storage info.
+* Add `SHOW STORAGE INFO` feature.
+
 ## v0.14.0
 
 ### Breaking Changes

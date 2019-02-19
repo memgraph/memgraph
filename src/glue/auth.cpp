@@ -18,6 +18,8 @@ auth::Permission PrivilegeToPermission(query::AuthQuery::Privilege privilege) {
       return auth::Permission::REMOVE;
     case query::AuthQuery::Privilege::INDEX:
       return auth::Permission::INDEX;
+    case query::AuthQuery::Privilege::STATS:
+      return auth::Permission::STATS;
     case query::AuthQuery::Privilege::AUTH:
       return auth::Permission::AUTH;
     case query::AuthQuery::Privilege::STREAM:

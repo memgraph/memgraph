@@ -49,6 +49,7 @@ query : cypherQuery
       | indexQuery
       | explainQuery
       | profileQuery
+      | infoQuery
       | authQuery
       | streamQuery
       ;
@@ -98,7 +99,7 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE | DELETE | MATCH | MERGE | SET
-          | REMOVE | INDEX | AUTH | STREAM ;
+          | REMOVE | INDEX | STATS | AUTH | STREAM ;
 
 privilegeList : privilege ( ',' privilege )* ;
 

@@ -66,6 +66,7 @@ class ExplainQuery;
 class ProfileQuery;
 class IndexQuery;
 class StreamQuery;
+class InfoQuery;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
@@ -109,6 +110,6 @@ class ExpressionVisitor
 template <class TResult>
 class QueryVisitor
     : public ::utils::Visitor<TResult, CypherQuery, ExplainQuery, ProfileQuery,
-                              IndexQuery, AuthQuery, StreamQuery> {};
+                              IndexQuery, AuthQuery, StreamQuery, InfoQuery> {};
 
 }  // namespace query

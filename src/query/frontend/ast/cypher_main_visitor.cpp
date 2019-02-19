@@ -46,6 +46,23 @@ antlrcpp::Any CypherMainVisitor::visitProfileQuery(
   return profile_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitInfoQuery(
+    MemgraphCypher::InfoQueryContext *ctx) {
+  CHECK(ctx->children.size() == 2)
+      << "ProfileQuery should have exactly two children!";
+  auto *info_query = storage_->Create<InfoQuery>();
+  query_ = info_query;
+  if (ctx->storageInfo()) {
+    info_query->info_type_ = InfoQuery::InfoType::STORAGE;
+    return info_query;
+  } else if (ctx->indexInfo()) {
+    info_query->info_type_ = InfoQuery::InfoType::INDEX;
+    return info_query;
+  } else {
+    throw utils::NotYetImplemented("Info query: '{}'", ctx->getText());
+  }
+}
+
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(
     MemgraphCypher::CypherQueryContext *ctx) {
   auto *cypher_query = storage_->Create<CypherQuery>();
@@ -475,6 +492,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(
   if (ctx->SET()) return AuthQuery::Privilege::SET;
   if (ctx->REMOVE()) return AuthQuery::Privilege::REMOVE;
   if (ctx->INDEX()) return AuthQuery::Privilege::INDEX;
+  if (ctx->STATS()) return AuthQuery::Privilege::STATS;
   if (ctx->AUTH()) return AuthQuery::Privilege::AUTH;
   if (ctx->STREAM()) return AuthQuery::Privilege::STREAM;
   LOG(FATAL) << "Should not get here - unknown privilege!";

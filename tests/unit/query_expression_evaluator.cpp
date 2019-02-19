@@ -1438,30 +1438,6 @@ TEST_F(FunctionTest, CounterSet) {
   EXPECT_EQ(EvaluateFunction("COUNTER", {"c2"}).ValueInt(), 43);
 }
 
-TEST_F(FunctionTest, IndexInfo) {
-  EXPECT_THROW(EvaluateFunction("INDEXINFO", {1}), QueryRuntimeException);
-  EXPECT_EQ(EvaluateFunction("INDEXINFO", {}).ValueList().size(), 0);
-  dba->InsertVertex().add_label(dba->Label("l1"));
-  {
-    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}));
-    EXPECT_EQ(info.size(), 1);
-    EXPECT_EQ(info[0], ":l1");
-  }
-  {
-    dba->BuildIndex(dba->Label("l1"), dba->Property("prop"), false);
-    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}));
-    EXPECT_EQ(info.size(), 2);
-    EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)"));
-  }
-  {
-    dba->BuildIndex(dba->Label("l1"), dba->Property("prop1"), true);
-    auto info = ToList<std::string>(EvaluateFunction("INDEXINFO", {}));
-    EXPECT_EQ(info.size(), 3);
-    EXPECT_THAT(info, testing::UnorderedElementsAre(":l1", ":l1(prop)",
-                                                    ":l1(prop1) unique"));
-  }
-}
-
 TEST_F(FunctionTest, Id) {
   auto va = dba->InsertVertex();
   auto ea = dba->InsertEdge(va, va, dba->EdgeType("edge"));

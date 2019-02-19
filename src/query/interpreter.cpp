@@ -582,6 +582,41 @@ Callback HandleIndexQuery(IndexQuery *index_query,
   }
 }
 
+Callback HandleInfoQuery(InfoQuery *info_query, database::GraphDbAccessor *db_accessor) {
+  Callback callback;
+  switch (info_query->info_type_) {
+    case InfoQuery::InfoType::STORAGE:
+#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
+      callback.header = {"storage info", "value"};
+      callback.fn = [db_accessor] {
+        auto info = db_accessor->StorageInfo();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(info.size());
+        for (const auto &kv : info) {
+          results.push_back({kv.first, kv.second});
+        }
+        return results;
+      };
+#else
+      throw utils::NotYetImplemented("storage info");
+#endif
+      break;
+    case InfoQuery::InfoType::INDEX:
+      callback.header = {"created index"};
+      callback.fn = [db_accessor] {
+        auto info = db_accessor->IndexInfo();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(info.size());
+        for (const auto &index : info) {
+          results.push_back({index});
+        }
+        return results;
+      };
+      break;
+  }
+  return callback;
+}
+
 Interpreter::Interpreter() : is_tsc_available_(utils::CheckAvailableTSC()) {}
 
 Interpreter::Results Interpreter::operator()(
@@ -814,6 +849,8 @@ Interpreter::Results Interpreter::operator()(
     }
     callback = HandleStreamQuery(stream_query, kafka_streams_, parameters,
                                  &db_accessor);
+  } else if (auto *info_query = utils::Downcast<InfoQuery>(parsed_query.query)) {
+    callback = HandleInfoQuery(info_query, &db_accessor);
   } else {
     LOG(FATAL) << "Should not get here -- unknown query type!";
   }

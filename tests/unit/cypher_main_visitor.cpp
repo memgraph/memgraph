@@ -2167,12 +2167,7 @@ TYPED_TEST(CypherMainVisitorTest, RevokePrivilege) {
       {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
   check_auth_query<TypeParam>(
       "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE,
-      "", "", "user", {},
-      {AuthQuery::Privilege::CREATE, AuthQuery::Privilege::DELETE,
-       AuthQuery::Privilege::MATCH, AuthQuery::Privilege::MERGE,
-       AuthQuery::Privilege::SET, AuthQuery::Privilege::REMOVE,
-       AuthQuery::Privilege::INDEX, AuthQuery::Privilege::AUTH,
-       AuthQuery::Privilege::STREAM});
+      "", "", "user", {}, kPrivilegesAll);
 }
 
 TYPED_TEST(CypherMainVisitorTest, ShowPrivileges) {
@@ -2493,6 +2488,24 @@ TYPED_TEST(CypherMainVisitorTest, TestProfileAuthQuery) {
 TYPED_TEST(CypherMainVisitorTest, TestProfileStreamQuery) {
   EXPECT_THROW(TypeParam ast_generator("PROFILE SHOW STREAMS"),
                SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestShowStorageInfo) {
+  {
+    TypeParam ast_generator("SHOW STORAGE INFO");
+    auto *query = dynamic_cast<InfoQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, InfoQuery::InfoType::STORAGE);
+  }
+}
+
+TYPED_TEST(CypherMainVisitorTest, TestShowIndexInfo) {
+  {
+    TypeParam ast_generator("SHOW INDEX INFO");
+    auto *query = dynamic_cast<InfoQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, InfoQuery::InfoType::INDEX);
+  }
 }
 
 }  // namespace

@@ -160,6 +160,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       MemgraphCypher::ProfileQueryContext *ctx) override;
 
   /**
+   * @return InfoQuery*
+   */
+  antlrcpp::Any visitInfoQuery(MemgraphCypher::InfoQueryContext *ctx) override;
+
+  /**
    * @return AuthQuery*
    */
   antlrcpp::Any visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) override;

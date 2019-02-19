@@ -34,6 +34,7 @@ ROLE           : R O L E ;
 ROLES          : R O L E S ;
 SIZE           : S I Z E ;
 START          : S T A R T ;
+STATS          : S T A T S ;
 STOP           : S T O P ;
 STREAM         : S T R E A M ;
 STREAMS        : S T R E A M S ;

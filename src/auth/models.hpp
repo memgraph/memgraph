@@ -17,6 +17,7 @@ enum class Permission : uint64_t {
   SET = 0x00000010,
   REMOVE = 0x00000020,
   INDEX = 0x00000040,
+  STATS = 0x00000080,
   AUTH = 0x00010000,
   STREAM = 0x00020000,
 };
@@ -25,7 +26,8 @@ enum class Permission : uint64_t {
 const std::vector<Permission> kPermissionsAll = {
     Permission::MATCH,  Permission::CREATE, Permission::MERGE,
     Permission::DELETE, Permission::SET,    Permission::REMOVE,
-    Permission::INDEX,  Permission::AUTH,   Permission::STREAM};
+    Permission::INDEX,  Permission::STATS,  Permission::AUTH,
+    Permission::STREAM};
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);

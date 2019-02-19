@@ -27,7 +27,14 @@ query : cypherQuery
       | indexQuery
       | explainQuery
       | profileQuery
+      | infoQuery
       ;
+
+storageInfo : STORAGE INFO ;
+
+indexInfo : INDEX INFO ;
+
+infoQuery : SHOW ( storageInfo | indexInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 

@@ -132,3 +132,18 @@ TEST_F(TestPrivilegeExtractor, StreamQuery) {
                 UnorderedElementsAre(AuthQuery::Privilege::STREAM));
   }
 }
+
+TEST_F(TestPrivilegeExtractor, ShowIndexInfo) {
+  auto *query = storage.Create<InfoQuery>();
+  query->info_type_ = InfoQuery::InfoType::INDEX;
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::INDEX));
+}
+
+TEST_F(TestPrivilegeExtractor, ShowStatsInfo) {
+  auto *query = storage.Create<InfoQuery>();
+  query->info_type_ = InfoQuery::InfoType::STORAGE;
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::STATS));
+}
+
