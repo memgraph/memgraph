@@ -120,6 +120,7 @@ chattr -i -R /usr/share/memgraph/examples || true
 # uses plain %config.
 %config(noreplace) "/etc/memgraph/memgraph.conf"
 %config(noreplace) "/etc/logrotate.d/memgraph"
+%config(noreplace) "/etc/logrotate.d/memgraph_audit"
 
 @CPACK_RPM_USER_INSTALL_FILES@
 

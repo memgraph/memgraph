@@ -9,6 +9,7 @@
 
 #include <gflags/gflags.h>
 
+#include "audit/log.hpp"
 #include "auth/auth.hpp"
 #include "communication/bolt/v1/session.hpp"
 #include "communication/init.hpp"
@@ -21,10 +22,18 @@ DECLARE_string(durability_directory);
 /// Encapsulates Dbms and Interpreter that are passed through the network server
 /// and worker to the session.
 struct SessionData {
-  database::GraphDb *db{nullptr};
-  query::Interpreter *interpreter{nullptr};
-  auth::Auth auth{
-      std::experimental::filesystem::path(FLAGS_durability_directory) / "auth"};
+  // Explicit constructor here to ensure that pointers to all objects are
+  // supplied.
+  SessionData(database::GraphDb *_db, query::Interpreter *_interpreter,
+              auth::Auth *_auth, audit::Log *_audit_log)
+      : db(_db),
+        interpreter(_interpreter),
+        auth(_auth),
+        audit_log(_audit_log) {}
+  database::GraphDb *db;
+  query::Interpreter *interpreter;
+  auth::Auth *auth;
+  audit::Log *audit_log;
 };
 
 class BoltSession final
@@ -66,6 +75,8 @@ class BoltSession final
   query::TransactionEngine transaction_engine_;
   auth::Auth *auth_;
   std::experimental::optional<auth::User> user_;
+  audit::Log *audit_log_;
+  io::network::Endpoint endpoint_;
 };
 
 /// Class that implements ResultStream API for Kafka.

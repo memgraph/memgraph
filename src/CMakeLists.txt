@@ -16,6 +16,7 @@ add_subdirectory(rpc)
 # Memgraph Single Node
 # ----------------------------------------------------------------------------
 set(mg_single_node_sources
+    audit/log.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/single_node/config.cpp
     database/single_node/graph_db.cpp
@@ -95,6 +96,7 @@ target_compile_definitions(mg-single-node PUBLIC MG_SINGLE_NODE)
 # ----------------------------------------------------------------------------
 
 set(mg_distributed_sources
+    audit/log.cpp
     database/distributed/distributed_counters.cpp
     database/distributed/distributed_graph_db.cpp
     distributed/bfs_rpc_clients.cpp
@@ -256,6 +258,7 @@ target_compile_definitions(mg-distributed PUBLIC MG_DISTRIBUTED)
 # Memgraph Single Node High Availability
 # ----------------------------------------------------------------------------
 set(mg_single_node_ha_sources
+    audit/log.cpp
     data_structures/concurrent/skiplist_gc.cpp
     database/single_node_ha/config.cpp
     database/single_node_ha/graph_db.cpp
@@ -404,6 +407,8 @@ install(FILES ${CMAKE_SOURCE_DIR}/config/community.conf
 # Install logrotate configuration (must use absolute path).
 install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate.conf
         DESTINATION /etc/logrotate.d RENAME memgraph)
+install(FILES ${CMAKE_SOURCE_DIR}/release/logrotate_audit.conf
+        DESTINATION /etc/logrotate.d RENAME memgraph_audit)
 # Create empty directories for default location of lib and log.
 install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
                    \$ENV{DESTDIR}/var/lib/memgraph)")

@@ -21,6 +21,7 @@ enum class Signal : int {
   Pipe = SIGPIPE,
   BusError = SIGBUS,
   User1 = SIGUSR1,
+  User2 = SIGUSR2,
 };
 
 /**

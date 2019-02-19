@@ -32,18 +32,42 @@ DEFINE_VALIDATED_int32(session_inactivity_timeout, 1800,
 DEFINE_string(cert_file, "", "Certificate file to use.");
 DEFINE_string(key_file, "", "Key file to use.");
 
+// Audit logging flags.
+DEFINE_bool(audit_enabled, false, "Set to true to enable audit logging.");
+DEFINE_VALIDATED_int32(audit_buffer_size, audit::kBufferSizeDefault,
+                       "Maximum number of items in the audit log buffer.",
+                       FLAG_IN_RANGE(1, INT32_MAX));
+DEFINE_VALIDATED_int32(
+    audit_buffer_flush_interval_ms, audit::kBufferFlushIntervalMillisDefault,
+    "Interval (in milliseconds) used for flushing the audit log buffer.",
+    FLAG_IN_RANGE(10, INT32_MAX));
+
 using ServerT = communication::Server<BoltSession, SessionData>;
 using communication::ServerContext;
 
 void SingleNodeHAMain() {
   google::SetUsageMessage("Memgraph high availability single-node database server");
+
+  auto durability_directory =
+      std::experimental::filesystem::path(FLAGS_durability_directory);
+
+  auth::Auth auth{durability_directory / "auth"};
+
+  audit::Log audit_log{durability_directory / "audit", FLAGS_audit_buffer_size,
+                       FLAGS_audit_buffer_flush_interval_ms};
+  if (FLAGS_audit_enabled) {
+    audit_log.Start();
+  }
+  CHECK(utils::SignalHandler::RegisterHandler(
+      utils::Signal::User2, [&audit_log]() { audit_log.ReopenLog(); }))
+      << "Unable to register SIGUSR2 handler!";
+
   database::GraphDb db;
   query::Interpreter interpreter;
-  SessionData session_data{&db, &interpreter};
+  SessionData session_data{&db, &interpreter, &auth, &audit_log};
 
   integrations::kafka::Streams kafka_streams{
-      std::experimental::filesystem::path(FLAGS_durability_directory) /
-          "streams",
+      durability_directory / "streams",
       [&session_data](
           const std::string &query,
           const std::map<std::string, communication::bolt::Value> &params) {
@@ -57,7 +81,7 @@ void SingleNodeHAMain() {
     LOG(ERROR) << e.what();
   }
 
-  session_data.interpreter->auth_ = &session_data.auth;
+  session_data.interpreter->auth_ = &auth;
   session_data.interpreter->kafka_streams_ = &kafka_streams;
 
   ServerContext context;

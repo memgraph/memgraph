@@ -21,14 +21,17 @@ DEFINE_uint64(memory_warning_threshold, 1024,
               "less available RAM it will log a warning. Set to 0 to "
               "disable.");
 
-BoltSession::BoltSession(SessionData *data, const io::network::Endpoint &,
+BoltSession::BoltSession(SessionData *data,
+                         const io::network::Endpoint &endpoint,
                          communication::InputStream *input_stream,
                          communication::OutputStream *output_stream)
     : communication::bolt::Session<communication::InputStream,
                                    communication::OutputStream>(input_stream,
                                                                 output_stream),
       transaction_engine_(data->db, data->interpreter),
-      auth_(&data->auth) {}
+      auth_(data->auth),
+      audit_log_(data->audit_log),
+      endpoint_(endpoint) {}
 
 using TEncoder =
     communication::bolt::Session<communication::InputStream,
@@ -40,6 +43,8 @@ std::vector<std::string> BoltSession::Interpret(
   std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+  audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "", query,
+                     params_pv);
   try {
     auto result = transaction_engine_.Interpret(query, params_pv);
     if (user_) {

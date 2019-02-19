@@ -1,2 +1,3 @@
 /etc/memgraph/memgraph.conf
 /etc/logrotate.d/memgraph
+/etc/logrotate.d/memgraph_audit

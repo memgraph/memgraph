@@ -43,6 +43,14 @@
     - ../../../build_debug/tests/integration/auth/checker # checker binary
     - ../../../build_debug/tests/integration/auth/tester # tester binary
 
+- name: integration__audit
+  cd: audit
+  commands: ./runner.py
+  infiles:
+    - runner.py # runner script
+    - ../../../build_debug/memgraph # memgraph binary
+    - ../../../build_debug/tests/integration/audit/tester # tester binary
+
 - name: integration__distributed
   cd: distributed
   commands: TIMEOUT=480 ./runner.py

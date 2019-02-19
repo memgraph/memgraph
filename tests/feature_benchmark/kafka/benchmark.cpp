@@ -29,9 +29,19 @@ DEFINE_string(output_file, "", "Output file where shold the results be.");
 
 void KafkaBenchmarkMain() {
   google::SetUsageMessage("Memgraph kafka benchmark database server");
+
+  auto durability_directory =
+      std::experimental::filesystem::path(FLAGS_durability_directory);
+
+  auth::Auth auth{durability_directory / "auth"};
+
+  audit::Log audit_log{durability_directory / "audit",
+                       audit::kBufferSizeDefault,
+                       audit::kBufferFlushIntervalMillisDefault};
+
   query::Interpreter interpreter;
   database::GraphDb db;
-  SessionData session_data{&db, &interpreter};
+  SessionData session_data{&db, &interpreter, &auth, &audit_log};
 
   std::atomic<int64_t> query_counter{0};
   std::atomic<bool> timeout_reached{false};
@@ -47,7 +57,7 @@ void KafkaBenchmarkMain() {
         query_counter++;
       }};
 
-  session_data.interpreter->auth_ = &session_data.auth;
+  session_data.interpreter->auth_ = &auth;
   session_data.interpreter->kafka_streams_ = &kafka_streams;
 
   std::string stream_name = "benchmark";
