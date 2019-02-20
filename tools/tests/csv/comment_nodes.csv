@@ -1,4 +1,4 @@
-id:ID(COMMENT_ID)|country:string|browser:string|content:string|:LABEL
+id:ID(COMMENT_ID)|country|browser:string|content:string|:LABEL
 0|Croatia|Chrome|yes|Message;Comment
 1|ÖUnited
  KingdomÖ|Chrome|thanks|Message;Comment
