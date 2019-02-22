@@ -30,6 +30,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ROLES
                       | SIZE
                       | START
+                      | STATS
                       | STOP
                       | STREAM
                       | STREAMS
@@ -50,6 +51,7 @@ query : cypherQuery
       | explainQuery
       | profileQuery
       | infoQuery
+      | constraintQuery
       | authQuery
       | streamQuery
       ;
@@ -99,7 +101,7 @@ denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegeList ) TO userOrRole
 revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=privilegeList ) FROM userOrRole=userOrRoleName ;
 
 privilege : CREATE | DELETE | MATCH | MERGE | SET
-          | REMOVE | INDEX | STATS | AUTH | STREAM ;
+          | REMOVE | INDEX | STATS | AUTH | STREAM | CONSTRAINT ;
 
 privilegeList : privilege ( ',' privilege )* ;
 

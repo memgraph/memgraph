@@ -613,6 +613,33 @@ Callback HandleInfoQuery(InfoQuery *info_query, database::GraphDbAccessor *db_ac
         return results;
       };
       break;
+    case InfoQuery::InfoType::CONSTRAINT:
+      throw utils::NotYetImplemented("constraint info");
+      break;
+  }
+  return callback;
+}
+
+Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
+                               database::GraphDbAccessor *db_accessor) {
+  Callback callback;
+  std::vector<std::string> property_names;
+  property_names.reserve(constraint_query->properties_.size());
+  for (const auto &prop_ix : constraint_query->properties_) {
+    property_names.push_back(prop_ix.name);
+  }
+  std::string label_name = constraint_query->label_.name;
+  switch (constraint_query->action_type_) {
+    case ConstraintQuery::ActionType::CREATE:
+      throw utils::NotYetImplemented("create constraint :{}({}) exists",
+                                     label_name,
+                                     utils::Join(property_names, ", "));
+      break;
+    case ConstraintQuery::ActionType::DROP:
+      throw utils::NotYetImplemented("drop constraint :{}({}) exists",
+                                     label_name,
+                                     utils::Join(property_names, ", "));
+      break;
   }
   return callback;
 }
@@ -849,8 +876,12 @@ Interpreter::Results Interpreter::operator()(
     }
     callback = HandleStreamQuery(stream_query, kafka_streams_, parameters,
                                  &db_accessor);
-  } else if (auto *info_query = utils::Downcast<InfoQuery>(parsed_query.query)) {
+  } else if (auto *info_query =
+                 utils::Downcast<InfoQuery>(parsed_query.query)) {
     callback = HandleInfoQuery(info_query, &db_accessor);
+  } else if (auto *constraint_query =
+                 utils::Downcast<ConstraintQuery>(parsed_query.query)) {
+    callback = HandleConstraintQuery(constraint_query, &db_accessor);
   } else {
     LOG(FATAL) << "Should not get here -- unknown query type!";
   }

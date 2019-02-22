@@ -18,6 +18,7 @@ enum class Permission : uint64_t {
   REMOVE = 0x00000020,
   INDEX = 0x00000040,
   STATS = 0x00000080,
+  CONSTRAINT = 0x00000100,
   AUTH = 0x00010000,
   STREAM = 0x00020000,
 };

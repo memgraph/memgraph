@@ -2508,4 +2508,78 @@ TYPED_TEST(CypherMainVisitorTest, TestShowIndexInfo) {
   }
 }
 
+TYPED_TEST(CypherMainVisitorTest, TestShowConstraintInfo) {
+  {
+    TypeParam ast_generator("SHOW CONSTRAINT INFO");
+    auto *query = dynamic_cast<InfoQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, InfoQuery::InfoType::CONSTRAINT);
+  }
+}
+
+TYPED_TEST(CypherMainVisitorTest, CreateConstraintSyntaxError) {
+  EXPECT_THROW(
+      TypeParam ast_generator("CREATE CONSTRAINT ON (:label) ASSERT EXISTS"),
+      SyntaxException);
+  EXPECT_THROW(TypeParam ast_generator("CREATE CONSTRAINT () ASSERT EXISTS"),
+               SyntaxException);
+  EXPECT_THROW(
+      TypeParam ast_generator("CREATE CONSTRAINT ON () ASSERT EXISTS(prop1)"),
+      SyntaxException);
+  EXPECT_THROW(TypeParam ast_generator(
+                   "CREATE CONSTRAINT ON () ASSERT EXISTS (prop1, prop2)"),
+               SyntaxException);
+  EXPECT_THROW(TypeParam ast_generator("CREATE CONSTRAINT ON (n:label) ASSERT "
+                                       "EXISTS (n.prop1, missing.prop2)"),
+               SemanticException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, CreateConstraint) {
+  {
+    TypeParam ast_generator(
+        "CREATE CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1)");
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->label_, ast_generator.Label("label"));
+    EXPECT_THAT(query->properties_,
+                UnorderedElementsAre(ast_generator.Prop("prop1")));
+  }
+  {
+    TypeParam ast_generator(
+        "CREATE CONSTRAINT ON (n:label) ASSERT EXISTS (n.prop1, n.prop2)");
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->label_, ast_generator.Label("label"));
+    EXPECT_THAT(query->properties_,
+                UnorderedElementsAre(ast_generator.Prop("prop1"),
+                                     ast_generator.Prop("prop2")));
+  }
+}
+
+TYPED_TEST(CypherMainVisitorTest, DropConstraint) {
+  {
+    TypeParam ast_generator(
+        "DROP CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1)");
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
+    EXPECT_EQ(query->label_, ast_generator.Label("label"));
+    EXPECT_THAT(query->properties_,
+                UnorderedElementsAre(ast_generator.Prop("prop1")));
+  }
+  {
+    TypeParam ast_generator(
+        "DROP CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1, n.prop2)");
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
+    EXPECT_EQ(query->label_, ast_generator.Label("label"));
+    EXPECT_THAT(query->properties_,
+                UnorderedElementsAre(ast_generator.Prop("prop1"),
+                                     ast_generator.Prop("prop2")));
+  }
+}
+
 }  // namespace

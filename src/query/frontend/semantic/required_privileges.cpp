@@ -40,7 +40,16 @@ class PrivilegeExtractor : public QueryVisitor<void>,
       case InfoQuery::InfoType::STORAGE:
         AddPrivilege(AuthQuery::Privilege::STATS);
         break;
+      case InfoQuery::InfoType::CONSTRAINT:
+        // TODO: This should be CONSTRAINT | STATS, but we don't have support
+        // for *or* with privileges.
+        AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
+        break;
     }
+  }
+
+  void Visit(ConstraintQuery &constraint_query) override {
+    AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
   }
 
   void Visit(CypherQuery &query) override {

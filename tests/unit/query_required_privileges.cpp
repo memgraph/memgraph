@@ -147,3 +147,30 @@ TEST_F(TestPrivilegeExtractor, ShowStatsInfo) {
               UnorderedElementsAre(AuthQuery::Privilege::STATS));
 }
 
+TEST_F(TestPrivilegeExtractor, ShowConstraintInfo) {
+  auto *query = storage.Create<InfoQuery>();
+  query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
+}
+
+TEST_F(TestPrivilegeExtractor, CreateConstraint) {
+  auto *query = storage.Create<ConstraintQuery>();
+  query->action_type_ = ConstraintQuery::ActionType::CREATE;
+  query->label_ = storage.GetLabelIx("label");
+  query->properties_.push_back(storage.GetPropertyIx("prop0"));
+  query->properties_.push_back(storage.GetPropertyIx("prop1"));
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
+}
+
+TEST_F(TestPrivilegeExtractor, DropConstraint) {
+  auto *query = storage.Create<ConstraintQuery>();
+  query->action_type_ = ConstraintQuery::ActionType::DROP;
+  query->label_ = storage.GetLabelIx("label");
+  query->properties_.push_back(storage.GetPropertyIx("prop0"));
+  query->properties_.push_back(storage.GetPropertyIx("prop1"));
+  EXPECT_THAT(GetRequiredPrivileges(query),
+              UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
+}
+

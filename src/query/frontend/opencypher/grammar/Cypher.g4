@@ -28,13 +28,24 @@ query : cypherQuery
       | explainQuery
       | profileQuery
       | infoQuery
+      | constraintQuery
       ;
+
+constraintQuery : createConstraint | dropConstraint ;
+
+createConstraint : CREATE CONSTRAINT ON '(' nodeName=variable ':' labelName ')'
+    ASSERT EXISTS '(' variable propertyLookup ( ',' variable propertyLookup )* ')' ;
+
+dropConstraint : DROP CONSTRAINT ON '(' nodeName=variable ':' labelName ')'
+    ASSERT EXISTS '(' variable propertyLookup ( ',' variable propertyLookup )* ')' ;
 
 storageInfo : STORAGE INFO ;
 
 indexInfo : INDEX INFO ;
 
-infoQuery : SHOW ( storageInfo | indexInfo ) ;
+constraintInfo : CONSTRAINT INFO ;
+
+infoQuery : SHOW ( storageInfo | indexInfo | constraintInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -297,9 +308,11 @@ cypherKeyword : ALL
               | AS
               | ASC
               | ASCENDING
+              | ASSERT
               | BFS
               | BY
               | CASE
+              | CONSTRAINT
               | CONTAINS
               | COUNT
               | CREATE
@@ -312,12 +325,14 @@ cypherKeyword : ALL
               | ELSE
               | END
               | ENDS
+              | EXISTS
               | EXPLAIN
               | EXTRACT
               | FALSE
               | FILTER
               | IN
               | INDEX
+              | INFO
               | IS
               | LIMIT
               | L_SKIP
@@ -337,6 +352,7 @@ cypherKeyword : ALL
               | SHOW
               | SINGLE
               | STARTS
+              | STORAGE
               | THEN
               | TRUE
               | UNION

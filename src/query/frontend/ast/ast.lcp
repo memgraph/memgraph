@@ -2402,7 +2402,7 @@ cpp<#
          show-users-for-role)
       (:serialize))
     (lcp:define-enum privilege
-        (create delete match merge set remove index stats auth stream)
+        (create delete match merge set remove index stats auth stream constraint)
       (:serialize))
     #>cpp
     AuthQuery() = default;
@@ -2436,7 +2436,8 @@ const std::vector<AuthQuery::Privilege> kPrivilegesAll = {
     AuthQuery::Privilege::MATCH,  AuthQuery::Privilege::MERGE,
     AuthQuery::Privilege::SET,    AuthQuery::Privilege::REMOVE,
     AuthQuery::Privilege::INDEX,  AuthQuery::Privilege::STATS,
-    AuthQuery::Privilege::AUTH,   AuthQuery::Privilege::STREAM};
+    AuthQuery::Privilege::AUTH,   AuthQuery::Privilege::STREAM,
+    AuthQuery::Privilege::CONSTRAINT};
 cpp<#
 
 (lcp:define-class stream-query (query)
@@ -2515,7 +2516,47 @@ cpp<#
   ((info-type "InfoType" :scope :public))
   (:public
     (lcp:define-enum info-type
-        (storage index)
+        (storage index constraint)
+      (:serialize))
+
+    #>cpp
+    DEFVISITABLE(QueryVisitor<void>);
+    cpp<#)
+  (:serialize (:slk) (:capnp))
+  (:clone))
+
+(lcp:define-class constraint-query (query)
+  ((action-type "ActionType" :scope :public)
+   (label "LabelIx" :scope :public
+          :slk-load (lambda (member)
+                     #>cpp
+                     slk::Load(&self->${member}, reader, storage);
+                     cpp<#)
+          :clone (lambda (source dest)
+                   #>cpp
+                   ${dest} = storage->GetLabelIx(${source}.name);
+                   cpp<#))
+   (properties "std::vector<PropertyIx>" :scope :public
+               :slk-load (lambda (member)
+                          #>cpp
+                          size_t size = 0;
+                          slk::Load(&size, reader);
+                          self->${member}.resize(size);
+                          for (size_t i = 0; i < size; ++i) {
+                            slk::Load(&self->${member}[i], reader, storage);
+                          }
+                          cpp<#)
+               :capnp-load (lcp:capnp-load-vector
+                            "capnp::PropertyIx" "PropertyIx"
+                            "[storage](const auto &reader) {
+                               PropertyIx ix;
+                               Load(&ix, reader, storage);
+                               return ix;
+                             }")
+               :clone (clone-name-ix-vector "Property")))
+  (:public
+    (lcp:define-enum action-type
+        (create drop)
       (:serialize))
 
     #>cpp

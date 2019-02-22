@@ -165,6 +165,24 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitInfoQuery(MemgraphCypher::InfoQueryContext *ctx) override;
 
   /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitConstraintQuery(
+      MemgraphCypher::ConstraintQueryContext *ctx) override;
+
+  /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitCreateConstraint(
+      MemgraphCypher::CreateConstraintContext *ctx) override;
+
+  /**
+   * @return ConstraintQuery*
+   */
+  antlrcpp::Any visitDropConstraint(
+      MemgraphCypher::DropConstraintContext *ctx) override;
+
+  /**
    * @return AuthQuery*
    */
   antlrcpp::Any visitAuthQuery(MemgraphCypher::AuthQueryContext *ctx) override;
