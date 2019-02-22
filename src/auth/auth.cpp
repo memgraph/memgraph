@@ -1,6 +1,7 @@
 #include "auth/auth.hpp"
 
 #include "auth/exceptions.hpp"
+#include "utils/string.hpp"
 
 namespace auth {
 
@@ -36,7 +37,9 @@ std::experimental::optional<User> Auth::Authenticate(
   return user;
 }
 
-std::experimental::optional<User> Auth::GetUser(const std::string &username) {
+std::experimental::optional<User> Auth::GetUser(
+    const std::string &username_orig) {
+  auto username = utils::ToLowerCase(username_orig);
   auto existing_user = storage_.Get(kUserPrefix + username);
   if (!existing_user) return std::experimental::nullopt;
 
@@ -88,7 +91,8 @@ std::experimental::optional<User> Auth::AddUser(
   return new_user;
 }
 
-bool Auth::RemoveUser(const std::string &username) {
+bool Auth::RemoveUser(const std::string &username_orig) {
+  auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
   std::vector<std::string> keys(
       {kLinkPrefix + username, kUserPrefix + username});
@@ -102,7 +106,9 @@ std::vector<auth::User> Auth::AllUsers() {
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix);
        ++it) {
-    auto user = GetUser(it->first.substr(kUserPrefix.size()));
+    auto username = it->first.substr(kUserPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    auto user = GetUser(username);
     if (user) {
       ret.push_back(*user);
     }
@@ -114,7 +120,9 @@ bool Auth::HasUsers() {
   return storage_.begin(kUserPrefix) != storage_.end(kUserPrefix);
 }
 
-std::experimental::optional<Role> Auth::GetRole(const std::string &rolename) {
+std::experimental::optional<Role> Auth::GetRole(
+    const std::string &rolename_orig) {
+  auto rolename = utils::ToLowerCase(rolename_orig);
   auto existing_role = storage_.Get(kRolePrefix + rolename);
   if (!existing_role) return std::experimental::nullopt;
 
@@ -144,12 +152,13 @@ std::experimental::optional<Role> Auth::AddRole(const std::string &rolename) {
   return new_role;
 }
 
-bool Auth::RemoveRole(const std::string &rolename) {
+bool Auth::RemoveRole(const std::string &rolename_orig) {
+  auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
   std::vector<std::string> keys;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix);
        ++it) {
-    if (it->second == rolename) {
+    if (utils::ToLowerCase(it->second) == rolename) {
       keys.push_back(it->first);
     }
   }
@@ -165,6 +174,7 @@ std::vector<auth::Role> Auth::AllRoles() {
   for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix);
        ++it) {
     auto rolename = it->first.substr(kRolePrefix.size());
+    if (rolename != utils::ToLowerCase(rolename)) continue;
     auto role = GetRole(rolename);
     if (role) {
       ret.push_back(*role);
@@ -175,11 +185,14 @@ std::vector<auth::Role> Auth::AllRoles() {
   return ret;
 }
 
-std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename) {
+std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) {
+  auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix);
        ++it) {
     auto username = it->first.substr(kLinkPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    if (it->second != utils::ToLowerCase(it->second)) continue;
     if (it->second == rolename) {
       auto user = GetUser(username);
       if (user) {

@@ -7,6 +7,7 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "utils/cast.hpp"
+#include "utils/string.hpp"
 
 DEFINE_bool(auth_password_permit_null, true,
             "Set to false to disable null passwords.");
@@ -140,10 +141,11 @@ bool operator!=(const Permissions &first, const Permissions &second) {
   return !(first == second);
 }
 
-Role::Role(const std::string &rolename) : rolename_(rolename) {}
+Role::Role(const std::string &rolename)
+    : rolename_(utils::ToLowerCase(rolename)) {}
 
 Role::Role(const std::string &rolename, const Permissions &permissions)
-    : rolename_(rolename), permissions_(permissions) {}
+    : rolename_(utils::ToLowerCase(rolename)), permissions_(permissions) {}
 
 const std::string &Role::rolename() const { return rolename_; }
 const Permissions &Role::permissions() const { return permissions_; }
@@ -172,11 +174,12 @@ bool operator==(const Role &first, const Role &second) {
          first.permissions_ == second.permissions_;
 }
 
-User::User(const std::string &username) : username_(username) {}
+User::User(const std::string &username)
+    : username_(utils::ToLowerCase(username)) {}
 
 User::User(const std::string &username, const std::string &password_hash,
            const Permissions &permissions)
-    : username_(username),
+    : username_(utils::ToLowerCase(username)),
       password_hash_(password_hash),
       permissions_(permissions) {}
 

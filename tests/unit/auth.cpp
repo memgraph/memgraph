@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <iostream>
 
 #include <gflags/gflags.h>
@@ -457,6 +458,225 @@ TEST_F(AuthWithStorage, UserRoleUniqueName) {
   ASSERT_TRUE(auth.AddRole("role"));
   ASSERT_FALSE(auth.AddRole("user"));
   ASSERT_FALSE(auth.AddUser("role"));
+}
+
+TEST(AuthWithoutStorage, CaseInsensitivity) {
+  {
+    auto user1 = User("test");
+    auto user2 = User("Test");
+    ASSERT_EQ(user1, user2);
+    ASSERT_EQ(user1.username(), user2.username());
+    ASSERT_EQ(user1.username(), "test");
+    ASSERT_EQ(user2.username(), "test");
+  }
+  {
+    auto perms = Permissions();
+    auto user1 = User("test", "pw", perms);
+    auto user2 = User("Test", "pw", perms);
+    ASSERT_EQ(user1, user2);
+    ASSERT_EQ(user1.username(), user2.username());
+    ASSERT_EQ(user1.username(), "test");
+    ASSERT_EQ(user2.username(), "test");
+  }
+  {
+    auto role1 = Role("role");
+    auto role2 = Role("Role");
+    ASSERT_EQ(role1, role2);
+    ASSERT_EQ(role1.rolename(), role2.rolename());
+    ASSERT_EQ(role1.rolename(), "role");
+    ASSERT_EQ(role2.rolename(), "role");
+  }
+  {
+    auto perms = Permissions();
+    auto role1 = Role("role", perms);
+    auto role2 = Role("Role", perms);
+    ASSERT_EQ(role1, role2);
+    ASSERT_EQ(role1.rolename(), role2.rolename());
+    ASSERT_EQ(role1.rolename(), "role");
+    ASSERT_EQ(role2.rolename(), "role");
+  }
+}
+
+TEST_F(AuthWithStorage, CaseInsensitivity) {
+  // AddUser
+  {
+    auto user = auth.AddUser("Alice", "alice");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "alice");
+    ASSERT_FALSE(auth.AddUser("alice"));
+    ASSERT_FALSE(auth.AddUser("alicE"));
+  }
+  {
+    auto user = auth.AddUser("BoB", "bob");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "bob");
+    ASSERT_FALSE(auth.AddUser("bob"));
+    ASSERT_FALSE(auth.AddUser("bOb"));
+  }
+
+  // Authenticate
+  {
+    auto user = auth.Authenticate("alice", "alice");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "alice");
+  }
+  {
+    auto user = auth.Authenticate("alICe", "alice");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "alice");
+  }
+
+  // GetUser
+  {
+    auto user = auth.GetUser("alice");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "alice");
+  }
+  {
+    auto user = auth.GetUser("aLicE");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "alice");
+  }
+  ASSERT_FALSE(auth.GetUser("carol"));
+
+  // RemoveUser
+  {
+    auto user = auth.AddUser("caRol", "carol");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "carol");
+    ASSERT_TRUE(auth.RemoveUser("cAROl"));
+    ASSERT_FALSE(auth.RemoveUser("carol"));
+    ASSERT_FALSE(auth.GetUser("CAROL"));
+  }
+
+  // AllUsers
+  {
+    auto users = auth.AllUsers();
+    ASSERT_EQ(users.size(), 2);
+    std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) {
+      return a.username() < b.username();
+    });
+    ASSERT_EQ(users[0].username(), "alice");
+    ASSERT_EQ(users[1].username(), "bob");
+  }
+
+  // AddRole
+  {
+    auto role = auth.AddRole("Moderator");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "moderator");
+    ASSERT_FALSE(auth.AddRole("moderator"));
+    ASSERT_FALSE(auth.AddRole("MODERATOR"));
+  }
+  {
+    auto role = auth.AddRole("adMIN");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "admin");
+    ASSERT_FALSE(auth.AddRole("Admin"));
+    ASSERT_FALSE(auth.AddRole("ADMIn"));
+  }
+  ASSERT_FALSE(auth.AddRole("ALICE"));
+  ASSERT_FALSE(auth.AddUser("ModeRAtor"));
+
+  // GetRole
+  {
+    auto role = auth.GetRole("moderator");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "moderator");
+  }
+  {
+    auto role = auth.GetRole("MoDERATOR");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "moderator");
+  }
+  ASSERT_FALSE(auth.GetRole("root"));
+
+  // RemoveRole
+  {
+    auto role = auth.AddRole("RooT");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "root");
+    ASSERT_TRUE(auth.RemoveRole("rOOt"));
+    ASSERT_FALSE(auth.RemoveRole("RoOt"));
+    ASSERT_FALSE(auth.GetRole("RoOt"));
+  }
+
+  // AllRoles
+  {
+    auto roles = auth.AllRoles();
+    ASSERT_EQ(roles.size(), 2);
+    std::sort(roles.begin(), roles.end(), [](const auto &a, const auto &b) {
+      return a.rolename() < b.rolename();
+    });
+    ASSERT_EQ(roles[0].rolename(), "admin");
+    ASSERT_EQ(roles[1].rolename(), "moderator");
+  }
+
+  // SaveRole
+  {
+    auto role = auth.GetRole("MODErator");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "moderator");
+    role->permissions().Grant(auth::Permission::MATCH);
+    auth.SaveRole(*role);
+  }
+  {
+    auto role = auth.GetRole("modeRATOR");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "moderator");
+    ASSERT_EQ(role->permissions().Has(auth::Permission::MATCH),
+              auth::PermissionLevel::GRANT);
+  }
+
+  // SaveUser
+  {
+    auto user = auth.GetUser("aLice");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "alice");
+    auto role = auth.GetRole("moderAtor");
+    ASSERT_TRUE(role);
+    ASSERT_EQ(role->rolename(), "moderator");
+    user->SetRole(*role);
+    auth.SaveUser(*user);
+  }
+  {
+    auto user = auth.GetUser("aLIce");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->username(), "alice");
+    ASSERT_TRUE(user->role());
+    ASSERT_EQ(user->role()->rolename(), "moderator");
+  }
+
+  // AllUsersForRole
+  {
+    auto carol = auth.AddUser("caROl");
+    ASSERT_TRUE(carol);
+    ASSERT_EQ(carol->username(), "carol");
+    auto dave = auth.AddUser("daVe");
+    ASSERT_TRUE(dave);
+    ASSERT_EQ(dave->username(), "dave");
+    auto admin = auth.GetRole("aDMin");
+    ASSERT_TRUE(admin);
+    ASSERT_EQ(admin->rolename(), "admin");
+    carol->SetRole(*admin);
+    auth.SaveUser(*carol);
+    dave->SetRole(*admin);
+    auth.SaveUser(*dave);
+  }
+  {
+    auto users = auth.AllUsersForRole("modeRAtoR");
+    ASSERT_EQ(users.size(), 1);
+    ASSERT_EQ(users[0].username(), "alice");
+  }
+  {
+    auto users = auth.AllUsersForRole("AdmiN");
+    ASSERT_EQ(users.size(), 2);
+    std::sort(users.begin(), users.end(), [](const auto &a, const auto &b) {
+      return a.username() < b.username();
+    });
+    ASSERT_EQ(users[0].username(), "carol");
+    ASSERT_EQ(users[1].username(), "dave");
+  }
 }
 
 TEST(AuthWithoutStorage, Crypto) {

@@ -251,9 +251,9 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
 
     # Prepare all users
     execute_admin_queries([
-        "CREATE USER admin IDENTIFIED BY 'admin'",
-        "GRANT ALL PRIVILEGES TO admin",
-        "CREATE USER user IDENTIFIED BY 'user'"
+        "CREATE USER ADmin IDENTIFIED BY 'admin'",
+        "GRANT ALL PRIVILEGES TO admIN",
+        "CREATE USER usEr IDENTIFIED BY 'user'"
     ])
 
     # Find all existing permissions
@@ -268,10 +268,10 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
         user_perms = get_permissions(permissions, mask)
         print("\033[1;34m~~ Checking queries with privileges: ",
               ", ".join(user_perms), " ~~\033[0m")
-        admin_queries = ["REVOKE ALL PRIVILEGES FROM user"]
+        admin_queries = ["REVOKE ALL PRIVILEGES FROM uSer"]
         if len(user_perms) > 0:
             admin_queries.append(
-                    "GRANT {} TO user".format(", ".join(user_perms)))
+                    "GRANT {} TO User".format(", ".join(user_perms)))
         execute_admin_queries(admin_queries)
         authorized, unauthorized = [], []
         for query, query_perms in QUERIES:
@@ -288,8 +288,8 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     # Run the user/role permissions test
     print("\033[1;36m~~ Starting permissions test ~~\033[0m")
     execute_admin_queries([
-        "CREATE ROLE role",
-        "REVOKE ALL PRIVILEGES FROM user",
+        "CREATE ROLE roLe",
+        "REVOKE ALL PRIVILEGES FROM uSeR",
     ])
     execute_checker(checker_binary, [])
     for user_perm in ["GRANT", "DENY", "REVOKE"]:
@@ -299,14 +299,14 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
                       user_perm, ", role ", role_perm,
                       "user mapped to role:", mapped, " ~~\033[0m")
                 if mapped:
-                    execute_admin_queries(["SET ROLE FOR user TO role"])
+                    execute_admin_queries(["SET ROLE FOR USER TO roLE"])
                 else:
                     execute_admin_queries(["CLEAR ROLE FOR user"])
                 user_prep = "FROM" if user_perm == "REVOKE" else "TO"
                 role_prep = "FROM" if role_perm == "REVOKE" else "TO"
                 execute_admin_queries([
                     "{} MATCH {} user".format(user_perm, user_prep),
-                    "{} MATCH {} role".format(role_perm, role_prep)
+                    "{} MATCH {} rOLe".format(role_perm, role_prep)
                 ])
                 expected = []
                 perms = [user_perm, role_perm] if mapped else [user_perm]
