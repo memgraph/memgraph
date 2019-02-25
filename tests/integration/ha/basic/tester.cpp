@@ -28,9 +28,9 @@ int main(int argc, char **argv) {
 
   communication::Init();
 
-  bool successfull = false;
-  for (int retry = 0; !successfull && retry < 10; ++retry) {
-    for (int i = 0; !successfull && i < FLAGS_cluster_size; ++i) {
+  bool successful = false;
+  for (int retry = 0; !successful && retry < 10; ++retry) {
+    for (int i = 0; !successful && i < FLAGS_cluster_size; ++i) {
       try {
         communication::ClientContext context(FLAGS_use_ssl);
         communication::bolt::Client client(&context);
@@ -41,7 +41,7 @@ int main(int argc, char **argv) {
 
         if (FLAGS_step == "create") {
           client.Execute("create (:Node)", {});
-          successfull = true;
+          successful = true;
 
         } else if (FLAGS_step == "count") {
           auto result = client.Execute("match (n) return n", {});
@@ -52,7 +52,7 @@ int main(int argc, char **argv) {
             return 2;
           }
 
-          successfull = true;
+          successful = true;
 
         } else {
           LOG(FATAL) << "Unexpected client step!";
@@ -66,13 +66,13 @@ int main(int argc, char **argv) {
       }
       LOG(INFO) << "Current Raft cluster leader is " << i;
     }
-    if (!successfull) {
+    if (!successful) {
       LOG(INFO) << "Couldn't find Raft cluster leader, retrying.";
       std::this_thread::sleep_for(1s);
     }
   }
 
-  if (!successfull) {
+  if (!successful) {
     LOG(WARNING) << "Couldn't find Raft cluster leader.";
     return 1;
   }
