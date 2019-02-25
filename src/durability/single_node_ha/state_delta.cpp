@@ -336,9 +336,13 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       dba.RemoveEdge(edge);
       break;
     }
-    case Type::BUILD_INDEX:
+    case Type::BUILD_INDEX: {
+      dba.BuildIndex(dba.Label(label_name), dba.Property(property_name),
+                     unique);
+      break;
+    }
     case Type::DROP_INDEX: {
-      LOG(FATAL) << "Index handling not handled in Apply";
+      dba.DeleteIndex(dba.Label(label_name), dba.Property(property_name));
       break;
     }
     case Type::NO_OP:

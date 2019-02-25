@@ -20,10 +20,6 @@ void StateDeltaApplier::Apply(const std::vector<StateDelta> &deltas) {
         LOG(FATAL) << "StateDeltaApplier shouldn't know about aborted "
                       "transactions";
         break;
-      case StateDelta::Type::BUILD_INDEX:
-      case StateDelta::Type::DROP_INDEX:
-        throw utils::NotYetImplemented(
-            "High availability doesn't support index at the moment!");
       default:
         delta.Apply(*GetAccessor(delta.transaction_id));
     }

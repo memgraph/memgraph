@@ -130,7 +130,7 @@ void RaftServer::Start() {
     // [Raft paper 5.1]
     // "If a server receives a request with a stale term, it rejects the
     // request"
-    if (exiting_ || req.term < current_term_) {
+    if (req.term < current_term_) {
       AppendEntriesRes res(false, current_term_);
       Save(res, res_builder);
       return;

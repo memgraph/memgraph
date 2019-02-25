@@ -66,8 +66,18 @@
     - runner.py # runner script
     - raft.json # raft configuration
     - ../ha_test.py # raft test base module
-    - ../../../../build_debug/memgraph_ha # memgraph distributed binary
+    - ../../../../build_debug/memgraph_ha # memgraph ha binary
     - ../../../../build_debug/tests/integration/ha/basic/tester # tester binary
+
+- name: integration__ha_index
+  cd: ha/index
+  commands: ./runner.py
+  infiles:
+    - runner.py # runner script
+    - raft.json # raft configuration
+    - ../ha_test.py # raft test base module
+    - ../../../../build_debug/memgraph_ha # memgraph ha binary
+    - ../../../../build_debug/tests/integration/ha/index/tester # tester binary
 
 - name: integration__ha_log_compaction
   cd: ha/log_compaction
@@ -76,5 +86,5 @@
     - runner.py # runner script
     - raft.json # raft configuration
     - ../ha_test.py # raft test base module
-    - ../../../../build_debug/memgraph_ha # memgraph distributed binary
+    - ../../../../build_debug/memgraph_ha # memgraph ha binary
     - ../../../../build_debug/tests/manual/ha_client # tester binary
