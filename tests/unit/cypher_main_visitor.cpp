@@ -27,10 +27,12 @@ using testing::UnorderedElementsAre;
 // Base class for all test types
 class Base {
  public:
-  explicit Base(const std::string &query) : query_string_(query) {}
   ParsingContext context_;
   Parameters parameters_;
-  std::string query_string_;
+
+  virtual ~Base() {}
+
+  virtual Query *ParseQuery(const std::string &query_string) = 0;
 
   virtual PropertyIx Prop(const std::string &prop_name) = 0;
 
@@ -71,11 +73,11 @@ class Base {
 // This generator uses ast constructed by parsing the query.
 class AstGenerator : public Base {
  public:
-  explicit AstGenerator(const std::string &query) : Base(query) {
-    ::frontend::opencypher::Parser parser(query);
+  Query *ParseQuery(const std::string &query_string) override {
+    ::frontend::opencypher::Parser parser(query_string);
     CypherMainVisitor visitor(context_, &ast_storage_);
     visitor.visit(parser.tree());
-    query_ = visitor.query();
+    return visitor.query();
   }
 
   PropertyIx Prop(const std::string &prop_name) override {
@@ -91,29 +93,17 @@ class AstGenerator : public Base {
   }
 
   AstStorage ast_storage_;
-  Query *query_;
 };
 
 // This clones ast, but uses original one. This done just to ensure that cloning
 // doesn't change original.
 class OriginalAfterCloningAstGenerator : public AstGenerator {
  public:
-  explicit OriginalAfterCloningAstGenerator(const std::string &query)
-      : AstGenerator(query) {
+  Query *ParseQuery(const std::string &query_string) override {
+    auto *original_query = AstGenerator::ParseQuery(query_string);
     AstStorage storage;
-    query_->Clone(&storage);
-  }
-
-  PropertyIx Prop(const std::string &prop_name) override {
-    return ast_storage_.GetPropertyIx(prop_name);
-  }
-
-  LabelIx Label(const std::string &name) override {
-    return ast_storage_.GetLabelIx(name);
-  }
-
-  EdgeTypeIx EdgeType(const std::string &name) override {
-    return ast_storage_.GetEdgeTypeIx(name);
+    original_query->Clone(&storage);
+    return original_query;
   }
 };
 
@@ -122,8 +112,8 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
 // any data from original ast.
 class ClonedAstGenerator : public Base {
  public:
-  explicit ClonedAstGenerator(const std::string &query) : Base(query) {
-    ::frontend::opencypher::Parser parser(query);
+  Query *ParseQuery(const std::string &query_string) override {
+    ::frontend::opencypher::Parser parser(query_string);
     AstStorage tmp_storage;
     {
       // Add a label, property and edge type into temporary storage so
@@ -134,7 +124,7 @@ class ClonedAstGenerator : public Base {
     }
     CypherMainVisitor visitor(context_, &tmp_storage);
     visitor.visit(parser.tree());
-    query_ = visitor.query()->Clone(&ast_storage_);
+    return visitor.query()->Clone(&ast_storage_);
   }
 
   PropertyIx Prop(const std::string &prop_name) override {
@@ -150,22 +140,21 @@ class ClonedAstGenerator : public Base {
   }
 
   AstStorage ast_storage_;
-  Query *query_;
 };
 
 // This generator strips ast, clones it and then plugs stripped out literals in
 // the same way it is done in ast cacheing in interpreter.
 class CachedAstGenerator : public Base {
  public:
-  explicit CachedAstGenerator(const std::string &query) : Base(query) {
+  Query *ParseQuery(const std::string &query_string) override {
     context_.is_query_cached = true;
-    StrippedQuery stripped(query_string_);
+    StrippedQuery stripped(query_string);
     parameters_ = stripped.literals();
     ::frontend::opencypher::Parser parser(stripped.query());
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage);
     visitor.visit(parser.tree());
-    query_ = visitor.query()->Clone(&ast_storage_);
+    return visitor.query()->Clone(&ast_storage_);
   }
 
   PropertyIx Prop(const std::string &prop_name) override {
@@ -181,29 +170,50 @@ class CachedAstGenerator : public Base {
   }
 
   AstStorage ast_storage_;
-  Query *query_;
 };
 
-template <typename T>
-class CypherMainVisitorTest : public ::testing::Test {};
+class CypherMainVisitorTest
+    : public ::testing::TestWithParam<std::shared_ptr<Base>> {};
 
-typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
-                         ClonedAstGenerator, CachedAstGenerator>
-    AstGeneratorTypes;
+std::shared_ptr<Base> gAstGeneratorTypes[] = {
+    std::make_shared<AstGenerator>(),
+    std::make_shared<OriginalAfterCloningAstGenerator>(),
+    std::make_shared<ClonedAstGenerator>(),
+    std::make_shared<CachedAstGenerator>(),
+};
 
-TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
+INSTANTIATE_TEST_CASE_P(AstGeneratorTypes, CypherMainVisitorTest,
+                        ::testing::ValuesIn(gAstGeneratorTypes));
 
-TYPED_TEST(CypherMainVisitorTest, SyntaxException) {
-  ASSERT_THROW(TypeParam("CREATE ()-[*1....2]-()"), SyntaxException);
+// NOTE: The above used to use *Typed Tests* functionality of gtest library.
+// Unfortunately, the compilation time of this test increased to full 2 minutes!
+// Although using Typed Tests is the recommended way to achieve what we want, we
+// are (ab)using *Value-Parameterized Tests* functionality instead. This cuts
+// down the compilation time to about 20 seconds. The original code is here for
+// future reference in case someone gets the idea to change to *appropriate*
+// Typed Tests mechanism and ruin the compilation times.
+//
+// typedef ::testing::Types<AstGenerator, OriginalAfterCloningAstGenerator,
+//                          ClonedAstGenerator, CachedAstGenerator>
+//     AstGeneratorTypes;
+//
+// TYPED_TEST_CASE(CypherMainVisitorTest, AstGeneratorTypes);
+
+TEST_P(CypherMainVisitorTest, SyntaxException) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ()-[*1....2]-()"),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, SyntaxExceptionOnTrailingText) {
-  ASSERT_THROW(TypeParam("RETURN 2 + 2 mirko"), SyntaxException);
+TEST_P(CypherMainVisitorTest, SyntaxExceptionOnTrailingText) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 2 + 2 mirko"), SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, PropertyLookup) {
-  TypeParam ast_generator("RETURN n.x");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, PropertyLookup) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN n.x"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -218,9 +228,10 @@ TYPED_TEST(CypherMainVisitorTest, PropertyLookup) {
   ASSERT_EQ(property_lookup->property_, ast_generator.Prop("x"));
 }
 
-TYPED_TEST(CypherMainVisitorTest, LabelsTest) {
-  TypeParam ast_generator("RETURN n:x:y");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, LabelsTest) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN n:x:y"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -236,9 +247,10 @@ TYPED_TEST(CypherMainVisitorTest, LabelsTest) {
               ElementsAre(ast_generator.Label("x"), ast_generator.Label("y")));
 }
 
-TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
-  TypeParam ast_generator("RETURN n:`l-$\"'ab``e````l`");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, EscapedLabel) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN n:`l-$\"'ab``e````l`"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -252,10 +264,11 @@ TYPED_TEST(CypherMainVisitorTest, EscapedLabel) {
               ElementsAre(ast_generator.Label("l-$\"'ab`e``l")));
 }
 
-TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
+TEST_P(CypherMainVisitorTest, KeywordLabel) {
   for (const auto &label : {"DeLete", "UsER"}) {
-    TypeParam ast_generator(fmt::format("RETURN n:{}", label));
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery(fmt::format("RETURN n:{}", label)));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
@@ -269,9 +282,10 @@ TYPED_TEST(CypherMainVisitorTest, KeywordLabel) {
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
-  TypeParam ast_generator("RETURN n:a");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, HexLetterLabel) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN n:a"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -284,9 +298,10 @@ TYPED_TEST(CypherMainVisitorTest, HexLetterLabel) {
   ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label("a")));
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
-  TypeParam ast_generator("RETURN x");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -300,9 +315,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
   ASSERT_FALSE(return_clause->body_.distinct);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnDistinct) {
-  TypeParam ast_generator("RETURN DISTINCT x");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnDistinct) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN DISTINCT x"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -311,9 +327,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnDistinct) {
   ASSERT_TRUE(return_clause->body_.distinct);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnLimit) {
-  TypeParam ast_generator("RETURN x LIMIT 5");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnLimit) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x LIMIT 5"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -323,9 +340,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnLimit) {
   ast_generator.CheckLiteral(return_clause->body_.limit, 5);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnSkip) {
-  TypeParam ast_generator("RETURN x SKIP 5");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnSkip) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x SKIP 5"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -335,9 +353,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnSkip) {
   ast_generator.CheckLiteral(return_clause->body_.skip, 5);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnOrderBy) {
-  TypeParam ast_generator("RETURN x, y, z ORDER BY z ASC, x, y DESC");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnOrderBy) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN x, y, z ORDER BY z ASC, x, y DESC"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -354,9 +373,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnOrderBy) {
                                              Pair(Ordering::DESC, "y")));
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
-  TypeParam ast_generator("RETURN var AS var5");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnNamedIdentifier) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN var AS var5"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -368,9 +388,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnNamedIdentifier) {
   ASSERT_EQ(identifier->name_, "var");
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnAsterisk) {
-  TypeParam ast_generator("RETURN *");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnAsterisk) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN *"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -379,9 +400,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnAsterisk) {
   ASSERT_EQ(return_clause->body_.named_expressions.size(), 0U);
 }
 
-TYPED_TEST(CypherMainVisitorTest, IntegerLiteral) {
-  TypeParam ast_generator("RETURN 42");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, IntegerLiteral) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 42"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -390,14 +412,16 @@ TYPED_TEST(CypherMainVisitorTest, IntegerLiteral) {
       return_clause->body_.named_expressions[0]->expression_, 42, 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, IntegerLiteralTooLarge) {
-  ASSERT_THROW(TypeParam("RETURN 10000000000000000000000000"),
+TEST_P(CypherMainVisitorTest, IntegerLiteralTooLarge) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 10000000000000000000000000"),
                SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, BooleanLiteralTrue) {
-  TypeParam ast_generator("RETURN TrUe");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, BooleanLiteralTrue) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN TrUe"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -406,9 +430,10 @@ TYPED_TEST(CypherMainVisitorTest, BooleanLiteralTrue) {
       return_clause->body_.named_expressions[0]->expression_, true, 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
-  TypeParam ast_generator("RETURN faLSE");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, BooleanLiteralFalse) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN faLSE"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -417,9 +442,10 @@ TYPED_TEST(CypherMainVisitorTest, BooleanLiteralFalse) {
       return_clause->body_.named_expressions[0]->expression_, false, 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, NullLiteral) {
-  TypeParam ast_generator("RETURN nULl");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, NullLiteral) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN nULl"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -429,9 +455,10 @@ TYPED_TEST(CypherMainVisitorTest, NullLiteral) {
       1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ParenthesizedExpression) {
-  TypeParam ast_generator("RETURN (2)");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ParenthesizedExpression) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN (2)"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -440,9 +467,10 @@ TYPED_TEST(CypherMainVisitorTest, ParenthesizedExpression) {
       return_clause->body_.named_expressions[0]->expression_, 2);
 }
 
-TYPED_TEST(CypherMainVisitorTest, OrOperator) {
-  TypeParam ast_generator("RETURN true Or false oR n");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, OrOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN true Or false oR n"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -460,9 +488,10 @@ TYPED_TEST(CypherMainVisitorTest, OrOperator) {
   ASSERT_EQ(operand3->name_, "n");
 }
 
-TYPED_TEST(CypherMainVisitorTest, XorOperator) {
-  TypeParam ast_generator("RETURN true xOr false");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, XorOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN true xOr false"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -473,9 +502,10 @@ TYPED_TEST(CypherMainVisitorTest, XorOperator) {
   ast_generator.CheckLiteral(xor_operator->expression2_, false);
 }
 
-TYPED_TEST(CypherMainVisitorTest, AndOperator) {
-  TypeParam ast_generator("RETURN true and false");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, AndOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN true and false"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -486,9 +516,10 @@ TYPED_TEST(CypherMainVisitorTest, AndOperator) {
   ast_generator.CheckLiteral(and_operator->expression2_, false);
 }
 
-TYPED_TEST(CypherMainVisitorTest, AdditionSubtractionOperators) {
-  TypeParam ast_generator("RETURN 1 - 2 + 3");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, AdditionSubtractionOperators) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 1 - 2 + 3"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -504,9 +535,10 @@ TYPED_TEST(CypherMainVisitorTest, AdditionSubtractionOperators) {
   ast_generator.CheckLiteral(addition_operator->expression2_, 3);
 }
 
-TYPED_TEST(CypherMainVisitorTest, MulitplicationOperator) {
-  TypeParam ast_generator("RETURN 2 * 3");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, MulitplicationOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 * 3"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -517,9 +549,10 @@ TYPED_TEST(CypherMainVisitorTest, MulitplicationOperator) {
   ast_generator.CheckLiteral(mult_operator->expression2_, 3);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DivisionOperator) {
-  TypeParam ast_generator("RETURN 2 / 3");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, DivisionOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 / 3"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -530,9 +563,10 @@ TYPED_TEST(CypherMainVisitorTest, DivisionOperator) {
   ast_generator.CheckLiteral(div_operator->expression2_, 3);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ModOperator) {
-  TypeParam ast_generator("RETURN 2 % 3");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ModOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 % 3"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -554,9 +588,10 @@ TYPED_TEST(CypherMainVisitorTest, ModOperator) {
     ast_generator.CheckLiteral(cmp_operator->expression2_, VALUE2);        \
   } while (0)
 
-TYPED_TEST(CypherMainVisitorTest, ComparisonOperators) {
-  TypeParam ast_generator("RETURN 2 = 3 != 4 <> 5 < 6 > 7 <= 8 >= 9");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ComparisonOperators) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN 2 = 3 != 4 <> 5 < 6 > 7 <= 8 >= 9"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -577,9 +612,10 @@ TYPED_TEST(CypherMainVisitorTest, ComparisonOperators) {
 
 #undef CHECK_COMPARISON
 
-TYPED_TEST(CypherMainVisitorTest, ListIndexing) {
-  TypeParam ast_generator("RETURN [1,2,3] [ 2 ]");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ListIndexing) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN [1,2,3] [ 2 ]"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -592,13 +628,16 @@ TYPED_TEST(CypherMainVisitorTest, ListIndexing) {
   ast_generator.CheckLiteral(list_index_op->expression2_, 2);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ListSlicingOperatorNoBounds) {
-  ASSERT_THROW(TypeParam("RETURN [1,2,3] [ .. ]"), SemanticException);
+TEST_P(CypherMainVisitorTest, ListSlicingOperatorNoBounds) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN [1,2,3] [ .. ]"),
+               SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ListSlicingOperator) {
-  TypeParam ast_generator("RETURN [1,2,3] [ .. 2 ]");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ListSlicingOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN [1,2,3] [ .. 2 ]"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -612,9 +651,10 @@ TYPED_TEST(CypherMainVisitorTest, ListSlicingOperator) {
   ast_generator.CheckLiteral(list_slicing_op->upper_bound_, 2);
 }
 
-TYPED_TEST(CypherMainVisitorTest, InListOperator) {
-  TypeParam ast_generator("RETURN 5 IN [1,2]");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, InListOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN 5 IN [1,2]"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -627,9 +667,10 @@ TYPED_TEST(CypherMainVisitorTest, InListOperator) {
   ASSERT_TRUE(list);
 }
 
-TYPED_TEST(CypherMainVisitorTest, InWithListIndexing) {
-  TypeParam ast_generator("RETURN 1 IN [[1,2]][0]");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, InWithListIndexing) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN 1 IN [[1,2]][0]"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -646,10 +687,10 @@ TYPED_TEST(CypherMainVisitorTest, InWithListIndexing) {
   ast_generator.CheckLiteral(list_indexing->expression2_, 0);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CaseGenericForm) {
-  TypeParam ast_generator(
-      "RETURN CASE WHEN n < 10 THEN 1 WHEN n > 10 THEN 2 END");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, CaseGenericForm) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "RETURN CASE WHEN n < 10 THEN 1 WHEN n > 10 THEN 2 END"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -670,9 +711,10 @@ TYPED_TEST(CypherMainVisitorTest, CaseGenericForm) {
   ast_generator.CheckLiteral(if_operator2->else_expression_, TypedValue::Null);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CaseGenericFormElse) {
-  TypeParam ast_generator("RETURN CASE WHEN n < 10 THEN 1 ELSE 2 END");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, CaseGenericFormElse) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN CASE WHEN n < 10 THEN 1 ELSE 2 END"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -685,9 +727,10 @@ TYPED_TEST(CypherMainVisitorTest, CaseGenericFormElse) {
   ast_generator.CheckLiteral(if_operator->else_expression_, 2);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CaseSimpleForm) {
-  TypeParam ast_generator("RETURN CASE 5 WHEN 10 THEN 1 END");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, CaseSimpleForm) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN CASE 5 WHEN 10 THEN 1 END"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -702,9 +745,10 @@ TYPED_TEST(CypherMainVisitorTest, CaseSimpleForm) {
   ast_generator.CheckLiteral(if_operator->else_expression_, TypedValue::Null);
 }
 
-TYPED_TEST(CypherMainVisitorTest, IsNull) {
-  TypeParam ast_generator("RETURN 2 iS NulL");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, IsNull) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 2 iS NulL"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -714,9 +758,10 @@ TYPED_TEST(CypherMainVisitorTest, IsNull) {
   ast_generator.CheckLiteral(is_type_operator->expression_, 2);
 }
 
-TYPED_TEST(CypherMainVisitorTest, IsNotNull) {
-  TypeParam ast_generator("RETURN 2 iS nOT NulL");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, IsNotNull) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN 2 iS nOT NulL"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -728,9 +773,10 @@ TYPED_TEST(CypherMainVisitorTest, IsNotNull) {
   ast_generator.CheckLiteral(is_type_operator->expression_, 2);
 }
 
-TYPED_TEST(CypherMainVisitorTest, NotOperator) {
-  TypeParam ast_generator("RETURN not true");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, NotOperator) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN not true"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -740,9 +786,10 @@ TYPED_TEST(CypherMainVisitorTest, NotOperator) {
   ast_generator.CheckLiteral(not_operator->expression_, true);
 }
 
-TYPED_TEST(CypherMainVisitorTest, UnaryMinusPlusOperators) {
-  TypeParam ast_generator("RETURN -+5");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, UnaryMinusPlusOperators) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN -+5"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -756,10 +803,10 @@ TYPED_TEST(CypherMainVisitorTest, UnaryMinusPlusOperators) {
   ast_generator.CheckLiteral(unary_plus_operator->expression_, 5);
 }
 
-TYPED_TEST(CypherMainVisitorTest, Aggregation) {
-  TypeParam ast_generator(
-      "RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e), COLLECT(f), COUNT(*)");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Aggregation) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "RETURN COUNT(a), MIN(b), MAX(c), SUM(d), AVG(e), COLLECT(f), COUNT(*)"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -786,16 +833,19 @@ TYPED_TEST(CypherMainVisitorTest, Aggregation) {
   ASSERT_FALSE(aggregation->expression1_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, UndefinedFunction) {
-  ASSERT_THROW(TypeParam("RETURN "
-                         "IHopeWeWillNeverHaveAwesomeMemgraphProcedureWithS"
-                         "uchALongAndAwesomeNameSinceThisTestWouldFail(1)"),
+TEST_P(CypherMainVisitorTest, UndefinedFunction) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery(
+                   "RETURN "
+                   "IHopeWeWillNeverHaveAwesomeMemgraphProcedureWithS"
+                   "uchALongAndAwesomeNameSinceThisTestWouldFail(1)"),
                SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, Function) {
-  TypeParam ast_generator("RETURN abs(n, 2)");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Function) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN abs(n, 2)"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -807,9 +857,10 @@ TYPED_TEST(CypherMainVisitorTest, Function) {
   ASSERT_TRUE(function->function_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
-  TypeParam ast_generator("RETURN \"mi'rko\"");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN \"mi'rko\""));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -818,9 +869,10 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
       return_clause->body_.named_expressions[0]->expression_, "mi'rko", 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
-  TypeParam ast_generator("RETURN 'mi\"rko'");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, StringLiteralSingleQuotes) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 'mi\"rko'"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -829,9 +881,10 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralSingleQuotes) {
       return_clause->body_.named_expressions[0]->expression_, "mi\"rko", 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
-  TypeParam ast_generator("RETURN '\\\\\\'\\\"\\b\\B\\f\\F\\n\\N\\r\\R\\t\\T'");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, StringLiteralEscapedChars) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "RETURN '\\\\\\'\\\"\\b\\B\\f\\F\\n\\N\\r\\R\\t\\T'"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -841,9 +894,10 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedChars) {
       "\\'\"\b\b\f\f\n\n\r\r\t\t", 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
-  TypeParam ast_generator("RETURN '\\u221daaa\\u221daaa'");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN '\\u221daaa\\u221daaa'"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -853,13 +907,16 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
       u8"\u221daaa\u221daaa", 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf16Error) {
-  ASSERT_THROW(TypeParam("RETURN '\\U221daaa'"), SyntaxException);
+TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16Error) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN '\\U221daaa'"),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
-  TypeParam ast_generator("RETURN '\\U0001F600aaaa\\U0001F600aaaaaaaa'");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN '\\U0001F600aaaa\\U0001F600aaaaaaaa'"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -869,9 +926,10 @@ TYPED_TEST(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
       u8"\U0001F600aaaa\U0001F600aaaaaaaa", 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DoubleLiteral) {
-  TypeParam ast_generator("RETURN 3.5");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, DoubleLiteral) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 3.5"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -880,9 +938,10 @@ TYPED_TEST(CypherMainVisitorTest, DoubleLiteral) {
       return_clause->body_.named_expressions[0]->expression_, 3.5, 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
-  TypeParam ast_generator("RETURN 5e-1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, DoubleLiteralExponent) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN 5e-1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -891,9 +950,10 @@ TYPED_TEST(CypherMainVisitorTest, DoubleLiteralExponent) {
       return_clause->body_.named_expressions[0]->expression_, 0.5, 1);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ListLiteral) {
-  TypeParam ast_generator("RETURN [3, [], 'johhny']");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ListLiteral) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN [3, [], 'johhny']"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -909,9 +969,10 @@ TYPED_TEST(CypherMainVisitorTest, ListLiteral) {
   ast_generator.CheckLiteral(list_literal->elements_[2], "johhny");
 }
 
-TYPED_TEST(CypherMainVisitorTest, MapLiteral) {
-  TypeParam ast_generator("RETURN {a: 1, b: 'bla', c: [1, {a: 42}]}");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, MapLiteral) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN {a: 1, b: 'bla', c: [1, {a: 42}]}"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -933,10 +994,10 @@ TYPED_TEST(CypherMainVisitorTest, MapLiteral) {
   EXPECT_EQ(1, elem_2_1->elements_.size());
 }
 
-TYPED_TEST(CypherMainVisitorTest, NodePattern) {
-  TypeParam ast_generator(
-      "MATCH (:label1:label2:label3 {a : 5, b : 10}) RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, NodePattern) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "MATCH (:label1:label2:label3 {a : 5, b : 10}) RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -969,13 +1030,16 @@ TYPED_TEST(CypherMainVisitorTest, NodePattern) {
                                    Pair(ast_generator.Prop("b"), 10)));
 }
 
-TYPED_TEST(CypherMainVisitorTest, PropertyMapSameKeyAppearsTwice) {
-  EXPECT_THROW(TypeParam("MATCH ({a : 1, a : 2})"), SemanticException);
+TEST_P(CypherMainVisitorTest, PropertyMapSameKeyAppearsTwice) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("MATCH ({a : 1, a : 2})"),
+               SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, NodePatternIdentifier) {
-  TypeParam ast_generator("MATCH (var) RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, NodePatternIdentifier) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (var) RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -992,9 +1056,10 @@ TYPED_TEST(CypherMainVisitorTest, NodePatternIdentifier) {
   EXPECT_THAT(node->properties_, UnorderedElementsAre());
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
-  TypeParam ast_generator("MATCH ()--() RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternNoDetails) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()--() RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1019,9 +1084,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternNoDetails) {
 }
 
 // PatternPart in braces.
-TYPED_TEST(CypherMainVisitorTest, PatternPartBraces) {
-  TypeParam ast_generator("MATCH ((()--())) RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, PatternPartBraces) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ((()--())) RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1044,10 +1110,10 @@ TYPED_TEST(CypherMainVisitorTest, PatternPartBraces) {
   EXPECT_FALSE(edge->identifier_->user_declared_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
-  TypeParam ast_generator(
-      "MATCH ()<-[:type1|type2 {a : 5, b : 10}]-() RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternDetails) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "MATCH ()<-[:type1|type2 {a : 5, b : 10}]-() RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1072,9 +1138,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternDetails) {
                                    Pair(ast_generator.Prop("b"), 10)));
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternVariable) {
-  TypeParam ast_generator("MATCH ()-[var]->() RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternVariable) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[var]->() RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1100,9 +1167,10 @@ void AssertMatchSingleEdgeAtom(Match *match, EdgeAtom *&edge) {
   ASSERT_TRUE(edge);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnbounded) {
-  TypeParam ast_generator("MATCH ()-[r*]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternUnbounded) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r*]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1115,9 +1183,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnbounded) {
   EXPECT_EQ(edge->upper_bound_, nullptr);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
-  TypeParam ast_generator("MATCH ()-[r*42..]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r*42..]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1130,9 +1199,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
   EXPECT_EQ(edge->upper_bound_, nullptr);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
-  TypeParam ast_generator("MATCH ()-[r*..42]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r*..42]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1145,9 +1215,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
   ast_generator.CheckLiteral(edge->upper_bound_, 42);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
-  TypeParam ast_generator("MATCH ()-[r*24..42]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r*24..42]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1160,9 +1231,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
   ast_generator.CheckLiteral(edge->upper_bound_, 42);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFixedRange) {
-  TypeParam ast_generator("MATCH ()-[r*42]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternFixedRange) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r*42]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1175,10 +1247,11 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFixedRange) {
   ast_generator.CheckLiteral(edge->upper_bound_, 42);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
+TEST_P(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
   // [r*1...2] should be parsed as [r*1..0.2]
-  TypeParam ast_generator("MATCH ()-[r*1...2]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r*1...2]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1191,9 +1264,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
   ast_generator.CheckLiteral(edge->upper_bound_, 0.2);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
-  TypeParam ast_generator("MATCH ()-[r* {prop: 42}]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r* {prop: 42}]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1207,10 +1281,11 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
   ast_generator.CheckLiteral(edge->properties_[ast_generator.Prop("prop")], 42);
 }
 
-TYPED_TEST(CypherMainVisitorTest,
-           RelationshipPatternDotsUnboundedWithEdgeTypeProperty) {
-  TypeParam ast_generator("MATCH ()-[r:edge_type*..{prop: 42}]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest,
+       RelationshipPatternDotsUnboundedWithEdgeTypeProperty) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "MATCH ()-[r:edge_type*..{prop: 42}]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1227,9 +1302,10 @@ TYPED_TEST(CypherMainVisitorTest,
   EXPECT_EQ(edge->edge_types_[0], edge_type);
 }
 
-TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
-  TypeParam ast_generator("MATCH ()-[r*..2{prop: 42}]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH ()-[r*..2{prop: 42}]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1245,7 +1321,7 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
 
 // TODO maybe uncomment
 // // PatternPart with variable.
-// TYPED_TEST(CypherMainVisitorTest, PatternPartVariable) {
+// TEST_P(CypherMainVisitorTest, PatternPartVariable) {
 //   ParserTables parser("CREATE var=()--()");
 //   ASSERT_EQ(parser.identifiers_map_.size(), 1U);
 //   ASSERT_EQ(parser.pattern_parts_.size(), 1U);
@@ -1260,9 +1336,10 @@ TYPED_TEST(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
 //             parser.pattern_parts_.end());
 // }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
-  TypeParam ast_generator("RETURN var");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN var"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1279,9 +1356,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
   ASSERT_TRUE(identifier->user_declared_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, Create) {
-  TypeParam ast_generator("CREATE (n)");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Create) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CREATE (n)"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1297,9 +1375,10 @@ TYPED_TEST(CypherMainVisitorTest, Create) {
   ASSERT_EQ(node->identifier_->name_, "n");
 }
 
-TYPED_TEST(CypherMainVisitorTest, Delete) {
-  TypeParam ast_generator("DELETE n, m");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Delete) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("DELETE n, m"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1316,9 +1395,10 @@ TYPED_TEST(CypherMainVisitorTest, Delete) {
   ASSERT_EQ(identifier2->name_, "m");
 }
 
-TYPED_TEST(CypherMainVisitorTest, DeleteDetach) {
-  TypeParam ast_generator("DETACH DELETE n");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, DeleteDetach) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("DETACH DELETE n"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1332,9 +1412,10 @@ TYPED_TEST(CypherMainVisitorTest, DeleteDetach) {
   ASSERT_EQ(identifier1->name_, "n");
 }
 
-TYPED_TEST(CypherMainVisitorTest, OptionalMatchWhere) {
-  TypeParam ast_generator("OPTIONAL MATCH (n) WHERE m RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, OptionalMatchWhere) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("OPTIONAL MATCH (n) WHERE m RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1348,9 +1429,10 @@ TYPED_TEST(CypherMainVisitorTest, OptionalMatchWhere) {
   ASSERT_EQ(identifier->name_, "m");
 }
 
-TYPED_TEST(CypherMainVisitorTest, Set) {
-  TypeParam ast_generator("SET a.x = b, c = d, e += f, g : h : i ");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Set) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("SET a.x = b, c = d, e += f, g : h : i "));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1405,14 +1487,14 @@ TYPED_TEST(CypherMainVisitorTest, Set) {
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, Remove) {
-  TypeParam ast_generator("REMOVE a.x, g : h : i");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Remove) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("REMOVE a.x, g : h : i"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
   ASSERT_EQ(single_query->clauses_.size(), 2U);
-
   {
     auto *remove_property =
         dynamic_cast<RemoveProperty *>(single_query->clauses_[0]);
@@ -1437,9 +1519,10 @@ TYPED_TEST(CypherMainVisitorTest, Remove) {
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, With) {
-  TypeParam ast_generator("WITH n AS m RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, With) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("WITH n AS m RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1458,13 +1541,16 @@ TYPED_TEST(CypherMainVisitorTest, With) {
   ASSERT_EQ(identifier->name_, "n");
 }
 
-TYPED_TEST(CypherMainVisitorTest, WithNonAliasedExpression) {
-  ASSERT_THROW(TypeParam("WITH n.x RETURN 1"), SemanticException);
+TEST_P(CypherMainVisitorTest, WithNonAliasedExpression) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("WITH n.x RETURN 1"),
+               SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, WithNonAliasedVariable) {
-  TypeParam ast_generator("WITH n RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, WithNonAliasedVariable) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("WITH n RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1478,9 +1564,10 @@ TYPED_TEST(CypherMainVisitorTest, WithNonAliasedVariable) {
   ASSERT_EQ(identifier->name_, "n");
 }
 
-TYPED_TEST(CypherMainVisitorTest, WithDistinct) {
-  TypeParam ast_generator("WITH DISTINCT n AS m RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, WithDistinct) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("WITH DISTINCT n AS m RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1495,9 +1582,10 @@ TYPED_TEST(CypherMainVisitorTest, WithDistinct) {
   ASSERT_EQ(identifier->name_, "n");
 }
 
-TYPED_TEST(CypherMainVisitorTest, WithBag) {
-  TypeParam ast_generator("WITH n as m ORDER BY m SKIP 1 LIMIT 2 RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, WithBag) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "WITH n as m ORDER BY m SKIP 1 LIMIT 2 RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1512,9 +1600,10 @@ TYPED_TEST(CypherMainVisitorTest, WithBag) {
   ASSERT_TRUE(with->body_.skip);
 }
 
-TYPED_TEST(CypherMainVisitorTest, WithWhere) {
-  TypeParam ast_generator("WITH n AS m WHERE k RETURN 1");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, WithWhere) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("WITH n AS m WHERE k RETURN 1"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1532,9 +1621,10 @@ TYPED_TEST(CypherMainVisitorTest, WithWhere) {
   ASSERT_EQ(identifier2->name_, "n");
 }
 
-TYPED_TEST(CypherMainVisitorTest, WithAnonymousVariableCapture) {
-  TypeParam ast_generator("WITH 5 as anon1 MATCH () return *");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, WithAnonymousVariableCapture) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("WITH 5 as anon1 MATCH () return *"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1550,55 +1640,65 @@ TYPED_TEST(CypherMainVisitorTest, WithAnonymousVariableCapture) {
   ASSERT_NE("anon1", atom->identifier_->name_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ClausesOrdering) {
+TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   // Obviously some of the ridiculous combinations don't fail here, but they
   // will fail in semantic analysis or they make perfect sense as a part of
   // bigger query.
-  TypeParam("RETURN 1");
-  ASSERT_THROW(TypeParam("RETURN 1 RETURN 1"), SemanticException);
-  ASSERT_THROW(TypeParam("RETURN 1 MATCH (n) RETURN n"), SemanticException);
-  ASSERT_THROW(TypeParam("RETURN 1 DELETE n"), SemanticException);
-  ASSERT_THROW(TypeParam("RETURN 1 MERGE (n)"), SemanticException);
-  ASSERT_THROW(TypeParam("RETURN 1 WITH n AS m RETURN 1"), SemanticException);
-  ASSERT_THROW(TypeParam("RETURN 1 AS n UNWIND n AS x RETURN x"),
+  auto &ast_generator = *GetParam();
+  ast_generator.ParseQuery("RETURN 1");
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 RETURN 1"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 MATCH (n) RETURN n"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 DELETE n"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 MERGE (n)"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 WITH n AS m RETURN 1"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"),
                SemanticException);
 
-  ASSERT_THROW(TypeParam("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"),
+  ASSERT_THROW(
+      ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"),
+      SemanticException);
+  ast_generator.ParseQuery("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m");
+  ast_generator.ParseQuery("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
+  ast_generator.ParseQuery("MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
+
+  ast_generator.ParseQuery("CREATE (n)");
+  ASSERT_THROW(ast_generator.ParseQuery("SET n:x MATCH (n) RETURN n"),
                SemanticException);
-  TypeParam("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m");
-  TypeParam("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
-  TypeParam("MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
+  ast_generator.ParseQuery("REMOVE n.x SET n.x = 1");
+  ast_generator.ParseQuery("REMOVE n:L RETURN n");
+  ast_generator.ParseQuery("SET n.x = 1 WITH n AS m RETURN m");
 
-  TypeParam("CREATE (n)");
-  ASSERT_THROW(TypeParam("SET n:x MATCH (n) RETURN n"), SemanticException);
-  TypeParam("REMOVE n.x SET n.x = 1");
-  TypeParam("REMOVE n:L RETURN n");
-  TypeParam("SET n.x = 1 WITH n AS m RETURN m");
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH (n)"), SemanticException);
+  ast_generator.ParseQuery("MATCH (n) MATCH (n) RETURN n");
+  ast_generator.ParseQuery("MATCH (n) SET n = m");
+  ast_generator.ParseQuery("MATCH (n) RETURN n");
+  ast_generator.ParseQuery("MATCH (n) WITH n AS m RETURN m");
 
-  ASSERT_THROW(TypeParam("MATCH (n)"), SemanticException);
-  TypeParam("MATCH (n) MATCH (n) RETURN n");
-  TypeParam("MATCH (n) SET n = m");
-  TypeParam("MATCH (n) RETURN n");
-  TypeParam("MATCH (n) WITH n AS m RETURN m");
+  ASSERT_THROW(ast_generator.ParseQuery("WITH 1 AS n"), SemanticException);
+  ast_generator.ParseQuery("WITH 1 AS n WITH n AS m RETURN m");
+  ast_generator.ParseQuery("WITH 1 AS n RETURN n");
+  ast_generator.ParseQuery("WITH 1 AS n SET n += m");
+  ast_generator.ParseQuery("WITH 1 AS n MATCH (n) RETURN n");
 
-  ASSERT_THROW(TypeParam("WITH 1 AS n"), SemanticException);
-  TypeParam("WITH 1 AS n WITH n AS m RETURN m");
-  TypeParam("WITH 1 AS n RETURN n");
-  TypeParam("WITH 1 AS n SET n += m");
-  TypeParam("WITH 1 AS n MATCH (n) RETURN n");
-
-  ASSERT_THROW(TypeParam("UNWIND [1,2,3] AS x"), SemanticException);
-  ASSERT_THROW(TypeParam("CREATE (n) UNWIND [1,2,3] AS x RETURN x"),
+  ASSERT_THROW(ast_generator.ParseQuery("UNWIND [1,2,3] AS x"),
                SemanticException);
-  TypeParam("UNWIND [1,2,3] AS x CREATE (n) RETURN x");
-  TypeParam("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x");
+  ASSERT_THROW(
+      ast_generator.ParseQuery("CREATE (n) UNWIND [1,2,3] AS x RETURN x"),
+      SemanticException);
+  ast_generator.ParseQuery("UNWIND [1,2,3] AS x CREATE (n) RETURN x");
+  ast_generator.ParseQuery("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x");
 }
 
-TYPED_TEST(CypherMainVisitorTest, Merge) {
-  TypeParam ast_generator(
-      "MERGE (a) -[:r]- (b) ON MATCH SET a.x = b.x "
-      "ON CREATE SET b :label ON MATCH SET b = a");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Merge) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MERGE (a) -[:r]- (b) ON MATCH SET a.x = b.x "
+                               "ON CREATE SET b :label ON MATCH SET b = a"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1613,9 +1713,10 @@ TYPED_TEST(CypherMainVisitorTest, Merge) {
   EXPECT_TRUE(dynamic_cast<SetLabels *>(merge->on_create_[0]));
 }
 
-TYPED_TEST(CypherMainVisitorTest, Unwind) {
-  TypeParam ast_generator("UNWIND [1,2,3] AS elem RETURN elem");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, Unwind) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("UNWIND [1,2,3] AS elem RETURN elem"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1631,23 +1732,27 @@ TYPED_TEST(CypherMainVisitorTest, Unwind) {
   ASSERT_TRUE(dynamic_cast<ListLiteral *>(expr));
 }
 
-TYPED_TEST(CypherMainVisitorTest, UnwindWithoutAsError) {
-  EXPECT_THROW(TypeParam("UNWIND [1,2,3] RETURN 42"), SyntaxException);
+TEST_P(CypherMainVisitorTest, UnwindWithoutAsError) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("UNWIND [1,2,3] RETURN 42"),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CreateIndex) {
-  TypeParam ast_generator("Create InDeX oN :mirko(slavko)");
-  auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, CreateIndex) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("Create InDeX oN :mirko(slavko)"));
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
-  std::vector<PropertyIx> expected_properties = {ast_generator.Prop("slavko")};
+  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko")};
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndex) {
-  TypeParam ast_generator("Create unIqUe InDeX oN :mirko(slavko, pero)");
-  auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, CreateUniqueIndex) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("Create unIqUe InDeX oN :mirko(slavko, pero)"));
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE_UNIQUE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
@@ -1656,14 +1761,16 @@ TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndex) {
   ASSERT_EQ(index_query->properties_, expected_properties);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndexWithoutProperties) {
-  EXPECT_THROW(TypeParam ast_generator("Create unIqUe InDeX oN :mirko()"),
+TEST_P(CypherMainVisitorTest, CreateUniqueIndexWithoutProperties) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("Create unIqUe InDeX oN :mirko()"),
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndexWithSingleProperty) {
-  TypeParam ast_generator("Create unIqUe InDeX oN :mirko(slavko)");
-  auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, CreateUniqueIndexWithSingleProperty) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("Create unIqUe InDeX oN :mirko(slavko)"));
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE_UNIQUE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
@@ -1671,9 +1778,10 @@ TYPED_TEST(CypherMainVisitorTest, CreateUniqueIndexWithSingleProperty) {
   ASSERT_EQ(index_query->properties_, expected_properties);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DropIndex) {
-  TypeParam ast_generator("dRoP InDeX oN :mirko(slavko)");
-  auto *index_query = dynamic_cast<IndexQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, DropIndex) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko)"));
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
@@ -1681,21 +1789,28 @@ TYPED_TEST(CypherMainVisitorTest, DropIndex) {
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DropIndexWithoutProperties) {
-  EXPECT_THROW(TypeParam ast_generator("dRoP InDeX oN :mirko()"),
+TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko()"),
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
-  EXPECT_THROW(TypeParam ast_generator("dRoP InDeX oN :mirko(slavko, pero)"),
+TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("dRoP InDeX oN :mirko(slavko, pero)"),
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
-  { EXPECT_THROW(TypeParam("RETURN all(x in [1,2,3])"), SyntaxException); }
+TEST_P(CypherMainVisitorTest, ReturnAll) {
   {
-    TypeParam ast_generator("RETURN all(x IN [1,2,3] WHERE x = 2)");
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    EXPECT_THROW(ast_generator.ParseQuery("RETURN all(x in [1,2,3])"),
+                 SyntaxException);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("RETURN all(x IN [1,2,3] WHERE x = 2)"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
@@ -1714,10 +1829,15 @@ TYPED_TEST(CypherMainVisitorTest, ReturnAll) {
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnSingle) {
-  { EXPECT_THROW(TypeParam("RETURN single(x in [1,2,3])"), SyntaxException); }
-  TypeParam ast_generator("RETURN single(x IN [1,2,3] WHERE x = 2)");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnSingle) {
+  {
+    auto &ast_generator = *GetParam();
+    EXPECT_THROW(ast_generator.ParseQuery("RETURN single(x in [1,2,3])"),
+                 SyntaxException);
+  }
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN single(x IN [1,2,3] WHERE x = 2)"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1735,9 +1855,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnSingle) {
   EXPECT_TRUE(eq);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnReduce) {
-  TypeParam ast_generator("RETURN reduce(sum = 0, x IN [1,2,3] | sum + x)");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnReduce) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "RETURN reduce(sum = 0, x IN [1,2,3] | sum + x)"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1757,9 +1878,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnReduce) {
   EXPECT_TRUE(add);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ReturnExtract) {
-  TypeParam ast_generator("RETURN extract(x IN [1,2,3] | sum + x)");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ReturnExtract) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("RETURN extract(x IN [1,2,3] | sum + x)"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1777,10 +1899,10 @@ TYPED_TEST(CypherMainVisitorTest, ReturnExtract) {
   EXPECT_TRUE(add);
 }
 
-TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
-  TypeParam ast_generator(
-      "MATCH (n) -[r:type1|type2 *bfs..10 (e, n|e.prop = 42)]-> (m) RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, MatchBfsReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "MATCH (n) -[r:type1|type2 *bfs..10 (e, n|e.prop = 42)]-> (m) RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1806,9 +1928,10 @@ TYPED_TEST(CypherMainVisitorTest, MatchBfsReturn) {
   ASSERT_TRUE(eq);
 }
 
-TYPED_TEST(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
-  TypeParam ast_generator("MATCH () -[*]- () RETURN *");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH () -[*]- () RETURN *"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1824,11 +1947,11 @@ TYPED_TEST(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
   EXPECT_FALSE(var_expand->filter_lambda_.inner_node->user_declared_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, MatchWShortestReturn) {
-  TypeParam ast_generator(
+TEST_P(CypherMainVisitorTest, MatchWShortestReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
       "MATCH ()-[r:type1|type2 *wShortest 10 (we, wn | 42) total_weight "
-      "(e, n | true)]->() RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+      "(e, n | true)]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1863,11 +1986,11 @@ TYPED_TEST(CypherMainVisitorTest, MatchWShortestReturn) {
   EXPECT_TRUE(shortest->total_weight_->user_declared_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
-  TypeParam ast_generator(
+TEST_P(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
       "MATCH ()-[r:type1|type2 *wShortest 10 (we, wn | 42)]->() "
-      "RETURN r");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+      "RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -1899,32 +2022,36 @@ TYPED_TEST(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
   EXPECT_FALSE(shortest->total_weight_->user_declared_);
 }
 
-TYPED_TEST(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
-  ASSERT_THROW(
-      TypeParam("MATCH ()-[r *wShortest 10.. (e, n | 42)]-() RETURN r"),
-      SemanticException);
-  ASSERT_THROW(
-      TypeParam("MATCH ()-[r *wShortest 10..20 (e, n | 42)]-() RETURN r"),
-      SemanticException);
-}
-
-TYPED_TEST(CypherMainVisitorTest, SemanticExceptionOnWShortestWithoutLambda) {
-  ASSERT_THROW(TypeParam("MATCH ()-[r *wShortest]-() RETURN r"),
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery(
+                   "MATCH ()-[r *wShortest 10.. (e, n | 42)]-() RETURN r"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery(
+                   "MATCH ()-[r *wShortest 10..20 (e, n | 42)]-() RETURN r"),
                SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, SemanticExceptionOnUnionTypeMix) {
-  ASSERT_THROW(
-      TypeParam("RETURN 5 as X UNION ALL RETURN 6 AS X UNION RETURN 7 AS X"),
-      SemanticException);
-  ASSERT_THROW(
-      TypeParam("RETURN 5 as X UNION RETURN 6 AS X UNION ALL RETURN 7 AS X"),
-      SemanticException);
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWithoutLambda) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest]-() RETURN r"),
+               SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, Union) {
-  TypeParam ast_generator("RETURN 5 AS X, 6 AS Y UNION RETURN 6 AS X, 5 AS Y");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnUnionTypeMix) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery(
+                   "RETURN 5 as X UNION ALL RETURN 6 AS X UNION RETURN 7 AS X"),
+               SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery(
+                   "RETURN 5 as X UNION RETURN 6 AS X UNION ALL RETURN 7 AS X"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, Union) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "RETURN 5 AS X, 6 AS Y UNION RETURN 6 AS X, 5 AS Y"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
 
@@ -1953,10 +2080,10 @@ TYPED_TEST(CypherMainVisitorTest, Union) {
   ASSERT_FALSE(return_clause->body_.distinct);
 }
 
-TYPED_TEST(CypherMainVisitorTest, UnionAll) {
-  TypeParam ast_generator(
-      "RETURN 5 AS X UNION ALL RETURN 6 AS X UNION ALL RETURN 7 AS X");
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, UnionAll) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+      "RETURN 5 AS X UNION ALL RETURN 6 AS X UNION ALL RETURN 7 AS X"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
 
@@ -1999,14 +2126,13 @@ TYPED_TEST(CypherMainVisitorTest, UnionAll) {
   ASSERT_FALSE(return_clause->body_.distinct);
 }
 
-template <typename AstGeneratorT>
-void check_auth_query(std::string input, AuthQuery::Action action,
-                      std::string user, std::string role,
-                      std::string user_or_role,
+void check_auth_query(Base *ast_generator, std::string input,
+                      AuthQuery::Action action, std::string user,
+                      std::string role, std::string user_or_role,
                       std::experimental::optional<TypedValue> password,
                       std::vector<AuthQuery::Privilege> privileges) {
-  AstGeneratorT ast_generator(input);
-  auto *auth_query = dynamic_cast<AuthQuery *>(ast_generator.query_);
+  auto *auth_query =
+      dynamic_cast<AuthQuery *>(ast_generator->ParseQuery(input));
   ASSERT_TRUE(auth_query);
   EXPECT_EQ(auth_query->action_, action);
   EXPECT_EQ(auth_query->user_, user);
@@ -2015,193 +2141,224 @@ void check_auth_query(std::string input, AuthQuery::Action action,
   ASSERT_EQ(static_cast<bool>(auth_query->password_),
             static_cast<bool>(password));
   if (password) {
-    ast_generator.CheckLiteral(auth_query->password_, *password);
+    ast_generator->CheckLiteral(auth_query->password_, *password);
   }
   EXPECT_EQ(auth_query->privileges_, privileges);
 }
 
-TYPED_TEST(CypherMainVisitorTest, UserOrRoleName) {
-  ASSERT_THROW(TypeParam("CREATE ROLE `us|er`"), SyntaxException);
-  ASSERT_THROW(TypeParam("CREATE ROLE `us er`"), SyntaxException);
-  check_auth_query<TypeParam>("CREATE ROLE `user`",
-                              AuthQuery::Action::CREATE_ROLE, "", "user", "",
-                              {}, {});
-  check_auth_query<TypeParam>("CREATE ROLE us___er",
-                              AuthQuery::Action::CREATE_ROLE, "", "us___er", "",
-                              {}, {});
-  check_auth_query<TypeParam>("CREATE ROLE `us+er`",
-                              AuthQuery::Action::CREATE_ROLE, "", "us+er", "",
-                              {}, {});
-}
-
-TYPED_TEST(CypherMainVisitorTest, CreateRole) {
-  ASSERT_THROW(TypeParam("CREATE ROLE"), SyntaxException);
-  check_auth_query<TypeParam>("CREATE ROLE rola",
-                              AuthQuery::Action::CREATE_ROLE, "", "rola", "",
-                              {}, {});
-  ASSERT_THROW(TypeParam("CREATE ROLE lagano rolamo"), SyntaxException);
-}
-
-TYPED_TEST(CypherMainVisitorTest, DropRole) {
-  ASSERT_THROW(TypeParam("DROP ROLE"), SyntaxException);
-  check_auth_query<TypeParam>("DROP ROLE rola", AuthQuery::Action::DROP_ROLE,
-                              "", "rola", "", {}, {});
-  ASSERT_THROW(TypeParam("DROP ROLE lagano rolamo"), SyntaxException);
-}
-
-TYPED_TEST(CypherMainVisitorTest, ShowRoles) {
-  ASSERT_THROW(TypeParam("SHOW ROLES ROLES"), SyntaxException);
-  check_auth_query<TypeParam>("SHOW ROLES", AuthQuery::Action::SHOW_ROLES, "",
-                              "", "", {}, {});
-}
-
-TYPED_TEST(CypherMainVisitorTest, CreateUser) {
-  ASSERT_THROW(TypeParam("CREATE USER"), SyntaxException);
-  ASSERT_THROW(TypeParam("CREATE USER 123"), SyntaxException);
-  check_auth_query<TypeParam>("CREATE USER user",
-                              AuthQuery::Action::CREATE_USER, "user", "", "",
-                              {}, {});
-  check_auth_query<TypeParam>("CREATE USER user IDENTIFIED BY 'password'",
-                              AuthQuery::Action::CREATE_USER, "user", "", "",
-                              "password", {});
-  check_auth_query<TypeParam>("CREATE USER user IDENTIFIED BY ''",
-                              AuthQuery::Action::CREATE_USER, "user", "", "",
-                              "", {});
-  check_auth_query<TypeParam>("CREATE USER user IDENTIFIED BY null",
-                              AuthQuery::Action::CREATE_USER, "user", "", "",
-                              TypedValue::Null, {});
-  ASSERT_THROW(TypeParam("CRATE USER user IDENTIFIED BY password"),
+TEST_P(CypherMainVisitorTest, UserOrRoleName) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE `us|er`"),
                SyntaxException);
-  ASSERT_THROW(TypeParam("CREATE USER user IDENTIFIED BY 5"), SyntaxException);
-  ASSERT_THROW(TypeParam("CREATE USER user IDENTIFIED BY "), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE `us er`"),
+               SyntaxException);
+  check_auth_query(&ast_generator, "CREATE ROLE `user`",
+                   AuthQuery::Action::CREATE_ROLE, "", "user", "", {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE us___er",
+                   AuthQuery::Action::CREATE_ROLE, "", "us___er", "", {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE `us+er`",
+                   AuthQuery::Action::CREATE_ROLE, "", "us+er", "", {}, {});
 }
 
-TYPED_TEST(CypherMainVisitorTest, SetPassword) {
-  ASSERT_THROW(TypeParam("SET PASSWORD FOR"), SyntaxException);
-  ASSERT_THROW(TypeParam("SET PASSWORD FOR user "), SyntaxException);
-  check_auth_query<TypeParam>("SET PASSWORD FOR user TO null",
-                              AuthQuery::Action::SET_PASSWORD, "user", "", "",
-                              TypedValue::Null, {});
-  check_auth_query<TypeParam>("SET PASSWORD FOR user TO 'password'",
-                              AuthQuery::Action::SET_PASSWORD, "user", "", "",
-                              "password", {});
-  ASSERT_THROW(TypeParam("SET PASSWORD FOR user To 5"), SyntaxException);
+TEST_P(CypherMainVisitorTest, CreateRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE"), SyntaxException);
+  check_auth_query(&ast_generator, "CREATE ROLE rola",
+                   AuthQuery::Action::CREATE_ROLE, "", "rola", "", {}, {});
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE lagano rolamo"),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DropUser) {
-  ASSERT_THROW(TypeParam("DROP USER"), SyntaxException);
-  check_auth_query<TypeParam>("DROP USER user", AuthQuery::Action::DROP_USER,
-                              "user", "", "", {}, {});
-  ASSERT_THROW(TypeParam("DROP USER lagano rolamo"), SyntaxException);
+TEST_P(CypherMainVisitorTest, DropRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE"), SyntaxException);
+  check_auth_query(&ast_generator, "DROP ROLE rola",
+                   AuthQuery::Action::DROP_ROLE, "", "rola", "", {}, {});
+  ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE lagano rolamo"),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ShowUsers) {
-  ASSERT_THROW(TypeParam("SHOW USERS ROLES"), SyntaxException);
-  check_auth_query<TypeParam>("SHOW USERS", AuthQuery::Action::SHOW_USERS, "",
-                              "", "", {}, {});
+TEST_P(CypherMainVisitorTest, ShowRoles) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLES ROLES"), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW ROLES", AuthQuery::Action::SHOW_ROLES,
+                   "", "", "", {}, {});
 }
 
-TYPED_TEST(CypherMainVisitorTest, SetRole) {
-  ASSERT_THROW(TypeParam("SET ROLE"), SyntaxException);
-  ASSERT_THROW(TypeParam("SET ROLE user"), SyntaxException);
-  ASSERT_THROW(TypeParam("SET ROLE FOR user"), SyntaxException);
-  ASSERT_THROW(TypeParam("SET ROLE FOR user TO"), SyntaxException);
-  check_auth_query<TypeParam>("SET ROLE FOR user TO role",
-                              AuthQuery::Action::SET_ROLE, "user", "role", "",
-                              {}, {});
-  check_auth_query<TypeParam>("SET ROLE FOR user TO null",
-                              AuthQuery::Action::SET_ROLE, "user", "null", "",
-                              {}, {});
+TEST_P(CypherMainVisitorTest, CreateUser) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER 123"), SyntaxException);
+  check_auth_query(&ast_generator, "CREATE USER user",
+                   AuthQuery::Action::CREATE_USER, "user", "", "", {}, {});
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY 'password'",
+                   AuthQuery::Action::CREATE_USER, "user", "", "", "password",
+                   {});
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY ''",
+                   AuthQuery::Action::CREATE_USER, "user", "", "", "", {});
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null",
+                   AuthQuery::Action::CREATE_USER, "user", "", "",
+                   TypedValue::Null, {});
+  ASSERT_THROW(
+      ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"),
+      SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY 5"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY "),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ClearRole) {
-  ASSERT_THROW(TypeParam("CLEAR ROLE"), SyntaxException);
-  ASSERT_THROW(TypeParam("CLEAR ROLE user"), SyntaxException);
-  ASSERT_THROW(TypeParam("CLEAR ROLE FOR user TO"), SyntaxException);
-  check_auth_query<TypeParam>("CLEAR ROLE FOR user",
-                              AuthQuery::Action::CLEAR_ROLE, "user", "", "", {},
-                              {});
+TEST_P(CypherMainVisitorTest, SetPassword) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user "),
+               SyntaxException);
+  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO null",
+                   AuthQuery::Action::SET_PASSWORD, "user", "", "",
+                   TypedValue::Null, {});
+  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'",
+                   AuthQuery::Action::SET_PASSWORD, "user", "", "", "password",
+                   {});
+  ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user To 5"),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, GrantPrivilege) {
-  ASSERT_THROW(TypeParam("GRANT"), SyntaxException);
-  ASSERT_THROW(TypeParam("GRANT TO user"), SyntaxException);
-  ASSERT_THROW(TypeParam("GRANT BLABLA TO user"), SyntaxException);
-  ASSERT_THROW(TypeParam("GRANT MATCH, TO user"), SyntaxException);
-  ASSERT_THROW(TypeParam("GRANT MATCH, BLABLA TO user"), SyntaxException);
-  check_auth_query<TypeParam>("GRANT MATCH TO user",
-                              AuthQuery::Action::GRANT_PRIVILEGE, "", "",
-                              "user", {}, {AuthQuery::Privilege::MATCH});
-  check_auth_query<TypeParam>(
-      "GRANT MATCH, AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "",
-      "user", {}, {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+TEST_P(CypherMainVisitorTest, DropUser) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("DROP USER"), SyntaxException);
+  check_auth_query(&ast_generator, "DROP USER user",
+                   AuthQuery::Action::DROP_USER, "user", "", "", {}, {});
+  ASSERT_THROW(ast_generator.ParseQuery("DROP USER lagano rolamo"),
+               SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DenyPrivilege) {
-  ASSERT_THROW(TypeParam("DENY"), SyntaxException);
-  ASSERT_THROW(TypeParam("DENY TO user"), SyntaxException);
-  ASSERT_THROW(TypeParam("DENY BLABLA TO user"), SyntaxException);
-  ASSERT_THROW(TypeParam("DENY MATCH, TO user"), SyntaxException);
-  ASSERT_THROW(TypeParam("DENY MATCH, BLABLA TO user"), SyntaxException);
-  check_auth_query<TypeParam>("DENY MATCH TO user",
-                              AuthQuery::Action::DENY_PRIVILEGE, "", "", "user",
-                              {}, {AuthQuery::Privilege::MATCH});
-  check_auth_query<TypeParam>(
-      "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "",
-      "user", {}, {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+TEST_P(CypherMainVisitorTest, ShowUsers) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS ROLES"), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW USERS", AuthQuery::Action::SHOW_USERS,
+                   "", "", "", {}, {});
 }
 
-TYPED_TEST(CypherMainVisitorTest, RevokePrivilege) {
-  ASSERT_THROW(TypeParam("REVOKE"), SyntaxException);
-  ASSERT_THROW(TypeParam("REVOKE FROM user"), SyntaxException);
-  ASSERT_THROW(TypeParam("REVOKE BLABLA FROM user"), SyntaxException);
-  ASSERT_THROW(TypeParam("REVOKE MATCH, FROM user"), SyntaxException);
-  ASSERT_THROW(TypeParam("REVOKE MATCH, BLABLA FROM user"), SyntaxException);
-  check_auth_query<TypeParam>("REVOKE MATCH FROM user",
-                              AuthQuery::Action::REVOKE_PRIVILEGE, "", "",
-                              "user", {}, {AuthQuery::Privilege::MATCH});
-  check_auth_query<TypeParam>(
-      "REVOKE MATCH, AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "",
-      "", "user", {},
-      {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
-  check_auth_query<TypeParam>(
-      "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE,
-      "", "", "user", {}, kPrivilegesAll);
+TEST_P(CypherMainVisitorTest, SetRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user TO"),
+               SyntaxException);
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO role",
+                   AuthQuery::Action::SET_ROLE, "user", "role", "", {}, {});
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO null",
+                   AuthQuery::Action::SET_ROLE, "user", "null", "", {}, {});
 }
 
-TYPED_TEST(CypherMainVisitorTest, ShowPrivileges) {
-  ASSERT_THROW(TypeParam("SHOW PRIVILEGES FOR"), SyntaxException);
-  check_auth_query<TypeParam>("SHOW PRIVILEGES FOR user",
-                              AuthQuery::Action::SHOW_PRIVILEGES, "", "",
-                              "user", {}, {});
-  ASSERT_THROW(TypeParam("SHOW PRIVILEGES FOR user1, user2"), SyntaxException);
+TEST_P(CypherMainVisitorTest, ClearRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"),
+               SyntaxException);
+  check_auth_query(&ast_generator, "CLEAR ROLE FOR user",
+                   AuthQuery::Action::CLEAR_ROLE, "user", "", "", {}, {});
 }
 
-TYPED_TEST(CypherMainVisitorTest, ShowRoleForUser) {
-  ASSERT_THROW(TypeParam("SHOW ROLE FOR "), SyntaxException);
-  check_auth_query<TypeParam>("SHOW ROLE FOR user",
-                              AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", "",
-                              "", {}, {});
-  ASSERT_THROW(TypeParam("SHOW ROLE FOR user1, user2"), SyntaxException);
+TEST_P(CypherMainVisitorTest, GrantPrivilege) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT BLABLA TO user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, TO user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, BLABLA TO user"),
+               SyntaxException);
+  check_auth_query(&ast_generator, "GRANT MATCH TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MATCH});
+  check_auth_query(&ast_generator, "GRANT MATCH, AUTH TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
 }
 
-TYPED_TEST(CypherMainVisitorTest, ShowUsersForRole) {
-  ASSERT_THROW(TypeParam("SHOW USERS FOR "), SyntaxException);
-  check_auth_query<TypeParam>("SHOW USERS FOR role",
-                              AuthQuery::Action::SHOW_USERS_FOR_ROLE, "",
-                              "role", "", {}, {});
-  ASSERT_THROW(TypeParam("SHOW USERS FOR role1, role2"), SyntaxException);
+TEST_P(CypherMainVisitorTest, DenyPrivilege) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("DENY"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY TO user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY BLABLA TO user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, TO user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, BLABLA TO user"),
+               SyntaxException);
+  check_auth_query(&ast_generator, "DENY MATCH TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MATCH});
+  check_auth_query(&ast_generator, "DENY MATCH, AUTH TO user",
+                   AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
 }
 
-TYPED_TEST(CypherMainVisitorTest, CreateStream) {
+TEST_P(CypherMainVisitorTest, RevokePrivilege) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE FROM user"), SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE BLABLA FROM user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, FROM user"),
+               SyntaxException);
+  ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, BLABLA FROM user"),
+               SyntaxException);
+  check_auth_query(&ast_generator, "REVOKE MATCH FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MATCH});
+  check_auth_query(&ast_generator, "REVOKE MATCH, AUTH FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH});
+  check_auth_query(&ast_generator, "REVOKE ALL PRIVILEGES FROM user",
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+                   kPrivilegesAll);
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivileges) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR"),
+               SyntaxException);
+  check_auth_query(&ast_generator, "SHOW PRIVILEGES FOR user",
+                   AuthQuery::Action::SHOW_PRIVILEGES, "", "", "user", {}, {});
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user1, user2"),
+               SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW ROLE FOR user",
+                   AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", "", "", {},
+                   {});
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"),
+               SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW USERS FOR role",
+                   AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", "role", "", {},
+                   {});
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"),
+               SyntaxException);
+}
+
+TEST_P(CypherMainVisitorTest, CreateStream) {
   auto check_create_stream =
-      [](std::string input, const std::string &stream_name,
-         const std::string &stream_uri, const std::string &stream_topic,
-         const std::string &transform_uri,
-         std::experimental::optional<int64_t> batch_interval_in_ms,
-         std::experimental::optional<int64_t> batch_size) {
-        TypeParam ast_generator(input);
-        auto *stream_query = dynamic_cast<StreamQuery *>(ast_generator.query_);
+      [this](std::string input, const std::string &stream_name,
+             const std::string &stream_uri, const std::string &stream_topic,
+             const std::string &transform_uri,
+             std::experimental::optional<int64_t> batch_interval_in_ms,
+             std::experimental::optional<int64_t> batch_size) {
+        auto &ast_generator = *GetParam();
+        auto *stream_query =
+            dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
         ASSERT_TRUE(stream_query);
         EXPECT_EQ(stream_query->action_, StreamQuery::Action::CREATE_STREAM);
         EXPECT_EQ(stream_query->stream_name_, stream_name);
@@ -2300,11 +2457,12 @@ TYPED_TEST(CypherMainVisitorTest, CreateStream) {
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, DropStream) {
-  auto check_drop_stream = [](std::string input,
-                              const std::string &stream_name) {
-    TypeParam ast_generator(input);
-    auto *stream_query = dynamic_cast<StreamQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, DropStream) {
+  auto check_drop_stream = [this](std::string input,
+                                  const std::string &stream_name) {
+    auto &ast_generator = *GetParam();
+    auto *stream_query =
+        dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
     ASSERT_TRUE(stream_query);
     EXPECT_EQ(stream_query->action_, StreamQuery::Action::DROP_STREAM);
     EXPECT_EQ(stream_query->stream_name_, stream_name);
@@ -2320,10 +2478,11 @@ TYPED_TEST(CypherMainVisitorTest, DropStream) {
   EXPECT_THROW(check_drop_stream("DroP STREAM '123'", "123"), SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, ShowStreams) {
-  auto check_show_streams = [](std::string input) {
-    TypeParam ast_generator(input);
-    auto *stream_query = dynamic_cast<StreamQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, ShowStreams) {
+  auto check_show_streams = [this](std::string input) {
+    auto &ast_generator = *GetParam();
+    auto *stream_query =
+        dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
     ASSERT_TRUE(stream_query);
     EXPECT_EQ(stream_query->action_, StreamQuery::Action::SHOW_STREAMS);
   };
@@ -2333,12 +2492,13 @@ TYPED_TEST(CypherMainVisitorTest, ShowStreams) {
   EXPECT_THROW(check_show_streams("SHOW STREAMS lololo"), SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StartStopStream) {
+TEST_P(CypherMainVisitorTest, StartStopStream) {
   auto check_start_stop_stream =
-      [](std::string input, const std::string &stream_name, bool is_start,
-         std::experimental::optional<int64_t> limit_batches) {
-        TypeParam ast_generator(input);
-        auto *stream_query = dynamic_cast<StreamQuery *>(ast_generator.query_);
+      [this](std::string input, const std::string &stream_name, bool is_start,
+             std::experimental::optional<int64_t> limit_batches) {
+        auto &ast_generator = *GetParam();
+        auto *stream_query =
+            dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
         ASSERT_TRUE(stream_query);
 
         EXPECT_EQ(stream_query->stream_name_, stream_name);
@@ -2380,10 +2540,11 @@ TYPED_TEST(CypherMainVisitorTest, StartStopStream) {
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, StartStopAllStreams) {
-  auto check_start_stop_all_streams = [](std::string input, bool is_start) {
-    TypeParam ast_generator(input);
-    auto *stream_query = dynamic_cast<StreamQuery *>(ast_generator.query_);
+TEST_P(CypherMainVisitorTest, StartStopAllStreams) {
+  auto check_start_stop_all_streams = [this](std::string input, bool is_start) {
+    auto &ast_generator = *GetParam();
+    auto *stream_query =
+        dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
     ASSERT_TRUE(stream_query);
     EXPECT_EQ(stream_query->action_,
               is_start ? StreamQuery::Action::START_ALL_STREAMS
@@ -2401,12 +2562,13 @@ TYPED_TEST(CypherMainVisitorTest, StartStopAllStreams) {
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestStream) {
+TEST_P(CypherMainVisitorTest, TestStream) {
   auto check_test_stream =
-      [](std::string input, const std::string &stream_name,
-         std::experimental::optional<int64_t> limit_batches) {
-        TypeParam ast_generator(input);
-        auto *stream_query = dynamic_cast<StreamQuery *>(ast_generator.query_);
+      [this](std::string input, const std::string &stream_name,
+             std::experimental::optional<int64_t> limit_batches) {
+        auto &ast_generator = *GetParam();
+        auto *stream_query =
+            dynamic_cast<StreamQuery *>(ast_generator.ParseQuery(input));
         ASSERT_TRUE(stream_query);
         EXPECT_EQ(stream_query->stream_name_, stream_name);
         EXPECT_EQ(stream_query->action_, StreamQuery::Action::TEST_STREAM);
@@ -2437,107 +2599,111 @@ TYPED_TEST(CypherMainVisitorTest, TestStream) {
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestExplainRegularQuery) {
-  {
-    TypeParam ast_generator("EXPLAIN RETURN n");
-    EXPECT_TRUE(dynamic_cast<ExplainQuery *>(ast_generator.query_));
-  }
+TEST_P(CypherMainVisitorTest, TestExplainRegularQuery) {
+  auto &ast_generator = *GetParam();
+  EXPECT_TRUE(dynamic_cast<ExplainQuery *>(
+      ast_generator.ParseQuery("EXPLAIN RETURN n")));
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestExplainExplainQuery) {
-  EXPECT_THROW(TypeParam ast_generator("EXPLAIN EXPLAIN RETURN n"),
+TEST_P(CypherMainVisitorTest, TestExplainExplainQuery) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("EXPLAIN EXPLAIN RETURN n"),
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestExplainAuthQuery) {
-  EXPECT_THROW(TypeParam ast_generator("EXPLAIN SHOW ROLES"), SyntaxException);
+TEST_P(CypherMainVisitorTest, TestExplainAuthQuery) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("EXPLAIN SHOW ROLES"), SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestExplainStreamQuery) {
-  EXPECT_THROW(TypeParam ast_generator("EXPLAIN SHOW STREAMS"),
+TEST_P(CypherMainVisitorTest, TestExplainStreamQuery) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("EXPLAIN SHOW STREAMS"),
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestProfileRegularQuery) {
+TEST_P(CypherMainVisitorTest, TestProfileRegularQuery) {
   {
-    TypeParam ast_generator("PROFILE RETURN n");
-    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(ast_generator.query_));
+    auto &ast_generator = *GetParam();
+    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(
+        ast_generator.ParseQuery("PROFILE RETURN n")));
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestProfileComplicatedQuery) {
+TEST_P(CypherMainVisitorTest, TestProfileComplicatedQuery) {
   {
-    TypeParam ast_generator(
+    auto &ast_generator = *GetParam();
+    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(ast_generator.ParseQuery(
         "profile optional match (n) where n.hello = 5 "
         "return n union optional match (n) where n.there = 10 "
-        "return n");
-    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(ast_generator.query_));
+        "return n")));
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestProfileProfileQuery) {
-  EXPECT_THROW(TypeParam ast_generator("PROFILE PROFILE RETURN n"),
+TEST_P(CypherMainVisitorTest, TestProfileProfileQuery) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("PROFILE PROFILE RETURN n"),
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestProfileAuthQuery) {
-  EXPECT_THROW(TypeParam ast_generator("PROFILE SHOW ROLES"), SyntaxException);
+TEST_P(CypherMainVisitorTest, TestProfileAuthQuery) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("PROFILE SHOW ROLES"), SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestProfileStreamQuery) {
-  EXPECT_THROW(TypeParam ast_generator("PROFILE SHOW STREAMS"),
+TEST_P(CypherMainVisitorTest, TestProfileStreamQuery) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("PROFILE SHOW STREAMS"),
                SyntaxException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestShowStorageInfo) {
-  {
-    TypeParam ast_generator("SHOW STORAGE INFO");
-    auto *query = dynamic_cast<InfoQuery *>(ast_generator.query_);
-    ASSERT_TRUE(query);
-    EXPECT_EQ(query->info_type_, InfoQuery::InfoType::STORAGE);
-  }
+TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW STORAGE INFO"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::STORAGE);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestShowIndexInfo) {
-  {
-    TypeParam ast_generator("SHOW INDEX INFO");
-    auto *query = dynamic_cast<InfoQuery *>(ast_generator.query_);
-    ASSERT_TRUE(query);
-    EXPECT_EQ(query->info_type_, InfoQuery::InfoType::INDEX);
-  }
+TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<InfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::INDEX);
 }
 
-TYPED_TEST(CypherMainVisitorTest, TestShowConstraintInfo) {
-  {
-    TypeParam ast_generator("SHOW CONSTRAINT INFO");
-    auto *query = dynamic_cast<InfoQuery *>(ast_generator.query_);
-    ASSERT_TRUE(query);
-    EXPECT_EQ(query->info_type_, InfoQuery::InfoType::CONSTRAINT);
-  }
+TEST_P(CypherMainVisitorTest, TestShowConstraintInfo) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<InfoQuery *>(
+      ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
+  ASSERT_TRUE(query);
+  EXPECT_EQ(query->info_type_, InfoQuery::InfoType::CONSTRAINT);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CreateConstraintSyntaxError) {
+TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {
+  auto &ast_generator = *GetParam();
   EXPECT_THROW(
-      TypeParam ast_generator("CREATE CONSTRAINT ON (:label) ASSERT EXISTS"),
+      ast_generator.ParseQuery("CREATE CONSTRAINT ON (:label) ASSERT EXISTS"),
       SyntaxException);
-  EXPECT_THROW(TypeParam ast_generator("CREATE CONSTRAINT () ASSERT EXISTS"),
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT () ASSERT EXISTS"),
                SyntaxException);
   EXPECT_THROW(
-      TypeParam ast_generator("CREATE CONSTRAINT ON () ASSERT EXISTS(prop1)"),
+      ast_generator.ParseQuery("CREATE CONSTRAINT ON () ASSERT EXISTS(prop1)"),
       SyntaxException);
-  EXPECT_THROW(TypeParam ast_generator(
+  EXPECT_THROW(ast_generator.ParseQuery(
                    "CREATE CONSTRAINT ON () ASSERT EXISTS (prop1, prop2)"),
                SyntaxException);
-  EXPECT_THROW(TypeParam ast_generator("CREATE CONSTRAINT ON (n:label) ASSERT "
-                                       "EXISTS (n.prop1, missing.prop2)"),
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
+                                        "EXISTS (n.prop1, missing.prop2)"),
                SemanticException);
 }
 
-TYPED_TEST(CypherMainVisitorTest, CreateConstraint) {
+TEST_P(CypherMainVisitorTest, CreateConstraint) {
   {
-    TypeParam ast_generator(
-        "CREATE CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1)");
-    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "CREATE CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1)"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
     EXPECT_EQ(query->label_, ast_generator.Label("label"));
@@ -2545,9 +2711,9 @@ TYPED_TEST(CypherMainVisitorTest, CreateConstraint) {
                 UnorderedElementsAre(ast_generator.Prop("prop1")));
   }
   {
-    TypeParam ast_generator(
-        "CREATE CONSTRAINT ON (n:label) ASSERT EXISTS (n.prop1, n.prop2)");
-    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "CREATE CONSTRAINT ON (n:label) ASSERT EXISTS (n.prop1, n.prop2)"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
     EXPECT_EQ(query->label_, ast_generator.Label("label"));
@@ -2557,11 +2723,11 @@ TYPED_TEST(CypherMainVisitorTest, CreateConstraint) {
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, DropConstraint) {
+TEST_P(CypherMainVisitorTest, DropConstraint) {
   {
-    TypeParam ast_generator(
-        "DROP CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1)");
-    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "DROP CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1)"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
     EXPECT_EQ(query->label_, ast_generator.Label("label"));
@@ -2569,9 +2735,9 @@ TYPED_TEST(CypherMainVisitorTest, DropConstraint) {
                 UnorderedElementsAre(ast_generator.Prop("prop1")));
   }
   {
-    TypeParam ast_generator(
-        "DROP CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1, n.prop2)");
-    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "DROP CONSTRAINT ON (n:label) ASSERT EXISTS(n.prop1, n.prop2)"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
     EXPECT_EQ(query->label_, ast_generator.Label("label"));
@@ -2581,11 +2747,11 @@ TYPED_TEST(CypherMainVisitorTest, DropConstraint) {
   }
 }
 
-TYPED_TEST(CypherMainVisitorTest, RegexMatch) {
+TEST_P(CypherMainVisitorTest, RegexMatch) {
   {
-    TypeParam ast_generator(
-        "MATCH (n) WHERE n.name =~ \".*bla.*\" RETURN n.name");
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "MATCH (n) WHERE n.name =~ \".*bla.*\" RETURN n.name"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
@@ -2599,8 +2765,9 @@ TYPED_TEST(CypherMainVisitorTest, RegexMatch) {
     ast_generator.CheckLiteral(regex_match->regex_, ".*bla.*");
   }
   {
-    TypeParam ast_generator("RETURN \"text\" =~ \".*bla.*\"");
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("RETURN \"text\" =~ \".*bla.*\""));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
