@@ -162,6 +162,7 @@ set(mg_distributed_sources
     storage/common/types/property_value_store.cpp
     storage/common/types/slk.cpp
     storage/distributed/edge_accessor.cpp
+    storage/distributed/edges_iterator.cpp
     storage/distributed/record_accessor.cpp
     storage/distributed/rpc/serialization.cpp
     storage/distributed/vertex_accessor.cpp

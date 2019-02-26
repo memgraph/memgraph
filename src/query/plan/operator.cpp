@@ -13,6 +13,9 @@
 
 #include "glog/logging.h"
 
+#include <cppitertools/chain.hpp>
+#include <cppitertools/imap.hpp>
+
 #include "auth/auth.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "database/graph_db_accessor.hpp"

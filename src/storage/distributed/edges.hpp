@@ -18,7 +18,7 @@
  * vertex (and consequently that edge Addresses are unique in it).
  */
 class Edges {
- private:
+ public:
   struct Element {
     storage::VertexAddress vertex;
     storage::EdgeAddress edge;
@@ -105,7 +105,6 @@ class Edges {
     }
   };
 
- public:
   /**
    * Adds an edge to this structure.
    *

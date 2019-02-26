@@ -511,7 +511,11 @@ class DistributedEdgeRemoveTest : public DistributedGraphDbTest {
 
   template <typename TIterable>
   auto Size(TIterable iterable) {
-    return std::distance(iterable.begin(), iterable.end());
+    size_t size = 0;
+    for (auto i = iterable.begin(); i != iterable.end(); ++i) {
+      ++size;
+    }
+    return size;
   };
 
   void CheckCreation() {

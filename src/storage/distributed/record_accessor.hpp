@@ -171,6 +171,10 @@ class RecordAccessor {
    */
   void ReleaseCachedData() const;
 
+  /** Returns the current version (either new_ or old_) set on this
+   * RecordAccessor. */
+  const TRecord &current() const;
+
  protected:
   /**
    * The database::GraphDbAccessor is friend to this accessor so it can
@@ -198,10 +202,6 @@ class RecordAccessor {
    */
   // TODO (vkasljevic) remove this
   mutable TRecord *current_{nullptr};
-
-  /** Returns the current version (either new_ or old_) set on this
-   * RecordAccessor. */
-  const TRecord &current() const;
 
  private:
   // The database accessor for which this record accessor is created

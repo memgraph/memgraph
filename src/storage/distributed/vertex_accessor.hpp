@@ -5,14 +5,11 @@
 #include <set>
 #include <vector>
 
-#include <cppitertools/chain.hpp>
-#include <cppitertools/imap.hpp>
-
 #include "storage/distributed/cached_data_lock.hpp"
 #include "storage/distributed/edge_accessor.hpp"
+#include "storage/distributed/edges_iterator.hpp"
 #include "storage/distributed/record_accessor.hpp"
 #include "storage/distributed/vertex.hpp"
-#include "utils/algorithm.hpp"
 
 /**
  * Provides ways for the client programmer (i.e. code generated
@@ -23,32 +20,6 @@
  */
 class VertexAccessor final : public RecordAccessor<Vertex> {
   using VertexAddress = storage::Address<mvcc::VersionList<Vertex>>;
-  // Helper function for creating an iterator over edges.
-  // @param begin - begin iterator
-  // @param end - end iterator
-  // @param from - if true specifies that the vertex represents `from` part of
-  // the edge, otherwise it specifies `to` part of the edge
-  // @param vertex - one endpoint of every edge
-  // @param db_accessor - database accessor
-  // @return - Iterator over EdgeAccessors
-  template <typename TIterator>
-  static inline auto MakeAccessorIterator(
-      TIterator &&begin, TIterator &&end, bool from, VertexAddress vertex,
-      database::GraphDbAccessor &db_accessor) {
-    return iter::imap(
-        [from, vertex, &db_accessor](auto &edges_element) {
-          if (from) {
-            return EdgeAccessor(edges_element.edge, db_accessor, vertex,
-                                edges_element.vertex, edges_element.edge_type);
-          } else {
-            return EdgeAccessor(edges_element.edge, db_accessor,
-                                edges_element.vertex, vertex,
-                                edges_element.edge_type);
-          }
-        },
-        utils::Iterable<TIterator>(std::forward<TIterator>(begin),
-                                   std::forward<TIterator>(end)));
-  }
 
  public:
   VertexAccessor(VertexAddress address, database::GraphDbAccessor &db_accessor);
@@ -74,10 +45,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
   std::vector<storage::Label> labels() const;
 
   /** Returns EdgeAccessors for all incoming edges. */
-  auto in() const {
+  EdgesIterable in() const {
     auto guard = storage::GetDataLock(*this);
-    return MakeAccessorIterator(current().in_.begin(), current().in_.end(),
-                                false, address(), db_accessor());
+    return EdgesIterable(*this, false);
   }
 
   /**
@@ -87,14 +57,10 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto in(const VertexAccessor &dest,
+  EdgesIterable in(const VertexAccessor &dest,
           const std::vector<storage::EdgeType> *edge_types = nullptr) const {
-    // This is temporary
-    // TODO (vkasljevic) prepare iterators for lru cache
     auto guard = storage::GetDataLock(*this);
-    return MakeAccessorIterator(current().in_.begin(dest.address(), edge_types),
-                                current().in_.end(), false, address(),
-                                db_accessor());
+    return EdgesIterable(*this, false, dest, edge_types);
   }
 
   /**
@@ -103,22 +69,15 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto in(const std::vector<storage::EdgeType> *edge_types) const {
-    // This is temporary
-    // TODO (vkasljevic) prepare iterators for lru cache
+  EdgesIterable in(const std::vector<storage::EdgeType> *edge_types) const {
     auto guard = storage::GetDataLock(*this);
-    return MakeAccessorIterator(
-        current().in_.begin(std::experimental::nullopt, edge_types),
-        current().in_.end(), false, address(), db_accessor());
+    return EdgesIterable(*this, false, edge_types);
   }
 
   /** Returns EdgeAccessors for all outgoing edges. */
-  auto out() const {
-    // This is temporary
-    // TODO (vkasljevic) prepare iterators for lru cache
+  EdgesIterable out() const {
     auto guard = storage::GetDataLock(*this);
-    return MakeAccessorIterator(current().out_.begin(), current().out_.end(),
-                                true, address(), db_accessor());
+    return EdgesIterable(*this, true);
   }
 
   /**
@@ -129,14 +88,10 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto out(const VertexAccessor &dest,
+  EdgesIterable out(const VertexAccessor &dest,
            const std::vector<storage::EdgeType> *edge_types = nullptr) const {
-    // This is temporary
-    // TODO (vkasljevic) prepare iterators for lru cache
     auto guard = storage::GetDataLock(*this);
-    return MakeAccessorIterator(
-        current().out_.begin(dest.address(), edge_types), current().out_.end(),
-        true, address(), db_accessor());
+    return EdgesIterable(*this, true, dest, edge_types);
   }
 
   /**
@@ -145,13 +100,9 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * @param edge_types - Edge types filter. At least one be matched. If nullptr
    * or empty, the parameter is ignored.
    */
-  auto out(const std::vector<storage::EdgeType> *edge_types) const {
-    // This is temporary
-    // TODO (vkasljevic) prepare iterators for lru cache
+  EdgesIterable out(const std::vector<storage::EdgeType> *edge_types) const {
     auto guard = storage::GetDataLock(*this);
-    return MakeAccessorIterator(
-        current().out_.begin(std::experimental::nullopt, edge_types),
-        current().out_.end(), true, address(), db_accessor());
+    return EdgesIterable(*this, true, edge_types);
   }
 
   /** Removes the given edge from the outgoing edges of this vertex. Note that

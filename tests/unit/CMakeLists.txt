@@ -79,6 +79,9 @@ target_link_libraries(${test_prefix}distributed_durability mg-distributed kvstor
 add_unit_test(distributed_dynamic_worker.cpp)
 target_link_libraries(${test_prefix}distributed_dynamic_worker mg-distributed kvstore_dummy_lib)
 
+add_unit_test(distributed_edges_iterator.cpp)
+target_link_libraries(${test_prefix}distributed_edges_iterator mg-distributed kvstore_dummy_lib)
+
 add_unit_test(distributed_gc.cpp)
 target_link_libraries(${test_prefix}distributed_gc mg-distributed kvstore_dummy_lib)
 
