@@ -18,6 +18,7 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/profile.hpp"
 #include "query/plan/vertex_count_cache.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/flag_validation.hpp"
 #include "utils/string.hpp"
 #include "utils/tsc.hpp"
@@ -865,17 +866,28 @@ Interpreter::Results Interpreter::operator()(
         HandleIndexQuery(index_query, invalidate_plan_cache, &db_accessor);
   } else if (auto *auth_query =
                  utils::Downcast<AuthQuery>(parsed_query.query)) {
+#ifdef MG_SINGLE_NODE_HA
+    throw utils::NotYetImplemented(
+        "Managing user privileges is not yet supported in Memgraph HA "
+        "instance.");
+#else
     if (in_explicit_transaction) {
       throw UserModificationInMulticommandTxException();
     }
     callback = HandleAuthQuery(auth_query, auth_, parameters, &db_accessor);
+#endif
   } else if (auto *stream_query =
                  utils::Downcast<StreamQuery>(parsed_query.query)) {
+#ifdef MG_SINGLE_NODE_HA
+    throw utils::NotYetImplemented(
+        "Graph streams are not yet supported in Memgraph HA instance.");
+#else
     if (in_explicit_transaction) {
       throw StreamClauseInMulticommandTxException();
     }
     callback = HandleStreamQuery(stream_query, kafka_streams_, parameters,
                                  &db_accessor);
+#endif
   } else if (auto *info_query =
                  utils::Downcast<InfoQuery>(parsed_query.query)) {
     callback = HandleInfoQuery(info_query, &db_accessor);

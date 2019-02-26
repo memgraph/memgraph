@@ -43,10 +43,13 @@ std::vector<std::string> BoltSession::Interpret(
   std::map<std::string, PropertyValue> params_pv;
   for (const auto &kv : params)
     params_pv.emplace(kv.first, glue::ToPropertyValue(kv.second));
+#ifndef MG_SINGLE_NODE_HA
   audit_log_->Record(endpoint_.address(), user_ ? user_->username() : "", query,
                      params_pv);
+#endif
   try {
     auto result = transaction_engine_.Interpret(query, params_pv);
+#ifndef MG_SINGLE_NODE_HA
     if (user_) {
       const auto &permissions = user_->GetPermissions();
       for (const auto &privilege : result.second) {
@@ -59,6 +62,7 @@ std::vector<std::string> BoltSession::Interpret(
         }
       }
     }
+#endif
     return result.first;
 
   } catch (const query::QueryException &e) {
@@ -89,9 +93,13 @@ void BoltSession::Abort() { transaction_engine_.Abort(); }
 
 bool BoltSession::Authenticate(const std::string &username,
                                const std::string &password) {
+#ifdef MG_SINGLE_NODE_HA
+  return true;
+#else
   if (!auth_->HasUsers()) return true;
   user_ = auth_->Authenticate(username, password);
   return !!user_;
+#endif
 }
 
 BoltSession::TypedValueResultStream::TypedValueResultStream(TEncoder *encoder)
