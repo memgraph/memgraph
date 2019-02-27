@@ -14,9 +14,9 @@
 #include "durability/single_node_ha/recovery.hpp"
 #include "durability/single_node_ha/snapshooter.hpp"
 #include "raft/exceptions.hpp"
+#include "rpc/serialization.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "rpc/serialization.hpp"
 #include "utils/thread.hpp"
 
 namespace raft {
@@ -408,6 +408,9 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   TimePoint now = Clock::now();
   for (auto &peer_heartbeat : next_heartbeat_) peer_heartbeat = now;
 
+  // From this point on, we can say that the replication of a LogEntry started.
+  replication_timeout_[tx_id] = config_.replication_timeout + now;
+
   state_changed_.notify_all();
 }
 
@@ -431,7 +434,13 @@ bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
       // circut the check to always return true if in follower mode.
       return true;
     case Mode::LEADER:
-      if (rlog_->is_active(tx_id)) return false;
+      if (rlog_->is_active(tx_id)) {
+        if (replication_timeout_[tx_id] < Clock::now()) {
+          throw ReplicationTimeoutException();
+        }
+
+        return false;
+      }
       if (rlog_->is_replicated(tx_id)) return true;
       // The only possibility left is that our ReplicationLog doesn't contain
       // information about that tx.
@@ -490,8 +499,7 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
 
 void RaftServer::RecoverPersistentData() {
   auto opt_term = disk_storage_.Get(kCurrentTermKey);
-  if (opt_term)
-    current_term_ = std::stoull(opt_term.value());
+  if (opt_term) current_term_ = std::stoull(opt_term.value());
 
   auto opt_voted_for = disk_storage_.Get(kVotedForKey);
   if (!opt_voted_for) {
@@ -501,8 +509,7 @@ void RaftServer::RecoverPersistentData() {
   }
 
   auto opt_log_size = disk_storage_.Get(kLogSizeKey);
-  if (opt_log_size)
-    log_size_ = std::stoull(opt_log_size.value());
+  if (opt_log_size) log_size_ = std::stoull(opt_log_size.value());
 }
 
 void RaftServer::Transition(const Mode &new_mode) {
@@ -522,6 +529,7 @@ void RaftServer::Transition(const Mode &new_mode) {
 
         db_->Reset();
         ResetReplicationLog();
+        replication_timeout_.clear();
 
         // Re-apply raft log.
         uint64_t starting_index = 1;
@@ -652,7 +660,9 @@ void RaftServer::AdvanceCommitIndex() {
     auto deltas = GetLogEntry(i).deltas;
     DCHECK(deltas.size() > 2)
         << "Log entry should consist of at least two state deltas.";
-    rlog_->set_replicated(deltas[0].transaction_id);
+    auto tx_id = deltas[0].transaction_id;
+    rlog_->set_replicated(tx_id);
+    replication_timeout_.erase(tx_id);
   }
 
   commit_index_ = new_commit_index;
@@ -1008,7 +1018,7 @@ void RaftServer::SnapshotThread() {
             disk_storage_.Delete(LogEntryKey(i));
           }
         }
-     }
+      }
     }
 
     std::this_thread::sleep_for(kSnapshotPeriod);

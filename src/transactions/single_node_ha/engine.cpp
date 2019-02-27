@@ -6,6 +6,7 @@
 #include "glog/logging.h"
 
 #include "durability/single_node_ha/state_delta.hpp"
+#include "raft/exceptions.hpp"
 
 namespace tx {
 
@@ -17,7 +18,7 @@ Engine::Engine(raft::RaftInterface *raft)
 Transaction *Engine::Begin() {
   VLOG(11) << "[Tx] Starting transaction " << counter_ + 1;
   std::lock_guard<utils::SpinLock> guard(lock_);
-  if (!accepting_transactions_.load())
+  if (!accepting_transactions_.load() || !replication_errors_.empty())
     throw TransactionEngineError(
         "The transaction engine currently isn't accepting new transactions.");
 
@@ -29,7 +30,7 @@ Transaction *Engine::BeginBlocking(
   Snapshot wait_for_txs;
   {
     std::lock_guard<utils::SpinLock> guard(lock_);
-    if (!accepting_transactions_.load())
+    if (!accepting_transactions_.load() || !replication_errors_.empty())
       throw TransactionEngineError(
           "The transaction engine currently isn't accepting new transactions.");
 
@@ -81,12 +82,37 @@ void Engine::Commit(const Transaction &t) {
   VLOG(11) << "[Tx] Commiting transaction " << t.id_;
   raft_->Emplace(database::StateDelta::TxCommit(t.id_));
 
+  // It is important to note the following situation.  If our cluster ends up
+  // with a network partition where the current leader can't communicate with
+  // the majority of the peers, and the client is still sending queries to it,
+  // all of the transaction will end up waiting here until the network partition
+  // is resolved.  The problem that can occur afterwards is bad.  When the
+  // machine transitions from leader to follower mode, `SafeToCommit` method
+  // will start returning true. This might lead to a problem where we suddenly
+  // want to alter the state of the transaction engine that isn't valid anymore,
+  // because the current machine isn't the leader anymore.  This is all handled
+  // in the `Transition` method where once the transition from leader to
+  // follower is happening, the mode will be set to follower first, then the
+  // `Reset` method on the transaction engine will wait for all transactions to
+  // finish, and even though we change the transaction engine state here, the
+  // engine will perform a `Reset` and start recovering from zero, and the
+  // invalid changes won't matter.
+
   // Wait for Raft to receive confirmation from the majority of followers.
-  while (!raft_->SafeToCommit(t.id_)) {
+  while (true) {
+    try {
+      if (raft_->SafeToCommit(t.id_)) break;
+    } catch (const raft::ReplicationTimeoutException &e) {
+      std::lock_guard<utils::SpinLock> guard(lock_);
+      if (replication_errors_.insert(t.id_).second) {
+        LOG(WARNING) << e.what();
+      }
+    }
     std::this_thread::sleep_for(std::chrono::microseconds(100));
   }
 
   std::lock_guard<utils::SpinLock> guard(lock_);
+  replication_errors_.erase(t.id_);
   clog_->set_committed(t.id_);
   active_.remove(t.id_);
   store_.erase(store_.find(t.id_));
@@ -197,6 +223,7 @@ void Engine::Reset() {
   // Only after all transactions have finished, reset the engine.
   std::lock_guard<utils::SpinLock> guard(lock_);
   counter_ = 0;
+  replication_errors_.clear();
   store_.clear();
   active_.clear();
   {

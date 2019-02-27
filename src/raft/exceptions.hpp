@@ -64,4 +64,14 @@ class InvalidReplicationLogLookup : public RaftException {
       : RaftException("Replication log lookup for invalid transaction.") {}
 };
 
+/// This exception is thrown when a transaction is taking too long to replicate.
+/// We're throwing this to reduce the number of threads that are in an infinite
+/// loop during a network partition.
+class ReplicationTimeoutException : public RaftException {
+ public:
+  using RaftException::RaftException;
+  ReplicationTimeoutException()
+      : RaftException("Raft Log replication is taking too long. ") {}
+};
+
 }  // namespace raft

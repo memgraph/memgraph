@@ -19,6 +19,7 @@ struct Config {
   std::chrono::milliseconds election_timeout_min;
   std::chrono::milliseconds election_timeout_max;
   std::chrono::milliseconds heartbeat_interval;
+  std::chrono::milliseconds replication_timeout;
   int64_t log_size_snapshot_threshold;
 
   static Config LoadFromFile(const std::string &raft_config_file) {
@@ -40,6 +41,8 @@ struct Config {
       throw RaftConfigException(raft_config_file);
     if (!data["heartbeat_interval"].is_number())
       throw RaftConfigException(raft_config_file);
+    if (!data["replication_timeout"].is_number())
+      throw RaftConfigException(raft_config_file);
     if (!data["log_size_snapshot_threshold"].is_number())
       throw RaftConfigException(raft_config_file);
 
@@ -49,6 +52,7 @@ struct Config {
         std::chrono::duration<int64_t, std::milli>(
             data["election_timeout_max"]),
         std::chrono::duration<int64_t, std::milli>(data["heartbeat_interval"]),
+        std::chrono::duration<int64_t, std::milli>(data["replication_timeout"]),
         data["log_size_snapshot_threshold"]};
   }
 };

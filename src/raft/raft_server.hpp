@@ -105,6 +105,11 @@ class RaftServer final : public RaftInterface {
 
   /// Checks if the transaction with the given transaction id can safely be
   /// committed in local storage.
+  ///
+  /// @param tx_id Transaction id which needs to be checked.
+  /// @return bool True if the transaction is safe to commit, false otherwise.
+  /// @throws ReplicationTimeoutException
+  /// @throws InvalidReplicationLogLookup
   bool SafeToCommit(const tx::TransactionId &tx_id) override;
 
   /// Returns true if the current servers mode is LEADER. False otherwise.
@@ -230,6 +235,10 @@ class RaftServer final : public RaftInterface {
   std::vector<TimePoint> next_heartbeat_;  ///< for each server, time point for
                                            ///< the next heartbeat.
   std::vector<TimePoint> backoff_until_;   ///< backoff for each server.
+
+  // Tracks timepoints until a transactions is allowed to be in the replication
+  // process.
+  std::unordered_map<tx::TransactionId, TimePoint> replication_timeout_;
 
   //////////////////////////////////////////////////////////////////////////////
   // persistent state on all servers

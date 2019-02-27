@@ -5,6 +5,7 @@
 #include <atomic>
 #include <experimental/optional>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "raft/raft_interface.hpp"
 #include "transactions/commit_log.hpp"
@@ -74,6 +75,11 @@ class Engine final {
   mutable utils::SpinLock lock_;
   raft::RaftInterface *raft_{nullptr};
   std::atomic<bool> accepting_transactions_{true};
+
+  // Keep track of transaction that experienced a replication error.
+  // While there is a replication error known to the engine, the engine won't
+  // accept new transactions.
+  std::unordered_set<TransactionId> replication_errors_;
 
   // Helper method for transaction begin.
   Transaction *BeginTransaction(bool blocking);
