@@ -1,0 +1,92 @@
+# LDAP integration test schema
+
+# Root object
+dn: dc=memgraph,dc=com
+dc: memgraph
+o: example
+objectclass: top
+objectclass: dcObject
+objectclass: organization
+
+# Admin user for LDAP
+dn: cn=admin,dc=memgraph,dc=com
+cn: admin
+description: LDAP administrator
+objectclass: simpleSecurityObject
+objectclass: organizationalRole
+userpassword: secret
+
+# Users root object
+dn: ou=people,dc=memgraph,dc=com
+objectclass: organizationalUnit
+objectclass: top
+ou: people
+
+# User root
+dn: cn=root,ou=people,dc=memgraph,dc=com
+cn: root
+objectclass: person
+objectclass: top
+sn: user
+userpassword: root
+
+# User alice
+dn: cn=alice,ou=people,dc=memgraph,dc=com
+cn: alice
+objectclass: person
+objectclass: top
+sn: user
+userpassword: alice
+
+# User bob
+dn: cn=bob,ou=people,dc=memgraph,dc=com
+cn: bob
+objectclass: person
+objectclass: top
+sn: user
+userpassword: bob
+
+# User carol
+dn: cn=carol,ou=people,dc=memgraph,dc=com
+cn: carol
+objectclass: person
+objectclass: top
+sn: user
+userpassword: carol
+
+# User dave
+dn: cn=dave,ou=people,dc=memgraph,dc=com
+cn: dave
+objectclass: person
+objectclass: top
+sn: user
+userpassword: dave
+
+# User admin
+dn: cn=admin,ou=people,dc=memgraph,dc=com
+cn: admin
+objectclass: person
+objectclass: top
+sn: user
+userpassword: admin
+
+# Roles root object
+dn: ou=roles,dc=memgraph,dc=com
+objectclass: organizationalUnit
+objectclass: top
+ou: roles
+
+# Role moderator
+dn: cn=moderator,ou=roles,dc=memgraph,dc=com
+cn: moderator
+member: cn=alice,ou=people,dc=memgraph,dc=com
+objectclass: groupOfNames
+objectclass: top
+
+# Role admin
+dn: cn=admin,ou=roles,dc=memgraph,dc=com
+cn: admin
+member: cn=carol,ou=people,dc=memgraph,dc=com
+member: cn=dave,ou=people,dc=memgraph,dc=com
+objectclass: groupOfNames
+objectclass: top

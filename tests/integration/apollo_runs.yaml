@@ -51,6 +51,19 @@
     - ../../../build_debug/memgraph # memgraph binary
     - ../../../build_debug/tests/integration/audit/tester # tester binary
 
+- name: integration__ldap
+  cd: ldap
+  commands: |
+    ./prepare.sh
+    ./runner.py
+  infiles:
+    - prepare.sh # preparation script
+    - runner.py # runner script
+    - schema.ldif # schema file
+    - ../../../build_debug/memgraph # memgraph binary
+    - ../../../build_debug/tests/integration/ldap/tester # tester binary
+  enable_network: true
+
 - name: integration__distributed
   cd: distributed
   commands: TIMEOUT=480 ./runner.py

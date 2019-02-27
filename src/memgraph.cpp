@@ -70,6 +70,7 @@ void SingleNodeMain() {
       std::experimental::filesystem::path(FLAGS_durability_directory);
 
   // Auth
+  auth::Init();
   auth::Auth auth{durability_directory / "auth"};
 
   // Audit log

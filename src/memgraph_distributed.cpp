@@ -68,6 +68,7 @@ void MasterMain() {
   auto durability_directory =
       std::experimental::filesystem::path(FLAGS_durability_directory);
 
+  auth::Init();
   auth::Auth auth{durability_directory / "auth"};
 
   audit::Log audit_log{durability_directory / "audit", FLAGS_audit_buffer_size,

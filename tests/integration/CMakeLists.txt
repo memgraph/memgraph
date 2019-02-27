@@ -24,3 +24,6 @@ add_subdirectory(ha/index)
 
 # audit test binaries
 add_subdirectory(audit)
+
+# ldap test binaries
+add_subdirectory(ldap)

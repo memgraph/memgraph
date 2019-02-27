@@ -1,7 +1,38 @@
 #include "auth/auth.hpp"
 
+#include <cstring>
+#include <limits>
+#include <utility>
+
+#include <fmt/format.h>
+#include <glog/logging.h>
+
+#include <ldap.h>
+
 #include "auth/exceptions.hpp"
+#include "utils/flag_validation.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
+
+DEFINE_bool(auth_ldap_enabled, false,
+            "Set to true to enable LDAP authentication.");
+DEFINE_bool(
+    auth_ldap_issue_starttls, false,
+    "Set to true to enable issuing of STARTTLS on LDAP server connections.");
+DEFINE_string(auth_ldap_prefix, "cn=",
+              "The prefix used when forming the DN for LDAP authentication.");
+DEFINE_string(auth_ldap_suffix, "",
+              "The suffix used when forming the DN for LDAP authentication.");
+DEFINE_string(auth_ldap_host, "", "Host used for LDAP authentication.");
+DEFINE_VALIDATED_int32(auth_ldap_port, LDAP_PORT,
+                       "Port used for LDAP authentication.",
+                       FLAG_IN_RANGE(1, std::numeric_limits<uint16_t>::max()));
+DEFINE_bool(auth_ldap_create_user, true,
+            "Set to false to disable creation of missing users.");
+DEFINE_bool(auth_ldap_create_role, true,
+            "Set to false to disable creation of missing roles.");
+DEFINE_string(auth_ldap_role_mapping_root_dn, "",
+              "Set this value to the DN that contains all role mappings.");
 
 namespace auth {
 
@@ -26,15 +57,242 @@ const std::string kLinkPrefix = "link:";
  * key="link:<username>", value="<rolename>"
  */
 
+#define INIT_ABORT_ON_ERROR(expr) \
+  CHECK(expr == LDAP_SUCCESS) << "Couldn't initialize auth stack!";
+
+void Init() {
+  // The OpenLDAP manual states that we should call either `ldap_set_option` or
+  // `ldap_get_option` once from a single thread so that the internal state of
+  // the library is initialized. This is noted in the manual for
+  // `ldap_initialize` under the 'Note:'
+  // ```
+  // Note:  the first call into the LDAP library also initializes the global
+  // options for the library. As such  the  first  call  should  be  single-
+  // threaded or otherwise protected to insure that only one call is active.
+  // It is recommended that ldap_get_option() or ldap_set_option()  be  used
+  // in the program's main thread before any additional threads are created.
+  // See ldap_get_option(3).
+  // ```
+  // https://www.openldap.org/software/man.cgi?query=ldap_initialize&sektion=3&apropos=0&manpath=OpenLDAP+2.4-Release
+  LDAP *ld = nullptr;
+  INIT_ABORT_ON_ERROR(ldap_initialize(&ld, ""));
+  int ldap_version = LDAP_VERSION3;
+  INIT_ABORT_ON_ERROR(
+      ldap_set_option(ld, LDAP_OPT_PROTOCOL_VERSION, &ldap_version));
+  INIT_ABORT_ON_ERROR(ldap_unbind_ext(ld, NULL, NULL));
+}
+
 Auth::Auth(const std::string &storage_directory)
     : storage_(storage_directory) {}
 
+/// Converts a `std::string` to a `struct berval`.
+std::pair<std::unique_ptr<char[]>, struct berval> LdapConvertString(
+    const std::string &s) {
+  std::unique_ptr<char[]> data(new char[s.size() + 1]);
+  char *ptr = data.get();
+  memcpy(ptr, s.c_str(), s.size());
+  ptr[s.size()] = '\0';
+  return {std::move(data), {s.size(), ptr}};
+}
+
+/// Escapes a string so that it can't be used for LDAP DN injection.
+/// https://ldapwiki.com/wiki/DN%20Escape%20Values
+std::string LdapEscapeString(const std::string &src) {
+  std::string ret;
+  ret.reserve(src.size() * 2);
+
+  int spaces_leading = 0, spaces_trailing = 0;
+  for (int i = 0; i < src.size(); ++i) {
+    if (src[i] == ' ') {
+      ++spaces_leading;
+    } else {
+      break;
+    }
+  }
+  for (int i = src.size() - 1; i >= 0; --i) {
+    if (src[i] == ' ') {
+      ++spaces_trailing;
+    } else {
+      break;
+    }
+  }
+
+  for (int i = 0; i < spaces_leading; ++i) {
+    ret.append("\\ ");
+  }
+  for (int i = spaces_leading; i < src.size() - spaces_trailing; ++i) {
+    char c = src[i];
+    if (c == ',' || c == '\\' || c == '#' || c == '+' || c == '<' || c == '>' ||
+        c == ';' || c == '"' || c == '=') {
+      ret.append(1, '\\');
+    }
+    ret.append(1, c);
+  }
+  for (int i = 0; i < spaces_trailing; ++i) {
+    ret.append("\\ ");
+  }
+
+  return ret;
+}
+
+/// This function searches for a role mapping for the given `user_dn` by
+/// searching all first level children of the `role_base_dn` and finding that
+/// item that has a `mapping` attribute to the given `user_dn`. The found item's
+/// `cn` is used as the role name.
+std::experimental::optional<std::string> LdapFindRole(
+    LDAP *ld, const std::string &role_base_dn, const std::string &user_dn,
+    const std::string &username) {
+  auto ldap_user_dn = LdapConvertString(user_dn);
+
+  char *attrs[1] = {nullptr};
+  LDAPMessage *msg = nullptr;
+
+  int ret =
+      ldap_search_ext_s(ld, role_base_dn.c_str(), LDAP_SCOPE_ONELEVEL, NULL,
+                        attrs, 0, NULL, NULL, NULL, LDAP_NO_LIMIT, &msg);
+  utils::OnScopeExit cleanup([&msg] { ldap_msgfree(msg); });
+
+  if (ret != LDAP_SUCCESS) {
+    LOG(WARNING) << "Couldn't find role for user '" << username
+                 << "' using LDAP due to error: " << ldap_err2string(ret);
+    return std::experimental::nullopt;
+  }
+
+  if (ret == LDAP_SUCCESS && msg != nullptr) {
+    for (LDAPMessage *entry = ldap_first_entry(ld, msg); entry != nullptr;
+         entry = ldap_next_entry(ld, entry)) {
+      char *entry_dn = ldap_get_dn(ld, entry);
+      ret = ldap_compare_ext_s(ld, entry_dn, "member", &ldap_user_dn.second,
+                               NULL, NULL);
+      ldap_memfree(entry_dn);
+      if (ret == LDAP_COMPARE_TRUE) {
+        auto values = ldap_get_values_len(ld, entry, "cn");
+        if (ldap_count_values_len(values) != 1) {
+          LOG(WARNING) << "Couldn't find role for user '" << username
+                       << "' using LDAP because to the role object doesn't "
+                          "have a unique CN attribute!";
+          return std::experimental::nullopt;
+        }
+        return std::string(values[0]->bv_val, values[0]->bv_len);
+      } else if (ret != LDAP_COMPARE_FALSE) {
+        LOG(WARNING) << "Couldn't find role for user '" << username
+                     << "' using LDAP due to error: " << ldap_err2string(ret);
+        return std::experimental::nullopt;
+      }
+    }
+  }
+  return std::experimental::nullopt;
+}
+
+#define LDAP_EXIT_ON_ERROR(expr, username)                                 \
+  {                                                                        \
+    int r = expr;                                                          \
+    if (r != LDAP_SUCCESS) {                                               \
+      LOG(WARNING) << "Couldn't authenticate user '" << username           \
+                   << "' using LDAP due to error: " << ldap_err2string(r); \
+      return std::experimental::nullopt;                                   \
+    }                                                                      \
+  }
+
 std::experimental::optional<User> Auth::Authenticate(
     const std::string &username, const std::string &password) {
-  auto user = GetUser(username);
-  if (!user) return std::experimental::nullopt;
-  if (!user->CheckPassword(password)) return std::experimental::nullopt;
-  return user;
+  if (FLAGS_auth_ldap_enabled) {
+    LDAP *ld = nullptr;
+
+    // Initialize the LDAP struct.
+    std::string uri =
+        fmt::format("ldap://{}:{}", FLAGS_auth_ldap_host, FLAGS_auth_ldap_port);
+    LDAP_EXIT_ON_ERROR(ldap_initialize(&ld, uri.c_str()), username);
+
+    // After this point the struct is valid and we need to clean it up on exit.
+    utils::OnScopeExit cleanup([&ld] { ldap_unbind_ext(ld, NULL, NULL); });
+
+    // Set protocol version used.
+    int ldap_version = LDAP_VERSION3;
+    LDAP_EXIT_ON_ERROR(
+        ldap_set_option(ld, LDAP_OPT_PROTOCOL_VERSION, &ldap_version),
+        username);
+
+    // Create DN used for authentication.
+    std::string distinguished_name = FLAGS_auth_ldap_prefix +
+                                     LdapEscapeString(username) +
+                                     FLAGS_auth_ldap_suffix;
+
+    // Issue STARTTLS if we are using TLS.
+    if (FLAGS_auth_ldap_issue_starttls) {
+      LDAP_EXIT_ON_ERROR(ldap_start_tls_s(ld, NULL, NULL), username);
+    }
+
+    // Try to authenticate.
+    // Since `ldap_simple_bind_s` is now deprecated, we use `ldap_sasl_bind_s`
+    // to emulate the simple bind behavior. This is inspired by the following
+    // link. They use the async version, we use the sync version.
+    // https://github.com/openldap/openldap/blob/b45a6a7dc728d9df18aa1ca7a9aa43dabb1d4037/clients/tools/common.c#L1618
+    {
+      auto cred = LdapConvertString(password);
+      LDAP_EXIT_ON_ERROR(
+          ldap_sasl_bind_s(ld, distinguished_name.c_str(), LDAP_SASL_SIMPLE,
+                           &cred.second, NULL, NULL, NULL),
+          username);
+    }
+
+    // Find role name.
+    std::experimental::optional<std::string> rolename;
+    if (!FLAGS_auth_ldap_role_mapping_root_dn.empty()) {
+      rolename = LdapFindRole(ld, FLAGS_auth_ldap_role_mapping_root_dn,
+                              distinguished_name, username);
+    }
+
+    // Find or create the user and return it.
+    auto user = GetUser(username);
+    if (!user) {
+      if (FLAGS_auth_ldap_create_user) {
+        user = AddUser(username, password);
+        if (!user) {
+          LOG(WARNING)
+              << "Couldn't authenticate user '" << username
+              << "' using LDAP because the user already exists as a role!";
+          return std::experimental::nullopt;
+        }
+      } else {
+        LOG(WARNING) << "Couldn't authenticate user '" << username
+                     << "' using LDAP because the user doesn't exist!";
+        return std::experimental::nullopt;
+      }
+    } else {
+      user->UpdatePassword(password);
+    }
+    if (rolename) {
+      auto role = GetRole(*rolename);
+      if (!role) {
+        if (FLAGS_auth_ldap_create_role) {
+          role = AddRole(*rolename);
+          if (!role) {
+            LOG(WARNING) << "Couldn't authenticate user '" << username
+                         << "' using LDAP because the user's role '"
+                         << *rolename << "' already exists as a user!";
+            return std::experimental::nullopt;
+          }
+          SaveRole(*role);
+        } else {
+          LOG(WARNING) << "Couldn't authenticate user '" << username
+                       << "' using LDAP because the user's role '" << *rolename
+                       << "' doesn't exist!";
+          return std::experimental::nullopt;
+        }
+      }
+      user->SetRole(*role);
+    } else {
+      user->ClearRole();
+    }
+    SaveUser(*user);
+    return user;
+  } else {
+    auto user = GetUser(username);
+    if (!user) return std::experimental::nullopt;
+    if (!user->CheckPassword(password)) return std::experimental::nullopt;
+    return user;
+  }
 }
 
 std::experimental::optional<User> Auth::GetUser(
@@ -185,7 +443,8 @@ std::vector<auth::Role> Auth::AllRoles() {
   return ret;
 }
 
-std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) {
+std::vector<auth::User> Auth::AllUsersForRole(
+    const std::string &rolename_orig) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   std::vector<auth::User> ret;
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix);
