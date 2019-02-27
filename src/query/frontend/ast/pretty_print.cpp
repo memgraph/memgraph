@@ -56,6 +56,7 @@ class ExpressionPrettyPrinter : public ExpressionVisitor<void> {
   void Visit(PropertyLookup &op) override;
   void Visit(ParameterLookup &op) override;
   void Visit(NamedExpression &op) override;
+  void Visit(RegexMatch &op) override;
 
  private:
   std::ostream *out_;
@@ -303,6 +304,10 @@ void ExpressionPrettyPrinter::Visit(ParameterLookup &op) {
 
 void ExpressionPrettyPrinter::Visit(NamedExpression &op) {
   PrintOperator(out_, "NamedExpression", op.name_, op.expression_);
+}
+
+void ExpressionPrettyPrinter::Visit(RegexMatch &op) {
+  PrintOperator(out_, "=~", op.string_expr_, op.regex_);
 }
 
 }  // namespace

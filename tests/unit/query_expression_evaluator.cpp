@@ -847,6 +847,49 @@ TEST_F(ExpressionEvaluatorTest, Coalesce) {
                    .IsNull());
 }
 
+TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidArguments) {
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL(TypedValue::Null),
+                                              LITERAL("regex")))
+                  .IsNull());
+  EXPECT_TRUE(
+      Eval(storage.Create<RegexMatch>(LITERAL(3), LITERAL("regex"))).IsNull());
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LIST(LITERAL("string")),
+                                              LITERAL("regex")))
+                  .IsNull());
+  EXPECT_TRUE(Eval(storage.Create<RegexMatch>(LITERAL("string"),
+                                              LITERAL(TypedValue::Null)))
+                  .IsNull());
+  EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("string"), LITERAL(42))),
+               QueryRuntimeException);
+  EXPECT_THROW(Eval(storage.Create<RegexMatch>(LITERAL("string"),
+                                               LIST(LITERAL("regex")))),
+               QueryRuntimeException);
+}
+
+TEST_F(ExpressionEvaluatorTest, RegexMatchInvalidRegex) {
+  EXPECT_THROW(
+      Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("*ext"))),
+      QueryRuntimeException);
+  EXPECT_THROW(
+      Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext"))),
+      QueryRuntimeException);
+}
+
+TEST_F(ExpressionEvaluatorTest, RegexMatch) {
+  EXPECT_FALSE(
+      Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".*ex")))
+          .ValueBool());
+  EXPECT_TRUE(
+      Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".*ext")))
+          .ValueBool());
+  EXPECT_FALSE(
+      Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL("[ext]")))
+          .ValueBool());
+  EXPECT_TRUE(
+      Eval(storage.Create<RegexMatch>(LITERAL("text"), LITERAL(".+[ext]")))
+          .ValueBool());
+}
+
 class ExpressionEvaluatorPropertyLookup : public ExpressionEvaluatorTest {
  protected:
   std::pair<std::string, storage::Property> prop_age =

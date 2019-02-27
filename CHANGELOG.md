@@ -10,6 +10,7 @@
 
 * [Enterprise Ed.] Add new privilege, `STATS` for accessing storage info.
 * Add `SHOW STORAGE INFO` feature.
+* Add regular expression matching in queries.
 
 ## v0.14.0
 

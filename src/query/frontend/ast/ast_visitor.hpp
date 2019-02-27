@@ -68,6 +68,7 @@ class IndexQuery;
 class StreamQuery;
 class InfoQuery;
 class ConstraintQuery;
+class RegexMatch;
 
 using TreeCompositeVisitor = ::utils::CompositeVisitor<
     SingleQuery, CypherUnion, NamedExpression, OrOperator, XorOperator,
@@ -80,7 +81,7 @@ using TreeCompositeVisitor = ::utils::CompositeVisitor<
     Aggregation, Function, Reduce, Coalesce, Extract, All, Single, Create,
     Match, Return, With, Pattern, NodeAtom, EdgeAtom, Delete, Where,
     SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, Merge,
-    Unwind>;
+    Unwind, RegexMatch>;
 
 using TreeLeafVisitor =
     ::utils::LeafVisitor<Identifier, PrimitiveLiteral, ParameterLookup>;
@@ -105,8 +106,8 @@ class ExpressionVisitor
           SubscriptOperator, ListSlicingOperator, IfOperator, UnaryPlusOperator,
           UnaryMinusOperator, IsNullOperator, ListLiteral, MapLiteral,
           PropertyLookup, LabelsTest, Aggregation, Function, Reduce, Coalesce,
-          Extract, All, Single, ParameterLookup, Identifier, PrimitiveLiteral> {
-};
+          Extract, All, Single, ParameterLookup, Identifier, PrimitiveLiteral,
+          RegexMatch> {};
 
 template <class TResult>
 class QueryVisitor

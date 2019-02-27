@@ -1297,6 +1297,11 @@ antlrcpp::Any CypherMainVisitor::visitExpression3a(
     } else if (op->IN()) {
       expression = static_cast<Expression *>(storage_->Create<InListOperator>(
           expression, op->expression3b()->accept(this)));
+    } else if (utils::StartsWith(op->getText(), "=~")) {
+      auto *regex_match = storage_->Create<RegexMatch>();
+      regex_match->string_expr_ = expression;
+      regex_match->regex_ = op->expression3b()->accept(this);
+      expression = regex_match;
     } else {
       std::string function_name;
       if (op->STARTS() && op->WITH()) {

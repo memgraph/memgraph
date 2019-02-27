@@ -6,19 +6,17 @@
 #include <vector>
 
 #include <antlr4-runtime.h>
+#include <capnp/message.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include "communication/rpc/serialization.hpp"
-#include "query/context.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_serialization.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/typed_value.hpp"
-
-#include "capnp/message.h"
 
 namespace {
 
@@ -2430,6 +2428,42 @@ TYPED_TEST(CypherMainVisitorTest, TestProfileAuthQuery) {
 TYPED_TEST(CypherMainVisitorTest, TestProfileStreamQuery) {
   EXPECT_THROW(TypeParam ast_generator("PROFILE SHOW STREAMS"),
                SyntaxException);
+}
+
+TYPED_TEST(CypherMainVisitorTest, RegexMatch) {
+  {
+    TypeParam ast_generator(
+        "MATCH (n) WHERE n.name =~ \".*bla.*\" RETURN n.name");
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match_clause = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match_clause);
+    auto *regex_match =
+        dynamic_cast<RegexMatch *>(match_clause->where_->expression_);
+    ASSERT_TRUE(regex_match);
+    ASSERT_TRUE(dynamic_cast<PropertyLookup *>(regex_match->string_expr_));
+    ast_generator.CheckLiteral(regex_match->regex_, ".*bla.*");
+  }
+  {
+    TypeParam ast_generator("RETURN \"text\" =~ \".*bla.*\"");
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.query_);
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 1U);
+    auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+    ASSERT_TRUE(return_clause);
+    ASSERT_EQ(return_clause->body_.named_expressions.size(), 1U);
+    auto *named_expression = return_clause->body_.named_expressions[0];
+    auto *regex_match =
+        dynamic_cast<RegexMatch *>(named_expression->expression_);
+    ASSERT_TRUE(regex_match);
+    ast_generator.CheckLiteral(regex_match->string_expr_, "text");
+    ast_generator.CheckLiteral(regex_match->regex_, ".*bla.*");
+  }
 }
 
 }  // namespace

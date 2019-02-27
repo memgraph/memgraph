@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <limits>
 #include <map>
+#include <regex>
 #include <vector>
 
 #include "database/graph_db_accessor.hpp"
@@ -478,6 +479,33 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return ctx_->parameters.AtTokenPosition(param_lookup.token_position_);
+  }
+
+  TypedValue Visit(RegexMatch &regex_match) override {
+    auto target_string_value = regex_match.string_expr_->Accept(*this);
+    auto regex_value = regex_match.regex_->Accept(*this);
+    if (target_string_value.IsNull() || regex_value.IsNull()) {
+      return TypedValue::Null;
+    }
+    if (regex_value.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException(
+          "Regular expression must evaluate to a string, got {}.",
+          regex_value.type());
+    }
+    if (target_string_value.type() != TypedValue::Type::String) {
+      // Instead of error, we return Null which makes it compatible in case we
+      // use indexed lookup which filters out any non-string properties.
+      // Assuming a property lookup is the target_string_value.
+      return TypedValue::Null;
+    }
+    const auto &target_string = target_string_value.ValueString();
+    try {
+      std::regex regex(regex_value.ValueString());
+      return std::regex_match(target_string, regex);
+    } catch (const std::regex_error &e) {
+      throw QueryRuntimeException("Regex error in '{}': {}",
+                                  regex_value.ValueString(), e.what());
+    }
   }
 
  private:

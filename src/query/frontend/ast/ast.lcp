@@ -1250,6 +1250,41 @@ cpp<#
   (:serialize (:slk) (:capnp))
   (:clone))
 
+(lcp:define-class regex-match (expression)
+  ((string-expr "Expression *" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")
+                :capnp-type "Tree" :capnp-init nil
+                :capnp-save #'save-ast-pointer
+                :capnp-load (load-ast-pointer "Expression *"))
+   (regex "Expression *" :scope :public
+                :slk-save #'slk-save-ast-pointer
+                :slk-load (slk-load-ast-pointer "Expression")
+                :capnp-type "Tree" :capnp-init nil
+                :capnp-save #'save-ast-pointer
+                :capnp-load (load-ast-pointer "Expression *")))
+  (:public
+    #>cpp
+    RegexMatch() = default;
+
+    DEFVISITABLE(ExpressionVisitor<TypedValue>);
+    DEFVISITABLE(ExpressionVisitor<void>);
+    bool Accept(HierarchicalTreeVisitor &visitor) override {
+      if (visitor.PreVisit(*this)) {
+        string_expr_->Accept(visitor) && regex_->Accept(visitor);
+      }
+      return visitor.PostVisit(*this);
+    }
+    cpp<#)
+  (:private
+    #>cpp
+    friend class AstStorage;
+    RegexMatch(Expression *string_expr, Expression *regex)
+        : string_expr_(string_expr), regex_(regex) {}
+    cpp<#)
+  (:serialize (:slk) (:capnp))
+  (:clone))
+
 (lcp:define-class named-expression (tree "::utils::Visitable<HierarchicalTreeVisitor>"
                                          "::utils::Visitable<ExpressionVisitor<TypedValue>>"
                                          "::utils::Visitable<ExpressionVisitor<void>>")
