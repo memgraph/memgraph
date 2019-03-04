@@ -144,7 +144,7 @@ is done by looping over these triplets.
 
 ##### Searching for Nodes
 
-The simplest search is finding stand alone nodes. For example, `MATCH (n)`
+The simplest search is finding standalone nodes. For example, `MATCH (n)`
 will find all the nodes in the graph. This is accomplished by generating a
 `ScanAll` operator and forwarding the node symbol which should store the
 results. In this case, all the nodes will be referenced by `n`.
@@ -163,7 +163,7 @@ A more advanced search includes finding nodes with relationships. For example,
 This means, that if a single node has multiple connections, it will be
 repeated for each combination of pairs. The generation of operators starts
 from the first node in the pattern. If we are referencing a new starting node,
-, we need to generate a `ScanAll` which finds all the nodes and stores them
+we need to generate a `ScanAll` which finds all the nodes and stores them
 into `n`. Then, we generate an `Expand` operator which reads the `n` and
 traverses all the edges of that node. The edge is stored into `r`, while the
 destination node is stored in `m`.
@@ -206,7 +206,7 @@ On the other hand,
 
     MATCH (n)-[r1]-(m) MATCH (m)-[r2]-(l)-[r3]-(i)
 
-We would reset the uniqueness filtering at the start of the second match. This
+would reset the uniqueness filtering at the start of the second match. This
 would mean that we output the following:
 
     ScanAll (n) > Expand (n, r1, m) > Expand (m, r2, l) > Expand (l, r3, i) >
@@ -395,8 +395,8 @@ For example, `MATCH (n) CREATE (n)-[r]->(m)` would create an edge `r` and a
 node `m` for each matched node `n`. If we focus on the `CREATE` part, we
 generate `CreateExpand (n, r, m)` where `n` already exists (refers to matched
 node) and `m` would be newly created along with edge `r`. If we had only
-`CREATE (n) -[r]-> (m)`, then we would need to create both nodes of the edge
-`r`. This is done by generating `CreateNode (n) > CreateExpand(n, r, m)`.  The
+`CREATE (n)-[r]->(m)`, then we would need to create both nodes of the edge
+`r`. This is done by generating `CreateNode (n) > CreateExpand(n, r, m)`. The
 final case is when both endpoints refer to an existing node. For example, when
 adding a node with a cyclical connection `CREATE (n)-[r]->(n)`. In this case,
 we would generate `CreateNode (n) > CreateExpand (n, r, n)`. We would tell
@@ -412,7 +412,7 @@ For example.
 
     MERGE (n)-[r:r]-(m)
 
-We would generated a single `Merge` operator which has the following.
+We would generate a single `Merge` operator which has the following.
 
   * No input operation (since it is not preceded by any other clause).
 
