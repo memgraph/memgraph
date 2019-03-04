@@ -11,6 +11,8 @@ DEFINE_int32(port, 7687, "Server port");
 DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
+DEFINE_bool(print_records, true,
+            "Set to false to disable printing of records.");
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -46,11 +48,13 @@ int main(int argc, char **argv) {
         std::cout << "    " << field << std::endl;
       }
 
-      std::cout << "Records:" << std::endl;
-      for (int i = 0; i < static_cast<int>(ret.records.size()); ++i) {
-        std::cout << "    " << i << std::endl;
-        for (auto &value : ret.records[i]) {
-          std::cout << "        " << value << std::endl;
+      if (FLAGS_print_records) {
+        std::cout << "Records:" << std::endl;
+        for (int i = 0; i < static_cast<int>(ret.records.size()); ++i) {
+          std::cout << "    " << i << std::endl;
+          for (auto &value : ret.records[i]) {
+            std::cout << "        " << value << std::endl;
+          }
         }
       }
 
