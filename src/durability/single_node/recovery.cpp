@@ -217,9 +217,10 @@ std::vector<fs::path> GetWalFiles(const fs::path &wal_dir) {
   return wal_files;
 }
 
-bool ApplyOverDeltas(
-    const std::vector<fs::path> &wal_files, tx::TransactionId first_to_recover,
-    const std::function<void(const database::StateDelta &)> &f) {
+bool ApplyOverDeltas(const std::vector<fs::path> &wal_files,
+                     tx::TransactionId first_to_recover,
+                     const std::function<void(const database::StateDelta &)> &f,
+                     bool report_to_user) {
   for (auto &wal_file : wal_files) {
     auto wal_file_max_tx_id = TransactionIdFromWalFilename(wal_file.filename());
     if (!wal_file_max_tx_id || *wal_file_max_tx_id < first_to_recover) continue;
@@ -243,6 +244,8 @@ bool ApplyOverDeltas(
       if (!delta) break;
       f(*delta);
     }
+
+    LOG_IF(INFO, report_to_user) << "Applied WAL deltas from: " << wal_file;
   }
 
   return true;
@@ -263,12 +266,14 @@ std::vector<tx::TransactionId> ReadWalRecoverableTransactions(
   std::unordered_set<tx::TransactionId> committed_set;
   auto first_to_recover = FirstWalTxToRecover(recovery_data);
   ApplyOverDeltas(
-      wal_files, first_to_recover, [&](const database::StateDelta &delta) {
+      wal_files, first_to_recover,
+      [&](const database::StateDelta &delta) {
         if (delta.transaction_id >= first_to_recover &&
             delta.type == database::StateDelta::Type::TRANSACTION_COMMIT) {
           committed_set.insert(delta.transaction_id);
         }
-      });
+      },
+      false);
 
   std::vector<tx::TransactionId> committed_tx_ids(committed_set.size());
   for (auto id : committed_set) committed_tx_ids.push_back(id);
@@ -446,7 +451,8 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
           default:
             transactions->Apply(delta);
         }
-      });
+      },
+      true);
 
   // TODO when implementing proper error handling return one of the following:
   // - WAL fully recovered
