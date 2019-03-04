@@ -1,6 +1,7 @@
 import json
 import os
 import time
+import subprocess
 
 # to change the size of the cluster, just change this parameter
 NUM_MACHINES = 3
@@ -15,6 +16,18 @@ SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 MEMGRAPH_BINARY = "memgraph_distributed"
 CLIENT_BINARY   = "tests/macro_benchmark/card_fraud_client"
 BINARIES = [MEMGRAPH_BINARY, CLIENT_BINARY]
+
+# helpers
+def wait_for_server(address, port, delay=0.2):
+    cmd = ["nc", "-z", "-w", "1", address, str(port)]
+    count = 0
+    while subprocess.call(cmd) != 0:
+        time.sleep(0.01)
+        if count > 20 / 0.01:
+            raise Exception("Could not wait for server {}:{} to "
+                            "startup!".format(address, port))
+        count += 1
+    time.sleep(delay)
 
 # wrappers
 class WorkerWrapper:
@@ -60,8 +73,8 @@ class MgCluster:
             "--recovering-cluster-size", str(len(self._workers) + 1)
         ])
 
-        # sleep to allow the master to startup
-        time.sleep(5)
+        # wait for the master to finish startup
+        wait_for_server(self._master.get_address(), 10000)
 
         # start memgraph workers
         for i, worker in enumerate(self._workers, start=1):
@@ -79,8 +92,12 @@ class MgCluster:
                 "--rpc-num-server-workers", str(WORKERS),
             ])
 
-        # sleep to allow the workers to startup
-        time.sleep(15)
+        # wait for the workers to finish startup
+        for i, worker in enumerate(self._workers, start=1):
+            wait_for_server(worker.get_address(), 10000 + i)
+
+        # wait for the Bolt server to startup
+        wait_for_server(self._master.get_address(), 7687)
 
         # store initial usage
         self._usage_start = [self._master.get_usage()]

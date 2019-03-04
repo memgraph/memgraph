@@ -41,7 +41,7 @@ quit()
     sleep 1
     for i in `seq 2 $NUM_MACHINES`;
     do
-        kill ${pids[$i]}
+        kill ${pids[$i]} || true
     done
 }
 
