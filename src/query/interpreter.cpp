@@ -587,14 +587,27 @@ Callback HandleInfoQuery(InfoQuery *info_query, database::GraphDbAccessor *db_ac
   Callback callback;
   switch (info_query->info_type_) {
     case InfoQuery::InfoType::STORAGE:
-#if defined(MG_SINGLE_NODE) || defined(MG_SINGLE_NODE_HA)
+#if defined(MG_SINGLE_NODE)
       callback.header = {"storage info", "value"};
       callback.fn = [db_accessor] {
         auto info = db_accessor->StorageInfo();
         std::vector<std::vector<TypedValue>> results;
         results.reserve(info.size());
-        for (const auto &kv : info) {
-          results.push_back({kv.first, kv.second});
+        for (const auto &pair : info) {
+          results.push_back({pair.first, pair.second});
+        }
+        return results;
+      };
+#elif defined(MG_SINGLE_NODE_HA)
+      callback.header = {"server id", "storage info", "value"};
+      callback.fn = [db_accessor] {
+        auto info = db_accessor->StorageInfo();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(info.size());
+        for (const auto &peer_info : info) {
+          for (const auto &pair : peer_info.second) {
+            results.push_back({peer_info.first, pair.first, pair.second});
+          }
         }
         return results;
       };

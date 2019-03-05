@@ -11,6 +11,7 @@
 #include "io/network/endpoint.hpp"
 #include "raft/coordination.hpp"
 #include "raft/raft_server.hpp"
+#include "raft/storage_info.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node_ha/concurrent_id_mapper.hpp"
 #include "storage/single_node_ha/storage.hpp"
@@ -108,6 +109,7 @@ class GraphDb {
 
   Storage &storage();
   raft::RaftInterface *raft();
+  raft::StorageInfo *storage_info();
   tx::Engine &tx_engine();
   storage::ConcurrentIdMapper<storage::Label> &label_mapper();
   storage::ConcurrentIdMapper<storage::EdgeType> &edge_type_mapper();
@@ -166,6 +168,7 @@ class GraphDb {
       &coordination_,
       &delta_applier_,
       this};
+  raft::StorageInfo storage_info_{this, &coordination_, config_.server_id};
 
   tx::Engine tx_engine_{&raft_server_};
   std::unique_ptr<StorageGc> storage_gc_ = std::make_unique<StorageGc>(

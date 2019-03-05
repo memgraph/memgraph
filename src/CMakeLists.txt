@@ -273,6 +273,7 @@ set(mg_single_node_ha_sources
     glue/communication.cpp
     raft/coordination.cpp
     raft/raft_server.cpp
+    raft/storage_info.cpp
     query/common.cpp
     query/frontend/ast/cypher_main_visitor.cpp
     query/frontend/ast/pretty_print.cpp
@@ -319,6 +320,8 @@ add_lcp_single_node_ha(raft/log_entry.lcp CAPNP_SCHEMA @0x96c07fe13850c22a)
 add_capnp_single_node_ha(raft/log_entry.capnp)
 add_lcp_single_node_ha(raft/snapshot_metadata.lcp CAPNP_SCHEMA @0xaa08e34991680f6c)
 add_capnp_single_node_ha(raft/snapshot_metadata.capnp)
+add_lcp_single_node_ha(raft/storage_info_rpc_messages.lcp CAPNP_SCHEMA @0xceee3960cd8eaa7e)
+add_capnp_single_node_ha(raft/storage_info_rpc_messages.capnp)
 
 add_custom_target(generate_lcp_single_node_ha DEPENDS ${generated_lcp_single_node_ha_files})
 

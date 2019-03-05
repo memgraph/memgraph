@@ -94,6 +94,8 @@ src/raft/raft_rpc_messages.capnp
 src/raft/raft_rpc_messages.hpp
 src/raft/snapshot_metadata.capnp
 src/raft/snapshot_metadata.hpp
+src/raft/storage_info_rpc_messages.hpp
+src/raft/storage_info_rpc_messages.capnp
 src/stats/stats_rpc_messages.capnp
 src/stats/stats_rpc_messages.hpp
 src/storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp

@@ -597,16 +597,17 @@ class GraphDbAccessor {
   std::vector<std::string> IndexInfo() const;
 
   /**
-   * Returns a map containing storage information.
+   * Returns a map containing storage information for each Raft cluster member.
    *
-   * Inside the map, the following keys will exist:
+   * Inside the vector, the following storage stats will exist:
    *  - vertex_count
    *  - edge_count
    *  - average_degree
    *  - memory_usage
    *  - disk_usage
    **/
-  std::map<std::string, std::string> StorageInfo() const;
+  std::map<std::string, std::vector<std::pair<std::string, std::string>>>
+  StorageInfo() const;
 
   /**
    * Insert this vertex into corresponding label and label+property (if it
