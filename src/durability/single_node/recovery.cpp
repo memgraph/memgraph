@@ -150,6 +150,31 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
                           /*create = */ true, unique.ValueBool()});
   }
 
+  // Read a list of existence constraints
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::List));
+  auto existence_constraints = dv.ValueList();
+  for (auto it = existence_constraints.begin();
+       it != existence_constraints.end();) {
+    RETURN_IF_NOT(it->IsString());
+    auto label = it->ValueString();
+    ++it;
+    RETURN_IF_NOT(it != existence_constraints.end());
+    RETURN_IF_NOT(it->IsInt());
+    auto prop_size = it->ValueInt();
+    ++it;
+    std::vector<std::string> properties;
+    properties.reserve(prop_size);
+    for (size_t i = 0; i < prop_size; ++i) {
+      RETURN_IF_NOT(it != existence_constraints.end());
+      RETURN_IF_NOT(it->IsString());
+      properties.emplace_back(it->ValueString());
+      ++it;
+    }
+
+    recovery_data->existence_constraints.emplace_back(
+        ExistenceConstraintRecoveryData{label, std::move(properties), true});
+  }
+
   auto dba = db->Access();
   std::unordered_map<uint64_t, VertexAccessor> vertices;
   for (int64_t i = 0; i < vertex_count; ++i) {
@@ -408,7 +433,6 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
             transactions->Commit(delta.transaction_id);
             break;
           case database::StateDelta::Type::BUILD_INDEX: {
-            // TODO index building might still be problematic in HA
             auto drop_it = std::find_if(
                 recovery_data->indexes.begin(), recovery_data->indexes.end(),
                 [label = delta.label_name, property = delta.property_name](
@@ -448,6 +472,48 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
             }
             break;
           }
+          case database::StateDelta::Type::BUILD_EXISTENCE_CONSTRAINT: {
+            auto drop_it = std::find_if(
+                recovery_data->existence_constraints.begin(),
+                recovery_data->existence_constraints.end(),
+                [&delta](const ExistenceConstraintRecoveryData &data) {
+                  return data.label == delta.label_name &&
+                         std::is_permutation(data.properties.begin(),
+                                             data.properties.end(),
+                                             delta.property_names.begin()) &&
+                         data.create == false;
+                });
+
+            if (drop_it != recovery_data->existence_constraints.end()) {
+              recovery_data->existence_constraints.erase(drop_it);
+            } else {
+              recovery_data->existence_constraints.emplace_back(
+                  ExistenceConstraintRecoveryData{delta.label_name,
+                                                  delta.property_names, true});
+            }
+            break;
+          }
+          case database::StateDelta::Type::DROP_EXISTENCE_CONSTRAINT: {
+            auto build_it = std::find_if(
+                recovery_data->existence_constraints.begin(),
+                recovery_data->existence_constraints.end(),
+                [&delta](const ExistenceConstraintRecoveryData &data) {
+                  return data.label == delta.label_name &&
+                         std::is_permutation(data.properties.begin(),
+                                             data.properties.end(),
+                                             delta.property_names.begin()) &&
+                         data.create == true;
+                });
+
+            if (build_it != recovery_data->existence_constraints.end()) {
+              recovery_data->existence_constraints.erase(build_it);
+            } else {
+              recovery_data->existence_constraints.emplace_back(
+                  ExistenceConstraintRecoveryData{
+                      delta.label_name, delta.property_names, false});
+            }
+            break;
+          }
           default:
             transactions->Apply(delta);
         }
@@ -477,4 +543,23 @@ void RecoverIndexes(database::GraphDb *db,
   dba->Commit();
 }
 
+void RecoverExistenceConstraints(
+    database::GraphDb *db,
+    const std::vector<ExistenceConstraintRecoveryData> &constraints) {
+  auto dba = db->Access();
+  for (auto &constraint : constraints) {
+    auto label = dba->Label(constraint.label);
+    std::vector<storage::Property> properties;
+    properties.reserve(constraint.properties.size());
+    for (auto &prop : constraint.properties) {
+      properties.push_back(dba->Property(prop));
+    }
+
+    if (constraint.create) {
+      dba->BuildExistenceConstraint(label, properties);
+    } else {
+      dba->DeleteExistenceConstraint(label, properties);
+    }
+  }
+}
 }  // namespace durability

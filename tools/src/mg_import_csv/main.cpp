@@ -19,6 +19,10 @@
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
+// Snapshot layout is described in durability/version.hpp
+static_assert(durability::kVersion == 8,
+              "Wrong snapshot version, please update!");
+
 bool ValidateNotEmpty(const char *flagname, const std::string &value) {
   if (utils::Trim(value).empty()) {
     printf("The argument '%s' is required\n", flagname);
@@ -420,6 +424,7 @@ void Convert(const std::vector<std::string> &nodes,
     encoder.WriteInt(0);    // Id of transaction that is snapshooting.
     encoder.WriteList({});  // Transactional snapshot.
     encoder.WriteList({});  // Label + property indexes.
+    encoder.WriteList({});  // Existence constraints
     // PassNodes streams vertices to the encoder.
     for (const auto &nodes_file : nodes) {
       node_count +=

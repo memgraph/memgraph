@@ -43,6 +43,13 @@ struct IndexRecoveryData {
   bool unique; // used only when creating an index
 };
 
+struct ExistenceConstraintRecoveryData {
+  std::string label;
+  std::vector<std::string> properties;
+  // distinguish between creating and dropping existence constraint
+  bool create;
+};
+
 // A data structure for exchanging info between main recovery function and
 // snapshot and WAL recovery functions.
 struct RecoveryData {
@@ -52,6 +59,8 @@ struct RecoveryData {
   // A collection into which the indexes should be added so they
   // can be rebuilt at the end of the recovery transaction.
   std::vector<IndexRecoveryData> indexes;
+
+  std::vector<ExistenceConstraintRecoveryData> existence_constraints;
 
   void Clear() {
     snapshooter_tx_id = 0;
@@ -147,5 +156,9 @@ void RecoverWal(const std::experimental::filesystem::path &durability_dir,
 
 void RecoverIndexes(database::GraphDb *db,
                     const std::vector<IndexRecoveryData> &indexes);
+
+void RecoverExistenceConstraints(
+    database::GraphDb *db,
+    const std::vector<ExistenceConstraintRecoveryData> &constraints);
 
 }  // namespace durability

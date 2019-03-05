@@ -193,12 +193,13 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
     throw IndexConstraintViolationException(
         "Node couldn't be updated due to index constraint violation!");
   }
-  db_.storage().labels_index_.Update(label, vlist_ptr, vertex);
 
   if (!db_.storage().existence_constraints_.CheckIfSatisfies(vertex)) {
     throw IndexConstraintViolationException(
         "Node couldn't be updated due to existence constraint violation!");
   }
+
+  db_.storage().labels_index_.Update(label, vlist_ptr, vertex);
 }
 
 void GraphDbAccessor::UpdatePropertyIndex(
@@ -208,7 +209,7 @@ void GraphDbAccessor::UpdatePropertyIndex(
   if (!db_.storage().label_property_index_.UpdateOnProperty(
           property, vertex_accessor.address(), vertex)) {
     throw IndexConstraintViolationException(
-        "Node couldn't be updated due to existence constraint violation!");
+        "Node couldn't be updated due to unique index violation!");
   }
 }
 
@@ -230,13 +231,19 @@ void GraphDbAccessor::BuildExistenceConstraint(
   for (auto v : dba->Vertices(false)) {
     if (!CheckIfSatisfiesExistenceRule(v.GetOld(), rule)) {
       throw IndexConstraintViolationException(
-          "Node couldn't be updated due to existence constraint violation!");
+          "Existence constraint couldn't be built because existing data is "
+          "violating it!");
     }
   }
 
   db_.storage().existence_constraints_.AddConstraint(rule);
-  // TODO
-  //wal().Emplace(database::StateDelta::BuildExistenceConstraint();
+  std::vector<std::string> property_names(properties.size());
+  std::transform(properties.begin(), properties.end(), property_names.begin(),
+                 [&dba](auto p) { return dba->PropertyName(p); });
+
+  dba->wal().Emplace(database::StateDelta::BuildExistenceConstraint(
+      dba->transaction().id_, label, dba->LabelName(label), properties,
+      property_names));
   dba->Commit();
 }
 
@@ -246,8 +253,13 @@ void GraphDbAccessor::DeleteExistenceConstraint(
       db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
   ExistenceRule rule{label, properties};
   db_.storage().existence_constraints_.RemoveConstraint(rule);
-  // TODO
-  //wal().Emplace(database::StateDelta::DeleteExistenceConstraint();
+  std::vector<std::string> property_names(properties.size());
+  std::transform(properties.begin(), properties.end(), property_names.begin(),
+                 [&dba](auto p) { return dba->PropertyName(p); });
+
+  dba->wal().Emplace(database::StateDelta::DropExistenceConstraint(
+      dba->transaction().id_, label, dba->LabelName(label), properties,
+      property_names));
   dba->Commit();
 }
 
@@ -256,6 +268,11 @@ bool GraphDbAccessor::ExistenceConstraintExists(
     const std::vector<storage::Property> &properties) const {
   ExistenceRule rule{label, properties};
   return db_.storage().existence_constraints_.Exists(rule);
+}
+
+std::list<ExistenceRule> GraphDbAccessor::ExistenceConstraintsList()
+    const {
+  return db_.storage().existence_constraints_.ListConstraints();
 }
 
 int64_t GraphDbAccessor::VerticesCount() const {

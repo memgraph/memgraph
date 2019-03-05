@@ -40,6 +40,8 @@ cpp<#
    (edge-type-name "std::string")
    (property "storage::Property")
    (property-name "std::string")
+   (properties "std::vector<storage::Property>")
+   (property-names "std::vector<std::string>")
    (value "PropertyValue" :initval "PropertyValue::Null")
    (label "storage::Label")
    (label-name "std::string")
@@ -71,6 +73,8 @@ in StateDeltas.")
         remove-edge   ;; edge_id
         build-index   ;; label, label_name, property, property_name, unique
         drop-index   ;; label, label_name, property, property_name
+        build-existence-constraint ;; label, label_name, properties, property_names
+        drop-existence-constraint ;; label, label_name, properties, property_names
         )
      (:documentation
       "Defines StateDelta type. For each type the comment indicates which values
@@ -129,6 +133,16 @@ omitted in the comment."))
                                   const std::string &label_name,
                                   storage::Property property,
                                   const std::string &property_name);
+     static StateDelta BuildExistenceConstraint(
+                                  tx::TransactionId tx_id, storage::Label label,
+                                  const std::string &label_name,
+                                  const std::vector<storage::Property> &properties,
+                                  const std::vector<std::string> &property_names);
+     static StateDelta DropExistenceConstraint(
+                                  tx::TransactionId tx_id, storage::Label label,
+                                  const std::string &label_name,
+                                  const std::vector<storage::Property> &property,
+                                  const std::vector<std::string> &property_names);
 
      /// Applies CRUD delta to database accessor. Fails on other types of deltas
      void Apply(GraphDbAccessor &dba) const;

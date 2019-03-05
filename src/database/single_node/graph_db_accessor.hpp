@@ -488,6 +488,10 @@ class GraphDbAccessor {
       storage::Label label,
       const std::vector<storage::Property> &properties) const;
 
+  /**
+   * Returns the list of existence constraints currently active.
+   */
+  std::list<ExistenceRule> ExistenceConstraintsList() const;
 
   /**
    * Return approximate number of all vertices in the database.

@@ -18,9 +18,9 @@ int main(int argc, char *argv[]) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
   google::InitGoogleLogging(argv[0]);
 
-  // At the time this was written, the version was 7. This makes sure we update
-  // the explorer when we bump the snapshot version.
-  static_assert(durability::kVersion == 7,
+  // This makes sure we update the explorer when we bump the snapshot version.
+  // Snapshot layout is described in durability/version.hpp
+  static_assert(durability::kVersion == 8,
                 "Wrong snapshot version, please update!");
 
   fs::path snapshot_path(FLAGS_snapshot_file);
@@ -80,6 +80,32 @@ int main(int argc, char *argv[]) {
     CHECK(property.IsString()) << "Property is not a string!";
     LOG(INFO) << "Adding label " << label.ValueString() << " and property "
               << property.ValueString();
+  }
+
+  decoder.ReadValue(&dv, Value::Type::List);
+  auto existence_constraint = dv.ValueList();
+  for (auto it = existence_constraint.begin(); it != existence_constraint.end();) {
+    std::string log("Adding existence constraint: ");
+    CHECK(it->IsString()) << "Label is not a string!";
+    log.append(it->ValueString());
+    log.append(" -> [");
+    ++it;
+    CHECK(it->IsInt()) << "Number of properties is not an int!";
+    int64_t prop_size = it->ValueInt();
+    ++it;
+    for (size_t i = 0; i < prop_size; ++i) {
+      CHECK(it->IsString()) << "Property is not a string!";
+      log.append(it->ValueString());
+      if (i != prop_size -1) {
+        log.append(", ");
+      } else {
+        log.append("]");
+      }
+
+      ++it;
+    }
+
+    LOG(INFO) << log;
   }
 
   for (int64_t i = 0; i < vertex_count; ++i) {

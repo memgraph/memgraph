@@ -147,6 +147,8 @@ bool WriteAheadLog::IsStateDeltaTransactionEnd(
     case database::StateDelta::Type::REMOVE_EDGE:
     case database::StateDelta::Type::BUILD_INDEX:
     case database::StateDelta::Type::DROP_INDEX:
+    case database::StateDelta::Type::BUILD_EXISTENCE_CONSTRAINT:
+    case database::StateDelta::Type::DROP_EXISTENCE_CONSTRAINT:
       return false;
   }
 }

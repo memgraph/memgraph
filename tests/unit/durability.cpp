@@ -166,6 +166,36 @@ class DbGenerator {
   }
 };
 
+bool CompareExistenceConstraints(const database::GraphDbAccessor &dba1,
+                                 const database::GraphDbAccessor &dba2) {
+  auto c1 = dba1.ExistenceConstraintsList();
+  auto c2 = dba2.ExistenceConstraintsList();
+
+  auto compare_prop = [](auto &dba1, auto &p1, auto &dba2, auto &p2) {
+    std::vector<std::string> p1_names;
+    p1_names.reserve(p1.size());
+    std::vector<std::string> p2_names;
+    p2_names.reserve(p2.size());
+
+    std::transform(p1.begin(), p1.end(), std::back_inserter(p1_names),
+                   [&dba1](auto p) { return dba1.PropertyName(p); });
+    std::transform(p2.begin(), p2.end(), std::back_inserter(p2_names),
+                   [&dba2](auto p) { return dba2.PropertyName(p); });
+
+    return p1_names.size() == p2_names.size() &&
+           std::is_permutation(p1_names.begin(), p1_names.end(),
+                               p2_names.begin());
+  };
+
+  return c1.size() == c2.size() &&
+         std::is_permutation(
+             c1.begin(), c1.end(), c2.begin(),
+             [&dba1, &dba2, &compare_prop](auto &r1, auto &r2) {
+               return dba1.LabelName(r1.label) == dba2.LabelName(r2.label) &&
+                      compare_prop(dba1, r1.properties, dba2, r2.properties);
+             });
+}
+
 /** Checks if the given databases have the same contents (indices,
  * vertices and edges). */
 void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
@@ -181,6 +211,7 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
         << "Indexes not equal [" << utils::Join(index_a, ", ") << "] != ["
         << utils::Join(index_b, ", ");
   }
+  EXPECT_TRUE(CompareExistenceConstraints(*dba_a, *dba_b));
 
   auto is_permutation_props = [&dba_a, &dba_b](const auto &p1_id,
                                                const auto &p2_id) {
@@ -484,6 +515,11 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(dv.ValueList()[0].ValueString(), "l1");
   EXPECT_EQ(dv.ValueList()[1].ValueString(), "p1");
   EXPECT_EQ(dv.ValueList()[2].ValueBool(), false);
+
+  // Existence constraints
+  decoder.ReadValue(&dv);
+  ASSERT_TRUE(dv.IsList());
+  ASSERT_EQ(dv.ValueList().size(), 0);
 
   std::map<gid::Gid, communication::bolt::Vertex> decoded_vertices;
 
@@ -981,6 +1017,81 @@ TEST_F(Durability, UniqueConstraintRecoveryWal) {
     recovered_config.db_recover_on_startup = true;
     database::GraphDb recovered{recovered_config};
     CompareDbs(db, recovered);
+  }
+}
+
+TEST_F(Durability, ExistenceConstraintRecoveryWal) {
+  auto config = DbConfig(true, false);
+  database::GraphDb db{config};
+  {
+    // Fill database with some data
+    auto dba = db.Access();
+    DbGenerator gen(*dba);
+    dba->InsertVertex();
+    gen.InsertVertex();
+    gen.InsertVertex();
+    auto l1 = dba->Label("l1");
+    std::vector<storage::Property> p1{dba->Property("p1"),  dba->Property("p2")};
+    dba->BuildExistenceConstraint(l1, p1);
+    gen.InsertEdge();
+    auto l2 = dba->Label("l2");
+    std::vector<storage::Property> p2{dba->Property("p3"),  dba->Property("p4")};
+    dba->BuildExistenceConstraint(l2, p2);
+    gen.InsertVertex();
+    gen.InsertEdge();
+    dba->DeleteExistenceConstraint(l1, p1);
+    dba->Commit();
+  }
+  {
+    // Recover and compare
+    db.wal().Flush();
+    auto recovered_config = DbConfig(false, true);
+    database::GraphDb recovered_db{recovered_config};
+    CompareDbs(db, recovered_db);
+  }
+}
+
+TEST_F(Durability, ExistenceConstraintRecoverySnapshotAndWal) {
+  auto config = DbConfig(true, false);
+  database::GraphDb db{config};
+  {
+    // Fill database with some data
+    auto dba = db.Access();
+    DbGenerator gen(*dba);
+    dba->InsertVertex();
+    gen.InsertVertex();
+    gen.InsertVertex();
+    auto l1 = dba->Label("l1");
+    std::vector<storage::Property> p1{dba->Property("p1"),  dba->Property("p2")};
+    dba->BuildExistenceConstraint(l1, p1);
+    gen.InsertEdge();
+    auto l2 = dba->Label("l2");
+    std::vector<storage::Property> p2{dba->Property("p3"),  dba->Property("p4")};
+    dba->BuildExistenceConstraint(l2, p2);
+    gen.InsertVertex();
+    gen.InsertEdge();
+    dba->DeleteExistenceConstraint(l1, p1);
+    dba->Commit();
+  }
+  // create snapshot with build index and vertex
+  MakeSnapshot(db);
+  {
+    auto dba = db.Access();
+    DbGenerator gen(*dba);
+    gen.InsertVertex();
+    gen.InsertVertex();
+
+    auto l3 = dba->Label("l3");
+    std::vector<storage::Property> p3{dba->Property("p5"),  dba->Property("p6")};
+    dba->BuildExistenceConstraint(l3, p3);
+    dba->Commit();
+  }
+  {
+    // Recover and compare
+    db.wal().Flush();
+    auto recovered_config = DbConfig(false, true);
+    database::GraphDb recovered_db{recovered_config};
+    CompareDbs(db, recovered_db);
   }
 }
 

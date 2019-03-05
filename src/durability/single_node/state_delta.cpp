@@ -126,6 +126,32 @@ StateDelta StateDelta::DropIndex(tx::TransactionId tx_id, storage::Label label,
   return op;
 }
 
+StateDelta StateDelta::BuildExistenceConstraint(
+    tx::TransactionId tx_id, storage::Label label,
+    const std::string &label_name,
+    const std::vector<storage::Property> &properties,
+    const std::vector<std::string> &property_names) {
+  StateDelta op(StateDelta::Type::BUILD_EXISTENCE_CONSTRAINT, tx_id);
+  op.label = label;
+  op.label_name = label_name;
+  op.properties = properties;
+  op.property_names = property_names;
+  return op;
+}
+
+StateDelta StateDelta::DropExistenceConstraint(
+    tx::TransactionId tx_id, storage::Label label,
+    const std::string &label_name,
+    const std::vector<storage::Property> &properties,
+    const std::vector<std::string> &property_names) {
+  StateDelta op(StateDelta::Type::DROP_EXISTENCE_CONSTRAINT, tx_id);
+  op.label = label;
+  op.label_name = label_name;
+  op.properties = properties;
+  op.property_names = property_names;
+  return op;
+}
+
 void StateDelta::Encode(
     HashedFileWriter &writer,
     communication::bolt::BaseEncoder<HashedFileWriter> &encoder) const {
@@ -183,6 +209,28 @@ void StateDelta::Encode(
       encoder.WriteString(label_name);
       encoder.WriteInt(property.Id());
       encoder.WriteString(property_name);
+      break;
+    case Type::BUILD_EXISTENCE_CONSTRAINT:
+      encoder.WriteInt(label.Id());
+      encoder.WriteString(label_name);
+      encoder.WriteInt(properties.size());
+      for (auto prop : properties) {
+        encoder.WriteInt(prop.Id());
+      }
+      for (auto &name : property_names) {
+        encoder.WriteString(name);
+      }
+      break;
+    case Type::DROP_EXISTENCE_CONSTRAINT:
+      encoder.WriteInt(label.Id());
+      encoder.WriteString(label_name);
+      encoder.WriteInt(properties.size());
+      for (auto prop : properties) {
+        encoder.WriteInt(prop.Id());
+      }
+      for (auto &name : property_names) {
+        encoder.WriteString(name);
+      }
       break;
   }
 
@@ -265,6 +313,38 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
         break;
+      case Type::BUILD_EXISTENCE_CONSTRAINT: {
+        DECODE_MEMBER_CAST(label, ValueInt, storage::Label)
+        DECODE_MEMBER(label_name, ValueString)
+        if (!decoder.ReadValue(&dv)) return nullopt;
+        int size = dv.ValueInt();
+        for (size_t i = 0; i < size; ++i) {
+          if (!decoder.ReadValue(&dv)) return nullopt;
+          r_val.properties.push_back(
+              static_cast<storage::Property>(dv.ValueInt()));
+        }
+        for (size_t i = 0; i < size; ++i) {
+          if (!decoder.ReadValue(&dv)) return nullopt;
+          r_val.property_names.push_back(dv.ValueString());
+        }
+        break;
+      }
+      case Type::DROP_EXISTENCE_CONSTRAINT: {
+        DECODE_MEMBER_CAST(label, ValueInt, storage::Label)
+        DECODE_MEMBER(label_name, ValueString)
+        if (!decoder.ReadValue(&dv)) return nullopt;
+        int size = dv.ValueInt();
+        for (size_t i = 0; i < size; ++i) {
+          if (!decoder.ReadValue(&dv)) return nullopt;
+          r_val.properties.push_back(
+              static_cast<storage::Property>(dv.ValueInt()));
+        }
+        for (size_t i = 0; i < size; ++i) {
+          if (!decoder.ReadValue(&dv)) return nullopt;
+          r_val.property_names.push_back(dv.ValueString());
+        }
+        break;
+      }
     }
 
     auto decoder_hash = reader.hash();
@@ -334,6 +414,24 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       LOG(FATAL) << "Index handling not handled in Apply";
       break;
     }
+    case Type::BUILD_EXISTENCE_CONSTRAINT: {
+      std::vector<storage::Property> properties;
+      properties.reserve(property_names.size());
+      for (auto &p : property_names) {
+        properties.push_back(dba.Property(p));
+      }
+
+      dba.BuildExistenceConstraint(dba.Label(label_name), properties);
+    } break;
+    case Type::DROP_EXISTENCE_CONSTRAINT: {
+      std::vector<storage::Property> properties;
+      properties.reserve(property_names.size());
+      for (auto &p : property_names) {
+        properties.push_back(dba.Property(p));
+      }
+
+      dba.DeleteExistenceConstraint(dba.Label(label_name), properties);
+    } break;
   }
 }
 

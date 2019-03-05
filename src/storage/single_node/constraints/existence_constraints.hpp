@@ -21,7 +21,9 @@ struct ExistenceRule {
   std::vector<storage::Property> properties;
 
   bool operator==(const ExistenceRule &rule) const {
-    return label == rule.label && properties == rule.properties;
+    return label == rule.label &&
+           std::is_permutation(properties.begin(), properties.end(),
+                               rule.properties.begin());
   }
 
   bool operator!=(const ExistenceRule &rule) const { return !(*this == rule); }
