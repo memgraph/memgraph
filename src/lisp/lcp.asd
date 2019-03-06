@@ -15,4 +15,7 @@
 (defsystem "lcp/test"
   :depends-on ("lcp" "prove")
   :components ((:file "lcp-test"))
-  :perform (test-op :after (op s) (symbol-call :prove :run-test-package :lcp-test)))
+  :perform (test-op :after (op s)
+                    (let ((*package* (find-package :lcp-test)))
+                      (symbol-call :prove :plan nil)
+                      (symbol-call :prove :run-test-package :lcp-test))))

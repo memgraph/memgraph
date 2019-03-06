@@ -24,8 +24,6 @@
         (lcp::parse-cpp-type-declaration type-decl2)
         :test #'lcp::cpp-type=))
 
-(plan nil)
-
 (deftest "supported"
   (subtest "designators"
     (mapc (lambda (sym)
