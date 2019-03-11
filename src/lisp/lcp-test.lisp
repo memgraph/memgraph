@@ -964,4 +964,7 @@
       (single-member-test (member "CopyableClass2")
                           "object.member_ = member_;")
       (single-member-test (member "UnknownClass")
-                         "object.member_ = member_;"))))
+                          "object.member_ = member_;")
+      (undefine-cpp-types))))
+
+
