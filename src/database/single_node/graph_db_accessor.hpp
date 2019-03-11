@@ -13,6 +13,7 @@
 
 #include "database/single_node/graph_db.hpp"
 #include "storage/common/types/types.hpp"
+#include "storage/single_node/constraints/exceptions.hpp"
 #include "storage/single_node/edge_accessor.hpp"
 #include "storage/single_node/vertex_accessor.hpp"
 #include "transactions/transaction.hpp"
@@ -21,11 +22,6 @@
 #include "utils/exceptions.hpp"
 
 namespace database {
-
-/** Thrown when inserting in an index with constraint. */
-class IndexConstraintViolationException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
 
 /** Thrown when creating an index which already exists. */
 class IndexExistsException : public utils::BasicException {
