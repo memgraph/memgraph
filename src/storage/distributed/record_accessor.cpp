@@ -17,12 +17,69 @@ RecordAccessor<TRecord>::RecordAccessor(AddressT address,
                                         database::GraphDbAccessor &db_accessor)
     : db_accessor_(&db_accessor),
       address_(db_accessor.db().storage().LocalizedAddressIfPossible(address)) {
+  if (is_local()) {
+    new (&local_) Local();
+  } else {
+    new (&remote_) Remote();
+  }
+}
+
+template <typename TRecord>
+RecordAccessor<TRecord>::RecordAccessor(const RecordAccessor &other)
+    : db_accessor_(other.db_accessor_), address_(other.address_) {
+  is_initialized_ = other.is_initialized_;
+  if (other.is_local()) {
+    new (&local_) Local();
+    local_.old = other.local_.old;
+    local_.newr = other.local_.newr;
+  } else {
+    DCHECK(other.remote_.lock_counter == 0);
+    new (&remote_) Remote();
+    remote_.has_updated = other.remote_.has_updated;
+  }
+
+  current_ = other.current_;
+}
+
+template <typename TRecord>
+RecordAccessor<TRecord> &RecordAccessor<TRecord>::operator=(
+    const RecordAccessor &other) {
+  if (is_local()) {
+    local_.~Local();
+  } else {
+    DCHECK(remote_.lock_counter == 0);
+    remote_.~Remote();
+  }
+
+  db_accessor_ = other.db_accessor_;
+  is_initialized_ = other.is_initialized_;
+  if (other.is_local()) {
+    new (&local_) Local();
+    local_.old = other.local_.old;
+    local_.newr = other.local_.newr;
+  } else {
+    new (&remote_) Remote();
+    remote_.has_updated = other.remote_.has_updated;
+  }
+
+  address_ = other.address_;
+  current_ = other.current_;
+  return *this;
+}
+
+template <typename TRecord>
+RecordAccessor<TRecord>::~RecordAccessor() {
+  if (is_local()) {
+    local_.~Local();
+  } else {
+    remote_.~Remote();
+  }
 }
 
 template <typename TRecord>
 PropertyValue RecordAccessor<TRecord>::PropsAt(storage::Property key) const {
   auto guard = storage::GetDataLock(*this);
-  return current().properties_.at(key);
+  return GetCurrent()->properties_.at(key);
 }
 
 template <>
@@ -32,9 +89,10 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                           dba.PropertyName(key), value);
   auto guard = storage::GetDataLock(*this);
-  update().properties_.set(key, value);
+  update();
+  GetNew()->properties_.set(key, value);
   if (is_local()) {
-    dba.UpdatePropertyIndex(key, *this, &update());
+    dba.UpdatePropertyIndex(key, *this, GetNew());
   }
   ProcessDelta(delta);
 }
@@ -47,7 +105,8 @@ void RecordAccessor<Edge>::PropsSet(storage::Property key,
                                         dba.PropertyName(key), value);
 
   auto guard = storage::GetDataLock(*this);
-  update().properties_.set(key, value);
+  update();
+  GetNew()->properties_.set(key, value);
   ProcessDelta(delta);
 }
 
@@ -58,7 +117,8 @@ void RecordAccessor<Vertex>::PropsErase(storage::Property key) {
       StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                  dba.PropertyName(key), PropertyValue::Null);
   auto guard = storage::GetDataLock(*this);
-  update().properties_.set(key, PropertyValue::Null);
+  update();
+  GetNew()->properties_.set(key, PropertyValue::Null);
   ProcessDelta(delta);
 }
 
@@ -70,7 +130,8 @@ void RecordAccessor<Edge>::PropsErase(storage::Property key) {
                                dba.PropertyName(key), PropertyValue::Null);
 
   auto guard = storage::GetDataLock(*this);
-  update().properties_.set(key, PropertyValue::Null);
+  update();
+  GetNew()->properties_.set(key, PropertyValue::Null);
   ProcessDelta(delta);
 }
 
@@ -78,16 +139,17 @@ template <typename TRecord>
 void RecordAccessor<TRecord>::PropsClear() {
   std::vector<storage::Property> to_remove;
   auto guard = storage::GetDataLock(*this);
-  for (const auto &kv : update().properties_) to_remove.emplace_back(kv.first);
+  update();
+  for (const auto &kv : GetNew()->properties_) to_remove.emplace_back(kv.first);
   for (const auto &prop : to_remove) {
     PropsErase(prop);
   }
 }
 
 template <typename TRecord>
-const PropertyValueStore &RecordAccessor<TRecord>::Properties() const {
+PropertyValueStore RecordAccessor<TRecord>::Properties() const {
   auto guard = storage::GetDataLock(*this);
-  return current().properties_;
+  return GetCurrent()->properties_;
 }
 
 template <typename TRecord>
@@ -123,95 +185,128 @@ RecordAccessor<TRecord>::GlobalAddress() const {
 
 template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchNew() {
-  auto guard = storage::GetDataLock(*this);
   if (is_local()) {
-    if (!new_) {
-      // if new_ is not set yet, look for it
-      // we can just Reconstruct the pointers, old_ will get initialized
-      // to the same value as it has now, and the amount of work is the
-      // same as just looking for a new_ record
+    if (!local_.newr) {
+      // if local new record is not set yet, look for it we can just Reconstruct
+      // the pointers, local old record will get initialized to the same value
+      // as it has now, and the amount of work is the same as just looking for a
+      // new record
       if (!Reconstruct())
         DLOG(FATAL)
             << "RecordAccessor::SwitchNew - accessor invalid after Reconstruct";
     }
+    current_ = local_.newr ? CurrentRecord::NEW : CurrentRecord::OLD;
+
   } else {
-    // A remote record only sees local updates, until the command is advanced.
-    // So this does nothing, as the old/new switch happens below.
+    auto guard = storage::GetDataLock(*this);
+    current_ =
+        remote_.data->new_record ? CurrentRecord::NEW : CurrentRecord::OLD;
   }
-  current_ = new_ ? new_ : old_;
+
   return *this;
 }
 
 template <typename TRecord>
 TRecord *RecordAccessor<TRecord>::GetNew() const {
-  if (!is_local()) {
-    DCHECK(remote_.lock_counter > 0) << "Remote data is missing";
+  if (is_local()) {
+    return local_.newr;
+  } else {
+    DCHECK(remote_.data) << "Remote data is missing";
+    return remote_.data->new_record.get();
   }
-
-  return new_;
 }
 
 template <typename TRecord>
 RecordAccessor<TRecord> &RecordAccessor<TRecord>::SwitchOld() {
-  current_ = old_ ? old_ : new_;
+  if (is_local()) {
+    current_ = local_.old ? CurrentRecord::OLD : CurrentRecord::NEW;
+  } else {
+    auto guard = storage::GetDataLock(*this);
+    current_ = remote_.data->old_record.get() ? CurrentRecord::OLD
+                                              : CurrentRecord::NEW;
+  }
+
   return *this;
 }
 
 template <typename TRecord>
 TRecord *RecordAccessor<TRecord>::GetOld() const {
-  if (!is_local()) {
-    DCHECK(remote_.lock_counter > 0) << "Remote data is missing";
+  if (is_local()) {
+    return local_.old;
+  } else {
+    DCHECK(remote_.data) << "Remote data is missing";
+    return remote_.data->old_record.get();
   }
-
-  return old_;
 }
 
 template <typename TRecord>
 bool RecordAccessor<TRecord>::Reconstruct() const {
+  is_initialized_ = true;
   auto &dba = db_accessor();
-  auto guard = storage::GetDataLock(*this);
+
   if (is_local()) {
-    address().local()->find_set_old_new(dba.transaction(), &old_, &new_);
+    address().local()->find_set_old_new(dba.transaction(), &local_.old,
+                                        &local_.newr);
+    current_ = local_.old ? CurrentRecord::OLD : CurrentRecord::NEW;
+    return local_.old != nullptr || local_.newr != nullptr;
+
   } else {
-    // It's not possible that we have a global address for a graph element
-    // that's local, because that is resolved in the constructor.
-    // TODO in write queries it's possible the command has been advanced and
-    // we need to invalidate the Cache and really get the latest stuff.
-    // But only do that after the command has been advanced.
-    dba.data_manager().template FindSetOldNew<TRecord>(
-        dba.transaction_id(), address().worker_id(), gid(), &old_, &new_);
+    auto guard =  storage::GetDataLock(*this);
+    TRecord *old_ = remote_.data->old_record.get();
+    TRecord *new_ = remote_.data->new_record.get();
+    current_ = old_ ? CurrentRecord::OLD : CurrentRecord::NEW;
+    return old_ != nullptr || new_ != nullptr;
   }
-  current_ = old_ ? old_ : new_;
-  return old_ != nullptr || new_ != nullptr;
 }
 
 template <typename TRecord>
-TRecord &RecordAccessor<TRecord>::update() const {
-  auto &dba = db_accessor();
-  auto guard = storage::GetDataLock(*this);
+void RecordAccessor<TRecord>::update() const {
   // Edges have lazily initialize mutable, versioned data (properties).
-  if (std::is_same<TRecord, Edge>::value && current_ == nullptr) {
+  if (std::is_same<TRecord, Edge>::value && is_initialized_ == false) {
     bool reconstructed = Reconstruct();
     DCHECK(reconstructed) << "Unable to initialize record";
   }
 
+  auto &dba = db_accessor();
+  auto guard =  storage::GetDataLock(*this);
   const auto &t = dba.transaction();
-  if (!new_ && old_->is_expired_by(t))
+  TRecord *old = is_local() ? local_.old : remote_.data->old_record.get();
+  TRecord *newr = is_local() ? local_.newr : remote_.data->new_record.get();
+
+  if (!newr && old->is_expired_by(t))
     throw RecordDeletedError();
-  else if (new_ && new_->is_expired_by(t))
+  else if (newr && newr->is_expired_by(t))
     throw RecordDeletedError();
 
-  if (new_) return *new_;
+  if (newr) return;
 
-  if (address().is_local()) {
-    new_ = address().local()->update(dba.transaction());
+  if (is_local()) {
+    local_.newr = address().local()->update(t);
+    DCHECK(local_.newr != nullptr)
+        << "RecordAccessor.new_ is null after update";
+
   } else {
-    new_ = dba.data_manager().template FindNew<TRecord>(dba.transaction_id(),
-                                                         address().gid());
-  }
+    remote_.has_updated = true;
 
-  DCHECK(new_ != nullptr) << "RecordAccessor.new_ is null after update";
-  return *new_;
+    if (remote_.lock_counter > 0) {
+      remote_.data = db_accessor_->data_manager().Find<TRecord>(
+          dba.transaction_id(), dba.worker_id(), address().worker_id(),
+          address().gid(), remote_.has_updated);
+    }
+
+    DCHECK(remote_.data->new_record)
+        << "RecordAccessor.new_ is null after update";
+  }
+}
+
+template <typename TRecord>
+bool RecordAccessor<TRecord>::Visible(const tx::Transaction &t,
+                                      bool current_state) const {
+  auto guard =  storage::GetDataLock(*this);
+  TRecord *old = is_local() ? local_.old : remote_.data->old_record.get();
+  TRecord *newr = is_local() ? local_.newr : remote_.data->new_record.get();
+  return (old && !(current_state && old->is_expired_by(t))) ||
+         (current_state && newr && !newr->is_expired_by(t));
 }
 
 template <typename TRecord>
@@ -228,52 +323,57 @@ int64_t RecordAccessor<TRecord>::CypherId() const {
   // TODO (buda): If we save cypher_id similar/next to edge_type we would save
   // a network call.
   return db_accessor_->data_manager()
-      .template Find<TRecord>(dba.transaction().id_, address().worker_id(),
-                              gid())
-      .cypher_id;
+      .template Find<TRecord>(dba.transaction().id_, dba.worker_id(),
+                              address().worker_id(), gid())
+      ->cypher_id;
 }
 
 template <typename TRecord>
 void RecordAccessor<TRecord>::HoldCachedData() const {
   if (!is_local()) {
     if (remote_.lock_counter == 0) {
-      // TODO (vkasljevic) uncomment once Remote has beed implemented
-      // remote_.data = db_accessor_->data_manager().template Find<TRecord>(
-      //     db_accessor_->transaction().id_, Address().worker_id(),
-      //     Address().gid(), remote_.has_updated);
+      remote_.data = db_accessor_->data_manager().template Find<TRecord>(
+          db_accessor_->transaction().id_, db_accessor_->worker_id(),
+          address().worker_id(), address().gid(), remote_.has_updated);
     }
 
     ++remote_.lock_counter;
     DCHECK(remote_.lock_counter <= 10000)
-        << "Something wrong with lock counter";
+        << "Something wrong with RemoteDataLock";
   }
 }
 
 template <typename TRecord>
 void RecordAccessor<TRecord>::ReleaseCachedData() const {
-  if (!is_local()) {
+ if (!is_local()) {
     DCHECK(remote_.lock_counter > 0) << "Lock should exist at this point";
     --remote_.lock_counter;
     if (remote_.lock_counter == 0) {
-      // TODO (vkasljevic) uncomment once Remote has beed implemented
-      // remote_.data = nullptr;
+      remote_.data = nullptr;
     }
   }
 }
 
 template <typename TRecord>
-const TRecord &RecordAccessor<TRecord>::current() const {
-  if (!is_local()) {
-    DCHECK(remote_.lock_counter > 0) << "Remote data is missing";
+TRecord *RecordAccessor<TRecord>::GetCurrent() const {
+  // Edges have lazily initialize mutable, versioned data (properties).
+  if (std::is_same<TRecord, Edge>::value && is_initialized_ == false) {
+    Reconstruct();
   }
 
-  // Edges have lazily initialize mutable, versioned data (properties).
-  if (std::is_same<TRecord, Edge>::value && current_ == nullptr) {
-    bool reconstructed = Reconstruct();
-    DCHECK(reconstructed) << "Unable to initialize record";
+  if (is_local()) {
+    return current_ == CurrentRecord::OLD ? local_.old : local_.newr;
+  } else {
+    DCHECK(remote_.data) << "CachedDataRecord is missing";
+    if (current_ == CurrentRecord::NEW) {
+      if (!remote_.data->new_record && remote_.data->old_record) {
+        current_ = CurrentRecord::OLD;
+        return remote_.data->old_record.get();
+      }
+      return remote_.data->new_record.get();
+    }
+    return remote_.data->old_record.get();
   }
-  DCHECK(current_ != nullptr) << "RecordAccessor.current_ pointer is nullptr";
-  return *current_;
 }
 
 template <typename TRecord>
@@ -283,14 +383,19 @@ void RecordAccessor<TRecord>::ProcessDelta(
     db_accessor().wal().Emplace(delta);
   } else {
     SendDelta(delta);
+    // This is needed because Update() method creates new record if it doesn't
+    // exist. If that record is evicted from cache and fetched again it wont
+    // have new record. Once delta has been sent record will have new so we
+    // don't have to update anymore.
+    remote_.has_updated = false;
   }
 }
 
 template <typename TRecord>
 void RecordAccessor<TRecord>::SendDelta(
     const database::StateDelta &delta) const {
-  auto result =
-      db_accessor_->updates_clients().Update(address().worker_id(), delta);
+  auto result = db_accessor_->updates_clients().Update(
+      db_accessor_->worker_id(), address().worker_id(), delta);
   switch (result) {
     case distributed::UpdateResult::DONE:
       break;

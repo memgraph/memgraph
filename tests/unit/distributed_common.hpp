@@ -53,6 +53,8 @@ class DistributedGraphDbTest : public ::testing::Test {
     master_config.master_endpoint = {kLocal, 0};
     master_config.query_execution_time_sec = QueryExecutionTimeSec(0);
     master_config.durability_directory = GetDurabilityDirectory(0);
+    master_config.vertex_cache_size = 1;
+    master_config.edge_cache_size = 1;
     // Flag needs to be updated due to props on disk storage.
     FLAGS_durability_directory = GetDurabilityDirectory(0);
     // This is semantically wrong since this is not a cluster of size 1 but of
@@ -67,6 +69,8 @@ class DistributedGraphDbTest : public ::testing::Test {
     auto worker_config = [this](int worker_id) {
       database::Config config;
       config.worker_id = worker_id;
+      config.vertex_cache_size = 1;
+      config.edge_cache_size = 1;
       config.master_endpoint = master_->endpoint();
       config.durability_directory = GetDurabilityDirectory(worker_id);
       config.worker_endpoint = {kLocal, 0};

@@ -225,7 +225,7 @@ void GraphDbAccessor::PopulateIndex(const LabelPropertyIndex::Key &key) {
     if (vertex.PropsAt(key.property_).type() == PropertyValue::Type::Null)
       continue;
     db_.storage().label_property_index_.UpdateOnLabelProperty(
-        vertex.address().local(), vertex.current_);
+        vertex.address().local(), vertex.GetCurrent());
   }
 }
 
@@ -328,7 +328,7 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
     // it's possible the vertex was removed already in this transaction
     // due to it getting matched multiple times by some patterns
     // we can only delete it once, so check if it's already deleted
-    if (vertex_accessor.current().is_expired_by(transaction_)) return true;
+    if (vertex_accessor.GetCurrent()->is_expired_by(transaction_)) return true;
     if (check_empty &&
         vertex_accessor.out_degree() + vertex_accessor.in_degree() > 0)
       return false;
@@ -336,13 +336,14 @@ bool GraphDbAccessor::RemoveVertex(VertexAccessor &vertex_accessor,
     auto *vlist_ptr = vertex_accessor.address().local();
     wal().Emplace(database::StateDelta::RemoveVertex(
         transaction_.id_, vlist_ptr->gid_, check_empty));
-    vlist_ptr->remove(vertex_accessor.current_, transaction_);
+    vlist_ptr->remove(vertex_accessor.GetCurrent(), transaction_);
     return true;
 
   } else {
     auto address = vertex_accessor.address();
-    updates_clients().RemoveVertex(address.worker_id(), transaction_id(),
-                                   address.gid(), check_empty);
+    updates_clients().RemoveVertex(worker_id(), address.worker_id(),
+                                   transaction_id(), address.gid(),
+                                   check_empty);
     // We can't know if we are going to be able to remove vertex until
     // deferred updates on a remote worker are executed
     return true;
@@ -391,7 +392,8 @@ storage::EdgeAddress GraphDbAccessor::InsertEdgeOnFrom(
     auto edge_address = edge_accessor.address();
 
     from->SwitchNew();
-    auto from_updated = &from->update();
+    from->update();
+    auto from_updated = from->GetNew();
 
     // TODO when preparing WAL for distributed, most likely never use
     // `CREATE_EDGE`, but always have it split into 3 parts (edge insertion,
@@ -406,19 +408,19 @@ storage::EdgeAddress GraphDbAccessor::InsertEdgeOnFrom(
     return edge_address;
   } else {
     auto created_edge_info = updates_clients().CreateEdge(
-        transaction_id(), *from, *to, edge_type, cypher_id);
+        worker_id(), transaction_id(), *from, *to, edge_type, cypher_id);
     auto edge_address = created_edge_info.edge_address;
-    auto *from_updated =
-        data_manager().FindNew<Vertex>(transaction_id(), from->gid());
-    // Create an Edge and insert it into the Cache so we see it locally.
+
+    auto guard = storage::GetDataLock(*from);
+    from->update();
+    from->GetNew()->out_.emplace(
+        db().storage().LocalizedAddressIfPossible(to->address()), edge_address,
+        edge_type);
     data_manager().Emplace<Edge>(
         transaction_id(), edge_address.gid(),
         distributed::CachedRecordData<Edge>(
             created_edge_info.cypher_id, nullptr,
             std::make_unique<Edge>(from->address(), to->address(), edge_type)));
-    from_updated->out_.emplace(
-        db().storage().LocalizedAddressIfPossible(to->address()), edge_address,
-        edge_type);
     return edge_address;
   }
 }
@@ -431,7 +433,8 @@ void GraphDbAccessor::InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
     // WARNING: Must do that after the above "from->update()" for cases when
     // we are creating a cycle and "from" and "to" are the same vlist.
     to->SwitchNew();
-    auto *to_updated = &to->update();
+    to->update();
+    auto *to_updated = to->GetNew();
     to_updated->in_.emplace(
         db_.storage().LocalizedAddressIfPossible(from->address()), edge_address,
         edge_type);
@@ -441,12 +444,13 @@ void GraphDbAccessor::InsertEdgeOnTo(VertexAccessor *from, VertexAccessor *to,
     if (from->is_local() ||
         from->address().worker_id() != to->address().worker_id()) {
       updates_clients().AddInEdge(
-          transaction_id(), *from,
+          worker_id(), transaction_id(), *from,
           db().storage().GlobalizedAddress(edge_address), *to, edge_type);
     }
-    auto *to_updated =
-        data_manager().FindNew<Vertex>(transaction_id(), to->gid());
-    to_updated->in_.emplace(
+
+    auto guard = storage::GetDataLock(*to);
+    to->update();
+    to->GetNew()->in_.emplace(
         db().storage().LocalizedAddressIfPossible(from->address()),
         edge_address, edge_type);
   }
@@ -487,11 +491,11 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
     // due to it getting matched multiple times by some patterns
     // we can only delete it once, so check if it's already deleted
     edge.SwitchNew();
-    if (edge.current().is_expired_by(transaction_)) return;
+    if (edge.GetCurrent()->is_expired_by(transaction_)) return;
     if (remove_out_edge) edge.from().RemoveOutEdge(edge.address());
     if (remove_in_edge) edge.to().RemoveInEdge(edge.address());
 
-    edge.address().local()->remove(edge.current_, transaction_);
+    edge.address().local()->remove(edge.GetCurrent(), transaction_);
     wal().Emplace(
         database::StateDelta::RemoveEdge(transaction_.id_, edge.gid()));
   } else {
@@ -500,13 +504,15 @@ void GraphDbAccessor::RemoveEdge(EdgeAccessor &edge, bool remove_out_edge,
     CHECK(edge_addr.worker_id() == from_addr.worker_id())
         << "Edge and it's 'from' vertex not on the same worker";
     auto to_addr = db().storage().GlobalizedAddress(edge.to_addr());
-    updates_clients().RemoveEdge(transaction_id(), edge_addr.worker_id(),
-                                 edge_addr.gid(), from_addr.gid(), to_addr);
+    updates_clients().RemoveEdge(worker_id(), edge_addr.worker_id(),
+                                 transaction_id(), edge_addr.gid(),
+                                 from_addr.gid(), to_addr);
     // Another RPC is necessary only if the first did not handle vertices on
     // both sides.
     if (edge_addr.worker_id() != to_addr.worker_id()) {
-      updates_clients().RemoveInEdge(transaction_id(), to_addr.worker_id(),
-                                     to_addr.gid(), edge_addr);
+      updates_clients().RemoveInEdge(worker_id(), to_addr.worker_id(),
+                                     transaction_id(), to_addr.gid(),
+                                     edge_addr);
     }
   }
 }

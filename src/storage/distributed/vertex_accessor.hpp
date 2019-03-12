@@ -46,7 +46,6 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
 
   /** Returns EdgeAccessors for all incoming edges. */
   EdgesIterable in() const {
-    auto guard = storage::GetDataLock(*this);
     return EdgesIterable(*this, false);
   }
 
@@ -59,7 +58,6 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    */
   EdgesIterable in(const VertexAccessor &dest,
           const std::vector<storage::EdgeType> *edge_types = nullptr) const {
-    auto guard = storage::GetDataLock(*this);
     return EdgesIterable(*this, false, dest, edge_types);
   }
 
@@ -70,13 +68,11 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   EdgesIterable in(const std::vector<storage::EdgeType> *edge_types) const {
-    auto guard = storage::GetDataLock(*this);
     return EdgesIterable(*this, false, edge_types);
   }
 
   /** Returns EdgeAccessors for all outgoing edges. */
   EdgesIterable out() const {
-    auto guard = storage::GetDataLock(*this);
     return EdgesIterable(*this, true);
   }
 
@@ -90,7 +86,6 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    */
   EdgesIterable out(const VertexAccessor &dest,
            const std::vector<storage::EdgeType> *edge_types = nullptr) const {
-    auto guard = storage::GetDataLock(*this);
     return EdgesIterable(*this, true, dest, edge_types);
   }
 
@@ -101,7 +96,6 @@ class VertexAccessor final : public RecordAccessor<Vertex> {
    * or empty, the parameter is ignored.
    */
   EdgesIterable out(const std::vector<storage::EdgeType> *edge_types) const {
-    auto guard = storage::GetDataLock(*this);
     return EdgesIterable(*this, true, edge_types);
   }
 

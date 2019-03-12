@@ -10,11 +10,12 @@ EdgeAccessor::EdgeAccessor(EdgeAddress address,
       from_(nullptr),
       to_(nullptr),
       edge_type_() {
+  auto guard = storage::GetDataLock(*this);
   RecordAccessor::Reconstruct();
-  if (current_ != nullptr) {
-    from_ = current_->from_;
-    to_ = current_->to_;
-    edge_type_ = current_->edge_type_;
+  if (GetCurrent() != nullptr) {
+    from_ = GetCurrent()->from_;
+    to_ = GetCurrent()->to_;
+    edge_type_ = GetCurrent()->edge_type_;
   }
 }
 

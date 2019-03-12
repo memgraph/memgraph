@@ -66,6 +66,11 @@ struct Config {
   io::network::Endpoint master_endpoint{"0.0.0.0", 0};
   io::network::Endpoint worker_endpoint{"0.0.0.0", 0};
   int recovering_cluster_size{0};
+
+  // Sizes of caches that hold remote data
+  // Default value is same as in config.cpp
+  size_t vertex_cache_size{5000};
+  size_t edge_cache_size{5000};
 };
 
 class GraphDbAccessor;

@@ -9,22 +9,24 @@
 namespace distributed {
 
 template <>
-RemoteElementInfo<Edge> DataRpcClients::RemoteElement(int worker_id,
+RemoteElementInfo<Edge> DataRpcClients::RemoteElement(int from_worker_id,
+                                                      int worker_id,
                                                       tx::TransactionId tx_id,
                                                       gid::Gid gid) {
   auto response = coordination_->GetClientPool(worker_id)->Call<EdgeRpc>(
-      TxGidPair{tx_id, gid});
+      TxGidPair{tx_id, gid, from_worker_id});
   return RemoteElementInfo<Edge>(response.cypher_id,
                                  std::move(response.edge_old_output),
                                  std::move(response.edge_new_output));
 }
 
 template <>
-RemoteElementInfo<Vertex> DataRpcClients::RemoteElement(int worker_id,
+RemoteElementInfo<Vertex> DataRpcClients::RemoteElement(int from_worker_id,
+                                                        int worker_id,
                                                         tx::TransactionId tx_id,
                                                         gid::Gid gid) {
   auto response = coordination_->GetClientPool(worker_id)->Call<VertexRpc>(
-      TxGidPair{tx_id, gid});
+      TxGidPair{tx_id, gid, from_worker_id});
   return RemoteElementInfo<Vertex>(response.cypher_id,
                                    std::move(response.vertex_old_output),
                                    std::move(response.vertex_new_output));

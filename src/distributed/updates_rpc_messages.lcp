@@ -40,7 +40,8 @@ cpp<#
   (:serialize))
 
 (lcp:define-rpc update
-    (:request ((member "database::StateDelta" :capnp-type "Db.StateDelta")))
+    (:request ((member "database::StateDelta" :capnp-type "Db.StateDelta")
+               (worker-id :int64_t)))
   (:response ((member "UpdateResult"))))
 
 (lcp:define-rpc update-apply
@@ -114,7 +115,8 @@ cpp<#
   (:response ((member "CreateResult"))))
 
 (lcp:define-struct create-edge-req-data ()
-  ((from "gid::Gid")
+  ((worker-id :int64_t)
+   (from "gid::Gid")
    (to "storage::VertexAddress")
    (edge-type "storage::EdgeType")
    (tx-id "tx::TransactionId")
@@ -145,7 +147,8 @@ cpp<#
   (:response ((member "CreateResult"))))
 
 (lcp:define-struct add-in-edge-req-data ()
-  ((from "storage::VertexAddress")
+  ((worker-id :int64_t)
+   (from "storage::VertexAddress")
    (edge-address "storage::EdgeAddress")
    (to "gid::Gid")
    (edge-type "storage::EdgeType")
@@ -157,7 +160,8 @@ cpp<#
   (:response ((member "UpdateResult"))))
 
 (lcp:define-struct remove-vertex-req-data ()
-  ((gid "gid::Gid")
+  ((worker-id :int64_t)
+   (gid "gid::Gid")
    (tx-id "tx::TransactionId")
    (check-empty :bool))
   (:serialize (:slk) (:capnp)))
@@ -167,7 +171,8 @@ cpp<#
   (:response ((member "UpdateResult"))))
 
 (lcp:define-struct remove-edge-data ()
-  ((tx-id "tx::TransactionId")
+  ((worker-id :int64_t)
+   (tx-id "tx::TransactionId")
    (edge-id "gid::Gid")
    (vertex-from-id "gid::Gid")
    (vertex-to-address "storage::VertexAddress"))
@@ -178,7 +183,8 @@ cpp<#
   (:response ((member "UpdateResult"))))
 
 (lcp:define-struct remove-in-edge-data ()
-  ((tx-id "tx::TransactionId")
+  ((worker-id :int64_t)
+   (tx-id "tx::TransactionId")
    (vertex "gid::Gid")
    (edge-address "storage::EdgeAddress"))
   (:serialize (:slk) (:capnp)))

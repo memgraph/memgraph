@@ -77,6 +77,14 @@ DEFINE_VALIDATED_int32(recovering_cluster_size, 0,
 DEFINE_bool(dynamic_graph_partitioner_enabled, false,
             "If the dynamic graph partitioner should be enabled.");
 
+DEFINE_VALIDATED_uint64(vertex_cache_size, 5000,
+              "Size of cache used for storing remote vertices",
+              FLAG_IN_RANGE(1, std::numeric_limits<uint64_t>::max()));
+
+DEFINE_VALIDATED_uint64(edge_cache_size, 5000,
+              "Size of cache used for storing remote edges",
+              FLAG_IN_RANGE(1, std::numeric_limits<uint64_t>::max()));
+
 database::Config::Config()
     // Durability flags.
     : durability_enabled{FLAGS_durability_enabled},
@@ -101,4 +109,6 @@ database::Config::Config()
                       static_cast<uint16_t>(FLAGS_master_port)},
       worker_endpoint{FLAGS_worker_host,
                       static_cast<uint16_t>(FLAGS_worker_port)},
-      recovering_cluster_size{FLAGS_recovering_cluster_size} {}
+      recovering_cluster_size{FLAGS_recovering_cluster_size},
+      vertex_cache_size{FLAGS_vertex_cache_size},
+      edge_cache_size{FLAGS_edge_cache_size} {}

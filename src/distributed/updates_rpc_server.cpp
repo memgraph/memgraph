@@ -10,21 +10,20 @@ namespace distributed {
 
 template <typename TRecordAccessor>
 UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Emplace(
-    const database::StateDelta &delta) {
+    const database::StateDelta &delta, int worker_id) {
   auto gid = std::is_same<TRecordAccessor, VertexAccessor>::value
                  ? delta.vertex_id
                  : delta.edge_id;
   std::lock_guard<utils::SpinLock> guard{lock_};
   auto found = deltas_.find(gid);
   if (found == deltas_.end()) {
-    found =
-        deltas_
-            .emplace(gid, std::make_pair(FindAccessor(gid),
-                                         std::vector<database::StateDelta>{}))
-            .first;
+    found = deltas_
+                .emplace(gid, std::make_pair(FindAccessor(gid),
+                                             std::vector<DeltaPair>{}))
+                .first;
   }
 
-  found->second.second.emplace_back(delta);
+  found->second.second.emplace_back(delta, worker_id);
 
   // TODO call `RecordAccessor::update` to force serialization errors to
   // fail-fast (as opposed to when all the deltas get applied).
@@ -70,7 +69,7 @@ CreatedInfo UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateVertex(
   for (auto &kv : properties) result.PropsSet(kv.first, kv.second);
   std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(result.gid(),
-                  std::make_pair(result, std::vector<database::StateDelta>{}));
+                  std::make_pair(result, std::vector<DeltaPair>{}));
   return CreatedInfo(result.CypherId(), result.gid());
 }
 
@@ -86,7 +85,7 @@ CreatedInfo UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::CreateEdge(
       from_addr, to_addr, edge_type, std::experimental::nullopt, cypher_id);
   std::lock_guard<utils::SpinLock> guard{lock_};
   deltas_.emplace(edge.gid(),
-                  std::make_pair(edge, std::vector<database::StateDelta>{}));
+                  std::make_pair(edge, std::vector<DeltaPair>{}));
   return CreatedInfo(edge.CypherId(), edge.gid());
 }
 
@@ -98,7 +97,8 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
     // We need to reconstruct the record as in the meantime some local
     // update might have updated it.
     record_accessor.Reconstruct();
-    for (database::StateDelta &delta : kv.second.second) {
+    for (auto &pair : kv.second.second) {
+      auto delta = pair.delta;
       try {
         auto &dba = *db_accessor_;
         switch (delta.type) {
@@ -130,7 +130,8 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
                 .remove_label(delta.label);
             break;
           case database::StateDelta::Type::ADD_OUT_EDGE:
-            reinterpret_cast<Vertex &>(record_accessor.update())
+            record_accessor.update();
+            reinterpret_cast<Vertex &>(*record_accessor.GetNew())
                 .out_.emplace(dba.db().storage().LocalizedAddressIfPossible(
                                   delta.vertex_to_address),
                               dba.db().storage().LocalizedAddressIfPossible(
@@ -139,7 +140,8 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
             dba.wal().Emplace(delta);
             break;
           case database::StateDelta::Type::ADD_IN_EDGE:
-            reinterpret_cast<Vertex &>(record_accessor.update())
+            record_accessor.update();
+            reinterpret_cast<Vertex &>(*record_accessor.GetNew())
                 .in_.emplace(dba.db().storage().LocalizedAddressIfPossible(
                                  delta.vertex_from_address),
                              dba.db().storage().LocalizedAddressIfPossible(
@@ -176,6 +178,76 @@ UpdateResult UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::Apply() {
   return UpdateResult::DONE;
 }
 
+template <typename TRecordAccessor>
+void UpdatesRpcServer::TransactionUpdates<TRecordAccessor>::ApplyDeltasToRecord(
+    gid::Gid gid, int worker_id, TRecord **old, TRecord **newr) {
+  std::lock_guard<utils::SpinLock> guard{lock_};
+  auto found = deltas_.find(gid);
+  if (found == deltas_.end()) return;
+
+  auto update = [](auto **old, auto **newr) {
+    if (!*newr) {
+      DCHECK(*old) << "Trying to create new record but pointer to old record "
+                      "is nullptr.";
+
+      *newr = (*old)->CloneData();
+    }
+  };
+
+  for (auto &pair : found->second.second) {
+    auto delta = pair.delta;
+    if (worker_id != pair.worker_id) continue;
+
+    switch (delta.type) {
+      case database::StateDelta::Type::SET_PROPERTY_VERTEX:
+      case database::StateDelta::Type::SET_PROPERTY_EDGE:
+        update(old, newr);
+        (*newr)->properties_.set(delta.property, delta.value);
+        break;
+      case database::StateDelta::Type::ADD_LABEL: {
+        update(old, newr);
+        auto &labels = reinterpret_cast<Vertex *>(*newr)->labels_;
+        if (!utils::Contains(labels, delta.label)) {
+          labels.emplace_back(delta.label);
+        }
+        break;
+      }
+      case database::StateDelta::Type::REMOVE_LABEL: {
+        update(old, newr);
+        auto &labels = reinterpret_cast<Vertex *>(*newr)->labels_;
+        auto found = std::find(labels.begin(), labels.end(), delta.label);
+        if (found == labels.end()) continue;
+        std::swap(*found, labels.back());
+        labels.pop_back();
+        break;
+      }
+      case database::StateDelta::Type::ADD_OUT_EDGE:
+        update(old, newr);
+        reinterpret_cast<Vertex *>(*newr)->out_.emplace(
+            delta.vertex_to_address, delta.edge_address, delta.edge_type);
+        break;
+      case database::StateDelta::Type::ADD_IN_EDGE:
+        update(old, newr);
+        reinterpret_cast<Vertex *>(*newr)->in_.emplace(
+            delta.vertex_from_address, delta.edge_address, delta.edge_type);
+        break;
+      case database::StateDelta::Type::REMOVE_OUT_EDGE:
+        update(old, newr);
+        reinterpret_cast<Vertex *>(*newr)->out_.RemoveEdge(delta.edge_address);
+        break;
+      case database::StateDelta::Type::REMOVE_IN_EDGE:
+        update(old, newr);
+        reinterpret_cast<Vertex *>(*newr)->in_.RemoveEdge(delta.edge_address);
+        break;
+      default:
+        // Effects of REMOVE VERTEX and REMOVE EDGE aren't visible in the
+        // current command id so we can safely ignore this case.
+        // Other deltas we're ignoring don't update record.
+        break;
+    }
+  }
+}
+
 UpdatesRpcServer::UpdatesRpcServer(database::GraphDb *db,
                                    distributed::Coordination *coordination)
     : db_(db) {
@@ -191,14 +263,14 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb *db,
       case DeltaType::REMOVE_LABEL:
       case database::StateDelta::Type::REMOVE_OUT_EDGE:
       case database::StateDelta::Type::REMOVE_IN_EDGE: {
-        UpdateRes res(
-            GetUpdates(vertex_updates_, delta.transaction_id).Emplace(delta));
+        UpdateRes res(GetUpdates(vertex_updates_, delta.transaction_id)
+                          .Emplace(delta, req.worker_id));
         Save(res, res_builder);
         return;
       }
       case DeltaType::SET_PROPERTY_EDGE: {
-        UpdateRes res(
-            GetUpdates(edge_updates_, delta.transaction_id).Emplace(delta));
+        UpdateRes res(GetUpdates(edge_updates_, delta.transaction_id)
+                          .Emplace(delta, req.worker_id));
         Save(res, res_builder);
         return;
       }
@@ -243,7 +315,8 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb *db,
               data.tx_id, data.to.gid(), {data.from, db_->WorkerId()},
               {creation_result.gid, db_->WorkerId()}, data.edge_type);
           creation_result.result =
-              GetUpdates(vertex_updates_, data.tx_id).Emplace(to_delta);
+              GetUpdates(vertex_updates_, data.tx_id)
+                  .Emplace(to_delta, data.worker_id);
         }
 
         CreateEdgeRes res(creation_result);
@@ -257,8 +330,8 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb *db,
         auto to_delta = database::StateDelta::AddInEdge(
             req.member.tx_id, req.member.to, req.member.from,
             req.member.edge_address, req.member.edge_type);
-        auto result =
-            GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
+        auto result = GetUpdates(vertex_updates_, req.member.tx_id)
+                          .Emplace(to_delta, req.member.worker_id);
         AddInEdgeRes res(result);
         Save(res, res_builder);
       });
@@ -269,8 +342,8 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb *db,
         Load(&req, req_reader);
         auto to_delta = database::StateDelta::RemoveVertex(
             req.member.tx_id, req.member.gid, req.member.check_empty);
-        auto result =
-            GetUpdates(vertex_updates_, req.member.tx_id).Emplace(to_delta);
+        auto result = GetUpdates(vertex_updates_, req.member.tx_id)
+                          .Emplace(to_delta, req.member.worker_id);
         RemoveVertexRes res(result);
         Save(res, res_builder);
       });
@@ -288,9 +361,11 @@ UpdatesRpcServer::UpdatesRpcServer(database::GraphDb *db,
     RemoveInEdgeReq req;
     Load(&req, req_reader);
     auto data = req.member;
-    RemoveInEdgeRes res(GetUpdates(vertex_updates_, data.tx_id)
-                            .Emplace(database::StateDelta::RemoveInEdge(
-                                data.tx_id, data.vertex, data.edge_address)));
+    RemoveInEdgeRes res(
+        GetUpdates(vertex_updates_, data.tx_id)
+            .Emplace(database::StateDelta::RemoveInEdge(data.tx_id, data.vertex,
+                                                        data.edge_address),
+                     data.worker_id));
     Save(res, res_builder);
   });
 }
@@ -312,6 +387,28 @@ UpdateResult UpdatesRpcServer::Apply(tx::TransactionId tx_id) {
   if (vertex_result != UpdateResult::DONE) return vertex_result;
   if (edge_result != UpdateResult::DONE) return edge_result;
   return UpdateResult::DONE;
+}
+
+template <>
+void UpdatesRpcServer::ApplyDeltasToRecord<Vertex>(tx::TransactionId tx_id,
+                                                   gid::Gid gid, int worker_id,
+                                                   Vertex **old,
+                                                   Vertex **newr) {
+  auto access = vertex_updates_.access();
+  auto found = access.find(tx_id);
+  if (found != access.end())
+    found->second.ApplyDeltasToRecord(gid, worker_id, old, newr);
+}
+
+template <>
+void UpdatesRpcServer::ApplyDeltasToRecord<Edge>(tx::TransactionId tx_id,
+                                                   gid::Gid gid, int worker_id,
+                                                   Edge **old,
+                                                   Edge **newr) {
+  auto access = edge_updates_.access();
+  auto found = access.find(tx_id);
+  if (found != access.end())
+    found->second.ApplyDeltasToRecord(gid, worker_id, old, newr);
 }
 
 void UpdatesRpcServer::ClearTransactionalCache(
@@ -350,7 +447,8 @@ CreateResult UpdatesRpcServer::CreateEdge(const CreateEdgeReqData &req) {
   auto from_delta = database::StateDelta::AddOutEdge(
       req.tx_id, req.from, req.to, {ids.gid, db_->WorkerId()}, req.edge_type);
 
-  auto result = GetUpdates(vertex_updates_, req.tx_id).Emplace(from_delta);
+  auto result = GetUpdates(vertex_updates_, req.tx_id)
+                    .Emplace(from_delta, req.worker_id);
   return {result, ids.cypher_id, ids.gid};
 }
 
@@ -358,13 +456,15 @@ UpdateResult UpdatesRpcServer::RemoveEdge(const RemoveEdgeData &data) {
   // Edge removal.
   auto deletion_delta =
       database::StateDelta::RemoveEdge(data.tx_id, data.edge_id);
-  auto result = GetUpdates(edge_updates_, data.tx_id).Emplace(deletion_delta);
+  auto result = GetUpdates(edge_updates_, data.tx_id)
+                    .Emplace(deletion_delta, data.worker_id);
 
   // Out-edge removal, for sure is local.
   if (result == UpdateResult::DONE) {
     auto remove_out_delta = database::StateDelta::RemoveOutEdge(
         data.tx_id, data.vertex_from_id, {data.edge_id, db_->WorkerId()});
-    result = GetUpdates(vertex_updates_, data.tx_id).Emplace(remove_out_delta);
+    result = GetUpdates(vertex_updates_, data.tx_id)
+                 .Emplace(remove_out_delta, data.worker_id);
   }
 
   // In-edge removal, might not be local.
@@ -373,7 +473,8 @@ UpdateResult UpdatesRpcServer::RemoveEdge(const RemoveEdgeData &data) {
     auto remove_in_delta = database::StateDelta::RemoveInEdge(
         data.tx_id, data.vertex_to_address.gid(),
         {data.edge_id, db_->WorkerId()});
-    result = GetUpdates(vertex_updates_, data.tx_id).Emplace(remove_in_delta);
+    result = GetUpdates(vertex_updates_, data.tx_id)
+                 .Emplace(remove_in_delta, data.worker_id);
   }
 
   return result;

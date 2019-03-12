@@ -33,7 +33,18 @@ class UpdatesRpcServer {
   // Remote updates for one transaction.
   template <typename TRecordAccessor>
   class TransactionUpdates {
+    struct DeltaPair {
+      DeltaPair(const database::StateDelta &delta, int worker_id)
+          : delta(delta), worker_id(worker_id) {}
+
+      database::StateDelta delta;
+      int worker_id;
+    };
+
    public:
+    using TRecord = typename std::remove_pointer<decltype(
+        std::declval<TRecordAccessor>().GetNew())>::type;
+
     TransactionUpdates(database::GraphDb *db,
                        tx::TransactionId tx_id)
         : db_accessor_(db->Access(tx_id)) {}
@@ -41,7 +52,7 @@ class UpdatesRpcServer {
     /// Adds a delta and returns the result. Does not modify the state (data)
     /// of the graph element the update is for, but calls the `update` method
     /// to fail-fast on serialization and update-after-delete errors.
-    UpdateResult Emplace(const database::StateDelta &delta);
+    UpdateResult Emplace(const database::StateDelta &delta, int worker_id);
 
     /// Creates a new vertex and returns it's cypher_id and gid.
     CreatedInfo CreateVertex(
@@ -60,12 +71,20 @@ class UpdatesRpcServer {
     /// Applies all the deltas on the record.
     UpdateResult Apply();
 
+    /// Applies all deltas made by certain worker to given old and new record.
+    /// This method could change newr pointer, and if it does it wont free that
+    /// memory. In case that update method needs to be called on records, new
+    /// record will be created by calling CloneData on old record. Caller
+    /// has to make sure to free that memory.
+    void ApplyDeltasToRecord(gid::Gid gid, int worker_id, TRecord **old,
+                             TRecord **newr);
+
     auto &db_accessor() { return *db_accessor_; }
 
    private:
     std::unique_ptr<database::GraphDbAccessor> db_accessor_;
-    std::unordered_map<
-        gid::Gid, std::pair<TRecordAccessor, std::vector<database::StateDelta>>>
+    std::unordered_map<gid::Gid,
+                       std::pair<TRecordAccessor, std::vector<DeltaPair>>>
         deltas_;
     // Multiple workers might be sending remote updates concurrently.
     utils::SpinLock lock_;
@@ -82,6 +101,15 @@ class UpdatesRpcServer {
   /// no updates for that transaction, nothing happens. Clears the updates
   /// cache after applying them, regardless of the result.
   UpdateResult Apply(tx::TransactionId tx_id);
+
+    /// Applies all deltas made by certain worker to given old and new record.
+    /// This method could change newr pointer, and if it does it wont free that
+    /// memory. In case that update method needs to be called on records, new
+    /// record will be created by calling CloneData on old record. Caller
+    /// has to make sure to free that memory.
+  template <typename TRecord>
+  void ApplyDeltasToRecord(tx::TransactionId tx_id, gid::Gid, int worker_id,
+                           TRecord **old, TRecord **newr);
 
   /// Clears the cache of local transactions that are completed. The signature
   /// of this method is dictated by `distributed::TransactionalCacheCleaner`.

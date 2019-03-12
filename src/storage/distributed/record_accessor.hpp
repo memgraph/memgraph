@@ -3,12 +3,13 @@
 
 #include <glog/logging.h>
 
-#include "storage/distributed/mvcc/version_list.hpp"
+#include "distributed/cached_record_data.hpp"
 #include "storage/common/types/property_value.hpp"
 #include "storage/common/types/property_value_store.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/distributed/address.hpp"
 #include "storage/distributed/gid.hpp"
+#include "storage/distributed/mvcc/version_list.hpp"
 
 namespace database {
 class GraphDbAccessor;
@@ -30,17 +31,17 @@ class RecordAccessor {
   using AddressT = storage::Address<mvcc::VersionList<TRecord>>;
 
   // this class is default copyable, movable and assignable
-  RecordAccessor(const RecordAccessor &other) = default;
-  RecordAccessor(RecordAccessor &&other) = default;
-  RecordAccessor &operator=(const RecordAccessor &other) = default;
-  RecordAccessor &operator=(RecordAccessor &&other) = default;
+  RecordAccessor(const RecordAccessor &other);
+  RecordAccessor(RecordAccessor &&other) = delete;
+  RecordAccessor &operator=(const RecordAccessor &other);
+  RecordAccessor &operator=(RecordAccessor &&other) = delete;
 
  protected:
   /**
    * Protected destructor because we allow inheritance, but nobody should own a
    * pointer to plain RecordAccessor.
    */
-  ~RecordAccessor() = default;
+  ~RecordAccessor();
 
   /**
    * Only derived types may allow construction.
@@ -66,7 +67,7 @@ class RecordAccessor {
   void PropsClear();
 
   /** Returns the properties of this record. */
-  const PropertyValueStore &Properties() const;
+  PropertyValueStore Properties() const;
 
   bool operator==(const RecordAccessor &other) const;
 
@@ -133,7 +134,7 @@ class RecordAccessor {
    *
    * @throws RecordDeletedError
    */
-  TRecord &update() const;
+  void update() const;
 
   /**
    * Returns true if the given accessor is visible to the given transaction.
@@ -143,10 +144,7 @@ class RecordAccessor {
    *    deletions performed in the current transaction+command are not
    *    ignored).
    */
-  bool Visible(const tx::Transaction &t, bool current_state) const {
-    return (old_ && !(current_state && old_->is_expired_by(t))) ||
-           (current_state && new_ && !new_->is_expired_by(t));
-  }
+  bool Visible(const tx::Transaction &t, bool current_state) const;
 
   // TODO: This shouldn't be here, because it's only relevant in distributed.
   /** Indicates if this accessor represents a local Vertex/Edge, or one whose
@@ -173,7 +171,7 @@ class RecordAccessor {
 
   /** Returns the current version (either new_ or old_) set on this
    * RecordAccessor. */
-  const TRecord &current() const;
+  TRecord *GetCurrent() const;
 
  protected:
   /**
@@ -192,53 +190,67 @@ class RecordAccessor {
 
   void SendDelta(const database::StateDelta &delta) const;
 
-  /**
-   * Pointer to the version (either old_ or new_) that READ operations
-   * in the accessor should take data from. Note that WRITE operations
-   * should always use new_.
-   *
-   * This pointer can be null if created by an accessor which lazily reads from
-   * mvcc.
-   */
-  // TODO (vkasljevic) remove this
-  mutable TRecord *current_{nullptr};
-
  private:
+  enum class CurrentRecord : bool { OLD, NEW };
+
+  struct Local {
+    /**
+     * Version that has been modified (created or updated) by the current
+     * transaction+command.
+     *
+     * Can be null when the record has not been modified in the current
+     * transaction+command. It is also possible that the modification
+     * has happened, but this RecordAccessor does not know this. To
+     * ensure correctness, the `SwitchNew` function must check if this
+     * is null, and if it is it must check with the vlist_ if there is
+     * an update.
+     */
+    TRecord *newr{nullptr};
+    /**
+     * Latest version which is visible to the current transaction+command
+     * but has not been created nor modified by the current transaction+command.
+     *
+     * Can be null only when the record itself (the version-list) has
+     * been created by the current transaction+command.
+     */
+    TRecord *old{nullptr};
+  };
+
+  struct Remote {
+    /* TODO (vkasljevic) possible improvement (to discuss)
+     * change to std::unique_ptr and borrow it from data manager
+     * and later return it to data manager
+     */
+    std::shared_ptr<distributed::CachedRecordData<TRecord>> data;
+
+    /* Keeps track of how many times HoldRemoteData was called. */
+    unsigned short lock_counter{0};
+
+    /* Has Update() been called. This is needed because Update() method creates
+     * new record if it doesn't exist. If that record is evicted from cache
+     * and fetched again it wont have a new record.
+     */
+    bool has_updated{false};
+  };
+
   // The database accessor for which this record accessor is created
   // Provides means of getting to the transaction and database functions.
   // Immutable, set in the constructor and never changed.
   database::GraphDbAccessor *db_accessor_;
-
   AddressT address_;
 
-  struct Remote {
-    /* Keeps track of how many times HoldRemoteData was called. */
-    mutable unsigned short lock_counter{0};
+  union {
+    Local local_;
+    Remote remote_;
   };
 
-  Remote remote_;
+  mutable CurrentRecord current_ = CurrentRecord::OLD;
 
   /**
-   * Latest version which is visible to the current transaction+command
-   * but has not been created nor modified by the current transaction+command.
-   *
-   * Can be null only when the record itself (the version-list) has
-   * been created by the current transaction+command.
+   * Flag that indicates whether Reconstruct() was called.
+   * This is needed because edges are lazy initialized.
    */
-  mutable TRecord *old_{nullptr};
-
-  /**
-   * Version that has been modified (created or updated) by the current
-   * transaction+command.
-   *
-   * Can be null when the record has not been modified in the current
-   * transaction+command. It is also possible that the modification
-   * has happened, but this RecordAccessor does not know this. To
-   * ensure correctness, the `SwitchNew` function must check if this
-   * is null, and if it is it must check with the vlist_ if there is
-   * an update.
-   */
-  mutable TRecord *new_{nullptr};
+  mutable bool is_initialized_ = false;
 };
 
 /** Error when trying to update a deleted record */

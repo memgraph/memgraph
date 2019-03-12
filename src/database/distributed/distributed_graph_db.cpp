@@ -297,7 +297,9 @@ class Master {
   distributed::PullRpcClients pull_clients_{&coordination_, &data_manager_};
   distributed::UpdatesRpcServer updates_server_{self_, &coordination_};
   distributed::UpdatesRpcClients updates_clients_{&coordination_};
-  distributed::DataManager data_manager_{*self_, data_clients_};
+  distributed::DataManager data_manager_{*self_, data_clients_,
+                                         config_.vertex_cache_size,
+                                         config_.edge_cache_size};
   distributed::ClusterDiscoveryMaster cluster_discovery_{
       &coordination_, config_.durability_directory};
   distributed::TokenSharingRpcServer token_sharing_server_{
@@ -667,7 +669,9 @@ class Worker {
   distributed::IndexRpcServer index_rpc_server_{self_, &coordination_};
   distributed::UpdatesRpcServer updates_server_{self_, &coordination_};
   distributed::UpdatesRpcClients updates_clients_{&coordination_};
-  distributed::DataManager data_manager_{*self_, data_clients_};
+  distributed::DataManager data_manager_{*self_, data_clients_,
+                                         config_.vertex_cache_size,
+                                         config_.edge_cache_size};
   distributed::DurabilityRpcWorker durability_rpc_{self_, &coordination_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
       &coordination_};

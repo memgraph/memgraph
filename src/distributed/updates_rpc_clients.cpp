@@ -25,9 +25,11 @@ void RaiseIfRemoteError(UpdateResult result) {
 }
 }  // namespace
 
-UpdateResult UpdatesRpcClients::Update(int worker_id,
+UpdateResult UpdatesRpcClients::Update(int this_worker_id, int to_worker_id,
                                        const database::StateDelta &delta) {
-  return coordination_->GetClientPool(worker_id)->Call<UpdateRpc>(delta).member;
+  return coordination_->GetClientPool(to_worker_id)
+      ->Call<UpdateRpc>(delta, this_worker_id)
+      .member;
 }
 
 CreatedVertexInfo UpdatesRpcClients::CreateVertex(
@@ -42,7 +44,7 @@ CreatedVertexInfo UpdatesRpcClients::CreateVertex(
   return CreatedVertexInfo(res.member.cypher_id, res.member.gid);
 }
 
-CreatedEdgeInfo UpdatesRpcClients::CreateEdge(
+CreatedEdgeInfo UpdatesRpcClients::CreateEdge(int this_worker_id,
     tx::TransactionId tx_id, VertexAccessor &from, VertexAccessor &to,
     storage::EdgeType edge_type,
     std::experimental::optional<int64_t> cypher_id) {
@@ -50,14 +52,15 @@ CreatedEdgeInfo UpdatesRpcClients::CreateEdge(
   int from_worker = from.address().worker_id();
   auto res =
       coordination_->GetClientPool(from_worker)
-          ->Call<CreateEdgeRpc>(CreateEdgeReqData{
+          ->Call<CreateEdgeRpc>(CreateEdgeReqData{this_worker_id,
               from.gid(), to.GlobalAddress(), edge_type, tx_id, cypher_id});
   RaiseIfRemoteError(res.member.result);
   return CreatedEdgeInfo(res.member.cypher_id,
                          storage::EdgeAddress{res.member.gid, from_worker});
 }
 
-void UpdatesRpcClients::AddInEdge(tx::TransactionId tx_id, VertexAccessor &from,
+void UpdatesRpcClients::AddInEdge(int this_worker_id, tx::TransactionId tx_id,
+                                  VertexAccessor &from,
                                   storage::EdgeAddress edge_address,
                                   VertexAccessor &to,
                                   storage::EdgeType edge_type) {
@@ -67,32 +70,38 @@ void UpdatesRpcClients::AddInEdge(tx::TransactionId tx_id, VertexAccessor &from,
          "`from` is not on the same worker as `to`.";
   auto worker_id = to.GlobalAddress().worker_id();
   auto res = coordination_->GetClientPool(worker_id)->Call<AddInEdgeRpc>(
-      AddInEdgeReqData{from.GlobalAddress(), edge_address, to.gid(), edge_type,
-                       tx_id});
+      AddInEdgeReqData{this_worker_id, from.GlobalAddress(), edge_address,
+                       to.gid(), edge_type, tx_id});
   RaiseIfRemoteError(res.member);
 }
 
-void UpdatesRpcClients::RemoveVertex(int worker_id, tx::TransactionId tx_id,
-                                     gid::Gid gid, bool check_empty) {
-  auto res = coordination_->GetClientPool(worker_id)->Call<RemoveVertexRpc>(
-      RemoveVertexReqData{gid, tx_id, check_empty});
+void UpdatesRpcClients::RemoveVertex(int this_worker_id, int to_worker_id,
+                                     tx::TransactionId tx_id, gid::Gid gid,
+                                     bool check_empty) {
+  auto res = coordination_->GetClientPool(to_worker_id)->Call<RemoveVertexRpc>(
+      RemoveVertexReqData{this_worker_id, gid, tx_id, check_empty});
   RaiseIfRemoteError(res.member);
 }
 
-void UpdatesRpcClients::RemoveEdge(tx::TransactionId tx_id, int worker_id,
-                                   gid::Gid edge_gid, gid::Gid vertex_from_id,
+void UpdatesRpcClients::RemoveEdge(int this_worker_id, int to_worker_id,
+                                   tx::TransactionId tx_id, gid::Gid edge_gid,
+                                   gid::Gid vertex_from_id,
                                    storage::VertexAddress vertex_to_addr) {
-  auto res = coordination_->GetClientPool(worker_id)->Call<RemoveEdgeRpc>(
-      RemoveEdgeData{tx_id, edge_gid, vertex_from_id, vertex_to_addr});
+  auto res =
+      coordination_->GetClientPool(to_worker_id)
+          ->Call<RemoveEdgeRpc>(RemoveEdgeData{this_worker_id, tx_id, edge_gid,
+                                               vertex_from_id, vertex_to_addr});
   RaiseIfRemoteError(res.member);
 }
 
-void UpdatesRpcClients::RemoveInEdge(tx::TransactionId tx_id, int worker_id,
+void UpdatesRpcClients::RemoveInEdge(int this_worker_id, int to_worker_id,
+                                     tx::TransactionId tx_id,
                                      gid::Gid vertex_id,
                                      storage::EdgeAddress edge_address) {
   CHECK(edge_address.is_remote()) << "RemoveInEdge edge_address is local.";
-  auto res = coordination_->GetClientPool(worker_id)->Call<RemoveInEdgeRpc>(
-      RemoveInEdgeData{tx_id, vertex_id, edge_address});
+  auto res = coordination_->GetClientPool(to_worker_id)
+                 ->Call<RemoveInEdgeRpc>(RemoveInEdgeData{
+                     this_worker_id, tx_id, vertex_id, edge_address});
   RaiseIfRemoteError(res.member);
 }
 

@@ -12,26 +12,31 @@ VertexAccessor::VertexAccessor(VertexAddress address,
   Reconstruct();
 }
 
-size_t VertexAccessor::out_degree() const { return current().out_.size(); }
+size_t VertexAccessor::out_degree() const {
+  auto guard = storage::GetDataLock(*this);
+  return GetCurrent()->out_.size();
+}
 
-size_t VertexAccessor::in_degree() const { return current().in_.size(); }
+size_t VertexAccessor::in_degree() const {
+  auto guard = storage::GetDataLock(*this);
+  return GetCurrent()->in_.size();
+}
 
 void VertexAccessor::add_label(storage::Label label) {
   auto &dba = db_accessor();
   auto delta = database::StateDelta::AddLabel(dba.transaction_id(), gid(),
                                               label, dba.LabelName(label));
   auto guard = storage::GetDataLock(*this);
-  auto &vertex = update();
+  update();
+  auto &vertex = *GetNew();
   // not a duplicate label, add it
   if (!utils::Contains(vertex.labels_, label)) {
     vertex.labels_.emplace_back(label);
     if (is_local()) {
-      dba.wal().Emplace(delta);
       dba.UpdateLabelIndices(label, *this, &vertex);
     }
+    ProcessDelta(delta);
   }
-
-  if (!is_local()) SendDelta(delta);
 }
 
 void VertexAccessor::remove_label(storage::Label label) {
@@ -39,29 +44,26 @@ void VertexAccessor::remove_label(storage::Label label) {
   auto delta = database::StateDelta::RemoveLabel(dba.transaction_id(), gid(),
                                                  label, dba.LabelName(label));
   auto guard = storage::GetDataLock(*this);
-  auto &vertex = update();
+  update();
+  auto &vertex = *GetNew();
   if (utils::Contains(vertex.labels_, label)) {
     auto &labels = vertex.labels_;
     auto found = std::find(labels.begin(), labels.end(), delta.label);
     std::swap(*found, labels.back());
     labels.pop_back();
-    if (is_local()) {
-      dba.wal().Emplace(delta);
-    }
+    ProcessDelta(delta);
   }
-
-  if (!is_local()) SendDelta(delta);
 }
 
 bool VertexAccessor::has_label(storage::Label label) const {
   auto guard = storage::GetDataLock(*this);
-  auto &labels = this->current().labels_;
+  auto &labels = GetCurrent()->labels_;
   return std::find(labels.begin(), labels.end(), label) != labels.end();
 }
 
 std::vector<storage::Label> VertexAccessor::labels() const {
   auto guard = storage::GetDataLock(*this);
-  return this->current().labels_;
+  return GetCurrent()->labels_;
 }
 
 void VertexAccessor::RemoveOutEdge(storage::EdgeAddress edge) {
@@ -71,9 +73,11 @@ void VertexAccessor::RemoveOutEdge(storage::EdgeAddress edge) {
 
   SwitchNew();
   auto guard = storage::GetDataLock(*this);
-  if (current().is_expired_by(dba.transaction())) return;
+  if (GetCurrent()->is_expired_by(dba.transaction())) return;
 
-  update().out_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
+  update();
+  GetNew()->out_.RemoveEdge(
+      dba.db().storage().LocalizedAddressIfPossible(edge));
   ProcessDelta(delta);
 }
 
@@ -84,9 +88,10 @@ void VertexAccessor::RemoveInEdge(storage::EdgeAddress edge) {
 
   SwitchNew();
   auto guard = storage::GetDataLock(*this);
-  if (current().is_expired_by(dba.transaction())) return;
+  if (GetCurrent()->is_expired_by(dba.transaction())) return;
 
-  update().in_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
+  update();
+  GetNew()->in_.RemoveEdge(dba.db().storage().LocalizedAddressIfPossible(edge));
   ProcessDelta(delta);
 }
 

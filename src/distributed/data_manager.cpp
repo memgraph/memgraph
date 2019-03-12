@@ -8,7 +8,7 @@ template <typename TCache>
 void ClearCache(TCache &cache, tx::TransactionId tx_id) {
   auto access = cache.access();
   auto found = access.find(tx_id);
-  if (found != access.end()) found->second.clear();
+  if (found != access.end()) found->second.Clear();
 }
 
 template <typename TCache>
@@ -35,9 +35,23 @@ DataManager::CacheT<Edge> &DataManager::caches<Edge>() {
   return edges_caches_;
 }
 
+template <>
+size_t DataManager::GetInitSize<Vertex>() const {
+  return vertex_cache_size_;
+}
+
+template <>
+size_t DataManager::GetInitSize<Edge>() const {
+  return edge_cache_size_;
+}
+
 DataManager::DataManager(database::GraphDb &db,
-                         distributed::DataRpcClients &data_clients)
-    : db_(db), data_clients_(data_clients) {}
+                         distributed::DataRpcClients &data_clients,
+                         size_t vertex_cache_size, size_t edge_cache_size)
+    : vertex_cache_size_(vertex_cache_size),
+      edge_cache_size_(edge_cache_size),
+      db_(db),
+      data_clients_(data_clients) {}
 
 std::mutex &DataManager::GetLock(tx::TransactionId tx_id) {
   auto accessor = lock_store_.access();
@@ -81,4 +95,3 @@ void DataManager::ClearTransactionalCache(tx::TransactionId oldest_active) {
 }
 
 }  // namespace distributed
-

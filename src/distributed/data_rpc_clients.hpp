@@ -46,7 +46,7 @@ class DataRpcClients {
   /// That worker must own the vertex/edge for the given id, and that vertex
   /// must be visible in given transaction.
   template <typename TRecord>
-  RemoteElementInfo<TRecord> RemoteElement(int worker_id,
+  RemoteElementInfo<TRecord> RemoteElement(int from_worker_id, int worker_id,
                                            tx::TransactionId tx_id,
                                            gid::Gid gid);
 
