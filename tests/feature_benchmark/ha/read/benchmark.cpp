@@ -2,6 +2,7 @@
 #include <chrono>
 #include <experimental/optional>
 #include <fstream>
+#include <random>
 #include <thread>
 
 #include <fmt/format.h>
@@ -23,8 +24,10 @@ DEFINE_string(username, "", "Username for the database");
 DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 DEFINE_double(duration, 10.0,
-              "How long should the client perform writes (seconds)");
+              "How long should the client perform reads (seconds)");
 DEFINE_string(output_file, "", "Output file where the results should be.");
+DEFINE_int32(nodes, 1000, "Number of nodes in DB");
+DEFINE_int32(edges, 5000, "Number of edges in DB");
 
 std::experimental::optional<io::network::Endpoint> GetLeaderEndpoint() {
   for (int retry = 0; retry < 10; ++retry) {
@@ -60,7 +63,7 @@ std::experimental::optional<io::network::Endpoint> GetLeaderEndpoint() {
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);
-  google::SetUsageMessage("Memgraph HA benchmark client");
+  google::SetUsageMessage("Memgraph HA read benchmark client");
   google::InitGoogleLogging(argv[0]);
 
   std::atomic<int64_t> query_counter{0};
@@ -69,6 +72,26 @@ int main(int argc, char **argv) {
   if (!leader_endpoint) {
     LOG(ERROR) << "Couldn't find Raft cluster leader!";
     return 1;
+  }
+
+  // populate the db (random graph with given number of nodes and edges)
+  communication::ClientContext context(FLAGS_use_ssl);
+  communication::bolt::Client client(&context);
+  client.Connect(*leader_endpoint, FLAGS_username, FLAGS_password);
+  for (int i = 0; i < FLAGS_nodes; ++i) {
+    client.Execute("CREATE (:Node {id:" + std::to_string(i) + "})", {});
+  }
+
+  auto seed =
+      std::chrono::high_resolution_clock::now().time_since_epoch().count();
+  std::mt19937 rng(seed);
+  std::uniform_int_distribution<int> dist(0, FLAGS_nodes - 1);
+
+  for (int i = 0; i < FLAGS_edges; ++i) {
+    int a = dist(rng), b = dist(rng);
+    client.Execute("MATCH (n {id:" + std::to_string(a) + "})," +
+                   "      (m {id:" + std::to_string(b) + "})" +
+                   "CREATE (n)-[:Edge]->(m);", {});
   }
 
   const int num_threads = std::thread::hardware_concurrency();
@@ -85,13 +108,20 @@ int main(int argc, char **argv) {
       communication::bolt::Client client(&context);
       client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
+      auto seed =
+          std::chrono::high_resolution_clock::now().time_since_epoch().count();
+      std::mt19937 rng(seed);
+      std::uniform_int_distribution<int> dist(0, FLAGS_nodes - 1);
+
       utils::Timer t;
       while (true) {
         local_duration = t.Elapsed().count();
         if (local_duration >= FLAGS_duration) break;
+        int id = dist(rng);
 
         try {
-          client.Execute("CREATE (:Node)", {});
+          client.Execute("MATCH (n {id:" + std::to_string(id) +
+                         "})-[e]->(m) RETURN e, m;", {});
           query_counter.fetch_add(1);
         } catch (const communication::bolt::ClientQueryException &e) {
           LOG(WARNING) << e.what();
@@ -114,12 +144,12 @@ int main(int argc, char **argv) {
   for (auto &d : thread_duration) duration += d;
   duration /= num_threads;
 
-  double write_per_second = query_counter / duration;
+  double read_per_second = query_counter / duration;
 
   std::ofstream output(FLAGS_output_file);
   output << "duration " << duration << std::endl;
-  output << "executed_writes " << query_counter << std::endl;
-  output << "write_per_second " << write_per_second << std::endl;
+  output << "executed_reads " << query_counter << std::endl;
+  output << "read_per_second " << read_per_second << std::endl;
   output.close();
 
   return 0;

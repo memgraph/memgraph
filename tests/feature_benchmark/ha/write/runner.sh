@@ -21,9 +21,9 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$DIR"
 
 # Find memgraph binaries.
-binary_dir="$DIR/../../../build"
+binary_dir="$DIR/../../../../build"
 if [ ! -d $binary_dir ]; then
-    binary_dir="$DIR/../../../build_release"
+    binary_dir="$DIR/../../../../build_release"
 fi
 
 # Results for apollo
@@ -51,8 +51,8 @@ done
 sleep 10
 
 # Start the memgraph process and wait for it to start.
-echo_info "Starting HA benchmark"
-$binary_dir/tests/feature_benchmark/ha/benchmark \
+echo_info "Starting HA write benchmark"
+$binary_dir/tests/feature_benchmark/ha/write/benchmark \
     --duration=$DURATION \
     --output-file=$RESULTS &
 pid=$!
