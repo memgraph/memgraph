@@ -16,6 +16,7 @@
 #include "raft/raft_interface.hpp"
 #include "raft/raft_rpc_messages.hpp"
 #include "raft/replication_log.hpp"
+#include "raft/replication_timeout_map.hpp"
 #include "raft/snapshot_metadata.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
 #include "transactions/type.hpp"
@@ -238,7 +239,7 @@ class RaftServer final : public RaftInterface {
 
   // Tracks timepoints until a transactions is allowed to be in the replication
   // process.
-  std::unordered_map<tx::TransactionId, TimePoint> replication_timeout_;
+  ReplicationTimeoutMap replication_timeout_;
 
   //////////////////////////////////////////////////////////////////////////////
   // persistent state on all servers

@@ -48,6 +48,7 @@ RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
       db_recover_on_startup_(db_recover_on_startup),
       commit_index_(0),
       last_applied_(0),
+      replication_timeout_(config.replication_timeout),
       disk_storage_(fs::path(durability_dir) / kRaftDir) {}
 
 void RaftServer::Start() {
@@ -409,7 +410,7 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   for (auto &peer_heartbeat : next_heartbeat_) peer_heartbeat = now;
 
   // From this point on, we can say that the replication of a LogEntry started.
-  replication_timeout_[tx_id] = config_.replication_timeout + now;
+  replication_timeout_.Insert(tx_id);
 
   state_changed_.notify_all();
 }
@@ -435,7 +436,7 @@ bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
       return true;
     case Mode::LEADER:
       if (rlog_->is_active(tx_id)) {
-        if (replication_timeout_[tx_id] < Clock::now()) {
+        if (replication_timeout_.CheckTimeout(tx_id)) {
           throw ReplicationTimeoutException();
         }
 
@@ -529,7 +530,7 @@ void RaftServer::Transition(const Mode &new_mode) {
 
         db_->Reset();
         ResetReplicationLog();
-        replication_timeout_.clear();
+        replication_timeout_.Clear();
 
         // Re-apply raft log.
         uint64_t starting_index = 1;
@@ -662,7 +663,7 @@ void RaftServer::AdvanceCommitIndex() {
         << "Log entry should consist of at least two state deltas.";
     auto tx_id = deltas[0].transaction_id;
     rlog_->set_replicated(tx_id);
-    replication_timeout_.erase(tx_id);
+    replication_timeout_.Remove(tx_id);
   }
 
   commit_index_ = new_commit_index;
