@@ -65,14 +65,19 @@ class ExistenceConstraints {
   /// Checks whether given constraint is visible.
   bool Exists(const ExistenceRule &rule) const;
 
-  /// Check if given vertex satisfies all visible constraints.
-  // TODO I could check this faster if I knew exactly what changed
-  bool CheckIfSatisfies(const Vertex *vertex) const;
+  /// Check if add label update satisfies all visible constraints.
+  /// @return true if all constraints are satisfied, false otherwise
+  bool CheckOnAddLabel(const Vertex *vertex, storage::Label label) const;
+
+  /// Check if remove property update satisfies all visible constraints.
+  /// @return true if all constraints are satisfied, false otherwise
+  bool CheckOnRemoveProperty(const Vertex *vertex,
+                             storage::Property property) const;
 
   /// Returns list of all constraints.
-  const std::list<ExistenceRule> &ListConstraints() const;
+  const std::vector<ExistenceRule> &ListConstraints() const;
 
  private:
-  std::list<ExistenceRule> constraints_;
+  std::vector<ExistenceRule> constraints_;
 };
 };  // namespace database

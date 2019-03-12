@@ -45,7 +45,7 @@ TEST_F(ExistenceConstraintsTest, InsertTest) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label);
-    EXPECT_TRUE(constraints_.CheckIfSatisfies(v.GetNew()));
+    EXPECT_TRUE(constraints_.CheckOnAddLabel(v.GetNew(), label));
     dba->Commit();
   }
   {
@@ -70,11 +70,11 @@ TEST_F(ExistenceConstraintsTest, InsertTest) {
     auto v1 = dba->InsertVertex();
     v1.add_label(label);
     EXPECT_FALSE(
-        constraints_.CheckIfSatisfies(v1.GetNew()));
+        constraints_.CheckOnAddLabel(v1.GetNew(), label));
     auto v2 = dba->InsertVertex();
     v2.PropsSet(prop, PropertyValue(false));
     v2.add_label(label);
-    EXPECT_TRUE(constraints_.CheckIfSatisfies(v2.GetNew()));
+    EXPECT_TRUE(constraints_.CheckOnAddLabel(v2.GetNew(), label));
     dba->Commit();
   }
   {
@@ -86,7 +86,7 @@ TEST_F(ExistenceConstraintsTest, InsertTest) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label);
-    EXPECT_TRUE(constraints_.CheckIfSatisfies(v.GetNew()));
+    EXPECT_TRUE(constraints_.CheckOnAddLabel(v.GetNew(), label));
     dba->Commit();
   }
 }

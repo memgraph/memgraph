@@ -487,7 +487,7 @@ class GraphDbAccessor {
   /**
    * Returns the list of existence constraints currently active.
    */
-  std::list<ExistenceRule> ExistenceConstraintsList() const;
+  std::vector<ExistenceRule> ExistenceConstraintsList() const;
 
   /**
    * Return approximate number of all vertices in the database.
