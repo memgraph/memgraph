@@ -842,6 +842,14 @@ Interpreter::Results Interpreter::operator()(
           auto cursor =
               cypher_query_plan->plan().MakeCursor(*context->db_accessor);
 
+          // We are pulling from another plan, so set up the EvaluationContext
+          // correctly. The rest of the context should be good for sharing.
+          context->evaluation_context.properties =
+              NamesToProperties(cypher_query_plan->ast_storage().properties_,
+                                context->db_accessor);
+          context->evaluation_context.labels = NamesToLabels(
+              cypher_query_plan->ast_storage().labels_, context->db_accessor);
+
           // Pull everything to profile the execution
           utils::Timer timer;
           while (cursor->Pull(*frame, *context)) continue;
