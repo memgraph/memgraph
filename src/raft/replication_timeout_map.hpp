@@ -55,9 +55,6 @@ class ReplicationTimeoutMap final {
     // time out.
     if (found == timeout_.end()) return false;
     if (found->second < Clock::now()) {
-      LOG(INFO) << "Timeout happened for " << tx_id << " "
-                << std::chrono::system_clock::to_time_t(Clock::now()) << " "
-                << std::chrono::system_clock::to_time_t(found->second);
       return true;
     } else {
       return false;

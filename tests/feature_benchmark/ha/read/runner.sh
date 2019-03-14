@@ -34,6 +34,7 @@ DURATION=10
 
 # Startup
 declare -a HA_PIDS
+declare -a exit_codes
 
 for server_id in 1 2 3
 do
@@ -58,7 +59,7 @@ $binary_dir/tests/feature_benchmark/ha/read/benchmark \
 pid=$!
 
 wait -n $pid
-code=$?
+exit_codes[0]=$?
 
 # Shutdown
 for server_id in 1 2 3
@@ -70,14 +71,29 @@ done
 for server_id in 1 2 3
 do
   wait -n ${HA_PIDS[$server_id]}
+  exit_codes[$server_id]=$?
   rm -r dur$server_id
 done
 
-if [ $code -eq 0 ]; then
+failure=0
+
+for i in `seq 0 3`; do
+  code=${exit_codes[$i]}
+  if [ $code -ne 0 ]; then
+    if [ $i -eq 0 ]; then
+      echo_failure "Benchmark exited with status $code"
+    else
+      echo_failure "Memgraph HA server $i exited with status $code"
+    fi
+
+    failure=1
+  fi
+done
+
+if [ $failure -eq 0 ]; then
     echo_success "Benchmark finished successfully"
 else
     echo_failure "Benchmark didn't finish successfully"
-    exit $code
 fi
 
-exit 0
+exit $failure
