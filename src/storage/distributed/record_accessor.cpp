@@ -245,13 +245,14 @@ bool RecordAccessor<TRecord>::Reconstruct() const {
   auto &dba = db_accessor();
 
   if (is_local()) {
-    address().local()->find_set_old_new(dba.transaction(), &local_.old,
-                                        &local_.newr);
+    auto *local = const_cast<Local *>(&local_);
+    address().local()->find_set_old_new(dba.transaction(), &local->old,
+                                        &local->newr);
     current_ = local_.old ? CurrentRecord::OLD : CurrentRecord::NEW;
     return local_.old != nullptr || local_.newr != nullptr;
 
   } else {
-    auto guard =  storage::GetDataLock(*this);
+    auto guard = storage::GetDataLock(*this);
     TRecord *old_ = remote_.data->old_record.get();
     TRecord *new_ = remote_.data->new_record.get();
     current_ = old_ ? CurrentRecord::OLD : CurrentRecord::NEW;
@@ -281,15 +282,17 @@ void RecordAccessor<TRecord>::update() const {
   if (newr) return;
 
   if (is_local()) {
-    local_.newr = address().local()->update(t);
+    auto *local = const_cast<Local *>(&local_);
+    local->newr = address().local()->update(t);
     DCHECK(local_.newr != nullptr)
         << "RecordAccessor.new_ is null after update";
 
   } else {
-    remote_.has_updated = true;
+    auto *remote = const_cast<Remote *>(&remote_);
+    remote->has_updated = true;
 
     if (remote_.lock_counter > 0) {
-      remote_.data = db_accessor_->data_manager().Find<TRecord>(
+      remote->data = db_accessor_->data_manager().Find<TRecord>(
           dba.transaction_id(), dba.worker_id(), address().worker_id(),
           address().gid(), remote_.has_updated);
     }
@@ -331,13 +334,14 @@ int64_t RecordAccessor<TRecord>::CypherId() const {
 template <typename TRecord>
 void RecordAccessor<TRecord>::HoldCachedData() const {
   if (!is_local()) {
+    auto *remote = const_cast<Remote *>(&remote_);
     if (remote_.lock_counter == 0) {
-      remote_.data = db_accessor_->data_manager().template Find<TRecord>(
+      remote->data = db_accessor_->data_manager().template Find<TRecord>(
           db_accessor_->transaction().id_, db_accessor_->worker_id(),
           address().worker_id(), address().gid(), remote_.has_updated);
     }
 
-    ++remote_.lock_counter;
+    ++remote->lock_counter;
     DCHECK(remote_.lock_counter <= 10000)
         << "Something wrong with RemoteDataLock";
   }
@@ -345,11 +349,12 @@ void RecordAccessor<TRecord>::HoldCachedData() const {
 
 template <typename TRecord>
 void RecordAccessor<TRecord>::ReleaseCachedData() const {
- if (!is_local()) {
+  if (!is_local()) {
+    auto *remote = const_cast<Remote *>(&remote_);
     DCHECK(remote_.lock_counter > 0) << "Lock should exist at this point";
-    --remote_.lock_counter;
+    --remote->lock_counter;
     if (remote_.lock_counter == 0) {
-      remote_.data = nullptr;
+      remote->data = nullptr;
     }
   }
 }
@@ -387,7 +392,8 @@ void RecordAccessor<TRecord>::ProcessDelta(
     // exist. If that record is evicted from cache and fetched again it wont
     // have new record. Once delta has been sent record will have new so we
     // don't have to update anymore.
-    remote_.has_updated = false;
+    auto *remote = const_cast<Remote *>(&remote_);
+    remote->has_updated = false;
   }
 }
 
