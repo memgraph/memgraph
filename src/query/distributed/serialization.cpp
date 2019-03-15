@@ -1,7 +1,7 @@
-#include "query/serialization.hpp"
+#include "query/distributed/serialization.hpp"
 
 #include "distributed/data_manager.hpp"
-#include "query/frontend/ast/ast_serialization.hpp"
+#include "query/distributed/frontend/ast/ast_serialization.hpp"
 #include "rpc/serialization.hpp"
 
 namespace query {

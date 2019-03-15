@@ -2,9 +2,9 @@
 
 #include "query/common.hpp"
 #include "query/context.hpp"
-#include "query/frontend/semantic/symbol_serialization.hpp"
+#include "query/distributed/frontend/semantic/symbol_serialization.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/serialization.capnp.h"
+#include "query/distributed/serialization.capnp.h"
 #include "query/typed_value.hpp"
 #include "rpc/serialization.hpp"
 #include "storage/distributed/rpc/serialization.hpp"

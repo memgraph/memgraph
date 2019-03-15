@@ -1,4 +1,4 @@
-#include "query/plan/distributed.hpp"
+#include "query/distributed/plan/planner.hpp"
 
 #include <memory>
 
@@ -6,8 +6,8 @@
 // serialization when proper cloning is added.
 #include <capnp/message.h>
 
-#include "query/plan/distributed_ops.hpp"
-#include "query/plan/distributed_pretty_print.hpp"
+#include "query/distributed/plan/ops.hpp"
+#include "query/distributed/plan/pretty_print.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "utils/exceptions.hpp"

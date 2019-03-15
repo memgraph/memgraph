@@ -3,7 +3,7 @@
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed_common.hpp"
 #include "query/context.hpp"
-#include "query/plan/distributed_ops.hpp"
+#include "query/distributed/plan/ops.hpp"
 #include "query/interpret/frame.hpp"
 
 class DistributedReset : public DistributedGraphDbTest {

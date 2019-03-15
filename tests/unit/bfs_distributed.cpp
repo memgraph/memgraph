@@ -1,7 +1,7 @@
 // Macros from query_common.hpp break enum declaration in distributed_ops.hpp
 // (because of the SHOW_STREAMS macro), so we must be careful with the order of
 // includes.
-#include "query/plan/distributed_ops.hpp"
+#include "query/distributed/plan/ops.hpp"
 
 #include "bfs_common.hpp"
 #include "distributed_common.hpp"

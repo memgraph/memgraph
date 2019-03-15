@@ -10,7 +10,7 @@
 #include "distributed/plan_dispatcher.hpp"
 #include "distributed/pull_rpc_clients.hpp"
 #include "distributed_common.hpp"
-#include "query/distributed_interpreter.hpp"
+#include "query/distributed/interpreter.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
 #include "utils/timer.hpp"

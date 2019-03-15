@@ -5,8 +5,8 @@
 
 #include "database/distributed/distributed_graph_db.hpp"
 #include "database/distributed/graph_db_accessor.hpp"
-#include "query/plan/distributed.hpp"
-#include "query/plan/distributed_pretty_print.hpp"
+#include "query/distributed/plan/planner.hpp"
+#include "query/distributed/plan/pretty_print.hpp"
 
 DECLARE_int32(min_log_level);
 

@@ -10,7 +10,7 @@
 #include "query/context.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
-#include "query/serialization.hpp"
+#include "query/distributed/serialization.hpp"
 #include "storage/distributed/address_types.hpp"
 #include "transactions/type.hpp"
 #include "rpc/serialization.hpp"
@@ -30,8 +30,8 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'query "/query/serialization.capnp")
-(lcp:capnp-import 'sem "/query/frontend/semantic/symbol_serialization.capnp")
+(lcp:capnp-import 'query "/query/distributed/serialization.capnp")
+(lcp:capnp-import 'sem "/query/distributed/frontend/semantic/symbol_serialization.capnp")
 (lcp:capnp-import 'utils "/rpc/serialization.capnp")
 
 (lcp:capnp-type-conversion "tx::CommandId" "UInt32")

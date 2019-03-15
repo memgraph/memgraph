@@ -2,8 +2,8 @@
 
 #include "database/distributed/graph_db.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/distributed_ops.hpp"
-#include "query/plan/distributed_pretty_print.hpp"
+#include "query/distributed/plan/ops.hpp"
+#include "query/distributed/plan/pretty_print.hpp"
 
 #include "distributed_common.hpp"
 #include "query_common.hpp"

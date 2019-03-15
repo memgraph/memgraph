@@ -1,7 +1,7 @@
 /// @file
 #pragma once
 
-#include "query/plan/distributed_ops.hpp"
+#include "query/distributed/plan/ops.hpp"
 #include "query/plan/pretty_print.hpp"
 
 #include <json/json.hpp>

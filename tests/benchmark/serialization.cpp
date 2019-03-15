@@ -8,7 +8,7 @@
 
 #include "communication/rpc/serialization.hpp"
 #include "query/frontend/semantic/symbol.hpp"
-#include "query/frontend/semantic/symbol_serialization.hpp"
+#include "query/distributed/frontend/semantic/symbol_serialization.hpp"
 
 class SymbolVectorFixture : public benchmark::Fixture {
  protected:

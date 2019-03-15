@@ -1,10 +1,10 @@
-#include "query/distributed_interpreter.hpp"
+#include "query/distributed/interpreter.hpp"
 
 #include "database/distributed/distributed_graph_db.hpp"
 #include "distributed/plan_dispatcher.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
-#include "query/plan/distributed.hpp"
-#include "query/plan/distributed_pretty_print.hpp"
+#include "query/distributed/plan/planner.hpp"
+#include "query/distributed/plan/pretty_print.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rule_based_planner.hpp"
 #include "query/plan/vertex_count_cache.hpp"

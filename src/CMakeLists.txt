@@ -124,10 +124,10 @@ set(mg_distributed_sources
     distributed/pull_rpc_clients.cpp
     distributed/updates_rpc_clients.cpp
     distributed/updates_rpc_server.cpp
-    query/distributed_interpreter.cpp
-    query/plan/distributed.cpp
-    query/plan/distributed_ops.cpp
-    query/plan/distributed_pretty_print.cpp
+    query/distributed/interpreter.cpp
+    query/distributed/plan/planner.cpp
+    query/distributed/plan/ops.cpp
+    query/distributed/plan/pretty_print.cpp
     storage/distributed/concurrent_id_mapper_master.cpp
     storage/distributed/concurrent_id_mapper_worker.cpp
     transactions/distributed/engine_master.cpp
@@ -158,7 +158,7 @@ set(mg_distributed_sources
     query/plan/rule_based_planner.cpp
     query/plan/variable_start_planner.cpp
     query/repl.cpp
-    query/serialization.cpp
+    query/distributed/serialization.cpp
     query/typed_value.cpp
     storage/common/locking/record_lock.cpp
     storage/common/types/property_value.cpp
@@ -212,16 +212,16 @@ add_capnp_distributed(distributed/dynamic_worker_rpc_messages.capnp)
 # distributed_ops.lcp is leading the capnp code generation, so we don't need
 # to generate any capnp for operator.lcp
 add_lcp_distributed(query/frontend/ast/ast.lcp)
-add_lcp_distributed(query/frontend/ast/ast_serialization.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b
+add_lcp_distributed(query/distributed/frontend/ast/ast_serialization.lcp CAPNP_SCHEMA @0xb107d3d6b4b1600b
         DEPENDS query/frontend/ast/ast.lcp)
-add_capnp_distributed(query/frontend/ast/ast_serialization.capnp)
+add_capnp_distributed(query/distributed/frontend/ast/ast_serialization.capnp)
 add_lcp_distributed(query/frontend/semantic/symbol.lcp)
-add_lcp_distributed(query/frontend/semantic/symbol_serialization.lcp CAPNP_SCHEMA @0x93c1dcee84e93b76
+add_lcp_distributed(query/distributed/frontend/semantic/symbol_serialization.lcp CAPNP_SCHEMA @0x93c1dcee84e93b76
         DEPENDS query/frontend/semantic/symbol.lcp)
 add_lcp_distributed(query/plan/operator.lcp)
-add_lcp_distributed(query/plan/distributed_ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
+add_lcp_distributed(query/distributed/plan/ops.lcp CAPNP_SCHEMA @0xe5cae8d045d30c42
         DEPENDS query/plan/operator.lcp)
-add_capnp_distributed(query/plan/distributed_ops.capnp)
+add_capnp_distributed(query/distributed/plan/ops.capnp)
 
 add_lcp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.lcp CAPNP_SCHEMA @0xa6068dae93d225dd)
 add_capnp_distributed(storage/distributed/rpc/concurrent_id_mapper_rpc_messages.capnp)
@@ -235,8 +235,8 @@ add_custom_target(generate_lcp_distributed DEPENDS ${generated_lcp_distributed_f
 
 add_capnp_distributed(communication/rpc/messages.capnp)
 add_capnp_distributed(durability/distributed/serialization.capnp)
-add_capnp_distributed(query/frontend/semantic/symbol_serialization.capnp)
-add_capnp_distributed(query/serialization.capnp)
+add_capnp_distributed(query/distributed/frontend/semantic/symbol_serialization.capnp)
+add_capnp_distributed(query/distributed/serialization.capnp)
 add_capnp_distributed(storage/distributed/rpc/serialization.capnp)
 
 add_custom_target(generate_capnp DEPENDS generate_lcp_distributed ${generated_capnp_files})

@@ -4,7 +4,7 @@
 #include "communication/rpc/messages.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/distributed_ops.hpp"
+#include "query/distributed/plan/ops.hpp"
 
 #include "distributed/plan_rpc_messages.capnp.h"
 cpp<#
@@ -14,8 +14,8 @@ cpp<#
 (lcp:capnp-namespace "distributed")
 
 (lcp:capnp-import 'utils "/rpc/serialization.capnp")
-(lcp:capnp-import 'plan "/query/plan/distributed_ops.capnp")
-(lcp:capnp-import 'query "/query/serialization.capnp")
+(lcp:capnp-import 'plan "/query/distributed/plan/ops.capnp")
+(lcp:capnp-import 'query "/query/distributed/serialization.capnp")
 
 (defun load-plan (reader member capnp-name)
   (declare (ignore capnp-name))

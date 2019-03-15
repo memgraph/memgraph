@@ -125,9 +125,9 @@ cpp<#
 
 (lcp:capnp-import 'utils "/rpc/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
-(lcp:capnp-import 'ast "/query/frontend/ast/ast_serialization.capnp")
-(lcp:capnp-import 'semantic "/query/frontend/semantic/symbol_serialization.capnp")
-(lcp:capnp-import 'query "/query/serialization.capnp")
+(lcp:capnp-import 'ast "/query/distributed/frontend/ast/ast_serialization.capnp")
+(lcp:capnp-import 'semantic "/query/distributed/frontend/semantic/symbol_serialization.capnp")
+(lcp:capnp-import 'query "/query/distributed/serialization.capnp")
 
 (lcp:capnp-type-conversion "Symbol" "Semantic.Symbol")
 (lcp:capnp-type-conversion "storage::Label" "Storage.Label")

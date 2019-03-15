@@ -4,8 +4,8 @@
 #include <type_traits>
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_serialization.capnp.h"
-#include "query/serialization.hpp"
+#include "query/distributed/frontend/ast/ast_serialization.capnp.h"
+#include "query/distributed/serialization.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 cpp<#
 

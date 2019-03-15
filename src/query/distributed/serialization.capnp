@@ -1,8 +1,8 @@
 @0xf47e119e21912f20;
 
-using Ast = import "/query/frontend/ast/ast_serialization.capnp";
+using Ast = import "/query/distributed/frontend/ast/ast_serialization.capnp";
 using Cxx = import "/capnp/c++.capnp";
-using Sem = import "/query/frontend/semantic/symbol_serialization.capnp";
+using Sem = import "/query/distributed/frontend/semantic/symbol_serialization.capnp";
 using Storage = import "/storage/distributed/rpc/serialization.capnp";
 using Utils = import "/rpc/serialization.capnp";
 

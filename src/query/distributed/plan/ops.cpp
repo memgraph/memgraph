@@ -1,4 +1,4 @@
-#include "query/plan/distributed_ops.hpp"
+#include "query/distributed/plan/ops.hpp"
 
 #include "database/distributed/graph_db.hpp"
 #include "distributed/bfs_rpc_clients.hpp"

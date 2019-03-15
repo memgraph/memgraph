@@ -12,7 +12,7 @@
 
 #include "communication/rpc/serialization.hpp"
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/ast_serialization.hpp"
+#include "query/distributed/frontend/ast/ast_serialization.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/stripped.hpp"

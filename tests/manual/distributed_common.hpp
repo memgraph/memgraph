@@ -11,7 +11,7 @@
 #include "database/distributed/distributed_graph_db.hpp"
 #include "database/distributed/graph_db_accessor.hpp"
 #include "glue/communication.hpp"
-#include "query/distributed_interpreter.hpp"
+#include "query/distributed/interpreter.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
 

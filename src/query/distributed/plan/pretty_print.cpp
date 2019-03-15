@@ -1,4 +1,4 @@
-#include "query/plan/distributed_pretty_print.hpp"
+#include "query/distributed/plan/pretty_print.hpp"
 
 namespace query::plan {
 

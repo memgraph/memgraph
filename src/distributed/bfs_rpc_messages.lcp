@@ -7,8 +7,8 @@
 #include "distributed/bfs_rpc_messages.capnp.h"
 #include "distributed/bfs_subcursor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
-#include "query/plan/distributed_ops.hpp"
-#include "query/serialization.hpp"
+#include "query/distributed/plan/ops.hpp"
+#include "query/distributed/serialization.hpp"
 #include "storage/distributed/rpc/serialization.hpp"
 #include "transactions/type.hpp"
 #include "rpc/serialization.hpp"
@@ -18,9 +18,9 @@ cpp<#
 
 (lcp:capnp-namespace "distributed")
 
-(lcp:capnp-import 'ast "/query/frontend/ast/ast_serialization.capnp")
-(lcp:capnp-import 'dist-ops "/query/plan/distributed_ops.capnp")
-(lcp:capnp-import 'query "/query/serialization.capnp")
+(lcp:capnp-import 'ast "/query/distributed/frontend/ast/ast_serialization.capnp")
+(lcp:capnp-import 'dist-ops "/query/distributed/plan/ops.capnp")
+(lcp:capnp-import 'query "/query/distributed/serialization.capnp")
 (lcp:capnp-import 'storage "/storage/distributed/rpc/serialization.capnp")
 (lcp:capnp-import 'utils "/rpc/serialization.capnp")
 

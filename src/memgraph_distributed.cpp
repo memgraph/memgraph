@@ -14,7 +14,7 @@
 #include "integrations/kafka/exceptions.hpp"
 #include "integrations/kafka/streams.hpp"
 #include "memgraph_init.hpp"
-#include "query/distributed_interpreter.hpp"
+#include "query/distributed/interpreter.hpp"
 #include "query/exceptions.hpp"
 #include "telemetry/telemetry.hpp"
 #include "utils/flag_validation.hpp"
