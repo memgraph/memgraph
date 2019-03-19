@@ -1105,6 +1105,26 @@ TYPED_TEST(TestPlanner, WhereIndexedLabelPropertyRange) {
   }
 }
 
+TYPED_TEST(TestPlanner, WherePreferEqualityIndexOverRange) {
+  // Test MATCH (n :label) WHERE n.property = 42 AND n.property > 0 RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto label = dba.Label("label");
+  auto property = PROPERTY_PAIR("property");
+  dba.SetIndexCount(label, property.second, 0);
+  auto lit_42 = LITERAL(42);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(AND(EQ(PROPERTY_LOOKUP("n", property), lit_42),
+                GREATER(PROPERTY_LOOKUP("n", property), LITERAL(0)))),
+      RETURN("n")));
+  auto symbol_table = query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyValue(label, property, lit_42),
+            ExpectFilter(), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, UnableToUsePropertyIndex) {
   // Test MATCH (n: label) WHERE n.property = n.property RETURN n
   FakeDbAccessor dba;
@@ -1348,6 +1368,106 @@ TYPED_TEST(TestPlanner, ReturnAsteriskOmitsLambdaSymbols) {
   for (const auto &name : {"n", "r", "m"}) {
     EXPECT_TRUE(utils::Contains(outputs, name));
   }
+}
+
+TYPED_TEST(TestPlanner, FilterRegexMatchIndex) {
+  // Test MATCH (n :label) WHERE n.prop =~ "regex" RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop, 0);
+  auto *regex_match = storage.Create<query::RegexMatch>(
+      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n", "label"))),
+                                   WHERE(regex_match), RETURN("n")));
+  // We expect that we use index by property range where lower bound is an empty
+  // string. Filter must still remain in place, because we don't have regex
+  // based index.
+  Bound lower_bound(LITERAL(""), Bound::Type::INCLUSIVE);
+  auto symbol_table = query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyRange(label, prop, lower_bound,
+                                              std::experimental::nullopt),
+            ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex) {
+  // Test MATCH (n :label) WHERE n.prop =~ "regex" AND n.prop = 42 RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop.second, 0);
+  auto *regex_match = storage.Create<query::RegexMatch>(
+      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *lit_42 = LITERAL(42);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42))),
+      RETURN("n")));
+  // We expect that we use index by property value equal to 42, because that's
+  // much better than property range for regex matching.
+  auto symbol_table = query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyValue(label, prop, lit_42),
+            ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, FilterRegexMatchPreferEqualityIndex2) {
+  // Test MATCH (n :label)
+  // WHERE n.prop =~ "regex" AND n.prop = 42 AND n.prop > 0 RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto prop = PROPERTY_PAIR("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop.second, 0);
+  auto *regex_match = storage.Create<query::RegexMatch>(
+      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *lit_42 = LITERAL(42);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(AND(AND(regex_match, EQ(PROPERTY_LOOKUP("n", prop), lit_42)),
+                GREATER(PROPERTY_LOOKUP("n", prop), LITERAL(0)))),
+      RETURN("n")));
+  // We expect that we use index by property value equal to 42, because that's
+  // much better than property range.
+  auto symbol_table = query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyValue(label, prop, lit_42),
+            ExpectFilter(), ExpectProduce());
+}
+
+TYPED_TEST(TestPlanner, FilterRegexMatchPreferRangeIndex) {
+  // Test MATCH (n :label) WHERE n.prop =~ "regex" AND n.prop > 42 RETURN n
+  AstStorage storage;
+  FakeDbAccessor dba;
+  auto prop = dba.Property("prop");
+  auto label = dba.Label("label");
+  dba.SetIndexCount(label, 0);
+  dba.SetIndexCount(label, prop, 0);
+  auto *regex_match = storage.Create<query::RegexMatch>(
+      PROPERTY_LOOKUP("n", prop), LITERAL("regex"));
+  auto *lit_42 = LITERAL(42);
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n", "label"))),
+      WHERE(AND(regex_match, GREATER(PROPERTY_LOOKUP("n", prop), lit_42))),
+      RETURN("n")));
+  // We expect that we use index by property range on a concrete value (42), as
+  // it is much better than using a range from empty string for regex matching.
+  Bound lower_bound(lit_42, Bound::Type::EXCLUSIVE);
+  auto symbol_table = query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table,
+            ExpectScanAllByLabelPropertyRange(label, prop, lower_bound,
+                                              std::experimental::nullopt),
+            ExpectFilter(), ExpectProduce());
 }
 
 }  // namespace

@@ -31,8 +31,9 @@ Expression *RemoveAndExpressions(
 template <class TDbAccessor>
 class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
  public:
-  IndexLookupRewriter(const SymbolTable *symbol_table, TDbAccessor *db)
-      : symbol_table_(symbol_table), db_(db) {}
+  IndexLookupRewriter(const SymbolTable *symbol_table, AstStorage *ast_storage,
+                      TDbAccessor *db)
+      : symbol_table_(symbol_table), ast_storage_(ast_storage), db_(db) {}
 
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
@@ -383,6 +384,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
  private:
   const SymbolTable *symbol_table_;
+  AstStorage *ast_storage_;
   TDbAccessor *db_;
   Filters filters_;
   std::unordered_set<Expression *> filter_exprs_for_removal_;
@@ -410,7 +412,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   void RewriteBranch(std::shared_ptr<LogicalOperator> *branch) {
-    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, db_);
+    IndexLookupRewriter<TDbAccessor> rewriter(symbol_table_, ast_storage_, db_);
     (*branch)->Accept(rewriter);
     if (rewriter.new_root_) {
       *branch = rewriter.new_root_;
@@ -448,24 +450,37 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     std::experimental::optional<LabelPropertyIndex> found;
     for (const auto &label : filters_.FilteredLabels(symbol)) {
       for (const auto &filter : filters_.PropertyFilters(symbol)) {
+        if (filter.property_filter->is_symbol_in_value_ ||
+            !are_bound(filter.used_symbols)) {
+          // Skip filter expressions which use the symbol whose property we are
+          // looking up or aren't bound. We cannot scan by such expressions. For
+          // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`, so we
+          // cannot scan `n` by property index.
+          continue;
+        }
         const auto &property = filter.property_filter->property_;
-        if (db_->LabelPropertyIndexExists(GetLabel(label),
-                                          GetProperty(property))) {
-          int64_t vertex_count =
-              db_->VerticesCount(GetLabel(label), GetProperty(property));
-          if (!found || vertex_count < found->vertex_count) {
-            if (filter.property_filter->is_symbol_in_value_) {
-              // Skip filter expressions which use the symbol whose property
-              // we are looking up. We cannot scan by such expressions. For
-              // example, in `n.a = 2 + n.b` both sides of `=` refer to `n`,
-              // so we cannot scan `n` by property index.
-              continue;
-            }
-            if (are_bound(filter.used_symbols)) {
-              // Take the property filter which uses bound symbols.
-              found = LabelPropertyIndex{label, filter, vertex_count};
-            }
-          }
+        if (!db_->LabelPropertyIndexExists(GetLabel(label),
+                                           GetProperty(property))) {
+          continue;
+        }
+        int64_t vertex_count =
+            db_->VerticesCount(GetLabel(label), GetProperty(property));
+        auto is_better_type = [&found](PropertyFilter::Type type) {
+          // Order the types by the most preferred index lookup type.
+          static const PropertyFilter::Type kFilterTypeOrder[] = {
+              PropertyFilter::Type::EQUAL, PropertyFilter::Type::RANGE,
+              PropertyFilter::Type::REGEX_MATCH};
+          auto *found_sort_ix =
+              std::find(kFilterTypeOrder, kFilterTypeOrder + 3,
+                        found->filter.property_filter->type_);
+          auto *type_sort_ix =
+              std::find(kFilterTypeOrder, kFilterTypeOrder + 3, type);
+          return type_sort_ix < found_sort_ix;
+        };
+        if (!found || vertex_count < found->vertex_count ||
+            (vertex_count == found->vertex_count &&
+             is_better_type(filter.property_filter->type_))) {
+          found = LabelPropertyIndex{label, filter, vertex_count};
         }
       }
     }
@@ -502,7 +517,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         (!max_vertex_count || *max_vertex_count >= found_index->vertex_count)) {
       // Copy the property filter and then erase it from filters.
       const auto prop_filter = *found_index->filter.property_filter;
-      filter_exprs_for_removal_.insert(found_index->filter.expression);
+      if (prop_filter.type_ != PropertyFilter::Type::REGEX_MATCH) {
+        // Remove the original expression from Filter operation only if it's not
+        // a regex match. In such a case we need to perform the matching even
+        // after we've scanned the index.
+        filter_exprs_for_removal_.insert(found_index->filter.expression);
+      }
       filters_.EraseFilter(found_index->filter);
       std::vector<Expression *> removed_expressions;
       filters_.EraseLabelFilter(node_symbol, found_index->label,
@@ -514,6 +534,15 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             input, node_symbol, GetLabel(found_index->label),
             GetProperty(prop_filter.property_), prop_filter.property_.name,
             prop_filter.lower_bound_, prop_filter.upper_bound_, graph_view);
+      } else if (prop_filter.type_ == PropertyFilter::Type::REGEX_MATCH) {
+        // Generate index scan using the empty string as a lower bound.
+        Expression *empty_string = ast_storage_->Create<PrimitiveLiteral>("");
+        auto lower_bound = utils::MakeBoundInclusive(empty_string);
+        return std::make_unique<ScanAllByLabelPropertyRange>(
+            input, node_symbol, GetLabel(found_index->label),
+            GetProperty(prop_filter.property_), prop_filter.property_.name,
+            std::experimental::make_optional(lower_bound),
+            std::experimental::nullopt, graph_view);
       } else {
         CHECK(prop_filter.value_) << "Property filter should either have "
                                      "bounds or a value expression.";
@@ -544,8 +573,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 template <class TDbAccessor>
 std::unique_ptr<LogicalOperator> RewriteWithIndexLookup(
     std::unique_ptr<LogicalOperator> root_op, const SymbolTable &symbol_table,
-    TDbAccessor *db) {
-  impl::IndexLookupRewriter<TDbAccessor> rewriter(&symbol_table, db);
+    AstStorage *ast_storage, TDbAccessor *db) {
+  impl::IndexLookupRewriter<TDbAccessor> rewriter(&symbol_table, ast_storage,
+                                                  db);
   root_op->Accept(rewriter);
   if (rewriter.new_root_) {
     // This shouldn't happen in real use case, because IndexLookupRewriter

@@ -35,7 +35,7 @@ class PostProcessor final {
   std::unique_ptr<LogicalOperator> Rewrite(
       std::unique_ptr<LogicalOperator> plan, TPlanningContext *context) {
     return RewriteWithIndexLookup(std::move(plan), *context->symbol_table,
-                                  context->db);
+                                  context->ast_storage, context->db);
   }
 
   template <class TVertexCounts>

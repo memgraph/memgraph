@@ -80,7 +80,14 @@ class PropertyFilter {
  public:
   using Bound = ScanAllByLabelPropertyRange::Bound;
 
-  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *);
+  /// Depending on type, this PropertyFilter may be a value equality, regex
+  /// matched value or a range with lower and (or) upper bounds.
+  enum class Type { EQUAL, REGEX_MATCH, RANGE };
+
+  /// Construct with Expression being the equality or regex match check.
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, Expression *,
+                 Type);
+  /// Construct the range based filter.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx,
                  const std::experimental::optional<Bound> &,
                  const std::experimental::optional<Bound> &);
@@ -88,10 +95,11 @@ class PropertyFilter {
   /// Symbol whose property is looked up.
   Symbol symbol_;
   PropertyIx property_;
+  Type type_;
   /// True if the same symbol is used in expressions for value or bounds.
   bool is_symbol_in_value_ = false;
   /// Expression which when evaluated produces the value a property must
-  /// equal.
+  /// equal or regex match depending on type_.
   Expression *value_ = nullptr;
   /// Expressions which produce lower and upper bounds for a property.
   std::experimental::optional<Bound> lower_bound_{};

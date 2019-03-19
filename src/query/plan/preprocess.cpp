@@ -153,8 +153,9 @@ auto SplitExpressionOnAnd(Expression *expression) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table,
                                const Symbol &symbol, PropertyIx property,
-                               Expression *value)
-    : symbol_(symbol), property_(property), value_(value) {
+                               Expression *value, Type type)
+    : symbol_(symbol), property_(property), type_(type), value_(value) {
+  CHECK(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
   is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
@@ -166,6 +167,7 @@ PropertyFilter::PropertyFilter(
     const std::experimental::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
       property_(property),
+      type_(Type::RANGE),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
   UsedSymbolsCollector collector(symbol_table);
@@ -288,7 +290,8 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
                              collector.symbols_};
       // Store a PropertyFilter on the value of the property.
       filter_info.property_filter.emplace(symbol_table, symbol, prop_pair.first,
-                                          prop_pair.second);
+                                          prop_pair.second,
+                                          PropertyFilter::Type::EQUAL);
       all_filters_.emplace_back(filter_info);
     }
   };
@@ -354,9 +357,23 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     Identifier *ident = nullptr;
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter =
-          PropertyFilter(symbol_table, symbol_table.at(*ident),
-                         prop_lookup->property_, val_expr);
+      filter.property_filter = PropertyFilter(
+          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
+          val_expr, PropertyFilter::Type::EQUAL);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
+    return false;
+  };
+  // Like add_prop_equal, but for adding regex match property filter.
+  auto add_prop_regex_match = [&](auto *maybe_lookup, auto *val_expr) -> bool {
+    PropertyLookup *prop_lookup = nullptr;
+    Identifier *ident = nullptr;
+    if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter = PropertyFilter(
+          symbol_table, symbol_table.at(*ident), prop_lookup->property_,
+          val_expr, PropertyFilter::Type::REGEX_MATCH);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -420,6 +437,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr,
     is_prop_filter |= add_prop_equal(eq->expression2_, eq->expression1_);
     if (!is_prop_filter) {
       // No PropertyFilter was added, so just store a generic filter.
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
+  } else if (auto *regex_match = utils::Downcast<RegexMatch>(expr)) {
+    if (!add_prop_regex_match(regex_match->string_expr_, regex_match->regex_)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *gt = utils::Downcast<GreaterOperator>(expr)) {

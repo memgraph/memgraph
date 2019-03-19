@@ -108,7 +108,8 @@ class OpChecker : public BaseOpChecker {
  public:
   void CheckOp(LogicalOperator &op, const SymbolTable &symbol_table) override {
     auto *expected_op = dynamic_cast<TOp *>(&op);
-    ASSERT_TRUE(expected_op);
+    ASSERT_TRUE(expected_op) << "op is '" << op.GetTypeInfo().name
+                             << "' expected '" << TOp::kType.name << "'!";
     ExpectOp(*expected_op, symbol_table);
   }
 
