@@ -281,8 +281,8 @@ class Master {
                                                 config_.rpc_num_client_workers};
   tx::EngineMaster tx_engine_{&coordination_, &wal_};
   std::unique_ptr<StorageGcMaster> storage_gc_ =
-      std::make_unique<StorageGcMaster>(
-          *storage_, tx_engine_, config_.gc_cycle_sec, &coordination_);
+      std::make_unique<StorageGcMaster>(storage_.get(), &tx_engine_,
+                                        config_.gc_cycle_sec, &coordination_);
   TypemapPack<storage::MasterConcurrentIdMapper> typemap_pack_{&coordination_};
   database::MasterCounters counters_{&coordination_};
   distributed::BfsSubcursorStorage subcursor_storage_{&bfs_subcursor_clients_};
@@ -385,14 +385,10 @@ bool Master::MakeSnapshot(GraphDbAccessor &accessor) {
 }
 
 void Master::ReinitializeStorage() {
-  // Release gc scheduler to stop it from touching storage
   impl_->storage_gc_->Stop();
-  impl_->storage_gc_ = nullptr;
   impl_->storage_ = std::make_unique<Storage>(
       impl_->config_.worker_id, impl_->config_.properties_on_disk);
-  impl_->storage_gc_ = std::make_unique<StorageGcMaster>(
-      *impl_->storage_, impl_->tx_engine_, impl_->config_.gc_cycle_sec,
-      &impl_->coordination_);
+  impl_->storage_gc_->Reinitialize(impl_->storage_.get(), &impl_->tx_engine_);
 }
 
 io::network::Endpoint Master::endpoint() const {
@@ -651,8 +647,8 @@ class Worker {
   tx::EngineWorker tx_engine_{&coordination_, &wal_};
   std::unique_ptr<StorageGcWorker> storage_gc_ =
       std::make_unique<StorageGcWorker>(
-          *storage_, tx_engine_, config_.gc_cycle_sec,
-          *coordination_.GetClientPool(0), config_.worker_id);
+          storage_.get(), &tx_engine_, config_.gc_cycle_sec,
+          coordination_.GetClientPool(0), config_.worker_id);
   TypemapPack<storage::WorkerConcurrentIdMapper> typemap_pack_{
       coordination_.GetClientPool(0)};
   database::WorkerCounters counters_{coordination_.GetClientPool(0)};
@@ -674,7 +670,7 @@ class Worker {
                                          config_.edge_cache_size};
   distributed::DurabilityRpcWorker durability_rpc_{self_, &coordination_};
   distributed::ClusterDiscoveryWorker cluster_discovery_{
-      &coordination_};
+    &coordination_};
   distributed::TokenSharingRpcServer token_sharing_server_{
       self_, config_.worker_id, &coordination_};
   distributed::DynamicWorkerRegistration dynamic_worker_registration_{
@@ -750,14 +746,10 @@ bool Worker::MakeSnapshot(GraphDbAccessor &accessor) {
 }
 
 void Worker::ReinitializeStorage() {
-  // Release gc scheduler to stop it from touching storage
   impl_->storage_gc_->Stop();
-  impl_->storage_gc_ = nullptr;
   impl_->storage_ = std::make_unique<Storage>(
       impl_->config_.worker_id, impl_->config_.properties_on_disk);
-  impl_->storage_gc_ = std::make_unique<StorageGcWorker>(
-      *impl_->storage_, impl_->tx_engine_, impl_->config_.gc_cycle_sec,
-      *impl_->coordination_.GetClientPool(0), impl_->config_.worker_id);
+  impl_->storage_gc_->Reinitialize(impl_->storage_.get(), &impl_->tx_engine_);
 }
 
 void Worker::RecoverWalAndIndexes(durability::RecoveryData *recovery_data) {

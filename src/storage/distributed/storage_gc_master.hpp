@@ -5,15 +5,25 @@
 
 #include "distributed/coordination_master.hpp"
 #include "distributed/storage_gc_rpc_messages.hpp"
-#include "storage/distributed/storage_gc.hpp"
+#include "storage/distributed/storage_gc_distributed.hpp"
 
 namespace database {
-class StorageGcMaster : public StorageGc {
+
+/// Storage garbage collector specific for the master imeplementation.
+/// On initialization, it will start a RPC server that receives information
+/// about cleared transactions on workers and it'll start periodic garbage
+/// collection.
+class StorageGcMaster final : public StorageGcDistributed {
  public:
-  using StorageGc::StorageGc;
-  StorageGcMaster(Storage &storage, tx::Engine &tx_engine, int pause_sec,
+  StorageGcMaster() = delete;
+  StorageGcMaster(const StorageGcMaster &) = delete;
+  StorageGcMaster(StorageGcMaster &&) = delete;
+  StorageGcMaster operator=(const StorageGcMaster &) = delete;
+  StorageGcMaster operator=(StorageGcMaster &&) = delete;
+
+  StorageGcMaster(Storage *storage, tx::Engine *tx_engine, int pause_sec,
                   distributed::MasterCoordination *coordination)
-      : StorageGc(storage, tx_engine, pause_sec),
+      : StorageGcDistributed(storage, tx_engine, pause_sec),
         coordination_(coordination) {
     coordination_->Register<distributed::RanLocalGcRpc>(
         [this](const auto &req_reader, auto *res_builder) {
@@ -24,19 +34,8 @@ class StorageGcMaster : public StorageGc {
         });
   }
 
-  ~StorageGcMaster() {
-    // We have to stop scheduler before destroying this class because otherwise
-    // a task might try to utilize methods in this class which might cause pure
-    // virtual method called since they are not implemented for the base class.
-    CHECK(!scheduler_.IsRunning())
-        << "You must call Stop on database::StorageGcMaster!";
-  }
-
-  void Stop() {
-    scheduler_.Stop();
-  }
-
-  void CollectCommitLogGarbage(tx::TransactionId oldest_active) final {
+  void CollectCommitLogGarbage(tx::TransactionId oldest_active,
+                               tx::Engine *tx_engine) override {
     // Workers are sending information when it's safe to delete every
     // transaction older than oldest_active from their perspective i.e. there
     // won't exist another transaction in the future with id larger than or
@@ -55,12 +54,20 @@ class StorageGcMaster : public StorageGc {
       }
       // All workers reported back at least once
       if (min_safe > 0) {
-        tx_engine_.GarbageCollectCommitLog(min_safe);
+        tx_engine->GarbageCollectCommitLog(min_safe);
         LOG(INFO) << "Clearing master commit log with tx: " << min_safe;
       }
     }
   }
 
+  void Reinitialize(Storage *storage, tx::Engine *tx_engine) override {
+    std::unique_lock<std::mutex> lock(worker_safe_transaction_mutex_);
+    worker_safe_transaction_.clear();
+
+    StorageGcDistributed::Reinitialize(storage, tx_engine);
+  }
+
+ private:
   distributed::MasterCoordination *coordination_;
   // Mapping of worker ids and oldest active transaction which is safe for
   // deletion from worker perspective
