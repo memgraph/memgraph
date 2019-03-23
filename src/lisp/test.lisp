@@ -1,8 +1,33 @@
-(defpackage #:lcp-test
+(defpackage #:lcp.test
   (:use #:cl #:prove))
 
-(in-package #:lcp-test)
+(in-package #:lcp.test)
 (named-readtables:in-readtable lcp:lcp-syntax)
+
+;;; NOTE: Fix Prove's PROVE.TEST::IS-ERROR. It is implemented as an alias to
+;;; IS-CONDITION which uses HANDLER-CASE to catch *any* condition (any subclass
+;;; of CONDITION). This is wrong, because not every condition is an error.
+;;; Because of this, Prove used to catch LCP's warnings and would fail because
+;;; an LCP error was expected (which would have been signalled).
+
+(in-package #:prove.test)
+
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defmacro is-error (form condition &optional desc)
+    (with-gensyms (error duration)
+      `(with-duration ((,duration ,error) (handler-case ,form
+                                            (error (,error) ,error)))
+         (test ,error
+               ,(if (and (listp condition) (eq 'quote (car condition)))
+                    condition
+                    `(quote ,condition))
+               ,desc
+               :duration ,duration
+               :got-form ',form
+               :test-fn #'typep
+               :report-expected-label "raise an error")))))
+
+(in-package #:lcp.test)
 
 (defun same-type-test (a b)
   "Test whether A and B are the same C++ type under LCP::CPP-TYPE=."

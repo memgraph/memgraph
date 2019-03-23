@@ -16,11 +16,11 @@
 
 (defsystem "lcp/test"
   :depends-on ("lcp" "prove")
-  :components ((:file "lcp-test"))
+  :components ((:file "test"))
   :perform (test-op :after (op s)
-                    (let ((*package* (find-package :lcp-test))
+                    (let ((*package* (find-package :lcp.test))
                           (sym (find-symbol (string :*default-reporter*)
                                             :prove)))
                       (progv (list sym) '(:fiveam)
                         (symbol-call :prove :plan nil)
-                        (symbol-call :prove :run-test-package :lcp-test)))))
+                        (symbol-call :prove :run-test-package :lcp.test)))))
