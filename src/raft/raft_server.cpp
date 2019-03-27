@@ -516,8 +516,8 @@ void RaftServer::RecoverPersistentData() {
 void RaftServer::Transition(const Mode &new_mode) {
   switch (new_mode) {
     case Mode::FOLLOWER: {
-      VLOG(40) << "Server " << server_id_
-               << ": Transition to FOLLOWER (Term: " << current_term_ << ")";
+      LOG(INFO) << "Server " << server_id_
+                << ": Transition to FOLLOWER (Term: " << current_term_ << ")";
 
       bool reset = mode_ == Mode::LEADER;
       mode_ = Mode::FOLLOWER;
@@ -553,8 +553,8 @@ void RaftServer::Transition(const Mode &new_mode) {
     }
 
     case Mode::CANDIDATE: {
-      VLOG(40) << "Server " << server_id_
-               << ": Transition to CANDIDATE (Term: " << current_term_ << ")";
+      LOG(INFO) << "Server " << server_id_
+                << ": Transition to CANDIDATE (Term: " << current_term_ << ")";
 
       // [Raft thesis, section 3.4]
       // "Each candidate restarts its randomized election timeout at the start
@@ -587,8 +587,8 @@ void RaftServer::Transition(const Mode &new_mode) {
     }
 
     case Mode::LEADER: {
-      VLOG(40) << "Server " << server_id_
-               << ": Transition to LEADER (Term: " << current_term_ << ")";
+      LOG(INFO) << "Server " << server_id_
+                << ": Transition to LEADER (Term: " << current_term_ << ")";
       // Freeze election timer
       next_election_ = TimePoint::max();
       election_change_.notify_all();
