@@ -1,6 +1,7 @@
 #include "storage/single_node/constraints/unique_label_property_constraint.hpp"
 
-#include "storage/single_node/vertex_accessor.hpp"
+#include "storage/single_node/record_accessor.hpp"
+#include "storage/single_node/vertex.hpp"
 #include "utils/algorithm.hpp"
 
 namespace storage::constraints {
@@ -12,17 +13,27 @@ auto FindIn(storage::Label label, storage::Property property,
                       });
 }
 
-void UniqueLabelPropertyConstraint::AddConstraint(storage::Label label,
+bool UniqueLabelPropertyConstraint::AddConstraint(storage::Label label,
                                                   storage::Property property,
                                                   const tx::Transaction &t) {
   auto found = FindIn(label, property, constraints_);
-  if (found == constraints_.end()) constraints_.emplace_back(label, property);
+  if (found == constraints_.end()) {
+    constraints_.emplace_back(label, property);
+    return true;
+  } else {
+    return false;
+  }
 }
 
-void UniqueLabelPropertyConstraint::RemoveConstraint(
+bool UniqueLabelPropertyConstraint::RemoveConstraint(
     storage::Label label, storage::Property property) {
   auto found = FindIn(label, property, constraints_);
-  if (found != constraints_.end()) constraints_.erase(found);
+  if (found != constraints_.end()) {
+    constraints_.erase(found);
+    return true;
+  } else {
+    return false;
+  }
 }
 
 bool UniqueLabelPropertyConstraint::Exists(storage::Label label,
@@ -41,8 +52,32 @@ std::vector<LabelProperty> UniqueLabelPropertyConstraint::ListConstraints()
   return constraints;
 }
 
+void UniqueLabelPropertyConstraint::Update(
+    const RecordAccessor<Vertex> &accessor, const tx::Transaction &t) {
+  auto &vertex = accessor.current();
+  std::lock_guard<std::mutex> guard(lock_);
+  for (auto &constraint : constraints_) {
+    bool contains_label = utils::Contains(vertex.labels_, constraint.label);
+    auto value = vertex.properties_.at(constraint.property);
+    if (contains_label && !value.IsNull()) {
+      bool found = false;
+      for (auto &p : constraint.version_pairs) {
+        if (p.value == value) {
+          p.record.Insert(accessor.gid(), t);
+          found = true;
+          break;
+        }
+      }
+
+      if (!found) {
+        constraint.version_pairs.emplace_back(accessor.gid(), value, t);
+      }
+    }
+  }
+}
+
 void UniqueLabelPropertyConstraint::UpdateOnAddLabel(
-    storage::Label label, const VertexAccessor &accessor,
+    storage::Label label, const RecordAccessor<Vertex> &accessor,
     const tx::Transaction &t) {
   auto &vertex = accessor.current();
   std::lock_guard<std::mutex> guard(lock_);
@@ -65,7 +100,7 @@ void UniqueLabelPropertyConstraint::UpdateOnAddLabel(
   }
 }
 void UniqueLabelPropertyConstraint::UpdateOnRemoveLabel(
-    storage::Label label, const VertexAccessor &accessor,
+    storage::Label label, const RecordAccessor<Vertex> &accessor,
     const tx::Transaction &t) {
   auto &vertex = accessor.current();
   std::lock_guard<std::mutex> guard(lock_);
@@ -84,7 +119,7 @@ void UniqueLabelPropertyConstraint::UpdateOnRemoveLabel(
 
 void UniqueLabelPropertyConstraint::UpdateOnAddProperty(
     storage::Property property, const PropertyValue &value,
-    const VertexAccessor &accessor, const tx::Transaction &t) {
+    const RecordAccessor<Vertex> &accessor, const tx::Transaction &t) {
   auto &vertex = accessor.current();
   std::lock_guard<std::mutex> guard(lock_);
   for (auto &constraint : constraints_) {
@@ -107,16 +142,17 @@ void UniqueLabelPropertyConstraint::UpdateOnAddProperty(
 }
 
 void UniqueLabelPropertyConstraint::UpdateOnRemoveProperty(
-    storage::Property property, const PropertyValue &value,
-    const VertexAccessor &accessor, const tx::Transaction &t) {
+    storage::Property property, const RecordAccessor<Vertex> &accessor,
+    const tx::Transaction &t) {
   auto &vertex = accessor.current();
+  auto gid = accessor.gid();
   std::lock_guard<std::mutex> guard(lock_);
   for (auto &constraint : constraints_) {
     if (constraint.property == property &&
         utils::Contains(vertex.labels_, constraint.label)) {
       for (auto &p : constraint.version_pairs) {
-        if (p.value == value) {
-          p.record.Remove(accessor.gid(), t);
+        if (p.record.curr_gid == gid && p.record.tx_id_exp == 0) {
+          p.record.Remove(gid, t);
           break;
         }
       }
@@ -133,7 +169,7 @@ void UniqueLabelPropertyConstraint::Refresh(const tx::Snapshot &snapshot,
       auto exp_id = p->record.tx_id_exp;
       auto cre_id = p->record.tx_id_cre;
       if ((exp_id != 0 && exp_id < snapshot.back() &&
-          engine.Info(exp_id).is_committed() && !snapshot.contains(exp_id)) ||
+           engine.Info(exp_id).is_committed() && !snapshot.contains(exp_id)) ||
           (cre_id < snapshot.back() && engine.Info(cre_id).is_aborted())) {
         constraint.version_pairs.erase(p);
       }

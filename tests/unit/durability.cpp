@@ -196,6 +196,21 @@ bool CompareExistenceConstraints(const database::GraphDbAccessor &dba1,
              });
 }
 
+bool CompareUniqueConstraints(const database::GraphDbAccessor &dba1,
+                              const database::GraphDbAccessor &dba2) {
+  auto c1 = dba1.ListUniqueLabelPropertyConstraints();
+  auto c2 = dba2.ListUniqueLabelPropertyConstraints();
+
+  return c1.size() == c2.size() &&
+         std::is_permutation(c1.begin(), c1.end(), c2.begin(),
+                             [&dba1, &dba2](auto &r1, auto &r2) {
+                               return dba1.LabelName(r1.label) ==
+                                          dba2.LabelName(r2.label) &&
+                                      dba1.PropertyName(r1.property) ==
+                                          dba2.PropertyName(r2.property);
+                             });
+}
+
 /** Checks if the given databases have the same contents (indices,
  * vertices and edges). */
 void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
@@ -212,6 +227,7 @@ void CompareDbs(database::GraphDb &a, database::GraphDb &b) {
         << utils::Join(index_b, ", ");
   }
   EXPECT_TRUE(CompareExistenceConstraints(*dba_a, *dba_b));
+  EXPECT_TRUE(CompareUniqueConstraints(*dba_a, *dba_b));
 
   auto is_permutation_props = [&dba_a, &dba_b](const auto &p1_id,
                                                const auto &p2_id) {
@@ -517,6 +533,11 @@ TEST_F(Durability, SnapshotEncoding) {
   EXPECT_EQ(dv.ValueList()[2].ValueBool(), false);
 
   // Existence constraints
+  decoder.ReadValue(&dv);
+  ASSERT_TRUE(dv.IsList());
+  ASSERT_EQ(dv.ValueList().size(), 0);
+
+  // Unique constraints
   decoder.ReadValue(&dv);
   ASSERT_TRUE(dv.IsList());
   ASSERT_EQ(dv.ValueList().size(), 0);
@@ -944,7 +965,7 @@ TEST_F(Durability, MoveToBackupWal) {
   ASSERT_TRUE(durability::ContainsDurabilityFiles(backup_dir_));
 }
 
-TEST_F(Durability, UniqueConstraintRecoverySnapshotAndWal) {
+TEST_F(Durability, UniqueIndexRecoverySnapshotAndWal) {
   auto config = DbConfig();
   config.durability_enabled = true;
   database::GraphDb db{config};
@@ -988,7 +1009,7 @@ TEST_F(Durability, UniqueConstraintRecoverySnapshotAndWal) {
   }
 }
 
-TEST_F(Durability, UniqueConstraintRecoveryWal) {
+TEST_F(Durability, UniqueIndexRecoveryWal) {
   auto config = DbConfig();
   config.durability_enabled = true;
   database::GraphDb db{config};
@@ -1073,7 +1094,7 @@ TEST_F(Durability, ExistenceConstraintRecoverySnapshotAndWal) {
     dba->DeleteExistenceConstraint(l1, p1);
     dba->Commit();
   }
-  // create snapshot with build index and vertex
+  // create snapshot with build existence constraint
   MakeSnapshot(db);
   {
     auto dba = db.Access();
@@ -1084,6 +1105,81 @@ TEST_F(Durability, ExistenceConstraintRecoverySnapshotAndWal) {
     auto l3 = dba->Label("l3");
     std::vector<storage::Property> p3{dba->Property("p5"),  dba->Property("p6")};
     dba->BuildExistenceConstraint(l3, p3);
+    dba->Commit();
+  }
+  {
+    // Recover and compare
+    db.wal().Flush();
+    auto recovered_config = DbConfig(false, true);
+    database::GraphDb recovered_db{recovered_config};
+    CompareDbs(db, recovered_db);
+  }
+}
+
+TEST_F(Durability, UniqueConstraintRecoveryWal) {
+  auto config = DbConfig(true, false);
+  database::GraphDb db{config};
+  {
+    // Fill database with some data
+    auto dba = db.Access();
+    DbGenerator gen(*dba);
+    dba->InsertVertex();
+    gen.InsertVertex();
+    gen.InsertVertex();
+    auto l1 = dba->Label("l1");
+    auto p1 = dba->Property("p1");
+    dba->BuildUniqueConstraint(l1, p1);
+    gen.InsertEdge();
+    auto l2 = dba->Label("l2");
+    auto p2 = dba->Property("p2");
+    dba->BuildUniqueConstraint(l2, p2);
+    gen.InsertVertex();
+    gen.InsertEdge();
+    dba->DeleteUniqueConstraint(l1, p1);
+    dba->Commit();
+  }
+  {
+    // Recover and compare
+    db.wal().Flush();
+    auto recovered_config = DbConfig(false, true);
+    database::GraphDb recovered_db{recovered_config};
+    CompareDbs(db, recovered_db);
+  }
+}
+
+TEST_F(Durability, UniqueConstraintRecoverySnapshotAndWal) {
+  auto config = DbConfig(true, false);
+  database::GraphDb db{config};
+  {
+    // Fill database with some data
+    auto dba = db.Access();
+    DbGenerator gen(*dba);
+    dba->InsertVertex();
+    gen.InsertVertex();
+    gen.InsertVertex();
+    auto l1 = dba->Label("l1");
+    auto p1 = dba->Property("p1");
+    dba->BuildUniqueConstraint(l1, p1);
+    gen.InsertEdge();
+    auto l2 = dba->Label("l2");
+    auto p2 = dba->Property("p2");
+    dba->BuildUniqueConstraint(l2, p2);
+    gen.InsertVertex();
+    gen.InsertEdge();
+    dba->DeleteUniqueConstraint(l1, p1);
+    dba->Commit();
+  }
+  // create snapshot with build unique constraint
+  MakeSnapshot(db);
+  {
+    auto dba = db.Access();
+    DbGenerator gen(*dba);
+    gen.InsertVertex();
+    gen.InsertVertex();
+
+    auto l3 = dba->Label("l3");
+    auto p3 = dba->Property("p3");
+    dba->BuildUniqueConstraint(l3, p3);
     dba->Commit();
   }
   {

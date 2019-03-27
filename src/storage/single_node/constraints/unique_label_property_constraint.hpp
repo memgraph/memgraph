@@ -13,7 +13,10 @@ namespace tx {
 class Snapshot;
 };
 
-class VertexAccessor;
+class Vertex;
+
+template <typename TRecord>
+class RecordAccessor;
 
 namespace storage::constraints {
 namespace impl {
@@ -73,13 +76,13 @@ class UniqueLabelPropertyConstraint {
   /// nothing. This method doesn't check if any of the existing vertices breaks
   /// this constraint. Caller must do that instead. Caller must also ensure that
   /// no other transaction is running in parallel.
-  void AddConstraint(storage::Label label, storage::Property property,
+  bool AddConstraint(storage::Label label, storage::Property property,
                      const tx::Transaction &t);
 
   /// Removes existing unique constraint, if the constraint doesn't exist this
   /// method does nothing. Caller must ensure that no other transaction is
   /// running in parallel.
-  void RemoveConstraint(storage::Label label, storage::Property property);
+  bool RemoveConstraint(storage::Label label, storage::Property property);
 
   /// Checks whether given unique constraint is visible.
   bool Exists(storage::Label label, storage::Property property) const;
@@ -91,13 +94,21 @@ class UniqueLabelPropertyConstraint {
   ///
   /// @throws IndexConstraintViolationException
   /// @throws SerializationError
-  void UpdateOnAddLabel(storage::Label label, const VertexAccessor &accessor,
+  void Update(const RecordAccessor<Vertex> &accessor, const tx::Transaction &t);
+
+  /// Updates unique constraint versions.
+  ///
+  /// @throws IndexConstraintViolationException
+  /// @throws SerializationError
+  void UpdateOnAddLabel(storage::Label label,
+                        const RecordAccessor<Vertex> &accessor,
                         const tx::Transaction &t);
 
   /// Updates unique constraint versions.
   ///
   /// @throws SerializationError
-  void UpdateOnRemoveLabel(storage::Label label, const VertexAccessor &accessor,
+  void UpdateOnRemoveLabel(storage::Label label,
+                           const RecordAccessor<Vertex> &accessor,
                            const tx::Transaction &t);
 
   /// Updates unique constraint versions.
@@ -106,15 +117,14 @@ class UniqueLabelPropertyConstraint {
   /// @throws SerializationError
   void UpdateOnAddProperty(storage::Property property,
                            const PropertyValue &value,
-                           const VertexAccessor &accessor,
+                           const RecordAccessor<Vertex> &accessor,
                            const tx::Transaction &t);
 
   /// Updates unique constraint versions.
   ///
   /// @throws SerializationError
   void UpdateOnRemoveProperty(storage::Property property,
-                              const PropertyValue &value,
-                              const VertexAccessor &accessor,
+                              const RecordAccessor<Vertex> &accessor,
                               const tx::Transaction &t);
 
   /// Removes records that are no longer visible.

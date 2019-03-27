@@ -20,19 +20,23 @@ bool CheckIfSatisfiesExistenceRule(const Vertex *vertex,
   return true;
 }
 
-void ExistenceConstraints::AddConstraint(const ExistenceRule &rule) {
+bool ExistenceConstraints::AddConstraint(const ExistenceRule &rule) {
   auto found = std::find(constraints_.begin(), constraints_.end(), rule);
-  if (found != constraints_.end()) return;
+  if (found != constraints_.end()) return false;
 
   constraints_.push_back(rule);
+  return true;
 }
 
-void ExistenceConstraints::RemoveConstraint(const ExistenceRule &rule) {
+bool ExistenceConstraints::RemoveConstraint(const ExistenceRule &rule) {
   auto found = std::find(constraints_.begin(), constraints_.end(), rule);
   if (found != constraints_.end()) {
     std::swap(*found, constraints_.back());
     constraints_.pop_back();
+    return true;
   }
+
+  return false;
 }
 
 bool ExistenceConstraints::Exists(const ExistenceRule &rule) const {

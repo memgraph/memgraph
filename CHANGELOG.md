@@ -5,6 +5,8 @@
 ### Breaking Changes
 
 * `indexInfo()` function replaced with `SHOW INDEX INFO` syntax.
+* Write-ahead log format changed (not backward compatible).
+* Snapshot format changed (not backward compatible).
 
 ### Major Features and Improvements
 

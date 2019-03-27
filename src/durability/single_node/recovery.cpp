@@ -175,6 +175,31 @@ bool RecoverSnapshot(const fs::path &snapshot_file, database::GraphDb *db,
         ExistenceConstraintRecoveryData{label, std::move(properties), true});
   }
 
+  // Read a list of unique constraints
+  RETURN_IF_NOT(decoder.ReadValue(&dv, Value::Type::List));
+  auto unique_constraints = dv.ValueList();
+  for (auto it = unique_constraints.begin();
+       it != unique_constraints.end();) {
+    RETURN_IF_NOT(it->IsString());
+    auto label = it->ValueString();
+    ++it;
+    RETURN_IF_NOT(it != unique_constraints.end());
+    RETURN_IF_NOT(it->IsInt());
+    auto prop_size = it->ValueInt();
+    ++it;
+    std::vector<std::string> properties;
+    properties.reserve(prop_size);
+    for (size_t i = 0; i < prop_size; ++i) {
+      RETURN_IF_NOT(it != unique_constraints.end());
+      RETURN_IF_NOT(it->IsString());
+      properties.emplace_back(it->ValueString());
+      ++it;
+    }
+
+    recovery_data->unique_constraints.emplace_back(
+        UniqueConstraintRecoveryData{label, std::move(properties), true});
+  }
+
   auto dba = db->Access();
   std::unordered_map<uint64_t, VertexAccessor> vertices;
   for (int64_t i = 0; i < vertex_count; ++i) {
@@ -509,8 +534,50 @@ void RecoverWal(const fs::path &durability_dir, database::GraphDb *db,
               recovery_data->existence_constraints.erase(build_it);
             } else {
               recovery_data->existence_constraints.emplace_back(
-                  ExistenceConstraintRecoveryData{
-                      delta.label_name, delta.property_names, false});
+                  ExistenceConstraintRecoveryData{delta.label_name,
+                                                  delta.property_names, false});
+            }
+            break;
+          }
+          case database::StateDelta::Type::BUILD_UNIQUE_CONSTRAINT: {
+            auto drop_it = std::find_if(
+                recovery_data->unique_constraints.begin(),
+                recovery_data->unique_constraints.end(),
+                [&delta](const UniqueConstraintRecoveryData &data) {
+                  return data.label == delta.label_name &&
+                         std::is_permutation(data.properties.begin(),
+                                             data.properties.end(),
+                                             delta.property_names.begin()) &&
+                         data.create == false;
+                });
+
+            if (drop_it != recovery_data->unique_constraints.end()) {
+              recovery_data->unique_constraints.erase(drop_it);
+            } else {
+              recovery_data->unique_constraints.emplace_back(
+                  UniqueConstraintRecoveryData{delta.label_name,
+                                               delta.property_names, true});
+            }
+            break;
+          }
+          case database::StateDelta::Type::DROP_UNIQUE_CONSTRAINT: {
+            auto build_it = std::find_if(
+                recovery_data->unique_constraints.begin(),
+                recovery_data->unique_constraints.end(),
+                [&delta](const UniqueConstraintRecoveryData &data) {
+                  return data.label == delta.label_name &&
+                         std::is_permutation(data.properties.begin(),
+                                             data.properties.end(),
+                                             delta.property_names.begin()) &&
+                         data.create == true;
+                });
+
+            if (build_it != recovery_data->unique_constraints.end()) {
+              recovery_data->unique_constraints.erase(build_it);
+            } else {
+              recovery_data->unique_constraints.emplace_back(
+                  UniqueConstraintRecoveryData{delta.label_name,
+                                               delta.property_names, false});
             }
             break;
           }
@@ -559,6 +626,28 @@ void RecoverExistenceConstraints(
       dba->BuildExistenceConstraint(label, properties);
     } else {
       dba->DeleteExistenceConstraint(label, properties);
+    }
+  }
+}
+
+void RecoverUniqueConstraints(
+    database::GraphDb *db,
+    const std::vector<UniqueConstraintRecoveryData> &constraints) {
+  auto dba = db->Access();
+  for (auto &constraint : constraints) {
+    auto label = dba->Label(constraint.label);
+    std::vector<storage::Property> properties;
+    properties.reserve(constraint.properties.size());
+    for (auto &prop : constraint.properties) {
+      properties.push_back(dba->Property(prop));
+    }
+
+    DCHECK(properties.size() == 1)
+        << "Unique constraint with multiple properties is not supported";
+    if (constraint.create) {
+      dba->BuildUniqueConstraint(label, properties[0]);
+    } else {
+      dba->DeleteUniqueConstraint(label, properties[0]);
     }
   }
 }

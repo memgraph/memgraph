@@ -17,7 +17,7 @@ namespace fs = std::experimental::filesystem;
 namespace durability {
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 8,
+static_assert(durability::kVersion == 9,
               "Wrong snapshot version, please update!");
 
 namespace {
@@ -67,6 +67,18 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
         }
       }
       encoder.WriteList(existence_constraints);
+    }
+
+    // Write unique constraints to snapshoot
+    {
+      std::vector<communication::bolt::Value> unique_constraints;
+      for (const auto &rule : dba.ListUniqueLabelPropertyConstraints()) {
+        unique_constraints.emplace_back(dba.LabelName(rule.label));
+        // UniqueLabelPropertyConstraint has label and single property rule
+        unique_constraints.emplace_back(1);
+        unique_constraints.emplace_back(dba.PropertyName(rule.property));
+      }
+      encoder.WriteList(unique_constraints);
     }
 
     for (const auto &vertex : dba.Vertices(false)) {

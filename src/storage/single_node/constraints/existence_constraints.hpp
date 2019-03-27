@@ -55,12 +55,16 @@ class ExistenceConstraints {
   /// nothing. This method doesn't check if any of the existing vertices breaks
   /// this constraint. Caller must do that instead. Caller must also ensure
   /// that no other transaction is running in parallel.
-  void AddConstraint(const ExistenceRule &rule);
+  ///
+  /// @returns true if constraint was added, false otherwise
+  bool AddConstraint(const ExistenceRule &rule);
 
   /// Removes existing constraint, if the constraint doesn't exist this method
   /// does nothing. Caller must ensure that no other transaction is running in
   /// parallel.
-  void RemoveConstraint(const ExistenceRule &rule);
+  ///
+  /// @returns true if constraint was removed, false otherwise
+  bool RemoveConstraint(const ExistenceRule &rule);
 
   /// Checks whether given constraint is visible.
   bool Exists(const ExistenceRule &rule) const;

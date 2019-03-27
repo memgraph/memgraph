@@ -20,7 +20,7 @@
 #include "utils/timer.hpp"
 
 // Snapshot layout is described in durability/version.hpp
-static_assert(durability::kVersion == 8,
+static_assert(durability::kVersion == 9,
               "Wrong snapshot version, please update!");
 
 bool ValidateNotEmpty(const char *flagname, const std::string &value) {
@@ -425,6 +425,7 @@ void Convert(const std::vector<std::string> &nodes,
     encoder.WriteList({});  // Transactional snapshot.
     encoder.WriteList({});  // Label + property indexes.
     encoder.WriteList({});  // Existence constraints
+    encoder.WriteList({});  // Unique constraints
     // PassNodes streams vertices to the encoder.
     for (const auto &nodes_file : nodes) {
       node_count +=

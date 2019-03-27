@@ -182,11 +182,87 @@ void GraphDbAccessor::DeleteIndex(storage::Label label,
   }
 }
 
+void GraphDbAccessor::BuildUniqueConstraint(storage::Label label,
+                                            storage::Property property) {
+  try {
+    auto dba =
+        db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
+    if (!db_.storage().unique_label_property_constraints_.AddConstraint(
+            label, property, dba->transaction())) {
+      // Already exists
+      return;
+    }
+    for (auto v : dba->Vertices(false)) {
+      if (std::find(v.labels().begin(), v.labels().end(), label) !=
+          v.labels().end()) {
+        db_.storage().unique_label_property_constraints_.Update(
+            v, dba->transaction());
+      }
+    }
+
+    dba->wal().Emplace(database::StateDelta::BuildUniqueConstraint(
+        dba->transaction().id_, label, dba->LabelName(label),
+        std::vector<storage::Property>{property},
+        std::vector<std::string>{dba->PropertyName(property)}));
+    dba->Commit();
+  } catch (const IndexConstraintViolationException &) {
+    db_.storage().unique_label_property_constraints_.RemoveConstraint(label,
+                                                                      property);
+    throw IndexConstraintViolationException(
+        "Constraint cannot be built due to existing unique constraint "
+        "violation!");
+  } catch (const tx::TransactionEngineError &e) {
+    db_.storage().unique_label_property_constraints_.RemoveConstraint(label,
+                                                                      property);
+    throw IndexTransactionException(e.what());
+  } catch (...) {
+    db_.storage().unique_label_property_constraints_.RemoveConstraint(label,
+                                                                      property);
+    throw;
+  }
+}
+
+void GraphDbAccessor::DeleteUniqueConstraint(storage::Label label,
+                                             storage::Property property) {
+  try {
+    auto dba =
+        db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
+
+    if (!db_.storage().unique_label_property_constraints_.RemoveConstraint(
+            label, property)) {
+      // Nothing to do
+      return;
+    }
+
+    dba->wal().Emplace(database::StateDelta::DropUniqueConstraint(
+        dba->transaction().id_, label, dba->LabelName(label),
+        std::vector<storage::Property>{property},
+        std::vector<std::string>{dba->PropertyName(property)}));
+    dba->Commit();
+  } catch (const tx::TransactionEngineError &e) {
+    throw IndexTransactionException(e.what());
+  }
+}
+
+bool GraphDbAccessor::UniqueConstraintExists(storage::Label label,
+                                             storage::Property property) const {
+  return db_.storage().unique_label_property_constraints_.Exists(label,
+                                                                 property);
+}
+
+std::vector<storage::constraints::LabelProperty>
+GraphDbAccessor::ListUniqueLabelPropertyConstraints() const {
+  return db_.storage().unique_label_property_constraints_.ListConstraints();
+}
+
 void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
                                          const VertexAccessor &vertex_accessor,
                                          const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto *vlist_ptr = vertex_accessor.address();
+
+  db_.storage().unique_label_property_constraints_.UpdateOnAddLabel(
+      label, vertex_accessor, transaction());
 
   if (!db_.storage().label_property_index_.UpdateOnLabel(label, vlist_ptr,
                                                          vertex)) {
@@ -202,10 +278,20 @@ void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
   db_.storage().labels_index_.Update(label, vlist_ptr, vertex);
 }
 
+void GraphDbAccessor::UpdateOnRemoveLabel(
+    storage::Label label, const RecordAccessor<Vertex> &accessor) {
+  db_.storage().unique_label_property_constraints_.UpdateOnRemoveLabel(
+      label, accessor, transaction());
+}
+
 void GraphDbAccessor::UpdatePropertyIndex(
-    storage::Property property, const RecordAccessor<Vertex> &vertex_accessor,
-    const Vertex *vertex) {
+    storage::Property property, const PropertyValue &value,
+    const RecordAccessor<Vertex> &vertex_accessor, const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
+
+  db_.storage().unique_label_property_constraints_.UpdateOnAddProperty(
+      property, value, vertex_accessor, transaction());
+
   if (!db_.storage().label_property_index_.UpdateOnProperty(
           property, vertex_accessor.address(), vertex)) {
     throw IndexConstraintViolationException(
@@ -213,9 +299,12 @@ void GraphDbAccessor::UpdatePropertyIndex(
   }
 }
 
-void GraphDbAccessor::UpdateOnPropertyRemove(storage::Property property,
-                            const Vertex *vertex,
-                            const RecordAccessor<Vertex> &accessor) {
+void GraphDbAccessor::UpdateOnPropertyRemove(
+    storage::Property property, const Vertex *vertex,
+    const RecordAccessor<Vertex> &accessor) {
+  db_.storage().unique_label_property_constraints_.UpdateOnRemoveProperty(
+      property, accessor, transaction());
+
   if (!db_.storage().existence_constraints_.CheckOnRemoveProperty(vertex,
                                                                   property)) {
     throw IndexConstraintViolationException(
@@ -237,7 +326,8 @@ void GraphDbAccessor::BuildExistenceConstraint(
     }
   }
 
-  db_.storage().existence_constraints_.AddConstraint(rule);
+  if (!db_.storage().existence_constraints_.AddConstraint(rule)) return;
+
   std::vector<std::string> property_names(properties.size());
   std::transform(properties.begin(), properties.end(), property_names.begin(),
                  [&dba](auto p) { return dba->PropertyName(p); });
@@ -253,7 +343,8 @@ void GraphDbAccessor::DeleteExistenceConstraint(
   auto dba =
       db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
   ExistenceRule rule{label, properties};
-  db_.storage().existence_constraints_.RemoveConstraint(rule);
+  if (!db_.storage().existence_constraints_.RemoveConstraint(rule)) return;
+
   std::vector<std::string> property_names(properties.size());
   std::transform(properties.begin(), properties.end(), property_names.begin(),
                  [&dba](auto p) { return dba->PropertyName(p); });

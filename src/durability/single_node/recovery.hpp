@@ -50,6 +50,13 @@ struct ExistenceConstraintRecoveryData {
   bool create;
 };
 
+struct UniqueConstraintRecoveryData {
+  std::string label;
+  std::vector<std::string> properties;
+  // distinguish between creating and dropping unique constraint
+  bool create;
+};
+
 // A data structure for exchanging info between main recovery function and
 // snapshot and WAL recovery functions.
 struct RecoveryData {
@@ -61,11 +68,14 @@ struct RecoveryData {
   std::vector<IndexRecoveryData> indexes;
 
   std::vector<ExistenceConstraintRecoveryData> existence_constraints;
+  std::vector<UniqueConstraintRecoveryData> unique_constraints;
 
   void Clear() {
     snapshooter_tx_id = 0;
     snapshooter_tx_snapshot.clear();
     indexes.clear();
+    existence_constraints.clear();
+    unique_constraints.clear();
   }
 };
 
@@ -160,5 +170,9 @@ void RecoverIndexes(database::GraphDb *db,
 void RecoverExistenceConstraints(
     database::GraphDb *db,
     const std::vector<ExistenceConstraintRecoveryData> &constraints);
+
+void RecoverUniqueConstraints(
+    database::GraphDb *db,
+    const std::vector<UniqueConstraintRecoveryData> &constraints);
 
 }  // namespace durability

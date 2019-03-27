@@ -4,13 +4,14 @@
 #include <experimental/optional>
 
 #include "data_structures/concurrent/concurrent_map.hpp"
-#include "storage/single_node/mvcc/version_list.hpp"
-#include "storage/common/types/types.hpp"
 #include "storage/common/kvstore/kvstore.hpp"
-#include "storage/single_node/edge.hpp"
+#include "storage/common/types/types.hpp"
 #include "storage/single_node/constraints/existence_constraints.hpp"
+#include "storage/single_node/constraints/unique_label_property_constraint.hpp"
+#include "storage/single_node/edge.hpp"
 #include "storage/single_node/indexes/key_index.hpp"
 #include "storage/single_node/indexes/label_property_index.hpp"
+#include "storage/single_node/mvcc/version_list.hpp"
 #include "storage/single_node/vertex.hpp"
 #include "transactions/type.hpp"
 
@@ -78,6 +79,10 @@ class Storage {
 
   // existence constraints
   ExistenceConstraints existence_constraints_;
+
+  // unique constraints
+  storage::constraints::UniqueLabelPropertyConstraint
+      unique_label_property_constraints_;
 
   std::vector<std::string> properties_on_disk_;
 

@@ -26,7 +26,7 @@ void RecordAccessor<Vertex>::PropsSet(storage::Property key,
   auto delta = StateDelta::PropsSetVertex(dba.transaction_id(), gid(), key,
                                           dba.PropertyName(key), value);
   update().properties_.set(key, value);
-  dba.UpdatePropertyIndex(key, *this, &update());
+  dba.UpdatePropertyIndex(key, value, *this, &update());
   db_accessor().wal().Emplace(delta);
 }
 

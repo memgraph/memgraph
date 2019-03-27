@@ -447,6 +447,33 @@ class GraphDbAccessor {
   void EnableIndex(const LabelPropertyIndex::Key &key);
 
   /**
+   * Creates new unique constraint that consists of label and property.
+   * If the constraint already exists, this method does nothing.
+   *
+   * @throws IndexConstraintViolationException if constraint couldn't be build
+   * due to existing constraint violation.
+   */
+  void BuildUniqueConstraint(storage::Label label, storage::Property property);
+
+  /**
+   * Deletes existing unique constraint.
+   * If the constraint doesn't exist, this method does nothing.
+   */
+  void DeleteUniqueConstraint(storage::Label label, storage::Property property);
+
+  /**
+   * Checks if unique constraint exists.
+   */
+  bool UniqueConstraintExists(storage::Label label,
+                              storage::Property property) const;
+
+  /**
+   * Returns a list of currently active unique constraints.
+   */
+  std::vector<storage::constraints::LabelProperty>
+  ListUniqueLabelPropertyConstraints() const;
+
+  /**
    * @brief - Returns true if the given label+property index already exists and
    * is ready for use.
    */
@@ -662,6 +689,12 @@ class GraphDbAccessor {
   /**
    * Notifies storage about change.
    */
+void UpdateOnRemoveLabel(storage::Label label,
+                           const RecordAccessor<Vertex> &accessor);
+
+  /**
+   * Notifies storage about change.
+   */
   void UpdateOnPropertyRemove(storage::Property property,
                               const Vertex *vertex,
                               const RecordAccessor<Vertex> &accessor);
@@ -674,6 +707,7 @@ class GraphDbAccessor {
    * @param vertex - vertex to insert
    */
   void UpdatePropertyIndex(storage::Property property,
+                           const PropertyValue &value,
                            const RecordAccessor<Vertex> &vertex_accessor,
                            const Vertex *const vertex);
 };

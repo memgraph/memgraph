@@ -55,11 +55,8 @@ TEST_F(UniqueLabelPropertyTest, BuildWithViolation) {
   auto dba2 = db_.Access();
   auto v3 = dba2->FindVertex(v1.gid(), false);
   auto v4 = dba2->FindVertex(v2.gid(), false);
-  constraint_.UpdateOnAddLabel(label_, v3, dba2->transaction());
-  EXPECT_THROW(constraint_.UpdateOnAddLabel(label_, v4, dba2->transaction()),
-               database::IndexConstraintViolationException);
-  EXPECT_THROW(constraint_.UpdateOnAddProperty(property_, value_, v4,
-                                               dba2->transaction()),
+  constraint_.Update(v3, dba2->transaction());
+  EXPECT_THROW(constraint_.Update(v4, dba2->transaction()),
                database::IndexConstraintViolationException);
 }
 
@@ -148,8 +145,7 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveAbortInsert) {
     auto dba = db_.Access();
     auto v = dba->FindVertex(gid, false);
     v.PropsErase(property_);
-    constraint_.UpdateOnRemoveProperty(property_, value_, v,
-                                       dba->transaction());
+    constraint_.UpdateOnRemoveProperty(property_, v, dba->transaction());
     dba->Abort();
   }
   {
@@ -219,8 +215,7 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveInsert) {
     auto dba = db_.Access();
     auto v = dba->FindVertex(gid, false);
     v.PropsErase(property_);
-    constraint_.UpdateOnRemoveProperty(property_, value_, v,
-                                       dba->transaction());
+    constraint_.UpdateOnRemoveProperty(property_, v, dba->transaction());
     dba->Commit();
   }
   {
@@ -241,7 +236,7 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveInsertSameTransaction) {
   v.PropsSet(property_, value_);
   constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
   v.PropsErase(property_);
-  constraint_.UpdateOnRemoveProperty(property_, value_, v, dba->transaction());
+  constraint_.UpdateOnRemoveProperty(property_, v, dba->transaction());
   v.PropsSet(property_, value_);
   constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
   dba->Commit();

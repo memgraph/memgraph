@@ -152,6 +152,32 @@ StateDelta StateDelta::DropExistenceConstraint(
   return op;
 }
 
+StateDelta StateDelta::BuildUniqueConstraint(
+    tx::TransactionId tx_id, storage::Label label,
+    const std::string &label_name,
+    const std::vector<storage::Property> &properties,
+    const std::vector<std::string> &property_names) {
+  StateDelta op(StateDelta::Type::BUILD_UNIQUE_CONSTRAINT, tx_id);
+  op.label = label;
+  op.label_name = label_name;
+  op.properties = properties;
+  op.property_names = property_names;
+  return op;
+}
+
+StateDelta StateDelta::DropUniqueConstraint(
+    tx::TransactionId tx_id, storage::Label label,
+    const std::string &label_name,
+    const std::vector<storage::Property> &properties,
+    const std::vector<std::string> &property_names) {
+  StateDelta op(StateDelta::Type::DROP_UNIQUE_CONSTRAINT, tx_id);
+  op.label = label;
+  op.label_name = label_name;
+  op.properties = properties;
+  op.property_names = property_names;
+  return op;
+}
+
 void StateDelta::Encode(
     HashedFileWriter &writer,
     communication::bolt::BaseEncoder<HashedFileWriter> &encoder) const {
@@ -211,6 +237,7 @@ void StateDelta::Encode(
       encoder.WriteString(property_name);
       break;
     case Type::BUILD_EXISTENCE_CONSTRAINT:
+    case Type::BUILD_UNIQUE_CONSTRAINT:
       encoder.WriteInt(label.Id());
       encoder.WriteString(label_name);
       encoder.WriteInt(properties.size());
@@ -222,6 +249,7 @@ void StateDelta::Encode(
       }
       break;
     case Type::DROP_EXISTENCE_CONSTRAINT:
+    case Type::DROP_UNIQUE_CONSTRAINT:
       encoder.WriteInt(label.Id());
       encoder.WriteString(label_name);
       encoder.WriteInt(properties.size());
@@ -313,7 +341,8 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
         DECODE_MEMBER_CAST(property, ValueInt, storage::Property)
         DECODE_MEMBER(property_name, ValueString)
         break;
-      case Type::BUILD_EXISTENCE_CONSTRAINT: {
+      case Type::BUILD_EXISTENCE_CONSTRAINT:
+      case Type::BUILD_UNIQUE_CONSTRAINT: {
         DECODE_MEMBER_CAST(label, ValueInt, storage::Label)
         DECODE_MEMBER(label_name, ValueString)
         if (!decoder.ReadValue(&dv)) return nullopt;
@@ -329,7 +358,8 @@ std::experimental::optional<StateDelta> StateDelta::Decode(
         }
         break;
       }
-      case Type::DROP_EXISTENCE_CONSTRAINT: {
+      case Type::DROP_EXISTENCE_CONSTRAINT:
+      case Type::DROP_UNIQUE_CONSTRAINT: {
         DECODE_MEMBER_CAST(label, ValueInt, storage::Label)
         DECODE_MEMBER(label_name, ValueString)
         if (!decoder.ReadValue(&dv)) return nullopt;
@@ -431,6 +461,28 @@ void StateDelta::Apply(GraphDbAccessor &dba) const {
       }
 
       dba.DeleteExistenceConstraint(dba.Label(label_name), properties);
+    } break;
+    case Type::BUILD_UNIQUE_CONSTRAINT: {
+      std::vector<storage::Property> properties;
+      properties.reserve(property_names.size());
+      for (auto &p : property_names) {
+        properties.push_back(dba.Property(p));
+      }
+
+      DCHECK(properties.size() == 1)
+          << "Unique constraint with multiple properties is not supported";
+      dba.BuildUniqueConstraint(dba.Label(label_name), properties[0]);
+    } break;
+    case Type::DROP_UNIQUE_CONSTRAINT: {
+      std::vector<storage::Property> properties;
+      properties.reserve(property_names.size());
+      for (auto &p : property_names) {
+        properties.push_back(dba.Property(p));
+      }
+
+      DCHECK(properties.size() == 1)
+          << "Unique constraint with multiple properties is not supported";
+      dba.DeleteUniqueConstraint(dba.Label(label_name), properties[0]);
     } break;
   }
 }
