@@ -68,52 +68,44 @@ antlrcpp::Any CypherMainVisitor::visitInfoQuery(
 
 antlrcpp::Any CypherMainVisitor::visitConstraintQuery(
     MemgraphCypher::ConstraintQueryContext *ctx) {
-  CHECK(ctx->children.size() == 1)
-      << "ConstraintQuery should have exactly one child!";
-  query_ = ctx->children[0]->accept(this).as<ConstraintQuery *>();
+  auto *constraint_query = storage_->Create<ConstraintQuery>();
+  CHECK(ctx->CREATE() || ctx->DROP());
+  if (ctx->CREATE()) {
+    constraint_query->action_type_ = ConstraintQuery::ActionType::CREATE;
+  } else if (ctx->DROP()) {
+    constraint_query->action_type_ = ConstraintQuery::ActionType::DROP;
+  }
+  constraint_query->constraint_ =
+      ctx->constraint()->accept(this).as<Constraint>();
+  query_ = constraint_query;
   return query_;
 }
 
-antlrcpp::Any CypherMainVisitor::visitCreateConstraint(
-    MemgraphCypher::CreateConstraintContext *ctx) {
-  auto *constraint_query = storage_->Create<ConstraintQuery>();
-  constraint_query->action_type_ = ConstraintQuery::ActionType::CREATE;
+antlrcpp::Any CypherMainVisitor::visitConstraint(
+    MemgraphCypher::ConstraintContext *ctx) {
+  Constraint constraint;
+  CHECK(ctx->EXISTS() || ctx->UNIQUE());
+  if (ctx->EXISTS()) {
+    constraint.type = Constraint::Type::EXISTS;
+  } else if (ctx->UNIQUE()) {
+    constraint.type = Constraint::Type::UNIQUE;
+  }
+  constraint.label = AddLabel(ctx->labelName()->accept(this));
   std::string node_name = ctx->nodeName->symbolicName()->accept(this);
-  for (const auto &var_ctx : ctx->variable()) {
+  for (const auto &var_ctx : ctx->constraintPropertyList()->variable()) {
     std::string var_name = var_ctx->symbolicName()->accept(this);
     if (var_name != node_name) {
-      throw SemanticException("All variables should reference node '{}'.",
-                              node_name);
+      throw SemanticException(
+          "All constraint variable should reference node '{}'", node_name);
     }
   }
-  constraint_query->label_ = AddLabel(ctx->labelName()->accept(this));
-  constraint_query->properties_.reserve(ctx->propertyLookup().size());
-  for (const auto &prop_lookup : ctx->propertyLookup()) {
-    PropertyIx name_key = prop_lookup->propertyKeyName()->accept(this);
-    constraint_query->properties_.push_back(name_key);
+  for (const auto &prop_lookup :
+       ctx->constraintPropertyList()->propertyLookup()) {
+    constraint.properties.push_back(
+        prop_lookup->propertyKeyName()->accept(this));
   }
-  return constraint_query;
-}
 
-antlrcpp::Any CypherMainVisitor::visitDropConstraint(
-    MemgraphCypher::DropConstraintContext *ctx) {
-  auto *constraint_query = storage_->Create<ConstraintQuery>();
-  constraint_query->action_type_ = ConstraintQuery::ActionType::DROP;
-  std::string node_name = ctx->nodeName->symbolicName()->accept(this);
-  for (const auto &var_ctx : ctx->variable()) {
-    std::string var_name = var_ctx->symbolicName()->accept(this);
-    if (var_name != node_name) {
-      throw SemanticException("All variables should reference node '{}'.",
-                              node_name);
-    }
-  }
-  constraint_query->label_ = AddLabel(ctx->labelName()->accept(this));
-  constraint_query->properties_.reserve(ctx->propertyLookup().size());
-  for (const auto &prop_lookup : ctx->propertyLookup()) {
-    PropertyIx name_key = prop_lookup->propertyKeyName()->accept(this);
-    constraint_query->properties_.push_back(name_key);
-  }
-  return constraint_query;
+  return constraint;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCypherQuery(
@@ -1364,8 +1356,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(
     MemgraphCypher::Expression2aContext *ctx) {
   Expression *expression = ctx->expression2b()->accept(this);
   if (ctx->nodeLabels()) {
-    auto labels =
-        ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
+    auto labels = ctx->nodeLabels()->accept(this).as<std::vector<LabelIx>>();
     expression = storage_->Create<LabelsTest>(expression, labels);
   }
   return expression;

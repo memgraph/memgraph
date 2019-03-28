@@ -2560,8 +2560,8 @@ cpp<#
   (:serialize (:slk) (:capnp))
   (:clone))
 
-(lcp:define-class constraint-query (query)
-  ((action-type "ActionType" :scope :public)
+(lcp:define-struct constraint ()
+  ((type "Type")
    (label "LabelIx" :scope :public
           :slk-load (lambda (member)
                      #>cpp
@@ -2589,6 +2589,20 @@ cpp<#
                                return ix;
                              }")
                :clone (clone-name-ix-vector "Property")))
+  (:public
+    (lcp:define-enum type (exists unique)
+      (:serialize (:lcp) (:capnp))))
+  (:serialize (:slk :load-args '((storage "query::AstStorage *")))
+              (:capnp :load-args '((storage "AstStorage *"))))
+  (:clone :args '((storage "AstStorage *"))))
+
+(lcp:define-class constraint-query (query)
+  ((action-type "ActionType" :scope :public)
+   (constraint "Constraint" :scope :public
+               :slk-load (lambda (member)
+                           #>cpp
+                           slk::Load(&self->${member}, reader, storage);
+                           cpp<#)))
   (:public
     (lcp:define-enum action-type
         (create drop)

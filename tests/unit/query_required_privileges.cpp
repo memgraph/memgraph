@@ -157,9 +157,9 @@ TEST_F(TestPrivilegeExtractor, ShowConstraintInfo) {
 TEST_F(TestPrivilegeExtractor, CreateConstraint) {
   auto *query = storage.Create<ConstraintQuery>();
   query->action_type_ = ConstraintQuery::ActionType::CREATE;
-  query->label_ = storage.GetLabelIx("label");
-  query->properties_.push_back(storage.GetPropertyIx("prop0"));
-  query->properties_.push_back(storage.GetPropertyIx("prop1"));
+  query->constraint_.label = storage.GetLabelIx("label");
+  query->constraint_.properties.push_back(storage.GetPropertyIx("prop0"));
+  query->constraint_.properties.push_back(storage.GetPropertyIx("prop1"));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
 }
@@ -167,10 +167,9 @@ TEST_F(TestPrivilegeExtractor, CreateConstraint) {
 TEST_F(TestPrivilegeExtractor, DropConstraint) {
   auto *query = storage.Create<ConstraintQuery>();
   query->action_type_ = ConstraintQuery::ActionType::DROP;
-  query->label_ = storage.GetLabelIx("label");
-  query->properties_.push_back(storage.GetPropertyIx("prop0"));
-  query->properties_.push_back(storage.GetPropertyIx("prop1"));
+  query->constraint_.label = storage.GetLabelIx("label");
+  query->constraint_.properties.push_back(storage.GetPropertyIx("prop0"));
+  query->constraint_.properties.push_back(storage.GetPropertyIx("prop1"));
   EXPECT_THAT(GetRequiredPrivileges(query),
               UnorderedElementsAre(AuthQuery::Privilege::CONSTRAINT));
 }
-

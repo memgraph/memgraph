@@ -31,13 +31,13 @@ query : cypherQuery
       | constraintQuery
       ;
 
-constraintQuery : createConstraint | dropConstraint ;
+constraintQuery : ( CREATE | DROP ) constraint ;
 
-createConstraint : CREATE CONSTRAINT ON '(' nodeName=variable ':' labelName ')'
-    ASSERT EXISTS '(' variable propertyLookup ( ',' variable propertyLookup )* ')' ;
+constraint : CONSTRAINT ON '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
+           | CONSTRAINT ON '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
+           ;
 
-dropConstraint : DROP CONSTRAINT ON '(' nodeName=variable ':' labelName ')'
-    ASSERT EXISTS '(' variable propertyLookup ( ',' variable propertyLookup )* ')' ;
+constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )* ;
 
 storageInfo : STORAGE INFO ;
 
