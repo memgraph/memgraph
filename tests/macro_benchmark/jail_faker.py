@@ -224,6 +224,97 @@ def store_label(label):
     if type(label) != str:
         raise Exception("Label must be a string!")
 
+
+"""
+This function flushes network rules from the filter table.
+
+The parameter `chain` can either be None, "INPUT" or "OUTPUT".
+
+If chain is None, this function performs the following commands:
+    ```
+    iptables -P INPUT ACCEPT
+    iptables -P OUTPUT ACCEPT
+    iptables -F INPUT
+    iptables -F OUTPUT
+    ```
+
+If chain is either "INPUT" or "OUTPUT" then only that chain is cleared using
+the appropriate subset of the above mentioned commands.
+"""
+def network_flush_rules(chain=None):
+    print("Network flush rules: chain={}".format(chain))
+
+
+"""
+This function blocks TCP packets using the iptables firewall.
+
+The parameter `chain` must be either "INPUT" or "OUTPUT".
+
+The parameters `src` and `dst` must be addresses and exactly one of them must
+be always specified.
+
+The parameters `sport` and `dport` must be ports used for TCP filtering and
+exactly one of them must be always specified.
+
+The parameter `action` must be either "DROP" or "REJECT".
+
+If `src` and `sport` are specified, this function performs the following
+command:
+    `iptables -A $chain -s $src -p tcp --sport $sport -j $action`
+The same principle is valid for all other combinations of `src`, `dst`, `sport`
+and `dport`.
+
+The journey of a network packet from its source to its destination is described
+in the following diagram:
+
+    +--------------------+        request        +-------------------+
+    | client             |  1 ->--->--->--->- 2  | server            |
+    |                    |                       |                   |
+    | addr: 192.168.1.50 |                       | addr: 192.168.1.1 |
+    | port: unknown      |  4 -<---<---<---<- 3  | port: 1000        |
+    +--------------------+        response       +-------------------+
+
+    From the diagram, we can see that to identify a network stream, we only
+    have the following parameters about it that we can use for filtering:
+    `addr_client`, `addr_server` and `port_server`.
+
+    To block the stream in points of transfer (1, 2, 3, 4), you need to issue
+    the following command (on the specific machine):
+        1. block on CLIENT: chain=OUTPUT, dst=addr_server, dport=port_server
+        2. block on SERVER: chain=INPUT,  src=addr_client, dport=port_server
+        3. block on SERVER: chain=OUTPUT, dst=addr_client, sport=port_server
+        4. block on CLIENT: chain=INPUT,  src=addr_server, sport=port_server
+
+    Other combinations of `chain`, `src`/`dst` and `sport`/`dport` can be used,
+    but are advised to be used only when you exactly know what you are doing :)
+"""
+def network_block_tcp(chain=None,
+                      src=None, dst=None,
+                      sport=None, dport=None,
+                      action=None):
+    print("Network block TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
+          "action={}".format(chain, src, dst, sport, dport, action)
+
+
+"""
+This function unblocks TCP packets using the iptables firewall.
+
+It is used to remove rules added by the `network_block_tcp` function.
+
+Rules that are added can be removed by calling this function with *exactly the
+same* parameters that were used to define the rule in the first place.
+
+All other documentation for this function is the same as for
+`network_block_tcp`, so take a look there.
+"""
+def network_unblock_tcp(chain=None,
+                        src=None, dst=None,
+                        sport=None, dport=None,
+                        action=None):
+    print("Network unblock TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
+          "action={}".format(chain, src, dst, sport, dport, action)
+
+
 # this function is deprecated
 def store_data(data):
     pass
