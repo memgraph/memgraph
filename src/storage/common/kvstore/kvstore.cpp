@@ -167,4 +167,13 @@ size_t KVStore::Size(const std::string &prefix) {
   return size;
 }
 
+bool KVStore::CompactRange(const std::string &begin_prefix,
+                           const std::string &end_prefix) {
+  rocksdb::CompactRangeOptions options;
+  rocksdb::Slice begin(begin_prefix);
+  rocksdb::Slice end(end_prefix);
+  auto s = pimpl_->db->CompactRange(options, &begin, &end);
+  return s.ok();
+}
+
 }  // namespace storage

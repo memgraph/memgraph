@@ -1018,6 +1018,10 @@ void RaftServer::SnapshotThread() {
                ++i) {
             disk_storage_.Delete(LogEntryKey(i));
           }
+          // After we deleted entries from the persistent store, make sure we
+          // compact the files and actually reduce used disk space.
+          disk_storage_.CompactRange(LogEntryKey(log_compaction_start_index),
+                                     LogEntryKey(last_included_index));
         }
       }
     }

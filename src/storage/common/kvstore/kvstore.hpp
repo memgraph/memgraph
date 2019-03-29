@@ -131,6 +131,20 @@ class KVStore final {
   size_t Size(const std::string &prefix = "");
 
   /**
+   * Compact the underlying storage for the key range [begin_prefix,
+   * end_prefix].
+   * The actual compaction interval might be superset of
+   * [begin_prefix, end_prefix].
+   *
+   * @param begin_prefix - Compaction interval start.
+   * @param end_prefix   - Compaction interval end.
+   *
+   * @return - true if the compaction finished successfully, false otherwise.
+   */
+  bool CompactRange(const std::string &begin_prefix,
+                    const std::string &end_prefix);
+
+  /**
    * Custom prefix-based iterator over kvstore.
    *
    * It filters all (key, value) pairs where the key has a certain prefix
