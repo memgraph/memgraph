@@ -255,9 +255,9 @@ GraphDbAccessor::ListUniqueLabelPropertyConstraints() const {
   return db_.storage().unique_label_property_constraints_.ListConstraints();
 }
 
-void GraphDbAccessor::UpdateLabelIndices(storage::Label label,
-                                         const VertexAccessor &vertex_accessor,
-                                         const Vertex *vertex) {
+void GraphDbAccessor::UpdateOnAddLabel(storage::Label label,
+                                       const VertexAccessor &vertex_accessor,
+                                       const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
   auto *vlist_ptr = vertex_accessor.address();
 
@@ -284,7 +284,7 @@ void GraphDbAccessor::UpdateOnRemoveLabel(
       label, accessor, transaction());
 }
 
-void GraphDbAccessor::UpdatePropertyIndex(
+void GraphDbAccessor::UpdateOnAddProperty(
     storage::Property property, const PropertyValue &value,
     const RecordAccessor<Vertex> &vertex_accessor, const Vertex *vertex) {
   DCHECK(!commited_ && !aborted_) << "Accessor committed or aborted";
@@ -299,9 +299,9 @@ void GraphDbAccessor::UpdatePropertyIndex(
   }
 }
 
-void GraphDbAccessor::UpdateOnPropertyRemove(
-    storage::Property property, const Vertex *vertex,
-    const RecordAccessor<Vertex> &accessor) {
+void GraphDbAccessor::UpdateOnRemoveProperty(
+    storage::Property property, const RecordAccessor<Vertex> &accessor,
+    const Vertex *vertex) {
   db_.storage().unique_label_property_constraints_.UpdateOnRemoveProperty(
       property, accessor, transaction());
 
@@ -316,7 +316,7 @@ void GraphDbAccessor::BuildExistenceConstraint(
     storage::Label label, const std::vector<storage::Property> &properties) {
   auto dba =
       db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
-  ExistenceRule rule{label, properties};
+  storage::constraints::ExistenceRule rule{label, properties};
 
   for (auto v : dba->Vertices(false)) {
     if (!CheckIfSatisfiesExistenceRule(v.GetOld(), rule)) {
@@ -326,7 +326,10 @@ void GraphDbAccessor::BuildExistenceConstraint(
     }
   }
 
-  if (!db_.storage().existence_constraints_.AddConstraint(rule)) return;
+  if (!db_.storage().existence_constraints_.AddConstraint(rule)) {
+    // Already exists
+    return;
+  }
 
   std::vector<std::string> property_names(properties.size());
   std::transform(properties.begin(), properties.end(), property_names.begin(),
@@ -342,8 +345,11 @@ void GraphDbAccessor::DeleteExistenceConstraint(
     storage::Label label, const std::vector<storage::Property> &properties) {
   auto dba =
       db_.AccessBlocking(std::experimental::make_optional(transaction().id_));
-  ExistenceRule rule{label, properties};
-  if (!db_.storage().existence_constraints_.RemoveConstraint(rule)) return;
+  storage::constraints::ExistenceRule rule{label, properties};
+  if (!db_.storage().existence_constraints_.RemoveConstraint(rule)) {
+    // Nothing was deleted
+    return;
+  }
 
   std::vector<std::string> property_names(properties.size());
   std::transform(properties.begin(), properties.end(), property_names.begin(),
@@ -358,12 +364,12 @@ void GraphDbAccessor::DeleteExistenceConstraint(
 bool GraphDbAccessor::ExistenceConstraintExists(
     storage::Label label,
     const std::vector<storage::Property> &properties) const {
-  ExistenceRule rule{label, properties};
+  storage::constraints::ExistenceRule rule{label, properties};
   return db_.storage().existence_constraints_.Exists(rule);
 }
 
-std::vector<ExistenceRule> GraphDbAccessor::ExistenceConstraintsList()
-    const {
+std::vector<storage::constraints::ExistenceRule>
+GraphDbAccessor::ListExistenceConstraints() const {
   return db_.storage().existence_constraints_.ListConstraints();
 }
 

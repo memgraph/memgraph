@@ -168,8 +168,8 @@ class DbGenerator {
 
 bool CompareExistenceConstraints(const database::GraphDbAccessor &dba1,
                                  const database::GraphDbAccessor &dba2) {
-  auto c1 = dba1.ExistenceConstraintsList();
-  auto c2 = dba2.ExistenceConstraintsList();
+  auto c1 = dba1.ListExistenceConstraints();
+  auto c2 = dba2.ListExistenceConstraints();
 
   auto compare_prop = [](auto &dba1, auto &p1, auto &dba2, auto &p2) {
     std::vector<std::string> p1_names;

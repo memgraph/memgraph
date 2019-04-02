@@ -4,15 +4,14 @@
 
 #include "database/single_node/graph_db.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
-#include "storage/single_node/constraints/unique_label_property_constraint.hpp"
 
 class UniqueLabelPropertyTest : public ::testing::Test {
  public:
   void SetUp() override {
-    auto dba = db_.AccessBlocking();
+    auto dba = db_.Access();
     label_ = dba->Label("label");
     property_ = dba->Property("property");
-    constraint_.AddConstraint(label_, property_, dba->transaction());
+    dba->BuildUniqueConstraint(label_, property_);
     dba->Commit();
   }
 
@@ -20,43 +19,42 @@ class UniqueLabelPropertyTest : public ::testing::Test {
   storage::Label label_;
   storage::Property property_;
   PropertyValue value_{"value"};
-  storage::constraints::UniqueLabelPropertyConstraint constraint_;
 };
 
 TEST_F(UniqueLabelPropertyTest, BuildDrop) {
   {
     auto dba = db_.Access();
-    EXPECT_TRUE(constraint_.Exists(label_, property_));
+    EXPECT_TRUE(dba->UniqueConstraintExists(label_, property_));
     dba->Commit();
   }
   {
     auto dba = db_.Access();
-    constraint_.RemoveConstraint(label_, property_);
+    dba->DeleteUniqueConstraint(label_, property_);
     dba->Commit();
   }
   {
     auto dba = db_.Access();
-    EXPECT_FALSE(constraint_.Exists(label_, property_));
+    EXPECT_FALSE(dba->UniqueConstraintExists(label_, property_));
     dba->Commit();
   }
 }
 
 TEST_F(UniqueLabelPropertyTest, BuildWithViolation) {
   auto dba1 = db_.Access();
+  auto l1 = dba1->Label("l1");
+  auto p1 = dba1->Property("p1");
+
   auto v1 = dba1->InsertVertex();
-  v1.add_label(label_);
-  v1.PropsSet(property_, value_);
+  v1.add_label(l1);
+  v1.PropsSet(p1, value_);
 
   auto v2 = dba1->InsertVertex();
-  v2.add_label(label_);
-  v2.PropsSet(property_, value_);
+  v2.add_label(l1);
+  v2.PropsSet(p1, value_);
   dba1->Commit();
 
   auto dba2 = db_.Access();
-  auto v3 = dba2->FindVertex(v1.gid(), false);
-  auto v4 = dba2->FindVertex(v2.gid(), false);
-  constraint_.Update(v3, dba2->transaction());
-  EXPECT_THROW(constraint_.Update(v4, dba2->transaction()),
+  EXPECT_THROW(dba2->BuildUniqueConstraint(l1, p1),
                database::IndexConstraintViolationException);
 }
 
@@ -65,23 +63,15 @@ TEST_F(UniqueLabelPropertyTest, InsertInsert) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     dba->Commit();
   }
   {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
-    v.PropsSet(property_, value_);
-    EXPECT_THROW(constraint_.UpdateOnAddProperty(property_, value_, v,
-                                                 dba->transaction()),
-                 database::IndexConstraintViolationException);
-    EXPECT_THROW(constraint_.UpdateOnAddLabel(label_, v, dba->transaction()),
-                 database::IndexConstraintViolationException);
-    dba->Commit();
+    EXPECT_THROW(v.PropsSet(property_, value_),
+        database::IndexConstraintViolationException);
   }
 }
 
@@ -90,9 +80,7 @@ TEST_F(UniqueLabelPropertyTest, InsertInsertDiffValues) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     dba->Commit();
   }
   {
@@ -100,10 +88,7 @@ TEST_F(UniqueLabelPropertyTest, InsertInsertDiffValues) {
     auto v = dba->InsertVertex();
     PropertyValue other_value{"Some other value"};
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, other_value);
-    constraint_.UpdateOnAddProperty(property_, other_value, v,
-                                    dba->transaction());
     dba->Commit();
   }
 }
@@ -113,18 +98,14 @@ TEST_F(UniqueLabelPropertyTest, InsertAbortInsert) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     dba->Abort();
   }
   {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     dba->Commit();
   }
 }
@@ -135,9 +116,7 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveAbortInsert) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     gid = v.gid();
     dba->Commit();
   }
@@ -145,17 +124,13 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveAbortInsert) {
     auto dba = db_.Access();
     auto v = dba->FindVertex(gid, false);
     v.PropsErase(property_);
-    constraint_.UpdateOnRemoveProperty(property_, v, dba->transaction());
     dba->Abort();
   }
   {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
-    v.PropsSet(property_, value_);
-    EXPECT_THROW(constraint_.UpdateOnAddProperty(property_, value_, v,
-                                                 dba->transaction()),
+    EXPECT_THROW(v.PropsSet(property_, value_),
                  database::IndexConstraintViolationException);
   }
 }
@@ -165,16 +140,11 @@ TEST_F(UniqueLabelPropertyTest, InsertInsertSameTransaction) {
     auto dba = db_.Access();
     auto v1 = dba->InsertVertex();
     v1.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v1, dba->transaction());
     v1.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v1, dba->transaction());
 
     auto v2 = dba->InsertVertex();
     v2.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v2, dba->transaction());
-    v2.PropsSet(property_, value_);
-    EXPECT_THROW(constraint_.UpdateOnAddProperty(property_, value_, v2,
-                                                 dba->transaction()),
+    EXPECT_THROW(v2.PropsSet(property_, value_),
                  database::IndexConstraintViolationException);
   }
 }
@@ -185,17 +155,12 @@ TEST_F(UniqueLabelPropertyTest, InsertInsertReversed) {
 
   auto v2 = dba2->InsertVertex();
   v2.add_label(label_);
-  constraint_.UpdateOnAddLabel(label_, v2, dba2->transaction());
   v2.PropsSet(property_, value_);
-  constraint_.UpdateOnAddProperty(property_, value_, v2, dba2->transaction());
   dba2->Commit();
 
   auto v1 = dba1->InsertVertex();
   v1.add_label(label_);
-  constraint_.UpdateOnAddLabel(label_, v1, dba1->transaction());
-  v1.PropsSet(property_, value_);
-  EXPECT_THROW(constraint_.UpdateOnAddProperty(property_, value_, v1,
-                                               dba1->transaction()),
+  EXPECT_THROW(v1.PropsSet(property_, value_),
                mvcc::SerializationError);
 }
 
@@ -205,9 +170,7 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveInsert) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     gid = v.gid();
     dba->Commit();
   }
@@ -215,16 +178,13 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveInsert) {
     auto dba = db_.Access();
     auto v = dba->FindVertex(gid, false);
     v.PropsErase(property_);
-    constraint_.UpdateOnRemoveProperty(property_, v, dba->transaction());
     dba->Commit();
   }
   {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
   }
 }
 
@@ -232,13 +192,9 @@ TEST_F(UniqueLabelPropertyTest, InsertRemoveInsertSameTransaction) {
   auto dba = db_.Access();
   auto v = dba->InsertVertex();
   v.add_label(label_);
-  constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
   v.PropsSet(property_, value_);
-  constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
   v.PropsErase(property_);
-  constraint_.UpdateOnRemoveProperty(property_, v, dba->transaction());
   v.PropsSet(property_, value_);
-  constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
   dba->Commit();
 }
 
@@ -247,23 +203,19 @@ TEST_F(UniqueLabelPropertyTest, InsertDropInsert) {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     dba->Commit();
   }
   {
-    auto dba = db_.AccessBlocking();
-    constraint_.RemoveConstraint(label_, property_);
+    auto dba = db_.Access();
+    dba->DeleteUniqueConstraint(label_, property_);
     dba->Commit();
   }
   {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
     v.add_label(label_);
-    constraint_.UpdateOnAddLabel(label_, v, dba->transaction());
     v.PropsSet(property_, value_);
-    constraint_.UpdateOnAddProperty(property_, value_, v, dba->transaction());
     dba->Commit();
   }
 }

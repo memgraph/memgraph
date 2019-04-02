@@ -4,131 +4,132 @@
 
 #include "database/single_node/graph_db.hpp"
 #include "database/single_node/graph_db_accessor.hpp"
-#include "storage/single_node/constraints/existence_constraints.hpp"
 
 class ExistenceConstraintsTest : public ::testing::Test {
  public:
-  void SetUp() override {}
-  database::ExistenceConstraints constraints_;
+  void SetUp() override {
+    auto dba = db_.Access();
+    label_ = dba->Label("label");
+    property_ = dba->Property("property");
+    properties_ = {property_};
+    rule_ = {label_, properties_};
+    dba->Commit();
+  }
+
+  storage::constraints::ExistenceConstraints constraints_;
   database::GraphDb db_;
+  storage::Label label_;
+  storage::Property property_;
+  std::vector<storage::Property> properties_;
+  storage::constraints::ExistenceRule rule_;
 };
 
-TEST_F(ExistenceConstraintsTest, MultiBuildDrop) {
-  auto d = db_.Access();
-  auto label = d->Label("label");
-  auto prop = d->Property("property");
-  database::ExistenceRule rule{label, std::vector<storage::Property>{prop}};
-  d->Commit();
-
+TEST_F(ExistenceConstraintsTest, BuildDrop) {
   {
-    auto dba = db_.AccessBlocking();
-    constraints_.AddConstraint(rule);
-    EXPECT_TRUE(constraints_.Exists(rule));
+    auto dba = db_.Access();
+    EXPECT_FALSE(dba->ExistenceConstraintExists(label_, properties_));
     dba->Commit();
   }
   {
-    auto dba = db_.AccessBlocking();
-    constraints_.RemoveConstraint(rule);
-    EXPECT_FALSE(constraints_.Exists(rule));
+    auto dba = db_.Access();
+    dba->BuildExistenceConstraint(label_, properties_);
+    EXPECT_TRUE(dba->ExistenceConstraintExists(label_, properties_));
+    dba->Commit();
+  }
+  {
+    auto dba = db_.Access();
+    dba->DeleteExistenceConstraint(label_, properties_);
+    EXPECT_FALSE(dba->ExistenceConstraintExists(label_, properties_));
     dba->Commit();
   }
 }
 
-TEST_F(ExistenceConstraintsTest, InsertTest) {
-  auto d = db_.Access();
-  auto label = d->Label("label");
-  auto prop = d->Property("property");
-  database::ExistenceRule rule{label, std::vector<storage::Property>{prop}};
-  d->Commit();
-
+TEST_F(ExistenceConstraintsTest, BuildWithViolation) {
   {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
-    v.add_label(label);
-    EXPECT_TRUE(constraints_.CheckOnAddLabel(v.GetNew(), label));
+    v.add_label(label_);
     dba->Commit();
   }
   {
     auto dba = db_.Access();
-    bool can_add_constraint = true;
-    for (auto v : dba->Vertices(false)) {
-      if (!database::CheckIfSatisfiesExistenceRule(v.GetOld(), rule)) {
-        can_add_constraint = false;
-      }
-    }
+    EXPECT_THROW(dba->BuildExistenceConstraint(label_, properties_),
+                 database::IndexConstraintViolationException);
+  }
+}
 
-    EXPECT_FALSE(can_add_constraint);
-    dba->Commit();
-  }
-  {
-    auto dba = db_.AccessBlocking();
-    constraints_.AddConstraint(rule);
-    dba->Commit();
-  }
+TEST_F(ExistenceConstraintsTest, InsertFail) {
   {
     auto dba = db_.Access();
-    auto v1 = dba->InsertVertex();
-    v1.add_label(label);
-    EXPECT_FALSE(
-        constraints_.CheckOnAddLabel(v1.GetNew(), label));
-    auto v2 = dba->InsertVertex();
-    v2.PropsSet(prop, PropertyValue(false));
-    v2.add_label(label);
-    EXPECT_TRUE(constraints_.CheckOnAddLabel(v2.GetNew(), label));
-    dba->Commit();
-  }
-  {
-    auto dba = db_.AccessBlocking();
-    constraints_.RemoveConstraint(rule);
+    dba->BuildExistenceConstraint(label_, properties_);
     dba->Commit();
   }
   {
     auto dba = db_.Access();
     auto v = dba->InsertVertex();
-    v.add_label(label);
-    EXPECT_TRUE(constraints_.CheckOnAddLabel(v.GetNew(), label));
+    EXPECT_THROW(v.add_label(label_),
+                 database::IndexConstraintViolationException);
+  }
+}
+
+TEST_F(ExistenceConstraintsTest, InsertPass) {
+  {
+    auto dba = db_.Access();
+    dba->BuildExistenceConstraint(label_, properties_);
+    dba->Commit();
+  }
+  {
+    auto dba = db_.Access();
+    auto v = dba->InsertVertex();
+    v.PropsSet(property_, PropertyValue("Something"));
+    v.add_label(label_);
     dba->Commit();
   }
 }
 
-TEST_F(ExistenceConstraintsTest, GraphDbAccessor) {
-  auto d = db_.Access();
-  auto label = d->Label("label");
-  auto prop = d->Property("property");
-  auto properties = std::vector<storage::Property>{prop};
-  d->Commit();
+TEST_F(ExistenceConstraintsTest, RemoveFail) {
+  {
+    auto dba = db_.Access();
+    dba->BuildExistenceConstraint(label_, properties_);
+    dba->Commit();
+  }
+  gid::Gid gid;
+  {
+    auto dba = db_.Access();
+    auto v = dba->InsertVertex();
+    v.PropsSet(property_, PropertyValue("Something"));
+    v.add_label(label_);
+    gid = v.gid();
+    dba->Commit();
+  }
+  {
+    auto dba = db_.Access();
+    auto v = dba->FindVertex(gid, false);
+    EXPECT_THROW(v.PropsErase(property_),
+        database::IndexConstraintViolationException);
+  }
+}
 
+TEST_F(ExistenceConstraintsTest, RemovePass) {
   {
     auto dba = db_.Access();
-    dba->BuildExistenceConstraint(label, properties);
-    // Constraint is not visible because transaction creates blocking
-    // transaction with different id;
+    dba->BuildExistenceConstraint(label_, properties_);
+    dba->Commit();
+  }
+  gid::Gid gid;
+  {
+    auto dba = db_.Access();
+    auto v = dba->InsertVertex();
+    v.PropsSet(property_, PropertyValue("Something"));
+    v.add_label(label_);
+    gid = v.gid();
     dba->Commit();
   }
   {
     auto dba = db_.Access();
-    EXPECT_TRUE(dba->ExistenceConstraintExists(label, properties));
-    auto v1 = dba->InsertVertex();
-    EXPECT_THROW(v1.add_label(label),
-                 database::IndexConstraintViolationException);
-    auto v2 = dba->InsertVertex();
-    v2.PropsSet(prop, PropertyValue(false));
-    v2.add_label(label);
-    EXPECT_THROW(v2.PropsErase(prop),
-                 database::IndexConstraintViolationException);
-    v2.remove_label(label);
-    dba->Commit();
-  }
-  {
-    auto dba = db_.Access();
-    dba->DeleteExistenceConstraint(label, properties);
-    dba->Commit();
-  }
-  {
-    auto dba = db_.Access();
-    EXPECT_FALSE(dba->ExistenceConstraintExists(label, properties));
-    auto v1 = dba->InsertVertex();
-    v1.add_label(label);
+    auto v = dba->FindVertex(gid, false);
+    v.remove_label(label_);
+    v.PropsErase(property_);
     dba->Commit();
   }
 }

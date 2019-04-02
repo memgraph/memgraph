@@ -10,7 +10,7 @@
 #include "storage/single_node/vertex.hpp"
 #include "transactions/type.hpp"
 
-namespace database {
+namespace storage::constraints {
 
 /// Existence rule defines label -> set of properties rule. This means that
 /// every vertex with that label has to have every property in the set of
@@ -30,7 +30,7 @@ struct ExistenceRule {
 };
 
 bool CheckIfSatisfiesExistenceRule(const Vertex *vertex,
-                                   const database::ExistenceRule &rule);
+                                   const ExistenceRule &rule);
 
 /// ExistenceConstraints contains all active constrains. Existence constraints
 /// are restriction on the vertices and are defined by ExistenceRule.
@@ -84,4 +84,4 @@ class ExistenceConstraints {
  private:
   std::vector<ExistenceRule> constraints_;
 };
-};  // namespace database
+};  // namespace storage::constraints

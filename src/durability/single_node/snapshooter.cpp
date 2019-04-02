@@ -58,7 +58,7 @@ bool Encode(const fs::path &snapshot_file, database::GraphDb &db,
     // Write existence constraints to snapshoot
     {
       std::vector<communication::bolt::Value> existence_constraints;
-      for (const auto &rule : dba.ExistenceConstraintsList()) {
+      for (const auto &rule : dba.ListExistenceConstraints()) {
         existence_constraints.emplace_back(dba.LabelName(rule.label));
         existence_constraints.emplace_back(
             static_cast<int64_t>(rule.properties.size()));

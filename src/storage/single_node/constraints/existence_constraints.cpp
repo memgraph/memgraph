@@ -1,6 +1,6 @@
 #include "storage/single_node/constraints/existence_constraints.hpp"
 
-namespace database {
+namespace storage::constraints {
 bool Contains(const PropertyValueStore &store,
               const std::vector<storage::Property> &properties) {
   for (auto &property : properties) {
@@ -13,7 +13,7 @@ bool Contains(const PropertyValueStore &store,
 }
 
 bool CheckIfSatisfiesExistenceRule(const Vertex *vertex,
-                                   const database::ExistenceRule &rule) {
+                                   const ExistenceRule &rule) {
   if (!utils::Contains(vertex->labels_, rule.label)) return true;
   if (!Contains(vertex->properties_, rule.properties)) return false;
 
@@ -69,4 +69,4 @@ bool ExistenceConstraints::CheckOnRemoveProperty(
 const std::vector<ExistenceRule> &ExistenceConstraints::ListConstraints() const {
   return constraints_;
 }
-}  // namespace database
+}  // namespace storage::constraints

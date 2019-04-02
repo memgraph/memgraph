@@ -11,6 +11,7 @@
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
 
+#include "database/single_node/exceptions.hpp"
 #include "database/single_node/graph_db.hpp"
 #include "storage/common/types/types.hpp"
 #include "storage/single_node/constraints/exceptions.hpp"
@@ -19,26 +20,8 @@
 #include "transactions/transaction.hpp"
 #include "transactions/type.hpp"
 #include "utils/bound.hpp"
-#include "utils/exceptions.hpp"
 
 namespace database {
-
-/** Thrown when creating an index which already exists. */
-class IndexExistsException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
-
-/** Thrown when creating an index which already exists. */
-class IndexCreationOnWorkerException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
-
-/// Thrown on concurrent index creation when the transaction engine fails to
-/// start a new transaction.
-class IndexTransactionException : public utils::BasicException {
-  using utils::BasicException::BasicException;
-};
-
 /**
  * Base accessor for the database object: exposes functions for operating on the
  * database. All the functions in this class should be self-sufficient: for
@@ -514,7 +497,8 @@ class GraphDbAccessor {
   /**
    * Returns the list of existence constraints currently active.
    */
-  std::vector<ExistenceRule> ExistenceConstraintsList() const;
+  std::vector<storage::constraints::ExistenceRule> ListExistenceConstraints()
+      const;
 
   /**
    * Return approximate number of all vertices in the database.
@@ -664,18 +648,6 @@ class GraphDbAccessor {
    **/
   std::vector<std::pair<std::string, std::string>> StorageInfo() const;
 
-  /**
-   * Insert this vertex into corresponding label and label+property (if it
-   * exists) index.
-   *
-   * @param label - label with which to insert vertex label record
-   * @param vertex_accessor - vertex_accessor to insert
-   * @param vertex - vertex record to insert
-   */
-  void UpdateLabelIndices(storage::Label label,
-                          const VertexAccessor &vertex_accessor,
-                          const Vertex *const vertex);
-
  private:
   GraphDb &db_;
   tx::Transaction &transaction_;
@@ -687,29 +659,46 @@ class GraphDbAccessor {
   bool aborted_{false};
 
   /**
-   * Notifies storage about change.
+   * Notifies storage about a change.
+   *
+   * @param label - label that was added
+   * @param vertex_accessor - vertex_accessor that was updated
+   * @param vertex - vertex that was updated
    */
-void UpdateOnRemoveLabel(storage::Label label,
+  void UpdateOnAddLabel(storage::Label label,
+                        const VertexAccessor &vertex_accessor,
+                        const Vertex *vertex);
+
+  /**
+   * Notifies storage about a change.
+   *
+   * @param label - label that was removed
+   * @param vertex_accessor - vertex_accessor that was updated
+   */
+  void UpdateOnRemoveLabel(storage::Label label,
                            const RecordAccessor<Vertex> &accessor);
 
   /**
-   * Notifies storage about change.
+   * Notifies storage about a change.
+   * @param vertex_accessor - vertex_accessor that was updated
+   * @param vertex - vertex that was updated
    */
-  void UpdateOnPropertyRemove(storage::Property property,
-                              const Vertex *vertex,
-                              const RecordAccessor<Vertex> &accessor);
+  void UpdateOnRemoveProperty(storage::Property property,
+                              const RecordAccessor<Vertex> &accessor,
+                              const Vertex* vertex);
 
   /**
-   * Insert this vertex into corresponding any label + 'property' index.
-   * @param property - vertex will be inserted into indexes which contain this
-   * property
-   * @param vertex_accessor - vertex accessor to insert
-   * @param vertex - vertex to insert
+   * Notifies storage about a change.
+   *
+   * @param property - property that was added
+   * @param value - corresponding value that was added
+   * @param vertex_accessor - vertex accessor that was updated
+   * @param vertex - vertex that was updated
    */
-  void UpdatePropertyIndex(storage::Property property,
+  void UpdateOnAddProperty(storage::Property property,
                            const PropertyValue &value,
                            const RecordAccessor<Vertex> &vertex_accessor,
-                           const Vertex *const vertex);
+                           const Vertex *vertex);
 };
 
 }  // namespace database

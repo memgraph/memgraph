@@ -78,7 +78,7 @@ class Storage {
   LabelPropertyIndex label_property_index_;
 
   // existence constraints
-  ExistenceConstraints existence_constraints_;
+  storage::constraints::ExistenceConstraints existence_constraints_;
 
   // unique constraints
   storage::constraints::UniqueLabelPropertyConstraint
