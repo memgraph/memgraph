@@ -570,7 +570,7 @@ void RaftServer::Transition(const Mode &new_mode) {
       // RequestVote RPCs in parallel to each of the other servers in the
       // cluster."
       SetCurrentTerm(current_term_ + 1);
-      disk_storage_.Put(kVotedForKey, std::to_string(server_id_));
+      SetVotedFor(server_id_);
 
       granted_votes_ = 1;
       vote_requested_.assign(coordination_->WorkerCount(), false);
@@ -895,6 +895,8 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
                 }
               });
 
+          vote_requested_[peer_id] = true;
+
           lock.unlock();  // Release lock while waiting for response
           auto reply = peer_future.get();
           lock.lock();
@@ -910,8 +912,6 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
             state_changed_.notify_all();
             continue;
           }
-
-          vote_requested_[peer_id] = true;
 
           if (reply.vote_granted) {
             VLOG(40) << "Server " << server_id_ << ": Got vote from "
