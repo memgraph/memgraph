@@ -6,8 +6,8 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/serialization.capnp.h"
 #include "query/typed_value.hpp"
-#include "storage/distributed/rpc/serialization.hpp"
 #include "rpc/serialization.hpp"
+#include "storage/distributed/rpc/serialization.hpp"
 
 namespace distributed {
 class DataManager;
@@ -32,19 +32,27 @@ void Load(TypedValueVectorCompare *comparator,
 
 inline void Save(const SymbolTable &symbol_table,
                  capnp::SymbolTable::Builder *builder) {
-  auto list_builder = builder->initTable(symbol_table.table().size());
-  utils::SaveVector<capnp::Symbol, Symbol>(
-      symbol_table.table(), &list_builder,
-      [](auto *builder, const auto &symbol) { Save(symbol, builder); });
+  auto table_builder = builder->initTable();
+  utils::SaveMap<utils::capnp::BoxInt32, capnp::Symbol,
+                 std::map<int32_t, Symbol>>(
+      symbol_table.table(), &table_builder,
+      [](auto *builder, const auto &entry) {
+        auto key_builder = builder->initKey();
+        key_builder.setValue(entry.first);
+        auto value_builder = builder->initValue();
+        Save(entry.second, &value_builder);
+      });
 }
 
 inline void Load(SymbolTable *symbol_table,
                  const capnp::SymbolTable::Reader &reader) {
-  utils::LoadVector<capnp::Symbol, Symbol>(
+  utils::LoadMap<utils::capnp::BoxInt32, capnp::Symbol,
+                 std::map<int32_t, Symbol>>(
       &symbol_table->table_, reader.getTable(), [](const auto &reader) {
-        Symbol val;
-        Load(&val, reader);
-        return val;
+        std::pair<int32_t, Symbol> entry;
+        entry.first = reader.getKey().getValue();
+        Load(&entry.second, reader.getValue());
+        return entry;
       });
 }
 

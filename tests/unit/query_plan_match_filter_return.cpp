@@ -757,7 +757,7 @@ TEST_F(QueryPlanExpandVariable, NamedPath) {
                                2, e, "m", GraphView::OLD);
   auto find_symbol = [this](const std::string &name) {
     for (const auto &sym : symbol_table.table())
-      if (sym.name() == name) return sym;
+      if (sym.second.name() == name) return sym.second;
     throw std::runtime_error("Symbol not found");
   };
 

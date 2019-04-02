@@ -66,7 +66,6 @@ struct hash<query::Symbol> {
     size_t prime = 265443599u;
     size_t hash = std::hash<int>{}(symbol.position());
     hash ^= prime * std::hash<std::string>{}(symbol.name());
-    hash ^= prime * std::hash<bool>{}(symbol.user_declared());
     hash ^= prime * std::hash<int>{}(static_cast<int>(symbol.type()));
     return hash;
   }

@@ -985,10 +985,10 @@ TEST_F(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   EXPECT_EQ(symbol_table.max_position(), 7);
   // All symbols except `AS res` are anonymously generated.
   for (const auto &symbol : symbol_table.table()) {
-    if (symbol.name() == "res") {
-      EXPECT_TRUE(symbol.user_declared());
+    if (symbol.second.name() == "res") {
+      EXPECT_TRUE(symbol.second.user_declared());
     } else {
-      EXPECT_FALSE(symbol.user_declared());
+      EXPECT_FALSE(symbol.second.user_declared());
     }
   }
 }

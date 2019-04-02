@@ -77,7 +77,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
       if (where) {
         where->Accept(*this);
       }
-      DCHECK(aggregations_.empty())
+      CHECK(aggregations_.empty())
           << "Unexpected aggregations in ORDER BY or WHERE";
     }
   }
@@ -121,7 +121,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
  public:
   bool PostVisit(ListLiteral &list_literal) override {
-    DCHECK(list_literal.elements_.size() <= has_aggregation_.size())
+    CHECK(list_literal.elements_.size() <= has_aggregation_.size())
         << "Expected as many has_aggregation_ flags as there are list"
            "elements.";
     PostVisitCollectionLiteral(list_literal, [](auto it) { return *it; });
@@ -129,7 +129,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(MapLiteral &map_literal) override {
-    DCHECK(map_literal.elements_.size() <= has_aggregation_.size())
+    CHECK(map_literal.elements_.size() <= has_aggregation_.size())
         << "Expected has_aggregation_ flags as much as there are map elements.";
     PostVisitCollectionLiteral(map_literal, [](auto it) { return it->second; });
     return true;
@@ -139,7 +139,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol which is bound by all, because we are only interested
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*all.identifier_));
-    DCHECK(has_aggregation_.size() >= 3U)
+    CHECK(has_aggregation_.size() >= 3U)
         << "Expected 3 has_aggregation_ flags for ALL arguments";
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
@@ -154,7 +154,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol which is bound by single, because we are only
     // interested in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*single.identifier_));
-    DCHECK(has_aggregation_.size() >= 3U)
+    CHECK(has_aggregation_.size() >= 3U)
         << "Expected 3 has_aggregation_ flags for SINGLE arguments";
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
@@ -170,7 +170,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*reduce.accumulator_));
     used_symbols_.erase(symbol_table_.at(*reduce.identifier_));
-    DCHECK(has_aggregation_.size() >= 5U)
+    CHECK(has_aggregation_.size() >= 5U)
         << "Expected 5 has_aggregation_ flags for REDUCE arguments";
     bool has_aggr = false;
     for (int i = 0; i < 5; ++i) {
@@ -198,7 +198,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     // Remove the symbol bound by extract, because we are only interested
     // in free (unbound) symbols.
     used_symbols_.erase(symbol_table_.at(*extract.identifier_));
-    DCHECK(has_aggregation_.size() >= 3U)
+    CHECK(has_aggregation_.size() >= 3U)
         << "Expected 3 has_aggregation_ flags for EXTRACT arguments";
     bool has_aggr = false;
     for (int i = 0; i < 3; ++i) {
@@ -257,12 +257,12 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     has_aggregation_.emplace_back(has_aggr);
     // TODO: Once we allow aggregations here, insert appropriate stuff in
     // group_by.
-    DCHECK(!has_aggr) << "Currently aggregations in CASE are not allowed";
+    CHECK(!has_aggr) << "Currently aggregations in CASE are not allowed";
     return false;
   }
 
   bool PostVisit(Function &function) override {
-    DCHECK(function.arguments_.size() <= has_aggregation_.size())
+    CHECK(function.arguments_.size() <= has_aggregation_.size())
         << "Expected as many has_aggregation_ flags as there are"
            "function arguments.";
     bool has_aggr = false;
@@ -278,7 +278,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
 #define VISIT_BINARY_OPERATOR(BinaryOperator)                              \
   bool PostVisit(BinaryOperator &op) override {                            \
-    DCHECK(has_aggregation_.size() >= 2U)                                  \
+    CHECK(has_aggregation_.size() >= 2U)                                  \
         << "Expected at least 2 has_aggregation_ flags.";                  \
     /* has_aggregation_ stack is reversed, last result is from the 2nd */  \
     /* expression. */                                                      \
@@ -336,7 +336,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(NamedExpression &named_expr) override {
-    DCHECK(has_aggregation_.size() == 1U)
+    CHECK(has_aggregation_.size() == 1U)
         << "Expected to reduce has_aggregation_ to single boolean.";
     if (!has_aggregation_.back()) {
       group_by_.emplace_back(named_expr.expression_);
@@ -354,9 +354,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   // This should be used when body.all_identifiers is true, to generate
   // expressions for Produce operator.
   void ExpandUserSymbols() {
-    DCHECK(named_expressions_.empty())
+    CHECK(named_expressions_.empty())
         << "ExpandUserSymbols should be first to fill named_expressions_";
-    DCHECK(output_symbols_.empty())
+    CHECK(output_symbols_.empty())
         << "ExpandUserSymbols should be first to fill output_symbols_";
     for (const auto &symbol : bound_symbols_) {
       if (!symbol.user_declared()) {

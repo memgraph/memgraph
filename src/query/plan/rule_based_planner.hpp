@@ -94,20 +94,20 @@ template <typename T>
 auto ReducePattern(
     Pattern &pattern, std::function<T(NodeAtom *)> base,
     std::function<T(T, NodeAtom *, EdgeAtom *, NodeAtom *)> collect) {
-  DCHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
+  CHECK(!pattern.atoms_.empty()) << "Missing atoms in pattern";
   auto atoms_it = pattern.atoms_.begin();
   auto current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-  DCHECK(current_node) << "First pattern atom is not a node";
+  CHECK(current_node) << "First pattern atom is not a node";
   auto last_res = base(current_node);
   // Remaining atoms need to follow sequentially as (EdgeAtom, NodeAtom)*
   while (atoms_it != pattern.atoms_.end()) {
     auto edge = utils::Downcast<EdgeAtom>(*atoms_it++);
-    DCHECK(edge) << "Expected an edge atom in pattern.";
-    DCHECK(atoms_it != pattern.atoms_.end())
+    CHECK(edge) << "Expected an edge atom in pattern.";
+    CHECK(atoms_it != pattern.atoms_.end())
         << "Edge atom should not end the pattern.";
     auto prev_node = current_node;
     current_node = utils::Downcast<NodeAtom>(*atoms_it++);
-    DCHECK(current_node) << "Expected a node atom in pattern.";
+    CHECK(current_node) << "Expected a node atom in pattern.";
     last_res = collect(std::move(last_res), prev_node, edge, current_node);
   }
   return last_res;
@@ -179,7 +179,7 @@ class RuleBasedPlanner {
       }
       int merge_id = 0;
       for (auto *clause : query_part.remaining_clauses) {
-        DCHECK(!utils::IsSubtype(*clause, Match::kType))
+        CHECK(!utils::IsSubtype(*clause, Match::kType))
             << "Unexpected Match in remaining clauses";
         if (auto *ret = utils::Downcast<Return>(clause)) {
           input_op = impl::GenReturn(
@@ -407,7 +407,7 @@ class RuleBasedPlanner {
             symbol_table.at(*expansion.node2->identifier_);
         auto existing_node = utils::Contains(bound_symbols, node_symbol);
         const auto &edge_symbol = symbol_table.at(*edge->identifier_);
-        DCHECK(!utils::Contains(bound_symbols, edge_symbol))
+        CHECK(!utils::Contains(bound_symbols, edge_symbol))
             << "Existing edges are not supported";
         std::vector<storage::EdgeType> edge_types;
         edge_types.reserve(edge->edge_types_.size());
@@ -439,7 +439,7 @@ class RuleBasedPlanner {
                 bound_symbols.insert(filter_lambda.inner_edge_symbol).second;
             bool inner_node_bound =
                 bound_symbols.insert(filter_lambda.inner_node_symbol).second;
-            DCHECK(inner_edge_bound && inner_node_bound)
+            CHECK(inner_edge_bound && inner_node_bound)
                 << "An inner edge and node can't be bound from before";
           }
           // Join regular filters with lambda filter expression, so that they
@@ -518,14 +518,14 @@ class RuleBasedPlanner {
                                    storage);
       }
     }
-    DCHECK(named_paths.empty()) << "Expected to generate all named paths";
+    CHECK(named_paths.empty()) << "Expected to generate all named paths";
     // We bound all named path symbols, so just add them to new_symbols.
     for (const auto &named_path : matching.named_paths) {
-      DCHECK(utils::Contains(bound_symbols, named_path.first))
+      CHECK(utils::Contains(bound_symbols, named_path.first))
           << "Expected generated named path to have bound symbol";
       match_context.new_symbols.emplace_back(named_path.first);
     }
-    DCHECK(filters.empty()) << "Expected to generate all filters";
+    CHECK(filters.empty()) << "Expected to generate all filters";
     return last_op;
   }
 
@@ -544,12 +544,12 @@ class RuleBasedPlanner {
     for (auto &set : merge.on_create_) {
       on_create = HandleWriteClause(set, on_create, *context_->symbol_table,
                                     context_->bound_symbols);
-      DCHECK(on_create) << "Expected SET in MERGE ... ON CREATE";
+      CHECK(on_create) << "Expected SET in MERGE ... ON CREATE";
     }
     for (auto &set : merge.on_match_) {
       on_match = HandleWriteClause(set, on_match, *context_->symbol_table,
                                    context_->bound_symbols);
-      DCHECK(on_match) << "Expected SET in MERGE ... ON MATCH";
+      CHECK(on_match) << "Expected SET in MERGE ... ON MATCH";
     }
     return std::make_unique<plan::Merge>(
         std::move(input_op), std::move(on_match), std::move(on_create));

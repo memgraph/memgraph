@@ -43,5 +43,5 @@ struct TypedValue {
 }
 
 struct SymbolTable {
-  table @0 :List(Sem.Symbol);
+  table @0 :Utils.Map(Utils.BoxInt32, Sem.Symbol);
 }
