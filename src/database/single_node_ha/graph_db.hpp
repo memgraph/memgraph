@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "database/single_node_ha/counters.hpp"
-#include "database/single_node_ha/state_delta_applier.hpp"
 #include "io/network/endpoint.hpp"
 #include "raft/coordination.hpp"
 #include "raft/raft_server.hpp"
@@ -159,14 +158,12 @@ class GraphDb {
       config_.rpc_num_server_workers, config_.rpc_num_client_workers,
       config_.server_id,
       raft::Coordination::LoadFromFile(config_.coordination_config_file)};
-  database::StateDeltaApplier delta_applier_{this};
   raft::RaftServer raft_server_{
       config_.server_id,
       config_.durability_directory,
       config_.db_recover_on_startup,
       raft::Config::LoadFromFile(config_.raft_config_file),
       &coordination_,
-      &delta_applier_,
       this};
   raft::StorageInfo storage_info_{this, &coordination_, config_.server_id};
 

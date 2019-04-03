@@ -8,7 +8,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "database/single_node_ha/state_delta_applier.hpp"
 #include "durability/single_node_ha/state_delta.hpp"
 #include "raft/config.hpp"
 #include "raft/coordination.hpp"
@@ -62,12 +61,10 @@ class RaftServer final : public RaftInterface {
   ///                              startup.
   /// @param config raft configuration.
   /// @param coordination Abstraction for coordination between Raft servers.
-  /// @param delta_applier Object which is able to apply state deltas to SM.
   /// @param db The current DB object.
   RaftServer(uint16_t server_id, const std::string &durability_dir,
              bool db_recover_on_startup, const Config &config,
-             raft::Coordination *coordination,
-             database::StateDeltaApplier *delta_applier, database::GraphDb *db);
+             raft::Coordination *coordination, database::GraphDb *db);
 
   /// Starts the RPC servers and starts mechanisms inside Raft protocol.
   void Start();
@@ -164,7 +161,6 @@ class RaftServer final : public RaftInterface {
 
   Config config_;                        ///< Raft config.
   Coordination *coordination_{nullptr};  ///< Cluster coordination.
-  database::StateDeltaApplier *delta_applier_{nullptr};
   database::GraphDb *db_{nullptr};
   std::unique_ptr<ReplicationLog> rlog_{nullptr};
 
@@ -409,5 +405,9 @@ class RaftServer final : public RaftInterface {
 
   /// Start a new transaction with a NO-OP StateDelta.
   void NoOpCreate();
+
+  /// Applies the given batch of state deltas that are representing a transacton
+  /// to the db.
+  void ApplyStateDeltas(const std::vector<database::StateDelta> &deltas);
 };
 }  // namespace raft

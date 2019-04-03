@@ -266,7 +266,6 @@ set(mg_single_node_ha_sources
     database/single_node_ha/config.cpp
     database/single_node_ha/graph_db.cpp
     database/single_node_ha/graph_db_accessor.cpp
-    database/single_node_ha/state_delta_applier.cpp
     durability/single_node_ha/state_delta.cpp
     durability/single_node_ha/paths.cpp
     durability/single_node_ha/snapshooter.cpp

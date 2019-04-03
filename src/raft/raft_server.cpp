@@ -34,12 +34,9 @@ const std::chrono::duration<int64_t> kSnapshotPeriod = 1s;
 
 RaftServer::RaftServer(uint16_t server_id, const std::string &durability_dir,
                        bool db_recover_on_startup, const Config &config,
-                       Coordination *coordination,
-                       database::StateDeltaApplier *delta_applier,
-                       database::GraphDb *db)
+                       Coordination *coordination, database::GraphDb *db)
     : config_(config),
       coordination_(coordination),
-      delta_applier_(delta_applier),
       db_(db),
       rlog_(std::make_unique<ReplicationLog>()),
       mode_(Mode::FOLLOWER),
@@ -197,7 +194,7 @@ void RaftServer::Start() {
     // the entry to its state machine (in log order)
     while (req.leader_commit > last_applied_ && last_applied_ + 1 < log_size_) {
       ++last_applied_;
-      delta_applier_->Apply(GetLogEntry(last_applied_).deltas);
+      ApplyStateDeltas(GetLogEntry(last_applied_).deltas);
     }
 
     // Respond positively to a heartbeat.
@@ -541,7 +538,7 @@ void RaftServer::Transition(const Mode &new_mode) {
         }
 
         for (uint64_t i = starting_index; i <= commit_index_; ++i) {
-          delta_applier_->Apply(GetLogEntry(i).deltas);
+          ApplyStateDeltas(GetLogEntry(i).deltas);
         }
 
         last_applied_ = commit_index_;
@@ -609,7 +606,7 @@ void RaftServer::Transition(const Mode &new_mode) {
       // Raft guarantees the Leader Append-Only property [Raft paper 5.2]
       // so its safe to apply everything from our log into our state machine
       for (int i = last_applied_ + 1; i < log_size_; ++i)
-        delta_applier_->Apply(GetLogEntry(i).deltas);
+        ApplyStateDeltas(GetLogEntry(i).deltas);
       last_applied_ = log_size_ - 1;
 
       mode_ = Mode::LEADER;
@@ -1185,6 +1182,34 @@ void RaftServer::NoOpCreate() {
   auto dba = db_->Access();
   Emplace(database::StateDelta::NoOp(dba->transaction_id()));
   dba->Commit();
+}
+
+void RaftServer::ApplyStateDeltas(
+    const std::vector<database::StateDelta> &deltas) {
+  std::unique_ptr<database::GraphDbAccessor> dba = nullptr;
+  for (auto &delta : deltas) {
+    switch (delta.type) {
+      case database::StateDelta::Type::TRANSACTION_BEGIN:
+        CHECK(!dba) << "Double transaction start";
+        dba = db_->Access();
+        break;
+      case database::StateDelta::Type::TRANSACTION_COMMIT:
+        CHECK(dba) << "Missing accessor for transaction"
+                   << delta.transaction_id;
+        dba->Commit();
+        dba = nullptr;
+        break;
+      case database::StateDelta::Type::TRANSACTION_ABORT:
+        LOG(FATAL) << "ApplyStateDeltas shouldn't know about aborted "
+                      "transactions";
+        break;
+      default:
+        CHECK(dba) << "Missing accessor for transaction"
+                   << delta.transaction_id;
+        delta.Apply(*dba);
+    }
+  }
+  CHECK(!dba) << "StateDeltas missing commit command";
 }
 
 }  // namespace raft
