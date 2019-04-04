@@ -1,6 +1,7 @@
 #include "raft/raft_server.hpp"
 
 #include <kj/std/iostream.h>
+#include <algorithm>
 #include <chrono>
 #include <iostream>
 #include <memory>
@@ -128,7 +129,7 @@ void RaftServer::Start() {
     // [Raft paper 5.1]
     // "If a server receives a request with a stale term, it rejects the
     // request"
-    if (req.term < current_term_) {
+    if (exiting_ || req.term < current_term_) {
       AppendEntriesRes res(false, current_term_);
       Save(res, res_builder);
       return;
@@ -744,9 +745,9 @@ void RaftServer::SendLogEntries(
   }
 
   if (!reply.success) {
-    DCHECK(next_index_[peer_id] > 1)
-        << "Log replication should not fail for first log entry";
-    --next_index_[peer_id];
+    // Replication can fail for the first log entry if the peer that we're
+    // sending the entry is in the process of shutting down.
+    next_index_[peer_id] = std::max(next_index_[peer_id] - 1, 1UL);
   } else {
     uint64_t new_match_index = request_prev_log_index + request_entries.size();
     DCHECK(match_index_[peer_id] <= new_match_index)
