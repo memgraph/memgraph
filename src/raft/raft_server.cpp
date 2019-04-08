@@ -146,6 +146,14 @@ void RaftServer::Start() {
       election_change_.notify_all();
     });
 
+    // [Raft paper figure 2]
+    // If RPC request or response contains term T > currentTerm,
+    // set currentTerm = T and convert to follower.
+    if (req.term > current_term_) {
+      SetCurrentTerm(req.term);
+      if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
+    }
+
     // [Raft paper 5.3]
     // "If a follower's log is inconsistent with the leader's, the
     // consistency check will fail in the AppendEntries RPC."
@@ -178,14 +186,6 @@ void RaftServer::Start() {
         Save(res, res_builder);
         return;
       }
-    }
-
-    // [Raft paper figure 2]
-    // If RPC request or response contains term T > currentTerm,
-    // set currentTerm = T and convert to follower.
-    if (req.term > current_term_) {
-      SetCurrentTerm(req.term);
-      if (mode_ != Mode::FOLLOWER) Transition(Mode::FOLLOWER);
     }
 
     AppendLogEntries(req.leader_commit, req.prev_log_index + 1, req.entries);
