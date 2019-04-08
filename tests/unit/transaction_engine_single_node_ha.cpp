@@ -20,6 +20,8 @@ class RaftMock final : public raft::RaftInterface {
 
   bool IsLeader() override { return true; }
 
+  uint64_t TermId() override { return 1; }
+
   std::vector<database::StateDelta> GetLogForTx(
       const tx::TransactionId &tx_id) {
     return log_[tx_id];

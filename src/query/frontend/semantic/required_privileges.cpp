@@ -45,6 +45,11 @@ class PrivilegeExtractor : public QueryVisitor<void>,
         // for *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
         break;
+      case InfoQuery::InfoType::RAFT:
+        // This query should always be available to everyone. It is essential
+        // for correct operation of the HA cluster. Because of that we don't
+        // add any privileges here.
+        break;
     }
   }
 

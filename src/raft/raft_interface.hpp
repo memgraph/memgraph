@@ -21,6 +21,9 @@ class RaftInterface {
   /// Returns true if the current servers mode is LEADER. False otherwise.
   virtual bool IsLeader() = 0;
 
+  /// Returns the term ID of the current leader.
+  virtual uint64_t TermId() = 0;
+
  protected:
   ~RaftInterface() {}
 };

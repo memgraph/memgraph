@@ -631,6 +631,19 @@ Callback HandleInfoQuery(InfoQuery *info_query,
     case InfoQuery::InfoType::CONSTRAINT:
       throw utils::NotYetImplemented("constraint info");
       break;
+    case InfoQuery::InfoType::RAFT:
+#if defined(MG_SINGLE_NODE_HA)
+      callback.header = {"info", "value"};
+      callback.fn = [db_accessor] {
+        std::vector<std::vector<TypedValue>> results(
+            {{"is_leader", db_accessor->raft()->IsLeader()},
+             {"term_id", static_cast<int64_t>(db_accessor->raft()->TermId())}});
+        return results;
+      };
+#else
+      throw utils::NotYetImplemented("raft info");
+#endif
+      break;
   }
   return callback;
 }
@@ -672,13 +685,6 @@ Interpreter::Results Interpreter::operator()(
     const std::string &query_string, database::GraphDbAccessor &db_accessor,
     const std::map<std::string, PropertyValue> &params,
     bool in_explicit_transaction) {
-#ifdef MG_SINGLE_NODE_HA
-  if (!db_accessor.raft()->IsLeader()) {
-    throw QueryException(
-        "Memgraph High Availability: Can't execute queries if not leader.");
-  }
-#endif
-
   AstStorage ast_storage;
   Parameters parameters;
   std::map<std::string, TypedValue> summary;
@@ -703,6 +709,18 @@ Interpreter::Results Interpreter::operator()(
   // This local shared_ptr might be the only owner of the CachedPlan, so
   // we must ensure it lives during the whole interpretation.
   std::shared_ptr<CachedPlan> plan{nullptr};
+
+#ifdef MG_SINGLE_NODE_HA
+  {
+    InfoQuery *info_query = nullptr;
+    if (!db_accessor.raft()->IsLeader() &&
+        (!(info_query = utils::Downcast<InfoQuery>(parsed_query.query)) ||
+         info_query->info_type_ != InfoQuery::InfoType::RAFT)) {
+      throw QueryException(
+          "Memgraph High Availability: Can't execute queries if not leader.");
+    }
+  }
+#endif
 
   if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query)) {
     plan = CypherQueryToPlan(stripped_query.hash(), cypher_query,

@@ -61,6 +61,9 @@ antlrcpp::Any CypherMainVisitor::visitInfoQuery(
   } else if (ctx->constraintInfo()) {
     info_query->info_type_ = InfoQuery::InfoType::CONSTRAINT;
     return info_query;
+  } else if (ctx->raftInfo()) {
+    info_query->info_type_ = InfoQuery::InfoType::RAFT;
+    return info_query;
   } else {
     throw utils::NotYetImplemented("Info query: '{}'", ctx->getText());
   }

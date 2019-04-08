@@ -113,6 +113,9 @@ class RaftServer final : public RaftInterface {
   /// Returns true if the current servers mode is LEADER. False otherwise.
   bool IsLeader() override;
 
+  /// Returns the term ID of the current leader.
+  uint64_t TermId() override;
+
   void GarbageCollectReplicationLog(const tx::TransactionId &tx_id);
 
  private:
@@ -253,7 +256,7 @@ class RaftServer final : public RaftInterface {
 
   std::experimental::optional<uint16_t> voted_for_;
 
-  uint64_t current_term_;
+  std::atomic<uint64_t> current_term_;
   uint64_t log_size_;
 
   /// Recovers persistent data from disk and stores its in-memory copies

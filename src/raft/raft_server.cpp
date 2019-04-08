@@ -454,6 +454,8 @@ void RaftServer::GarbageCollectReplicationLog(const tx::TransactionId &tx_id) {
 
 bool RaftServer::IsLeader() { return !exiting_ && mode_ == Mode::LEADER; }
 
+uint64_t RaftServer::TermId() { return current_term_; }
+
 RaftServer::LogEntryBuffer::LogEntryBuffer(RaftServer *raft_server)
     : raft_server_(raft_server) {
   CHECK(raft_server_) << "RaftServer can't be nullptr";
@@ -874,7 +876,7 @@ void RaftServer::PeerThreadMain(uint16_t peer_id) {
           // TODO(ipaljak): Consider backoff.
           wait_until = TimePoint::max();
 
-          auto request_term = current_term_;
+          auto request_term = current_term_.load();
           auto peer_future = coordination_->ExecuteOnWorker<RequestVoteRes>(
               peer_id, [&](int worker_id, auto &client) {
                 auto last_entry_data = LastEntryData();
