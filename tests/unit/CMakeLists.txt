@@ -288,6 +288,9 @@ target_link_libraries(${test_prefix}typed_value mg-single-node kvstore_dummy_lib
 add_unit_test(unique_label_property_constraint.cpp)
 target_link_libraries(${test_prefix}unique_label_property_constraint mg-single-node kvstore_dummy_lib)
 
+add_unit_test(unique_label_properties_constraint.cpp)
+target_link_libraries(${test_prefix}unique_label_properties_constraint mg-single-node kvstore_dummy_lib)
+
 # Test mg-communication
 
 add_unit_test(bolt_chunked_decoder_buffer.cpp)

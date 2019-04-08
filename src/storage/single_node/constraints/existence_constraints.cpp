@@ -1,9 +1,11 @@
 #include "storage/single_node/constraints/existence_constraints.hpp"
 
+#include "storage/single_node/constraints/common.hpp"
+
 namespace storage::constraints {
 bool Contains(const PropertyValueStore &store,
               const std::vector<storage::Property> &properties) {
-  for (auto &property : properties) {
+  for (auto property : properties) {
     if (store.at(property).IsNull()) {
       return false;
     }

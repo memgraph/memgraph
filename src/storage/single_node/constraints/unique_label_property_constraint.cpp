@@ -1,7 +1,7 @@
 #include "storage/single_node/constraints/unique_label_property_constraint.hpp"
 
-#include "storage/single_node/record_accessor.hpp"
-#include "storage/single_node/vertex.hpp"
+#include "storage/single_node/constraints/common.hpp"
+#include "storage/single_node/vertex_accessor.hpp"
 #include "utils/algorithm.hpp"
 
 namespace storage::constraints {
@@ -162,18 +162,22 @@ void UniqueLabelPropertyConstraint::UpdateOnRemoveProperty(
 
 void UniqueLabelPropertyConstraint::Refresh(const tx::Snapshot &snapshot,
                                             const tx::Engine &engine) {
-  std::lock_guard<std::mutex> guard(lock_);
-  for (auto &constraint : constraints_) {
-    for (auto p = constraint.version_pairs.begin();
-         p != constraint.version_pairs.end(); ++p) {
-      auto exp_id = p->record.tx_id_exp;
-      auto cre_id = p->record.tx_id_cre;
-      if ((exp_id != 0 && exp_id < snapshot.back() &&
-           engine.Info(exp_id).is_committed() && !snapshot.contains(exp_id)) ||
-          (cre_id < snapshot.back() && engine.Info(cre_id).is_aborted())) {
-        constraint.version_pairs.erase(p);
-      }
-    }
-  }
+// <<<<<<< HEAD
+//   std::lock_guard<std::mutex> guard(lock_);
+//   for (auto &constraint : constraints_) {
+//     for (auto p = constraint.version_pairs.begin();
+//          p != constraint.version_pairs.end(); ++p) {
+//       auto exp_id = p->record.tx_id_exp;
+//       auto cre_id = p->record.tx_id_cre;
+//       if ((exp_id != 0 && exp_id < snapshot.back() &&
+//            engine.Info(exp_id).is_committed() && !snapshot.contains(exp_id)) ||
+//           (cre_id < snapshot.back() && engine.Info(cre_id).is_aborted())) {
+//         constraint.version_pairs.erase(p);
+//       }
+//     }
+//   }
+// =======
+  common::UniqueConstraintRefresh(snapshot, engine, constraints_, lock_);
+// >>>>>>> Apply requested changes
 }
 }  // namespace storage::constraints
