@@ -665,6 +665,9 @@ Callback HandleConstraintQuery(ConstraintQuery *constraint_query,
     case Constraint::Type::UNIQUE:
       type = "unique";
       break;
+    case Constraint::Type::NODE_KEY:
+      type = "node key";
+      break;
   }
   switch (constraint_query->action_type_) {
     case ConstraintQuery::ActionType::CREATE:

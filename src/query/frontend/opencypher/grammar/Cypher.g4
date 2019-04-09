@@ -31,10 +31,11 @@ query : cypherQuery
       | constraintQuery
       ;
 
-constraintQuery : ( CREATE | DROP ) constraint ;
+constraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 
-constraint : CONSTRAINT ON '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
-           | CONSTRAINT ON '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
+constraint : '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
+           | '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
+           | '(' nodeName=variable ':' labelName ')' ASSERT '(' constraintPropertyList ')' IS NODE KEY
            ;
 
 constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )* ;
@@ -336,10 +337,12 @@ cypherKeyword : ALL
               | INDEX
               | INFO
               | IS
+              | KEY
               | LIMIT
               | L_SKIP
               | MATCH
               | MERGE
+              | NODE
               | NONE
               | NOT
               | ON

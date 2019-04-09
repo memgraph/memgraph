@@ -87,11 +87,13 @@ antlrcpp::Any CypherMainVisitor::visitConstraintQuery(
 antlrcpp::Any CypherMainVisitor::visitConstraint(
     MemgraphCypher::ConstraintContext *ctx) {
   Constraint constraint;
-  CHECK(ctx->EXISTS() || ctx->UNIQUE());
+  CHECK(ctx->EXISTS() || ctx->UNIQUE() || (ctx->NODE() && ctx->KEY()));
   if (ctx->EXISTS()) {
     constraint.type = Constraint::Type::EXISTS;
   } else if (ctx->UNIQUE()) {
     constraint.type = Constraint::Type::UNIQUE;
+  } else if (ctx->NODE() && ctx->KEY()) {
+    constraint.type = Constraint::Type::NODE_KEY;
   }
   constraint.label = AddLabel(ctx->labelName()->accept(this));
   std::string node_name = ctx->nodeName->symbolicName()->accept(this);

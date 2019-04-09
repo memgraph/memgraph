@@ -2700,6 +2700,7 @@ TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "EXISTS (m.prop1, m.prop2)"),
                SemanticException);
+
   EXPECT_THROW(ast_generator.ParseQuery(
                    "CREATE CONSTRAINT ON (:label) ASSERT IS UNIQUE"),
                SyntaxException);
@@ -2718,6 +2719,31 @@ TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {
   EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
                                         "m.prop1, m.prop2 IS UNIQUE"),
                SemanticException);
+
+  EXPECT_THROW(ast_generator.ParseQuery(
+                   "CREATE CONSTRAINT ON (:label) ASSERT IS NODE KEY"),
+               SyntaxException);
+  EXPECT_THROW(
+      ast_generator.ParseQuery("CREATE CONSTRAINT () ASSERT IS NODE KEY"),
+      SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery(
+                   "CREATE CONSTRAINT ON () ASSERT (prop1) IS NODE KEY"),
+               SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery(
+                   "CREATE CONSTRAINT ON () ASSERT (prop1, prop2) IS NODE KEY"),
+               SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
+                                        "(n.prop1, missing.prop2) IS NODE KEY"),
+               SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
+                                        "(m.prop1, m.prop2) IS NODE KEY"),
+               SemanticException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
+                                        "n.prop1, n.prop2 IS NODE KEY"),
+               SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
+                                        "exists(n.prop1, n.prop2) IS NODE KEY"),
+               SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, CreateConstraint) {
@@ -2767,6 +2793,30 @@ TEST_P(CypherMainVisitorTest, CreateConstraint) {
                 UnorderedElementsAre(ast_generator.Prop("prop1"),
                                      ast_generator.Prop("prop2")));
   }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "CREATE CONSTRAINT ON (n:label) ASSERT (n.prop1) IS NODE KEY"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::NODE_KEY);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
+    EXPECT_THAT(query->constraint_.properties,
+                UnorderedElementsAre(ast_generator.Prop("prop1")));
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("CREATE CONSTRAINT ON (n:label) ASSERT "
+                                 "(n.prop1, n.prop2) IS NODE KEY"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::CREATE);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::NODE_KEY);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
+    EXPECT_THAT(query->constraint_.properties,
+                UnorderedElementsAre(ast_generator.Prop("prop1"),
+                                     ast_generator.Prop("prop2")));
+  }
 }
 
 TEST_P(CypherMainVisitorTest, DropConstraint) {
@@ -2811,6 +2861,30 @@ TEST_P(CypherMainVisitorTest, DropConstraint) {
     ASSERT_TRUE(query);
     EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
     EXPECT_EQ(query->constraint_.type, Constraint::Type::UNIQUE);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
+    EXPECT_THAT(query->constraint_.properties,
+                UnorderedElementsAre(ast_generator.Prop("prop1"),
+                                     ast_generator.Prop("prop2")));
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(ast_generator.ParseQuery(
+        "DROP CONSTRAINT ON (n:label) ASSERT (n.prop1) IS NODE KEY"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::NODE_KEY);
+    EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
+    EXPECT_THAT(query->constraint_.properties,
+                UnorderedElementsAre(ast_generator.Prop("prop1")));
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<ConstraintQuery *>(
+        ast_generator.ParseQuery("DROP CONSTRAINT ON (n:label) ASSERT "
+                                 "(n.prop1, n.prop2) IS NODE KEY"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->action_type_, ConstraintQuery::ActionType::DROP);
+    EXPECT_EQ(query->constraint_.type, Constraint::Type::NODE_KEY);
     EXPECT_EQ(query->constraint_.label, ast_generator.Label("label"));
     EXPECT_THAT(query->constraint_.properties,
                 UnorderedElementsAre(ast_generator.Prop("prop1"),

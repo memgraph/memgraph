@@ -2590,7 +2590,7 @@ cpp<#
                              }")
                :clone (clone-name-ix-vector "Property")))
   (:public
-    (lcp:define-enum type (exists unique)
+    (lcp:define-enum type (exists unique node-key)
       (:serialize (:lcp) (:capnp))))
   (:serialize (:slk :load-args '((storage "query::AstStorage *")))
               (:capnp :load-args '((storage "AstStorage *"))))
