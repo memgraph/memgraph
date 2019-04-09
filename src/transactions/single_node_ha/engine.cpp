@@ -78,36 +78,58 @@ CommandId Engine::UpdateCommand(TransactionId id) {
 }
 
 void Engine::Commit(const Transaction &t) {
-  VLOG(11) << "[Tx] Commiting transaction " << t.id_;
-  raft_->Emplace(database::StateDelta::TxCommit(t.id_));
+  VLOG(11) << "[Tx] Committing transaction " << t.id_;
+  if (raft_->Emplace(database::StateDelta::TxCommit(t.id_))) {
+    // It is important to note the following situation.  If our cluster ends up
+    // with a network partition where the current leader can't communicate with
+    // the majority of the peers, and the client is still sending queries to it,
+    // all of the transaction will end up waiting here until the network
+    // partition is resolved.  The problem that can occur afterwards is bad.
+    // When the machine transitions from leader to follower mode,
+    // `ReplicationInfo` method will start returning `is_replicated=true`. This
+    // might lead to a problem where we suddenly want to alter the state of the
+    // transaction engine that isn't valid anymore, because the current machine
+    // isn't the leader anymore. This is all handled in the `Transition` method
+    // where once the transition from leader to follower  occurs, the mode will
+    // be set to follower first, then the `Reset` method on the transaction
+    // engine will wait for all transactions to finish, and even though we
+    // change the transaction engine state here, the engine will perform a
+    // `Reset` and start recovering from zero, and the invalid changes won't
+    // matter.
 
-  // It is important to note the following situation.  If our cluster ends up
-  // with a network partition where the current leader can't communicate with
-  // the majority of the peers, and the client is still sending queries to it,
-  // all of the transaction will end up waiting here until the network partition
-  // is resolved.  The problem that can occur afterwards is bad.  When the
-  // machine transitions from leader to follower mode, `SafeToCommit` method
-  // will start returning true. This might lead to a problem where we suddenly
-  // want to alter the state of the transaction engine that isn't valid anymore,
-  // because the current machine isn't the leader anymore.  This is all handled
-  // in the `Transition` method where once the transition from leader to
-  // follower is happening, the mode will be set to follower first, then the
-  // `Reset` method on the transaction engine will wait for all transactions to
-  // finish, and even though we change the transaction engine state here, the
-  // engine will perform a `Reset` and start recovering from zero, and the
-  // invalid changes won't matter.
-
-  // Wait for Raft to receive confirmation from the majority of followers.
-  while (true) {
-    try {
-      if (raft_->SafeToCommit(t.id_)) break;
-    } catch (const raft::ReplicationTimeoutException &e) {
-      std::lock_guard<utils::SpinLock> guard(lock_);
-      if (replication_errors_.insert(t.id_).second) {
-        LOG(WARNING) << e.what();
+    // Wait for Raft to receive confirmation from the majority of followers.
+    while (true) {
+      try {
+        if (raft_->SafeToCommit(t.id_)) break;
+      } catch (const raft::ReplicationTimeoutException &e) {
+        std::lock_guard<utils::SpinLock> guard(lock_);
+        if (replication_errors_.insert(t.id_).second) {
+          LOG(WARNING) << e.what();
+        }
       }
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
     }
-    std::this_thread::sleep_for(std::chrono::microseconds(100));
+
+    std::unique_lock<std::mutex> raft_lock(raft_->WithLock(), std::defer_lock);
+    // We need to acquire the Raft lock so we don't end up racing with a Raft
+    // thread that can reset the engine state. If we can't acquire the lock, and
+    // we end up with reseting the engine, we throw
+    // UnexpectedLeaderChangeException.
+    while (true) {
+      if (raft_lock.try_lock()) {
+        break;
+      }
+      // This is the case when we've lost our leader status due to another peer
+      // requesting election.
+      if (reset_active_.load()) throw raft::UnexpectedLeaderChangeException();
+      // This is the case when we're shutting down and we're no longer a valid
+      // leader. `SafeToCommit` will throw `RaftShutdownException` if the
+      // transaction wasn't replicated and the client will receive a negative
+      // response. Otherwise, we'll end up here, and since the transaction was
+      // replciated, we need to inform the client that the query succeeded.
+      if (!raft_->IsLeader()) break;
+      std::this_thread::sleep_for(std::chrono::microseconds(100));
+    }
   }
 
   std::lock_guard<utils::SpinLock> guard(lock_);
@@ -122,10 +144,10 @@ void Engine::Commit(const Transaction &t) {
 
 void Engine::Abort(const Transaction &t) {
   VLOG(11) << "[Tx] Aborting transaction " << t.id_;
+  raft_->Emplace(database::StateDelta::TxAbort(t.id_));
   std::lock_guard<utils::SpinLock> guard(lock_);
   clog_->set_aborted(t.id_);
   active_.remove(t.id_);
-  raft_->Emplace(database::StateDelta::TxAbort(t.id_));
   store_.erase(store_.find(t.id_));
   if (t.blocking()) {
     accepting_transactions_.store(true);
@@ -204,6 +226,7 @@ void Engine::Reset() {
     }
 
     wait_for_txs = active_;
+    reset_active_.store(true);
   }
 
   // Wait for all active transactions to end.
@@ -225,6 +248,7 @@ void Engine::Reset() {
     clog_ = std::make_unique<CommitLog>();
   }
   accepting_transactions_.store(true);
+  reset_active_.store(false);
 }
 
 Transaction *Engine::BeginTransaction(bool blocking) {

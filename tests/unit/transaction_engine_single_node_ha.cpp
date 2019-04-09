@@ -12,11 +12,14 @@ using namespace tx;
 
 class RaftMock final : public raft::RaftInterface {
  public:
-  void Emplace(const database::StateDelta &delta) override {
+  bool Emplace(const database::StateDelta &delta) override {
     log_[delta.transaction_id].emplace_back(std::move(delta));
+    return true;
   }
 
-  bool SafeToCommit(const tx::TransactionId &tx_id) override { return true; }
+  bool SafeToCommit(const tx::TransactionId &) override {
+    return true;
+  }
 
   bool IsLeader() override { return true; }
 
@@ -27,8 +30,11 @@ class RaftMock final : public raft::RaftInterface {
     return log_[tx_id];
   }
 
+  std::mutex &WithLock() override { return lock_; }
+
  private:
   std::unordered_map<tx::TransactionId, std::vector<database::StateDelta>> log_;
+  std::mutex lock_;
 };
 
 TEST(Engine, Reset) {

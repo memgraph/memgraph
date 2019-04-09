@@ -40,7 +40,14 @@ class TransactionEngine final {
             "Transaction can't be committed because there was a previous "
             "error. Please invoke a rollback instead.");
       }
-      Commit();
+
+      try {
+        Commit();
+      } catch (const utils::BasicException &) {
+        AbortCommand();
+        throw;
+      }
+
       expect_rollback_ = false;
       in_explicit_transaction_ = false;
       return {};
@@ -96,6 +103,11 @@ class TransactionEngine final {
       }
 
       return summary;
+#ifdef MG_SINGLE_NODE_HA
+    } catch (const query::HintedAbortError &) {
+      AbortCommand();
+      throw utils::BasicException("Transaction was asked to abort.");
+#endif
     } catch (const utils::BasicException &) {
       AbortCommand();
       throw;

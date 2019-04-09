@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <mutex>
+
 #include "durability/single_node_ha/state_delta.hpp"
 #include "transactions/type.hpp"
 
@@ -12,17 +14,21 @@ namespace raft {
 class RaftInterface {
  public:
   /// Add StateDelta to the appropriate Raft log entry.
-  virtual void Emplace(const database::StateDelta &) = 0;
+  ///
+  /// @returns true if the Delta is emplaced, false otherwise.
+  virtual bool Emplace(const database::StateDelta &) = 0;
 
   /// Checks if the transaction with the given transaction id can safely be
   /// committed in local storage.
-  virtual bool SafeToCommit(const tx::TransactionId &tx_id) = 0;
+  virtual bool SafeToCommit(const tx::TransactionId &) = 0;
 
   /// Returns true if the current servers mode is LEADER. False otherwise.
   virtual bool IsLeader() = 0;
 
   /// Returns the term ID of the current leader.
   virtual uint64_t TermId() = 0;
+
+  virtual std::mutex &WithLock() = 0;
 
  protected:
   ~RaftInterface() {}

@@ -339,9 +339,9 @@ void RaftServer::Start() {
 }
 
 void RaftServer::Shutdown() {
+  exiting_ = true;
   {
     std::lock_guard<std::mutex> guard(lock_);
-    exiting_ = true;
 
     state_changed_.notify_all();
     election_change_.notify_all();
@@ -446,8 +446,8 @@ void RaftServer::AppendToLog(const tx::TransactionId &tx_id,
   state_changed_.notify_all();
 }
 
-void RaftServer::Emplace(const database::StateDelta &delta) {
-  log_entry_buffer_.Emplace(delta);
+bool RaftServer::Emplace(const database::StateDelta &delta) {
+  return log_entry_buffer_.Emplace(delta);
 }
 
 bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
@@ -463,17 +463,25 @@ bool RaftServer::SafeToCommit(const tx::TransactionId &tx_id) {
       // leader. At that moment we don't have to check the replication log
       // because the leader won't commit the Log locally if it's not replicated
       // on the majority of the peers in the cluster. This is why we can short
-      // circut the check to always return true if in follower mode.
+      // circuit the check to always return true if in follower mode.
       return true;
     case Mode::LEADER:
+			// If we are shutting down, but we know that the Raft Log replicated
+			// successfully, we return true. This will eventually commit since we
+			// replicate NoOp on leader election.
+      if (rlog_->is_replicated(tx_id)) return true;
+
+	    // Only if the transaction isn't replicated, thrown an exception to inform
+      // the client.
+			if (exiting_) throw RaftShutdownException();
+
       if (rlog_->is_active(tx_id)) {
         if (replication_timeout_.CheckTimeout(tx_id)) {
           throw ReplicationTimeoutException();
         }
-
         return false;
       }
-      if (rlog_->is_replicated(tx_id)) return true;
+
       // The only possibility left is that our ReplicationLog doesn't contain
       // information about that tx.
       throw InvalidReplicationLogLookup();
@@ -506,9 +514,9 @@ void RaftServer::LogEntryBuffer::Disable() {
   logs_.clear();
 }
 
-void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
+bool RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
   std::unique_lock<std::mutex> lock(buffer_lock_);
-  if (!enabled_) return;
+  if (!enabled_) return false;
 
   tx::TransactionId tx_id = delta.transaction_id;
   if (delta.type == database::StateDelta::Type::TRANSACTION_COMMIT) {
@@ -524,11 +532,14 @@ void RaftServer::LogEntryBuffer::Emplace(const database::StateDelta &delta) {
 
   } else if (delta.type == database::StateDelta::Type::TRANSACTION_ABORT) {
     auto it = logs_.find(tx_id);
-    CHECK(it != logs_.end()) << "Missing StateDeltas for transaction " << tx_id;
-    logs_.erase(it);
+    // Sometimes it's possible that we're aborting a transaction that was meant
+    // to be commited and thus we don't have the StateDeltas anymore.
+    if (it != logs_.end()) logs_.erase(it);
   } else {
     logs_[tx_id].emplace_back(std::move(delta));
   }
+
+  return true;
 }
 
 void RaftServer::RecoverPersistentData() {
@@ -763,7 +774,11 @@ void RaftServer::SendLogEntries(
     return;
   }
 
-  if (current_term_ != request_term || mode_ != Mode::LEADER || exiting_) {
+  // We can't early exit if the `exiting_` flag is true just yet. It is possible
+  // that the response we handle here carries the last confirmation that the logs
+  // have been replicated. We need to handle the response so the client doesn't
+  // retry the query because he thinks the query failed.
+  if (current_term_ != request_term || mode_ != Mode::LEADER) {
     return;
   }
 
@@ -802,6 +817,7 @@ void RaftServer::SendLogEntries(
     next_replication_[peer_id] = Clock::now() + config_.heartbeat_interval;
   }
 
+  if (exiting_) return;
   state_changed_.notify_all();
 }
 
@@ -876,6 +892,7 @@ void RaftServer::SendSnapshot(uint16_t peer_id,
 }
 
 void RaftServer::ElectionThreadMain() {
+  utils::ThreadSetName("ElectionThread");
   std::unique_lock<std::mutex> lock(lock_);
   while (!exiting_) {
     if (Clock::now() >= next_election_) {
@@ -1279,7 +1296,12 @@ void RaftServer::RecoverSnapshot(const std::string &snapshot_filename) {
 void RaftServer::NoOpCreate() {
   auto dba = db_->Access();
   Emplace(database::StateDelta::NoOp(dba.transaction_id()));
-  dba.Commit();
+  try {
+    dba.Commit();
+  } catch (const RaftException &) {
+    // NoOp failure can be ignored.
+    return;
+  }
 }
 
 void RaftServer::ApplyStateDeltas(
@@ -1309,5 +1331,7 @@ void RaftServer::ApplyStateDeltas(
   }
   CHECK(!dba) << "StateDeltas missing commit command";
 }
+
+std::mutex &RaftServer::WithLock() { return lock_; }
 
 }  // namespace raft

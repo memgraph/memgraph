@@ -89,4 +89,23 @@ class CantExecuteQueries : public RaftException {
             "leader.") {}
 };
 
+/// This exception is thrown when leader re-election takes place during
+/// transaction commit. We're throwing this exception to inform the client that
+/// transaction failed.
+class UnexpectedLeaderChangeException : public RaftException {
+ public:
+  using RaftException::RaftException;
+  UnexpectedLeaderChangeException()
+      : RaftException(
+            "Leader change happened during transaction commit. Aborting.") {}
+};
+
+/// This exception is thrown when the machine is in the process of shutting down
+/// and Raft API is being used.
+class RaftShutdownException : public RaftException {
+ public:
+  using RaftException::RaftException;
+  RaftShutdownException() : RaftException("Raft Server is shutting down.") {}
+};
+
 }  // namespace raft

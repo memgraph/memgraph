@@ -73,6 +73,7 @@ class Engine final {
   mutable utils::SpinLock lock_;
   raft::RaftInterface *raft_{nullptr};
   std::atomic<bool> accepting_transactions_{true};
+  std::atomic<bool> reset_active_{false};
 
   // Keep track of transaction that experienced a replication error.
   // While there is a replication error known to the engine, the engine won't

@@ -99,7 +99,12 @@ class RaftServer final : public RaftInterface {
 
   /// Emplace a single StateDelta to the corresponding batch. If the StateDelta
   /// marks the transaction end, it will replicate the log accorss the cluster.
-  void Emplace(const database::StateDelta &delta) override;
+  ///
+  /// @returns true if the Delta is emplaced, false otherwise.
+  bool Emplace(const database::StateDelta &delta) override;
+
+  /// Checks if the transaction with the given transaction id can safely be
+  /// Returns the current state of the replication known by this machine.
 
   /// Checks if the transaction with the given transaction id can safely be
   /// committed in local storage.
@@ -107,6 +112,7 @@ class RaftServer final : public RaftInterface {
   /// @param tx_id Transaction id which needs to be checked.
   /// @return bool True if the transaction is safe to commit, false otherwise.
   /// @throws ReplicationTimeoutException
+  /// @throws RaftShutdownException
   /// @throws InvalidReplicationLogLookup
   bool SafeToCommit(const tx::TransactionId &tx_id) override;
 
@@ -144,7 +150,9 @@ class RaftServer final : public RaftInterface {
     /// If the StateDelta type is `TRANSACTION_COMMIT` it will start
     /// replicating, and if the type is `TRANSACTION_ABORT` it will delete the
     /// log from buffer.
-    void Emplace(const database::StateDelta &delta);
+    ///
+    /// @returns true if the Delta is emplaced, false otherwise.
+    bool Emplace(const database::StateDelta &delta);
 
    private:
     bool enabled_{false};
@@ -441,5 +449,7 @@ class RaftServer final : public RaftInterface {
   /// Applies the given batch of state deltas that are representing a transacton
   /// to the db.
   void ApplyStateDeltas(const std::vector<database::StateDelta> &deltas);
+
+  std::mutex &WithLock() override;
 };
 }  // namespace raft
