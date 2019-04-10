@@ -1076,11 +1076,20 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternNoDetails) {
   ASSERT_TRUE(edge);
   auto *node2 = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[2]);
   ASSERT_TRUE(node2);
-  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
+  ASSERT_TRUE(node1->identifier_);
   ASSERT_TRUE(edge->identifier_);
-  EXPECT_THAT(edge->identifier_->name_,
-              CypherMainVisitor::kAnonPrefix + std::to_string(2));
+  ASSERT_TRUE(node2->identifier_);
+  EXPECT_THAT(
+      std::vector<std::string>({node1->identifier_->name_,
+                                edge->identifier_->name_,
+                                node2->identifier_->name_}),
+      UnorderedElementsAre(CypherMainVisitor::kAnonPrefix + std::to_string(1),
+                           CypherMainVisitor::kAnonPrefix + std::to_string(2),
+                           CypherMainVisitor::kAnonPrefix + std::to_string(3)));
+  EXPECT_FALSE(node1->identifier_->user_declared_);
   EXPECT_FALSE(edge->identifier_->user_declared_);
+  EXPECT_FALSE(node2->identifier_->user_declared_);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
 }
 
 // PatternPart in braces.
@@ -1103,11 +1112,20 @@ TEST_P(CypherMainVisitorTest, PatternPartBraces) {
   ASSERT_TRUE(edge);
   auto *node2 = dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[2]);
   ASSERT_TRUE(node2);
-  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
+  ASSERT_TRUE(node1->identifier_);
   ASSERT_TRUE(edge->identifier_);
-  EXPECT_THAT(edge->identifier_->name_,
-              CypherMainVisitor::kAnonPrefix + std::to_string(2));
+  ASSERT_TRUE(node2->identifier_);
+  EXPECT_THAT(
+      std::vector<std::string>({node1->identifier_->name_,
+                                edge->identifier_->name_,
+                                node2->identifier_->name_}),
+      UnorderedElementsAre(CypherMainVisitor::kAnonPrefix + std::to_string(1),
+                           CypherMainVisitor::kAnonPrefix + std::to_string(2),
+                           CypherMainVisitor::kAnonPrefix + std::to_string(3)));
+  EXPECT_FALSE(node1->identifier_->user_declared_);
   EXPECT_FALSE(edge->identifier_->user_declared_);
+  EXPECT_FALSE(node2->identifier_->user_declared_);
+  EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternDetails) {
