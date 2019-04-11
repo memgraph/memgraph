@@ -64,7 +64,7 @@ class TokenSharingRpcServer {
         }
 
         // Try to transfer the token until successful.
-        while (true) {
+        while (!shutting_down_) {
           try {
             coordination_->GetClientPool(next_worker)->Call<TokenTransferRpc>();
             break;
@@ -95,6 +95,10 @@ class TokenSharingRpcServer {
       // TODO (buda): Solve this better in the future since this blocks
       // shutting down until spinner steps complete.
       while (!token_) {
+        // Cluster state has to be examined here because if one of the workers
+        // is down it doesn't make sense to wait for the token because token
+        // probably won't arrive back.
+        if (!coordination_->IsClusterAlive()) return;
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
       }
     }

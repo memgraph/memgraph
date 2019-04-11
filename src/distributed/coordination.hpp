@@ -89,6 +89,9 @@ class Coordination {
     server_.Register<TRequestResponse>(callback);
   }
 
+  /// Returns `true` if the cluster is in a consistent state.
+  bool IsClusterAlive();
+
  protected:
   /// Adds a worker to the coordination. This function can be called multiple
   /// times to replace an existing worker.
@@ -98,6 +101,8 @@ class Coordination {
   std::string GetWorkerName(const io::network::Endpoint &endpoint);
 
   communication::rpc::Server server_;
+
+  std::atomic<bool> cluster_alive_{true};
 
  private:
   std::unordered_map<int, io::network::Endpoint> workers_;

@@ -198,9 +198,11 @@ def run_test(args):
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
 
-    memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
+    memgraph_binary = os.path.join(PROJECT_DIR, "build",
+                                   "memgraph_distributed")
     if not os.path.exists(memgraph_binary):
-        memgraph_binary = os.path.join(PROJECT_DIR, "build_debug", "memgraph")
+        memgraph_binary = os.path.join(PROJECT_DIR, "build_debug",
+                                       "memgraph_distributed")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)

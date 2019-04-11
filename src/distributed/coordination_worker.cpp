@@ -35,7 +35,7 @@ WorkerCoordination::WorkerCoordination(
       });
 
   server_.Register<HeartbeatRpc>([&](const auto &req_reader,
-                                      auto *res_builder) {
+                                     auto *res_builder) {
     std::lock_guard<std::mutex> guard(heartbeat_lock_);
     last_heartbeat_time_ = std::chrono::steady_clock::now();
     if (!scheduler_.IsRunning()) {

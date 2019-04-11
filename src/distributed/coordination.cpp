@@ -88,4 +88,6 @@ std::string Coordination::GetWorkerName(const io::network::Endpoint &endpoint) {
   return fmt::format("unknown worker ({})", endpoint);
 }
 
+bool Coordination::IsClusterAlive() { return cluster_alive_; }
+
 }  // namespace distributed

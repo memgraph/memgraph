@@ -33,50 +33,61 @@ namespace distributed::dgp {
 Partitioner::Partitioner(database::GraphDb *db) : db_(db) {}
 
 std::pair<double, bool> Partitioner::Partition() {
-  auto dba = db_->Access();
-  VLOG(21) << "Starting DynamicGraphPartitioner in tx: "
-           << dba->transaction().id_;
-
-  auto data = FindMigrations(*dba);
-
+  auto failed_partitioning_data =
+      std::make_pair(std::numeric_limits<double>::min(), false);
+  // Note, in distributed system TxBegin can throw because the server that
+  // assigns transaction numbers might be unavailable.
   try {
-    VertexMigrator migrator(dba.get());
-    for (auto &migration : data.migrations) {
-      migrator.MigrateVertex(migration.first, migration.second);
-    }
-
-    auto apply_futures = db_->updates_clients().UpdateApplyAll(
-        db_->WorkerId(), dba->transaction().id_);
-
-    for (auto &future : apply_futures) {
-      switch (future.get()) {
-        case distributed::UpdateResult::SERIALIZATION_ERROR:
-          throw mvcc::SerializationError(
-              "Failed to relocate vertex due to SerializationError");
-        case distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
-          throw query::RemoveAttachedVertexException();
-        case distributed::UpdateResult::UPDATE_DELETED_ERROR:
-          throw query::QueryRuntimeException(
-              "Failed to apply deferred updates due to RecordDeletedError");
-        case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
-          throw utils::LockTimeoutException(
-              "Failed to apply deferred update due to LockTimeoutException");
-        case distributed::UpdateResult::DONE:
-          break;
+    auto dba = db_->Access();
+    VLOG(21) << "Starting DynamicGraphPartitioner in tx: "
+             << dba->transaction().id_;
+    try {
+      auto data = FindMigrations(*dba);
+      VertexMigrator migrator(dba.get());
+      for (auto &migration : data.migrations) {
+        migrator.MigrateVertex(migration.first, migration.second);
       }
-    }
 
-    dba->Commit();
-    VLOG(21) << "Sucesfully migrated " << data.migrations.size()
-             << " vertices..";
-    return std::make_pair(data.score, true);
-  } catch (const utils::BasicException &e) {
-    VLOG(21) << "Didn't succeed in relocating; " << e.what();
-    dba->Abort();
-    // Returning VertexAccessors after Abort might not be a good idea. + The
-    // returned migrations are entirely useless because the engine didn't
-    // succeed to migrate anything.
-    return std::make_pair(data.score, false);
+      auto apply_futures = db_->updates_clients().UpdateApplyAll(
+          db_->WorkerId(), dba->transaction().id_);
+
+      for (auto &future : apply_futures) {
+        switch (future.get()) {
+          case distributed::UpdateResult::SERIALIZATION_ERROR:
+            throw mvcc::SerializationError(
+                "Failed to relocate vertex due to SerializationError");
+          case distributed::UpdateResult::UNABLE_TO_DELETE_VERTEX_ERROR:
+            throw query::RemoveAttachedVertexException();
+          case distributed::UpdateResult::UPDATE_DELETED_ERROR:
+            throw query::QueryRuntimeException(
+                "Failed to apply deferred updates due to RecordDeletedError");
+          case distributed::UpdateResult::LOCK_TIMEOUT_ERROR:
+            throw utils::LockTimeoutException(
+                "Failed to apply deferred update due to LockTimeoutException");
+          case distributed::UpdateResult::DONE:
+            break;
+        }
+      }
+
+      dba->Commit();
+      VLOG(21) << "Sucesfully migrated " << data.migrations.size()
+               << " vertices with score " << data.score << ".";
+      return std::make_pair(data.score, true);
+    } catch (const utils::BasicException &e) {
+      VLOG(21) << "Didn't succeed in relocating; " << e.what();
+      dba->Abort();
+      // Returning VertexAccessors after Abort might not be a good idea. + The
+      // returned migrations are entirely useless because the engine didn't
+      // succeed to migrate anything.
+      return failed_partitioning_data;
+    }
+  } catch (const communication::rpc::RpcFailedException &e) {
+    // Transaction start failed because BeginRpc failed. Nothing to cleanup.
+    // Any other RpcFailedExceptions should be handeled in the inner try block.
+    VLOG(21) << "Failed to start DGP transaction; " << e.what();
+    return failed_partitioning_data;
+  } catch (const std::exception &e) {
+    LOG(FATAL) << "Unhandled exception during partitioning. " << e.what();
   }
 }
 
@@ -93,7 +104,8 @@ MigrationsData Partitioner::FindMigrations(database::GraphDbAccessor &dba) {
 
   double average_vertex_count =
       total_vertex_count * 1.0 / worker_vertex_count.size();
-  if (average_vertex_count == 0) return MigrationsData(0);
+  if (average_vertex_count == 0)
+    return MigrationsData(std::numeric_limits<double>::min());
 
   double local_graph_score = 0;
 

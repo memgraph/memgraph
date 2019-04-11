@@ -29,10 +29,12 @@ def wait_for_server(port, delay=0.1):
     time.sleep(delay)
 
 
-def generate_args(memgraph_binary, temporary_dir, worker_id):
+def generate_args(memgraph_binary, test_master_flags, temporary_dir,
+                  worker_id):
     args = [memgraph_binary]
     if worker_id == 0:
         args.append("--master")
+        args.extend(test_master_flags)
     else:
         args.extend(["--worker", "--worker-id", str(worker_id)])
     args.extend(["--master-host", "127.0.0.1", "--master-port", "10000"])
@@ -55,9 +57,10 @@ def worker_id_to_name(worker_id):
     return "worker {}".format(worker_id)
 
 
-def execute_test(memgraph_binary, tester_binary, cluster_size, disaster,
-                 on_worker_id, execute_query):
-    args = {"cluster_size": cluster_size, "disaster": disaster,
+def execute_test(memgraph_binary, test_master_flags, tester_binary,
+                 cluster_size, disaster, on_worker_id, execute_query):
+    args = {"cluster_size": cluster_size,
+            "test_master_flags": test_master_flags, "disaster": disaster,
             "on_worker_id": on_worker_id, "execute_query": execute_query}
     print("\033[1;36m~~ Executing test with arguments:",
           json.dumps(args, sort_keys=True), "~~\033[0m")
@@ -69,7 +72,8 @@ def execute_test(memgraph_binary, tester_binary, cluster_size, disaster,
     cleanup()
     for worker_id in range(cluster_size):
         workers.append(subprocess.Popen(
-            generate_args(memgraph_binary, tempdir.name, worker_id)))
+            generate_args(memgraph_binary, test_master_flags,
+                          tempdir.name, worker_id)))
         time.sleep(0.2)
         assert workers[worker_id].poll() is None, \
             "The {} process died prematurely!".format(
@@ -148,10 +152,13 @@ if __name__ == "__main__":
 
     for cluster_size in [3, 5]:
         for worker_id in [0, 1]:
-            for disaster in ["terminate", "kill"]:
-                for execute_query in [False, True]:
-                    execute_test(args.memgraph, args.tester, cluster_size,
-                                 disaster, worker_id, execute_query)
+            for test_master_flags in [["--dynamic-graph-partitioner-enabled"],
+                                      []]:
+                for disaster in ["terminate", "kill"]:
+                    for execute_query in [False, True]:
+                        execute_test(args.memgraph, test_master_flags,
+                                     args.tester, cluster_size, disaster,
+                                     worker_id, execute_query)
 
     print("\033[1;32m~~ The test finished successfully ~~\033[0m")
     sys.exit(0)

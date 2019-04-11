@@ -181,6 +181,11 @@ bool MasterCoordination::AwaitShutdown(
   }
   LOG(INFO) << "Shutdown of all workers is complete.";
 
+  // Some RPC servers might still depend on the cluster status to shut down. At
+  // this point all workers are down which means that the cluster is also not
+  // alive any more.
+  cluster_alive_.store(false);
+
   // Shutdown our RPC server.
   server_.Shutdown();
   server_.AwaitShutdown();
@@ -191,8 +196,6 @@ bool MasterCoordination::AwaitShutdown(
 }
 
 void MasterCoordination::Shutdown() { alive_.store(false); }
-
-bool MasterCoordination::IsClusterAlive() { return cluster_alive_; }
 
 void MasterCoordination::IssueHeartbeats() {
   std::lock_guard<std::mutex> guard(master_lock_);

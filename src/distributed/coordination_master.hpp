@@ -78,9 +78,6 @@ class MasterCoordination final : public Coordination {
   /// Hints that the coordination should start shutting down the whole cluster.
   void Shutdown();
 
-  /// Returns `true` if the cluster is in a consistent state.
-  bool IsClusterAlive();
-
  private:
   /// Sends a heartbeat request to all workers.
   void IssueHeartbeats();
@@ -103,7 +100,6 @@ class MasterCoordination final : public Coordination {
 
   // Flags used for shutdown.
   std::atomic<bool> alive_{true};
-  std::atomic<bool> cluster_alive_{true};
 };
 
 }  // namespace distributed

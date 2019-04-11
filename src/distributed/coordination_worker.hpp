@@ -48,9 +48,6 @@ class WorkerCoordination final : public Coordination {
   /// Hints that the coordination should start shutting down the worker.
   void Shutdown();
 
-  /// Returns `true` if the cluster is in a consistent state.
-  bool IsClusterAlive();
-
  private:
   // Heartbeat variables
   std::mutex heartbeat_lock_;
