@@ -293,7 +293,7 @@ def network_block_tcp(chain=None,
                       sport=None, dport=None,
                       action=None):
     print("Network block TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
-          "action={}".format(chain, src, dst, sport, dport, action)
+          "action={}".format(chain, src, dst, sport, dport, action))
 
 
 """
@@ -312,7 +312,7 @@ def network_unblock_tcp(chain=None,
                         sport=None, dport=None,
                         action=None):
     print("Network unblock TCP: chain={}, src={}, dst={}, sport={}, dport={}, "
-          "action={}".format(chain, src, dst, sport, dport, action)
+          "action={}".format(chain, src, dst, sport, dport, action))
 
 
 # this function is deprecated
