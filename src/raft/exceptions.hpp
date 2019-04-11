@@ -2,15 +2,19 @@
 
 #pragma once
 
-#include "utils/exceptions.hpp"
+#include "communication/bolt/v1/exceptions.hpp"
 
 namespace raft {
 
 /// Base exception class used for all exceptions that can occur within the
 /// Raft protocol.
-class RaftException : public utils::BasicException {
+class RaftException : public communication::bolt::VerboseError {
  public:
-  using utils::BasicException::BasicException;
+  template <class... Args>
+  RaftException(const std::string &format, Args &&... args)
+      : communication::bolt::VerboseError(
+            communication::bolt::VerboseError::Classification::DATABASE_ERROR,
+            "Raft", "Error", format, std::forward<Args>(args)...) {}
 };
 
 /// This exception should be thrown when attempting to transition between

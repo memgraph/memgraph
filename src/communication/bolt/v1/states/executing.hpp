@@ -7,28 +7,18 @@
 #include <glog/logging.h>
 
 #include "communication/bolt/v1/codes.hpp"
+#include "communication/bolt/v1/exceptions.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
-#include "utils/exceptions.hpp"
 
 namespace communication::bolt {
-
-/**
- * Used to indicate something is wrong with the client but the transaction is
- * kept open for a potential retry.
- *
- * The most common use case for throwing this error is if something is wrong
- * with the query. Perhaps a simple syntax error that can be fixed and query
- * retried.
- */
-class ClientError : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-};
 
 // TODO (mferencevic): revise these error messages
 inline std::pair<std::string, std::string> ExceptionToErrorMessage(
     const std::exception &e) {
+  if (auto *verbose = dynamic_cast<const VerboseError *>(&e)) {
+    return {verbose->code(), verbose->what()};
+  }
   if (dynamic_cast<const ClientError *>(&e)) {
     // Clients expect 4 strings separated by dots. First being database name
     // (for example: Neo, Memgraph...), second being either ClientError,
